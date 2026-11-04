@@ -27,7 +27,7 @@ use crate::queue_store::{
     NewQueueItem, QueueItemBody, QueueItemExit, QueueItemOutcome, QueueItemRecord,
     QueueMessageBody, insert_queue_item_statement, leave_queued_statement,
 };
-use crate::run::engine::test_fixture::{append, insert_running_run, stored_run_state, test_engine};
+use crate::run::engine::test_fixture::{append, insert_run, stored_run_state, test_engine};
 use crate::run::read::{LiveRun, RunRead};
 use crate::run::state_change::RunWriteCompanions;
 
@@ -199,7 +199,7 @@ async fn a_stop_ends_a_run_and_its_waiting_messages_in_one_write(#[case] case: S
             .expect("the test queues the run");
         0
     } else {
-        insert_running_run(&database, session_id, run_id);
+        insert_run(&database, session_id, run_id, "running");
         connection
             .execute(
                 "UPDATE runs SET state = ?2 WHERE run_id = ?1",

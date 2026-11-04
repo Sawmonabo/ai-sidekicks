@@ -532,7 +532,7 @@ async fn a_helpers_own_end_stands_under_its_leads_stop() {
         .rearm_after_restart(&run)
         .await
         .expect("the helper is re-armed from its log");
-    let resumed_move = engine
+    let finalized = engine
         .finalize_resumed_run(
             &run,
             RunState::Running,
@@ -543,7 +543,7 @@ async fn a_helpers_own_end_stands_under_its_leads_stop() {
         .await
         .expect("the helper is finalized");
 
-    assert_eq!(resumed_move, ResumedRunMove::Left);
+    assert_eq!(finalized.resumed_move, ResumedRunMove::Left);
     assert_eq!(stored_run_state(&database, &helper).0, "running");
     assert!(
         stored_events(&database, &helper)[seeded..].is_empty(),

@@ -55,7 +55,7 @@ use sidekicks_session::directory::row::{DirectoryEvent, directory_statements_for
 use sidekicks_session::idle_sleep::openings::SessionProcessFollower;
 use sidekicks_session::questions::schema::schema_parts;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
-use sidekicks_session::run::engine::test_fixture::insert_running_run;
+use sidekicks_session::run::engine::test_fixture::insert_run;
 use sidekicks_session::run::epochs::ExecutionEpochs;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -160,8 +160,8 @@ impl Opening {
             None,
             Some(TEST_PLACE),
         );
-        insert_running_run(&database, session_id, earlier_run_id);
-        insert_running_run(&database, session_id, run_id);
+        insert_run(&database, session_id, earlier_run_id, "running");
+        insert_run(&database, session_id, run_id, "running");
         queue_on_test_account(&database, session_id, run_id);
         let pool = Arc::new(DatabaseReadPool::new(
             database.path(),

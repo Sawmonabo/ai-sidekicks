@@ -54,7 +54,7 @@ use super::{
 use crate::driver_resolution::LiveRunDriverError;
 use crate::questions::schema::schema_parts;
 use crate::run::engine::RunEngine;
-use crate::run::engine::test_fixture::{append, insert_running_run, stored_run_state, test_engine};
+use crate::run::engine::test_fixture::{append, insert_run, stored_run_state, test_engine};
 use crate::run::epochs::{EpochBinding, ExecutionEpochs};
 use crate::run::inbound::RunInboundDispatch;
 use crate::run::inbound::tests::UnreadRunStates;
@@ -216,7 +216,7 @@ async fn fixture(driver: MockProviderDriver, setup: ChoiceRun) -> Fixture {
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id: SessionId = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     if setup.is_bound {
         bind_run_to_first_provider(&database, run_id);
     }

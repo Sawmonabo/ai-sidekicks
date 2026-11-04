@@ -66,9 +66,7 @@ use sidekicks_session::queue_store::{
     QueueItemBody, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
 };
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
-use sidekicks_session::run::engine::test_fixture::{
-    insert_running_run, stored_run_state, test_engine,
-};
+use sidekicks_session::run::engine::test_fixture::{insert_run, stored_run_state, test_engine};
 use sidekicks_session::run::epochs::ExecutionEpochs;
 use sidekicks_session::run::pause::RunPauseControl;
 use sidekicks_std::keyed_lock::KeyedLock;
@@ -439,7 +437,7 @@ impl Fixture {
     /// the opening's leg bound on the session's conversation with its cursor open.
     async fn insert_run(&self, state: &str) -> RunId {
         let run_id = new_run_id();
-        insert_running_run(&self.database, self.session_id, run_id);
+        insert_run(&self.database, self.session_id, run_id, "running");
         self.insert_event(
             run_id,
             SessionEventType::AgentRunQueued,

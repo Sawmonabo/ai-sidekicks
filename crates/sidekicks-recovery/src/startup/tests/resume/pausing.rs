@@ -1,5 +1,6 @@
 //! Paused and pausing runs at a restart: a paused run is no work in progress, a pausing one is,
-//! so the pass opens a session for a pausing run and none for paused runs alone.
+//! so the pass opens a session for a pausing run and none for paused runs alone, a lead a continue
+//! left running before any turn read paused again.
 
 use std::sync::{Arc, Mutex};
 
@@ -267,4 +268,51 @@ async fn a_pass_keeps_paused_runs_paused_and_opens_no_session_for_them() {
     };
     assert_eq!(succeeded["runsResumed"], json!(2));
     assert_eq!(succeeded["runsFailedDeterministically"], json!(0));
+}
+
+// A lead a person's continue moved from paused to running while no process held its session, with
+// no turn started since, kept its continue only in memory: the restart reads it paused again and
+// does not open its session. Killed by the lead left running (it counts as in progress, so the
+// session is opened and the driver, which expects no resume, is called; the lead reads running).
+#[tokio::test]
+async fn a_lead_continued_with_no_turn_reads_paused_after_a_restart() {
+    let fixture = PassFixture::over_drivers(vec![
+        Arc::new(MockProviderDriver::new()) as Arc<dyn ProviderDriver>
+    ])
+    .await;
+    fixture.end_seeded_run();
+    let session_id = fixture.new_session();
+    let lead = test_run_id();
+    insert_runs(&fixture.store.database, session_id, &[(lead, "running")]);
+    fixture.bind_resumable(lead, 0).await;
+    fixture
+        .append(
+            session_id,
+            json!({
+                "type": "agent.run.running",
+                "payload": {"sessionId": session_id, "runId": lead, "runVersion": 1,
+                            "previousState": "paused", "newState": "running"},
+            }),
+        )
+        .await;
+
+    fixture
+        .pass(Arc::clone(&fixture.status))
+        .run(&CancellationToken::new())
+        .await;
+
+    assert_eq!(stored_run_state(&fixture.store.database, &lead).0, "paused");
+    let paused = fixture.run_payloads(session_id, SessionEventType::AgentRunPaused, lead);
+    let [paused] = paused.as_slice() else {
+        panic!("the lead paused once: {paused:?}");
+    };
+    assert_eq!(paused["previousState"], json!("running"));
+    let succeeded = fixture.payloads(
+        &DAEMON_SCOPE_SENTINEL_SESSION_ID,
+        SessionEventType::DaemonRecoverySucceeded,
+    );
+    let [succeeded] = succeeded.as_slice() else {
+        panic!("one pass succeeded: {succeeded:?}");
+    };
+    assert_eq!(succeeded["runsResumed"], json!(0));
 }

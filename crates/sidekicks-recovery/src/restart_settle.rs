@@ -1,6 +1,7 @@
 //! What a restart left in one session, settled in an order no later step undoes: the faster-model
-//! retries still pending, before the run ends that would expire an accepted one; the runs still in
-//! progress, past their queue and not paused, a pausing run among them, re-armed from the log
+//! retries still pending, before the run ends that would expire an accepted one; a lead a person's
+//! continue left running before any turn, moved back to `paused`, its continue lost; the runs still
+//! in progress, past their queue and not paused, a pausing run among them, re-armed from the log
 //! before a resume of the session's conversation, with the paused runs beside them; the runs still
 //! live that no resume took, failed as no provider session came back, or with the provider's own
 //! words where it refused the resume, a lead the person paused or was pausing kept paused, each
@@ -21,16 +22,19 @@ use sidekicks_artifact::plans::service::{PlanError, PlansService};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_queue::delivery::run_end::stop_message_ends;
 use sidekicks_session::interventions::store::{read_pending_retries, settle_retry_after_restart};
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::engine::errors::RunEngineError;
+use sidekicks_session::run::pause::read_is_continued_with_no_turn;
 use sidekicks_session::run::provider_choice::run_end::{
     read_ended_runs_with_open_choices, settle_open_choices_of_ended_run,
 };
 use sidekicks_session::run::read::{LiveRun, RunRead, RunStateReader, SessionRun};
 use sidekicks_session::run::restart::{read_has_own_stop, read_is_run_stopping};
-use sidekicks_std::settle_all::SettleFailures;
+use sidekicks_session::run::state_change::{RunStateChange, RunWriteCompanions};
+use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -48,8 +52,9 @@ pub(crate) const RESTART_FAILURE_DETAIL: &str =
 /// The statements the settle's own reads run: the one-session listings of its live runs, its
 /// pending retries, and its ended runs with an open turn, with a pending ask and with an open
 /// choice, an ended run's choice settle (its row, the newest request of each dialog and whether it
-/// was settled since), the row of a run a resume took that has ended since, and the every-session
-/// listing of the live runs the person's stop of the service settles.
+/// was settled since), the row of a run a resume took that has ended since, and whether a running
+/// lead's newest move is a continue; the every-session listing of the live runs the person's stop
+/// of the service settles is the start's, counted there.
 pub const RESTART_SETTLE_STATEMENT_CAPACITY: usize = 10;
 
 /// What the restart settle reads and writes through.
@@ -171,6 +176,10 @@ pub enum RestartSettleError {
     /// A run, its turns, its interventions or its choices could not be settled.
     #[error("a run the restart left could not be settled")]
     Run(#[from] RunEngineError),
+    /// Runs the settle at the person's stop of the service could not end; every other run it
+    /// reached was settled.
+    #[error("runs live at the stop could not be settled")]
+    RunsAtStop(#[from] SettleFailures<RunEngineError>),
     /// An ended run's pending asks could not be canceled.
     #[error("an ended run's pending asks could not be canceled")]
     Approvals(#[from] SettleFailures<ApprovalServiceError>),
@@ -185,14 +194,12 @@ impl RestartSettle {
         Self { deps }
     }
 
-    /// Settles `session_id`'s pending faster-model retries, then re-arms each run of it still in
-    /// progress, live past its queue and not paused, a pausing run among them, from the log, as the
-    /// engine held it before the restart, so a resume of the session's conversation finds them
-    /// armed, and beside any such run the paused ones too; answers the runs in progress, none where
-    /// nothing of the session was in progress, with those a pending stop of their own wins over,
-    /// which are re-armed too so the settle that follows ends them by their stops, beside the
-    /// paused runs. Reads `stop` before each step. Fails at the first read or write that fails, or
-    /// with `Stopped`.
+    /// Settles `session_id`'s pending faster-model retries and moves back to `paused` each lead a
+    /// person's continue left running before any turn, whose continue the restart lost, then
+    /// re-arms each run still in progress, a pausing run among them, from the log, and beside any
+    /// such run the paused ones too, answering the runs in progress, those a pending stop of their
+    /// own wins over, and the paused runs. Fails at the first read or write that fails, or with
+    /// `Stopped`, `stop` read before each step.
     pub(crate) async fn rearm_live(
         &self,
         session_id: SessionId,
@@ -204,9 +211,31 @@ impl RestartSettle {
         let live_runs = self
             .read(move |reader| RunStateReader::new(reader).list_live_runs(Some(&session_id)))
             .await?;
+        let running_leads: Vec<RunId> = live_runs
+            .iter()
+            .filter(|live_run| live_run.is_lead() && live_run.run.state == RunState::Running)
+            .map(|live_run| live_run.run_id)
+            .collect();
+        // Such a lead kept its continue's messages only in memory, so it reads paused again and
+        // the person's next continue sends them.
+        let held_leads = self
+            .read_runs_where(running_leads, read_is_continued_with_no_turn)
+            .await?;
         let mut rearmed = RearmedRuns::default();
         let mut paused = Vec::new();
-        for live_run in live_runs {
+        for mut live_run in live_runs {
+            if held_leads.contains(&live_run.run_id) {
+                check_stop(Some(stop))?;
+                let back_to_paused = RunStateChange {
+                    expected_state: Some(RunState::Running),
+                    ..RunStateChange::new(live_run.run_id, RunStateEntry::Paused)
+                };
+                live_run.run = self
+                    .deps
+                    .run_engine
+                    .transition(back_to_paused, RunWriteCompanions::default())
+                    .await?;
+            }
             match live_run.run.state {
                 // A queued run waits for the queue's own delivery; no live run is a terminal one.
                 RunState::Queued
@@ -230,7 +259,7 @@ impl RestartSettle {
             }
         }
         let in_progress: Vec<RunId> = rearmed.in_progress.iter().map(|run| run.run_id).collect();
-        rearmed.stopping = self.read_stopping(in_progress, read_has_own_stop).await?;
+        rearmed.stopping = self.read_runs_where(in_progress, read_has_own_stop).await?;
         // A paused run is re-armed beside a run in progress, so a limit it owes is handed again at
         // its continue.
         if !rearmed.in_progress.is_empty() {
@@ -279,7 +308,8 @@ impl RestartSettle {
                     })
                     .map(|live_run| live_run.run_id)
                     .collect();
-                self.read_stopping(unsettled, read_is_run_stopping).await?
+                self.read_runs_where(unsettled, read_is_run_stopping)
+                    .await?
             }
             LiveRunsEnd::AtStop => BTreeSet::new(),
         };
@@ -324,22 +354,26 @@ impl RestartSettle {
     }
 
     /// Settles every live run at the person's stop of the service, session by session, each in
-    /// one write as [`RunEngine::settle_run_at_stop`] decides, its waiting messages ending in it.
-    /// Each run is awaited only until `deadline`; a run cut there, and every run after it, is left
-    /// to the next start, which settles them again. Fails at the first read or write that fails.
+    /// one write as [`RunEngine::settle_run_at_stop`] decides, its waiting messages ending in it,
+    /// until `deadline`; a run cut there, every run after it and every run whose settle failed are
+    /// left to the next start. Fails as the listing's read fails, or with every run's failure once
+    /// the rest are settled.
     pub async fn settle_at_stop(&self, deadline: Instant) -> Result<(), RestartSettleError> {
         let mut live_runs = self
             .read(|reader| RunStateReader::new(reader).list_live_runs(None))
             .await?;
         live_runs.sort_by_key(|live_run| live_run.run.session_id);
+        let mut settled_runs = Vec::new();
         for live_run in &live_runs {
             let settle = self.settle_run(live_run, LiveRunsEnd::AtStop, false, None);
             // Past the deadline, what is left stays live for the next start.
             let Ok(settled) = timeout_at(deadline, settle).await else {
-                return Ok(());
+                break;
             };
-            settled?;
+            // A refused write, a damaged session's among them, holds back no other session.
+            settled_runs.push(settled);
         }
+        settle_all(settled_runs, "settling the live runs at the stop")?;
         Ok(())
     }
 
@@ -462,20 +496,20 @@ impl RestartSettle {
             .await
     }
 
-    // Those of `run_ids` a stop wins over, as `is_stopping` reads it, read in one go.
-    async fn read_stopping(
+    // Those of `run_ids` that `is_matching` answers true for, read in one go.
+    async fn read_runs_where(
         &self,
         run_ids: Vec<RunId>,
-        is_stopping: fn(&Connection, &RunId) -> rusqlite::Result<bool>,
+        is_matching: fn(&Connection, &RunId) -> rusqlite::Result<bool>,
     ) -> Result<BTreeSet<RunId>, RestartSettleError> {
         self.read(move |reader| {
-            let mut stopping = BTreeSet::new();
+            let mut matching = BTreeSet::new();
             for run_id in run_ids {
-                if is_stopping(reader, &run_id)? {
-                    stopping.insert(run_id);
+                if is_matching(reader, &run_id)? {
+                    matching.insert(run_id);
                 }
             }
-            Ok(stopping)
+            Ok(matching)
         })
         .await
     }

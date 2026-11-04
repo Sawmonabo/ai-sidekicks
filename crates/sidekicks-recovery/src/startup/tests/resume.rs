@@ -36,7 +36,7 @@ use sidekicks_session::queue_store::{
     NewQueueItem, QueueItemBody, QueueItemReader, QueueMessageBody, RecordedQueueItemState,
     insert_queue_item_statement,
 };
-use sidekicks_session::run::engine::test_fixture::{insert_running_run, stored_run_state};
+use sidekicks_session::run::engine::test_fixture::{insert_run, stored_run_state};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::writer::test_file::test_run_id;
 use tokio_util::sync::CancellationToken;
@@ -159,7 +159,7 @@ impl PassFixture {
     ) -> (SessionId, RunId, RuntimeBindingId) {
         let session_id = self.new_session();
         let run_id = test_run_id();
-        insert_running_run(&self.store.database, session_id, run_id);
+        insert_run(&self.store.database, session_id, run_id, "running");
         let binding_id = self.bind_resumable(run_id, provider_index).await;
         (session_id, run_id, binding_id)
     }
@@ -184,7 +184,7 @@ impl PassFixture {
     // Writes a running helper the provider of `lead` dispatched beneath it in `session_id`.
     fn insert_helper(&self, session_id: SessionId, lead: RunId) -> RunId {
         let helper = test_run_id();
-        insert_running_run(&self.store.database, session_id, helper);
+        insert_run(&self.store.database, session_id, helper, "running");
         self.make_helper_of(helper, lead);
         helper
     }
@@ -448,7 +448,12 @@ async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interru
         .open_turn(stopped_session, stopped_lead, Some("turn-lead"))
         .await;
     let token_run = test_run_id();
-    insert_running_run(&fixture.store.database, stopped_session, token_run);
+    insert_run(
+        &fixture.store.database,
+        stopped_session,
+        token_run,
+        "running",
+    );
     fixture
         .open_turn(stopped_session, token_run, Some("turn-token"))
         .await;
@@ -712,14 +717,14 @@ async fn a_refused_resume_fails_its_run_and_lists_it_until_the_sessions_next_run
     fixture.end_seeded_run();
     let (session_id, run_id, _) = fixture.running_session(0).await;
     let stopping_run = test_run_id();
-    insert_running_run(&fixture.store.database, session_id, stopping_run);
+    insert_run(&fixture.store.database, session_id, stopping_run, "running");
     fixture.record_person_interrupt(stopping_run);
     let cut_helper = fixture.insert_helper(session_id, stopping_run);
     // A second stopping lead whose helper was written before it.
     let early_helper = test_run_id();
-    insert_running_run(&fixture.store.database, session_id, early_helper);
+    insert_run(&fixture.store.database, session_id, early_helper, "running");
     let later_lead = test_run_id();
-    insert_running_run(&fixture.store.database, session_id, later_lead);
+    insert_run(&fixture.store.database, session_id, later_lead, "running");
     fixture.record_person_interrupt(later_lead);
     fixture.make_helper_of(early_helper, later_lead);
     fixture

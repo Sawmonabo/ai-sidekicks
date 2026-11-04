@@ -56,7 +56,7 @@ use sidekicks_session::interventions::service::test_fixture::test_intervention_s
 use sidekicks_session::questions::service::QuestionsService;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::run::engine::RunEngine;
-use sidekicks_session::run::engine::test_fixture::{insert_running_run, test_engine_with};
+use sidekicks_session::run::engine::test_fixture::{insert_run, test_engine_with};
 use sidekicks_session::run::epochs::ExecutionEpochs;
 use sidekicks_session::run::live_count::count_live_runs_after_commits;
 use sidekicks_session::run::projection::RunsProjection;
@@ -517,7 +517,7 @@ impl PassFixture {
                 .expect("the test breaks the stored row");
         }
         let run_id = test_run_id();
-        insert_running_run(&self.store.database, session_id, run_id);
+        insert_run(&self.store.database, session_id, run_id, "running");
         (session_id, run_id)
     }
 
@@ -678,18 +678,11 @@ impl PassFixture {
     }
 }
 
-/// Writes one run of `session` per entry of `runs` into `database`, each left in its state's
-/// stored word.
+/// Writes one run of `session` per entry of `runs` into `database`, each in its state's stored
+/// word.
 pub(crate) fn insert_runs(database: &TestDatabase, session: SessionId, runs: &[(RunId, &str)]) {
     for &(run_id, run_state) in runs {
-        insert_running_run(database, session, run_id);
-        database
-            .reader()
-            .execute(
-                "UPDATE runs SET state = ?1 WHERE run_id = ?2",
-                params![run_state, run_id.text().as_str()],
-            )
-            .expect("the test sets the run's state");
+        insert_run(database, session, run_id, run_state);
     }
 }
 

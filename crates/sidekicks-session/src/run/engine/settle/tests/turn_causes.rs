@@ -16,7 +16,7 @@ use super::{limit_record, record_interrupt, running_at};
 use crate::questions::schema::schema_parts;
 use crate::run::engine::RunEngine;
 use crate::run::engine::test_fixture::{
-    append, insert_running_run, is_run_stopping, stored_run_state, test_engine,
+    append, insert_run, is_run_stopping, stored_run_state, test_engine,
 };
 use crate::run::engine::tests::{
     SETTLE_WAIT, TestLimitInterrupter, continue_request, events, hand_limit_interrupter,
@@ -46,7 +46,7 @@ async fn write_cut_log(
     session_id: SessionId,
     run_id: RunId,
 ) -> (Arc<RunEngine>, Arc<TestLimitInterrupter>) {
-    insert_running_run(database, session_id, run_id);
+    insert_run(database, session_id, run_id, "running");
     let engine = test_engine(database, event_log, home);
     let interventions = hand_limit_interrupter(&engine, 0);
     interventions.record_rows_in(database);
@@ -209,7 +209,7 @@ async fn a_restart_ends_the_open_turns_of_runs_that_had_ended() {
     let cut_run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
     let uncut_run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
     let live_run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, cut_run_id);
+    insert_run(&database, session_id, cut_run_id, "running");
     let connection = database.reader();
     for (run_id, state) in [(uncut_run_id, "failed"), (live_run_id, "running")] {
         connection
@@ -305,7 +305,7 @@ async fn the_ended_runs_sweep_collects_its_failures_and_ends_no_turn_of_a_run_th
     let ended_run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
     let moved_run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
     let unknown_run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, ended_run_id);
+    insert_run(&database, session_id, ended_run_id, "running");
     let connection = database.reader();
     connection
         .execute(
@@ -382,7 +382,7 @@ async fn a_late_turn_end_after_a_restart_takes_the_limit_its_row_names() {
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     let before_restart = test_engine(&database, Arc::clone(&log.service), home.path());
     append(
         &before_restart,

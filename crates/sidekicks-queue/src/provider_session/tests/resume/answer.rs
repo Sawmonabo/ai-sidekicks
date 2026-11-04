@@ -29,7 +29,7 @@ use sidekicks_provider::driver::session_control::held_run_continue::{
     ContinueAnswer, ContinueEntry, HeldRunContinue,
 };
 use sidekicks_provider::driver::test_registry::new_run_id;
-use sidekicks_session::run::engine::test_fixture::insert_running_run;
+use sidekicks_session::run::engine::test_fixture::insert_run;
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::timeout;
 
@@ -423,7 +423,7 @@ async fn two_paused_helpers_continue_their_lead_once_both_are_continued() {
     .await;
     let lead = opening.earlier_run_id;
     let (first, second) = (opening.run_id, new_run_id());
-    insert_running_run(&opening.database, opening.session_id, second);
+    insert_run(&opening.database, opening.session_id, second, "running");
     make_cut_helper(&opening, (lead, first), "helper-1", "running", 100);
     make_cut_helper(&opening, (lead, second), "helper-2", "paused", 102);
     let message_id =

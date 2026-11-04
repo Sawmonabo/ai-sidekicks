@@ -50,7 +50,7 @@ use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::plan_holds::PlanHolds;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
-use sidekicks_session::run::engine::test_fixture::insert_running_run;
+use sidekicks_session::run::engine::test_fixture::insert_run;
 use sidekicks_session::run::epochs::ExecutionEpochs;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::scheduler::Scheduler;
@@ -296,7 +296,7 @@ impl Fixture {
     // Records a binding of a new running run of `session_id` through the services' cursors.
     async fn bind_new_run(&self, session_id: SessionId) -> RuntimeBindingId {
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-        insert_running_run(&self.database, session_id, run_id);
+        insert_run(&self.database, session_id, run_id, "running");
         let binding = self
             .session
             .binding_cursors

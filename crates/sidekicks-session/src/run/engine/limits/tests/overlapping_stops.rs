@@ -15,7 +15,7 @@ use crate::questions::schema::schema_parts;
 use crate::run::engine::RunEngine;
 use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::limits::LimitStop;
-use crate::run::engine::test_fixture::{append, insert_running_run, test_engine};
+use crate::run::engine::test_fixture::{append, insert_run, test_engine};
 use crate::run::engine::tests::{
     SETTLE_WAIT, arm_step_count, hand_limit_interrupter, stored_events, token_limit, turn,
     turn_completed_at, turn_started_at,
@@ -61,7 +61,7 @@ async fn two_stops_whose_hands_fail_leave_their_turn_no_cut() {
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     let engine = test_engine(&database, log.service, home.path());
     let interventions = hand_limit_interrupter(&engine, 0);
     append(
@@ -123,7 +123,7 @@ async fn a_turn_keeps_the_cut_of_its_one_handed_stop_after_two_later_stops_fail(
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     let engine = test_engine(&database, log.service, home.path());
     let interventions = hand_limit_interrupter(&engine, 0);
     append(
@@ -213,7 +213,7 @@ async fn a_stop_whose_turn_ends_as_its_cut_goes_in_names_no_turn() {
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     let engine = test_engine(&database, log.service, home.path());
     let interventions = hand_limit_interrupter(&engine, 0);
     append(
@@ -284,7 +284,7 @@ async fn a_stop_its_caller_drops_mid_hand_keeps_the_cut_its_row_names(#[case] is
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     let engine = test_engine(&database, log.service, home.path());
     let interventions = hand_limit_interrupter(&engine, 0);
     interventions.record_rows_in(&database);
@@ -365,7 +365,7 @@ async fn a_late_failed_hand_withdraws_its_own_cut_and_leaves_another_of_its_limi
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, test_session_id(), run_id);
+    insert_run(&database, test_session_id(), run_id, "running");
     let engine = test_engine(&database, log.service, home.path());
     let key = (run_id, turn(3));
     let (late, standing) = {

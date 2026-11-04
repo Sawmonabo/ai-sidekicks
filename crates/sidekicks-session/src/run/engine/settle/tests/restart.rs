@@ -20,9 +20,9 @@ use super::{
 };
 use crate::questions::schema::schema_parts;
 use crate::run::engine::errors::RunEngineError;
-use crate::run::engine::settle::{SettleAttemptRead, SettleCaller};
+use crate::run::engine::settle::{RunSettled, SettleAttemptRead, SettleCaller};
 use crate::run::engine::test_fixture::{
-    append, insert_running_run, is_run_stopping, stored_run_state, test_engine,
+    append, insert_run, is_run_stopping, stored_run_state, test_engine,
 };
 use crate::run::engine::tests::{
     continue_request, events, hand_limit_interrupter, started_turn, stored_events, token_limit,
@@ -46,7 +46,7 @@ async fn a_restart_stops_a_run_at_the_token_limit_its_log_still_owes() {
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     let engine = test_engine(&database, log.service, home.path());
     // Turn 1 was left open when turn 2 started; the token stop wrote its reached event on
     // turn 2 and its interrupt failed, a person's interrupt is still pending, a step stop of
@@ -367,7 +367,7 @@ async fn a_restart_ends_each_turn_a_limits_row_names_with_the_limit(
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     let engine = test_engine(&database, log.service, home.path());
     let mut expected = Vec::new();
     let mut retry_row = None;
@@ -454,7 +454,7 @@ async fn a_restart_after_an_overtaken_token_stop_and_a_continue_stops_the_run() 
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     let engine = test_engine(&database, Arc::clone(&log.service), home.path());
     let interventions = hand_limit_interrupter(&engine, 0);
     interventions.record_rows_in(&database);
@@ -581,7 +581,13 @@ async fn a_message_queued_while_a_restart_settles_a_queued_run_leaves_it_queued(
         .await
         .expect("a run its queue still starts is left");
 
-    assert_eq!(settled, run.run);
+    assert_eq!(
+        settled,
+        RunSettled {
+            run: run.run,
+            is_written: false
+        }
+    );
     assert_eq!(
         stored_run_state(&database, &run_id),
         ("queued".to_owned(), 0)
@@ -599,7 +605,7 @@ async fn a_restart_settle_is_refused_by_an_interrupt_asked_for_after_its_read() 
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     let engine = test_engine(&database, log.service, home.path());
     let connection = database.reader();
     let record_interrupt = |id: &str, payload: &str, device_id: Option<&str>, created_at: &str| {
@@ -670,7 +676,7 @@ async fn a_restart_settle_the_table_refuses_from_the_state_read_is_an_error() {
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     let connection = database.reader();
     connection
         .execute(
@@ -770,7 +776,7 @@ async fn a_restart_settle_meets_what_landed_after_its_read(
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
     let run = match landed {
         LandedMeanwhile::PersonsInterrupt => {
-            insert_running_run(&database, session_id, run_id);
+            insert_run(&database, session_id, run_id, "running");
             running_at(session_id, run_id, 1)
         }
         LandedMeanwhile::QueuedRunStarted => {

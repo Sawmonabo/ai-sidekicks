@@ -623,7 +623,9 @@ impl RunEngine {
             .await
     }
 
-    // Whether `run_id` is a provider's own subagent, a helper. Fails as the read fails.
+    // Whether `run_id` is a provider's own subagent, a helper, read through the run it was started
+    // beneath, which every helper's row names, so a row naming none reads as no helper. Fails as
+    // the read fails.
     async fn is_provider_subagent(&self, run_id: RunId) -> Result<bool, RunEngineError> {
         self.pool
             .read(ReadLength::Short, move |reader| {

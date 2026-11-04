@@ -33,10 +33,9 @@ mod tests {
 
     use rstest::rstest;
     use sidekicks_contracts::run::state::RunState;
-    use sidekicks_contracts::session::id::SessionId;
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_mcp::client::dispatch::restart_sweep::McpReceiptSession;
     use sidekicks_session::run::read::RunRead;
+    use sidekicks_store::database::writer::test_file::test_session_id;
 
     use super::receipt_session;
     use crate::stop_intent::StopIntent;
@@ -59,10 +58,6 @@ mod tests {
         Stopped,
     }
 
-    fn mint_session_id() -> SessionId {
-        SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is an id")
-    }
-
     #[rstest]
     #[case::a_run_with_no_row(false, false, Snapshot::Whole, Expected::Missing)]
     #[case::a_damaged_session(true, true, Snapshot::Absent, Expected::Damaged)]
@@ -76,7 +71,7 @@ mod tests {
         #[case] snapshot: Snapshot,
         #[case] expected: Expected,
     ) {
-        let session_id = mint_session_id();
+        let session_id = test_session_id();
         let run = RunRead {
             version: 1,
             session_id,
@@ -92,7 +87,7 @@ mod tests {
             Snapshot::Whole => Some(StopIntent::Whole),
             Snapshot::NamingTheSession => Some(StopIntent::Sessions(BTreeSet::from([session_id]))),
             Snapshot::NamingAnother => {
-                Some(StopIntent::Sessions(BTreeSet::from([mint_session_id()])))
+                Some(StopIntent::Sessions(BTreeSet::from([test_session_id()])))
             }
         };
         let expected = match expected {

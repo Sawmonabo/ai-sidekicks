@@ -48,7 +48,7 @@ use super::{
     SessionDirectoryProviderPort, SessionDirectoryProviderPortDeps, SessionGitFolder,
 };
 use crate::run::binding_cursors::{RUN_BINDING_CURSORS_STATEMENT_CAPACITY, RunBindingCursors};
-use crate::run::engine::test_fixture::insert_running_run;
+use crate::run::engine::test_fixture::insert_run;
 use crate::run::epochs::ExecutionEpochs;
 use crate::run::schema::schema_parts;
 use crate::run::stored_leg::read_session_leg;
@@ -89,7 +89,7 @@ async fn port_over_a_leg(
 ) -> PortOverLeg {
     let store = open_store(database).await;
     let run_id = test_run_id();
-    insert_running_run(database, session_id, run_id);
+    insert_run(database, session_id, run_id, "running");
     let pool = Arc::new(DatabaseReadPool::new(
         database.path(),
         SESSION_DIRECTORY_PROVIDER_PORT_STATEMENT_CAPACITY

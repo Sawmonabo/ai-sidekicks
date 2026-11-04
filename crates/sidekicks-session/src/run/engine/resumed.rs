@@ -25,11 +25,11 @@ use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::settle::{SettleCaller, daemon_turn_outcome};
 use crate::run::engine::turns::StepCount;
 use crate::run::engine::turns::guards::turn_holds_no_end_sql;
-use crate::run::read::{LiveRun, RunRead};
+use crate::run::read::LiveRun;
 use crate::run::refusals::RunRefusal;
 use crate::run::restart::{
-    RestartTurnEnd, ResumedRunMove, decide_resumed_move, decide_turn_gone_settlement,
-    read_has_own_stop, read_owed_limit, read_turn_cuts,
+    RestartTurnEnd, ResumedRunFinalized, ResumedRunMove, decide_resumed_move,
+    decide_turn_gone_settlement, read_has_own_stop, read_owed_limit, read_turn_cuts,
 };
 use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 
@@ -143,8 +143,8 @@ impl RunEngine {
     /// open turns ended interrupted and its asks let go by the run's end. Each move is written from
     /// the state `run` read, under `hold` where the caller holds the run's session, so a run that
     /// moved since is left as it now is. `companions` ride the write of a pause or a gone turn's
-    /// settle; after `Left` or `Running`, which write nothing, the caller writes them itself. Fails
-    /// as [`RunEngine::transition`] does.
+    /// settle, and the answer says whether that write landed; where it did not, the caller writes
+    /// them itself. Fails as [`RunEngine::transition`] does.
     pub async fn finalize_resumed_run(
         self: &Arc<Self>,
         run: &LiveRun,
@@ -152,7 +152,7 @@ impl RunEngine {
         answer: ProviderTurnAnswer,
         companions: RunWriteCompanions,
         hold: Option<&SessionAppendHold>,
-    ) -> Result<ResumedRunMove, RunEngineError> {
+    ) -> Result<ResumedRunFinalized, RunEngineError> {
         let run_id = run.run_id;
         let is_stopping = self
             .pool
@@ -166,12 +166,15 @@ impl RunEngine {
             is_stopping,
             answer,
         );
-        match resumed_move {
-            ResumedRunMove::Left => {}
-            ResumedRunMove::Running => self.hand_owed_limit_interrupts(run.run_id),
+        let is_written = match resumed_move {
+            ResumedRunMove::Left => false,
+            ResumedRunMove::Running => {
+                self.hand_owed_limit_interrupts(run.run_id);
+                false
+            }
             ResumedRunMove::Paused { is_turn_gone } => {
                 self.pause_resumed_run(run, is_turn_gone, companions, hold)
-                    .await?;
+                    .await?
             }
             ResumedRunMove::TurnGone => {
                 self.settle_after_restart(
@@ -181,22 +184,26 @@ impl RunEngine {
                     &SettleCaller::TurnGone { companions },
                     hold,
                 )
-                .await?;
+                .await?
+                .is_written
             }
-        }
-        Ok(resumed_move)
+        };
+        Ok(ResumedRunFinalized {
+            resumed_move,
+            is_written,
+        })
     }
 
     // Moves `run`, `pausing` before the restart, to `paused` from the state it read, with its open
-    // turns' ends where `is_turn_gone`, the newest in the move's write, and `companions` in it; a
-    // run that moved since is left as it now is.
+    // turns' ends where `is_turn_gone`, the newest in the move's write, and `companions` in it, and
+    // answers whether the move was written; a run that moved since is left as it now is.
     async fn pause_resumed_run(
         &self,
         run: &LiveRun,
         is_turn_gone: bool,
         companions: RunWriteCompanions,
         hold: Option<&SessionAppendHold>,
-    ) -> Result<RunRead, RunEngineError> {
+    ) -> Result<bool, RunEngineError> {
         let run_id = run.run_id;
         let turn_end = if is_turn_gone {
             let open_turns = self.read_open_turns(run_id).await?;
@@ -222,13 +229,14 @@ impl RunEngine {
             .change_with_turn_end(change, companions, &run.run, turn_end, hold)
             .await
         {
+            Ok(_paused) => Ok(true),
             Err(RunEngineError::Refused(RunRefusal::InvalidTransition { from_state, .. }))
                 if from_state != run.run.state =>
             {
-                Ok(run.run.clone())
+                Ok(false)
             }
-            Err(RunEngineError::Refused(RunRefusal::AlreadyEnded { .. })) => Ok(run.run.clone()),
-            paused => paused,
+            Err(RunEngineError::Refused(RunRefusal::AlreadyEnded { .. })) => Ok(false),
+            Err(error) => Err(error),
         }
     }
 }

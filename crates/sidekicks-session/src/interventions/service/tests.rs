@@ -56,7 +56,7 @@ use crate::queue_store::{
     NewQueueItem, QueueItemBody, QueueMessageBody, insert_queue_item_statement,
 };
 use crate::run::engine::RunEngine;
-use crate::run::engine::test_fixture::{insert_running_run, stored_run_state, test_engine};
+use crate::run::engine::test_fixture::{insert_run, stored_run_state, test_engine};
 use crate::run::state_change::RunStateChange;
 
 /// A service over a test database holding one running run, at version 1, bound to the table's
@@ -112,7 +112,7 @@ async fn harness_reading_priority(
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     bind_run_to_first_provider(&database, run_id);
     let engine = test_engine(&database, Arc::clone(&log.service), home.path());
     let providers = registry_of_first_provider(Arc::new(driver));

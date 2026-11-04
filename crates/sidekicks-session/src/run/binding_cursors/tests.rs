@@ -31,7 +31,7 @@ use sidekicks_store::events::session::insert::{
 
 use super::{RUN_BINDING_CURSORS_STATEMENT_CAPACITY, RunBindingCursorError, RunBindingCursors};
 use crate::questions::schema::schema_parts;
-use crate::run::engine::test_fixture::insert_running_run;
+use crate::run::engine::test_fixture::insert_run;
 use crate::run::epochs::{ConfirmedCut, DeliveryAttribution, ExecutionEpochs};
 
 struct Harness {
@@ -68,7 +68,7 @@ impl Harness {
     // A running run of the session.
     fn run(&self) -> RunId {
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-        insert_running_run(&self.database, self.session_id, run_id);
+        insert_run(&self.database, self.session_id, run_id, "running");
         run_id
     }
 

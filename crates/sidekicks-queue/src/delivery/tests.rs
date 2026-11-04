@@ -37,7 +37,7 @@ use sidekicks_provider::process_identity::{
 };
 use sidekicks_session::questions::schema::schema_parts;
 use sidekicks_session::queue_store::{QueueItemBody, QueueItemReader, QueueItemRecord};
-use sidekicks_session::run::engine::test_fixture::insert_running_run;
+use sidekicks_session::run::engine::test_fixture::insert_run;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
@@ -127,7 +127,7 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
     let session_id = test_session_id();
     insert_session_row(&database.reader(), session_id.text().as_str(), None, None);
     let run_id = new_run_id();
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     bind_run_to_first_provider(&database, run_id);
     let pool = Arc::new(DatabaseReadPool::new(
         database.path(),

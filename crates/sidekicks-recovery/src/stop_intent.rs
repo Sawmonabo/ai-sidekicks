@@ -2,24 +2,22 @@
 //! start ends the work the Stop found in flight as the Stop ends it and resumes none of it. It is
 //! whole, covering every session, or names the sessions a start has yet to settle so. One
 //! `StopIntentFile` writes it, every change under one lock. A start's pass names the sessions it
-//! lists, then drops each name once that session's settle has committed and before the session
-//! takes runs; a drop compares the file with what the pass last read or wrote and drops nothing
-//! where another write came between, so a whole file a Stop writes mid-pass stays whole. The last
-//! name dropped removes the file.
+//! lists, then drops each name once that session is settled and before the session takes runs; a
+//! drop takes the name from whatever names the file holds then and leaves a whole file whole, so a
+//! whole file a Stop writes mid-pass stays whole. The last name dropped removes the file.
 
 use std::collections::BTreeSet;
 use std::error::Error;
-use std::io;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_platforms::flush_folder;
-use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
+use sidekicks_std::file::atomic_write::{
+    AtomicWriteError, DurableRemoveError, remove_file_durably, write_file_atomically,
+};
 use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_store::database::sibling_path;
 use tokio::sync::Mutex;
-use tokio::task::JoinError;
 
 /// The suffix of the intent's file beside the database file.
 pub(crate) const STOP_INTENT_SUFFIX: &str = ".stop-intent";
@@ -53,12 +51,9 @@ pub enum StopIntentError {
     /// The intent could not be written.
     #[error("the stop intent could not be written")]
     Write(#[source] AtomicWriteError),
-    /// The file system refused the intent's removal or the flush of its folder.
-    #[error("the stop intent could not be removed, or its folder flushed")]
-    Remove(#[source] io::Error),
-    /// The blocking task that flushed the intent's folder ended first.
-    #[error("the flush of the stop intent's folder ended before it finished")]
-    Interrupted(#[source] JoinError),
+    /// The intent could not be removed, or its folder flushed.
+    #[error("the stop intent could not be removed")]
+    Remove(#[source] DurableRemoveError),
 }
 
 /// The stop intent's one file beside the database file, every read-modify-write of it taken under
@@ -117,46 +112,24 @@ impl StopIntentFile {
     }
 
     /// Where the file still holds `read` and that is whole, rewrites it as the names of
-    /// `sessions`, removing it where there are none; any other file is left as it is. Answers what
-    /// the caller then holds as last read or written: what this wrote, or `read` where it wrote
-    /// nothing. Fails when the write or the removal fails, the file then holding what it held.
+    /// `sessions`, removing it where there are none; any other file is left as it is. Fails when
+    /// the write or the removal fails, the file then holding what it held.
     pub async fn name_sessions(
         &self,
         read: &StopIntent,
         sessions: BTreeSet<SessionId>,
-    ) -> Result<Option<StopIntent>, StopIntentError> {
+    ) -> Result<(), StopIntentError> {
         let _held = self.lock.lock().await;
         if *read != StopIntent::Whole || self.read().await.as_ref() != Some(read) {
-            return Ok(Some(read.clone()));
+            return Ok(());
         }
         self.replace(sessions).await
     }
 
-    /// Drops `session_id` from the names, for the pass once that session's settle has committed,
-    /// only where the file still holds `read`, what the caller last read or wrote, and that names
-    /// it; a file written since, a whole one a Stop wrote among them, keeps every name. The last
-    /// name dropped removes the file. Answers what the caller then holds as last read or written,
-    /// as [`StopIntentFile::name_sessions`] does. Fails when the write or the removal fails.
-    pub async fn drop_session(
-        &self,
-        read: &StopIntent,
-        session_id: &SessionId,
-    ) -> Result<Option<StopIntent>, StopIntentError> {
-        let _held = self.lock.lock().await;
-        let StopIntent::Sessions(sessions) = read else {
-            return Ok(Some(read.clone()));
-        };
-        if !sessions.contains(session_id) || self.read().await.as_ref() != Some(read) {
-            return Ok(Some(read.clone()));
-        }
-        let mut remaining = sessions.clone();
-        remaining.remove(session_id);
-        self.replace(remaining).await
-    }
-
-    /// Drops `session_id` from a file of names, for a caller that holds no read of the file, a
-    /// purge or `Continue from here`; a whole file, or none, is left as it is. The last name
-    /// dropped removes the file. Fails when the write or the removal fails.
+    /// Drops `session_id` from a file of names, for the pass once that session is settled, a
+    /// purge and `Continue from here`; a whole file, a Stop's written mid-pass among them, or none
+    /// is left as it is, and the last name dropped removes the file. Fails when the write or the
+    /// removal fails.
     pub async fn drop_named(&self, session_id: &SessionId) -> Result<(), StopIntentError> {
         let _held = self.lock.lock().await;
         let Some(StopIntent::Sessions(mut sessions)) = self.read().await else {
@@ -165,22 +138,18 @@ impl StopIntentFile {
         if !sessions.remove(session_id) {
             return Ok(());
         }
-        self.replace(sessions).await.map(|_written| ())
+        self.replace(sessions).await
     }
 
     // Writes `sessions` as the file's names, or removes it where there are none, under the lock
-    // the caller holds; answers what the file then holds.
-    async fn replace(
-        &self,
-        sessions: BTreeSet<SessionId>,
-    ) -> Result<Option<StopIntent>, StopIntentError> {
+    // the caller holds.
+    async fn replace(&self, sessions: BTreeSet<SessionId>) -> Result<(), StopIntentError> {
         if sessions.is_empty() {
-            self.remove().await?;
-            return Ok(None);
+            return remove_file_durably(&self.path)
+                .await
+                .map_err(StopIntentError::Remove);
         }
-        let intent = StopIntent::Sessions(sessions);
-        self.write(&intent).await?;
-        Ok(Some(intent))
+        self.write(&StopIntent::Sessions(sessions)).await
     }
 
     // Writes `intent` durably at once, under the lock the caller holds.
@@ -190,24 +159,6 @@ impl StopIntentFile {
             .await
             .map_err(StopIntentError::Write)
     }
-
-    // Removes the file and flushes its folder, so the removal survives a power loss; a file
-    // already gone is removed.
-    async fn remove(&self) -> Result<(), StopIntentError> {
-        tokio::fs::remove_file(&self.path)
-            .await
-            .none_if_missing()
-            .map_err(StopIntentError::Remove)?;
-        let folder = self
-            .path
-            .parent()
-            .expect("the stop intent's path names its folder")
-            .to_path_buf();
-        tokio::task::spawn_blocking(move || flush_folder(&folder))
-            .await
-            .map_err(StopIntentError::Interrupted)?
-            .map_err(StopIntentError::Remove)
-    }
 }
 
 #[cfg(test)]
@@ -215,18 +166,19 @@ mod tests {
     use std::collections::BTreeSet;
 
     use rstest::rstest;
-    use sidekicks_contracts::session::id::SessionId;
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_store::database::writer::test_file::test_session_id;
 
     use super::{StopIntent, StopIntentFile};
 
-    // What happens to the file between the pass's read and its drop.
+    // What happens to the file between the pass's naming and its drop.
     #[derive(Clone, Copy, Debug)]
     enum Between {
         // Nothing: the pass drops one name of two.
         Nothing,
         // Nothing, and the pass drops the last name.
         NothingLastName,
+        // A purge or `Continue from here` drops the other name.
+        OtherNameDropped,
         // The person's Stop writes the file whole.
         StopWritesWhole,
         // The file is overwritten with what no service wrote.
@@ -235,22 +187,22 @@ mod tests {
         DropNamedOnWhole,
     }
 
-    fn session_id() -> SessionId {
-        SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is an id")
-    }
-
+    // A drop takes the name from whatever names the file holds and leaves a whole file whole.
+    // Killed by a drop held to what the pass named (the other name's drop keeps the first), by a
+    // drop on a whole file (it reads as names), and by the last drop leaving the file.
     #[rstest]
-    #[case::a_drop_after_a_read(Between::Nothing)]
+    #[case::a_drop_after_the_naming(Between::Nothing)]
     #[case::the_last_drop(Between::NothingLastName)]
-    #[case::a_whole_file_written_since_the_read(Between::StopWritesWhole)]
+    #[case::a_drop_after_another_name_was_dropped(Between::OtherNameDropped)]
+    #[case::a_whole_file_written_since_the_naming(Between::StopWritesWhole)]
     #[case::an_unreadable_file(Between::Unreadable)]
     #[case::drop_named_on_a_whole_file(Between::DropNamedOnWhole)]
     #[tokio::test]
-    async fn a_stop_intent_drops_a_name_only_against_what_it_read(#[case] between: Between) {
+    async fn a_stop_intent_drops_a_name_only_from_a_file_of_names(#[case] between: Between) {
         let folder = tempfile::tempdir().expect("a temporary folder");
         let database_path = folder.path().join("daemon.db");
         let file = StopIntentFile::new(&database_path);
-        let (first, second) = (session_id(), session_id());
+        let (first, second) = (test_session_id(), test_session_id());
         file.write_whole()
             .await
             .expect("the Stop writes the intent");
@@ -259,18 +211,18 @@ mod tests {
         let named = match between {
             Between::NothingLastName => BTreeSet::from([first]),
             Between::Nothing
+            | Between::OtherNameDropped
             | Between::StopWritesWhole
             | Between::Unreadable
             | Between::DropNamedOnWhole => BTreeSet::from([first, second]),
         };
-        let held = file
-            .name_sessions(&read, named.clone())
+        file.name_sessions(&read, named.clone())
             .await
-            .expect("the pass names its sessions")
-            .expect("named sessions keep the file");
-        assert_eq!(held, StopIntent::Sessions(named));
+            .expect("the pass names its sessions");
+        assert_eq!(file.read().await, Some(StopIntent::Sessions(named)));
         match between {
             Between::Nothing | Between::NothingLastName => {}
+            Between::OtherNameDropped => file.drop_named(&second).await.expect("the purge drops"),
             Between::StopWritesWhole => file.write_whole().await.expect("the Stop writes"),
             Between::Unreadable => {
                 tokio::fs::write(&file.path, b"not an intent")
@@ -284,29 +236,22 @@ mod tests {
                 assert_eq!(file.read().await, Some(StopIntent::Whole));
             }
         }
-        let after = file
-            .drop_session(&held, &first)
-            .await
-            .expect("the drop answers");
-        let on_disk = file.read().await;
+
+        file.drop_named(&first).await.expect("the drop answers");
+
         match between {
-            Between::Nothing => {
-                let left = Some(StopIntent::Sessions(BTreeSet::from([second])));
-                assert_eq!(after, left);
-                assert_eq!(on_disk, left);
-            }
-            Between::NothingLastName => {
-                assert_eq!(after, None);
-                assert!(
-                    !tokio::fs::try_exists(&file.path)
-                        .await
-                        .expect("the folder reads"),
-                    "the last drop removes the file"
-                );
-            }
+            Between::Nothing => assert_eq!(
+                file.read().await,
+                Some(StopIntent::Sessions(BTreeSet::from([second])))
+            ),
+            Between::NothingLastName | Between::OtherNameDropped => assert!(
+                !tokio::fs::try_exists(&file.path)
+                    .await
+                    .expect("the folder reads"),
+                "the last drop removes the file"
+            ),
             Between::StopWritesWhole | Between::Unreadable | Between::DropNamedOnWhole => {
-                assert_eq!(after, Some(held));
-                assert_eq!(on_disk, Some(StopIntent::Whole));
+                assert_eq!(file.read().await, Some(StopIntent::Whole));
             }
         }
     }

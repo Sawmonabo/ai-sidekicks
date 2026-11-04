@@ -76,6 +76,23 @@ static SELECT_NEWEST_TURN_END_IS_RESTART_CUT_SQL: LazyLock<String> = LazyLock::n
     )
 });
 
+// Whether the run's newest lifecycle event is its move from `paused` to `running`: a continue that
+// started no turn since.
+static SELECT_NEWEST_IS_CONTINUE_SQL: LazyLock<String> = LazyLock::new(|| {
+    let paused = serde_json::to_value(RunState::Paused).expect("a closed word serializes");
+    format!(
+        "SELECT type = '{running}' AND json_extract(payload, '$.previousState') IS '{paused}'
+  FROM session_events
+  WHERE category = '{category}'
+    AND run_id = @run_id
+  ORDER BY sequence DESC
+  LIMIT 1",
+        running = SessionEventType::AgentRunRunning.as_str(),
+        paused = paused.as_str().expect("a closed word serializes as text"),
+        category = EventCategory::RunLifecycle.as_str(),
+    )
+});
+
 /// Why a pause or a resume did not finish; each refusal left the run exactly as it was.
 #[derive(Debug, thiserror::Error)]
 pub enum RunPauseError {
@@ -655,6 +672,21 @@ pub fn owes_continuation(reader: &Connection, run_id: &RunId) -> rusqlite::Resul
         })
         .optional()?;
     Ok(is_restart_cut.unwrap_or(false))
+}
+
+/// Whether `run_id` reads as a person's continue left it before any turn started: its newest
+/// lifecycle event its move from `paused` to `running`. Fails as the read fails.
+pub fn read_is_continued_with_no_turn(
+    reader: &Connection,
+    run_id: &RunId,
+) -> rusqlite::Result<bool> {
+    let is_continue = reader
+        .prepare_cached(&SELECT_NEWEST_IS_CONTINUE_SQL)?
+        .query_row(named_params! { "@run_id": run_id.text().as_str() }, |row| {
+            row.get::<_, bool>(0)
+        })
+        .optional()?;
+    Ok(is_continue.unwrap_or(false))
 }
 
 // Gives the messages a failed resume read back, answering `failure`, or the give-back's failure

@@ -177,9 +177,9 @@ pub(crate) struct TurnCut {
 
 /// What a restart reads of a live run to decide how it settles: its pending interrupts, the limit
 /// it still owes, every open turn a limit's interrupt row names as cut, whether it is stopping,
-/// whether a message still waits in the queue for it, and whether it waits on the refusal choice. A turn's cause is its cut's and the row is a
-/// cut's one mark, so a restart ends each turn with the live path's limit, except where the turn's
-/// end races its stop's row.
+/// whether a message still waits in the queue for it, and whether it waits on the refusal choice.
+/// A turn's cause is its cut's and the row is a cut's one mark, so a restart ends each turn with
+/// the live path's limit, except where the turn's end races its stop's row.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RestartFacts {
     /// The run's interrupts with no outcome yet, in the order they were asked for.
@@ -460,16 +460,13 @@ pub(crate) fn decide_restart_settlement(
     })
 }
 
-/// Decides how the person's stop of the service settles `run`, or `None` for a run left as it is.
-/// A queued run is stopped with `daemonStop`, whether or not a message waits for it, and never
-/// starts. Any other run settles by its stops; with none, a paused lead stays paused, a run
-/// waiting on the refusal choice fails with that refusal, and any other run, a pausing lead, a
-/// paused child and a helper beneath a stopping lead among them, reads interrupted with
-/// `daemonStop`. Each open turn no limit cut ends with `daemonStop`.
+/// Decides how the person's stop of the service settles `run`, each open turn no limit cut ending
+/// with `daemonStop`, or `None` for a paused lead with no stop of its own, which stays paused.
 pub(crate) fn decide_stop_settlement(
     run: &LiveRun,
     facts: &RestartFacts,
 ) -> Option<RestartDecision> {
+    // A queued run is stopped and never starts, whether or not a message waits for it.
     if run.run.state == RunState::Queued {
         return Some(RestartDecision {
             settlement: RestartSettlement::Stopped {
@@ -479,6 +476,9 @@ pub(crate) fn decide_stop_settlement(
             turn_cause: TurnEndCause::DaemonStop,
         });
     }
+    // Any other run settles by its stops; with none, a run waiting on the refusal choice fails with
+    // that refusal, and any other, a pausing lead, a paused child and a helper beneath a stopping
+    // lead among them, reads interrupted with `daemonStop`.
     let settlement = match settlement_by_stops(&facts.pending_interrupts, facts.owed_limit) {
         Some(settlement) => settlement,
         None if run.run.state == RunState::Paused && run.parent_run_id.is_none() => return None,
@@ -524,6 +524,16 @@ pub enum ResumedRunMove {
     /// Its turn is gone, or a stop it waits on wins over the resume: settled by its stops, else
     /// interrupted with `daemonRestart`.
     TurnGone,
+}
+
+/// What a resume's finalize did to a run: the move it decided, and whether that move's write landed
+/// with the caller's companions in it, which `Left` and `Running` never write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ResumedRunFinalized {
+    /// The move the finalize decided.
+    pub resumed_move: ResumedRunMove,
+    /// Whether the move's write landed; a run that moved since is left as it now is, unwritten.
+    pub is_written: bool,
 }
 
 /// Decides how a resume that succeeded moves a run that read `state_before` before the restart, a

@@ -18,7 +18,7 @@ use sidekicks_provider::port::run_pause::SessionOpening;
 use sidekicks_provider::run::turn_end::TurnOutcome;
 
 use super::{WaitingMessages, fixture, waiting_message};
-use crate::run::engine::test_fixture::insert_running_run;
+use crate::run::engine::test_fixture::insert_run;
 
 // The continue opens the run's session before its driver's `resume_run`, which would otherwise
 // find no live session. Killed by dropping the open (no opening seen at the driver's call).
@@ -53,7 +53,7 @@ async fn a_paused_helper_under_a_held_lead_moves_running_with_no_driver_call() {
     driver.expect_resume_run().times(0);
     let fixture = fixture(driver, "paused").await;
     let lead_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&fixture.database, fixture.session_id, lead_id);
+    insert_run(&fixture.database, fixture.session_id, lead_id, "running");
     fixture
         .database
         .reader()

@@ -35,7 +35,7 @@ use tokio::sync::{oneshot, watch};
 use super::kept_schedules::next_wake_at;
 use super::openings::{SessionProcessFollower as _, SessionProcessWaker};
 use super::{SessionIdleSleep, SessionIdleSleepDeps};
-use crate::run::engine::test_fixture::insert_running_run;
+use crate::run::engine::test_fixture::insert_run;
 
 const READ_STATEMENT_CAPACITY: usize = 16;
 
@@ -253,7 +253,7 @@ async fn each_hold_keeps_an_idle_session_awake(#[case] hold: Hold, #[case] sleep
     let session_id = fixture.add_session();
     let _voice_call = match hold {
         Hold::Turn => {
-            insert_running_run(&fixture.database, session_id, test_run_id());
+            insert_run(&fixture.database, session_id, test_run_id(), "running");
             None
         }
         Hold::QueuedMessage => {

@@ -11,17 +11,17 @@
 //! starts, and a lead the person paused kept paused; the questions the tool-server client asked,
 //! whose requests the restart ended, are withdrawn. A session the person's Stop left in the stop
 //! intent is not opened: its runs end as the Stop ends them, and its name is dropped from the
-//! intent only once that settle has committed, before it takes calls. No write is taken until the
-//! pass has listed the sessions it rebuilds and those whose runs it ends; from then each listed
-//! session alone refuses the calls that name it until it is rebuilt and settled, so every other
-//! session takes its writes while the pass goes on. A session whose rebuild fails is healed: the
-//! store's files are copied aside untouched, once a pass and once for the same damage across
-//! starts, and the rebuild runs again; one that still fails opens at its last good point, or reads
-//! damaged when none of it can be read, and is never written. The pass never fails: a pass that
-//! fails leaves the service blocked, or a session damaged, and says why in the service log. The
-//! service's stop ends it before the next page it would fold; what it had yet to rebuild stays
-//! listed for the next start's pass, and a step that fails once the stop came is never read as a
-//! failed store.
+//! intent only once that settle has committed and the sweep of the tool call receipts the stop left
+//! in flight has begun, before it takes calls. No write is taken until the pass has listed the
+//! sessions it rebuilds and those whose runs it ends; from then each listed session alone refuses
+//! the calls that name it until it is rebuilt and settled, so every other session takes its writes
+//! while the pass goes on. A session whose rebuild fails is healed: the store's files are copied
+//! aside untouched, once a pass and once for the same damage across starts, and the rebuild runs
+//! again; one that still fails opens at its last good point, or reads damaged when none of it can
+//! be read, and is never written. The pass never fails: a pass that fails leaves the service
+//! blocked, or a session damaged, and says why in the service log. The service's stop ends it
+//! before the next page it would fold; what it had yet to rebuild stays listed for the next start's
+//! pass, and a step that fails once the stop came is never read as a failed store.
 
 mod heal;
 mod receipt_sessions;
@@ -85,9 +85,10 @@ use crate::status::RecoveryStatusTracker;
 use crate::stop_intent::{StopIntent, StopIntentError, StopIntentFile};
 
 /// The statements the pass's own reads run: the failed passes since the last that succeeded, and
-/// the eight every-session listings of what the restart left (the live runs, the pending retries,
-/// the ended runs with an open turn, with an unresolved intervention, with a pending ask and with
-/// an open choice, the held plans, and the sessions holding background calls).
+/// the eight every-session listings of what the restart left (the live runs, which the settle at
+/// the person's stop of the service reads too, the pending retries, the ended runs with an open
+/// turn, with an unresolved intervention, with a pending ask and with an open choice, the held
+/// plans, and the sessions holding background calls).
 pub const STARTUP_RECOVERY_STATEMENT_CAPACITY: usize = 9;
 
 // The failed passes since the last one that succeeded, read from the service's own session.
@@ -275,12 +276,26 @@ impl StartupRecovery {
                 .as_ref()
                 .is_some_and(|intent| intent.names(session_id))
         };
-        for session_id in listing.stale.iter().chain(&listing.current_listed).chain(
-            listing
+        // A named session with nothing left to settle is still settled, so its name is dropped.
+        let settled: BTreeSet<SessionId> = match &read_intent {
+            Some(StopIntent::Sessions(named)) => listing
                 .current
                 .iter()
-                .filter(|session_id| is_named(session_id)),
-        ) {
+                .chain(
+                    named
+                        .iter()
+                        .filter(|session_id| !listing.stale.contains(session_id)),
+                )
+                .copied()
+                .collect(),
+            Some(StopIntent::Whole) | None => listing.current.clone(),
+        };
+        for session_id in listing
+            .stale
+            .iter()
+            .chain(&listing.current_listed)
+            .chain(settled.iter().filter(|session_id| is_named(session_id)))
+        {
             self.deps.status.mark_session_rebuilding(session_id);
         }
         self.deps.status.mark_pass_listed();
@@ -300,44 +315,29 @@ impl StartupRecovery {
             return Err(PassFailure::Stopped);
         }
         // A whole intent becomes the names of the sessions listed, only now, so a pass cut before
-        // leaves it whole; a named session with nothing left to settle is still settled, so its
-        // name is dropped.
-        let (mut held_intent, settled) = match &read_intent {
-            Some(intent @ StopIntent::Whole) => {
-                let named = listing
-                    .stale
-                    .iter()
-                    .chain(&listing.current)
-                    .copied()
-                    .collect();
-                let held = self
-                    .deps
-                    .stop_intent
-                    .name_sessions(intent, named)
-                    .await
-                    .map_err(PassFailure::StopIntent)?;
-                (held, listing.current.clone())
-            }
-            Some(StopIntent::Sessions(named)) => {
-                let mut settled = listing.current.clone();
-                settled.extend(
-                    named
-                        .iter()
-                        .filter(|session_id| !listing.stale.contains(session_id)),
-                );
-                (read_intent.clone(), settled)
-            }
-            None => (None, listing.current.clone()),
-        };
+        // leaves it whole.
+        if let Some(intent @ StopIntent::Whole) = &read_intent {
+            let named = listing
+                .stale
+                .iter()
+                .chain(&listing.current)
+                .copied()
+                .collect();
+            self.deps
+                .stop_intent
+                .name_sessions(intent, named)
+                .await
+                .map_err(PassFailure::StopIntent)?;
+        }
+        // The sessions settled under the intent, whose names outlive their settles.
+        let mut stopped = Vec::new();
         for &session_id in &settled {
-            self.settle_session(
-                session_id,
-                is_named(&session_id),
-                &mut held_intent,
-                tally,
-                stop,
-            )
-            .await?;
+            let is_under_stop = is_named(&session_id);
+            self.settle_session(session_id, is_under_stop, tally, stop)
+                .await?;
+            if is_under_stop {
+                stopped.push(session_id);
+            }
         }
         let mut heal = heal::HealState::default();
         let mut damaged = BTreeSet::new();
@@ -347,7 +347,8 @@ impl StartupRecovery {
                 .rebuild_session(session_id, &mut heal, tally, stop)
                 .await?
             {
-                // A damaged session takes no write, so what the restart left in it stays.
+                // A damaged session takes no write, so what the restart left in it stays, and so
+                // does its name.
                 damaged.insert(session_id);
                 continue;
             }
@@ -355,14 +356,12 @@ impl StartupRecovery {
             if listing.holding_tool_calls.contains(&session_id) {
                 self.settle_held_tool_calls(session_id).await;
             }
-            self.settle_session(
-                session_id,
-                is_named(&session_id),
-                &mut held_intent,
-                tally,
-                stop,
-            )
-            .await?;
+            let is_under_stop = is_named(&session_id);
+            self.settle_session(session_id, is_under_stop, tally, stop)
+                .await?;
+            if is_under_stop {
+                stopped.push(session_id);
+            }
         }
 
         if stop.is_cancelled() {
@@ -382,6 +381,16 @@ impl StartupRecovery {
                 ))
             })
             .await?;
+        // Only once the sweep has begun, so a pass cut before leaves each name for the next pass
+        // to sweep its receipts as stopped; the session takes calls only after.
+        for session_id in stopped {
+            self.deps
+                .stop_intent
+                .drop_named(&session_id)
+                .await
+                .map_err(PassFailure::StopIntent)?;
+            self.deps.status.mark_session_healthy(&session_id);
+        }
 
         if is_any_damaged {
             // The outcome was decided when a session's rebuild failed, not in the step after it.

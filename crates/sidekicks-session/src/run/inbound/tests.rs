@@ -39,7 +39,7 @@ use crate::questions::schema::schema_parts;
 use crate::run::engine::RunEngine;
 use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::test_fixture::{
-    append, insert_running_run, stored_run_state, test_choices, test_engine,
+    append, insert_run, stored_run_state, test_choices, test_engine,
 };
 use crate::run::engine::tests::{
     DRIVER_HOLD, SETTLE_WAIT, continue_request, held_driver, turn_completed_at, turn_started_at,
@@ -88,7 +88,7 @@ impl Harness {
             test_choices(&database, &engine),
         ));
         let run_id = new_run_id();
-        insert_running_run(&database, test_session_id(), run_id);
+        insert_run(&database, test_session_id(), run_id, "running");
         database
             .reader()
             .execute(

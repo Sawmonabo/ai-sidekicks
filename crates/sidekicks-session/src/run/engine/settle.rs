@@ -114,6 +114,17 @@ impl SettleCaller<'_> {
     }
 }
 
+/// A settle's end: the run as the settle leaves it, and whether the settle's own write landed,
+/// with what its caller added to it.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct RunSettled {
+    /// The run as the settle leaves it.
+    pub(super) run: RunRead,
+    /// Whether the settle's write landed; a run left as it is, or ended by another write, wrote
+    /// none.
+    pub(super) is_written: bool,
+}
+
 // What one attempt of a settle read beside the run's facts, in the same read: the refusal choice
 // the run waits on, and under a Stop the messages waiting for the run.
 #[derive(Default)]
@@ -443,6 +454,7 @@ impl RunEngine {
             hold,
         )
         .await
+        .map(|settled| settled.run)
     }
 
     /// Settles a run the person's stop of the service found live, without a driver, as
@@ -468,12 +480,13 @@ impl RunEngine {
             hold,
         )
         .await
+        .map(|settled| settled.run)
     }
 
     /// Settles `run`, a run a restart or the person's stop of the service left live, as `decide`
     /// decides from its facts and `is_stopping`, as [`RunEngine::settle_run_after_restart`]
-    /// settles it, with what `caller` adds to each attempt's write. Fails as
-    /// [`RunEngine::transition`] does, the second refusal returned.
+    /// settles it, with what `caller` adds to each attempt's write, and answers whether that write
+    /// landed. Fails as [`RunEngine::transition`] does, the second refusal returned.
     pub(super) async fn settle_after_restart(
         &self,
         run: &LiveRun,
@@ -481,7 +494,7 @@ impl RunEngine {
         is_stopping: bool,
         caller: &SettleCaller<'_>,
         hold: Option<&SessionAppendHold>,
-    ) -> Result<RunRead, RunEngineError> {
+    ) -> Result<RunSettled, RunEngineError> {
         let mut read = run.clone();
         let mut is_read_again = false;
         let lists_waiting = matches!(caller, SettleCaller::Stop { .. });
@@ -525,7 +538,10 @@ impl RunEngine {
                     is_read_again = true;
                     let now = self.require_run(read.run_id).await?;
                     if now.state.is_terminal() {
-                        return Ok(now);
+                        return Ok(RunSettled {
+                            run: now,
+                            is_written: false,
+                        });
                     }
                     read.run = now;
                 }
@@ -536,7 +552,7 @@ impl RunEngine {
 
     // The settle of `run` as `decision`, decided from `facts` and `attempt_read` read before its
     // write, with what `caller` adds, written from the state `run` read: a run that moved since is
-    // left as it now is.
+    // left as it now is, its write not landed.
     async fn settle_run_from_facts(
         &self,
         run: &LiveRun,
@@ -545,9 +561,13 @@ impl RunEngine {
         caller: &SettleCaller<'_>,
         attempt_read: SettleAttemptRead,
         hold: Option<&SessionAppendHold>,
-    ) -> Result<RunRead, RunEngineError> {
+    ) -> Result<RunSettled, RunEngineError> {
+        let left = || RunSettled {
+            run: run.run.clone(),
+            is_written: false,
+        };
         let Some(decision) = decision else {
-            return Ok(run.run.clone());
+            return Ok(left());
         };
         let run_id = run.run_id;
         let SettleAttemptRead {
@@ -645,20 +665,24 @@ impl RunEngine {
             .change_with_turn_end(change, companions, &run.run, turn_end, hold)
             .await
         {
+            Ok(settled) => Ok(RunSettled {
+                run: settled,
+                is_written: true,
+            }),
             // A message queued for the run since its facts were read starts it, so it is left.
             Err(RunEngineError::Change(RunWriteError::CompanionRefused {
                 companion_index,
                 ..
-            })) if Some(companion_index) == left_guard_index => Ok(run.run.clone()),
+            })) if Some(companion_index) == left_guard_index => Ok(left()),
             // The run moved from the state its facts were read in, so it is left as it is now; a
             // move the table refuses from that very state is the settle's own failure.
             Err(RunEngineError::Refused(RunRefusal::InvalidTransition { from_state, .. }))
                 if from_state != run.run.state =>
             {
-                Ok(run.run.clone())
+                Ok(left())
             }
-            Err(RunEngineError::Refused(RunRefusal::AlreadyEnded { .. })) => Ok(run.run.clone()),
-            settled => settled,
+            Err(RunEngineError::Refused(RunRefusal::AlreadyEnded { .. })) => Ok(left()),
+            Err(error) => Err(error),
         }
     }
 

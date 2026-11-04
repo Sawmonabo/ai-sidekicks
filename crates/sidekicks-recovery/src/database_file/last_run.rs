@@ -13,13 +13,15 @@
 use std::io;
 use std::path::Path;
 
-use sidekicks_platforms::{FileFacts, file_facts, flush_folder};
-use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
+use sidekicks_platforms::{FileFacts, file_facts};
+use sidekicks_std::file::atomic_write::{
+    AtomicWriteError, DurableRemoveError, remove_file_durably, write_file_atomically,
+};
 use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_store::database::sibling_path;
 use tokio::task::JoinError;
 
-use crate::database_file::{WRITE_AHEAD_LOG_SUFFIX, store_folder};
+use crate::database_file::WRITE_AHEAD_LOG_SUFFIX;
 
 /// How the last run on the database file ended, as its record tells.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,15 +39,16 @@ pub enum LastRunEnd {
 /// Why the last run's record could not be read or written.
 #[derive(Debug, thiserror::Error)]
 pub enum LastRunError {
-    /// The file system refused a read or a removal of the record, or the flush of its folder.
-    #[error(
-        "the database file's last-run record could not be read or removed, or its folder flushed"
-    )]
+    /// The file system refused a read of the record or of the files' facts.
+    #[error("the database file's last-run record could not be read")]
     Read(#[source] io::Error),
     /// The record could not be written.
     #[error("the database file's last-run record could not be written")]
     Write(#[source] AtomicWriteError),
-    /// The blocking task that read the files' facts or flushed the folder ended first.
+    /// The record could not be removed, or its folder flushed.
+    #[error("the database file's last-run record could not be removed")]
+    Remove(#[source] DurableRemoveError),
+    /// The blocking task that read the files' facts ended first.
     #[error("the database file's last-run record task ended before it finished")]
     Interrupted(#[source] JoinError),
 }
@@ -114,15 +117,9 @@ pub async fn record_clean_stop(database_path: &Path) -> Result<(), LastRunError>
 /// check finds the file sound, and flushes the folder so the removal survives a power loss. Fails
 /// when the removal or the flush fails; a record already gone is removed.
 pub async fn forget_last_run(database_path: &Path) -> Result<(), LastRunError> {
-    tokio::fs::remove_file(sibling_path(database_path, LAST_RUN_SUFFIX))
+    remove_file_durably(&sibling_path(database_path, LAST_RUN_SUFFIX))
         .await
-        .none_if_missing()
-        .map_err(LastRunError::Read)?;
-    let folder = store_folder(database_path).to_path_buf();
-    tokio::task::spawn_blocking(move || flush_folder(&folder))
-        .await
-        .map_err(LastRunError::Interrupted)?
-        .map_err(LastRunError::Read)
+        .map_err(LastRunError::Remove)
 }
 
 // The database file's facts and its log's size as a clean stop's record holds them, `None` when

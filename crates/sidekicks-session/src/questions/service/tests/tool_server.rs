@@ -24,7 +24,7 @@ use tokio::sync::Notify;
 use super::RecordingTaskAnswer;
 use crate::questions::service::test_fixture::{Fixture, HandedAnswers, choice_page, failed};
 use crate::questions::service::{HeldRequestAnswerer, QuestionRecording};
-use crate::run::engine::test_fixture::insert_running_run;
+use crate::run::engine::test_fixture::insert_run;
 use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 
 /// A stand-in tool-server task that keeps each answer once `release` is notified, notifying
@@ -222,7 +222,7 @@ async fn a_restarts_withdrawal_cancels_only_the_clients_questions_of_its_session
     }
     let other_session = test_session_id();
     let other_run = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&fixture.database, other_session, other_run);
+    insert_run(&fixture.database, other_session, other_run, "running");
     let (other_question, _state) = record_waiting(ProviderQuestion {
         session_id: other_session,
         run_id: other_run,

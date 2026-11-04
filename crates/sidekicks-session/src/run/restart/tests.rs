@@ -326,8 +326,8 @@ fn a_restart_settles_each_live_run_by_what_it_was_waiting_on(
 }
 
 // The person's stop of the service, one case per row of its table; the Stop reads no lead's stop
-// for a helper, so a helper beneath a stopping lead is any running child. Killed by the queued arm
-// keyed on a waiting message as the restart's is, or ending the run failed (`queued_*`); by a
+// for a helper, so a helper beneath a stopping lead reads as `running` does. Killed by the queued
+// arm keyed on a waiting message as the restart's is, or ending the run failed (`queued_*`); by a
 // pausing lead paused (`pausing_lead`); by the refusal row read as interrupted
 // (`waiting_on_the_refusal`); by a run's own stop dropped (`person_interrupt`, `step_limit_owed`);
 // by a paused lead ended (`paused_lead`); and by the cause left `daemonRestart`, in the run's
@@ -345,15 +345,6 @@ fn a_restart_settles_each_live_run_by_what_it_was_waiting_on(
 )]
 #[case::pausing_lead(RunState::Pausing, false, &[], None, false, false, Some(stop_interrupted()))]
 #[case::paused_child(RunState::Paused, true, &[], None, false, false, Some(stop_interrupted()))]
-#[case::helper_of_a_stopping_lead(
-    RunState::Running,
-    true,
-    &[],
-    None,
-    false,
-    false,
-    Some(stop_interrupted())
-)]
 #[case::person_interrupt(
     RunState::Running,
     false,
@@ -373,7 +364,15 @@ fn a_restart_settles_each_live_run_by_what_it_was_waiting_on(
     Some(at_stop(interrupted(Some(InterruptReason::StepLimit))))
 )]
 #[case::paused_lead(RunState::Paused, false, &[], None, false, false, None)]
-#[case::queued_behind_a_message(RunState::Queued, false, &[], None, true, false, Some(stop_queued()))]
+#[case::queued_behind_a_message(
+    RunState::Queued,
+    false,
+    &[],
+    None,
+    true,
+    false,
+    Some(stop_queued())
+)]
 #[case::queued_with_nothing_waiting(
     RunState::Queued,
     false,

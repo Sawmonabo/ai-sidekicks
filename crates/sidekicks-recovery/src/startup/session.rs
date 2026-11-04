@@ -24,7 +24,6 @@ use tokio_util::sync::CancellationToken;
 
 use crate::restart_settle::{LiveRunsEnd, RESTART_FAILURE_DETAIL};
 use crate::startup::{PassFailure, PassTally, StartupRecovery};
-use crate::stop_intent::StopIntent;
 
 // What a run records when its provider refused the resume without a message.
 static UNDESCRIBED_RESUME_FAILURE: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =
@@ -51,16 +50,13 @@ struct ResumeRefusal {
 
 impl StartupRecovery {
     /// Resumes the session's conversation where it had work in progress, then settles what the
-    /// restart left in it; a listed one takes calls again after. Each run a refused resume failed
-    /// is listed for the person. A session the stop intent names is not opened: its runs end as
-    /// the person's Stop ends them, and its name is dropped from `held_intent`, what the pass last
-    /// read or wrote of the intent, once its settle has committed and before it takes calls. Fails
-    /// at the first step that fails, a refused drop among them, which leaves the name.
+    /// restart left in it; a listed one takes calls again after, except one under the stop intent,
+    /// whose runs end as the person's Stop ends them with no resume and which the pass lets take
+    /// calls once it has dropped its name. Fails at the first step that fails.
     pub(super) async fn settle_session(
         &self,
         session_id: SessionId,
         is_under_stop: bool,
-        held_intent: &mut Option<StopIntent>,
         tally: &mut PassTally,
         stop: &CancellationToken,
     ) -> Result<(), PassFailure> {
@@ -125,15 +121,9 @@ impl StartupRecovery {
             .questions
             .withdraw_tool_server_questions(session_id)
             .await?;
-        if is_under_stop && let Some(read) = held_intent.as_ref() {
-            *held_intent = self
-                .deps
-                .stop_intent
-                .drop_session(read, &session_id)
-                .await
-                .map_err(PassFailure::StopIntent)?;
+        if !is_under_stop {
+            status.mark_session_healthy(&session_id);
         }
-        status.mark_session_healthy(&session_id);
         Ok(())
     }
 
@@ -141,11 +131,11 @@ impl StartupRecovery {
     // sessions, which settle each run the resume names as the provider answers for it; a session
     // with no run in progress, its paused runs included, or whose runs in progress each wait on a
     // pending stop of their own, is not opened, so no process is started for work the person
-    // stopped, and neither is a session the stop intent names. Answers the runs the resume took, a paused one among them staying paused, and the
-    // provider's refusal where it refused; a session with no conversation to resume, or whose
-    // resume failed short of the provider's answer, answers neither, and its runs are settled as
-    // before any resume. Where the session is not opened for its runs in progress, it answers the
-    // kept turns of every one of them too.
+    // stopped, and neither is a session the stop intent names. Answers the runs the resume took, a
+    // paused one among them staying paused, and the provider's refusal where it refused; a session
+    // with no conversation to resume, or whose resume failed short of the provider's answer,
+    // answers neither, and its runs are settled as before any resume. Where the session is not
+    // opened for its runs in progress, it answers the kept turns of every one of them too.
     async fn resume_session(
         &self,
         session_id: SessionId,

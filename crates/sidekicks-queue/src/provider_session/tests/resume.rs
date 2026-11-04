@@ -30,7 +30,7 @@ use sidekicks_provider::driver::session_control::{
 use sidekicks_provider::driver::test_registry::new_run_id;
 use sidekicks_provider::runtime_binding::store::mint_runtime_binding_id;
 use sidekicks_session::idle_sleep::openings::SessionProcessWaker;
-use sidekicks_session::run::engine::test_fixture::insert_running_run;
+use sidekicks_session::run::engine::test_fixture::insert_run;
 use sidekicks_session::run::stored_leg::read_session_leg;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -267,7 +267,12 @@ async fn a_failed_binding_after_a_resume_leaves_one_process_for_the_next_message
         .execute_batch("DROP TRIGGER refuse_the_runs_binding")
         .expect("the test lets the binding through");
     let next_run_id = new_run_id();
-    insert_running_run(&opening.database, opening.session_id, next_run_id);
+    insert_run(
+        &opening.database,
+        opening.session_id,
+        next_run_id,
+        "running",
+    );
     timeout(WAIT, opening.sessions.open(opening.session_id, next_run_id))
         .await
         .expect("the open takes its own lock once")
@@ -309,7 +314,12 @@ async fn a_run_bound_on_the_leg_carries_its_recovery_data() {
         )
         .expect("the test stores the leg's fixed start");
     let next_run_id = new_run_id();
-    insert_running_run(&opening.database, opening.session_id, next_run_id);
+    insert_run(
+        &opening.database,
+        opening.session_id,
+        next_run_id,
+        "running",
+    );
 
     let next_binding = timeout(
         WAIT,

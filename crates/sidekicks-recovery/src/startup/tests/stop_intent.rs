@@ -6,6 +6,7 @@ use rusqlite::OptionalExtension as _;
 use serde_json::Value;
 use sidekicks_approval::service::test_fixture::SETTLE_WAIT;
 use sidekicks_contracts::event::registry::SessionEventType;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
@@ -18,6 +19,7 @@ use super::resume::{
     ended_kept_turns, expect_kept_turns_ended, kept_turn, resumed_on, resuming_driver,
     still_running,
 };
+use crate::session_write_refusal::refuse_call_naming_session;
 use crate::stop_intent::{StopIntent, StopIntentFile};
 use crate::test_pass::{PassFixture, insert_runs};
 
@@ -38,6 +40,12 @@ enum Case {
     StoppedBeforeSettle,
     // A whole intent the person's Stop writes again while the pass settles.
     WholeWrittenMidPass,
+    // An intent naming a session with a run, one a purge drops mid-pass and one with nothing left.
+    NameDroppedMidPass,
+    // An intent naming a session whose history is damaged, beside a session it does not name.
+    DamagedNamed,
+    // An intent whose session's settle is refused: a message is queued for its run at each try.
+    SettleRefused,
 }
 
 // The intent's names, written as the pass writes them: whole, then named.
@@ -74,12 +82,16 @@ fn assert_ended_by_the_stop(fixture: &PassFixture, session_id: SessionId, run_id
 // A pass under the stop intent ends each named session's runs as the person's Stop ends them and
 // opens none of them, ends their kept turns for the stop, puts a queued message's words back in
 // the draft, and drops each name only once its settle has committed; with no intent a crash's
-// queued message waits for the queue to send it. Killed by the drop before the settle (the names
-// are gone at the settle's pause), by `Stopped` taken as settled (the intent is rewritten or
-// removed), by the intent ignored (a run resumes, or a driver with no resume expected is
-// called), by the kept turns ended without `is_for_stop`, by a Stop's message sent or failed with
-// its run (it is not canceled, or the draft is empty), and by a crash's waiting message held back
-// or ended (it is not left waiting for its queued run).
+// queued message waits for the queue to send it. Every named session refuses calls from the
+// pass's listing, one with nothing left among them; a name a purge drops mid-pass holds back no
+// other drop; a damaged session, and one whose settle is refused, keep their names. Killed by the
+// drop before the settle (the names are gone at the settle's pause), by `Stopped` taken as settled
+// (the intent is rewritten or removed), by the intent ignored (a run resumes, or a driver with no
+// resume expected is called), by the kept turns ended without `is_for_stop`, by a Stop's message
+// sent or failed with its run (it is not canceled, or the draft is empty), by a crash's waiting
+// message held back or ended (it is not left waiting for its queued run), by a named session with
+// nothing left not marked (it takes calls at the pause), by a drop held to the names the pass read
+// (the mid-pass drop leaves the other names), and by a damaged or refused session's name dropped.
 #[rstest]
 #[case::a_whole_intent(Case::Whole)]
 #[case::a_whole_intent_over_a_queued_message(Case::WholeQueuedMessage)]
@@ -88,12 +100,15 @@ fn assert_ended_by_the_stop(fixture: &PassFixture, session_id: SessionId, run_id
 #[case::a_pass_cut_between_the_settle_and_the_drop(Case::CutBetweenSettleAndDrop)]
 #[case::a_pass_stopped_before_the_settle(Case::StoppedBeforeSettle)]
 #[case::a_whole_intent_written_mid_pass(Case::WholeWrittenMidPass)]
+#[case::a_name_dropped_mid_pass(Case::NameDroppedMidPass)]
+#[case::a_damaged_named_session(Case::DamagedNamed)]
+#[case::a_named_session_whose_settle_is_refused(Case::SettleRefused)]
 #[tokio::test]
 async fn a_pass_under_the_stop_intent_settles_named_sessions_by_the_stop(#[case] case: Case) {
     // The first provider's runs are never resumed; the second keeps a turn the Stop ends, or
     // resumes the session the intent does not name.
     let mut second = match case {
-        Case::NamesOneOfTwo => resuming_driver(1, |params| {
+        Case::NamesOneOfTwo | Case::DamagedNamed => resuming_driver(1, |params| {
             resumed_on(params, params.binding_id.clone(), still_running)
         }),
         Case::Whole
@@ -101,7 +116,9 @@ async fn a_pass_under_the_stop_intent_settles_named_sessions_by_the_stop(#[case]
         | Case::NoIntentQueuedMessage
         | Case::CutBetweenSettleAndDrop
         | Case::StoppedBeforeSettle
-        | Case::WholeWrittenMidPass => MockProviderDriver::new(),
+        | Case::WholeWrittenMidPass
+        | Case::NameDroppedMidPass
+        | Case::SettleRefused => MockProviderDriver::new(),
     };
     let kept_ends = match case {
         Case::Whole => Some(expect_kept_turns_ended(&mut second)),
@@ -110,7 +127,10 @@ async fn a_pass_under_the_stop_intent_settles_named_sessions_by_the_stop(#[case]
         | Case::NamesOneOfTwo
         | Case::CutBetweenSettleAndDrop
         | Case::StoppedBeforeSettle
-        | Case::WholeWrittenMidPass => None,
+        | Case::WholeWrittenMidPass
+        | Case::NameDroppedMidPass
+        | Case::DamagedNamed
+        | Case::SettleRefused => None,
     };
     let fixture = PassFixture::over_drivers(vec![
         Arc::new(MockProviderDriver::new()) as Arc<dyn ProviderDriver>,
@@ -296,6 +316,104 @@ async fn a_pass_under_the_stop_intent_settles_named_sessions_by_the_stop(#[case]
             assert_ended_by_the_stop(&fixture, first_session, first_run);
             assert_ended_by_the_stop(&fixture, second_session, second_run);
             assert_eq!(intent.read().await, Some(StopIntent::Whole));
+        }
+        Case::NameDroppedMidPass => {
+            let (settled_session, settled_run, _) = fixture.running_session(0).await;
+            let (purged_session, empty_session) = (fixture.new_session(), fixture.new_session());
+            write_names(
+                &intent,
+                BTreeSet::from([settled_session, purged_session, empty_session]),
+            )
+            .await;
+            let paused = fixture.engine.restart_facts_pause().arm();
+            let running = tokio::spawn({
+                let pass = fixture.pass(Arc::clone(&fixture.status));
+                async move { pass.run(&CancellationToken::new()).await }
+            });
+            tokio::time::timeout(SETTLE_WAIT, paused.reached)
+                .await
+                .expect("the first run's settle reads its facts")
+                .expect("the pause reports");
+            let refusal_of = |session_id: &SessionId| {
+                refuse_call_naming_session(&fixture.status, session_id, "session.pin")
+                    .err()
+                    .map(|refusal| refusal.code)
+            };
+            assert_eq!(
+                refusal_of(&empty_session),
+                Some(RefusalCode::SessionRebuilding)
+            );
+            intent
+                .drop_named(&purged_session)
+                .await
+                .expect("a purge drops its session's name");
+            paused.release.send(()).expect("the settle is let go");
+            tokio::time::timeout(SETTLE_WAIT, running)
+                .await
+                .expect("the pass ends")
+                .expect("the pass's task ends");
+
+            assert_ended_by_the_stop(&fixture, settled_session, settled_run);
+            assert_eq!(intent.read().await, None);
+            assert_eq!(refusal_of(&empty_session), None);
+        }
+        Case::DamagedNamed => {
+            let (damaged, damaged_run) = fixture.stale_session(3, Some(1)).await;
+            let (resumed_session, resumed_run, _) = fixture.running_session(1).await;
+            write_names(&intent, BTreeSet::from([damaged])).await;
+
+            run_pass(&fixture, &stop).await;
+
+            assert_eq!(
+                stored_run_state(&fixture.store.database, &damaged_run).0,
+                "running"
+            );
+            assert_eq!(
+                stored_run_state(&fixture.store.database, &resumed_run).0,
+                "running"
+            );
+            assert_eq!(
+                fixture.payloads(&resumed_session, SessionEventType::AgentRunInterrupted),
+                Vec::<Value>::new()
+            );
+            assert_eq!(
+                intent.read().await,
+                Some(StopIntent::Sessions(BTreeSet::from([damaged])))
+            );
+        }
+        Case::SettleRefused => {
+            let (session_id, run_id, _) = fixture.running_session(0).await;
+            intent.write_whole().await.expect("the Stop writes");
+            let (first_try, second_try) = (
+                fixture.engine.restart_facts_pause().arm(),
+                fixture.engine.restart_facts_pause().arm(),
+            );
+            let running = tokio::spawn({
+                let pass = fixture.pass(Arc::clone(&fixture.status));
+                async move { pass.run(&CancellationToken::new()).await }
+            });
+            for paused in [first_try, second_try] {
+                tokio::time::timeout(SETTLE_WAIT, paused.reached)
+                    .await
+                    .expect("the run's settle reads its facts")
+                    .expect("the pause reports");
+                // Queued after the read, so the settle's guard refuses its write.
+                fixture.queue_message(session_id, run_id).await;
+                paused.release.send(()).expect("the settle is let go");
+            }
+            tokio::time::timeout(SETTLE_WAIT, running)
+                .await
+                .expect("the pass ends")
+                .expect("the pass's task ends");
+
+            assert_eq!(
+                stored_run_state(&fixture.store.database, &run_id).0,
+                "running"
+            );
+            assert_eq!(
+                intent.read().await,
+                Some(StopIntent::Sessions(BTreeSet::from([session_id])))
+            );
         }
     }
 }

@@ -46,7 +46,7 @@ use sidekicks_provider::runtime_binding::store::{CreateRuntimeBindingInput, Runt
 use sidekicks_provider::runtime_binding::test_store::{
     binding_input, spawn_config_on, spawned_build,
 };
-use sidekicks_session::run::engine::test_fixture::insert_running_run;
+use sidekicks_session::run::engine::test_fixture::insert_run;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::credential_store::{KeychainRefusal, SecretKeychain};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -375,7 +375,7 @@ impl Fixture {
         drop(connection);
         if has_run {
             let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-            insert_running_run(&self.database, session_id, run_id);
+            insert_run(&self.database, session_id, run_id, "running");
             self.bindings
                 .create(CreateRuntimeBindingInput {
                     run_id,

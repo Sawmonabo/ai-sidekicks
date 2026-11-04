@@ -105,12 +105,13 @@ impl ResumedRunsFinalize {
     /// run that has started has the session's waiting messages settled against its provider's
     /// record first, whatever the answer, then every named run is finalized from the state it is
     /// stored in, which nothing moves before the resumed binding is recorded, and the provider's
-    /// answer for it, or as gone where its record could not be read, the messages still waiting
-    /// for it then ended not delivered in the finalize's write, or in one of their own where the
-    /// finalize writes nothing, and one the finalize leaves running has its pending interrupts, a
-    /// person's or a limit's, handed again on a task of their own; a named run that has ended is
-    /// skipped. Writes take the session's append hold themselves, since the caller holds only its
-    /// transition lock. Fails at the first read, driver lookup, record or finalize that fails.
+    /// answer for it, or as gone where its record could not be read, the messages still waiting for
+    /// it then ended not delivered in the finalize's write, or in one of their own where the
+    /// finalize's write did not land, and one the finalize leaves running has its pending
+    /// interrupts, a person's or a limit's, handed again on a task of their own; a named run that
+    /// has ended is skipped. Writes take the session's append hold themselves, since the caller
+    /// holds only its transition lock. Fails at the first read, driver lookup, record or finalize
+    /// that fails.
     pub async fn finalize(&self, resumed: ResumedRuns) -> Result<(), ResumedRunsFinalizeError> {
         let session_id = resumed.session_id;
         let live_runs = self
@@ -134,26 +135,23 @@ impl ResumedRunsFinalize {
                 (answer.turn, None)
             };
             let (unread_items, companions) = unread.unwrap_or_default();
-            let resumed_move = self
+            let finalized = self
                 .deps
                 .run_engine
                 .finalize_resumed_run(live_run, live_run.run.state, turn, companions, None)
                 .await?;
             if !unread_items.is_empty() {
-                match resumed_move {
+                if finalized.is_written {
                     // The finalize's write carried their ends.
-                    ResumedRunMove::Paused { .. } | ResumedRunMove::TurnGone => {
-                        self.deps.delivery.settle_ended(&unread_items);
-                    }
-                    ResumedRunMove::Left | ResumedRunMove::Running => {
-                        self.deps
-                            .delivery
-                            .fail_unread_after_restart(&unread_items)
-                            .await?;
-                    }
+                    self.deps.delivery.settle_ended(&unread_items);
+                } else {
+                    self.deps
+                        .delivery
+                        .fail_unread_after_restart(&unread_items)
+                        .await?;
                 }
             }
-            if resumed_move == ResumedRunMove::Running {
+            if finalized.resumed_move == ResumedRunMove::Running {
                 self.deps
                     .interventions
                     .hand_pending_interrupts_again(live_run.run_id);
@@ -326,7 +324,7 @@ mod tests {
         insert_queue_item_statement,
     };
     use sidekicks_session::run::engine::test_fixture::{
-        append, insert_running_run, stored_run_state, test_engine,
+        append, insert_run, stored_run_state, test_engine,
     };
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::schema::session_directory::insert_session_row;
@@ -420,7 +418,7 @@ mod tests {
     impl Fixture {
         /// Stores `run_id` running in the session with its first turn open.
         async fn insert_running_turn(&self, run_id: RunId) {
-            insert_running_run(&self.database, self.session_id, run_id);
+            insert_run(&self.database, self.session_id, run_id, "running");
             let started: SessionEvent = serde_json::from_value(json!({
                 "type": "agent.turn.started",
                 "payload": {
