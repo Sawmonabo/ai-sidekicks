@@ -5,6 +5,7 @@
 mod hands;
 mod interrupt_end;
 mod kept_messages;
+mod run_end;
 mod undo_hold;
 mod withdraws;
 

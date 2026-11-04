@@ -1,5 +1,6 @@
-//! The status file a failed start leaves in the run folder, which says why the service cannot
-//! start to the clients that read it while no service answers; a start that succeeds removes it.
+//! The status file in the run folder, which holds one fact of three for the clients that read it
+//! while no service answers; a failed start leaves why the service cannot start, and a start that
+//! succeeds removes the file.
 
 use std::error::Error;
 use std::io;
@@ -58,7 +59,7 @@ pub(crate) fn record_start_failure(run_folder: &DaemonRunFolder, error: &DaemonS
     match cannot_start {
         Some(cannot_start) => {
             if let Err(failure) =
-                write_service_status(run_folder, &ServiceStatusFile { cannot_start })
+                write_service_status(run_folder, &ServiceStatusFile::CannotStart(cannot_start))
             {
                 tracing::error!(
                     path = %path.display(),

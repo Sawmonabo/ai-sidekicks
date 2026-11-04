@@ -135,10 +135,12 @@ type QueueItemByState<Members> = Members & {
     | { state: "notDelivered"; notDeliveredReason: QueueItemNotDeliveredReason }
   );
 
-// `agent.queueItem.cancel`: `Remove`. Refused for an item the queue does not hold
-// (`agent.queueItem.notFound`), one the agent has taken (`agent.queueItem.changeRefused`,
-// `alreadyTaken`), and one Claude Code does not give back, which then reads not delivered
-// (`notDelivered`).
+// `agent.queueItem.cancel`: `Remove`. Removes a waiting message, or a lead message that reads not
+// delivered; removing the last message of a queued run ends that run `stopped` with the trigger
+// `messagesRemoved`. Refused for an item the queue does not hold (`agent.queueItem.notFound`), one
+// the agent has taken (`agent.queueItem.changeRefused`, `alreadyTaken`), one Claude Code does not
+// give back, which then reads not delivered (`notDelivered`), a helper's message that reads not
+// delivered (`notDelivered`), and a hand-off's seed (`handOffSeed`).
 interface AgentQueueItemCancelRequest {
   queueItemId: QueueItemId;
   childHandle?: ChildHandle; // the child whose queue holds the item
@@ -425,14 +427,18 @@ interface RunStateChangeEvent {
   // stop-condition provenance (ADR-017): rides agent.run.interrupted when the service interrupts a
   // run itself, at the step limit or the spend limit the person set (D-013-6), because its workflow
   // phase was canceled, or because a restart ended a child held in a pause; and rides
-  // agent.run.stopped as `tokenLimit` at the run's token limit, which ends the run. A restart that
-  // settles the daemon's pending limit stop writes the limit's own value. Absent on natural
-  // completion and user-initiated paths, including the person's interrupt a restart settles. The
-  // console has no runs pane to render it in: a stopped run's cause is told on the working line,
-  // which is where a run is paused and interrupted, and in the transcript's own state-changing rows
+  // agent.run.stopped as one of three words: `tokenLimit`, the run passed its token limit, which
+  // ends the run; `daemonStop`, the person stopped the service before the run started;
+  // `messagesRemoved`, the person removed every message the run was queued for before it started.
+  // A restart that settles the daemon's pending limit stop writes the limit's own value. Absent on
+  // natural completion and on the person's own interrupt or stop of a run, including the person's
+  // interrupt a restart settles. The console has no runs pane to render it in: a stopped run's
+  // cause is told on the working line, which is where a run is paused and interrupted, and in the
+  // transcript's own state-changing rows
   // ([Spec-021 §Required Behavior](../../specs/021-desktop-app-and-renderer.md#required-behavior)).
-  // Typed per state: InterruptReason on interrupted, "tokenLimit" on stopped, never elsewhere.
-  trigger?: InterruptReason | "tokenLimit";
+  // Typed per state: InterruptReason on interrupted, "tokenLimit", "daemonStop" or
+  // "messagesRemoved" on stopped, never elsewhere.
+  trigger?: InterruptReason | "tokenLimit" | "daemonStop" | "messagesRemoved";
   // A run's linkage and its admission stamps ride the agent.run.queued row alone
   // (AgentRunQueuedPayload, orchestration-payloads.md §Plan-013), never this stream.
   timestamp: string;

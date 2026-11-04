@@ -1,8 +1,10 @@
 //! The recovery pass over the pass fixture; the resume of a session's conversation is in
-//! `resume`, and the settle of the calls each session held in the background in `held_calls`.
+//! `resume`, the settle of the calls each session held in the background in `held_calls`, and the
+//! settle of the sessions the person's Stop left in the stop intent in `stop_intent`.
 
 mod held_calls;
 mod resume;
+mod stop_intent;
 
 use std::fs;
 use std::path::{Path, PathBuf};
