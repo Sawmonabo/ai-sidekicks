@@ -370,7 +370,7 @@ async fn write_project_file(
     {
         CodexProjectFileEdit::Written | CodexProjectFileEdit::Unchanged => Ok(()),
         CodexProjectFileEdit::FileChanged => Err(McpServerWriteOutcome::Refused(
-            McpServerWriteRefusal::ProjectFileChanged,
+            McpServerWriteRefusal::ConfigFileChanged,
         )),
     }
 }

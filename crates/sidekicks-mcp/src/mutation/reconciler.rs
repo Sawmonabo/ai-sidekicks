@@ -1,14 +1,6 @@
 //! The settle of a mutation whose provider leg may or may not have landed: what the provider's
 //! config is observed to hold, compared against the receipt's digests or a switch's wanted state.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the mutation service writes, checks and settles the receipts"
-    )
-)]
-
 use crate::mutation::receipts::McpReceiptDigest;
 
 /// How a pending mutation settles against what the provider's config holds.

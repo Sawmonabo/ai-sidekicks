@@ -123,8 +123,9 @@ pub enum McpServerWriteRefusal {
         /// The version the provider holds.
         current_version: String,
     },
-    /// The project file no longer holds what the daemon last read, so it was left as it was.
-    ProjectFileChanged,
+    /// The provider's config file no longer holds what the daemon last read, so it was left as
+    /// it was.
+    ConfigFileChanged,
     /// The binding's entry changed after it was observed, so it was left as it was.
     EntryChanged,
     /// Another writer held the config file past the wait for it, or the edit's hold on it ran past

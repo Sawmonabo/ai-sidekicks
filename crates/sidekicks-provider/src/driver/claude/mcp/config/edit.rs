@@ -69,7 +69,7 @@ enum EditTry {
 /// Answers `Applied` once written or where the entry is already held, `Unknown` where the write's
 /// end is not known, and every other end as a refusal, nothing written: the lock held or the hold
 /// past its bound as `ConfigFileBusy`, the entry changed as `EntryChanged`, the file changed as
-/// `ProjectFileChanged`.
+/// `ConfigFileChanged`.
 pub(super) async fn edit_claude_mcp_entry(
     target: ClaudeEditTarget,
     server_name: &McpServerName,
@@ -132,7 +132,7 @@ where
             match tried {
                 EditTry::Ended(outcome) => outcome,
                 EditTry::FileChanged => {
-                    McpServerWriteOutcome::Refused(McpServerWriteRefusal::ProjectFileChanged)
+                    McpServerWriteOutcome::Refused(McpServerWriteRefusal::ConfigFileChanged)
                 }
             }
         }
@@ -144,7 +144,7 @@ where
                     return outcome;
                 }
             }
-            McpServerWriteOutcome::Refused(McpServerWriteRefusal::ProjectFileChanged)
+            McpServerWriteOutcome::Refused(McpServerWriteRefusal::ConfigFileChanged)
         }
     }
 }
@@ -373,12 +373,12 @@ mod tests {
     #[case::another_writer_before_the_rename(
         GuardRow::AnotherWriter,
         1,
-        McpServerWriteOutcome::Refused(McpServerWriteRefusal::ProjectFileChanged)
+        McpServerWriteOutcome::Refused(McpServerWriteRefusal::ConfigFileChanged)
     )]
     #[case::a_servers_file_that_keeps_changing(
         GuardRow::ChangingServersFile,
         5,
-        McpServerWriteOutcome::Refused(McpServerWriteRefusal::ProjectFileChanged)
+        McpServerWriteOutcome::Refused(McpServerWriteRefusal::ConfigFileChanged)
     )]
     #[case::an_entry_changed_since_observed(
         GuardRow::ChangedEntry,

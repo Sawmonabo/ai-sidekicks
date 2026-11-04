@@ -363,10 +363,10 @@ refusal_codes! {
     McpServerConfigInvalid = "mcp.server.configInvalid" (InvalidArgument, 400);
     /// A write to a provider's own configuration lost to a concurrent edit: a `user`-scope write's
     /// expected version was refused as stale, returned at once with no retry and carrying both
-    /// version tokens so the caller can re-inspect; the `project` file no longer hashes to what the
-    /// daemon last read, so the edit is not written; or another writer changed the binding's entry
-    /// since the daemon read it (`data.fields`: `provider`, `scope`, `serverName`, `reason`
-    /// `staleVersion`, `projectFileChanged` or `entryChanged`, and on `staleVersion`
+    /// version tokens so the caller can re-inspect; the provider's config file no longer holds
+    /// what the daemon last read, so the edit is not written; or another writer changed the
+    /// binding's entry since the daemon read it (`data.fields`: `provider`, `scope`, `serverName`,
+    /// `reason` `staleVersion`, `configFileChanged` or `entryChanged`, and on `staleVersion`
     /// `expectedVersion` and `currentVersion`).
     McpServerConfigWriteConflict = "mcp.server.configWriteConflict" (Aborted, 409);
     /// An `mcp.server.*` change reused a `clientIdempotencyKey` with a request the daemon cannot

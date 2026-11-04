@@ -35,9 +35,9 @@ pub enum McpConfigWriteConflict {
         /// The version the provider holds.
         current_version: String,
     },
-    /// The project file no longer hashes to what the daemon last read, so the edit was not
+    /// The provider's config file no longer holds what the daemon last read, so the edit was not
     /// written and the file was left as it was.
-    ProjectFileChanged,
+    ConfigFileChanged,
     /// Another writer changed the binding's entry after the daemon read it, so the provider holds
     /// that writer's entry and not this change.
     EntryChanged,
@@ -319,8 +319,8 @@ fn write_conflict_fields(
             "expectedVersion": expected_version,
             "currentVersion": current_version,
         }),
-        McpConfigWriteConflict::ProjectFileChanged => {
-            json!({ "reason": McpServerConfigWriteConflictReason::ProjectFileChanged })
+        McpConfigWriteConflict::ConfigFileChanged => {
+            json!({ "reason": McpServerConfigWriteConflictReason::ConfigFileChanged })
         }
         McpConfigWriteConflict::EntryChanged => {
             json!({ "reason": McpServerConfigWriteConflictReason::EntryChanged })

@@ -148,9 +148,9 @@ pub enum McpServerConfigWriteConflictReason {
     /// The provider refused the write's expected version as stale; `data.fields` carries
     /// `expectedVersion` and `currentVersion` so the caller can read the config again.
     StaleVersion,
-    /// The project file no longer hashes to what the daemon last read, so the edit was not
+    /// The provider's config file no longer holds what the daemon last read, so the edit was not
     /// written and the file was left as it was.
-    ProjectFileChanged,
+    ConfigFileChanged,
     /// Another writer changed the binding's entry in the provider's config after the daemon read
     /// it, so the provider holds that writer's entry and not this change.
     EntryChanged,
