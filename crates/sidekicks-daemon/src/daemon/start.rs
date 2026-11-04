@@ -262,9 +262,9 @@ fn run_daemon(
         .await;
         let ran = match started {
             Ok(mut process) => {
-                let intent = process.wait_for_stop().await;
+                let reason = process.wait_for_stop().await;
                 let drain_started = Instant::now();
-                match process.stop(intent).await {
+                match process.stop(reason).await {
                     Ok(()) => {
                         tracing::info!("the background service stopped");
                         (ExitCode::SUCCESS, drain_started)

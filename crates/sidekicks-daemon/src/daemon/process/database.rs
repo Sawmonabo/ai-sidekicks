@@ -26,7 +26,6 @@ use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_platforms::DaemonRunFolder;
 use sidekicks_provider::account::observer::window_store::usage_window_projection_statements;
 use sidekicks_provider::account::usage_turns::usage_turn_projection_statements;
-use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_recovery::database_file::check::{DatabaseFileCheck, DatabaseFileCheckAnswer};
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
 use sidekicks_recovery::database_file::last_run::{
@@ -76,6 +75,7 @@ use tokio_util::task::AbortOnDropHandle;
 
 use crate::bootstrap::SecureDefaults;
 use crate::daemon::process::database::statement_capacity::READ_POOL_STATEMENT_CAPACITY;
+use crate::daemon::process::stop::DaemonStopReason;
 use crate::daemon::process::supervision::ProcessStateTracker;
 use crate::daemon::repairing_socket::{
     DatabaseFileRepairEnd, RepairingSocketDeps, RepairingSocketError,
@@ -140,9 +140,9 @@ pub(crate) enum DatabaseFileOpenError {
         /// The database file.
         path: PathBuf,
     },
-    /// A stop came while the file was repaired.
+    /// A stop came while the file was repaired, for the reason it gives.
     #[error("a stop came while the database file was repaired")]
-    Stopped(DaemonStopIntent),
+    Stopped(DaemonStopReason),
     /// The last run's record could not be read or written.
     #[error(transparent)]
     LastRun(#[from] LastRunError),
@@ -279,8 +279,8 @@ pub(crate) async fn open_database_file(
                 failure,
             });
         }
-        DatabaseFileRepairEnd::Stopped(intent) => {
-            return Err(DatabaseFileOpenError::Stopped(intent));
+        DatabaseFileRepairEnd::Stopped(reason) => {
+            return Err(DatabaseFileOpenError::Stopped(reason));
         }
     }
     let last_run = read_last_run_end(&database_path).await?;

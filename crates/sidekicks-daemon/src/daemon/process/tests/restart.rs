@@ -14,7 +14,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::{create_missing_private_folders, short_socket_folder};
-use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::test_registry::{
     CodexServiceStandIn, RESUMED_TURN_NAME, serve_as_codex_service_stand_in, stand_in_codex_service,
 };
@@ -36,6 +35,7 @@ use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
 
 use super::{STOP_WAIT, TestHome};
+use crate::daemon::process::stop::DaemonStopReason;
 use crate::daemon::schema::schema_parts;
 
 // The provider turn the seeded run was running when the daemon stopped.
@@ -299,11 +299,11 @@ async fn a_restart_keeps_the_terminal_service_and_the_next_start_joins_it_first(
     let launches = stand_in.launches();
     let connections = stand_in.connections();
     second
-        .stop(DaemonStopIntent::Stop)
+        .stop(DaemonStopReason::Stop)
         .await
         .expect("the second daemon's stop fails nothing");
 
-    assert_eq!(asked, DaemonStopIntent::Restart);
+    assert_eq!(asked, DaemonStopReason::Restart);
     assert_eq!(launched.len(), 1, "the first daemon launches its service");
     assert_eq!(launches, launched, "the second daemon launched a service");
     let second_daemons = connections
@@ -380,11 +380,11 @@ async fn a_restart_keeps_a_resumed_runs_account_service_and_the_next_pass_resume
     let connections = account_connections(&stand_in, account_process);
     let run_state = stored_run_state(&home, seeded.run_id);
     second
-        .stop(DaemonStopIntent::Stop)
+        .stop(DaemonStopReason::Stop)
         .await
         .expect("the second daemon's stop fails nothing");
 
-    assert_eq!(asked, DaemonStopIntent::Restart);
+    assert_eq!(asked, DaemonStopReason::Restart);
     assert_eq!(launches, launched, "the second daemon launched a service");
     let second_daemons = connections
         .get(first_daemons_connections..)
@@ -449,7 +449,7 @@ async fn a_run_the_recovery_pass_ends_has_its_binding_cursors_dropped_at_the_nex
         .as_ref()
         .is_some_and(|binding_id| binding_cursors.is_binding_open(binding_id));
     daemon
-        .stop(DaemonStopIntent::Stop)
+        .stop(DaemonStopReason::Stop)
         .await
         .expect("the daemon's stop fails nothing");
 
