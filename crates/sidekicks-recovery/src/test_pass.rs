@@ -29,9 +29,13 @@ use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::question::QuestionId;
+use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_mcp::client::McpClient;
+use sidekicks_mcp::client::dispatch::McpToolDispatch;
+use sidekicks_mcp::client::dispatch::restart_sweep::McpRestartSweep;
 use sidekicks_platforms::{Spawner, harness_test_name, pass_through_start};
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::ProviderDriver;
@@ -356,6 +360,17 @@ impl PassFixture {
                 &test_driver_services(),
             )),
         ));
+        // No receipt is in flight, so the sweep asks no question and reaches no server.
+        let mcp_client = McpClient::new(
+            Arc::new(PortRegistration::new("questions")),
+            ReleaseVersion::new("0.0.0".to_owned()).expect("a release version"),
+        )
+        .expect("the tool-server client builds");
+        let mcp_sweep = McpRestartSweep::new(
+            Arc::new(mcp_client),
+            Arc::new(McpToolDispatch::new(Arc::clone(&store.writer))),
+            Arc::clone(&services.reads),
+        );
         StartupRecovery::new(StartupRecoveryDeps {
             machine_id: MachineId::new("machine-1".to_owned()).expect("the test's machine id"),
             reads: services.reads,
@@ -375,6 +390,7 @@ impl PassFixture {
                 Spawner::new(Handle::current()).expect("the spawner starts"),
             )),
             stop_intent: services.stop_intent,
+            mcp_sweep,
         })
     }
 

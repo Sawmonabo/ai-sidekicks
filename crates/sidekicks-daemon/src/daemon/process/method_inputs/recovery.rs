@@ -8,6 +8,7 @@ use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
 use sidekicks_mcp::client::McpClient;
 use sidekicks_mcp::client::dispatch::McpToolDispatch;
+use sidekicks_mcp::client::dispatch::restart_sweep::McpRestartSweep;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_queue::provider_session::resumed_runs::ResumedRunsIngress;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
@@ -79,11 +80,7 @@ pub(super) struct RecoveryServiceStart<'start> {
     pub(super) copier: Arc<DatabaseFileCopier>,
     /// The intent the person's Stop writes, the one the process holds from its start.
     pub(super) stop_intent: Arc<StopIntentFile>,
-    /// The tool calls' one dispatch.
-    #[expect(
-        dead_code,
-        reason = "the restart's sweep resumes each receipt a stop left in flight through it"
-    )]
+    /// The tool calls' one dispatch, which the restart's sweep resumes each receipt through.
     pub(super) mcp_dispatch: Arc<McpToolDispatch>,
 }
 
@@ -125,7 +122,7 @@ pub(super) fn build_recovery_services(
         data_folder,
         copier,
         stop_intent,
-        mcp_dispatch: _,
+        mcp_dispatch,
     } = start;
     let projection_rebuild = Arc::new(ProjectionRebuildService::new(
         Arc::clone(reads),
@@ -189,6 +186,7 @@ pub(super) fn build_recovery_services(
         data_folder: data_folder.to_path_buf(),
         copier,
         stop_intent,
+        mcp_sweep: McpRestartSweep::new(Arc::clone(mcp_client), mcp_dispatch, Arc::clone(reads)),
     });
     Ok(RecoveryServices {
         stored,
