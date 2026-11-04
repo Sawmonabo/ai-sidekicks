@@ -124,12 +124,14 @@ struct SettleAttemptRead {
 
 impl RunEngine {
     /// Ends the run for an applied or degraded interrupt accepted at `accepted_run_version`, with
-    /// `verdict` in the same write: `interrupted` for a person's, and for the daemon's own the end
-    /// `limit` gives, with `cut_turn`, the turn its row names, ended interrupted with the limit of
-    /// its cuts the engine holds, else of the log's rows, else `limit`; on a run that reads ended,
-    /// that turn still takes the limit's end, written on its own. Returns `true`, or `false` with
-    /// no change of the run written when it ended since that version, the caller then recording
-    /// the verdict alone; fails as the reads and [`RunEngine::transition`] do.
+    /// `verdict` in the same write: for a person's, `failed` (`refused`) with the refusal choice
+    /// settled `canceled` where the run waits on that choice, else `interrupted`, and for the
+    /// daemon's own the end `limit` gives, with `cut_turn`, the turn its row names, ended
+    /// interrupted with the limit of its cuts the engine holds, else of the log's rows, else
+    /// `limit`; on a run that reads ended, that turn still takes the limit's end, written on its
+    /// own. Returns `true`, or `false` with no change of the run written when it ended since that
+    /// version, the caller then recording the verdict alone; fails as the reads and
+    /// [`RunEngine::transition`] do.
     pub async fn end_run_for_interrupt(
         &self,
         run_id: RunId,
@@ -145,12 +147,22 @@ impl RunEngine {
         );
         let ended = match limit {
             None => {
-                let interrupted = RunStateEntry::Interrupted {
-                    intended_close: None,
-                    trigger: None,
-                };
-                self.change(RunStateChange::new(run_id, interrupted), companions, None)
-                    .await
+                let mut is_read_again = false;
+                loop {
+                    let mut attempt = companions.clone();
+                    let (change, refusal_guard_index) =
+                        self.person_interrupt_end(run_id, &mut attempt).await?;
+                    match self.change(change, attempt, None).await {
+                        // The person answered the refusal choice since the read: read once more.
+                        Err(RunEngineError::Change(RunWriteError::CompanionRefused {
+                            companion_index,
+                            ..
+                        })) if !is_read_again && Some(companion_index) == refusal_guard_index => {
+                            is_read_again = true;
+                        }
+                        ended => break ended,
+                    }
+                }
             }
             Some(limit) => {
                 let run = self.require_run(run_id).await?;
@@ -188,6 +200,42 @@ impl RunEngine {
             ) => Ok(false),
             Err(error) => Err(error),
         }
+    }
+
+    // A person's interrupt's end of `run_id`, from one read: `failed` (`refused`) where the run
+    // waits on the refusal choice, which `companions` then settle `canceled` with its guard last,
+    // that guard's position returned beside the end; else `interrupted`.
+    async fn person_interrupt_end(
+        &self,
+        run_id: RunId,
+        companions: &mut RunWriteCompanions,
+    ) -> Result<(RunStateChange, Option<usize>), RunEngineError> {
+        let waiting_refusal = self
+            .pool
+            .read(
+                ReadLength::Short,
+                move |reader| match RunStateReader::new(reader).read_run(&run_id)? {
+                    Some(run) if run.state == RunState::WaitingForInput => {
+                        read_waiting_refusal(reader, run.session_id, run_id)
+                    }
+                    _ => Ok(None),
+                },
+            )
+            .await?;
+        let Some(refusal) = waiting_refusal else {
+            let interrupted = RunStateEntry::Interrupted {
+                intended_close: None,
+                trigger: None,
+            };
+            return Ok((RunStateChange::new(run_id, interrupted), None));
+        };
+        companions.statements.push(refusal.settlement.guard);
+        companions.preceding_events.push(refusal.settlement.event);
+        companions.settled_choices.push(ChoiceDialog::Refusal);
+        Ok((
+            refused_end(run_id, refusal.cause),
+            Some(companions.statements.len() - 1),
+        ))
     }
 
     /// Whether `run_id` has ended since `run_version`, read from its terminal records, a run
