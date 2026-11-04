@@ -27,13 +27,6 @@ const PROJECT_LAYER_KIND: &str = "project";
 /// user layer, a `project` one from the layer of its root's `.codex` folder, and any other binding
 /// as absent, since no layer Codex writes holds it. Fails as the read fails, and with
 /// `CodexError::Transport` where the reply lists no user layer.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the driver's MCP write, observe and compose methods call it"
-    )
-)]
 pub(super) async fn observe_codex_mcp_server(
     connection: &CodexAppServerConnection,
     binding: &McpServerBindingRef,

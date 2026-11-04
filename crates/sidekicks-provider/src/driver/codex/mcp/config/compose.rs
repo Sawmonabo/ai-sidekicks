@@ -47,13 +47,6 @@ type SubmittedMember = (&'static str, Option<Value>);
 /// The entry Codex holds for `binding` once `config` is written over `before`. Fails with
 /// `McpServerWriteRefusal::EntryInvalid` for a transport Codex reaches no server over, or a value
 /// that does not serialize.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the driver's MCP write, observe and compose methods call it"
-    )
-)]
 pub(super) fn compose_codex_mcp_entry(
     binding: &McpWritableBindingRef,
     config: &McpServerConfigInput,

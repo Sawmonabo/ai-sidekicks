@@ -4,27 +4,30 @@
 //! written, so the person's own forms of the rest stay. A landed write is followed by one reload
 //! of the running service's servers, whose failure travels inside the applied outcome.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use serde_json::{Map, Value};
+use sidekicks_contracts::mcp::server::config::McpServerConfigInput;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpWritableBindingRef};
 
 use crate::driver::codex::app_server_protocol::{
     ConfigBatchWriteParams, ConfigEdit, MergeStrategy,
 };
-use crate::driver::codex::mcp::config::compose::before_members;
+use crate::driver::codex::lifecycle::CodexDriver;
+use crate::driver::codex::mcp::config::compose::{before_members, compose_codex_mcp_entry};
 use crate::driver::codex::mcp::config::observe::observe_codex_mcp_server;
 use crate::driver::codex::mcp::config::project_file::{
     CodexProjectFile, CodexProjectFileEdit, CodexProjectFileError, CodexProjectServerEdit,
 };
 use crate::driver::codex::mcp::config::server_entry::ENABLED_MEMBER;
+use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
 use crate::driver::codex::session::errors::{CODEX_INVALID_REQUEST_CODE, CodexError};
 use crate::driver::codex::thread::settings::MCP_SERVERS_KEY;
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
 use crate::driver::mcp_server::write::{
-    McpServerObserved, McpServerWrite, McpServerWriteOutcome, McpServerWriteRefusal,
-    provider_words_without_values,
+    McpServerEntry, McpServerObserved, McpServerWrite, McpServerWriteOutcome,
+    McpServerWriteRefusal, provider_words_without_values,
 };
 
 /// The request that writes several key paths of Codex's user config at once.
@@ -55,18 +58,88 @@ const RELOAD_UNANSWERED_WORDS: &str =
 /// The words for a switch of a binding whose switch Codex's config does not keep.
 const NO_SWITCH_WORDS: &str = "Codex's config keeps no switch for this server.";
 
+impl CodexDriver {
+    /// What Codex's config holds for `binding`, read on the service on the person's own Codex
+    /// folder at the binding's folder. Fails as the service's start or the config read fails.
+    #[expect(
+        dead_code,
+        reason = "the driver trait's MCP write, observe and compose call it"
+    )]
+    pub(crate) async fn observe_mcp_server(
+        &self,
+        binding: &McpServerBindingRef,
+    ) -> Result<McpServerObserved, CodexError> {
+        let cwd = mcp_write_folder(binding, &self.project_rules.home_folder);
+        let cwd = cwd.as_path();
+        self.registry
+            .read_on_personal_folder(PersonalFolderRead::Config, |service| async move {
+                observe_codex_mcp_server(&*service.connection()?, binding, cwd).await
+            })
+            .await
+    }
+
+    /// The entry Codex holds for `binding` once `config` is written over `before`. Fails as
+    /// [`compose_codex_mcp_entry`] does.
+    #[expect(
+        dead_code,
+        reason = "the driver trait's MCP write, observe and compose call it"
+    )]
+    #[expect(clippy::unused_self, reason = "the driver trait's method shape")]
+    pub(crate) fn compose_mcp_server(
+        &self,
+        binding: &McpWritableBindingRef,
+        config: &McpServerConfigInput,
+        before: &McpServerObserved,
+    ) -> Result<McpServerEntry, McpServerWriteRefusal> {
+        compose_codex_mcp_entry(binding, config, &before.entry)
+    }
+
+    /// Writes `write` against `before` on the service on the person's own Codex folder; a service
+    /// that cannot be started or reached refuses it in the provider's words.
+    #[expect(
+        dead_code,
+        reason = "the driver trait's MCP write, observe and compose call it"
+    )]
+    pub(crate) async fn write_mcp_server(
+        &self,
+        write: &McpServerWrite,
+        before: &McpServerObserved,
+    ) -> McpServerWriteOutcome {
+        let binding = match write {
+            McpServerWrite::Upsert { binding, .. } | McpServerWrite::Remove { binding } => {
+                McpServerBindingRef::from(binding)
+            }
+            McpServerWrite::SetEnabled { binding, .. } => binding.clone(),
+        };
+        let cwd = mcp_write_folder(&binding, &self.project_rules.home_folder);
+        let cwd = cwd.as_path();
+        self.registry
+            .read_on_personal_folder(PersonalFolderRead::Config, |service| async move {
+                Ok(write_codex_mcp_server(&*service.connection()?, write, before, cwd).await)
+            })
+            .await
+            .unwrap_or_else(|error| refused_by_provider(&error.to_string()))
+    }
+}
+
+/// The folder Codex's config is read and written at for `binding`: its root for a `project` or
+/// `local` binding, `home`, the person's home folder, for any other.
+fn mcp_write_folder(binding: &McpServerBindingRef, home: &Path) -> PathBuf {
+    match binding {
+        McpServerBindingRef::Project { scope_ref, .. }
+        | McpServerBindingRef::Local { scope_ref, .. } => PathBuf::from(scope_ref.as_str()),
+        McpServerBindingRef::User { .. }
+        | McpServerBindingRef::Plugin { .. }
+        | McpServerBindingRef::Connector { .. }
+        | McpServerBindingRef::Managed { .. } => home.to_path_buf(),
+    }
+}
+
 /// Writes `write` to the person's own Codex config over `connection`, a service on the person's
 /// own Codex folder, against `before`, the binding as observed at `cwd`: the person's home folder
 /// for a `user` binding and the project's root, the folder a `project` binding's file is read
 /// from, for `project` and `local`. A write that landed is followed by one reload of the service's
 /// servers; a failed reload leaves the write applied, with Codex's words for it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the driver's MCP write, observe and compose methods call it"
-    )
-)]
 pub(super) async fn write_codex_mcp_server(
     connection: &CodexAppServerConnection,
     write: &McpServerWrite,
