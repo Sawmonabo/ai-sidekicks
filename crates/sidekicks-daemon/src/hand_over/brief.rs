@@ -51,12 +51,14 @@ pub(crate) enum HandOverBriefExportError {
 
 /// Takes `params`' session's summary through `driver`, then writes the session's transcript as a
 /// new file in its storage folder through `writer`, so the file holds the log as it stands once
-/// the summary is taken. Fails as the summary, the file's name or the file fails; a failed summary
-/// writes no file.
+/// the summary is taken: the whole conversation, or with `after_sequence` the runs created after
+/// it, which a move back to a provider the session ran on passes. Fails as the summary, the file's
+/// name or the file fails; a failed summary writes no file.
 pub(crate) async fn export_hand_over_brief(
     driver: &dyn ProviderDriver,
     writer: &TranscriptFileWriter,
     params: ExportHandoverBriefParams,
+    after_sequence: Option<i64>,
 ) -> Result<HandOverBriefExport, HandOverBriefExportError> {
     let session_id = params.session_id;
     let summary = driver.export_handover_brief(params).await?;
@@ -66,6 +68,7 @@ pub(crate) async fn export_hand_over_brief(
             session_id,
             session_id,
             &format!("{HAND_OVER_TRANSCRIPT_FILE_STEM}-{export_name}.txt"),
+            after_sequence,
         )
         .await?;
     Ok(HandOverBriefExport {
@@ -174,10 +177,10 @@ mod tests {
             .times(2)
             .returning(move |_params| futures::future::ready(Ok(answered.clone())).boxed());
 
-        let first = export_hand_over_brief(&driver, &writer, export_params(session_id))
+        let first = export_hand_over_brief(&driver, &writer, export_params(session_id), None)
             .await
             .expect("the brief exports");
-        let second = export_hand_over_brief(&driver, &writer, export_params(session_id))
+        let second = export_hand_over_brief(&driver, &writer, export_params(session_id), None)
             .await
             .expect("a second brief exports");
 

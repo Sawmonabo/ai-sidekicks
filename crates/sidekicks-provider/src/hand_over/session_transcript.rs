@@ -1,5 +1,5 @@
-//! A session's whole transcript, every run of it, the lead's and each helper's, handed to a sink
-//! as it is read. Runs come in the order each run's first row, its `agent.run.queued`, is logged;
+//! A session's transcript, every run of it or every run created after a given sequence, the lead's
+//! and each helper's, handed to a sink as it is read. Runs come in the order each run's first row, its `agent.run.queued`, is logged;
 //! within a run the canonical fold gives the turns. One read pass over the log under one snapshot
 //! holds at most one hydrated page, the segment being handed on and the run's calls whose result
 //! folds, never the session: each page is folded and handed on before the next is read, a call's
@@ -80,14 +80,16 @@ impl<SinkError> From<SessionLogReadError> for SessionTranscriptError<SinkError> 
     }
 }
 
-/// Hands session `session_id`'s whole transcript to `sink`, read on `connection` under one
-/// snapshot; `read_damaged_from_sequence` answers where a damaged session's reads stop. Fails
-/// when the log cannot be read, a row is not its type's, or the sink refuses a piece, having
-/// handed on what came before.
+/// Hands session `session_id`'s transcript to `sink`, read on `connection` under one snapshot:
+/// the whole of it, or with `after_sequence` only the runs created after that sequence;
+/// `read_damaged_from_sequence` answers where a damaged session's reads stop. Fails when the log
+/// cannot be read, a row is not its type's, or the sink refuses a piece, having handed on what
+/// came before.
 pub fn stream_session_transcript<DamagedFrom, Sink>(
     connection: &Connection,
     read_damaged_from_sequence: DamagedFrom,
     session_id: &SessionId,
+    after_sequence: Option<i64>,
     sink: &mut Sink,
 ) -> Result<(), SessionTranscriptError<Sink::Error>>
 where
@@ -103,6 +105,7 @@ where
             connection,
         },
         session_id,
+        after_sequence.unwrap_or(START_OF_LOG_POSITION),
         sink,
     )?;
     snapshot.commit().map_err(SessionLogReadError::from)?;
@@ -218,13 +221,14 @@ where
     }
 }
 
-/// Walks every run of the session in the order its creation record is logged.
+/// Walks every run of the session whose creation record is logged after `after_position`, in the
+/// order those records are logged.
 fn walk_session<Sink: SessionTranscriptSink>(
     pages: &impl TranscriptPageSource,
     session_id: &SessionId,
+    mut after_position: i64,
     sink: &mut Sink,
 ) -> Result<(), SessionTranscriptError<Sink::Error>> {
-    let mut after_position = START_OF_LOG_POSITION;
     let mut number = 0;
     while let Some(queued_row) = pages.read_next_run(session_id, after_position)? {
         after_position = i64::from(queued_row.sequence);
@@ -389,6 +393,7 @@ mod tests {
     use sidekicks_contracts::event::envelope::EventEnvelope;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::run::queued::AgentRunQueuedPayload;
+    use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_store::events::content::codec::{BodyStreamError, StoredBodyPlace};
@@ -620,7 +625,8 @@ mod tests {
             streamed_body: String::new(),
             streamed_frames: 0,
         };
-        walk_session(&pages, &log.session_id, &mut sink).expect("the session's transcript reads");
+        walk_session(&pages, &log.session_id, START_OF_LOG_POSITION, &mut sink)
+            .expect("the session's transcript reads");
 
         assert!(
             sink.streamed_frames > 1,
@@ -710,7 +716,8 @@ mod tests {
             streamed_body: String::new(),
             streamed_frames: 0,
         };
-        walk_session(&pages, &log.session_id, &mut sink).expect("the session's transcript reads");
+        walk_session(&pages, &log.session_id, START_OF_LOG_POSITION, &mut sink)
+            .expect("the session's transcript reads");
 
         let pieces: Vec<Piece> = sink.pieces.into_iter().map(|(_, piece)| piece).collect();
         assert_eq!(
