@@ -93,7 +93,7 @@ impl ProviderSwitches {
             larger_window: request.larger_window,
         };
         // Checked before the lock, so a slow catalog read holds no other switch of the agent.
-        let applies_at = check_binding_switch(
+        let mut applies_at = check_binding_switch(
             &self.providers,
             agent_id,
             checked.session_id,
@@ -104,6 +104,17 @@ impl ProviderSwitches {
 
         let _hold = self.locks.acquire(agent_id).await;
         let row = self.read_row(agent_id).await?;
+        // A binding that moved since the first read is checked again before anything is written.
+        if row.binding != checked.binding {
+            applies_at = check_binding_switch(
+                &self.providers,
+                agent_id,
+                row.session_id,
+                &row.binding,
+                &target,
+            )
+            .await?;
+        }
         let replaced_switch_id = row.pending_switch.map(|pending| pending.switch.switch_id);
         let switch = if is_pick_back(&row.binding, &target) {
             let Some(canceled) = replaced_switch_id else {
@@ -209,18 +220,25 @@ fn is_pick_back(binding: &AgentProviderBinding, target: &AgentBindingSwitchTarge
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use futures::FutureExt as _;
+    use rstest::rstest;
+    use rusqlite::Connection;
     use serde_json::{Value, json};
     use sidekicks_contracts::agent::definition::AgentId;
     use sidekicks_contracts::agent::provider_binding::{AgentBindingSwitchDisposition, SwitchId};
+    use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_provider::driver::PROVIDERS;
     use sidekicks_provider::driver::contract::MockProviderDriver;
     use sidekicks_provider::driver::contract::error::DriverError;
     use sidekicks_provider::driver::test_registry::registry_of_first_provider;
-    use sidekicks_session::agents::projection::test_fixture::{binding, project, session_created};
+    use sidekicks_session::agents::projection::test_fixture::{
+        binding, binding_changed, project, session_created,
+    };
     use sidekicks_session::agents::projection::{AgentRow, read_agent_row};
     use sidekicks_std::keyed_lock::KeyedLock;
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -233,15 +251,41 @@ mod tests {
     /// The model the agent's binding names.
     const MODEL: &str = "model-a";
 
-    // One agent on the first provider, whose catalog lists no model, so every effort is accepted.
-    struct Fixture {
-        database: TestDatabase,
-        switches: ProviderSwitches,
-        agent_id: AgentId,
+    /// The agent a fixture's driver is built for, and the database file its rows are in.
+    pub(super) struct SeededAgent {
+        /// The database file, which a driver's own write opens.
+        pub(super) path: PathBuf,
+        /// The agent's session.
+        pub(super) session_id: SessionId,
+        /// The agent.
+        pub(super) agent_id: AgentId,
+    }
+
+    /// One agent on the first provider, as the lead of its session.
+    pub(super) struct Fixture {
+        pub(super) database: TestDatabase,
+        pub(super) switches: ProviderSwitches,
+        pub(super) session_id: SessionId,
+        pub(super) agent_id: AgentId,
     }
 
     impl Fixture {
+        // Over a driver whose catalog lists no model, so every effort is accepted.
         async fn new() -> Self {
+            Self::with_driver(|_| {
+                let mut driver = MockProviderDriver::new();
+                driver
+                    .expect_list_models()
+                    .returning(|_| async { Ok(Vec::new()) }.boxed());
+                driver
+            })
+            .await
+        }
+
+        /// Over the driver `driver_of` builds for the seeded agent.
+        pub(super) async fn with_driver(
+            driver_of: impl FnOnce(SeededAgent) -> MockProviderDriver,
+        ) -> Self {
             let database = TestDatabase::new(schema_parts());
             let writer = Arc::new(
                 DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
@@ -255,10 +299,12 @@ mod tests {
                 session_id,
                 &session_created(session_id, &agent_id, &binding(PROVIDERS[0].id, MODEL)),
             );
-            let mut driver = MockProviderDriver::new();
-            driver
-                .expect_list_models()
-                .returning(|_| async { Ok(Vec::new()) }.boxed());
+            let agent_id = AgentId::new(&agent_id).expect("a minted UUID is an agent id");
+            let driver = driver_of(SeededAgent {
+                path: database.path(),
+                session_id,
+                agent_id,
+            });
             let switches = ProviderSwitches {
                 // The one statement it prepares reads the agent's row.
                 pool: Arc::new(DatabaseReadPool::new(database.path(), 1)),
@@ -269,7 +315,8 @@ mod tests {
             Self {
                 database,
                 switches,
-                agent_id: AgentId::new(&agent_id).expect("a minted UUID is an agent id"),
+                session_id,
+                agent_id,
             }
         }
 
@@ -292,7 +339,7 @@ mod tests {
             Ok(self.switches.accept(request, actor).await?.switch)
         }
 
-        fn row(&self) -> AgentRow {
+        pub(super) fn row(&self) -> AgentRow {
             read_agent_row(&self.database.reader(), &self.agent_id)
                 .expect("the row reads")
                 .expect("the agent has a row")
@@ -395,5 +442,50 @@ mod tests {
         let after = fixture.row();
         assert_eq!(after.pending_switch, None);
         assert_eq!(after.updated_at, before);
+    }
+
+    // A binding moved between the first read and the one under the lock is checked again, and an
+    // unmoved one is not. Killed by the second check dropped, and by it always run.
+    #[rstest]
+    #[case::binding_moved(true, 2)]
+    #[case::binding_unmoved(false, 1)]
+    #[tokio::test]
+    async fn accept_checks_again_only_a_binding_moved_since_its_first_check(
+        #[case] is_moved: bool,
+        #[case] catalog_reads: usize,
+    ) {
+        let reads = Arc::new(AtomicUsize::new(0));
+        let fixture = Fixture::with_driver(|seeded| {
+            let reads = Arc::clone(&reads);
+            let mut driver = MockProviderDriver::new();
+            driver.expect_list_models().returning(move |_| {
+                // Another switch lands between the two reads of the row.
+                if reads.fetch_add(1, Ordering::SeqCst) == 0 && is_moved {
+                    project(
+                        &Connection::open(&seeded.path).expect("the test opens the database"),
+                        seeded.session_id,
+                        &binding_changed(
+                            seeded.session_id,
+                            seeded.agent_id.text().as_str(),
+                            &mint_uuid_v7().to_string(),
+                            &binding(PROVIDERS[0].id, MODEL),
+                            &binding(PROVIDERS[0].id, "model-b"),
+                            "account-1",
+                        ),
+                    );
+                }
+                async { Ok(Vec::new()) }.boxed()
+            });
+            driver
+        })
+        .await;
+
+        pending_ids(
+            fixture
+                .accept(json!({ "effort": "high" }))
+                .await
+                .expect("the switch is accepted"),
+        );
+        assert_eq!(reads.load(Ordering::SeqCst), catalog_reads);
     }
 }
