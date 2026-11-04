@@ -738,7 +738,10 @@ pub(crate) async fn register_method_inputs(
             },
             child_run_controls: Arc::new(ChildRunControls::new(
                 Arc::clone(&reads),
+                Arc::clone(&registry),
                 InterventionService::clone(&session.interventions),
+                Arc::clone(&session.appender),
+                Arc::clone(&read_damaged_from_sequence),
             )),
             command_methods: Arc::new(CommandMethodSources {
                 pool: Arc::clone(&reads),

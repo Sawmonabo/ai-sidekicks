@@ -1,30 +1,41 @@
-//! A person's controls on one helper of a run, named by its handle: each is refused by the run it
-//! belongs to, then that run's version, then the handle, and acts on the helper's own run through
-//! the service that acts on any run.
+//! A person's controls on a session's helpers: one helper of a run, named by its handle, is
+//! refused by the run it belongs to, then that run's version, then the handle, and acted on through
+//! its own run by the service that acts on any run; the stop of every agent a session dispatched
+//! sweeps the session's tree and appends one flow row naming the agents it reached.
 
 use std::sync::Arc;
 
 use serde_json::json;
 use sidekicks_contracts::agent::tree::ChildHandle;
+use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::children::{
     AgentChildRunControlRefusedDetails, AgentChildRunControlRefusedReason,
-    AgentChildRunInterruptRequest, AgentChildRunInterruptResponse,
+    AgentChildRunInterruptRequest, AgentChildRunInterruptResponse, AgentChildRunStopAllRequest,
+    AgentChildRunStopAllResponse, ChildStopOutcome,
 };
-use sidekicks_contracts::run::events::InterventionActor;
+use sidekicks_contracts::run::events::{AgentChildrenStoppedPayload, InterventionActor};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{
     AgentRunInterveneRequest, AgentRunInterveneResponse, InterventionInterruptRequest,
-    InterventionState,
 };
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
+use sidekicks_store::events::session::appender::{
+    SessionEventAppender, SessionEventDraft, SessionEventEmitError, SessionEventLinkage,
+};
+use sidekicks_store::events::session::read::{DamagedFromSequenceReader, session_read_bound};
 
 use crate::agent_tree::read::{AgentTreeReadError, resolve_child};
+use crate::agent_tree::sweep::{AgentTreeSweep, AgentTreeSweepError, SweepRoot};
+use crate::driver_resolution::read_session_provider;
 use crate::interventions::service::InterventionService;
 use crate::interventions::service::errors::InterventionError;
 use crate::run::read::{RunStateReader, safe_run_version};
@@ -52,15 +63,21 @@ pub enum ChildRunControlError {
     /// The intervention on the child's own run refused or failed, answered as it answers.
     #[error(transparent)]
     Intervention(#[from] InterventionError),
-    /// The intervention answered a state this control has no answer for.
-    #[error(
-        "the intervention on the child's own run answered {}",
-        <&'static str>::from(*.state)
-    )]
-    UnlistedAnswer {
-        /// The state it answered.
-        state: InterventionState,
+    /// The session is not one this daemon holds (`session.notFound`).
+    #[error("this daemon holds no such session")]
+    SessionNotFound {
+        /// The session asked for.
+        session_id: SessionId,
     },
+    /// No driver answers the provider the session's lead runs on.
+    #[error("no driver answers the provider of the session's lead")]
+    LeadProvider(#[source] DomainError),
+    /// The session's agents could not be read, so none was stopped.
+    #[error(transparent)]
+    Sweep(#[from] AgentTreeSweepError),
+    /// The stop's flow row was not drafted or not kept.
+    #[error("the flow row of the stop was not appended")]
+    Row(#[from] SessionEventEmitError),
     /// The child's node or its own run could not be read.
     #[error(transparent)]
     Tree(#[from] AgentTreeReadError),
@@ -74,7 +91,8 @@ pub enum ChildRunControlError {
 
 impl From<ChildRunControlError> for HandlerError {
     /// A refusal answers by its code, the intervention's as it answers them (an unknown queue item
-    /// among them); a failed read and an unlisted answer are faults in the daemon.
+    /// among them); a failed read, a missing driver, a failed sweep and a lost row are faults in
+    /// the daemon.
     fn from(error: ChildRunControlError) -> Self {
         match error {
             ChildRunControlError::Run(refusal) => Self::Refused(refusal.into()),
@@ -93,7 +111,12 @@ impl From<ChildRunControlError> for HandlerError {
                 .with_detail(AgentChildRunControlRefusedDetails { reason }),
             ),
             ChildRunControlError::Intervention(error) => error.into(),
-            fault @ (ChildRunControlError::UnlistedAnswer { .. }
+            ChildRunControlError::SessionNotFound { session_id } => {
+                Self::Refused(session_not_found(&session_id))
+            }
+            fault @ (ChildRunControlError::LeadProvider(_)
+            | ChildRunControlError::Sweep(_)
+            | ChildRunControlError::Row(_)
             | ChildRunControlError::Tree(_)
             | ChildRunControlError::Read(_)
             | ChildRunControlError::Pool(_)) => Self::Internal(Box::new(fault)),
@@ -101,13 +124,21 @@ impl From<ChildRunControlError> for HandlerError {
     }
 }
 
-/// A person's controls on one helper inside a run. Cloning the service shares its locks, so the
-/// child's own run takes its interrupts in turn with every other one.
+/// A person's controls on a session's helpers. Cloning the interventions service shares its
+/// locks, so the child's own run takes its interrupts in turn with every other one.
 pub struct ChildRunControls {
-    // The read pool both reads of a control borrow a connection from.
+    // The read pool every read of a control borrows a connection from.
     pool: Arc<DatabaseReadPool>,
     // Interrupts the child's own run.
     interventions: InterventionService,
+    // Stops every agent a session dispatched.
+    sweep: AgentTreeSweep,
+    // The registered drivers, whose descriptor gives the stop's flow row its word.
+    providers: Arc<ProviderRegistry>,
+    // The session's log, which takes the stop's flow row.
+    appender: Arc<SessionEventAppender>,
+    // Where a damaged session's reads stop.
+    read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
 }
 
 // Where the child stood when the control read it.
@@ -119,11 +150,29 @@ enum ChildStanding {
 }
 
 impl ChildRunControls {
-    /// Controls reading through `pool` and interrupting through `interventions`.
-    pub fn new(pool: Arc<DatabaseReadPool>, interventions: InterventionService) -> Self {
+    /// Controls reading through `pool` up to where `read_damaged_from_sequence` stops a damaged
+    /// session, interrupting through `interventions`, stopping helpers through `providers`'
+    /// drivers and appending through `appender`; the sweep is built from the same parts.
+    pub fn new(
+        pool: Arc<DatabaseReadPool>,
+        providers: Arc<ProviderRegistry>,
+        interventions: InterventionService,
+        appender: Arc<SessionEventAppender>,
+        read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
+    ) -> Self {
+        let sweep = AgentTreeSweep::new(
+            Arc::clone(&pool),
+            Arc::clone(&providers),
+            interventions.clone(),
+            Arc::clone(&appender),
+        );
         Self {
             pool,
             interventions,
+            sweep,
+            providers,
+            appender,
+            read_damaged_from_sequence,
         }
     }
 
@@ -222,13 +271,61 @@ impl ChildRunControls {
                     Err(provider_refused)
                 }
             }
-            // The provider got it with no answer back, so it is never answered as interrupted.
+            // The provider got it with no answer back, or its dispatch failed, so it is never
+            // answered as interrupted.
             AgentRunInterveneResponse::Requested { .. }
-            | AgentRunInterveneResponse::Accepted { .. } => Err(provider_refused),
-            AgentRunInterveneResponse::Failed { .. } => Err(ChildRunControlError::UnlistedAnswer {
-                state: InterventionState::Failed,
-            }),
+            | AgentRunInterveneResponse::Accepted { .. }
+            | AgentRunInterveneResponse::Failed { .. } => Err(provider_refused),
         }
+    }
+
+    /// Stops every live or interrupted agent the session `request` names dispatched, at every
+    /// depth, a helper an earlier lead run left running included, each stop from `actor`; then
+    /// appends one `agent.children.stopped` whose word is the lead's provider's and whose names
+    /// are the agents stopped, in dispatch order. Answers each agent's own outcome in dispatch
+    /// order. Refuses `session.notFound` before anything is stopped; fails when the agents cannot
+    /// be read or the row is not kept.
+    pub async fn stop_all(
+        &self,
+        request: AgentChildRunStopAllRequest,
+        actor: InterventionActor,
+    ) -> Result<AgentChildRunStopAllResponse, ChildRunControlError> {
+        let session_id = request.session_id;
+        let (provider, _) = read_session_provider::<ChildRunControlError>(
+            &self.pool,
+            &*self.read_damaged_from_sequence,
+            session_id,
+        )
+        .await?
+        .ok_or(ChildRunControlError::SessionNotFound { session_id })?;
+        let word = self
+            .providers
+            .descriptor(&provider)
+            .map_err(ChildRunControlError::LeadProvider)?
+            .stop_all_row_word;
+        let read_bound = session_read_bound(&*self.read_damaged_from_sequence, &session_id, None);
+        let children = self
+            .sweep
+            .stop_descendants(session_id, SweepRoot::Session, None, read_bound, actor)
+            .await?;
+        // A failed stop carries its failure on its own row, so only the stopped are named.
+        let reached = children
+            .iter()
+            .filter_map(|outcome| match outcome {
+                ChildStopOutcome::Stopped { child, .. } => Some(child.clone()),
+                ChildStopOutcome::AlreadyEnded { .. } | ChildStopOutcome::Failed { .. } => None,
+            })
+            .collect();
+        let draft = SessionEventDraft::of_session(
+            session_id,
+            &SessionEvent::AgentChildrenStopped(AgentChildrenStoppedPayload { word, reached }),
+        )
+        .map_err(SessionEventEmitError::from)?;
+        self.appender
+            .append(draft, SessionEventLinkage::default())
+            .await
+            .map_err(SessionEventEmitError::from)?;
+        Ok(AgentChildRunStopAllResponse { children })
     }
 
     // The state of the child's own run `own_run_id` as it stands now.
@@ -248,33 +345,81 @@ impl ChildRunControls {
 mod tests {
     use std::sync::Arc;
 
+    use std::path::PathBuf;
+
     use futures::FutureExt as _;
     use rstest::rstest;
     use rusqlite::params;
-    use sidekicks_contracts::agent::tree::ChildHandle;
+    use serde_json::Value;
+    use sidekicks_contracts::agent::tree::{AgentTreeMember, ChildHandle};
+    use sidekicks_contracts::event::registry::SessionEventType;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::provider::id::ProviderId;
-    use sidekicks_contracts::run::children::AgentChildRunInterruptRequest;
-    use sidekicks_contracts::run::events::{InterventionActor, InterventionDeviceActor};
+    use sidekicks_contracts::run::children::{
+        AgentChildRunInterruptRequest, AgentChildRunStopAllRequest, ChildStoppedState,
+    };
+    use sidekicks_contracts::run::events::{
+        AgentChildrenStoppedPayload, InterventionActor, InterventionDeviceActor,
+    };
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::run::queued::ChildRunProvenance;
     use sidekicks_contracts::run::state::RunState;
+    use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::trust_statement::DeviceId;
     use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
     use sidekicks_contracts::wire::instant::WireInstant;
     use sidekicks_contracts::wire::integer::SafeInt;
+    use sidekicks_ipc::domain_error::DomainError;
     use sidekicks_ipc::registry::HandlerError;
-    use sidekicks_provider::driver::contract::MockProviderDriver;
+    use sidekicks_provider::driver::PROVIDERS;
+    use sidekicks_provider::driver::contract::error::DriverError;
+    use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
     use sidekicks_provider::driver::error_causes::unanswered;
+    use sidekicks_provider::driver::registry::ProviderRegistry;
+    use sidekicks_provider::driver::run_control::HelperStopOutcome;
+    use sidekicks_provider::driver::test_registry::{
+        registry_of_first_provider, registry_of_first_providers,
+    };
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::writer::test_file::TestDatabase;
+    use sidekicks_store::events::log_service::test_fixture::open_log;
+    use sidekicks_store::events::session::appender::SessionEventAppender;
+    use sidekicks_store::events::session::read::DamagedFromSequenceReader;
+    use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
     use super::{ChildRunControlError, ChildRunControls};
     use crate::agent_tree::read::AGENT_TREE_READ_STATEMENT_CAPACITY;
-    use crate::agent_tree::read::tests::HELPER_PROVIDER;
+    use crate::agent_tree::read::tests::{HELPER_PROVIDER, SessionLog, at};
     use crate::agent_tree::store::{NewAgentTreeNode, insert_node, mint_child_handle};
-    use crate::agents::projection::test_fixture::run_statements;
+    use crate::agents::projection::test_fixture::{binding, run_statements, session_created};
     use crate::interventions::service::tests::{Harness, applied, harness};
     use crate::run::engine::test_fixture::insert_running_run;
+
+    // Controls reading the database at `path`, a whole session's log readable, acting through
+    // `harness`'s interventions service and `providers`' drivers, and appending to `database`'s
+    // log.
+    async fn controls(
+        path: PathBuf,
+        database: &TestDatabase,
+        harness: &Harness,
+        providers: ProviderRegistry,
+    ) -> ChildRunControls {
+        let read_damaged_from_sequence: Arc<DamagedFromSequenceReader> =
+            Arc::new(|_: &SessionId| None);
+        ChildRunControls::new(
+            Arc::new(DatabaseReadPool::new(
+                path,
+                AGENT_TREE_READ_STATEMENT_CAPACITY,
+            )),
+            Arc::new(providers),
+            (*harness.service).clone(),
+            Arc::new(SessionEventAppender::new(
+                open_log(database, None).await.service,
+                SESSION_EVENT_VERSION.clone(),
+            )),
+            read_damaged_from_sequence,
+        )
+    }
 
     /// The harness's run as the own run of a helper of a running parent run, at the parent's
     /// version 1, with a second running run of the session that holds no child.
@@ -323,13 +468,13 @@ mod tests {
                 started_at: WireInstant::now(),
             })],
         );
-        let controls = ChildRunControls::new(
-            Arc::new(DatabaseReadPool::new(
-                harness.database.path(),
-                AGENT_TREE_READ_STATEMENT_CAPACITY,
-            )),
-            (*harness.service).clone(),
-        );
+        let controls = controls(
+            harness.database.path(),
+            &harness.database,
+            &harness,
+            registry_of_first_provider(Arc::new(MockProviderDriver::new())),
+        )
+        .await;
         ChildOfARun {
             harness,
             controls,
@@ -479,6 +624,144 @@ mod tests {
         assert_eq!(
             child.harness.stored_rows(),
             Vec::<(String, String, Option<String>)>::new()
+        );
+    }
+
+    // A stop of every agent a session dispatched, on a session whose lead runs on the table's
+    // provider at `lead_place`: of four helpers, each driver stop answering the other word, one
+    // already ended and one refused, the row names the two stopped in dispatch order under the
+    // lead's word, and the answer keeps every outcome in that order. Killed by a row built from
+    // every outcome, by one cut at the first failure, and by a word taken from the children.
+    #[rstest]
+    #[case::stopped_for_good(0, ChildStoppedState::Stopped)]
+    #[case::interrupted(1, ChildStoppedState::Interrupted)]
+    #[tokio::test]
+    async fn the_stop_all_row_names_the_stopped_in_dispatch_order_under_the_leads_word(
+        #[case] lead_place: usize,
+        #[case] word: ChildStoppedState,
+    ) {
+        let other_word = match word {
+            ChildStoppedState::Stopped => HelperStopOutcome::Interrupted,
+            ChildStoppedState::Interrupted => HelperStopOutcome::Stopped,
+        };
+        let answers = [
+            ("helper-first", Some(other_word)),
+            ("helper-ended", Some(HelperStopOutcome::AlreadyEnded)),
+            ("helper-refused", None),
+            ("helper-last", Some(other_word)),
+        ];
+        let harness = harness(MockProviderDriver::new()).await;
+        let mut log = SessionLog::new();
+        let lead = log.lead;
+        let lead_provider = PROVIDERS[lead_place].id;
+        let created = serde_json::to_value(session_created(
+            log.session_id,
+            lead.text().as_str(),
+            &binding(lead_provider, "model-lead"),
+        ))
+        .expect("the session's birth writes");
+        log.event(
+            SessionEventType::SessionCreated,
+            &created["payload"],
+            None,
+            &at(0),
+        );
+        let lead_run = log.run(None, RunState::Running, lead, &at(0));
+        let mut handles = Vec::new();
+        for (place, (subagent_id, _)) in (1_u32..).zip(answers) {
+            let own_run = log.own_run(lead_run, subagent_id, RunState::Running, &at(place));
+            handles.push(log.node(own_run, subagent_id, None, &at(place)));
+        }
+        log.connection
+            .execute(
+                "UPDATE agent_tree_nodes SET provider_name = ?1",
+                [lead_provider],
+            )
+            .expect("the test names the helpers' provider");
+        let mut helper_driver = MockProviderDriver::new();
+        helper_driver
+            .expect_stop_child_run()
+            .times(answers.len())
+            .returning(move |params| {
+                let (_, answer) = answers
+                    .into_iter()
+                    .find(|(subagent_id, _)| *subagent_id == params.subagent_id.as_str())
+                    .expect("each stop names a test helper");
+                async move {
+                    answer.ok_or_else(|| {
+                        DriverError::from(DomainError::new(
+                            "the provider is not running",
+                            RefusalCode::ProviderUnavailable,
+                        ))
+                    })
+                }
+                .boxed()
+            });
+        let mut drivers: Vec<Arc<dyn ProviderDriver>> = vec![
+            Arc::new(MockProviderDriver::new()),
+            Arc::new(MockProviderDriver::new()),
+        ];
+        drivers[lead_place] = Arc::new(helper_driver);
+        let path = PathBuf::from(
+            log.connection
+                .path()
+                .expect("the test's database is a file"),
+        );
+        let controls = controls(
+            path,
+            &log.database,
+            &harness,
+            registry_of_first_providers(drivers),
+        )
+        .await;
+        let actor = InterventionDeviceActor::new(
+            DeviceId::new("device-1".to_owned()).expect("a test device id"),
+        )
+        .expect("a device that is not the daemon");
+
+        let answer = controls
+            .stop_all(
+                AgentChildRunStopAllRequest {
+                    session_id: log.session_id,
+                },
+                InterventionActor::Device(actor),
+            )
+            .await
+            .expect("the stop is answered");
+
+        let child = |place: usize| AgentTreeMember::ProviderChild {
+            run_id: lead_run,
+            child_handle: handles[place].clone(),
+        };
+        let answered: Vec<AgentTreeMember> = answer
+            .children
+            .into_iter()
+            .map(|outcome| match outcome {
+                super::ChildStopOutcome::Stopped { child, .. }
+                | super::ChildStopOutcome::AlreadyEnded { child, .. }
+                | super::ChildStopOutcome::Failed { child, .. } => child,
+            })
+            .collect();
+        assert_eq!(answered, (0..answers.len()).map(child).collect::<Vec<_>>());
+        let rows: Vec<Value> = log
+            .connection
+            .prepare("SELECT payload FROM session_events WHERE type = ?1")
+            .expect("the test prepares its read")
+            .query_map([SessionEventType::AgentChildrenStopped.as_str()], |row| {
+                row.get::<_, String>(0)
+            })
+            .expect("the test reads the log")
+            .map(|payload| {
+                serde_json::from_str(&payload.expect("each row reads")).expect("a JSON payload")
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [serde_json::to_value(AgentChildrenStoppedPayload {
+                word,
+                reached: vec![child(0), child(3)],
+            })
+            .expect("the payload writes")]
         );
     }
 }
