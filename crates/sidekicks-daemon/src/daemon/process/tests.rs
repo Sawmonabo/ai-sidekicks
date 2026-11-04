@@ -1,5 +1,6 @@
 mod provider_accounts;
 mod restart;
+mod status_record;
 mod stop_intent;
 
 use std::io;
