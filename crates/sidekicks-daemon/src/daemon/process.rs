@@ -48,7 +48,6 @@ use sidekicks_platforms::{
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::command::channel::remove_channel_folders;
-use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
 use sidekicks_recovery::database_file::sqlite_shell::SqliteShell;
 use sidekicks_session::directory::list_feed::SessionListFeed;
@@ -110,7 +109,7 @@ use crate::daemon::process::session_services::{
 };
 use crate::daemon::process::start_error::{DaemonStartError, DaemonStartFailure};
 use crate::daemon::process::start_options::{DaemonStartOptions, ProviderBaseEnvironment};
-use crate::daemon::process::stop::{DaemonCommand, close_data_folder, stop_work};
+use crate::daemon::process::stop::{DaemonCommand, DaemonStopReason, close_data_folder, stop_work};
 use crate::daemon::process::supervision::{ProcessStateTracker, ServingSocketHooks};
 use crate::daemon::process::workspace_services::{WorkspaceWork, settle_interrupted_creations};
 use crate::daemon::run_folder::{bind_socket, mint_session_token, prepare_run_folder};
@@ -132,8 +131,8 @@ pub(crate) struct DaemonProcess {
     pub(crate) started_at: Timestamp,
     /// The system's stop request.
     system_stop: CancellationToken,
-    /// The first stop asked for over the socket, with why.
-    stop_asked: watch::Sender<Option<DaemonStopIntent>>,
+    /// Why a stop was asked for over the socket, each ask joined to the one before it.
+    stop_asked: watch::Sender<Option<DaemonStopReason>>,
     /// The erase's steps, sent to the task that owns the process.
     commands: mpsc::Receiver<DaemonCommand>,
     /// Where the erase's steps are sent; held here, so the receiver never ends while the process
@@ -767,11 +766,12 @@ impl DaemonProcess {
         Ok(())
     }
 
-    // Releases what a failed start took, in the stop's order, keeping each failure beside `error`.
+    // Releases what a failed start took, in the stop's order, for the reason `error` gives, keeping
+    // each failure beside `error`.
     async fn release(mut self, error: DaemonStartError) -> DaemonStartFailure {
         let release_started = Instant::now();
-        let mut failures =
-            stop_work(&mut self, DaemonStopIntent::Stop, DAEMON_STOP_DRAIN_BOUND).await;
+        let reason = DaemonStopReason::of_failed_start(&error);
+        let mut failures = stop_work(&mut self, reason, DAEMON_STOP_DRAIN_BOUND).await;
         failures.extend(close_data_folder(&mut self).await);
         DaemonStartFailure {
             failures: Box::new(CleanupFailures::new(error, failures, START_OPERATION)),

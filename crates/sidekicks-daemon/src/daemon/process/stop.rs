@@ -19,11 +19,64 @@ use sidekicks_workspace::git::worktree::setup::WorktreeSetupError;
 use tokio::sync::oneshot;
 use tokio::task::{JoinError, JoinHandle};
 
-use crate::daemon::process::database::{DatabaseFileCloseFailure, close_database_file};
+use crate::daemon::process::database::{
+    DatabaseFileCloseFailure, DatabaseFileOpenError, close_database_file,
+};
 use crate::daemon::process::providers::{ProvidersRegistrationStopFailure, shut_down_drivers};
+use crate::daemon::process::start_error::DaemonStartError;
 use crate::daemon::process::{DAEMON_STOP_DRAIN_BOUND, DaemonProcess};
 use crate::daemon::stop_drain::describe_drain;
 use crate::data_acts::erase::EraseStep;
+
+/// Why the daemon stops, which sets what its drivers are told. `daemon.stop` asks for `Stop`, a
+/// start it cut short in the database file's repair included; `daemon.restart`, the system's stop
+/// request, damage found in the database file and any other failed start restart; the erase's
+/// stop is `Erase`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DaemonStopReason {
+    /// The person stopped the daemon.
+    Stop,
+    /// The daemon starts again, so a service that outlives it keeps running.
+    Restart,
+    /// The erase ends the daemon with everything it kept.
+    Erase,
+}
+
+impl DaemonStopReason {
+    /// What the drivers are told: a restart keeps a service that outlives the daemon, while a
+    /// stop and an erase end every service the daemon started.
+    pub(crate) fn driver_intent(self) -> DaemonStopIntent {
+        match self {
+            Self::Stop | Self::Erase => DaemonStopIntent::Stop,
+            Self::Restart => DaemonStopIntent::Restart,
+        }
+    }
+
+    /// Whether the person stopped the daemon.
+    pub(crate) fn is_persons_stop(self) -> bool {
+        matches!(self, Self::Stop)
+    }
+
+    /// The reason once `later` is asked for after `self`: the person's stop replaces a restart,
+    /// and every other later ask keeps the first. Every place an ask lands applies this rule.
+    pub(crate) fn joined(self, later: Self) -> Self {
+        if self == Self::Restart && later.is_persons_stop() {
+            later
+        } else {
+            self
+        }
+    }
+
+    /// The reason a failed start's release stops for: the reason of a stop asked for over the
+    /// repairing socket, which cut the start short, else a restart.
+    pub(super) fn of_failed_start(error: &DaemonStartError) -> Self {
+        if let DaemonStartError::DatabaseFile(DatabaseFileOpenError::Stopped(reason)) = error {
+            *reason
+        } else {
+            Self::Restart
+        }
+    }
+}
 
 /// Why a step of the stop failed; every other step still ran.
 #[derive(Debug, thiserror::Error)]
@@ -141,15 +194,17 @@ pub(crate) enum CrashMonitorEndFailure {
 /// highlighter, the terminals, the provider accounts' sign-ins, the start's sweep of new accounts'
 /// homes and the account observer, the scheduler, the working-folder watch, the projects list, the
 /// search index, the drivers, the turn end captures under way, the git trees a failed call left
-/// and, last, the kept worktrees' reads. Answers each step's failure, every step having run.
+/// and, last, the kept worktrees' reads. The drivers are told `reason`'s intent, once a stop the
+/// person asked for over the socket since has replaced a restart. Answers each step's failure,
+/// every step having run.
 pub(crate) async fn stop_work(
     process: &mut DaemonProcess,
-    intent: DaemonStopIntent,
+    reason: DaemonStopReason,
     bound: Duration,
 ) -> Vec<DaemonStopFailure> {
     let started = *process.stop_started.get_or_insert_with(Instant::now);
     tracing::info!(
-        ?intent,
+        ?reason,
         drain_bound_ms = bound.as_millis(),
         "the background service stops"
     );
@@ -166,6 +221,9 @@ pub(crate) async fn stop_work(
             failures.push(DaemonStopFailure::MutatingCallsRunning(running));
         }
     }
+    // The socket is closed and the calls under way waited out, so no ask comes past this read.
+    let asked = *process.stop_asked.borrow();
+    let reason = asked.map_or(reason, |asked| reason.joined(asked));
     // Past the bound, the dropped stop drops the background read's handle, which aborts it.
     if let Some(machine_identity) = process.machine_identity.take()
         && tokio::time::timeout(remaining(), machine_identity.stop())
@@ -319,7 +377,7 @@ pub(crate) async fn stop_work(
     }
     if let Some(drivers) = drivers {
         failures.extend(
-            shut_down_drivers(&drivers, intent, remaining())
+            shut_down_drivers(&drivers, reason.driver_intent(), remaining())
                 .await
                 .into_iter()
                 .map(DaemonStopFailure::Driver),
@@ -410,17 +468,16 @@ pub(super) enum DaemonCommand {
 
 impl DaemonProcess {
     /// The stop asked for over the socket: the lifecycle methods' stop asks with
-    /// [`DaemonStopIntent::Stop`], their restart with [`DaemonStopIntent::Restart`], and the
-    /// erase's end with [`DaemonStopIntent::Stop`]; the first ask wins.
-    pub(crate) fn accept_stop(&self) -> Arc<dyn Fn(DaemonStopIntent) + Send + Sync> {
+    /// [`DaemonStopReason::Stop`], their restart with [`DaemonStopReason::Restart`], and the
+    /// erase's end with [`DaemonStopReason::Erase`]; each ask joins the one before it.
+    pub(crate) fn accept_stop(&self) -> Arc<dyn Fn(DaemonStopReason) + Send + Sync> {
         let stop_asked = self.stop_asked.clone();
-        Arc::new(move |intent| {
+        Arc::new(move |reason| {
             stop_asked.send_if_modified(|asked| {
-                let is_first = asked.is_none();
-                if is_first {
-                    *asked = Some(intent);
-                }
-                is_first
+                let joined = asked.map_or(reason, |first| first.joined(reason));
+                let is_changed = *asked != Some(joined);
+                *asked = Some(joined);
+                is_changed
             });
         })
     }
@@ -456,9 +513,10 @@ impl DaemonProcess {
     }
 
     /// Runs the erase's steps as they come, until the first stop asked for: the system's stop
-    /// request, which stops, damage found in the database file, which restarts so the next start
-    /// repairs it, or a stop or restart over the socket, which the erase's end asks for.
-    pub(crate) async fn wait_for_stop(&mut self) -> DaemonStopIntent {
+    /// request, which restarts, damage found in the database file, which restarts so the next
+    /// start repairs it, or a stop or restart over the socket or the erase's end, each for its own
+    /// reason.
+    pub(crate) async fn wait_for_stop(&mut self) -> DaemonStopReason {
         let mut stop_asked = self.stop_asked.subscribe();
         let damage = self
             .database
@@ -466,7 +524,7 @@ impl DaemonProcess {
             .map(|database| Arc::clone(&database.damage));
         loop {
             let command = tokio::select! {
-                () = self.system_stop.cancelled() => return DaemonStopIntent::Stop,
+                () = self.system_stop.cancelled() => return DaemonStopReason::Restart,
                 () = async {
                     match &damage {
                         Some(damage) => {
@@ -474,11 +532,11 @@ impl DaemonProcess {
                         }
                         None => std::future::pending().await,
                     }
-                } => return DaemonStopIntent::Restart,
+                } => return DaemonStopReason::Restart,
                 asked = stop_asked.wait_for(Option::is_some) => return match asked.as_deref() {
-                    Ok(Some(intent)) => *intent,
+                    Ok(Some(reason)) => *reason,
                     // The process holds the sender, so the wait ends only with an ask.
-                    Ok(None) | Err(_) => DaemonStopIntent::Stop,
+                    Ok(None) | Err(_) => DaemonStopReason::Restart,
                 },
                 Some(command) = self.commands.recv() => command,
             };
@@ -490,7 +548,7 @@ impl DaemonProcess {
     async fn run_command(&mut self, command: DaemonCommand) {
         let (failures, reply) = match command {
             DaemonCommand::StopWork(reply) => (
-                stop_work(self, DaemonStopIntent::Stop, DAEMON_STOP_DRAIN_BOUND).await,
+                stop_work(self, DaemonStopReason::Erase, DAEMON_STOP_DRAIN_BOUND).await,
                 reply,
             ),
             DaemonCommand::CloseDataFolder(reply) => (close_data_folder(self).await, reply),
@@ -506,14 +564,14 @@ impl DaemonProcess {
         }
     }
 
-    /// Stops the daemon for `intent`: its work within the drain bound, then its data folder; a
+    /// Stops the daemon for `reason`: its work within the drain bound, then its data folder; a
     /// part the erase already closed is skipped. Fails with every step's failure, each step having
     /// run.
     pub(crate) async fn stop(
         mut self,
-        intent: DaemonStopIntent,
+        reason: DaemonStopReason,
     ) -> Result<(), SettleFailures<DaemonStopFailure>> {
-        let mut failures = stop_work(&mut self, intent, DAEMON_STOP_DRAIN_BOUND).await;
+        let mut failures = stop_work(&mut self, reason, DAEMON_STOP_DRAIN_BOUND).await;
         failures.extend(close_data_folder(&mut self).await);
         settle_all(
             failures
@@ -523,5 +581,62 @@ impl DaemonProcess {
             "the daemon's stop",
         )
         .map(drop)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use rstest::rstest;
+    use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
+
+    use super::DaemonStopReason::{self, Erase, Restart, Stop};
+    use crate::daemon::process::database::DatabaseFileOpenError;
+    use crate::daemon::process::start_error::DaemonStartError;
+    use crate::daemon::start_stopped_error::DaemonStartStoppedError;
+
+    // Each ask's reason and the intent the drivers are told for it: the person's stop replaces a
+    // restart and every other later ask keeps the first; a start the person's stop cut short on
+    // the repairing socket stops, and any other failed start restarts; a stop and an erase end
+    // every service. Killed by a failed start's release left on `Stop`, by an erase that tells the
+    // drivers `Restart`, and by a stop that does not replace a restart.
+    #[rstest]
+    #[case::a_stop_replaces_a_restart(Restart.joined(Stop), Stop, DaemonStopIntent::Stop)]
+    #[case::a_restart_keeps_a_stop(Stop.joined(Restart), Stop, DaemonStopIntent::Stop)]
+    #[case::an_erase_keeps_a_restart(Restart.joined(Erase), Restart, DaemonStopIntent::Restart)]
+    #[case::a_stop_keeps_an_erase(Erase.joined(Stop), Erase, DaemonStopIntent::Stop)]
+    #[case::a_restart_keeps_an_erase(Erase.joined(Restart), Erase, DaemonStopIntent::Stop)]
+    #[case::an_erase_keeps_a_stop(Stop.joined(Erase), Stop, DaemonStopIntent::Stop)]
+    #[case::a_start_the_person_stopped_in_its_repair(
+        DaemonStopReason::of_failed_start(&DaemonStartError::DatabaseFile(
+            DatabaseFileOpenError::Stopped(Stop)
+        )),
+        Stop,
+        DaemonStopIntent::Stop
+    )]
+    #[case::a_start_another_build_failed(
+        DaemonStopReason::of_failed_start(&DaemonStartError::DatabaseFile(
+            DatabaseFileOpenError::SavedSessionsFromAnotherVersion {
+                path: PathBuf::from("store")
+            }
+        )),
+        Restart,
+        DaemonStopIntent::Restart
+    )]
+    #[case::a_start_a_stop_cut_short_past_its_repair(
+        DaemonStopReason::of_failed_start(&DaemonStartError::Stopped(DaemonStartStoppedError {
+            step: "binding the socket"
+        })),
+        Restart,
+        DaemonStopIntent::Restart
+    )]
+    fn each_stop_ask_maps_to_its_reason(
+        #[case] reason: DaemonStopReason,
+        #[case] expected: DaemonStopReason,
+        #[case] intent: DaemonStopIntent,
+    ) {
+        assert_eq!(reason, expected);
+        assert_eq!(reason.driver_intent(), intent);
     }
 }

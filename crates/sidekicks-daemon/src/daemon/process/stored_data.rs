@@ -11,7 +11,6 @@ use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
 use sidekicks_mcp::client::McpClient;
 use sidekicks_platforms::volume_free_bytes;
-use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_recovery::damaged_history::{
@@ -32,6 +31,7 @@ use crate::daemon::lifecycle_methods::{LifecycleMethodsDeps, flush_writes};
 use crate::daemon::process::database::DatabaseFile;
 use crate::daemon::process::repo_services::RepoServices;
 use crate::daemon::process::session_services::SessionServices;
+use crate::daemon::process::stop::DaemonStopReason;
 use crate::daemon::retention_methods::RetentionMethodsDeps;
 use crate::data_acts::purge::{SessionPurge, SessionPurgeDeps};
 
@@ -75,8 +75,8 @@ pub(crate) struct StoredDataMethodsStart<'start> {
     pub(crate) stop_intent: Arc<StopIntentFile>,
     /// The serving socket's record of mutating calls, set once its gate chain is built.
     pub(crate) in_flight: Arc<OnceLock<Arc<InFlightMutations>>>,
-    /// Starts the daemon's stop for the intent given.
-    pub(crate) accept_stop: Arc<dyn Fn(DaemonStopIntent) + Send + Sync>,
+    /// Starts the daemon's stop for the reason given.
+    pub(crate) accept_stop: Arc<dyn Fn(DaemonStopReason) + Send + Sync>,
 }
 
 /// The inputs of the retention, lifecycle and damaged-history methods.

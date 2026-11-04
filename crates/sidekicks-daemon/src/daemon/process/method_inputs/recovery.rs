@@ -8,7 +8,6 @@ use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
 use sidekicks_mcp::client::McpClient;
 use sidekicks_mcp::client::dispatch::McpToolDispatch;
-use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_queue::provider_session::resumed_runs::ResumedRunsIngress;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
@@ -32,6 +31,7 @@ use crate::daemon::process::projections::rebuild_projections;
 use crate::daemon::process::providers::Providers;
 use crate::daemon::process::repo_services::RepoServices;
 use crate::daemon::process::session_services::SessionServices;
+use crate::daemon::process::stop::DaemonStopReason;
 use crate::daemon::process::stored_data::{
     StoredDataMethods, StoredDataMethodsStart, build_stored_data_methods,
 };
@@ -71,8 +71,8 @@ pub(super) struct RecoveryServiceStart<'start> {
     pub(super) backups: &'start Arc<Backups>,
     /// The serving socket's record of mutating calls, set once its gate chain is built.
     pub(super) in_flight: Arc<OnceLock<Arc<InFlightMutations>>>,
-    /// Starts the daemon's stop for the intent given.
-    pub(super) accept_stop: &'start Arc<dyn Fn(DaemonStopIntent) + Send + Sync>,
+    /// Starts the daemon's stop for the reason given.
+    pub(super) accept_stop: &'start Arc<dyn Fn(DaemonStopReason) + Send + Sync>,
     /// The daemon's data folder.
     pub(super) data_folder: &'start Path,
     /// The copy the recovery pass copies the store's files aside with.
