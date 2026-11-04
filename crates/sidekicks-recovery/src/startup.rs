@@ -84,6 +84,7 @@ use crate::restart_settle::{
     RESTART_FAILURE_DETAIL, RestartSettle, RestartSettleError, RestartTally,
 };
 use crate::status::RecoveryStatusTracker;
+use crate::stop_intent::StopIntentFile;
 
 /// The statements the pass's own reads run: the failed passes since the last that succeeded, and
 /// the eight every-session listings of what the restart left (the live runs, the pending retries,
@@ -157,6 +158,8 @@ pub struct StartupRecoveryDeps {
     pub data_folder: PathBuf,
     /// The copy each file is copied aside with.
     pub copier: Arc<DatabaseFileCopier>,
+    /// The intent the person's Stop left, under which the pass ends work as the Stop does.
+    pub stop_intent: Arc<StopIntentFile>,
 }
 
 /// Runs the recovery pass a start makes before the daemon takes writes.

@@ -19,6 +19,7 @@ use sidekicks_recovery::damaged_history::{
 };
 use sidekicks_recovery::projection_rebuild::ProjectionRebuildService;
 use sidekicks_recovery::restart_settle::RestartSettle;
+use sidekicks_recovery::stop_intent::StopIntentFile;
 use sidekicks_session::conversation_purge::ConversationPurge;
 use sidekicks_shell::table::ShellTable;
 use sidekicks_std::scheduler::Scheduler;
@@ -70,6 +71,8 @@ pub(crate) struct StoredDataMethodsStart<'start> {
     pub(crate) projection_rebuild: Arc<ProjectionRebuildService>,
     /// What a restart left in a session, settled; shared with the start's recovery pass.
     pub(crate) restart_settle: Arc<RestartSettle>,
+    /// The intent the person's Stop left; shared with the start's recovery pass.
+    pub(crate) stop_intent: Arc<StopIntentFile>,
     /// The serving socket's record of mutating calls, set once its gate chain is built.
     pub(crate) in_flight: Arc<OnceLock<Arc<InFlightMutations>>>,
     /// Starts the daemon's stop for the intent given.
@@ -106,6 +109,7 @@ pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> St
         backups,
         projection_rebuild,
         restart_settle,
+        stop_intent,
         in_flight,
         accept_stop,
     } = start;
@@ -147,6 +151,7 @@ pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> St
         restart_settle,
         purge: Arc::clone(&purge) as Arc<dyn DamagedSessionPurge>,
         status: Arc::clone(&database.status),
+        stop_intent,
     }));
     StoredDataMethods {
         retention: RetentionMethodsDeps {

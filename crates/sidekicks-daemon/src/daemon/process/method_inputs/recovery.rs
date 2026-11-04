@@ -16,6 +16,7 @@ use sidekicks_recovery::projection_rebuild::ProjectionRebuildService;
 use sidekicks_recovery::restart_settle::{RestartSettle, RestartSettleDeps};
 use sidekicks_recovery::resumed_runs::{ResumedRunsFinalize, ResumedRunsFinalizeDeps};
 use sidekicks_recovery::startup::{StartupRecovery, StartupRecoveryDeps};
+use sidekicks_recovery::stop_intent::StopIntentFile;
 use sidekicks_shell::table::ShellTable;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -135,6 +136,7 @@ pub(super) fn build_recovery_services(
         approvals: Arc::clone(&session.approvals.service),
         plans: Arc::clone(&session.plans),
     }));
+    let stop_intent = Arc::new(StopIntentFile::new(&database.database_path));
     // A resume settles the runs it named through recovery's finalize, registered before the start
     // serves anything, so no resume finds the port empty.
     session
@@ -163,6 +165,7 @@ pub(super) fn build_recovery_services(
         backups: Arc::clone(backups),
         projection_rebuild: Arc::clone(&projection_rebuild),
         restart_settle: Arc::clone(&restart_settle),
+        stop_intent: Arc::clone(&stop_intent),
         in_flight,
         accept_stop: Arc::clone(accept_stop),
     });
@@ -181,6 +184,7 @@ pub(super) fn build_recovery_services(
         database_path: database.database_path.clone(),
         data_folder: data_folder.to_path_buf(),
         copier,
+        stop_intent,
     });
     Ok(RecoveryServices { stored, recovery })
 }

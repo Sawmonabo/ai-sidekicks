@@ -89,6 +89,7 @@ use crate::resumed_runs::{ResumedRunsFinalize, ResumedRunsFinalizeDeps};
 use crate::session_write_refusal::refuse_session_event;
 use crate::startup::{StartupRecovery, StartupRecoveryDeps};
 use crate::status::RecoveryStatusTracker;
+use crate::stop_intent::StopIntentFile;
 
 // Statements every pool of the pass caches; a cache size, not a bound on what runs.
 const TEST_STATEMENT_CAPACITY: usize = 64;
@@ -373,6 +374,7 @@ impl PassFixture {
                 pass_through_start(&harness_test_name(module_path!(), COPY_STAND_IN)),
                 Spawner::new(Handle::current()).expect("the spawner starts"),
             )),
+            stop_intent: services.stop_intent,
         })
     }
 
@@ -417,6 +419,7 @@ impl PassFixture {
             approvals,
             plans: Arc::new(self.plans()),
         }));
+        let stop_intent = Arc::new(StopIntentFile::new(&store.database.path()));
         let damaged_history = Arc::new(DamagedHistory::new(DamagedHistoryDeps {
             reads: Arc::clone(&reads),
             session_events,
@@ -426,6 +429,7 @@ impl PassFixture {
             restart_settle: Arc::clone(&restart_settle),
             purge: Arc::clone(&self.purges) as Arc<dyn DamagedSessionPurge>,
             status,
+            stop_intent: Arc::clone(&stop_intent),
         }));
         RecoveryServices {
             reads,
@@ -433,6 +437,7 @@ impl PassFixture {
             projection_rebuild,
             restart_settle,
             damaged_history,
+            stop_intent,
         }
     }
 
@@ -724,4 +729,5 @@ struct RecoveryServices {
     projection_rebuild: Arc<ProjectionRebuildService>,
     restart_settle: Arc<RestartSettle>,
     damaged_history: Arc<DamagedHistory>,
+    stop_intent: Arc<StopIntentFile>,
 }

@@ -50,6 +50,7 @@ use crate::projection_rebuild::{
 };
 use crate::restart_settle::{RESTART_FAILURE_DETAIL, RestartSettle, RestartSettleError};
 use crate::status::{LastGoodPoint, RecoveryStatusTracker};
+use crate::stop_intent::StopIntentFile;
 
 /// The statements damaged history's own reads run: the last event before a damaged one, and
 /// whether a session has a row.
@@ -97,6 +98,8 @@ pub struct DamagedHistoryDeps {
     pub purge: Arc<dyn DamagedSessionPurge>,
     /// The recovery state that says which sessions are damaged.
     pub status: Arc<RecoveryStatusTracker>,
+    /// The intent the person's Stop left, under which a continue ends runs as the Stop does.
+    pub stop_intent: Arc<StopIntentFile>,
 }
 
 /// Finds a damaged session's last good point and rebuilds its projections through it, and runs
