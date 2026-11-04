@@ -13,14 +13,13 @@ use sidekicks_contracts::run::control::{
     AgentRunIntervene, AgentRunPause, AgentRunRefusalChoiceResolve, AgentRunResume,
     AgentRunUsageCreditsChoiceResolve,
 };
-use sidekicks_contracts::run::events::{InterventionActor, InterventionDeviceActor};
-use sidekicks_ipc::registry::{
-    HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
-};
+use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
 use sidekicks_provider::port::run_pause::ContinuedMessages;
 use sidekicks_session::interventions::service::InterventionService;
 use sidekicks_session::run::pause::RunPauseControl;
 use sidekicks_session::run::provider_choice::{ProviderChoiceAnswerOrigin, ProviderChoiceResolver};
+
+use super::calling_person;
 
 /// What the run control methods act through.
 pub(crate) struct RunControlServices {
@@ -34,11 +33,6 @@ pub(crate) struct RunControlServices {
     pub(crate) continued: Arc<dyn ContinuedMessages>,
 }
 
-/// The connection's device names the daemon itself, which no person's call can carry.
-#[derive(Debug, thiserror::Error)]
-#[error("the calling device names the daemon itself")]
-struct CallingDeviceIsDaemon;
-
 /// Registers `agent.run.intervene`, `agent.run.pause`, `agent.run.resume`,
 /// `agent.run.refusalChoice.resolve` and `agent.run.usageCreditsChoice.resolve` over `services`.
 /// Fails the start when one is already registered.
@@ -50,12 +44,8 @@ pub(crate) fn register_run_control(
     registry.register::<AgentRunIntervene, _>(move |request, context: HandlerContext| {
         let interventions = Arc::clone(&interventions);
         async move {
-            let device_id = context.calling_device(AgentRunIntervene::DESCRIPTOR.method)?;
-            let actor = InterventionDeviceActor::new(device_id)
-                .ok_or_else(|| HandlerError::Internal(Box::new(CallingDeviceIsDaemon)))?;
-            Ok(interventions
-                .apply_intervention(request, InterventionActor::Device(actor))
-                .await?)
+            let actor = calling_person(&context, AgentRunIntervene::DESCRIPTOR.method)?;
+            Ok(interventions.apply_intervention(request, actor).await?)
         }
         .boxed()
     })?;
