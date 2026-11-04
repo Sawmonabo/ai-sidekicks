@@ -741,9 +741,9 @@ fn count_of(count: usize) -> SafeInt<0> {
         .expect("a count of links held in memory is a safe integer")
 }
 
-// The run a node's own run hangs under. An own run is a provider subagent's, written with its
-// parent, so one with none reads as a column that does not read as its type.
-fn own_run_parent(parent_run_id: Option<RunId>) -> Result<RunId, AgentTreeReadError> {
+/// The run a node's own run hangs under. An own run is a provider subagent's, written with its
+/// parent, so one with none fails as a column that does not read as its type.
+pub(crate) fn own_run_parent(parent_run_id: Option<RunId>) -> Result<RunId, AgentTreeReadError> {
     parent_run_id.ok_or_else(|| {
         AgentTreeReadError::Read(rusqlite::Error::InvalidColumnType(
             1,
