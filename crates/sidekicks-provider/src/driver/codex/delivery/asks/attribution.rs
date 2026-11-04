@@ -138,3 +138,6 @@ fn send_decision(decision: CodexAskDecisionSender, decided: CodexServerRequestDe
     // The connection that asked closed first; nothing waits for the decision.
     let _unheard = decision.send(Ok(decided));
 }
+
+#[cfg(test)]
+mod tests;
