@@ -9,8 +9,8 @@ use serde_json::{Map, Value};
 use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, read_socket_link};
 
 use super::stand_in::{
-    another_daemon, is_running, last_launch_arguments, per_home_services, recorded_methods,
-    recorded_requests, this_daemon, wait_until_gone,
+    another_daemon, daemon_stop_deadline, is_running, last_launch_arguments, per_home_services,
+    recorded_methods, recorded_requests, this_daemon, wait_until_gone,
 };
 use crate::account::homes::{account_home_conversation_folders, switching_homes};
 use crate::driver::codex::DESCRIPTOR;
@@ -75,7 +75,9 @@ async fn a_restart_rejoins_the_switching_service_by_its_record_and_the_backup_li
     let started = kept.ensure_started(startup_timeout).await;
     let kept_process = kept.process_id().expect("the service runs a process");
     let arguments = last_launch_arguments(&services);
-    first.shutdown(DaemonStopIntent::Restart).await;
+    first
+        .shutdown(DaemonStopIntent::Restart, daemon_stop_deadline())
+        .await;
     let is_kept_running = is_running(kept_process);
 
     let next = another_daemon(&services);
@@ -89,7 +91,8 @@ async fn a_restart_rejoins_the_switching_service_by_its_record_and_the_backup_li
     let sent_by_the_rejoin = recorded_methods(&services, &switching_home(&data_folder));
     let joined_process = joined.process_id();
     let joined_home = joined.home().codex_home.clone();
-    next.shutdown(DaemonStopIntent::Stop).await;
+    next.shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
     let is_stopped = wait_until_gone(kept_process).await;
 
     let table = registrations_of_mock_drivers();
@@ -171,7 +174,9 @@ async fn a_purge_deletes_an_unpinned_conversation_from_the_switching_home_alone(
     )
     .await;
     let after = read_tree(&account_home);
-    registry.shutdown(DaemonStopIntent::Stop).await;
+    registry
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
     let deleted: Vec<Value> = recorded_requests(
         &services,
         &switching_home(&services.dependencies.data_folder),
@@ -212,7 +217,9 @@ async fn a_terminal_in_an_account_home_joins_the_accounts_own_service() {
     let account_process = account.process_id();
     let switching_process = switching.process_id();
     let joined = read_socket_link(&home_socket_path(&account_home)).expect("the link reads");
-    registry.shutdown(DaemonStopIntent::Stop).await;
+    registry
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
 
     assert!(account_started.is_ok(), "{account_started:?}");
     assert!(switching_started.is_ok(), "{switching_started:?}");

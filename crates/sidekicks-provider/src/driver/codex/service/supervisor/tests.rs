@@ -5,6 +5,7 @@ use futures::{SinkExt as _, StreamExt as _};
 use interprocess::local_socket::tokio::Listener;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::{Value, json};
+use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_DRAIN_BOUND_MS;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::short_socket_folder;
@@ -163,7 +164,12 @@ async fn a_joined_service_checks_it_is_free_once_the_daemon_holds_no_session_on_
     let is_checked_once_none_left = is_checked(&mut loaded_reads, CHECK_WAIT).await;
     notices.send(closed).expect("the listener runs");
     let is_checked_on_a_close_with_none_left = is_checked(&mut loaded_reads, CHECK_WAIT).await;
-    service.shutdown(DaemonStopIntent::Stop).await;
+    service
+        .shutdown(
+            DaemonStopIntent::Stop,
+            tokio::time::Instant::now() + Duration::from_millis(DAEMON_STOP_DRAIN_BOUND_MS),
+        )
+        .await;
 
     assert!(is_joined);
     assert!(!is_checked_with_one_left);

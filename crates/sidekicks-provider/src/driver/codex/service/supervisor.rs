@@ -586,11 +586,17 @@ impl CodexService {
         .await;
     }
 
-    /// Shuts the service down for good as the daemon stops or restarts, and answers once it has;
-    /// under a restart a lasting service is only disconnected and keeps running in its record.
-    pub(crate) async fn shutdown(&self, intent: DaemonStopIntent) {
-        self.send(SupervisorEvent::Shutdown { intent });
-        self.when_shut_down().await;
+    /// Shuts the service down for good as the daemon stops or restarts, every stop of it ending by
+    /// `deadline`, and answers once it has or the deadline passed; under a restart a lasting
+    /// service is only disconnected and keeps running in its record.
+    pub(crate) async fn shutdown(&self, intent: DaemonStopIntent, deadline: tokio::time::Instant) {
+        self.send_input(RunnerInput::shutdown(intent, deadline));
+        if tokio::time::timeout_at(deadline, self.when_shut_down())
+            .await
+            .is_err()
+        {
+            tracing::debug!("a Codex service's shutdown was cut at the daemon's stop deadline");
+        }
     }
 
     /// The person's restart of a service left down: forgets the crash window and starts it.

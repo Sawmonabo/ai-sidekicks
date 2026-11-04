@@ -25,6 +25,7 @@ use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::mutex_lock::lock;
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
+use tokio::time::Instant;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::account::{
@@ -519,8 +520,9 @@ impl CodexServiceRegistry {
     /// lasting service, the terminal service and each account home's, keeps running in its record
     /// for the next start to join, and under `Stop` every service a record still keeps is stopped
     /// too, one a former daemon kept that this one never joined among them; every drain's wait is
-    /// called off, its service draining on by itself. Each stop reports its own failure.
-    pub(crate) async fn shutdown(&self, intent: DaemonStopIntent) {
+    /// called off, its service draining on by itself. Each service's stop ends by `deadline` and
+    /// reports its own failure.
+    pub(crate) async fn shutdown(&self, intent: DaemonStopIntent, deadline: Instant) {
         // A stop never waits on a drain: each drains on by itself, its record left marked.
         self.dependencies.drains.call_off();
         let services: Vec<Arc<CodexService>> = {
@@ -535,7 +537,12 @@ impl CodexServiceRegistry {
                 .chain(transient)
                 .collect()
         };
-        join_all(services.iter().map(|service| service.shutdown(intent))).await;
+        join_all(
+            services
+                .iter()
+                .map(|service| service.shutdown(intent, deadline)),
+        )
+        .await;
         match intent {
             DaemonStopIntent::Stop => {
                 let data_folder = self.dependencies.data_folder.clone();
