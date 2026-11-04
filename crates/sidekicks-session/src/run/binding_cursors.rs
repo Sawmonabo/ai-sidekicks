@@ -29,6 +29,7 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
 use sidekicks_provider::account::observer::AccountLiveTurns;
+use sidekicks_provider::driver::session_control::SessionToolServer;
 use sidekicks_provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RuntimeBinding, RuntimeBindingRebind, RuntimeBindingRelaunch,
     RuntimeBindingStore, RuntimeBindingStoreError,
@@ -611,6 +612,14 @@ impl RuntimeBindingWriter for RunBindingCursors {
             Ok(())
         }
         .boxed()
+    }
+
+    fn replace_tool_servers(
+        &self,
+        run_id: RunId,
+        tool_servers: Vec<SessionToolServer>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        RuntimeBindingWriter::replace_tool_servers(&*self.store, run_id, tool_servers)
     }
 }
 
