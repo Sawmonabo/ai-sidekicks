@@ -7,6 +7,7 @@
 mod config;
 pub(super) mod machine_probe;
 pub(super) mod requirements;
+pub(super) mod sandbox_wrap;
 pub(super) mod server_name;
 pub(super) mod session_table;
 pub(super) mod sign_in;
