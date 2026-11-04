@@ -41,7 +41,7 @@ pub(super) struct StoredReceipt {
 /// server name `tracker`, whose connections reach a stdio server unless `address` names the
 /// server's address.
 pub(super) struct Fixture {
-    database: TestDatabase,
+    pub(super) database: TestDatabase,
     pub(super) dispatch: Arc<McpToolDispatch>,
     pub(super) client: Arc<McpClient>,
     pub(super) card: Arc<QuestionCard>,
