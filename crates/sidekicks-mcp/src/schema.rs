@@ -216,6 +216,16 @@ CREATE TABLE mcp_mutation_receipts (
 ) STRICT;
 
 -- ---------------------------------------------------------------------------
+-- mcp_receipt_key_pin: the keyed hash of a fixed label under the receipt key the credential
+-- store holds, never the key, which tells that key from another. One row, written when a key is
+-- first held and replaced when a lost key is made again.
+-- ---------------------------------------------------------------------------
+CREATE TABLE mcp_receipt_key_pin (
+  singleton  INTEGER PRIMARY KEY CHECK (singleton = 1),
+  pin        BLOB NOT NULL CHECK(length(pin) = 32)
+) STRICT;
+
+-- ---------------------------------------------------------------------------
 -- mcp_project_server_switches: the daemon's own switch for a server a provider brings itself, one
 -- row per such server switched off for one project, deleted when it is switched back on.
 -- ---------------------------------------------------------------------------
