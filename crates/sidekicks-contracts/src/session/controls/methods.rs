@@ -577,14 +577,14 @@ methods! {
             mutating: true,
             params: SessionMcpServerEnabledUpdateRequest,
             result: SessionMcpServerEnabledUpdateResponse,
-            refusals: [SessionNotFound],
+            refusals: [SessionNotFound, ProviderUnavailable, ProviderTimeout],
         },
         /// Lists one working server's resources.
         McpResourceList = query "mcp.resource.list" {
             mutating: false,
             params: McpResourceListRequest,
             result: McpResourceListResponse,
-            refusals: [SessionNotFound, McpServerNotRunning],
+            refusals: [SessionNotFound, McpServerNotRunning, ProviderUnavailable, ProviderTimeout],
         },
         /// Streams the live `/` list's provider half.
         SessionProviderCommandSubscribe = subscription "session.providerCommand.subscribe" {

@@ -150,6 +150,9 @@ pub enum McpServerConfigWriteConflictReason {
     /// The project file no longer hashes to what the daemon last read, so the edit was not
     /// written and the file was left as it was.
     ProjectFileChanged,
+    /// Another writer changed the binding's entry in the provider's config after the daemon read
+    /// it, so the provider holds that writer's entry and not this change.
+    EntryChanged,
 }
 
 /// The payload of `mcp.server.signIn.completed`: how a sign-in ended. A sign-in that fails after
@@ -181,6 +184,23 @@ pub struct McpServerSignInCompletedPayload {
     )]
     #[schemars(with = "SessionId")]
     pub initiating_session_id: Option<SessionId>,
+}
+
+/// The `mcp.server.configFileInvalid` refusal's `data.fields`: the binding the write was for and
+/// the provider's config files. It is the one MCP refusal detail that names a path on this machine.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct McpServerConfigFileInvalidDetails {
+    /// The provider.
+    pub provider: ProviderId,
+    /// The binding's scope.
+    pub scope: McpBindingScope,
+    /// The server's name.
+    pub server_name: McpServerName,
+    /// The paths of the config's layers the provider reported on the read before the write; a
+    /// layer with no file is named by its kind. A path read from the provider's words never goes
+    /// in.
+    pub config_files: Vec<String>,
 }
 
 methods! {
@@ -217,6 +237,9 @@ methods! {
                 McpBindingStoreUnavailable,
                 McpServerConfigInvalid,
                 McpServerConfigWriteConflict,
+                McpServerIdempotencyConflict,
+                McpServerConfigFileInvalid,
+                ProviderUnavailable,
             ],
         },
         /// Removes a binding.
@@ -229,6 +252,10 @@ methods! {
                 McpServerNotFound,
                 McpServerConfigWriteConflict,
                 ApprovalRuleNotKept,
+                McpServerIdempotencyConflict,
+                McpServerConfigFileInvalid,
+                McpServerConfigInvalid,
+                ProviderUnavailable,
             ],
         },
         /// Turns a binding on or off.
@@ -236,7 +263,14 @@ methods! {
             mutating: true,
             params: McpServerEnabledUpdateRequest,
             result: McpServerMutationResponse,
-            refusals: [McpBindingStoreUnavailable, McpServerNotFound, McpServerConfigWriteConflict],
+            refusals: [
+                McpBindingStoreUnavailable,
+                McpServerNotFound,
+                McpServerConfigWriteConflict,
+                McpServerIdempotencyConflict,
+                McpServerConfigFileInvalid,
+                ProviderUnavailable,
+            ],
         },
         /// Sets one tool's override.
         McpToolOverrideUpdate = mutation "mcp.toolOverride.update" {
@@ -291,8 +325,15 @@ ts_constants! {
     /// The submitted configuration failed validation before anything was written.
     MCP_SERVER_CONFIG_INVALID_CODE = RefusalCode::McpServerConfigInvalid;
     /// The provider's config file changed under the write: the provider's own version check
-    /// failed, or a project file no longer hashes to what the daemon last read.
+    /// failed, a project file no longer hashes to what the daemon last read, or another writer
+    /// changed the binding's entry since the daemon read it.
     MCP_SERVER_CONFIG_WRITE_CONFLICT_CODE = RefusalCode::McpServerConfigWriteConflict;
+    /// The change reused a key with another request; the screen sends the change again under a
+    /// new key.
+    MCP_SERVER_IDEMPOTENCY_CONFLICT_CODE = RefusalCode::McpServerIdempotencyConflict;
+    /// The provider's own config does not load, so nothing was written; the screen names the
+    /// files.
+    MCP_SERVER_CONFIG_FILE_INVALID_CODE = RefusalCode::McpServerConfigFileInvalid;
     /// The sign-in could not be started for a passing reason; retry under a new key. A failure
     /// after it started arrives as an event.
     MCP_SERVER_SIGN_IN_FAILED_CODE = RefusalCode::McpServerSignInFailed;
@@ -301,17 +342,18 @@ ts_constants! {
     MCP_SERVER_SIGN_OUT_FAILED_CODE = RefusalCode::McpServerSignOutFailed;
 }
 
-/// The TypeScript module of the `mcp.*` method table, the status notice, the sign-in payload and
-/// a write conflict's reason.
+/// The TypeScript module of the `mcp.*` method table, the status notice, the sign-in payload, a
+/// write conflict's reason and a config file refusal's details.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "mcp/governance",
     doc: "The `mcp.*` method table, the sign-in event payload, the status notice, the refusal \
-          codes and a write conflict's reason.",
+          codes, a write conflict's reason and a config file refusal's details.",
     definitions: &[
         Definition::read::<McpServerStatusChangedNotice>().checked(),
         Definition::read::<McpServerSignInOutcome>(),
         Definition::read::<McpServerConfigWriteConflictReason>(),
         Definition::read::<McpServerSignInCompletedPayload>().checked(),
+        Definition::read::<McpServerConfigFileInvalidDetails>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[&MCP_METHOD_DESCRIPTORS],
