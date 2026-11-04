@@ -50,8 +50,8 @@ pub(crate) fn mcp_refusal_of_write(
             expected_version,
             current_version,
         }),
-        McpServerWriteRefusal::ProjectFileChanged => {
-            write_conflict(McpConfigWriteConflict::ProjectFileChanged)
+        McpServerWriteRefusal::ConfigFileChanged => {
+            write_conflict(McpConfigWriteConflict::ConfigFileChanged)
         }
         McpServerWriteRefusal::EntryChanged => write_conflict(McpConfigWriteConflict::EntryChanged),
     }
@@ -124,11 +124,11 @@ mod tests {
         &["provider", "scope", "serverName", "reason", "expectedVersion", "currentVersion"][..],
         Some("staleVersion")
     )]
-    #[case::project_file_changed(
-        McpServerWriteRefusal::ProjectFileChanged,
+    #[case::config_file_changed(
+        McpServerWriteRefusal::ConfigFileChanged,
         RefusalCode::McpServerConfigWriteConflict,
         &["provider", "scope", "serverName", "reason"][..],
-        Some("projectFileChanged")
+        Some("configFileChanged")
     )]
     #[case::entry_changed(
         McpServerWriteRefusal::EntryChanged,
