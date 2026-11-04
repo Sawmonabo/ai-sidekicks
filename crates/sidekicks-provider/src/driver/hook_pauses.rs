@@ -265,7 +265,7 @@ mod tests {
 
         let lost = pauses.resume(&"lost").expect("the pause was in force");
         assert!(lost.had_lost_hold);
-        assert!(lost.held.is_empty());
+        assert_eq!(lost.held, [] as [&str; 0]);
         let kept = pauses.resume(&"kept").expect("the pause was in force");
         assert!(!kept.had_lost_hold);
         assert_eq!(kept.held, ["waiting-call"]);
