@@ -206,7 +206,7 @@ methods! {
             mutating: false,
             params: McpRegistrySearchRequest,
             result: McpRegistrySearchResponse,
-            refusals: [],
+            refusals: [ProviderTimeout, ProviderUnavailable],
         },
         /// Adds a binding or changes its declaration.
         McpServerUpsert = mutation "mcp.server.upsert" {

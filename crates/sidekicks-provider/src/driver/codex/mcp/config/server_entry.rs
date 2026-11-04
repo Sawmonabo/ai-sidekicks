@@ -16,12 +16,48 @@ use sidekicks_contracts::wire::record::Record;
 use crate::driver::mcp_server::address::read_server_address;
 use crate::driver::mcp_server::read::{McpServerSignInClient, McpServerToolDefaults};
 
-// The member that names the program a stdio server runs.
-const COMMAND_MEMBER: &str = "command";
+/// The member of a server entry that names the program a stdio server runs.
+pub(crate) const COMMAND_MEMBER: &str = "command";
+/// The member of a server entry that holds a stdio server's arguments.
+pub(crate) const ARGS_MEMBER: &str = "args";
+/// The member of a server entry that holds a stdio server's environment, values included.
+pub(crate) const ENV_MEMBER: &str = "env";
+/// The member of a server entry that names the variables a stdio server inherits.
+pub(crate) const ENV_VARS_MEMBER: &str = "env_vars";
+/// The member of a server entry that names the folder a stdio server starts in.
+pub(crate) const CWD_MEMBER: &str = "cwd";
 /// The member of a server entry that names an HTTP server's address.
 pub(crate) const URL_MEMBER: &str = "url";
+/// The member of a server entry that holds an HTTP server's bearer token itself.
+pub(crate) const BEARER_TOKEN_MEMBER: &str = "bearer_token";
+/// The member of a server entry that names the variable an HTTP server's bearer token is read
+/// from.
+pub(crate) const BEARER_TOKEN_ENV_VAR_MEMBER: &str = "bearer_token_env_var";
+/// The member of a server entry that names the program an HTTP server's headers come from.
+pub(crate) const HTTP_HEADERS_HELPER_MEMBER: &str = "http_headers_helper";
+/// The member of a server entry that holds an HTTP server's headers, values included.
+pub(crate) const HTTP_HEADERS_MEMBER: &str = "http_headers";
+/// The member of a server entry that maps each header to the variable its value is read from.
+pub(crate) const ENV_HTTP_HEADERS_MEMBER: &str = "env_http_headers";
+/// The member of a server entry that holds the scopes a sign-in asks for.
+pub(crate) const SCOPES_MEMBER: &str = "scopes";
+/// The member of a server entry that holds its sign-in client.
+pub(crate) const OAUTH_MEMBER: &str = "oauth";
+/// The member of a server entry that names the resource a sign-in asks for.
+pub(crate) const OAUTH_RESOURCE_MEMBER: &str = "oauth_resource";
+/// The member of a server entry that names how an HTTP server is signed in to.
+pub(crate) const AUTH_MEMBER: &str = "auth";
 /// The member of a server entry that switches the server on or off.
 pub(crate) const ENABLED_MEMBER: &str = "enabled";
+/// The member of a server entry that makes a session refuse to start without the server.
+pub(crate) const REQUIRED_MEMBER: &str = "required";
+/// The member of a server entry that bounds the server's start, in seconds.
+pub(crate) const STARTUP_TIMEOUT_SEC_MEMBER: &str = "startup_timeout_sec";
+/// The member of a server entry that bounds the server's start in milliseconds, which the
+/// seconds member takes the place of.
+pub(crate) const STARTUP_TIMEOUT_MS_MEMBER: &str = "startup_timeout_ms";
+/// The member of a server entry that bounds one tool call, in seconds.
+pub(crate) const TOOL_TIMEOUT_SEC_MEMBER: &str = "tool_timeout_sec";
 // The header Codex sends a bearer token in.
 const AUTHORIZATION_HEADER: &str = "Authorization";
 // The approval mode Codex gives a server's tools when its entry sets none.
@@ -70,7 +106,7 @@ impl std::fmt::Debug for CodexServerTransport {
 pub(crate) fn read_codex_server_transport(entry: &Value) -> Option<CodexServerTransport> {
     if let Some(command) = entry.get(COMMAND_MEMBER).and_then(Value::as_str) {
         let args = entry
-            .get("args")
+            .get(ARGS_MEMBER)
             .and_then(Value::as_array)
             .into_iter()
             .flatten()
