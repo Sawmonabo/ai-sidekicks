@@ -110,6 +110,13 @@ mod tests {
         let mut session = SessionLog::new();
         let lead = session.lead;
         let other = agent_id();
+        // The lead a queued row naming no agent falls back to is the one the log's creation names.
+        session.event(
+            SessionEventType::SessionCreated,
+            &json!({ "mainAgent": { "agentId": lead } }),
+            None,
+            &at(0),
+        );
         let lead_run = session.run(None, RunState::Running, lead, &at(0));
         let other_run = session.run(None, RunState::Running, other, &at(1));
         let unnamed_run = test_run_id();
