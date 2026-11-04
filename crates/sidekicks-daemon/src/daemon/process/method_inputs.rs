@@ -44,6 +44,7 @@ use sidekicks_queue::run_token_limit::RunTokenLimitReader;
 use sidekicks_queue::service::answer_continue::HaltedRunRecord;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
 use sidekicks_recovery::startup::StartupRecovery;
+use sidekicks_session::agent_tree::lookup::StoredAgentTreeLookup;
 use sidekicks_session::attention::banner_launcher::BannerLauncher;
 use sidekicks_session::attention::delivery::web_address::sender::{
     WebAddressSender, WebAddressSenderDependencies,
@@ -536,6 +537,7 @@ pub(crate) async fn register_method_inputs(
             context_readings: Arc::clone(&session.context_readings),
             tool_call_statuses: Arc::clone(&session.tool_call_statuses),
             held_tool_calls: Arc::new(StoredHeldToolCalls::new(Arc::clone(&reads))),
+            agent_tree_lookup: Arc::new(StoredAgentTreeLookup::new(Arc::clone(&reads))),
             idle_sleep: Arc::clone(&session.idle_sleep),
             session_resumes: Arc::clone(&session.stored_resumes),
             provider_sessions: Arc::clone(&session.provider_sessions),

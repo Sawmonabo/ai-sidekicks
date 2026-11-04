@@ -524,62 +524,39 @@ pub enum DriverGoalResult {
 }
 
 /// Params of `set_session_goal` (gated on `sessionGoals`): the condition the person typed after
-/// `/goal`, for the target agent's live binding. The goal events are the durable truth, so neither
-/// goal operation returns the goal, and a resume never sets it again. `run_id` is context only.
+/// `/goal`, carried by the session's lead conversation whether or not its process is live. The goal
+/// events are the durable truth, so neither goal operation returns the goal, and a resume never
+/// sets it again.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SetSessionGoalParams {
     /// The session.
     pub(crate) session_id: SessionId,
-    /// The target agent's live binding.
-    pub(crate) binding_id: RuntimeBindingId,
-    /// The run, for context.
-    pub(crate) run_id: RunId,
     /// The condition as typed.
     pub(crate) goal_text: String,
 }
 
 impl SetSessionGoalParams {
-    /// The params of setting `goal_text` on `binding_id`, the live binding of `session_id`'s run
-    /// `run_id`.
-    pub fn new(
-        session_id: SessionId,
-        binding_id: RuntimeBindingId,
-        run_id: RunId,
-        goal_text: String,
-    ) -> Self {
+    /// The params of setting `goal_text` on `session_id`'s lead conversation.
+    pub fn new(session_id: SessionId, goal_text: String) -> Self {
         Self {
             session_id,
-            binding_id,
-            run_id,
             goal_text,
         }
     }
 }
 
-/// Params of `clear_session_goal` (gated on `sessionGoals`); addresses one live binding.
+/// Params of `clear_session_goal` (gated on `sessionGoals`): the session whose lead conversation
+/// drops its goal, whether or not its process is live.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[expect(
-    clippy::struct_field_names,
-    reason = "each member is an id, named for what it identifies"
-)]
 pub struct ClearSessionGoalParams {
     /// The session.
     pub(crate) session_id: SessionId,
-    /// The live binding.
-    pub(crate) binding_id: RuntimeBindingId,
-    /// The run, for context.
-    pub(crate) run_id: RunId,
 }
 
 impl ClearSessionGoalParams {
-    /// The params of clearing the goal on `binding_id`, the live binding of `session_id`'s run
-    /// `run_id`.
-    pub fn new(session_id: SessionId, binding_id: RuntimeBindingId, run_id: RunId) -> Self {
-        Self {
-            session_id,
-            binding_id,
-            run_id,
-        }
+    /// The params of clearing the goal on `session_id`'s lead conversation.
+    pub fn new(session_id: SessionId) -> Self {
+        Self { session_id }
     }
 }
 

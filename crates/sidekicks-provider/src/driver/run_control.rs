@@ -1,8 +1,8 @@
 //! The params and results of the driver operations that act on one live run: a steer or an
 //! interrupt, pause and continue, withdrawing a waiting message, overruling a reviewer's block,
-//! answering a provider's choice and resending a held turn on a faster model; and the binding the
-//! run queue opens for a turn the daemon starts itself; and stopping a helper alone and
-//! re-attaching a session's helpers after a restart.
+//! answering a provider's choice and resending a held turn on a faster model; the binding the run
+//! queue opens, and the account and posture it admits, for a turn the daemon starts itself; and
+//! stopping a helper alone and re-attaching a session's helpers after a restart.
 
 use std::error::Error;
 
@@ -12,6 +12,8 @@ use serde_json::value::RawValue;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::artifacts::id::ArtifactId;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FALLBACK_ACTION_MAX_LEN;
 use sidekicks_contracts::provider::driver::methods::{
     PROVIDER_WIRE_HANDLE_MAX_LEN, PROVIDER_WIRE_REASON_MAX_LEN,
@@ -449,11 +451,22 @@ pub struct DaemonTurnBinding {
     pub step_bound: Option<SafeInt<1>>,
 }
 
+/// The account a turn the daemon starts on a session with no live process is admitted against,
+/// and the posture it runs at.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DaemonTurnAdmission {
+    /// The account the turn's run is admitted against, which the session's process opens on.
+    pub admitted_provider_account_id: ProviderAccountId,
+    /// The posture the turn runs at.
+    pub execution_posture: ExecutionPosture,
+}
+
 /// Why the binding of a turn the daemon starts on a session could not be opened, which ends the
 /// run failed.
 #[derive(Debug, thiserror::Error)]
 pub enum DaemonTurnBindingError {
-    /// The session's provider session was not opened in this process.
+    /// The session's process was let go between its open and the binding's, so the binding has no
+    /// process to run on.
     #[error(
         "the provider session of session {} could not be opened: it has no provider session open",
         .session_id
@@ -462,21 +475,22 @@ pub enum DaemonTurnBindingError {
         /// The session.
         session_id: SessionId,
     },
-    /// The session has no conversation to run on.
-    #[error(
-        "the provider session of session {} could not be opened: it has no conversation to run on",
-        .session_id
-    )]
-    NoConversation {
+    /// The session has no provider or account to run on, or no posture to run at.
+    #[error("a turn on session {session_id} could not be admitted")]
+    NotAdmitted {
         /// The session.
         session_id: SessionId,
+        /// The admission's failure.
+        #[source]
+        source: Box<dyn Error + Send + Sync>,
     },
-    /// The run's binding could not be recorded.
-    #[error("the binding of a turn on session {session_id} could not be recorded")]
+    /// The session's process could not be opened or settled for the turn, or the run's binding
+    /// could not be recorded.
+    #[error("the binding of a turn on session {session_id} could not be opened")]
     BindingNotRecorded {
         /// The session.
         session_id: SessionId,
-        /// The store's failure.
+        /// The open's, the settle's or the store's failure.
         #[source]
         source: Box<dyn Error + Send + Sync>,
     },
@@ -484,11 +498,22 @@ pub enum DaemonTurnBindingError {
 
 /// Opens the binding of a turn the daemon starts on a session itself; the run queue serves it.
 pub trait DaemonTurnBindingResolver: Send + Sync {
-    /// The binding `run_id` runs on in `session_id`, and the session's lead agent. An error when
-    /// the binding cannot be opened, which ends the run failed.
+    /// The binding `run_id` runs on in `session_id`, and the session's lead agent. A session whose
+    /// process this daemon has not opened is opened for the run first, as an admitted run's is:
+    /// resumed where it has a conversation, else created on the account the run was admitted
+    /// against, then settled. An error when the session cannot be admitted, opened or bound,
+    /// which ends the run failed.
     fn open_daemon_turn_binding(
         &self,
         run_id: RunId,
         session_id: SessionId,
     ) -> BoxFuture<'_, Result<DaemonTurnBinding, DaemonTurnBindingError>>;
+
+    /// What a driver fills a daemon turn's start request with when no process of `session_id` is
+    /// live: the account a new run of the session is admitted against and the posture its process
+    /// runs at. Fails `NotAdmitted` when the session has no provider or account to run on.
+    fn admit_daemon_turn(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<DaemonTurnAdmission, DaemonTurnBindingError>>;
 }

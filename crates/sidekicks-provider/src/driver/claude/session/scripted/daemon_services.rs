@@ -26,6 +26,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 
 use super::binding_id;
+use super::driver::create_params;
 use crate::callback_tools::host::{
     CallbackToolActivityRecord, CallbackToolActivitySink, CallbackToolExecutor, CallbackToolHost,
     CallbackToolPortError, CallbackToolSpawnRequest,
@@ -41,7 +42,7 @@ use crate::driver::callback_tool::{CallbackToolInvocation, CallbackToolResult};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::ports::{DriverPorts, MessageTakenListener, ProcessGoneListener};
 use crate::driver::run_control::{
-    DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver,
+    DaemonTurnAdmission, DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver,
 };
 use crate::driver::test_registry::new_agent_id;
 use crate::port::permission_ask::{
@@ -347,7 +348,8 @@ impl AttachmentResolver for ScriptedAttachments {
     }
 }
 
-/// Opens every daemon turn on one binding.
+/// Opens every daemon turn on one binding, and admits each on the account and at the posture a
+/// scripted session is created with.
 struct ScriptedBindings;
 
 impl DaemonTurnBindingResolver for ScriptedBindings {
@@ -361,6 +363,22 @@ impl DaemonTurnBindingResolver for ScriptedBindings {
                 binding_id: binding_id("daemon-turn"),
                 agent_id: new_agent_id(),
                 step_bound: None,
+            })
+        }
+        .boxed()
+    }
+
+    fn admit_daemon_turn(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<DaemonTurnAdmission, DaemonTurnBindingError>> {
+        let created = create_params(session_id);
+        async move {
+            Ok(DaemonTurnAdmission {
+                admitted_provider_account_id: created.provider_account_id,
+                execution_posture: created
+                    .execution_posture
+                    .expect("a scripted session is created with a posture"),
             })
         }
         .boxed()

@@ -96,15 +96,10 @@ impl SessionGoals {
             agent_id,
             goal,
         } = request;
-        let Some((driver, leg)) = self.reach_lead(session_id, agent_id).await? else {
+        let Some((driver, _leg)) = self.reach_lead(session_id, agent_id).await? else {
             return Err(SessionGoalError::NoConversation { session_id });
         };
-        let params = SetSessionGoalParams::new(
-            session_id,
-            leg.id,
-            leg.run_id,
-            goal.text.as_str().to_owned(),
-        );
+        let params = SetSessionGoalParams::new(session_id, goal.text.as_str().to_owned());
         applied(driver.set_session_goal(params).await?)?;
         Ok(SessionGoalUpdateResponse { session_id, goal })
     }
@@ -119,8 +114,8 @@ impl SessionGoals {
             session_id,
             agent_id,
         } = request;
-        if let Some((driver, leg)) = self.reach_lead(session_id, agent_id).await? {
-            let params = ClearSessionGoalParams::new(session_id, leg.id, leg.run_id);
+        if let Some((driver, _leg)) = self.reach_lead(session_id, agent_id).await? {
+            let params = ClearSessionGoalParams::new(session_id);
             applied(driver.clear_session_goal(params).await?)?;
         }
         Ok(SessionAcknowledgment { session_id })
@@ -223,9 +218,7 @@ mod tests {
     use sidekicks_contracts::agent::definition::AgentId;
     use sidekicks_contracts::event::registry::SessionEventType;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-    use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
     use sidekicks_contracts::provider::id::ProviderId;
-    use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::goal::{
         SessionGoal, SessionGoalClearRequest, SessionGoalUpdateRequest, SessionGoalUpdateResponse,
     };
@@ -285,8 +278,6 @@ mod tests {
         lead: AgentId,
         helper: AgentId,
         stranger: AgentId,
-        leg_id: RuntimeBindingId,
-        leg_run_id: RunId,
         calls: Calls,
     }
 
@@ -345,8 +336,6 @@ mod tests {
                 lead,
                 helper,
                 stranger,
-                leg_id,
-                leg_run_id,
                 calls: Calls::default(),
             }
         }
@@ -506,18 +495,13 @@ mod tests {
         assert_eq!(refusal_code(cleared), RefusalCode::SessionGoalNotApplied);
     }
 
-    // A set wakes the session before the provider is asked, on the leg's binding and run, and
-    // echoes the goal. Killed by the wake dropped or moved after the dispatch, and by the params
-    // built on another binding.
+    // A set wakes the session before the provider is asked, with the session and the goal as typed,
+    // and echoes the goal. Killed by the wake dropped or moved after the dispatch, and by the params
+    // built on another session or text.
     #[tokio::test]
     async fn a_goal_set_wakes_the_session_before_the_leg_carries_it() {
         let fixture = Fixture::new();
-        let expected = SetSessionGoalParams::new(
-            fixture.session_id,
-            fixture.leg_id.clone(),
-            fixture.leg_run_id,
-            GOAL.to_owned(),
-        );
+        let expected = SetSessionGoalParams::new(fixture.session_id, GOAL.to_owned());
         let calls = Arc::clone(&fixture.calls);
         let mut driver = MockProviderDriver::new();
         driver
