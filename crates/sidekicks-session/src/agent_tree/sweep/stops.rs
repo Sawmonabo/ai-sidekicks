@@ -315,4 +315,4 @@ fn outcome_of(child: AgentTreeMember, answer: StopAnswer) -> ChildStopOutcome {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

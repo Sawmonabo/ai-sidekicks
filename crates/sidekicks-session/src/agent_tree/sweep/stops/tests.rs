@@ -62,9 +62,9 @@ fn daemon() -> InterventionActor {
     InterventionActor::Daemon(DaemonInterventionActor::Value)
 }
 
-// A sweep reading the database at `path`, stopping helpers through `driver` and runs through
-// `harness`'s interventions service, and appending through `appender`.
-fn sweep(
+/// A sweep reading the database at `path`, stopping helpers through `driver` and runs through
+/// `harness`'s interventions service, and appending through `appender`.
+pub(crate) fn sweep(
     path: PathBuf,
     driver: MockProviderDriver,
     harness: &Harness,
@@ -81,8 +81,8 @@ fn sweep(
     )
 }
 
-// An appender on `event_log`.
-fn appender(event_log: Arc<EventLogService>) -> Arc<SessionEventAppender> {
+/// An appender on `event_log`.
+pub(crate) fn appender(event_log: Arc<EventLogService>) -> Arc<SessionEventAppender> {
     Arc::new(SessionEventAppender::new(
         event_log,
         SESSION_EVENT_VERSION.clone(),
