@@ -17,3 +17,5 @@ pub(crate) mod quote;
 pub mod receiver;
 pub mod rule;
 pub mod store;
+#[cfg(test)]
+mod test_fixture;

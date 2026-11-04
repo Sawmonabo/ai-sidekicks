@@ -529,97 +529,25 @@ fn log_refused_fields(refused_fields: &[RefusedPriceField]) {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashSet, VecDeque};
     use std::fs;
     use std::path::Path;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
     use std::time::{Duration, SystemTime};
 
-    use axum::Router;
-    use axum::extract::State;
-    use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
-    use axum::response::{IntoResponse as _, Response};
-    use axum::routing::get;
+    use axum::http::StatusCode;
     use futures::FutureExt as _;
-    use reqwest::Url;
     use rstest::rstest;
-    use sidekicks_platforms::WallClock;
-    use sidekicks_std::mutex_lock::lock;
-    use sidekicks_std::scheduler::Scheduler;
     use sidekicks_std::scheduler::armed_instant::InstantJob as _;
     use sidekicks_std::scheduler::test_wall_clock::{TEST_CLOCK_START, TestWallClock};
-    use tokio::sync::watch;
 
-    use super::{COPY_FILE, HeldCopyState, HeldPriceList, PriceListConfig, STATE_FILE};
+    use super::{COPY_FILE, HeldCopyState, HeldPriceList, STATE_FILE};
+    use crate::pricing::test_fixture::{ListServer, open_held, serve};
 
     const HELD_COPY: &[u8] = br#"{"m1": {"input_cost_per_token": 1e-06}}"#;
     const HELD_ETAG: &str = r#"W/"held""#;
-    const SEED_COPY: &[u8] =
-        br#"{"m1": {"input_cost_per_token": 3e-06}, "seed-only": {"input_cost_per_token": 2e-06}}"#;
 
     const NEW_COPY: &[u8] =
         br#"{"m1": {"input_cost_per_token": 1e-06}, "seed-only": {"input_cost_per_token": 2e-06}}"#;
-
-    fn test_seed() -> Vec<u8> {
-        SEED_COPY.to_vec()
-    }
-
-    // One answer the list's server gives, in the order the test scripts them.
-    struct ScriptedAnswer {
-        status: StatusCode,
-        etag: Option<&'static str>,
-        body: &'static [u8],
-    }
-
-    // The list's stand-in server: it answers from its script and records each request's
-    // `If-None-Match`, whose count is the requests made.
-    #[derive(Default)]
-    struct ListServer {
-        answers: Mutex<VecDeque<ScriptedAnswer>>,
-        if_none_match: Mutex<Vec<Option<String>>>,
-    }
-
-    impl ListServer {
-        fn script(&self, status: StatusCode, etag: Option<&'static str>, body: &'static [u8]) {
-            lock(&self.answers).push_back(ScriptedAnswer { status, etag, body });
-        }
-
-        fn if_none_match(&self) -> Vec<Option<String>> {
-            lock(&self.if_none_match).clone()
-        }
-    }
-
-    async fn answer(State(server): State<Arc<ListServer>>, headers: HeaderMap) -> Response {
-        let if_none_match = headers.get(header::IF_NONE_MATCH).map(|value| {
-            value
-                .to_str()
-                .expect("the tag sent is visible ASCII")
-                .to_owned()
-        });
-        lock(&server.if_none_match).push(if_none_match);
-        let answer = lock(&server.answers)
-            .pop_front()
-            .expect("the test scripted an answer for each request");
-        let mut response = (answer.status, answer.body).into_response();
-        if let Some(etag) = answer.etag {
-            response
-                .headers_mut()
-                .insert(header::ETAG, HeaderValue::from_static(etag));
-        }
-        response
-    }
-
-    async fn serve(server: &Arc<ListServer>) -> Url {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("a loopback port binds");
-        let address = listener.local_addr().expect("the bound address reads");
-        let router = Router::new()
-            .route("/list.json", get(answer))
-            .with_state(Arc::clone(server));
-        tokio::spawn(async move { axum::serve(listener, router).await });
-        Url::parse(&format!("http://{address}/list.json")).expect("the address parses")
-    }
 
     // Puts `copy` and a state naming `HELD_ETAG` in `folder`, as an earlier fetch left them.
     fn hold_copy(folder: &Path, copy: &[u8]) {
@@ -634,24 +562,6 @@ mod tests {
             serde_json::to_vec(&state).expect("the state serializes"),
         )
         .expect("the held state is written");
-    }
-
-    // Opens the list in `folder` against `url`, with `m1` and `seed-only` in use, its scheduler and
-    // the list on one test clock.
-    async fn open_held(folder: &Path, url: Url, clock: &Arc<TestWallClock>) -> Arc<HeldPriceList> {
-        let wall_clock: Arc<dyn WallClock> = Arc::<TestWallClock>::clone(clock);
-        let scheduler = Arc::new(Scheduler::start(
-            Arc::clone(&wall_clock),
-            None,
-            watch::channel(0).1,
-        ));
-        let in_use = HashSet::from(["m1".to_owned(), "seed-only".to_owned()]);
-        let config = PriceListConfig {
-            folder: folder.to_path_buf(),
-            url,
-            seed: test_seed,
-        };
-        HeldPriceList::open(config, scheduler, wall_clock, in_use).await
     }
 
     // Whether a pass is due, taking its wake.
