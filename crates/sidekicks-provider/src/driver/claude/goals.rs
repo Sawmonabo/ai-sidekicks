@@ -1,7 +1,9 @@
 //! A session goal on Claude Code is its own `/goal` command: `/goal <condition>` sets or replaces
 //! the goal and `/goal clear` removes it. With no run holding the session's turn the command opens
 //! the session's own run; while the lead's run works it is written onto that run at once, Claude
-//! Code runs it when that turn ends, and the run carries into it. The goal is applied once Claude
+//! Code runs it when that turn ends, and the run carries into it. On a session with no live process
+//! the command's run opens the session's process first, and the command is written only where that
+//! process lists it. The goal is applied once Claude
 //! Code started the command (`command_lifecycle` `started` under its message's uuid) and answered
 //! it: its command output, or a `result` that reports no error. One command waits per session; a
 //! second replaces the first, which then reads unanswered.
@@ -21,7 +23,11 @@ use tokio::sync::oneshot;
 
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::run::controls::ClaudeRunControls;
-use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeSessionUnavailableReason};
+use crate::driver::claude::run::start::ClaudeDaemonTurnOpening;
+use crate::driver::claude::session::errors::{
+    ClaudeSessionError,
+    ClaudeSessionUnavailableReason::{self, CommandAbsent, SessionTurnInFlight},
+};
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
 use crate::driver::contract::error::DriverError;
@@ -71,40 +77,37 @@ pub(crate) struct ClaudeGoalCommands {
 }
 
 impl ClaudeGoalCommands {
-    /// Sends `/goal <goal_text>`, or `/goal clear` for `None`: as the session's own run while
-    /// nothing holds its turn, written onto the lead's run while that run works, which Claude Code
-    /// runs when its turn ends, and after a command's turn is released. Answers `Applied` once
-    /// Claude Code started the command and answered it, and `Degraded` when Claude Code dropped
-    /// it, reported an error or no answer within the request deadline of its start, a command's
-    /// turn outlasted that deadline, or the handshake lists no `goal` command, in which case
-    /// nothing is sent; fails as the write or the run's start fails.
+    /// Sends `/goal <goal_text>`, or `/goal clear` for `None`, on `session_id`, whose live process
+    /// is `live`: as the session's own run while nothing holds its turn, written onto the lead's run
+    /// while that run works, which Claude Code runs when its turn ends, and after a command's turn
+    /// is released. With no live process the command's own run opens the session's process and
+    /// writes it there. Answers `Applied` once Claude Code started the command and answered it,
+    /// and `Degraded` when Claude Code dropped it, reported an error or no answer within the
+    /// request deadline of its start, a command's turn outlasted that deadline, or the process's
+    /// handshake lists no `goal` command, in which case nothing is sent; fails as the write or the
+    /// run's start fails.
     pub(crate) async fn send(
         &self,
-        live: &LiveClaudeSession,
+        session_id: SessionId,
+        live: Option<&LiveClaudeSession>,
         controls: &ClaudeRunControls,
         goal_text: Option<&str>,
     ) -> Result<DriverGoalResult, DriverError> {
         let start = &controls.start;
-        let session_id = live.session_id;
-        let is_listed = start
-            .handshakes
-            .held_handshake_for(session_id, &live.provider_session_id)
-            .is_some_and(|held| {
-                held.invocable_command_names
-                    .contains(CLAUDE_GOAL_COMMAND_NAME)
-            });
-        if !is_listed {
-            return Ok(degraded());
-        }
-        // A command Claude Code runs as a turn of its own holds no run to write the goal onto.
-        if start.routes.lead_run_on(session_id).is_none()
-            && start.routes.is_turn_held(session_id)
-            && !start
-                .routes
-                .when_turn_released(session_id, CLAUDE_REQUEST_DEADLINE)
-                .await
-        {
-            return Ok(degraded());
+        if let Some(live) = live {
+            if !start.lists_command(live, CLAUDE_GOAL_COMMAND_NAME) {
+                return Ok(degraded());
+            }
+            // A command Claude Code runs as a turn of its own holds no run to write the goal onto.
+            if start.routes.lead_run_on(session_id).is_none()
+                && start.routes.is_turn_held(session_id)
+                && !start
+                    .routes
+                    .when_turn_released(session_id, CLAUDE_REQUEST_DEADLINE)
+                    .await
+            {
+                return Ok(degraded());
+            }
         }
         let message_uuid = mint_uuid_v7().to_string();
         let (started_sender, started) = oneshot::channel();
@@ -127,17 +130,31 @@ impl ClaudeGoalCommands {
             // The person set the goal, so Claude Code counts it as theirs and runs it.
             origin: OutboundTextOrigin::HumanText,
         };
-        // A run that took the turn between the read and the run's start takes the goal instead.
-        let written = match controls
-            .write_to_lead(session_id, text(), message_uuid.clone())
-            .await
-        {
-            Err(error) if is_turn_in_flight(&error) => {
-                controls
-                    .write_to_lead(session_id, text(), message_uuid.clone())
-                    .await
+        let written = if live.is_some() {
+            // A run that took the turn between the read and the run's start takes the goal instead.
+            match controls
+                .write_to_lead(session_id, text(), message_uuid.clone())
+                .await
+            {
+                Err(error) if is_unavailable_for(&error, SessionTurnInFlight) => {
+                    controls
+                        .write_to_lead(session_id, text(), message_uuid.clone())
+                        .await
+                }
+                written => written,
             }
-            written => written,
+        } else {
+            start
+                .start_daemon_turn(
+                    session_id,
+                    ClaudeDaemonTurnOpening::Command {
+                        name: CLAUDE_GOAL_COMMAND_NAME,
+                        text: text(),
+                        message_id: message_uuid.clone(),
+                    },
+                )
+                .await
+                .map(drop)
         };
         if let Err(error) = written {
             let mut waiting_by_session = self.lock();
@@ -146,6 +163,10 @@ impl ClaudeGoalCommands {
                 .is_some_and(|waiting| waiting.message_uuid == message_uuid)
             {
                 waiting_by_session.remove(&session_id);
+            }
+            // The process the run opened lists no `goal`, so nothing was written.
+            if is_unavailable_for(&error, CommandAbsent) {
+                return Ok(degraded());
             }
             return Err(error);
         }
@@ -241,9 +262,9 @@ fn degraded() -> DriverGoalResult {
     }
 }
 
-// Whether the run's start was refused because a run or a command holds the session's turn, at the
-// start's own check or at its hold under the run engine.
-fn is_turn_in_flight(error: &DriverError) -> bool {
+// Whether the run's start was refused unavailable for `refused_reason`, at the start's own check or
+// under the run engine.
+fn is_unavailable_for(error: &DriverError, refused_reason: ClaudeSessionUnavailableReason) -> bool {
     std::iter::successors(Some(error as &(dyn Error + 'static)), |&error| {
         error.source()
     })
@@ -251,10 +272,7 @@ fn is_turn_in_flight(error: &DriverError) -> bool {
     .any(|error| {
         matches!(
             error,
-            ClaudeSessionError::Unavailable {
-                reason: ClaudeSessionUnavailableReason::SessionTurnInFlight,
-                ..
-            }
+            ClaudeSessionError::Unavailable { reason, .. } if *reason == refused_reason
         )
     })
 }
@@ -301,7 +319,12 @@ mod tests {
                 .establishment
                 .task_services
                 .goals
-                .send(&session.live, &session.parts.run_controls, Some("ship it"))
+                .send(
+                    session.session_id,
+                    Some(&session.live),
+                    &session.parts.run_controls,
+                    Some("ship it"),
+                )
                 .await
         })
     }
@@ -425,5 +448,39 @@ mod tests {
         session.frame(&turn_result());
 
         assert_eq!(answer(setting).await, DriverGoalResult::Applied {});
+    }
+
+    // A goal sent with no live process goes as its own command run, which refuses a process whose
+    // handshake lists no `goal`: nothing is written and the goal is not applied. Killed by
+    // dropping the command check, which writes the frame and leaves the set waiting.
+    #[tokio::test(start_paused = true)]
+    async fn a_goal_the_opened_process_does_not_list_is_not_applied_and_writes_nothing() {
+        let session = ScriptedSession::new().await;
+        session.start.handshakes.observe_handshake_declaration(
+            session.session_id,
+            &session.live.provider_session_id,
+            ClaudeHandshakeDeclaration {
+                slash_commands: vec!["compact".to_owned()],
+                ..ClaudeHandshakeDeclaration::default()
+            },
+        );
+
+        let setting = session.parts.establishment.task_services.goals.send(
+            session.session_id,
+            None,
+            &session.parts.run_controls,
+            Some("ship it"),
+        );
+        let answered = tokio::time::timeout(Duration::from_secs(600), setting)
+            .await
+            .expect("the set answers")
+            .expect("a goal the process does not list is answered, not failed");
+
+        assert_eq!(answered, degraded());
+        assert!(session.engine.first_daemon_turn_run().is_some());
+        assert!(
+            session.channel.user_frames().is_empty(),
+            "nothing is written"
+        );
     }
 }

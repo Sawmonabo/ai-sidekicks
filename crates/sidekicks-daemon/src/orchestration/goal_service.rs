@@ -1,7 +1,8 @@
 //! The session goal service: a goal set on or cleared from one agent is checked against the
 //! session, the agent, the session's lead and the provider's goal capability, the session is woken
-//! where its process sleeps, and the change goes to the provider on the lead's conversation. It
-//! appends nothing: each goal event comes from what the provider writes.
+//! where its process sleeps, and the change goes to the provider on the lead's conversation; a set
+//! on a session that never ran goes to the lead's provider, which opens the session's process for
+//! it. It appends nothing: each goal event comes from what the provider writes.
 #![cfg_attr(
     not(test),
     expect(dead_code, reason = "the session goal binder calls it")
@@ -74,19 +75,14 @@ pub(crate) enum SessionGoalError {
     /// The sleeping session could not be woken.
     #[error("the session could not be woken for its goal")]
     Wake(#[source] Box<dyn Error + Send + Sync>),
-    /// A goal set on a session that never ran, which holds no conversation to carry it.
-    #[error("session \"{session_id}\" has no conversation to carry a goal")]
-    NoConversation {
-        /// The session.
-        session_id: SessionId,
-    },
 }
 
 impl SessionGoals {
     /// Sets `request`'s goal on its agent and echoes it once the provider took it. Refused
     /// `session.notFound`, `agent.notFound`, `provider.capability.unsupported` for an agent other
     /// than the lead or a provider without goals, and `session.goal.notApplied` when the provider
-    /// did not take it; fails `NoConversation` on a session that never ran.
+    /// did not take it. On a session that never ran, the lead's provider opens the session's
+    /// process for the goal, so nothing is woken first.
     pub(crate) async fn update(
         &self,
         request: SessionGoalUpdateRequest,
@@ -96,8 +92,10 @@ impl SessionGoals {
             agent_id,
             goal,
         } = request;
-        let Some((driver, _leg)) = self.reach_lead(session_id, agent_id).await? else {
-            return Err(SessionGoalError::NoConversation { session_id });
+        let (row, leg) = self.reach_lead(session_id, agent_id).await?;
+        let driver = match leg {
+            Some(leg) => self.wake_leg(session_id, &leg).await?,
+            None => self.providers.lookup(&row.binding.provider_name)?,
         };
         let params = SetSessionGoalParams::new(session_id, goal.text.as_str().to_owned());
         applied(driver.set_session_goal(params).await?)?;
@@ -114,7 +112,8 @@ impl SessionGoals {
             session_id,
             agent_id,
         } = request;
-        if let Some((driver, _leg)) = self.reach_lead(session_id, agent_id).await? {
+        if let (_row, Some(leg)) = self.reach_lead(session_id, agent_id).await? {
+            let driver = self.wake_leg(session_id, &leg).await?;
             let params = ClearSessionGoalParams::new(session_id);
             applied(driver.clear_session_goal(params).await?)?;
         }
@@ -122,14 +121,14 @@ impl SessionGoals {
     }
 
     // Checks the session, the agent, that it is the lead and that its provider keeps goals, then
-    // reads the session's leg and wakes the session for it: the leg's driver and the leg, or
-    // `None` for a session that never ran, which is not woken. No lock is held past the reads, as
-    // a goal sent as a turn opens the binding under the session's own hold.
+    // reads the session's leg: the lead's row and the leg, `None` for a session that never ran. No
+    // lock is held past the reads, as a goal sent as a turn opens the binding under the session's
+    // own hold.
     async fn reach_lead(
         &self,
         session_id: SessionId,
         agent_id: AgentId,
-    ) -> Result<Option<(Arc<dyn ProviderDriver>, RuntimeBinding)>, SessionGoalError> {
+    ) -> Result<(AgentRow, Option<RuntimeBinding>), SessionGoalError> {
         let row = self.read_agent_of_session(session_id, agent_id).await?;
         let lead: AgentId =
             read_lead_agent_through::<SessionGoalError>(&self.pool, session_id).await?;
@@ -140,14 +139,21 @@ impl SessionGoals {
             &row.binding.provider_name,
             DriverCapabilityFlag::SessionGoals,
         )?;
-        let Some(leg) = read_session_leg(&self.pool, session_id).await? else {
-            return Ok(None);
-        };
+        let leg = read_session_leg(&self.pool, session_id).await?;
+        Ok((row, leg))
+    }
+
+    // Wakes the session where its process sleeps and answers the driver of its leg.
+    async fn wake_leg(
+        &self,
+        session_id: SessionId,
+        leg: &RuntimeBinding,
+    ) -> Result<Arc<dyn ProviderDriver>, SessionGoalError> {
         self.session_wakes
             .wake_for_message(session_id)
             .await
             .map_err(SessionGoalError::Wake)?;
-        Ok(Some((self.providers.lookup(&leg.provider_name)?, leg)))
+        Ok(self.providers.lookup(&leg.provider_name)?)
     }
 
     // The row of `agent_id` in `session_id`, refused `session.notFound` for a session with no row
@@ -270,8 +276,7 @@ mod tests {
         }
     }
 
-    // A session that ran once on the first provider, its lead, a helper of it, and the lead of
-    // another session.
+    // A session on the first provider, its lead, a helper of it, and the lead of another session.
     struct Fixture {
         database: TestDatabase,
         session_id: SessionId,
@@ -282,7 +287,32 @@ mod tests {
     }
 
     impl Fixture {
+        // The session after its lead ran once.
         fn new() -> Self {
+            let fixture = Self::never_ran();
+            let reader = fixture.database.opener()().expect("the test opens its database");
+            // The lead's run, which the session's log names, bound to a conversation.
+            let leg_run_id = new_run_id();
+            write_log_row(
+                &reader,
+                fixture.session_id,
+                1,
+                (SessionEventType::AgentRunQueued, &json!({})),
+                Some(leg_run_id),
+                "2026-10-28T09:02:00.000Z",
+            );
+            let leg_id = bind_run_to_first_provider(&fixture.database, leg_run_id);
+            reader
+                .execute(
+                    "UPDATE runtime_bindings SET resume_handle = 'conversation-1' WHERE id = ?1",
+                    [leg_id.as_str()],
+                )
+                .expect("the test gives the lead's binding a conversation");
+            fixture
+        }
+
+        // The session before any run, so it has no leg.
+        fn never_ran() -> Self {
             let database = TestDatabase::new(schema_parts());
             // The daemon's own open creates the file and its schema, which every later read needs.
             let reader = database.opener()().expect("the test creates its database");
@@ -313,23 +343,6 @@ mod tests {
                 other_session_id,
                 &session_created(other_session_id, stranger.text().as_str(), &agent_binding),
             );
-            // The lead's run, which the session's log names, bound to a conversation.
-            let leg_run_id = new_run_id();
-            write_log_row(
-                &reader,
-                session_id,
-                1,
-                (SessionEventType::AgentRunQueued, &json!({})),
-                Some(leg_run_id),
-                "2026-10-28T09:02:00.000Z",
-            );
-            let leg_id = bind_run_to_first_provider(&database, leg_run_id);
-            reader
-                .execute(
-                    "UPDATE runtime_bindings SET resume_handle = 'conversation-1' WHERE id = ?1",
-                    [leg_id.as_str()],
-                )
-                .expect("the test gives the lead's binding a conversation");
             Self {
                 database,
                 session_id,
@@ -531,5 +544,36 @@ mod tests {
             }
         );
         assert_eq!(fixture.calls(), ["wake", "set"]);
+    }
+
+    // A set on a session that never ran goes once to the lead's own provider, with nothing woken,
+    // since that provider opens the session's process for it. Killed by refusing a session with no
+    // leg, and by a wake on that path.
+    #[tokio::test]
+    async fn a_goal_set_on_a_session_that_never_ran_reaches_the_leads_provider_unwoken() {
+        let fixture = Fixture::never_ran();
+        let expected = SetSessionGoalParams::new(fixture.session_id, GOAL.to_owned());
+        let calls = Arc::clone(&fixture.calls);
+        let mut driver = MockProviderDriver::new();
+        driver
+            .expect_set_session_goal()
+            .withf(move |params| *params == expected)
+            .times(1)
+            .returning(move |_| {
+                lock(&calls).push("set");
+                async { Ok(DriverGoalResult::Applied {}) }.boxed()
+            });
+        let goals = fixture.goals(driver, true);
+
+        goals
+            .update(SessionGoalUpdateRequest {
+                session_id: fixture.session_id,
+                agent_id: fixture.lead,
+                goal: goal(),
+            })
+            .await
+            .expect("the provider takes the goal");
+
+        assert_eq!(fixture.calls(), ["set"]);
     }
 }

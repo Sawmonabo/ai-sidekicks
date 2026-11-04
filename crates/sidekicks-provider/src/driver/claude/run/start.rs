@@ -2,7 +2,8 @@
 //! with its staged files, one turn at a time, after the output-speed level the run asks for is
 //! applied. A turn the daemon starts itself (a goal, an `Allow once` with no run) or one
 //! Claude Code started by itself is started as the session's own run through the run engine before
-//! anything is written, at the session's current posture, so every row of the turn has a run.
+//! anything is written, at the session's current posture, so every row of the turn has a run; on a
+//! session with no live process the run's binding opens one.
 
 use std::error::Error;
 use std::sync::{Arc, Mutex};
@@ -46,8 +47,8 @@ use crate::run::start_request::DaemonTurnStartRequest;
 
 /// What a turn the daemon starts on a session itself opens with: words, with the blocks of the
 /// files a person's message carries, written to the session's own process under the message id a
-/// later cut names; or the turn Claude Code started by itself, which its run takes with nothing
-/// written.
+/// later cut names; a command of Claude Code's own, written as words are only where the process
+/// lists it; or the turn Claude Code started by itself, which its run takes with nothing written.
 pub(crate) enum ClaudeDaemonTurnOpening {
     /// Words written to the session's process.
     Text {
@@ -57,6 +58,16 @@ pub(crate) enum ClaudeDaemonTurnOpening {
         message_id: String,
         /// The blocks of its files, in staging order.
         attachment_blocks: Vec<ClaudeUserContentBlock>,
+    },
+    /// A command Claude Code runs, written only where the process's handshake lists `name`; one it
+    /// does not list refuses the turn `CommandAbsent` before anything is held or written.
+    Command {
+        /// The command's name, bare, as the handshake lists it.
+        name: &'static str,
+        /// The command line, `/<name>` and its arguments.
+        text: OutboundText,
+        /// The message's id.
+        message_id: String,
     },
     /// The turn Claude Code started by itself.
     Provider,
@@ -188,34 +199,49 @@ impl ClaudeRunStart {
     }
 
     /// Starts a turn the daemon starts on a session itself, or one Claude Code started by itself,
-    /// as the session's own run at its current posture, waking the session first where it sleeps,
-    /// and answers the run's id once its opening is written and the run is running. A text opening
-    /// is refused `SessionTurnInFlight`, before any run exists, while anything holds the session's
-    /// turn; every opening is refused `ExecutionPostureAbsent` on a session holding no posture.
-    /// Fails as the wake fails, and as the run engine's start fails, the run then ended `failed` by
-    /// the engine.
+    /// as the session's own run, waking the session first where it sleeps, and answers the run's id
+    /// once its opening is written and the run is running. A live process runs it at its current
+    /// posture on its account; a session with no live process is admitted through the binding
+    /// resolver, and the run's binding opens its process. A text or command opening is refused
+    /// `SessionTurnInFlight`, before any run exists, while anything holds the session's turn;
+    /// every opening on a live process holding no posture is refused `ExecutionPostureAbsent`.
+    /// Fails as the wake or the admission fails, and as the run engine's start fails, the run then
+    /// ended `failed` by the engine.
     pub(crate) async fn start_daemon_turn(
         &self,
         session_id: SessionId,
         opening: ClaudeDaemonTurnOpening,
     ) -> Result<RunId, DriverError> {
         self.wake_if_asleep(session_id).await?;
-        let live = self.live_session(session_id)?;
-        let execution_posture =
-            lock(&live.settings)
-                .execution_posture
-                .clone()
-                .ok_or_else(|| {
-                    claude_session_unavailable(
-                        ClaudeSessionUnavailableReason::ExecutionPostureAbsent,
-                        session_id,
-                        None,
+        let (admitted_provider_account_id, execution_posture) =
+            match self.slots.live_session(session_id) {
+                Some(live) => {
+                    let execution_posture = lock(&live.settings)
+                        .execution_posture
+                        .clone()
+                        .ok_or_else(|| {
+                            claude_session_unavailable(
+                                ClaudeSessionUnavailableReason::ExecutionPostureAbsent,
+                                session_id,
+                                None,
+                            )
+                        })?;
+                    (live.admitted_provider_account_id(), execution_posture)
+                }
+                None => {
+                    let admission = self
+                        .bindings
+                        .admit_daemon_turn(session_id)
+                        .await
+                        .map_err(|error| DriverError::Internal(Box::new(error)))?;
+                    (
+                        admission.admitted_provider_account_id,
+                        admission.execution_posture,
                     )
-                })?;
+                }
+            };
         let is_provider_started = matches!(opening, ClaudeDaemonTurnOpening::Provider);
-        if matches!(opening, ClaudeDaemonTurnOpening::Text { .. })
-            && self.routes.is_turn_held(session_id)
-        {
+        if !is_provider_started && self.routes.is_turn_held(session_id) {
             return Err(claude_session_unavailable(
                 ClaudeSessionUnavailableReason::SessionTurnInFlight,
                 session_id,
@@ -229,7 +255,7 @@ impl ClaudeRunStart {
         let request = DaemonTurnStartRequest {
             session_id,
             provider: DESCRIPTOR.provider_id(),
-            admitted_provider_account_id: live.admitted_provider_account_id(),
+            admitted_provider_account_id,
             execution_posture,
             is_provider_started,
             start_turn: Box::new(move |run_id| {
@@ -254,8 +280,8 @@ impl ClaudeRunStart {
             .map_err(DriverError::Internal)
     }
 
-    // The engine's start of a daemon turn under its new run: the run's binding opened, then the
-    // opening carried out once.
+    // The engine's start of a daemon turn under its new run: the run's binding opened, which opens
+    // a session's process where none is live, then the opening carried out once.
     async fn start_turn(
         &self,
         session_id: SessionId,
@@ -270,7 +296,7 @@ impl ClaudeRunStart {
             run_id,
             binding_id: binding.binding_id,
         };
-        match opening {
+        let (text, message_id, attachment_blocks, command_name) = match opening {
             Some(ClaudeDaemonTurnOpening::Provider) => {
                 self.routes
                     .hold_turn(run_id, session_id, run.binding_id.clone())
@@ -284,27 +310,52 @@ impl ClaudeRunStart {
                 if let Some(live) = self.slots.live_session(session_id) {
                     live.record_served_binding(run.binding_id);
                 }
+                return Ok(());
             }
             Some(ClaudeDaemonTurnOpening::Text {
                 text,
                 message_id,
                 attachment_blocks,
-            }) => {
-                // Read again: the session may have closed or moved to another process meanwhile.
-                let live = self.slots.live_session(session_id).ok_or_else(|| {
-                    claude_session_unavailable(
-                        ClaudeSessionUnavailableReason::NoLiveSession,
-                        session_id,
-                        Some(run_id),
-                    )
-                })?;
-                self.open_turn(&live, run, &text, message_id, attachment_blocks, None)
-                    .await?;
-            }
+            }) => (text, message_id, attachment_blocks, None),
+            Some(ClaudeDaemonTurnOpening::Command {
+                name,
+                text,
+                message_id,
+            }) => (text, message_id, Vec::new(), Some(name)),
             // The engine starts each run's turn once.
-            None => {}
+            None => return Ok(()),
+        };
+        // Read again: the session may have closed or moved to another process meanwhile, or its
+        // process was opened by the binding just now.
+        let live = self.slots.live_session(session_id).ok_or_else(|| {
+            claude_session_unavailable(
+                ClaudeSessionUnavailableReason::NoLiveSession,
+                session_id,
+                Some(run_id),
+            )
+        })?;
+        if let Some(name) = command_name
+            && !self.lists_command(&live, name)
+        {
+            return Err(ClaudeSessionError::Unavailable {
+                reason: ClaudeSessionUnavailableReason::CommandAbsent,
+                detail: Some(format!("/{name}")),
+                session_id: Some(session_id),
+                run_id: Some(run_id),
+            }
+            .into());
         }
+        self.open_turn(&live, run, &text, message_id, attachment_blocks, None)
+            .await?;
         Ok(())
+    }
+
+    /// Whether the handshake of the process `live` runs lists the command `name`, bare; `false`
+    /// before the process declared one.
+    pub(crate) fn lists_command(&self, live: &LiveClaudeSession, name: &str) -> bool {
+        self.handshakes
+            .held_handshake_for(live.session_id, &live.provider_session_id)
+            .is_some_and(|held| held.invocable_command_names.contains(name))
     }
 
     // Holds the session's turn for the run and writes its opening words and files, after the

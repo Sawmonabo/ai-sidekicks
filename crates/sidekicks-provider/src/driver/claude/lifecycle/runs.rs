@@ -243,8 +243,9 @@ impl ClaudeDriver {
         })
     }
 
-    /// Sets the session goal on the live process with Claude Code's own `/goal`, at once even while
-    /// the lead's run works, where Claude Code runs it when that turn ends.
+    /// Sets the session goal with Claude Code's own `/goal`, at once even while the lead's run
+    /// works, where Claude Code runs it when that turn ends; a session with no live process has
+    /// its process opened for it.
     pub(crate) async fn set_session_goal(
         &self,
         params: SetSessionGoalParams,
@@ -253,7 +254,8 @@ impl ClaudeDriver {
             .await
     }
 
-    /// Clears the session goal on the live process, at once even while the lead's run works.
+    /// Clears the session goal, at once even while the lead's run works; a session with no live
+    /// process has its process opened for it.
     pub(crate) async fn clear_session_goal(
         &self,
         params: ClearSessionGoalParams,
@@ -261,18 +263,18 @@ impl ClaudeDriver {
         self.send_goal(params.session_id, None).await
     }
 
-    // Sends `/goal` with `goal_text`, or its clear with none, on the session's live process: as its
-    // own run, or onto the lead's run that holds its turn.
+    // Sends `/goal` with `goal_text`, or its clear with none: as the session's own run, which opens
+    // its process where none is live, or onto the lead's run that holds its turn.
     async fn send_goal(
         &self,
         session_id: SessionId,
         goal_text: Option<&str>,
     ) -> Result<DriverGoalResult, DriverError> {
         let parts = self.parts()?;
-        let live = parts.run_start.live_session(session_id)?;
+        let live = parts.run_start.slots.live_session(session_id);
         parts
             .goals
-            .send(&live, &parts.run_controls, goal_text)
+            .send(session_id, live.as_deref(), &parts.run_controls, goal_text)
             .await
     }
 }

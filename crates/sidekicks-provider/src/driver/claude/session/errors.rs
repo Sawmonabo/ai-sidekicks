@@ -51,6 +51,8 @@ pub(crate) enum ClaudeSessionUnavailableReason {
     ExecutionPostureAbsent,
     /// The installed Claude Code lists no code-review skill for the session.
     ReviewSkillAbsent,
+    /// The session's Claude Code process lists no such command.
+    CommandAbsent,
     /// Claude Code's model id names its window, so a session takes no larger-window figure.
     LargerWindowFigureUnsupported,
     /// A folder the session's commands are kept from could not be resolved, so no process starts
@@ -92,6 +94,9 @@ impl ClaudeSessionUnavailableReason {
             }
             Self::ReviewSkillAbsent => {
                 "The installed Claude Code lists no code-review skill for this session."
+            }
+            Self::CommandAbsent => {
+                "The installed Claude Code lists no such command for this session."
             }
             Self::LargerWindowFigureUnsupported => {
                 "Claude Code's model id names its window, so a Claude session takes no \
