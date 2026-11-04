@@ -292,6 +292,7 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         | SessionEventType::AgentTurnStarted
         | SessionEventType::AgentTurnCompleted
         | SessionEventType::AgentTurnInterrupted
+        | SessionEventType::AgentChildrenStopped
         | SessionEventType::AgentTurnFailed
         | SessionEventType::AgentRunWorkerShuttingDown
         | SessionEventType::AgentRunStepLimitReached

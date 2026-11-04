@@ -2,7 +2,7 @@
 //! `childHandle` from the daemon's parent-to-child index; a child the daemon bridges runs as its
 //! own run and takes that run's verbs. The steer names the helper by its session and handle and
 //! carries an idempotency key; the interrupt and the pause also carry the parent run and its
-//! version comparand.
+//! version comparand. The stop of every agent names the session.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -159,14 +159,15 @@ pub enum AgentChildRunPausedUpdateResponse {
     NotPaused(AgentChildRunPausedUpdateNotPaused),
 }
 
-/// Stops every running child of a run at every depth (`agent.childRun.stopAll`): the daemon walks
-/// its own index, one stop per child, never relayed through the lead.
+/// Stops every agent the session dispatched at every depth (`agent.childRun.stopAll`), a helper an
+/// earlier lead run left running included: the daemon walks its own index, one stop per agent,
+/// never relayed through the lead.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct AgentChildRunStopAllRequest {
-    /// The run whose children to stop.
-    pub run_id: RunId,
+    /// The session whose agents to stop.
+    pub session_id: SessionId,
 }
 
 /// The run state a stop leaves a child in: `stopped` where the provider's stop is final,
@@ -285,7 +286,7 @@ pub struct AgentChildRunControlRefusedDetails {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "run/children",
     doc: "A child's own controls: steer, interrupt and pause one provider helper inside a run, \
-          and stop every child of a run.",
+          and stop every agent a session dispatched.",
     definitions: &[
         Definition::read::<AgentChildRunSteerRequest>().checked(),
         Definition::read::<AgentChildRunInterruptRequest>().checked(),

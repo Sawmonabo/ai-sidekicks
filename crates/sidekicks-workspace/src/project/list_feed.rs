@@ -402,6 +402,7 @@ fn sessions_named(event: &CommittedEvent) -> Result<Vec<SessionId>, serde_json::
         | SessionEventType::AgentTurnStarted
         | SessionEventType::AgentTurnCompleted
         | SessionEventType::AgentTurnInterrupted
+        | SessionEventType::AgentChildrenStopped
         | SessionEventType::AgentTurnFailed
         | SessionEventType::AgentRunWorkerShuttingDown
         | SessionEventType::AgentRunStepLimitReached

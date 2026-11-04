@@ -51,7 +51,7 @@ use crate::run::control::{
     AgentRunRecoveryResolvedPayload, AgentRunRecoveryStepsAddedPayload, AgentRunRolledBackEvent,
 };
 use crate::run::events::{
-    AgentInterventionAcceptedPayload, AgentInterventionAppliedPayload,
+    AgentChildrenStoppedPayload, AgentInterventionAcceptedPayload, AgentInterventionAppliedPayload,
     AgentInterventionDegradedPayload, AgentInterventionExpiredPayload,
     AgentInterventionFailedPayload, AgentInterventionRejectedPayload,
     AgentInterventionRequestedPayload, AgentRunCompletedPayload, AgentRunFailedPayload,
@@ -327,6 +327,9 @@ session_events! {
     AgentTurnCompleted(AgentTurnCompletedPayload) = "agent.turn.completed" => turn,
     /// Emitted when a turn is cut, its partial output kept; it moves no state.
     AgentTurnInterrupted(AgentTurnInterruptedPayload) = "agent.turn.interrupted" => turn,
+    /// Emitted once a stop of every agent the session dispatched has run, naming the agents it
+    /// reached; it names no run.
+    AgentChildrenStopped(AgentChildrenStoppedPayload) = "agent.children.stopped",
     /// Emitted when a turn fails; it moves no state.
     AgentTurnFailed(AgentTurnFailedPayload) = "agent.turn.failed" => turn,
     /// Emitted when the provider says its worker is shutting down mid-run; never the run's end.
