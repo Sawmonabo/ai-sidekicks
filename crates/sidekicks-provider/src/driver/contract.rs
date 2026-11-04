@@ -59,6 +59,7 @@ use crate::driver::session_control::{
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 use crate::port::session_inbox_address::SessionInboxAddresser;
+use crate::pricing::receiver::TelemetryExportReader;
 
 pub mod account;
 pub mod error;
@@ -190,6 +191,12 @@ pub trait ProviderDriver: Send + Sync {
     /// of a message's files checks each picture against: a fixed fact of the driver, like
     /// [`message_handing`](Self::message_handing); `None` where the provider sets no limit.
     fn picture_base64_size_limit(&self) -> Option<u64> {
+        None
+    }
+
+    /// The reader of the telemetry the provider's processes export, which the daemon hands the
+    /// receiver under the provider's id; `None` where the provider exports none.
+    fn telemetry_export_reader(&self) -> Option<Arc<dyn TelemetryExportReader>> {
         None
     }
 
