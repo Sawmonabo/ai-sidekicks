@@ -9,6 +9,7 @@ use std::sync::{Arc, OnceLock};
 use sidekicks_artifact::payload_store::PayloadStore;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
+use sidekicks_mcp::client::McpClient;
 use sidekicks_platforms::volume_free_bytes;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::registry::ProviderRegistry;
@@ -49,6 +50,8 @@ pub(crate) struct StoredDataMethodsStart<'start> {
     pub(crate) payloads: Arc<PayloadStore>,
     /// The terminals' shells, which a purge ends.
     pub(crate) shells: Arc<ShellTable>,
+    /// The tool-server client, whose connections of a purged session a purge closes.
+    pub(crate) mcp_client: Arc<McpClient>,
     /// The project list, which a purge tells of each session it marks and removes.
     pub(crate) project_list_feed: Arc<ProjectListFeed>,
     /// Every driver, through which a purge deletes the provider's copy of each conversation.
@@ -93,6 +96,7 @@ pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> St
         session_services,
         payloads,
         shells,
+        mcp_client,
         project_list_feed,
         providers,
         execution_postures,
@@ -112,6 +116,7 @@ pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> St
         machine_id,
         transition_lock: Arc::clone(session_services.changes.transition_lock()),
         shells,
+        mcp_client,
         conversations: Arc::new(ConversationPurge::new(
             Arc::clone(&database.pool),
             providers,

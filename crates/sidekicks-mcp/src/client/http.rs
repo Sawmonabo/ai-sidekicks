@@ -112,8 +112,8 @@ pub(crate) trait McpRequestAuthorizer: Send + Sync {
     not(test),
     expect(
         dead_code,
-        reason = "the session's tool-server connections, which the tool-server units open, reach \
-                  a server that needs no sign-in with it"
+        reason = "the session's tool-server connection opener reaches a server that needs no \
+                  sign-in with it"
     )
 )]
 pub(crate) struct NoAuthorization;
@@ -180,8 +180,8 @@ impl McpServerConnection {
         not(test),
         expect(
             dead_code,
-            reason = "the session's tool-server connections, which the tool-server units open, \
-                      connect to a server at an address through it"
+            reason = "the session's tool-server connection opener connects to a server at an \
+                      address through it"
         )
     )]
     pub(crate) async fn connect_http(

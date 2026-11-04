@@ -110,13 +110,6 @@ pub(crate) struct CommandReceiptStore {
 
 impl CommandReceiptStore {
     /// A store writing through `writer`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start builds the store it hands the tool call's dispatch"
-        )
-    )]
     pub(crate) fn new(writer: Arc<DatabaseWriter>) -> Self {
         Self { writer }
     }

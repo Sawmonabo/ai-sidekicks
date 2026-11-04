@@ -19,6 +19,7 @@
 //!   written and the receipt stays in flight.
 
 mod resume;
+pub mod workflow_step;
 
 use std::pin::pin;
 use std::sync::{Arc, Mutex};
@@ -27,7 +28,7 @@ use futures::future::BoxFuture;
 use rmcp::service::ServiceError;
 use sidekicks_std::bounded_wait::wait_within;
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_store::database::writer::WriteError;
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
@@ -49,14 +50,7 @@ mod tests;
 
 /// The daemon's one tool call dispatch: the receipts every call is recorded in, and the recorder
 /// each accepted task's handle is stored through.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds the one dispatch every tool call goes through"
-    )
-)]
-pub(crate) struct McpToolDispatch {
+pub struct McpToolDispatch {
     receipts: CommandReceiptStore,
     recorder: McpTaskHandleRecorder,
 }
@@ -104,13 +98,6 @@ pub(crate) enum McpCallCompletionError {
 /// A call the dispatch sent, with its end. Its caller writes the end through [`Self::complete`],
 /// or hands it off; dropped, its receipt stays in flight.
 #[must_use = "a dispatched call's end is written through `complete` or handed off"]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the tool route and the workflow tool step end the calls they dispatch with it"
-    )
-)]
 pub(crate) struct McpDispatchedCall {
     receipt_id: CommandReceiptId,
     end: Result<McpToolCallEnd, McpToolCallError>,
@@ -147,17 +134,13 @@ enum CallerCancel {
 }
 
 impl McpToolDispatch {
-    /// A dispatch recording each call in `receipts` and each accepted task's handle through
-    /// `recorder`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start builds the one dispatch every tool call goes through"
-        )
-    )]
-    pub(crate) fn new(receipts: CommandReceiptStore, recorder: McpTaskHandleRecorder) -> Self {
-        Self { receipts, recorder }
+    /// A dispatch recording each call's receipt and each accepted task's handle through
+    /// `writer`.
+    pub fn new(writer: Arc<DatabaseWriter>) -> Self {
+        Self {
+            receipts: CommandReceiptStore::new(Arc::clone(&writer)),
+            recorder: McpTaskHandleRecorder::new(writer),
+        }
     }
 
     /// Calls `call`'s tool over `standing`'s live connection: whether the tool takes a task is
@@ -174,13 +157,6 @@ impl McpToolDispatch {
     /// client stops before the call is sent, when no connection is live, when the server's tools
     /// cannot be read, or when the receipt is not written; and with `ClientStopping`, the receipt
     /// left in flight, when the call ended without the server's answer as the client stopped.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the tool route and the workflow tool step call tools through it"
-        )
-    )]
     pub(crate) async fn call(
         &self,
         standing: &McpStandingConnection,
@@ -376,13 +352,6 @@ impl McpDispatchedCall {
     /// dispatch wrote it itself, `ClientStopping` when the end came without the server's answer
     /// as the client stopped, and the store's error, a backgrounded call's refusal among them,
     /// when the write fails.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the tool route and the workflow tool step end the calls they dispatch with it"
-        )
-    )]
     pub(crate) async fn complete(
         self,
     ) -> (

@@ -420,6 +420,7 @@ mod tests {
             truncation,
             live_runs: _,
             recovery: _,
+            mcp_client: _,
             _shells: shells,
             home,
         } = fixture;

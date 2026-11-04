@@ -259,8 +259,7 @@ impl CodexDriver {
         let views = Arc::new(CodexSessionViews::default());
         let source_views = Arc::clone(&views);
         let provider_commands = CodexProviderCommandCache::new(
-            // The tool servers' prompt reader registers on no driver port yet.
-            Arc::new(PortRegistration::new("server prompts")),
+            Arc::clone(&services.ports.server_prompts),
             Arc::new(move |session_id: SessionId| -> Option<CodexCommandSource> {
                 source_views.command_source(session_id)
             }),
