@@ -6,6 +6,7 @@ pub mod controls;
 pub mod lookup;
 pub mod projection;
 pub mod read;
+pub mod reattach;
 pub mod schema;
 pub mod store;
 pub mod sweep;
