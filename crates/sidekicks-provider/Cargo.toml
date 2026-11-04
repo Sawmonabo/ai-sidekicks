@@ -53,7 +53,8 @@ sidekicks-contracts.workspace = true
 sidekicks-ipc.workspace = true
 sidekicks-platforms.workspace = true
 sidekicks-policy.workspace = true
-sidekicks-std.workspace = true
+# The outbound HTTP client's shared settings, which the price list's fetch builds on.
+sidekicks-std = { workspace = true, features = ["outbound-http"] }
 sidekicks-store.workspace = true
 sidekicks-workspace.workspace = true
 starlark.workspace = true
