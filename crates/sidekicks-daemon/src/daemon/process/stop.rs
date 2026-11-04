@@ -306,7 +306,7 @@ pub(crate) async fn stop_work(
     }
     if let Some(drivers) = drivers {
         failures.extend(
-            shut_down_drivers(&drivers, intent)
+            shut_down_drivers(&drivers, intent, remaining())
                 .await
                 .into_iter()
                 .map(DaemonStopFailure::Driver),

@@ -7,6 +7,7 @@ use std::sync::{Arc, LazyLock};
 
 use rusqlite::{Connection, OptionalExtension as _, named_params};
 use sidekicks_contracts::event::registry::SessionEventType;
+use sidekicks_contracts::run::events::TurnEndCause;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -21,7 +22,7 @@ use sidekicks_store::events::session::insert::TOOL_CALL_ID_PAYLOAD_KEY;
 use crate::console_state::read_session_max_steps_per_turn;
 use crate::run::engine::RunEngine;
 use crate::run::engine::errors::RunEngineError;
-use crate::run::engine::settle::daemon_restart_outcome;
+use crate::run::engine::settle::{SettleCaller, daemon_turn_outcome};
 use crate::run::engine::turns::StepCount;
 use crate::run::engine::turns::guards::turn_holds_no_end_sql;
 use crate::run::read::{LiveRun, RunRead};
@@ -141,12 +142,15 @@ impl RunEngine {
     /// other gone turn settles the run by its stops, else interrupted with `daemonRestart`, its
     /// open turns ended interrupted and its asks let go by the run's end. Each move is written from
     /// the state `run` read, under `hold` where the caller holds the run's session, so a run that
-    /// moved since is left as it now is. Fails as [`RunEngine::transition`] does.
+    /// moved since is left as it now is. `companions` ride the write of a pause or a gone turn's
+    /// settle; after `Left` or `Running`, which write nothing, the caller writes them itself. Fails
+    /// as [`RunEngine::transition`] does.
     pub async fn finalize_resumed_run(
         self: &Arc<Self>,
         run: &LiveRun,
         state_before: RunState,
         answer: ProviderTurnAnswer,
+        companions: RunWriteCompanions,
         hold: Option<&SessionAppendHold>,
     ) -> Result<ResumedRunMove, RunEngineError> {
         let run_id = run.run_id;
@@ -166,24 +170,31 @@ impl RunEngine {
             ResumedRunMove::Left => {}
             ResumedRunMove::Running => self.hand_owed_limit_interrupts(run.run_id),
             ResumedRunMove::Paused { is_turn_gone } => {
-                self.pause_resumed_run(run, is_turn_gone, hold).await?;
-            }
-            // A run whose turn is gone never fails here, so the failure detail is never read.
-            ResumedRunMove::TurnGone => {
-                self.settle_after_restart(run, decide_turn_gone_settlement, is_stopping, "", hold)
+                self.pause_resumed_run(run, is_turn_gone, companions, hold)
                     .await?;
+            }
+            ResumedRunMove::TurnGone => {
+                self.settle_after_restart(
+                    run,
+                    decide_turn_gone_settlement,
+                    is_stopping,
+                    &SettleCaller::TurnGone { companions },
+                    hold,
+                )
+                .await?;
             }
         }
         Ok(resumed_move)
     }
 
     // Moves `run`, `pausing` before the restart, to `paused` from the state it read, with its open
-    // turns' ends where `is_turn_gone`, the newest in the move's write; a run that moved since is
-    // left as it now is.
+    // turns' ends where `is_turn_gone`, the newest in the move's write, and `companions` in it; a
+    // run that moved since is left as it now is.
     async fn pause_resumed_run(
         &self,
         run: &LiveRun,
         is_turn_gone: bool,
+        companions: RunWriteCompanions,
         hold: Option<&SessionAppendHold>,
     ) -> Result<RunRead, RunEngineError> {
         let run_id = run.run_id;
@@ -195,7 +206,7 @@ impl RunEngine {
                 &run.run,
                 &open_turns,
                 &turn_cuts,
-                daemon_restart_outcome(RestartTurnEnd::Interrupted),
+                daemon_turn_outcome(RestartTurnEnd::Interrupted, TurnEndCause::DaemonRestart),
                 false,
                 hold,
             )
@@ -208,13 +219,7 @@ impl RunEngine {
             ..RunStateChange::new(run_id, RunStateEntry::Paused)
         };
         match self
-            .change_with_turn_end(
-                change,
-                RunWriteCompanions::default(),
-                &run.run,
-                turn_end,
-                hold,
-            )
+            .change_with_turn_end(change, companions, &run.run, turn_end, hold)
             .await
         {
             Err(RunEngineError::Refused(RunRefusal::InvalidTransition { from_state, .. }))

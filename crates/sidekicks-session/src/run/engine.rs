@@ -16,7 +16,7 @@ mod live;
 mod provider_started;
 mod resumed;
 mod running_wait;
-mod settle;
+pub mod settle;
 mod start;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_fixture;

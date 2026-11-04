@@ -46,11 +46,12 @@ pub(crate) fn is_transition_allowed(from: RunState, to: RunStateChangeState) -> 
 
 // The states each state may move to. A move several triggers share, such as `running -> failed`
 // on an error during execution or at a restart, is one entry; the token limit's stop is the one
-// way into `stopped` from a waiting or pausing state.
+// way into `stopped` from a waiting or pausing state, and the person's stop of the service the one
+// from `queued`.
 fn next_states(from: RunState) -> &'static [RunStateChangeState] {
     use RunStateChangeState as Next;
     match from {
-        RunState::Queued => &[Next::Starting, Next::Failed],
+        RunState::Queued => &[Next::Starting, Next::Failed, Next::Stopped],
         RunState::Starting => &[
             Next::Running,
             Next::Failed,
@@ -141,7 +142,7 @@ mod tests {
     #[case(Now::Interrupted, Next::Stopped, true)]
     #[case(Now::Completed, Next::Running, false)]
     #[case(Now::Stopped, Next::Running, false)]
-    #[case(Now::Queued, Next::Stopped, false)]
+    #[case(Now::Queued, Next::Stopped, true)]
     #[case(Now::Starting, Next::Stopped, false)]
     #[case(Now::Queued, Next::Running, false)]
     #[case(Now::Queued, Next::Interrupted, false)]

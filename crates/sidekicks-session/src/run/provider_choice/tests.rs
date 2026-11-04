@@ -59,7 +59,7 @@ use crate::run::epochs::{EpochBinding, ExecutionEpochs};
 use crate::run::inbound::RunInboundDispatch;
 use crate::run::inbound::tests::UnreadRunStates;
 use crate::run::refusals::RunRefusal;
-use crate::run::state_change::RunStateChange;
+use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 
 /// A run waiting on its switch-or-credits choice, the engine that moves it and the resolver.
 struct Fixture {
@@ -700,4 +700,116 @@ async fn an_edit_prompt_answer_is_its_choices_one_settlement() {
         ["editPrompt"]
     );
     assert_eq!(fixture.state(), "failed");
+}
+
+/// What the run waits on when the person interrupts it.
+#[derive(Clone, Copy, Debug)]
+enum InterruptedWait {
+    /// The retry-or-edit choice the provider asked.
+    Refusal,
+    /// The switch-or-credits choice the provider asked.
+    UsageCredits,
+    /// Input again, after the person answered the retry-or-edit choice `retryFallback`.
+    AnsweredRefusal,
+}
+
+// A person's interrupt of a run waiting on the retry-or-edit choice answers that choice `canceled`
+// and ends the run `failed` as `refused`; on the switch-or-credits choice, or once the refusal was
+// answered, it ends the run `interrupted`. Killed by dropping the refused end (the first case
+// reads `interrupted`), by leaving the choice out of the end's settled choices (`canceled` then
+// `runEnded`), by keying the end on the choice's request alone (the last case ends refused or its
+// guard refuses the write), and by taking the end for the switch-or-credits choice.
+#[rstest]
+#[case::on_the_refusal(InterruptedWait::Refusal, "failed", Some("refused"), &["canceled"], &[])]
+#[case::on_the_usage_credits(
+    InterruptedWait::UsageCredits,
+    "interrupted",
+    None,
+    &[],
+    &["interrupted"]
+)]
+#[case::after_the_refusal_was_answered(
+    InterruptedWait::AnsweredRefusal,
+    "interrupted",
+    None,
+    &["retryFallback"],
+    &[]
+)]
+#[tokio::test]
+async fn a_persons_interrupt_on_the_refusal_choice_ends_the_run_refused(
+    #[case] wait: InterruptedWait,
+    #[case] state: &str,
+    #[case] failure_category: Option<&str>,
+    #[case] refusal_settlements: &[&str],
+    #[case] usage_credits_settlements: &[&str],
+) {
+    let mut driver = MockProviderDriver::new();
+    driver
+        .expect_answer_provider_choice()
+        .returning(|_| async { Ok(AnswerProviderChoiceResult::Answered {}) }.boxed());
+    let fixture = fixture(
+        driver,
+        ChoiceRun {
+            is_asked: matches!(wait, InterruptedWait::UsageCredits),
+            ..WAITING_ON_THE_CHOICE
+        },
+    )
+    .await;
+    if !matches!(wait, InterruptedWait::UsageCredits) {
+        fixture.ask_refusal_choice().await;
+    }
+    if matches!(wait, InterruptedWait::AnsweredRefusal) {
+        let answered = fixture.answer_dialog(ChoiceDialog::Refusal).await;
+        assert!(matches!(answered, Ok(RunState::Running)), "{answered:?}");
+        fixture
+            .database
+            .reader()
+            .execute(
+                "UPDATE runs SET state = 'waitingForInput' WHERE run_id = ?1",
+                [fixture.run_id.text().as_str()],
+            )
+            .expect("the test holds the run on input again");
+    }
+    let (_, version) = stored_run_state(&fixture.database, &fixture.run_id);
+
+    let ended = fixture
+        .engine
+        .end_run_for_interrupt(
+            fixture.run_id,
+            version,
+            None,
+            None,
+            RunWriteCompanions::default(),
+        )
+        .await;
+
+    let failure_categories: Vec<Option<String>> = fixture
+        .database
+        .reader()
+        .prepare(
+            "SELECT json_extract(payload, '$.failureCategory') FROM session_events
+              WHERE session_id = ?1 AND type = 'agent.run.failed'",
+        )
+        .expect("the test reads the log")
+        .query_map([fixture.session_id.text().as_str()], |row| row.get(0))
+        .expect("the log reads")
+        .collect::<Result<_, _>>()
+        .expect("each end reads");
+    assert!(matches!(ended, Ok(true)), "{ended:?}");
+    assert_eq!(fixture.state(), state);
+    assert_eq!(
+        failure_categories,
+        failure_category
+            .map(|category| Some(category.to_owned()))
+            .into_iter()
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        fixture.settlement_choices(SessionEventType::AgentRunRefusalChoiceResolved),
+        refusal_settlements
+    );
+    assert_eq!(
+        fixture.settlement_choices(SessionEventType::AgentRunUsageCreditsChoiceResolved),
+        usage_credits_settlements
+    );
 }

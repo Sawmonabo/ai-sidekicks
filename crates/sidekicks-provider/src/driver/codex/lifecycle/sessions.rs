@@ -2,14 +2,20 @@
 //! conversation, a move to a new build, its close and the daemon's stop, the purge of its
 //! conversations, and the messages a continue sent that Codex took.
 
+use std::error::Error;
+use std::sync::Arc;
+
+use futures::future::join_all;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
+use tokio::time::{Instant, timeout_at};
 
 use super::{CODEX_SERVICE_STARTUP_TIMEOUT, CodexDriver, CodexDriverParts};
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnWait};
+use crate::driver::codex::run::turn_interrupt::interrupt_codex_turn;
 use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
 use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
@@ -270,12 +276,16 @@ impl CodexDriver {
     /// nothing, no interrupt among it; a later daemon resumes the conversation by its handle.
     /// Every side question's copy is stopped first, since its service may outlive the daemon: a
     /// live session's copy whose turn started is let go here, a resting session's by its own
-    /// task, and one still starting its turn by its ask.
-    pub(crate) async fn shutdown(&self, intent: DaemonStopIntent) {
+    /// task, and one still starting its turn by its ask. Under `Stop`, each open turn on a service
+    /// the daemon does not own is interrupted next, by `deadline`, since that service runs on.
+    pub(crate) async fn shutdown(&self, intent: DaemonStopIntent, deadline: Instant) {
         self.tasks.close();
         self.slots.refuse_establishing();
         if let Some(parts) = self.parts.get() {
             parts.side_questions.stop_every_copy().await;
+        }
+        if intent == DaemonStopIntent::Stop {
+            self.interrupt_joined_turns(deadline).await;
         }
         self.registry.shutdown(intent).await;
         for session_id in self.slots.held_sessions() {
@@ -286,6 +296,59 @@ impl CodexDriver {
             }
         }
         self.tasks.wait().await;
+    }
+
+    // Sends `turn/interrupt` for every open turn of each live session on a service the daemon does
+    // not own, all at once, and waits for the answers until `deadline`. One refused, failed or
+    // still unanswered then is logged and never sent again; the next start tries again.
+    async fn interrupt_joined_turns(&self, deadline: Instant) {
+        let mut interrupts = Vec::new();
+        for session_id in self.slots.held_sessions() {
+            let Some(conversation) = self.views.conversation(session_id) else {
+                continue;
+            };
+            if conversation.service.kind().is_daemons_own() {
+                continue;
+            }
+            let turn_ids = self.views.open_turn_ids(session_id);
+            if turn_ids.is_empty() {
+                continue;
+            }
+            let connection = match conversation.service.connection() {
+                Ok(connection) => connection,
+                Err(error) => {
+                    tracing::warn!(
+                        %session_id,
+                        error = &error as &(dyn Error + 'static),
+                        "the Codex service a stopped session runs on could not be reached, so its \
+                         open turns are not interrupted"
+                    );
+                    continue;
+                }
+            };
+            for turn_id in turn_ids {
+                let connection = Arc::clone(&connection);
+                let thread_id = conversation.thread_id.clone();
+                interrupts.push(async move {
+                    if let Err(error) =
+                        interrupt_codex_turn(&connection, &thread_id, &turn_id).await
+                    {
+                        tracing::warn!(
+                            %session_id,
+                            %turn_id,
+                            error = &error as &(dyn Error + 'static),
+                            "Codex did not take the interrupt of a stopped session's open turn"
+                        );
+                    }
+                });
+            }
+        }
+        if timeout_at(deadline, join_all(interrupts)).await.is_err() {
+            tracing::warn!(
+                "Codex had not answered every interrupt of the stopped sessions' open turns by the \
+                 stop's deadline, so the ones still waiting are withdrawn"
+            );
+        }
     }
 
     /// Where the session's process stands: a live record on a service that is up is `Live`; one

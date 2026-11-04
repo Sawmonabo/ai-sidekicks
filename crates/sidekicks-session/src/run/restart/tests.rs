@@ -2,7 +2,7 @@ use rstest::rstest;
 use rusqlite::params;
 use sidekicks_contracts::orchestration::InterruptReason;
 use sidekicks_contracts::run::control::StopTrigger;
-use sidekicks_contracts::run::events::{DaemonInterventionActor, InterventionActor};
+use sidekicks_contracts::run::events::{DaemonInterventionActor, InterventionActor, TurnEndCause};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{
     InterruptInterventionRecord, InterventionId, RunLimit,
@@ -17,8 +17,8 @@ use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions, W
 
 use super::{
     PendingInterrupt, RestartDecision, RestartFacts, RestartSettlement, RestartTurnEnd,
-    ResumedRunMove, decide_restart_settlement, decide_resumed_move, no_waiting_item_statement,
-    read_is_run_stopping,
+    ResumedRunMove, decide_restart_settlement, decide_resumed_move, decide_stop_settlement,
+    no_waiting_item_statement, read_is_run_stopping,
 };
 use crate::interventions::store::UnresolvedInterventionState;
 use crate::questions::schema::schema_parts;
@@ -28,7 +28,49 @@ fn ends(settlement: RestartSettlement, turn_end: RestartTurnEnd) -> RestartDecis
     RestartDecision {
         settlement,
         open_turn_end: Some(turn_end),
+        turn_cause: TurnEndCause::DaemonRestart,
     }
+}
+
+// `decision` as the person's stop of the service decides it, its uncut turns ending `daemonStop`.
+fn at_stop(decision: RestartDecision) -> RestartDecision {
+    RestartDecision {
+        turn_cause: TurnEndCause::DaemonStop,
+        ..decision
+    }
+}
+
+// A live run `state`, a child where `has_parent`, as a restart or a stop finds it.
+fn live_run(state: RunState, has_parent: bool) -> LiveRun {
+    LiveRun {
+        run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
+        run: RunRead {
+            version: 4,
+            session_id: test_session_id(),
+            state,
+        },
+        parent_run_id: has_parent
+            .then(|| RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")),
+        reached_by: None,
+    }
+}
+
+// Each record as the interrupt a restart or a stop finds pending.
+fn pending_interrupts(pending_records: &[&str]) -> Vec<PendingInterrupt> {
+    pending_records
+        .iter()
+        .map(|record| PendingInterrupt {
+            intervention_id: InterventionId::try_from(mint_uuid_v7())
+                .expect("a minted UUID is an intervention id"),
+            state: UnresolvedInterventionState::Accepted,
+            actor: InterventionActor::Daemon(DaemonInterventionActor::Value),
+            record: serde_json::from_str::<InterruptInterventionRecord>(record)
+                .expect("the test's record reads as stored"),
+            expected_run_version: SafeInt::new(4).expect("a test version"),
+            client_idempotency_key: ClientUuid::new(mint_uuid_v7().to_string())
+                .expect("a minted UUID is a client key"),
+        })
+        .collect()
 }
 
 fn stopped_at_token_limit() -> RestartDecision {
@@ -76,6 +118,7 @@ fn failed_with_its_turn() -> RestartDecision {
     Some(RestartDecision {
         settlement: RestartSettlement::Failed,
         open_turn_end: None,
+        turn_cause: TurnEndCause::DaemonRestart,
     })
 )]
 #[case::person_interrupt(
@@ -269,40 +312,120 @@ fn a_restart_settles_each_live_run_by_what_it_was_waiting_on(
     #[case] is_stopping: bool,
     #[case] expected: Option<RestartDecision>,
 ) {
-    let run = LiveRun {
-        run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
-        run: RunRead {
-            version: 4,
-            session_id: test_session_id(),
-            state,
-        },
-        parent_run_id: has_parent
-            .then(|| RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")),
-        reached_by: None,
-    };
-    let pending_interrupts = pending_records
-        .iter()
-        .map(|record| PendingInterrupt {
-            intervention_id: InterventionId::try_from(mint_uuid_v7())
-                .expect("a minted UUID is an intervention id"),
-            state: UnresolvedInterventionState::Accepted,
-            actor: InterventionActor::Daemon(DaemonInterventionActor::Value),
-            record: serde_json::from_str::<InterruptInterventionRecord>(record)
-                .expect("the test's record reads as stored"),
-            expected_run_version: SafeInt::new(4).expect("a test version"),
-            client_idempotency_key: ClientUuid::new(mint_uuid_v7().to_string())
-                .expect("a minted UUID is a client key"),
-        })
-        .collect();
+    let run = live_run(state, has_parent);
     let facts = RestartFacts {
-        pending_interrupts,
+        pending_interrupts: pending_interrupts(pending_records),
         owed_limit,
         turn_cuts: Vec::new(),
         is_stopping,
         has_queued_item,
+        is_refusal_waiting: false,
     };
 
     assert_eq!(decide_restart_settlement(&run, &facts), expected);
+}
+
+// The person's stop of the service, one case per row of its table; the Stop reads no lead's stop
+// for a helper, so a helper beneath a stopping lead is any running child. Killed by the queued arm
+// keyed on a waiting message as the restart's is, or ending the run failed (`queued_*`); by a
+// pausing lead paused (`pausing_lead`); by the refusal row read as interrupted
+// (`waiting_on_the_refusal`); by a run's own stop dropped (`person_interrupt`, `step_limit_owed`);
+// by a paused lead ended (`paused_lead`); and by the cause left `daemonRestart`, in the run's
+// trigger or its turns'.
+#[rstest]
+#[case::running(RunState::Running, false, &[], None, false, false, Some(stop_interrupted()))]
+#[case::waiting_for_approval(
+    RunState::WaitingForApproval,
+    false,
+    &[],
+    None,
+    false,
+    false,
+    Some(stop_interrupted())
+)]
+#[case::pausing_lead(RunState::Pausing, false, &[], None, false, false, Some(stop_interrupted()))]
+#[case::paused_child(RunState::Paused, true, &[], None, false, false, Some(stop_interrupted()))]
+#[case::helper_of_a_stopping_lead(
+    RunState::Running,
+    true,
+    &[],
+    None,
+    false,
+    false,
+    Some(stop_interrupted())
+)]
+#[case::person_interrupt(
+    RunState::Running,
+    false,
+    &[r#"{"pending":"nextTurn"}"#],
+    None,
+    false,
+    false,
+    Some(at_stop(interrupted(None)))
+)]
+#[case::step_limit_owed(
+    RunState::Running,
+    false,
+    &[],
+    Some(RunLimit::StepLimit),
+    false,
+    false,
+    Some(at_stop(interrupted(Some(InterruptReason::StepLimit))))
+)]
+#[case::paused_lead(RunState::Paused, false, &[], None, false, false, None)]
+#[case::queued_behind_a_message(RunState::Queued, false, &[], None, true, false, Some(stop_queued()))]
+#[case::queued_with_nothing_waiting(
+    RunState::Queued,
+    false,
+    &[],
+    None,
+    false,
+    false,
+    Some(stop_queued())
+)]
+#[case::waiting_on_the_refusal(
+    RunState::WaitingForInput,
+    false,
+    &[],
+    None,
+    false,
+    true,
+    Some(at_stop(ends(RestartSettlement::Refused, RestartTurnEnd::Interrupted)))
+)]
+fn a_stop_settles_each_live_run_by_its_table(
+    #[case] state: RunState,
+    #[case] has_parent: bool,
+    #[case] pending_records: &[&str],
+    #[case] owed_limit: Option<RunLimit>,
+    #[case] has_queued_item: bool,
+    #[case] is_refusal_waiting: bool,
+    #[case] expected: Option<RestartDecision>,
+) {
+    let run = live_run(state, has_parent);
+    let facts = RestartFacts {
+        pending_interrupts: pending_interrupts(pending_records),
+        owed_limit,
+        turn_cuts: Vec::new(),
+        is_stopping: false,
+        has_queued_item,
+        is_refusal_waiting,
+    };
+
+    assert_eq!(decide_stop_settlement(&run, &facts), expected);
+}
+
+fn stop_interrupted() -> RestartDecision {
+    at_stop(interrupted(Some(InterruptReason::DaemonStop)))
+}
+
+fn stop_queued() -> RestartDecision {
+    RestartDecision {
+        settlement: RestartSettlement::Stopped {
+            trigger: StopTrigger::DaemonStop,
+        },
+        open_turn_end: None,
+        turn_cause: TurnEndCause::DaemonStop,
+    }
 }
 
 // Killed by the guard reading a state other than the stored `queued` word, or by dropping its

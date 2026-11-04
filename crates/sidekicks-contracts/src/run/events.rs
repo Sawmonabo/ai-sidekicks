@@ -274,7 +274,8 @@ pub enum TurnEndOrigin {
 }
 
 /// Why a turn was interrupted or failed, where the daemon knows it: it saw the provider process
-/// exit, a restart settled the open turn, or a limit the person set cut it.
+/// exit, a restart settled the open turn, the person stopped the service under it, or a limit the
+/// person set cut it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum TurnEndCause {
@@ -282,6 +283,8 @@ pub enum TurnEndCause {
     ProcessExit,
     /// A restart settled the open turn.
     DaemonRestart,
+    /// The person stopped the service while the run was live.
+    DaemonStop,
     /// The step limit cut the turn.
     StepLimit,
     /// The spend limit cut the turn.
