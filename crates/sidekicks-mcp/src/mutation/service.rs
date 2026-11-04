@@ -3,7 +3,7 @@
 //! receipt, checks the mutation against what the provider declares, writes its receipt `pending`,
 //! then writes the provider's config and settles the receipt by what the config holds afterwards,
 //! committing the binding's rows in the receipt's own write. A switch the daemon keeps is committed
-//! with no provider call.
+//! with no provider call. Each committed change sends `mcp.server.config.changed` for its binding.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -52,6 +52,7 @@ use crate::mutation::settle::{
     commit_refusal, observe_settlement, rebuilt_binding, store_unavailable,
 };
 use crate::mutation::write_refusal::mcp_refusal_of_write;
+use crate::status::notices::McpNoticeBoard;
 
 /// The distinct statements the mutation service keeps prepared on each read connection: its
 /// receipts' and its receipt key's, beside the inventory's it reads through.
@@ -77,6 +78,9 @@ const UNCOMPARABLE_ENTRY_WORDS: &str =
 const ROW_UNREAD_WORDS: &str =
     "the provider holds the change, but its server could not be read back, so send it again";
 
+/// The daemon's words when the server's row could not be read before a change was written.
+const ROW_UNREAD_BEFORE_WRITE_WORDS: &str = "the server could not be read, so nothing was written";
+
 /// What the mutation service reads and writes through.
 pub struct McpMutationSources {
     /// The registered providers, each with its driver.
@@ -91,6 +95,8 @@ pub struct McpMutationSources {
     pub reads: Arc<DatabaseReadPool>,
     /// The rows a removal commits beside the binding's own; `None` commits none.
     pub removal_rows: Option<McpRemovalRows>,
+    /// The board each committed change's `mcp.server.config.changed` is sent on.
+    pub board: Arc<McpNoticeBoard>,
 }
 
 /// Adds, removes and switches the bindings in their providers' own configs, each change answered
@@ -106,8 +112,8 @@ pub struct McpMutationService {
     pending: McpPendingSettle,
 }
 
-/// What a mutation and a settle reach: the drivers, the inventory, the receipts and the removal's
-/// extra rows.
+/// What a mutation and a settle reach: the drivers, the inventory, the receipts, the removal's
+/// extra rows and the notice board.
 struct McpMutationParts {
     /// The registered providers, each with its driver.
     providers: Arc<ProviderRegistry>,
@@ -117,6 +123,8 @@ struct McpMutationParts {
     receipts: McpMutationReceipts,
     /// The rows a removal commits beside the binding's own.
     removal_rows: Option<McpRemovalRows>,
+    /// The board each committed change's notice is sent on.
+    board: Arc<McpNoticeBoard>,
 }
 
 /// A governance mutation's operation, as its receipt names it.
@@ -175,6 +183,7 @@ impl McpMutationService {
             inventory: sources.inventory,
             receipts: receipts.clone(),
             removal_rows: sources.removal_rows,
+            board: sources.board,
         });
         let settlers = McpIntentSettlers::new(
             [
@@ -442,26 +451,29 @@ impl McpMutationParts {
             })
     }
 
-    // `binding`'s inventory row as it now stands.
+    // `binding`'s inventory row as it now stands; refused as the provider's with `words`, which
+    // say whether the change was written, where it cannot be read.
     async fn read_row(
         &self,
         binding: &McpServerBindingRef,
+        words: &str,
     ) -> Result<McpServerInventoryEntry, McpRefusal> {
         self.inventory.read(binding).await.map_err(|error| {
             tracing::warn!(
                 error = &error as &(dyn Error + 'static),
                 provider = binding.provider().as_str(),
-                "an MCP server's row could not be read back after its change"
+                "an MCP server's row could not be read for its change's answer"
             );
             McpRefusal::ProviderRefusedWrite {
                 binding: Box::new(binding.clone()),
-                words: ROW_UNREAD_WORDS.to_owned(),
+                words: words.to_owned(),
             }
         })
     }
 
     // Begins `intent`, writes `write` against `before` and answers by its outcome: a refusal
-    // committed and answered, any other outcome settled by what the config then holds.
+    // committed and answered with no notice, any other outcome settled by what the config then
+    // holds.
     async fn write_and_settle(
         &self,
         operation: McpOperation,
@@ -485,10 +497,8 @@ impl McpMutationParts {
             McpServerWriteOutcome::Unknown => None,
         };
         let settlement = observe_settlement(driver, receipt_key, intent).await;
-        apply_settlement(&self.receipts, intent, settlement, || {
-            self.landed(operation, intent, reload_failure)
-        })
-        .await
+        self.commit_settlement(operation, intent, settlement, reload_failure)
+            .await
     }
 
     // Settles `intent`, a `pending` receipt of `operation` whose idempotency key's lock the
@@ -511,10 +521,28 @@ impl McpMutationParts {
             }
             Some(driver) => observe_settlement(driver, receipt_key, intent).await,
         };
-        apply_settlement(&self.receipts, intent, settlement, || {
-            self.landed(operation, intent, None)
+        self.commit_settlement(operation, intent, settlement, None)
+            .await
+    }
+
+    // Answers `intent` by `settlement` and keeps its receipt so, sending the binding's
+    // config-changed notice once a landed change is committed. The binding is rebuilt from the
+    // stored key first, so a key that no longer reads as one refuses with the receipt `pending`
+    // rather than committing a change no notice can name.
+    async fn commit_settlement(
+        &self,
+        operation: McpOperation,
+        intent: &McpIntentReceipt,
+        settlement: McpIntentSettlement,
+        reload_failure: Option<String>,
+    ) -> Result<Value, DomainError> {
+        let binding = rebuilt_binding(intent)?;
+        let response = apply_settlement(&self.receipts, intent, settlement, || {
+            self.landed(operation, intent, &binding, reload_failure)
         })
-        .await
+        .await?;
+        self.board.send_config_changed(&binding);
+        Ok(response)
     }
 
     // The driver of `intent`'s provider; `None`, logged, where it is not registered.
@@ -533,29 +561,27 @@ impl McpMutationParts {
         driver
     }
 
-    // What a landed `intent` of `operation` commits: the binding's rows, and the response the
-    // receipt saves, which carries `reload_failure` capped as a failure reason.
+    // What a landed `intent` of `operation` on `binding` commits: the binding's rows, and the
+    // response the receipt saves, which carries `reload_failure` capped as a failure reason.
     async fn landed(
         &self,
         operation: McpOperation,
         intent: &McpIntentReceipt,
+        binding: &McpServerBindingRef,
         reload_failure: Option<String>,
     ) -> Result<McpLandedCommit, DomainError> {
         let reload_failure = reload_failure.and_then(|text| failure_reason_text(&text));
         let key = &intent.binding;
         let commit = match operation {
-            McpOperation::Upsert | McpOperation::SetEnabled => {
-                let binding = rebuilt_binding(intent)?;
-                McpLandedCommit {
-                    response: response_value(&McpServerMutationResponse {
-                        server: self.read_row(&binding).await?,
-                        applied: McpApplicationGrade::UserConfigWrite,
-                        live_results: None,
-                        reload_failure,
-                    }),
-                    rows: vec![record_binding_statement(key)],
-                }
-            }
+            McpOperation::Upsert | McpOperation::SetEnabled => McpLandedCommit {
+                response: response_value(&McpServerMutationResponse {
+                    server: self.read_row(binding, ROW_UNREAD_WORDS).await?,
+                    applied: McpApplicationGrade::UserConfigWrite,
+                    live_results: None,
+                    reload_failure,
+                }),
+                rows: vec![record_binding_statement(key)],
+            },
             McpOperation::Delete => {
                 let mut rows = vec![remove_binding_statement(key)];
                 if let Some(removal_rows) = &self.removal_rows {

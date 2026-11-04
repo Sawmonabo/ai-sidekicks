@@ -1,6 +1,6 @@
 //! The switch of a binding: in the provider's own config where the provider keeps it, settled as
 //! every write to that config is, else in the daemon's store, committed with its receipt and no
-//! provider call.
+//! provider call, its config-changed notice sent once the commit lands.
 
 use std::error::Error;
 
@@ -19,8 +19,9 @@ use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::mcp_server::write::McpServerWrite;
 
 use super::{
-    McpMutationParts, McpMutationService, McpMutationStart, McpOperation, before_digest,
-    bindings_of, observe_before, response_of, response_value,
+    McpMutationParts, McpMutationService, McpMutationStart, McpOperation,
+    ROW_UNREAD_BEFORE_WRITE_WORDS, before_digest, bindings_of, observe_before, response_of,
+    response_value,
 };
 use crate::binding::store::{
     McpBindingKey, PROJECT_SWITCH_SCOPES, enabled_override_statement, project_switch_statements,
@@ -139,7 +140,8 @@ impl McpMutationParts {
     }
 
     // Begins and commits `intent`, a switch the daemon keeps, with its switch rows and the row
-    // read before the commit with the switch set as the same write sets it.
+    // read before the commit with the switch set as the same write sets it, then sends the
+    // binding's config-changed notice.
     async fn commit_daemon_switch(
         &self,
         intent: &McpIntentReceipt,
@@ -147,7 +149,9 @@ impl McpMutationParts {
         wanted: bool,
         daemon_switch: McpDaemonSwitch,
     ) -> Result<Value, DomainError> {
-        let mut server = self.read_row(binding).await?;
+        let mut server = self
+            .read_row(binding, ROW_UNREAD_BEFORE_WRITE_WORDS)
+            .await?;
         let rows = match &daemon_switch {
             McpDaemonSwitch::Binding => {
                 set_binding_switch(&mut server, wanted);
@@ -175,6 +179,7 @@ impl McpMutationParts {
             .commit(&intent.idempotency_key, &saved, rows)
             .await
             .map_err(store_unavailable)?;
+        self.board.send_config_changed(binding);
         Ok(response)
     }
 }

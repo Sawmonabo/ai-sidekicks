@@ -4,6 +4,9 @@
 use std::sync::Mutex;
 
 use sidekicks_contracts::mcp::event::McpSubscribeEmission;
+use sidekicks_contracts::mcp::server::{
+    McpServerBindingRef, McpServerConfigChangedNotice, McpServerConfigChangedType,
+};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::stream::latest_value::{
@@ -19,10 +22,6 @@ pub(crate) enum McpNoticeKind {
     /// `mcp.server.status.changed`.
     Status,
     /// `mcp.server.config.changed`.
-    #[expect(
-        dead_code,
-        reason = "the binding edits send their config-changed notices through it"
-    )]
     ConfigChanged,
 }
 
@@ -39,10 +38,6 @@ pub(crate) enum McpNoticeOrigin {
     /// The daemon's own machine probe.
     Probe,
     /// An edit to the binding.
-    #[expect(
-        dead_code,
-        reason = "the binding edits send their config-changed notices through it"
-    )]
     Edit,
 }
 
@@ -87,6 +82,80 @@ impl McpNoticeBoard {
     pub(crate) fn send(&self, key: &McpNoticeKey, emission: &McpSubscribeEmission) {
         lock(&self.outlets).send(key, emission);
     }
+
+    /// Sends `mcp.server.config.changed` for `binding`, once an edit to it is committed; a later
+    /// edit of the binding replaces the notice still waiting.
+    pub(crate) fn send_config_changed(&self, binding: &McpServerBindingRef) {
+        let notice_type = McpServerConfigChangedType::Value;
+        let notice = match binding.clone() {
+            McpServerBindingRef::User {
+                provider,
+                server_name,
+            } => McpServerConfigChangedNotice::User {
+                provider,
+                server_name,
+                notice_type,
+            },
+            McpServerBindingRef::Project {
+                provider,
+                scope_ref,
+                place,
+                server_name,
+            } => McpServerConfigChangedNotice::Project {
+                provider,
+                scope_ref,
+                place,
+                server_name,
+                notice_type,
+            },
+            McpServerBindingRef::Local {
+                provider,
+                scope_ref,
+                place,
+                server_name,
+            } => McpServerConfigChangedNotice::Local {
+                provider,
+                scope_ref,
+                place,
+                server_name,
+                notice_type,
+            },
+            McpServerBindingRef::Plugin {
+                provider,
+                scope_ref,
+                server_name,
+            } => McpServerConfigChangedNotice::Plugin {
+                provider,
+                scope_ref,
+                server_name,
+                notice_type,
+            },
+            McpServerBindingRef::Connector {
+                provider,
+                scope_ref,
+                server_name,
+            } => McpServerConfigChangedNotice::Connector {
+                provider,
+                scope_ref,
+                server_name,
+                notice_type,
+            },
+            McpServerBindingRef::Managed {
+                provider,
+                server_name,
+            } => McpServerConfigChangedNotice::Managed {
+                provider,
+                server_name,
+                notice_type,
+            },
+        };
+        let key = McpNoticeKey {
+            kind: McpNoticeKind::ConfigChanged,
+            binding: McpBindingKey::of(binding),
+            origin: McpNoticeOrigin::Edit,
+        };
+        self.send(&key, &McpSubscribeEmission::ConfigChanged(notice));
+    }
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -95,7 +164,7 @@ impl McpNoticeBoard {
     /// tracker sends it by; for the tests of the crates that read the board.
     pub fn send_probe_notice(
         &self,
-        binding: &sidekicks_contracts::mcp::server::McpServerBindingRef,
+        binding: &McpServerBindingRef,
         notice: sidekicks_contracts::mcp::governance::McpServerStatusChangedNotice,
     ) {
         let key = McpNoticeKey {
