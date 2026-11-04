@@ -1,11 +1,12 @@
 //! A turn Codex starts on a session by itself, such as its work on an active goal: the session's
 //! own run opens on the turn's `turn/started`, never before, so a goal Codex leaves alone makes no
-//! run. The open runs on the session's task before that frame is delivered, so the frames behind it
-//! wait in the session's queue, in order, and none of the turn's frames reaches the run engine
-//! before its run exists. The open runs on the conversation as it stands and waits for no config
-//! fork, whose call sits behind it in the same queue. A turn whose run cannot open, such as one
-//! Codex starts while a lead run waits to start, is interrupted, so no turn runs with no run, and a
-//! start waits for its end.
+//! run. A goal set on a session with no process already has its run, which claimed the turn, so
+//! the turn routes to that run and none opens. The open runs on the session's task before that
+//! frame is delivered, so the frames behind it wait in the session's queue, in order, and none of
+//! the turn's frames reaches the run engine before its run exists. The open runs on the
+//! conversation as it stands and waits for no config fork, whose call sits behind it in the same
+//! queue. A turn whose run cannot open, such as one Codex starts while a lead run waits to start,
+//! is interrupted, so no turn runs with no run, and a start waits for its end.
 
 use std::error::Error;
 use std::sync::{Arc, Mutex};
@@ -13,6 +14,8 @@ use std::sync::{Arc, Mutex};
 use futures::FutureExt as _;
 use serde::Deserialize;
 use serde_json::value::RawValue;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::codex::DESCRIPTOR;
@@ -54,8 +57,9 @@ struct StartedTurn {
 
 /// Opens the session's own run for a turn Codex started by itself on the session's conversation,
 /// on the session's task before the frame `method` with `params` is delivered: the run takes the
-/// turn, so the frame and those behind it reach it. A turn whose run does not open is kept as one
-/// no run holds and interrupted; each failure is reported. Any other frame passes untouched.
+/// turn, so the frame and those behind it reach it. A turn a goal's run claimed routes to that run
+/// instead, and no run opens. A turn whose run does not open is kept as one no run holds and
+/// interrupted; each failure is reported. Any other frame passes untouched.
 pub(crate) async fn open_codex_self_started_turn(
     task: &mut CodexSessionTask<'_>,
     runs: &CodexRunCallDependencies,
@@ -67,13 +71,19 @@ pub(crate) async fn open_codex_self_started_turn(
         return;
     };
     let record = &mut *task.record;
+    // Taken before the waits settle, so the goal's run, woken by the turn in flight, finds its
+    // claim gone.
+    let claimed_run_id = runs.run_routes.take_goal_turn_claim(record.session_id);
     record
         .delivery
         .self_started_turn_ids
         .insert(turn_id.clone());
     record.delivery.self_started_turn_opening = Some(turn_id.clone());
     task.waiters.settle(record);
-    let opened = open_run(record, runs, dependencies, &turn_id).await;
+    let opened = match claimed_run_id {
+        Some(run_id) => take_claimed_turn(record, runs, run_id, &turn_id).await,
+        None => open_run(record, runs, dependencies, &turn_id).await,
+    };
     record.delivery.self_started_turn_opening = None;
     if let Err(error) = opened {
         // No run takes the turn: its frames go on as frames of a turn no run holds.
@@ -159,14 +169,47 @@ async fn open_run(
             step_bound: binding.step_bound,
         },
     );
-    let adoption = runs.adoptions.adopt(record, binding.binding_id.clone());
+    route_turn_to_run(record, runs, run_id, binding.binding_id, turn_id).await;
+    Ok(())
+}
+
+// Routes the turn to the goal's run that claimed it, on the binding that run's start bound.
+async fn take_claimed_turn(
+    record: &mut CodexSessionRecord,
+    runs: &CodexRunCallDependencies,
+    run_id: RunId,
+    turn_id: &str,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let binding = runs
+        .run_routes
+        .binding_for(run_id)
+        .ok_or_else(|| CodexError::Transport {
+            detail: format!(
+                "The goal's run \"{run_id}\" that claimed a turn Codex started on \"{}\" has \
+                 ended.",
+                record.session_id
+            ),
+            cause: None,
+        })?;
+    route_turn_to_run(record, runs, run_id, binding.binding_id, turn_id).await;
+    Ok(())
+}
+
+// Adopts the run's binding as the session's and routes the turn to the run.
+async fn route_turn_to_run(
+    record: &mut CodexSessionRecord,
+    runs: &CodexRunCallDependencies,
+    run_id: RunId,
+    binding_id: RuntimeBindingId,
+    turn_id: &str,
+) {
+    let adoption = runs.adoptions.adopt(record, binding_id.clone());
     // The run already runs, so a failed write leaves those conversations owed to the next one.
     if adoption.is_first_binding()
-        && let Err(error) =
-            bind_codex_first_run(record, runs.bindings.as_ref(), &binding.binding_id).await
+        && let Err(error) = bind_codex_first_run(record, runs.bindings.as_ref(), &binding_id).await
     {
         tracing::error!(
-            session_id = %session_id,
+            session_id = %record.session_id,
             run_id = %run_id,
             error = &error as &(dyn Error + 'static),
             "the conversations a Codex session left were not recorded on its first run's binding"
@@ -174,7 +217,6 @@ async fn open_run(
     }
     // A turn Codex started by itself opened with no message the daemon queued.
     route_accepted_turn(&runs.run_routes, record, run_id, turn_id, None);
-    Ok(())
 }
 
 // Ends a turn no run holds, unless its frames already ended it or the daemon is already stopping
@@ -233,7 +275,8 @@ mod tests {
     const DEADLOCK_BOUND: Duration = Duration::from_secs(10);
 
     // Kills: the open of a turn Codex started joining the config fork in flight, whose call waits
-    // behind the open in the session's queue (the test times out).
+    // behind the open in the session's queue (the test times out); a goal's turn claim read as
+    // present with none made (the turn routes to no run of its own).
     #[tokio::test]
     async fn a_turn_codex_starts_while_a_config_fork_waits_opens_its_run_and_the_fork_goes_after() {
         let mut session = TestCodexSession::start().await;
@@ -244,6 +287,7 @@ mod tests {
         let inbound = session.task.record.inbound.clone();
         let config_forks = Arc::clone(&session.task.calls.runs.config_forks);
         let settings = session.task.record.thread_settings.clone();
+        let engine = Arc::clone(&session.engine);
         // The turn's start queues first, then a config fork's call behind it.
         session.scripted.script.send(&turn_started("turn-1"));
         let started = session.task.next_item().await;
@@ -253,8 +297,12 @@ mod tests {
         let script = &mut session.scripted.script;
         let flow = async {
             task.handle(started).await;
-            assert!(
-                task.record.active_turn_run("turn-1").is_some(),
+            let opened_run_id = engine
+                .first_daemon_turn_run()
+                .expect("with no claim, the turn opens a run of its own");
+            assert_eq!(
+                task.record.active_turn_run("turn-1"),
+                Some(opened_run_id),
                 "the turn's run opened before its frame went on"
             );
             task.handle(fork_call).await;
