@@ -129,10 +129,6 @@ pub enum CanonicalTranscriptSegment {
 
 /// One turn: one author's consecutive rows, up to the next change of author or turn start.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the provider switch's hand-over brief")
-)]
 pub(crate) struct CanonicalTranscriptTurn {
     /// The sequence of the row that opened the turn. Later rows folded into the turn keep their
     /// own, higher positions on their segments, so this bounds nothing.
