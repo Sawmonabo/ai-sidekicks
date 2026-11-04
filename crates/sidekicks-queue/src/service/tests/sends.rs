@@ -125,9 +125,11 @@ async fn a_send_whose_lead_run_changes_under_every_attempt_is_refused() {
         third.release.send(()).expect("the send waits");
     };
 
-    let (sent, ()) = timeout(WAIT, async { tokio::join!(fixture.send(), changing) })
-        .await
-        .expect("the send answers");
+    let (sent, ()) = Box::pin(timeout(WAIT, async {
+        tokio::join!(fixture.send(), changing)
+    }))
+    .await
+    .expect("the send answers");
     fixture.queue.stop().await;
 
     let Err(QueueError::Refused(DomainError { code, .. })) = sent else {
