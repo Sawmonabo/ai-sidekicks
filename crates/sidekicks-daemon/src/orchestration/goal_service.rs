@@ -3,10 +3,6 @@
 //! where its process sleeps, and the change goes to the provider on the lead's conversation; a set
 //! on a session that never ran goes to the lead's provider, which opens the session's process for
 //! it. It appends nothing: each goal event comes from what the provider writes.
-#![cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the session goal binder calls it")
-)]
 
 use std::error::Error;
 use std::sync::Arc;
