@@ -218,16 +218,16 @@ interface AgentConfigUpdateRequest {
   // Values of the session options the TARGET driver declares (`ProviderSessionOption`,
   // agent-definition-payloads.md §Plan-024), at most one per option id; an option left out keeps
   // its value. The daemon checks each against the driver's declaration: an option the driver does
-  // not declare refuses as provider.capability.unsupported, and a value outside its declaration, or
-  // one the provider reports this session cannot run, as agent.providerAxisInvalid. The driver
-  // carries it to its provider (Claude Code's Ultracode as `apply_flag_settings {ultracode}`); it
-  // settles in place and applies from the next turn.
+  // not declare, a value outside its declaration, or one the provider reports this session cannot
+  // run refuses as agent.providerAxisInvalid. The driver carries it to its provider (Claude Code's
+  // Ultracode as `apply_flag_settings {ultracode}`); it settles in place and applies from the next
+  // turn.
   options?: ProviderOptionSetting[];
   // Applies at the next boundary the TARGET AXIS permits, never at a fixed one: a turn boundary for
   // an axis the target driver takes as a per-turn override, a run boundary for a run-bound one
-  // (`providerName` always, and `outputSpeed` on Claude Code — re-derived by listing, not counted). A
-  // multi-axis update takes the WIDEST of its axes' boundaries, so no axis applies earlier than its
-  // own rule allows. `true` dispatches the documented `interrupt` intervention
+  // (`providerName` only; `outputSpeed` is turn-bound on both drivers — re-derived by listing, not
+  // counted). A multi-axis update takes the WIDEST of its axes' boundaries, so no axis applies
+  // earlier than its own rule allows. `true` dispatches the documented `interrupt` intervention
   // (`agent.run.intervene`) first and then switches — an entry point into a control the corpus
   // already has, not a new run control, so Spec-003's V1 control set is unchanged. The interrupt is
   // authorized as every intervention is, as the session's user (Spec-010 §Required Behavior), and a
@@ -336,9 +336,9 @@ type AgentBindingSwitchFailureReason =
   | "effortUnavailable"
   // The deferred application reached a target whose driver no longer declares
   // `outputSpeed`, or whose declared vocabulary no longer carries the pended value. A member of
-  // its own because the axis settles at a later boundary (the next run on Claude Code, the next turn
-  // on Codex) the caller has already been acknowledged for, so without it an axis-specific failure would render as one of the others and misname what
-  // went wrong.
+  // its own because the axis settles at a later boundary (the next turn on either driver) the
+  // caller has already been acknowledged for, so without it an axis-specific failure would render
+  // as one of the others and misname what went wrong.
   | "outputSpeedUnavailable"
   | "interruptRefused"
   | "targetUnstartable"
