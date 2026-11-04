@@ -820,7 +820,8 @@ fn skip_unreadable(session_id: SessionId, error: &(dyn Error + 'static)) {
 #[error("the account switch ended before it answered")]
 struct SwitchEnded;
 
-fn mint_switch_id() -> SwitchId {
+/// A fresh switch id, minted as a UUID, for a switch of an agent's binding.
+pub(crate) fn mint_switch_id() -> SwitchId {
     SwitchId::new(mint_uuid_v7().to_string()).expect("a minted UUID is a switch id")
 }
 

@@ -15,10 +15,9 @@ use sidekicks_contracts::agent::definition::binding::AgentProviderBinding;
 use sidekicks_contracts::agent::methods::{AgentConfigUpdateRequest, AgentConfigUpdateResponse};
 use sidekicks_contracts::agent::provider_binding::{
     AgentBindingSwitchDisposition, AgentBindingSwitchPending, AgentBindingSwitchTarget,
-    PendingSwitchStatus, SwitchId,
+    PendingSwitchStatus,
 };
 use sidekicks_contracts::trust_statement::DeviceId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::{NotAnInstant, WireInstant};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::not_found::agent::agent_not_found;
@@ -34,6 +33,8 @@ use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+
+use crate::orchestration::account_switch::mint_switch_id;
 
 /// The acceptance of agents' binding switches, one for the daemon; see the module doc.
 pub(crate) struct ProviderSwitches {
@@ -136,8 +137,7 @@ impl ProviderSwitches {
             let record = StoredPendingSwitch {
                 switch: AgentBindingSwitchPending {
                     status: PendingSwitchStatus::Value,
-                    switch_id: SwitchId::new(mint_uuid_v7().to_string())
-                        .expect("a minted UUID is a switch id"),
+                    switch_id: mint_switch_id(),
                     applies_at,
                     interrupt_requested,
                     pending_axes: target,
