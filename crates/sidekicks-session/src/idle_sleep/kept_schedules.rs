@@ -21,7 +21,7 @@ use sidekicks_store::database::statement::{
 use sidekicks_store::database::stored_column::{optional_text_column, text_column};
 
 /// How long before a fire its session wakes, and how long after a one-shot fire it stays held.
-const FIRE_MARGIN: SignedDuration = SignedDuration::from_mins(2);
+pub(super) const FIRE_MARGIN: SignedDuration = SignedDuration::from_mins(2);
 
 const SELECT_KEPT_SCHEDULES_SQL: &str = "SELECT session_id, fires_at, cron, next_fire_at,
     expires_at

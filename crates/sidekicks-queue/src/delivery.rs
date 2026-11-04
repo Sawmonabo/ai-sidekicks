@@ -29,7 +29,7 @@ mod undo_hold;
 mod withdraw;
 
 use std::error::Error;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
 
 use sidekicks_contracts::run::id::RunId;
@@ -60,6 +60,7 @@ pub(crate) use self::interrupt::InterruptHoldRelease;
 pub(crate) use self::state::UndoHoldId;
 use crate::delivery::chain::{ChainJob, SessionChain};
 use crate::delivery::state::{DeliveryState, HandRoute, is_kept_by_process};
+use crate::provider_session::ProviderSessions;
 use crate::recorder::{QueueRecordError, QueueRecorder};
 use crate::refusals::UnreturnedReason;
 use crate::session_lock::QueueSessionLock;
@@ -100,6 +101,9 @@ pub(crate) struct QueueDeliveryDeps {
     pub(crate) openings: Arc<dyn OpeningMessages>,
     /// Continues an interrupted run once the provider kept nothing more for it.
     pub(crate) continuation: Arc<dyn InterruptedRunContinuation>,
+    /// The provider sessions, which open the session of a paused run being continued; held weakly,
+    /// since their resumed runs' settle holds this delivery.
+    pub(crate) provider_sessions: Weak<ProviderSessions>,
 }
 
 /// What a withdraw ahead of a change found: the message is the queue's to change, or it stays

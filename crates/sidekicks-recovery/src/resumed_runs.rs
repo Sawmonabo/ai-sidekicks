@@ -126,7 +126,13 @@ impl ResumedRunsFinalize {
             let resumed_move = self
                 .deps
                 .run_engine
-                .finalize_resumed_run(live_run, live_run.run.state, turn, None)
+                .finalize_resumed_run(
+                    live_run,
+                    live_run.run.state,
+                    turn,
+                    RunWriteCompanions::default(),
+                    None,
+                )
                 .await?;
             if resumed_move == ResumedRunMove::Running {
                 self.deps

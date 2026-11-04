@@ -282,16 +282,7 @@ impl ProviderChoiceResolver {
                         .map_err(ProviderChoiceError::MalformedRequest)?;
                 RunStateChange {
                     expected_state: Some(RunState::WaitingForInput),
-                    failure_category: Some(RunFailureCategory::Refused),
-                    ..RunStateChange::new(
-                        run_id,
-                        RunStateEntry::Failed {
-                            intended_close: None,
-                            failure_cause: Some(refused_cause_of(requested)),
-                            provider_failure_detail: None,
-                            process_exit: None,
-                        },
-                    )
+                    ..refused_end(run_id, refused_cause_of(requested))
                 }
             }
         };
@@ -717,6 +708,23 @@ fn settlement_bindings(
             Value::Integer(pending.sequence),
         ),
     ]
+}
+
+/// The end of `run_id` with the provider's refusal `cause`: `failed` as `refused`, expecting no
+/// state, which its caller adds where it read one.
+pub(crate) fn refused_end(run_id: RunId, cause: RunFailureCause) -> RunStateChange {
+    RunStateChange {
+        failure_category: Some(RunFailureCategory::Refused),
+        ..RunStateChange::new(
+            run_id,
+            RunStateEntry::Failed {
+                intended_close: None,
+                failure_cause: Some(cause),
+                provider_failure_detail: None,
+                process_exit: None,
+            },
+        )
+    }
 }
 
 // The refusal a refused turn ends with: the model that refused it and the provider's own words.

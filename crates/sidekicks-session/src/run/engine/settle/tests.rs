@@ -1,5 +1,6 @@
 mod process_exit;
 mod restart;
+mod stop;
 mod turn_causes;
 
 use rusqlite::params;
