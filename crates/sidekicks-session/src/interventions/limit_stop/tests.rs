@@ -628,8 +628,11 @@ enum ReturnToRunning {
     RefusedPause,
 }
 
-/// No messages wait for the run; the lock is the queue's on each session.
-struct NoWaitingMessages(KeyedLock<SessionId>);
+/// No messages wait for the run.
+pub(crate) struct NoWaitingMessages(
+    /// The queue's lock on each session.
+    pub(crate) KeyedLock<SessionId>,
+);
 
 impl ContinuedMessages for NoWaitingMessages {
     fn hold_session(&self, session_id: SessionId) -> BoxFuture<'_, KeyHold<'_, SessionId>> {

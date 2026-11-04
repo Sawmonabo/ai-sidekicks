@@ -459,4 +459,4 @@ fn row_pending(source: impl std::error::Error + Send + Sync + 'static) -> LimitI
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
