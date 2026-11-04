@@ -7,9 +7,10 @@
 //!   session made is being handed to a fresh session whose seed has no queue item yet, so the
 //!   seed's transcript and manifest are always written from a live planning session.
 //! - Then the files only this session names go: its shells end and stay refused until the rows
-//!   are gone, then the provider's copy of each conversation, a chat's managed workspace folder,
-//!   the session's own storage folder with its runs' capture folders, and the project rules the
-//!   session wrote into its project's files. A failure there leaves the mark and every row, so
+//!   are gone, its tool-server connections start closing and no new one opens, then the
+//!   provider's copy of each conversation, a chat's managed workspace folder, the session's own
+//!   storage folder with its runs' capture folders, and the project rules the session wrote into
+//!   its project's files. A failure there leaves the mark and every row, so
 //!   purging the session again finishes it.
 //! - Then one write, under the session's append lock, deletes every row naming the session, its
 //!   plans and the hand-off that made it among them, and appends its `session.event.compacted`
@@ -53,6 +54,7 @@ use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_mcp::client::McpClient;
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_recovery::damaged_history::DamagedSessionPurge;
 use sidekicks_recovery::status::RecoveryStatusTracker;
@@ -183,6 +185,8 @@ pub(crate) struct SessionPurgeDeps {
     pub(crate) transition_lock: Arc<KeyedLock<SessionId>>,
     /// Ends a session's shells.
     pub(crate) shells: Arc<ShellTable>,
+    /// Closes a session's tool-server connections and opens no new one for it.
+    pub(crate) mcp_client: Arc<McpClient>,
     /// Deletes the provider's copy of each conversation.
     pub(crate) conversations: Arc<ConversationPurge>,
     /// Removes a chat's managed workspace folder.
@@ -307,6 +311,7 @@ impl SessionPurge {
             .close_session_shells(&session_id)
             .await
             .map_err(SessionPurgeError::Shells)?;
+        deps.mcp_client.start_session_close(session_id);
         deps.conversations.delete_conversations(session_id).await?;
         deps.managed_workspaces.delete_folder(session_id).await?;
         remove_session_storage_folder(&deps.data_folder, session_id)

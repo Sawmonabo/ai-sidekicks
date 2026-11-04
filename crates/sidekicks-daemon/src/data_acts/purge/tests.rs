@@ -17,6 +17,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_mcp::client::McpClient;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::test_registry::{
@@ -39,6 +40,7 @@ use sidekicks_session::run::live_count::test_log::counted_log;
 use sidekicks_session::service::SessionService;
 use sidekicks_shell::test_table::{TableFixture, table_fixture};
 use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::wal_truncation::WriteAheadLogTruncation;
@@ -62,6 +64,7 @@ use tokio::sync::{mpsc, watch};
 
 use super::rows::SESSION_PURGE_STATEMENT_CAPACITY;
 use super::{SessionPurge, SessionPurgeDeps, SessionPurgeOutcome};
+use crate::daemon::release_version::this_build_release_version;
 use crate::daemon::schema::schema_parts;
 
 mod erasure;
@@ -81,6 +84,8 @@ pub(crate) struct PurgeFixture {
     pub(crate) live_runs: watch::Receiver<u32>,
     /// The recovery state the purge clears a removed session from.
     pub(crate) recovery: Arc<RecoveryStatusTracker>,
+    /// The tool-server client whose connections of a purged session the purge closes.
+    pub(crate) mcp_client: Arc<McpClient>,
     pub(crate) _shells: TableFixture,
     /// The data folder the purge removes a session's storage folder from.
     pub(crate) home: TempDir,
@@ -94,6 +99,7 @@ pub(crate) async fn purge_fixture() -> PurgeFixture {
     let TestPurge {
         purge,
         truncation,
+        mcp_client,
         shells,
         home,
     } = test_purge(&database, &log, Arc::clone(&recovery)).await;
@@ -104,15 +110,18 @@ pub(crate) async fn purge_fixture() -> PurgeFixture {
         truncation,
         live_runs,
         recovery,
+        mcp_client,
         _shells: shells,
         home,
     }
 }
 
-/// A purge, the truncation it starts, and the shell table and home folder it works in.
+/// A purge, the truncation it starts, and the tool-server client, shell table and home folder it
+/// works in.
 pub(crate) struct TestPurge {
     pub(crate) purge: SessionPurge,
     pub(crate) truncation: Arc<WriteAheadLogTruncation>,
+    pub(crate) mcp_client: Arc<McpClient>,
     pub(crate) shells: TableFixture,
     pub(crate) home: TempDir,
 }
@@ -137,6 +146,13 @@ pub(crate) async fn test_purge(
     let machine_id = MachineId::new("machine".to_owned()).expect("the id is short");
     let (_gate, gate_reader) = watch::channel(true);
     let shells = table_fixture(gate_reader).await;
+    let mcp_client = Arc::new(
+        McpClient::new(
+            Arc::new(PortRegistration::new("questions")),
+            this_build_release_version(),
+        )
+        .expect("the client builds"),
+    );
 
     // A driver with no expectations fails the test on any call.
     let table = registrations_of_mock_drivers();
@@ -196,6 +212,7 @@ pub(crate) async fn test_purge(
         machine_id,
         transition_lock: Arc::new(KeyedLock::new()),
         shells: Arc::clone(&shells.table),
+        mcp_client: Arc::clone(&mcp_client),
         conversations,
         managed_workspaces,
         data_folder: home.path().to_path_buf(),
@@ -229,6 +246,7 @@ pub(crate) async fn test_purge(
     TestPurge {
         purge,
         truncation,
+        mcp_client,
         shells,
         home,
     }

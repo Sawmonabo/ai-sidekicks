@@ -1,5 +1,6 @@
-//! What a purge erases: nothing of a purged session left readable in the file or its log, the
-//! states each caller purges from, and the log's truncation tried until no reader keeps it busy.
+//! What a purge erases: nothing of a purged session left readable in the file or its log, its
+//! tool-server connections, the states each caller purges from, and the log's truncation tried
+//! until no reader keeps it busy.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -8,10 +9,12 @@ use std::time::Duration;
 use rstest::rstest;
 use rusqlite::params;
 use serde_json::json;
+use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStepStatus};
 use sidekicks_recovery::status::RECOVERY_STATUS_STATEMENT_CAPACITY;
 use sidekicks_session::run::engine::test_fixture::insert_running_run;
@@ -382,6 +385,42 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
 // Each session is damaged, so a removed one must leave the recovery state too. Kills: a caller's
 // from-states widened or narrowed, a refused mark that changes the row, and the recovery state not
 // cleared after the rows went.
+// Mutation: leave the client's session close out of the purge; the connection then stays open.
+#[tokio::test]
+async fn a_purge_closes_the_sessions_tool_server_connections() {
+    let fixture = purge_fixture().await;
+    let session_id = SessionId::try_from(mint_uuid_v7()).expect("a session id");
+    store_session(
+        &fixture.database.reader(),
+        session_id,
+        SessionState::Archived,
+    );
+    let server_name: McpServerName =
+        FreeFormText::new("tracker".to_owned()).expect("a short server name");
+    let probe = fixture
+        .mcp_client
+        .probe_standing_connection(session_id, &server_name);
+
+    let outcome = only_outcome(
+        fixture
+            .purge
+            .purge(
+                &[session_id],
+                PurgeCaller::Retention,
+                &ProcessorMeter::default(),
+            )
+            .await,
+    );
+
+    assert!(
+        matches!(outcome, SessionPurgeOutcome::Removed { .. }),
+        "the session is removed, got {outcome:?}"
+    );
+    timeout(WAIT, probe.closed())
+        .await
+        .expect("the session's connection reads closed");
+}
+
 #[rstest]
 #[case::retention_of_an_archived_session(PurgeCaller::Retention, SessionState::Archived, true)]
 #[case::retention_of_an_active_session(PurgeCaller::Retention, SessionState::Active, false)]

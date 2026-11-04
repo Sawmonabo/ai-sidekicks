@@ -6,6 +6,7 @@ use std::sync::{Arc, OnceLock};
 
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
+use sidekicks_mcp::client::McpClient;
 use sidekicks_mcp::client::dispatch::McpToolDispatch;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::registry::ProviderRegistry;
@@ -55,6 +56,8 @@ pub(super) struct RecoveryServiceStart<'start> {
     pub(super) artifacts: &'start ArtifactMethods,
     /// The terminals' shells.
     pub(super) shells: &'start Arc<ShellTable>,
+    /// The tool-server client, whose connections of a purged session a purge closes.
+    pub(super) mcp_client: &'start Arc<McpClient>,
     /// The live projects list.
     pub(super) project_list_feed: &'start Arc<ProjectListFeed>,
     /// This machine's id.
@@ -106,6 +109,7 @@ pub(super) fn build_recovery_services(
         registry,
         artifacts,
         shells,
+        mcp_client,
         project_list_feed,
         machine_id,
         configuration,
@@ -149,6 +153,7 @@ pub(super) fn build_recovery_services(
         session_services: session,
         payloads: Arc::clone(&artifacts.payloads),
         shells: Arc::clone(shells),
+        mcp_client: Arc::clone(mcp_client),
         project_list_feed: Arc::clone(project_list_feed),
         providers: Arc::clone(registry),
         execution_postures: Arc::clone(&providers.execution_postures),

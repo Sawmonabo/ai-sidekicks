@@ -636,6 +636,7 @@ pub(crate) async fn register_method_inputs(
         registry: &registry,
         artifacts,
         shells: &shells,
+        mcp_client: &mcp_client,
         project_list_feed: &project_list_feed,
         machine_id: machine.machine_id,
         configuration: &configuration,
