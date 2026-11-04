@@ -38,6 +38,7 @@ use crate::thread_frame_router::{
 };
 use crate::usage_delta_accountant::{
     CumulativeUsageReading, MeteredUsageDelta, ThreadBaseEstablishment, UsageAxisCounts,
+    UsageRequestFacts,
 };
 
 /// What the routing band read off one frame: its route, the helper starts and ends it reports,
@@ -358,6 +359,7 @@ fn meter(
         named_turn_id: None,
         cumulative,
         declared_per_turn: None,
+        request: UsageRequestFacts::default(),
     })?;
     let axes = &delta.axis_deltas;
     let is_unchanged = [
