@@ -41,7 +41,7 @@ use crate::driver::contract::params_and_results::StartRunParams;
 use crate::driver::run_control::{DaemonTurnBindingResolver, DriverRunRefusal};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 use crate::port::inbound_dispatch::InboundDispatch;
-use crate::port::run_host::RunHost;
+use crate::port::run_host::{DaemonTurnHeld, RunHost};
 use crate::port::session_wake::SessionWaker;
 use crate::run::start_request::DaemonTurnStartRequest;
 
@@ -203,10 +203,11 @@ impl ClaudeRunStart {
     /// once its opening is written and the run is running. A live process runs it at its current
     /// posture on its account; a session with no live process is admitted through the binding
     /// resolver, and the run's binding opens its process. A text or command opening is refused
-    /// `SessionTurnInFlight`, before any run exists, while anything holds the session's turn;
-    /// every opening on a live process holding no posture is refused `ExecutionPostureAbsent`.
-    /// Fails as the wake or the admission fails, and as the run engine's start fails, the run then
-    /// ended `failed` by the engine.
+    /// `SessionTurnInFlight`, before any run exists, while anything holds the session's turn, and
+    /// so is any opening the run engine refuses for a turn it holds for another run; every opening
+    /// on a live process holding no posture is refused `ExecutionPostureAbsent`. Fails as the wake
+    /// or the admission fails, and as the run engine's start fails, the run then ended `failed` by
+    /// the engine.
     pub(crate) async fn start_daemon_turn(
         &self,
         session_id: SessionId,
@@ -275,7 +276,18 @@ impl ClaudeRunStart {
         self.engine
             .start_daemon_turn(request)
             .await
-            .map_err(DriverError::Internal)
+            .map_err(|error| {
+                if error.downcast_ref::<DaemonTurnHeld>().is_some() {
+                    claude_session_unavailable(
+                        ClaudeSessionUnavailableReason::SessionTurnInFlight,
+                        session_id,
+                        None,
+                    )
+                    .into()
+                } else {
+                    DriverError::Internal(error)
+                }
+            })
     }
 
     // The engine's start of a daemon turn under its new run: the run's binding opened, which opens

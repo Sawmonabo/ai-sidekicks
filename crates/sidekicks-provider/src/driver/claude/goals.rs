@@ -13,7 +13,6 @@ pub(crate) mod file;
 pub(crate) mod records;
 
 use std::collections::HashMap;
-use std::error::Error;
 use std::sync::{Mutex, MutexGuard};
 
 use serde::Deserialize;
@@ -26,8 +25,8 @@ use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::run::controls::ClaudeRunControls;
 use crate::driver::claude::run::start::ClaudeDaemonTurnOpening;
 use crate::driver::claude::session::errors::{
-    ClaudeSessionError,
-    ClaudeSessionUnavailableReason::{self, CommandAbsent, SessionTurnInFlight},
+    ClaudeSessionUnavailableReason::{CommandAbsent, SessionTurnInFlight},
+    is_unavailable_for,
 };
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
@@ -261,21 +260,6 @@ fn degraded() -> DriverGoalResult {
     DriverGoalResult::Degraded {
         fallback_action: None,
     }
-}
-
-// Whether the run's start was refused unavailable for `refused_reason`, at the start's own check or
-// under the run engine.
-fn is_unavailable_for(error: &DriverError, refused_reason: ClaudeSessionUnavailableReason) -> bool {
-    std::iter::successors(Some(error as &(dyn Error + 'static)), |&error| {
-        error.source()
-    })
-    .filter_map(|error| error.downcast_ref::<ClaudeSessionError>())
-    .any(|error| {
-        matches!(
-            error,
-            ClaudeSessionError::Unavailable { reason, .. } if *reason == refused_reason
-        )
-    })
 }
 
 #[cfg(test)]
