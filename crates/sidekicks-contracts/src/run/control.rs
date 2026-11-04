@@ -665,6 +665,7 @@ methods! {
             result: AgentChildRunInterruptResponse,
             refusals: [
                 AgentRunNotFound,
+                AgentRunVersionStale,
                 AgentChildRunNotFound,
                 AgentChildRunControlRefused,
                 AgentQueueItemNotFound,
