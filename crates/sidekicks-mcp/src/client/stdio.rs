@@ -86,8 +86,7 @@ impl McpServerConnection {
         not(test),
         expect(
             dead_code,
-            reason = "the session's tool-server connections, which the tool-server units open, \
-                      start a stdio server through it"
+            reason = "the session's tool-server connection opener starts a stdio server through it"
         )
     )]
     pub(crate) async fn start_stdio(
@@ -140,8 +139,8 @@ impl McpServerConnection {
     /// of its error output beside it; `None` at once for a server at an address.
     #[expect(
         dead_code,
-        reason = "the session's tool-server connections, which the tool-server units open, show a \
-                  server that ended unasked as failed, with what it wrote"
+        reason = "the session's tool-server connection opener shows a server that ended unasked \
+                  as failed, with what it wrote"
     )]
     pub(crate) async fn wait_for_process_end(&self) -> Option<ProcessEnd> {
         Some(self.process.as_ref()?.end().await)

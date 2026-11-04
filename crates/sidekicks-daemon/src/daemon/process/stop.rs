@@ -69,6 +69,10 @@ pub(crate) enum DaemonStopFailure {
     /// A worktree's setup command could not be ended.
     #[error(transparent)]
     WorktreeSetup(#[from] WorktreeSetupError),
+    /// The tool servers' connections were still closing when the drain bound ran out; a close cut
+    /// there leaves its receipts in flight for the next start's sweep.
+    #[error("the tool servers' connections were still closing when the stop's drain bound ran out")]
+    ToolServersClosing,
     /// A task the start began in the background was still running when the drain bound ran out,
     /// and was ended; the next start does its work again.
     #[error("the {0} was still running when the stop's drain bound ran out")]
@@ -129,15 +133,15 @@ pub(crate) enum CrashMonitorEndFailure {
 
 /// Ends the daemon's work: the stop token, so the work under way ends; the socket, so no new call
 /// comes; then, within what is left of `bound`, the mutating calls under way, the machine keys'
-/// background read, the capability refresh, the providers' registration, the run queue, the
-/// worktree cleanup's requests and the start's background tasks, the clone service with its askpass
-/// broker, the worktrees' setup commands, the repository services' background work, the attention
-/// decisions, the session services' follows with the chats' write watch and file recount, whose
-/// watermark a clean end stores, the renames' name pushes, the highlighter, the terminals, the
-/// provider accounts' sign-ins, the start's sweep of new accounts' homes and the account observer,
-/// the scheduler, the working-folder watch, the projects list, the search index, the drivers, the
-/// turn end captures under way, the git trees a failed call left and, last, the kept worktrees'
-/// reads. Answers each step's failure, every step having run.
+/// background read, the capability refresh, the providers' registration, the tool servers' client,
+/// the run queue, the worktree cleanup's requests and the start's background tasks, the clone
+/// service with its askpass broker, the worktrees' setup commands, the repository services'
+/// background work, the attention decisions, the session services' follows with the chats' write
+/// watch and file recount, whose watermark a clean end stores, the renames' name pushes, the
+/// highlighter, the terminals, the provider accounts' sign-ins, the start's sweep of new accounts'
+/// homes and the account observer, the scheduler, the working-folder watch, the projects list, the
+/// search index, the drivers, the turn end captures under way, the git trees a failed call left
+/// and, last, the kept worktrees' reads. Answers each step's failure, every step having run.
 pub(crate) async fn stop_work(
     process: &mut DaemonProcess,
     intent: DaemonStopIntent,
@@ -186,6 +190,15 @@ pub(crate) async fn stop_work(
     }
     // Ends a fill under way, whose reads run on the drivers.
     drop(process.mcp_attribution_fills.take());
+    // Before the queue and the drivers, so every end the stop causes meets the stopping mark and
+    // writes nothing; while the database is open, so an end a server answered is still written.
+    if let Some(mcp_client) = process.mcp_client.take()
+        && tokio::time::timeout(remaining(), mcp_client.stop())
+            .await
+            .is_err()
+    {
+        failures.push(DaemonStopFailure::ToolServersClosing);
+    }
     // Before the attachments and the drivers, so no run is admitted or delivered past here.
     if let Some(session) = &process.session {
         session.queue.stop().await;

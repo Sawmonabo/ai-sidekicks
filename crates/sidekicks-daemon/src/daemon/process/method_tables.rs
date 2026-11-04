@@ -9,6 +9,7 @@ use sidekicks_ipc::in_flight_mutations::InFlightMutations;
 use sidekicks_ipc::presence::PresenceRegister;
 use sidekicks_ipc::protocol_negotiation::ProtocolNegotiator;
 use sidekicks_ipc::registry::{Dispatch, MethodRegistry, MethodRegistryBuilder, RegistrationError};
+use sidekicks_mcp::client::McpClient;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_recovery::damaged_history::DamagedHistory;
 use sidekicks_recovery::status::RecoveryStatusTracker;
@@ -171,6 +172,8 @@ pub(crate) struct MethodTableServices {
     pub(crate) shells: Arc<ShellTable>,
     /// The sessions' renames and name pushes.
     pub(crate) session_changes: Arc<SessionChanges>,
+    /// The tool servers' client, which closes a session's connections once the session closes.
+    pub(crate) mcp_client: Arc<McpClient>,
     /// Each session's review notes.
     pub(crate) review_notes: Arc<SessionReviewNoteStore>,
     /// The snapshot list's sources.
@@ -260,7 +263,7 @@ pub(crate) fn register_method_tables(
     register_mcp_methods(builder, services.mcp_methods)?;
     register_session_event_subscribe(builder, services.event_log, Arc::clone(&services.providers))?;
     register_session_draft_update(builder, services.drafts)?;
-    register_session_changes(builder, services.session_changes)?;
+    register_session_changes(builder, services.session_changes, services.mcp_client)?;
     register_session_review_notes(builder, services.review_notes)?;
     register_session_snapshots(builder, services.session_snapshots)?;
     register_session_search(builder, services.session_search)?;

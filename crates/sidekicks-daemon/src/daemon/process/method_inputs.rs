@@ -4,6 +4,8 @@
 //! the recovery services and the stored data's methods, then every method table registered over
 //! them; it hands back the parts the start runs next and the stop ends.
 
+mod recovery;
+
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
@@ -21,6 +23,8 @@ use sidekicks_ipc::presence::PresenceRegister;
 use sidekicks_ipc::registry::{HandlerError, MethodRegistryBuilder, RegistrationError};
 use sidekicks_mcp::binding::resolver::McpAttributionTable;
 use sidekicks_mcp::binding::store::{McpBindingStore, open_first_observation_drain};
+use sidekicks_mcp::client::dispatch::McpToolDispatch;
+use sidekicks_mcp::client::{McpClient, McpClientError};
 use sidekicks_mcp::inventory_service::{McpInventoryService, McpInventorySources};
 use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_mcp::status::machine_probe::McpMachineProbeGate;
@@ -36,14 +40,10 @@ use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_queue::memory_gate::{
     INGEST_WORKER_BYTES, MemoryGate, MemoryGateFigures, QUICK_THREAD_BYTES,
 };
-use sidekicks_queue::provider_session::resumed_runs::ResumedRunsIngress;
 use sidekicks_queue::run_token_limit::RunTokenLimitReader;
 use sidekicks_queue::service::answer_continue::HaltedRunRecord;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
-use sidekicks_recovery::projection_rebuild::ProjectionRebuildService;
-use sidekicks_recovery::restart_settle::{RestartSettle, RestartSettleDeps};
-use sidekicks_recovery::resumed_runs::{ResumedRunsFinalize, ResumedRunsFinalizeDeps};
-use sidekicks_recovery::startup::{StartupRecovery, StartupRecoveryDeps};
+use sidekicks_recovery::startup::StartupRecovery;
 use sidekicks_session::attention::banner_launcher::BannerLauncher;
 use sidekicks_session::attention::delivery::web_address::sender::{
     WebAddressSender, WebAddressSenderDependencies,
@@ -86,8 +86,10 @@ use crate::daemon::machine_settings::methods::{
     FindBranchPatternRefusal, MachineSettingsMethodsDeps,
 };
 use crate::daemon::process::database::DatabaseFile;
+use crate::daemon::process::method_inputs::recovery::{
+    RecoveryServiceStart, RecoveryServices, build_recovery_services,
+};
 use crate::daemon::process::method_tables::{MethodTableServices, register_method_tables};
-use crate::daemon::process::projections::rebuild_projections;
 use crate::daemon::process::provider_accounts::{
     ProviderAccountObservation, ProviderAccountPlaneStart, build_provider_account_plane,
 };
@@ -104,7 +106,6 @@ use crate::daemon::process::session_services::{
 use crate::daemon::process::shell_table::{
     ShellTableStart, ShellTableStartError, build_shell_table,
 };
-use crate::daemon::process::stored_data::{StoredDataMethodsStart, build_stored_data_methods};
 use crate::daemon::process::supervision::ProcessStateTracker;
 use crate::daemon::process::workspace_services::{
     ExecutionRootStart, WorkspaceServiceStart, WorkspaceWork, build_execution_root_services,
@@ -231,6 +232,8 @@ pub(crate) struct MethodInputs {
     pub(crate) mcp_inventory: Arc<McpInventoryService>,
     /// The provider accounts' background observer, started once the recovery pass has run.
     pub(crate) provider_accounts: ProviderAccountObservation,
+    /// The daemon's one client of the sessions' tool servers, which the stop stops.
+    pub(crate) mcp_client: Arc<McpClient>,
 }
 
 /// Why the method tables' services could not be built.
@@ -245,6 +248,9 @@ pub(crate) enum MethodInputsError {
     /// The terminals' table could not be built.
     #[error(transparent)]
     ShellTable(#[from] ShellTableStartError),
+    /// The tool servers' client could not be built.
+    #[error(transparent)]
+    McpClient(#[from] McpClientError),
     /// A method was registered twice.
     #[error(transparent)]
     Registration(#[from] RegistrationError),
@@ -497,6 +503,11 @@ pub(crate) async fn register_method_inputs(
         read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
     })
     .await;
+    let mcp_client = Arc::new(McpClient::new(
+        Arc::clone(&providers.ports.questions),
+        version.clone(),
+    )?);
+    let mcp_dispatch = Arc::new(McpToolDispatch::new(Arc::clone(&writer)));
     register_driver_ports(
         &providers.ports,
         DriverPortOwners {
@@ -512,6 +523,7 @@ pub(crate) async fn register_method_inputs(
             continue_given_back: session.queue.continue_given_back_listener(),
             permission_asks: Arc::clone(&session.approvals.asks),
             questions: Arc::clone(&session.questions),
+            server_prompts: Arc::clone(&mcp_client) as _,
             plans: Arc::clone(&session.plans),
             reviewer_denials: Arc::clone(&session.approvals.denials),
             writer: Arc::clone(&writer),
@@ -614,66 +626,28 @@ pub(crate) async fn register_method_inputs(
         }),
         Err(unavailable) => Err(unavailable),
     };
-    let projection_rebuild = Arc::new(ProjectionRebuildService::new(
-        Arc::clone(&reads),
-        Arc::clone(&writer),
-        Arc::clone(&session.sessions),
-        Arc::clone(&database.damage),
-        rebuild_projections(),
-    ));
-    let restart_settle = Arc::new(RestartSettle::new(RestartSettleDeps {
-        reads: Arc::clone(&reads),
-        appender: Arc::clone(&session.appender),
-        run_engine: Arc::clone(&session.engine),
-        approvals: Arc::clone(&session.approvals.service),
-        plans: Arc::clone(&session.plans),
-    }));
-    // A resume settles the runs it named through recovery's finalize, registered before the start
-    // serves anything, so no resume finds the port empty.
-    session
-        .resumed_runs
-        .register(Arc::new(ResumedRunsFinalize::new(ResumedRunsFinalizeDeps {
-            reads: Arc::clone(&reads),
-            run_engine: Arc::clone(&session.engine),
-            delivery: session.queue.delivery(),
-            providers: Arc::clone(&registry),
-            interventions: Arc::clone(&session.interventions),
-        })) as Arc<dyn ResumedRunsIngress>)?;
-    let stored = build_stored_data_methods(StoredDataMethodsStart {
+    let RecoveryServices { stored, recovery } = build_recovery_services(RecoveryServiceStart {
         database,
-        repo,
-        data_folder,
-        session_services: &session,
-        payloads: Arc::clone(&artifacts.payloads),
-        shells: Arc::clone(&shells),
-        project_list_feed: Arc::clone(&project_list_feed),
-        providers: Arc::clone(&registry),
-        execution_postures: Arc::clone(&providers.execution_postures),
-        machine_id: machine.machine_id.clone(),
-        configuration: Arc::clone(&configuration),
-        scheduler: Arc::clone(&scheduler),
-        backups: Arc::clone(&backups),
-        projection_rebuild: Arc::clone(&projection_rebuild),
-        restart_settle: Arc::clone(&restart_settle),
-        in_flight,
-        accept_stop: Arc::clone(&accept_stop),
-    });
-    let recovery = StartupRecovery::new(StartupRecoveryDeps {
-        machine_id: machine.machine_id,
-        reads: Arc::clone(&reads),
+        reads: &reads,
         writer,
-        appender: Arc::clone(&session.appender),
-        projection_rebuild,
-        damaged_history: Arc::clone(&stored.damaged_history),
-        restart_settle,
-        provider_sessions: Arc::clone(&session.provider_sessions),
-        questions: Arc::clone(&session.questions),
-        status: Arc::clone(&database.status),
-        damage: Arc::clone(&database.damage),
-        database_path: database.database_path.clone(),
-        data_folder: data_folder.to_path_buf(),
+        session: &session,
+        repo,
+        providers,
+        registry: &registry,
+        artifacts,
+        shells: &shells,
+        mcp_client: &mcp_client,
+        project_list_feed: &project_list_feed,
+        machine_id: machine.machine_id,
+        configuration: &configuration,
+        scheduler: &scheduler,
+        backups: &backups,
+        in_flight,
+        accept_stop: &accept_stop,
+        data_folder,
         copier,
-    });
+        mcp_dispatch,
+    })?;
     let driver_methods = Arc::new(DriverMethodSources {
         pool: Arc::clone(&reads),
         providers: Arc::clone(&registry),
@@ -795,6 +769,7 @@ pub(crate) async fn register_method_inputs(
             highlighter: Arc::clone(&session.highlighter),
             shells,
             session_changes: Arc::clone(&session.changes),
+            mcp_client: Arc::clone(&mcp_client),
             review_notes: Arc::clone(&repo.review_notes),
             session_snapshots: SessionSnapshotSources {
                 reads: Arc::clone(&reads),
@@ -844,6 +819,7 @@ pub(crate) async fn register_method_inputs(
         workspace_work: workspace.work,
         mcp_inventory,
         provider_accounts: accounts.observation,
+        mcp_client,
     })
 }
 

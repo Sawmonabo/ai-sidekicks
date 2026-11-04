@@ -40,6 +40,7 @@ use sidekicks_ipc::in_flight_mutations::InFlightMutations;
 use sidekicks_ipc::protocol_negotiation::ProtocolNegotiator;
 use sidekicks_ipc::registry::MethodRegistryBuilder;
 use sidekicks_ipc::stream::subscriptions::Subscriptions;
+use sidekicks_mcp::client::McpClient;
 use sidekicks_platforms::{
     Spawner, WakeWatch, WallClock, WallClockTimer, askpass_socket_path, check_socket_path,
     read_command_argument_limit,
@@ -177,6 +178,8 @@ pub(crate) struct DaemonProcess {
     pub(crate) providers_registration: Option<ProvidersRegistration>,
     /// The MCP attribution table's fills, ended by the stop before the drivers.
     pub(crate) mcp_attribution_fills: Option<McpAttributionFills>,
+    /// The tool servers' client, stopped before the queue and the drivers.
+    pub(crate) mcp_client: Option<Arc<McpClient>>,
     /// The repository services, whose watch, fetches and askpass broker the stop ends.
     pub(crate) repo: Option<RepoServices>,
     /// The repository services' background work, ended by the stop before the scheduler.
@@ -256,6 +259,7 @@ impl DaemonProcess {
             providers: None,
             providers_registration: None,
             mcp_attribution_fills: None,
+            mcp_client: None,
             repo: None,
             repo_attachments: None,
             session: None,
@@ -599,6 +603,7 @@ impl DaemonProcess {
         // Before the socket serves, so no creation is under way.
         settle_interrupted_creations(self.worktree_creator.insert(inputs.worktree_creator)).await;
         let mcp_inventory = inputs.mcp_inventory;
+        self.mcp_client = Some(inputs.mcp_client);
         let mut provider_accounts = inputs.provider_accounts;
         let session = self.session.insert(inputs.session);
         let queue = Arc::clone(&session.queue);
