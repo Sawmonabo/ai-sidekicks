@@ -381,14 +381,15 @@ mod tests {
 
     // The folders a listing is read against, all in one scratch folder: the account's settings
     // file, a home folder, an owned repository root, the working folder `work` inside it, and a
-    // managed folder.
+    // managed folder, spelled by the running system's path rules.
     struct ScratchTree {
-        _scratch: tempfile::TempDir,
+        scratch: tempfile::TempDir,
         account_settings_file: PathBuf,
         home_folder: PathBuf,
         repository_root: PathBuf,
         working_folder: PathBuf,
         managed_folder: PathBuf,
+        path_rules: PathRules,
     }
 
     impl ScratchTree {
@@ -401,7 +402,8 @@ mod tests {
                 working_folder: repository_root.join("work"),
                 repository_root,
                 managed_folder: scratch.path().join("managed"),
-                _scratch: scratch,
+                path_rules: PathRules::NATIVE,
+                scratch,
             }
         }
 
@@ -425,7 +427,7 @@ mod tests {
                 project_folder: &project_folder,
                 home_folder: &self.home_folder,
                 account_settings_file: &self.account_settings_file,
-                path_rules: PathRules::NATIVE,
+                path_rules: self.path_rules,
             };
             let reply = RawValue::from_string(reply.to_string()).expect("the reply is JSON");
             read_claude_hook_listing(session_id, Some(&reply), &sources)
@@ -659,18 +661,20 @@ mod tests {
     }
 
     // Killed by a local file that fails to read left out of `unread`, or by the tier's other file
-    // named although the one that failed may hold the hook.
-    #[cfg(unix)]
+    // named although the one that failed may hold the hook. The repository root's path holds a NUL
+    // byte, so its local file fails to read before any system call, which is no absence; POSIX path
+    // rules keep both local files candidates, the root's and the working folder's.
     #[tokio::test]
     async fn a_tier_with_a_file_that_fails_to_read_names_no_file() {
-        let tree = ScratchTree::new();
+        let mut tree = ScratchTree::new();
+        tree.repository_root = tree.scratch.path().join("repo\0root");
+        tree.working_folder = tree.scratch.path().join("work");
+        tree.path_rules = PathRules::Posix;
         let stored_hook = json!({"type": "command", "command": "./check.sh"});
-        // A folder where the file belongs fails to read as one, which is no absence.
         let root_local_settings = tree
             .repository_root
             .join(".claude")
             .join("settings.local.json");
-        fs::create_dir_all(&root_local_settings).expect("the folder is made");
         write_settings(
             &tree
                 .working_folder
