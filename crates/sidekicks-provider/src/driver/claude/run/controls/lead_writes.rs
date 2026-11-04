@@ -149,6 +149,9 @@ mod tests {
             .expect_err("a turn still held after one change refuses the write");
         assert!(is_unavailable_for(&refused, SessionTurnInFlight));
         assert_eq!(session.engine.first_daemon_turn_run(), None);
-        assert!(session.channel.user_frames().is_empty());
+        assert_eq!(
+            session.channel.user_frames(),
+            Vec::<serde_json::Value>::new()
+        );
     }
 }
