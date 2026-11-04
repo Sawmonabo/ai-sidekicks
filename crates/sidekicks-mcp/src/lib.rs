@@ -18,4 +18,6 @@ pub mod oauth;
 pub mod schema;
 pub mod sign_in;
 pub mod status;
+#[cfg(test)]
+mod test_keychain;
 pub(crate) mod tool_calls;

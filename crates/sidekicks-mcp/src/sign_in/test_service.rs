@@ -25,6 +25,7 @@ use sidekicks_platforms::CredentialStore as PlatformCredentialStore;
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::test_registry::registry_of_first_providers;
 use sidekicks_store::credential_store::SecretKeychain;
+use sidekicks_store::credential_store::service::KeychainService;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::events::log_service::test_fixture::open_log;
@@ -43,7 +44,7 @@ use crate::sign_in::registration::RELAY_ADDRESS;
 use crate::sign_in::service::{
     AddressedServer, ProviderAccounts, SignInServer, SignInService, SignInTarget,
 };
-use crate::sign_in::test_keychain::test_keychain;
+use crate::test_keychain::test_keychain;
 
 /// A service over a test database, event log and keychain, with the folders and database it
 /// needs kept alive beside it.
@@ -78,7 +79,7 @@ pub(crate) async fn harness_with(drivers: Vec<Arc<dyn ProviderDriver>>) -> Harne
         )),
         log.writer,
     ));
-    let (data_folder, platform_store, keychain) = test_keychain();
+    let (data_folder, platform_store, keychain) = test_keychain(KeychainService::McpSignIns);
     let service = SignInService::new(
         SignInCustody::new(Arc::clone(&keychain)),
         Arc::clone(&admitted_clients),
