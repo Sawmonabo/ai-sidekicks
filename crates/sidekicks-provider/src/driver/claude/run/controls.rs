@@ -407,7 +407,8 @@ impl ClaudeRunControls {
             text: sentence,
             origin: OutboundTextOrigin::HumanText,
         };
-        self.write_to_lead(params.session_id, text).await
+        self.write_to_lead(params.session_id, text, mint_uuid_v7().to_string())
+            .await
     }
 
     /// Stops a running command with Claude Code's `stop_task` to the process that runs it, the
@@ -520,7 +521,10 @@ impl ClaudeRunControls {
                     }
                 }
             }
-            None => self.write_to_lead(session_id, text).await,
+            None => {
+                self.write_to_lead(session_id, text, mint_uuid_v7().to_string())
+                    .await
+            }
         };
         if let Err(error) = told {
             record_unheard_claude_failure(
@@ -532,14 +536,15 @@ impl ClaudeRunControls {
         }
     }
 
-    // Writes `text` into the lead's running turn, or starts the session's own run with it while
-    // no run holds its turn. Fails `NoLiveSession` and as the write or the run's start fails.
-    async fn write_to_lead(
+    /// Writes `text` under `message_uuid` into the lead's running turn as a steer, or starts the
+    /// session's own run with it while no run holds its turn. Fails `NoLiveSession`,
+    /// `SessionTurnInFlight` while a command holds the turn, and as the write or the start fails.
+    pub(crate) async fn write_to_lead(
         &self,
         session_id: SessionId,
         text: OutboundText,
+        message_uuid: String,
     ) -> Result<(), DriverError> {
-        let message_uuid = mint_uuid_v7().to_string();
         let Some(lead) = self.start.routes.lead_run_on(session_id) else {
             self.start
                 .start_daemon_turn(
@@ -571,8 +576,8 @@ impl ClaudeRunControls {
         background_claude_task(&live, tool_use_id).await
     }
 
-    // Writes one message for `run_id`, a steer into its running turn or not, recorded before the
-    // write since Claude Code may report it taken first; a write that never left is dropped again.
+    /// Writes one message for `run_id`, a steer into its running turn or not, recorded before the
+    /// write since Claude Code may report it taken first; a write that never left is dropped again.
     async fn write_message(
         &self,
         live: &LiveClaudeSession,
