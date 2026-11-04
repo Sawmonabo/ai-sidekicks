@@ -134,8 +134,26 @@ pub(crate) fn read_object<'de, T: Deserialize<'de>, A: MapAccess<'de>>(
 // Whether `key` is the one key of serde_json's map form of a number, asked of serde_json's own
 // number reader so its private spelling is never copied; never so without arbitrary precision.
 fn is_number_key(key: &str) -> bool {
-    let number_form = MapDeserializer::<_, de::value::Error>::new(std::iter::once((key, "0")));
+    let number_form = MapDeserializer::<_, DiscardedProbeError>::new(std::iter::once((key, "0")));
     serde_json::Number::deserialize(number_form).is_ok()
+}
+
+// The error `is_number_key`'s probe discards: it drops the message, so a refusal allocates nothing.
+#[derive(Debug)]
+struct DiscardedProbeError;
+
+impl fmt::Display for DiscardedProbeError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("not serde_json's map form of a number")
+    }
+}
+
+impl std::error::Error for DiscardedProbeError {}
+
+impl de::Error for DiscardedProbeError {
+    fn custom<T: fmt::Display>(_message: T) -> Self {
+        Self
+    }
 }
 
 // A map whose first key was already read: that key, then the rest of the map.
@@ -253,7 +271,8 @@ impl Lenient for u64 {
 impl Lenient for f64 {
     fn read<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Self>, D::Error> {
         // serde_json's arbitrary precision, which a dependency turns on, hands a fraction to a
-        // visitor in a private form only `Value` reads, so the value is read whole and dropped.
+        // visitor in a private form only serde_json's own readers take, so the value is read
+        // whole and dropped.
         Ok(serde_json::Value::deserialize(deserializer)?.as_f64())
     }
 }
