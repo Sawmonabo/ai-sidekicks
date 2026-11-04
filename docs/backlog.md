@@ -254,3 +254,14 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - V1 Release Impact: none; the fork carries the fix until a release does.
 - Named gate: a `jsonata-core` release carrying txjmb/jsonata-core#273.
 - Exit Criteria: that release is taken; the fix is gone from the fork's combined branch and the root `Cargo.toml`'s `jsonata-core` patch re-pinned to its new head, or, when this is the last of BL-178 to BL-180 to close, the patch entry and the fork's `allow-git` line in `deny.toml` are deleted; this entry is deleted.
+
+## BL-181: The TypeScript SDK's server asking a task's questions again on a new `tasks/result`
+
+- Status: `blocked` (external-world wait — a `@modelcontextprotocol/sdk` release whose server sends an `input_required` task's outstanding requests again on each new `tasks/result`)
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [Spec-013 §In-Flight Receipts After A Restart](./specs/013-persistence-and-recovery.md#in-flight-receipts-after-a-restart), [Spec-024](./specs/024-mcp-server-configuration-and-governance.md) (the daemon's own MCP client), [MCP 2025-11-25 Tasks](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks)
+- Summary: On a 2025-11-25 server a task waiting on input asks its questions only as requests on a held `tasks/result`; the specification does not require them sent again. The TypeScript SDK's server, as read in its 1.29.0 source, takes each queued request off its queue once and sends it on the `tasks/result` stream open at that moment, so a stream cut by a dropped connection takes the request with it. When the daemon's client reconnects to such a server while the task still waits, its new `tasks/result` brings no question and the question is not asked again. The ask upstream is that the server send the task's outstanding requests again on each new `tasks/result`. A restart is unaffected: there the daemon cancels a 2025-11-25 task found waiting on input, as Spec-013 says.
+- V1 Release Impact: a task on a 2025-11-25 server built on the TypeScript SDK that waits on input across a live reconnect is not asked again until that release.
+- Named gate: the ask filed with modelcontextprotocol/typescript-sdk and a release carrying it. Nothing in-tree blocks.
+- Exit Criteria: (a) the upstream issue linked on this entry; (b) a release whose server sends the outstanding requests again on a new `tasks/result`; (c) a live reconnect to a server on that release shown to bring the task's question again; this entry is deleted.
