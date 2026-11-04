@@ -209,6 +209,13 @@ CREATE TABLE provider_account_usage_turns (
   cache_read_tokens     INTEGER,
   cache_write_tokens    INTEGER,
   reasoning_tokens      INTEGER,  -- the five counts, each NULL where the provider reported none. NULL is NOT zero: a provider may report fewer than five (Codex reports all five per turn, Claude Code what its per-model usage block carries), so coalescing an unreported count to zero would present a partial reading as a complete one. Taken from the carrier that is complete on each leg -- on the Claude leg the result frame's PER-MODEL block, never its top-level one, which counts the outer loop alone and undercounts as soon as helper conversations run.
+  request_key     TEXT,  -- the provider's id of the request the turn belongs to, shared by every row of that request: Claude Code's `message.id`, and on a turn's confirming row the turn's last message's. NULL where the provider names none, and then the row is its own request. A request seen again after a restart is looked up by this key
+  speed           TEXT,  -- the speed tier the request ran at, in the provider's word, kept as given; NULL where it gave none, which prices at the standard rates
+  processing_region TEXT,  -- the region the request was processed in, in the driver's region word; NULL where it ran in no named region (Claude Code's `inference_geo` `global`, null or absent), which takes no region multiplier
+  cache_write_extended_tokens INTEGER,  -- the part of `cache_write_tokens` written at the longer cache lifetime, which prices at its own rate; NULL where the provider gave no split
+  web_search_requests INTEGER,  -- the web searches the request ran, each priced at the model's per-search rate; NULL where the provider reported none
+  thread_speed    TEXT,  -- the speed tier the turn's thread declared when the reading was taken, which prices the requests of helpers that thread spawned; NULL where none was declared
+  subagent_id     TEXT,  -- the provider's own id of the helper the turn is attributed to, so a helper's request is priced and shown on the agent it belongs to; NULL for the lead's own turns
   cost_usd_micros INTEGER,  -- integer micro-dollars; NULL = no figure yet, which is a different fact from a cost of zero and renders as no figure at all. Every turn is priced: from the provider's own figure where it reports one with a known cost basis (Claude Code's, where its basis reads list or managed), and otherwise from the daemon's price table, matched by the model's exact id (Codex, which reports no cost, and a Claude Code model whose basis reads unknown). A row lands with its exact tokens and no figure, and its figure and `cost_source` are set once when the price table prices it, never repriced; a turn on a model the price table does not carry yet keeps its tokens with no figure until a fetch carries that model
   cost_source     TEXT
                   CHECK(cost_source IS NULL OR cost_source IN ('providerReported', 'derivedExact')),  -- where the figure came from: the provider's own figure, or the daemon's price table by exact model id; the same vocabulary the source event carries. Provenance is REUSED and not re-enumerated here: a second spelling of where a number came from is a second answer to one question
@@ -218,11 +225,17 @@ CREATE TABLE provider_account_usage_turns (
   CHECK (run_id IS NULL OR session_id IS NOT NULL)  -- a run belongs to a session, so a row naming a run and no session describes a turn that cannot exist
 ) STRICT;
 
--- The two slices the account surface draws, and nothing else reads this table by any other shape.
+-- Four reads, each served by its own index, and nothing reads this table by any other shape: the account surface's slices by day and by model, a request's rows by its key, and a session's rows by time.
 CREATE INDEX idx_provider_account_usage_turns_account_day
   ON provider_account_usage_turns(account_id, occurred_at);
 CREATE INDEX idx_provider_account_usage_turns_account_model
   ON provider_account_usage_turns(account_id, model_id);
+-- A request's rows by its key, so a request seen again after a restart is found without a scan.
+CREATE INDEX idx_provider_account_usage_turns_account_request
+  ON provider_account_usage_turns(account_id, request_key);
+-- A session's rows by time, so the thread tier live when a helper's request ran is found without a scan; the account indexes miss a session that moved accounts.
+CREATE INDEX idx_provider_account_usage_turns_session_time
+  ON provider_account_usage_turns(session_id, occurred_at);
 ```
 
 Rows are appended; an unpriced row's cost and its source are set once when the price table prices it, and nothing else on a row changes. A provider's own usage history, where it publishes one, is drawn **beside** this table with the vendor named and is never reconciled into it: two accountants counting the same tokens differently is what one source of truth exists to prevent.
