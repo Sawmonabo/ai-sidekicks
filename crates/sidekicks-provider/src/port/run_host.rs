@@ -24,6 +24,14 @@ use crate::runtime_binding::store::RuntimeBinding;
 /// A failure the run engine reports to a driver, kept whole.
 pub type RunHostError = Box<dyn Error + Send + Sync>;
 
+/// The refusal of a daemon turn on a session whose turn is held for another of its runs.
+#[derive(Debug, thiserror::Error)]
+#[error("the session's turn is held for another of its runs")]
+pub struct DaemonTurnHeld {
+    /// The session whose turn is held.
+    pub session_id: SessionId,
+}
+
 /// What a driver asks of the run engine; the daemon's start registers the engine as it.
 pub trait RunHost: Send + Sync {
     /// Opens and numbers `run_id`'s next turn, its steps counted against `step_bound`, recording
@@ -70,7 +78,9 @@ pub trait RunHost: Send + Sync {
     ) -> BoxFuture<'_, Result<(), RunHostError>>;
 
     /// Starts a turn the daemon or its provider starts on a session itself, as the session's own
-    /// run, and answers the run. Fails as the run's start or the driver's start of its turn fails.
+    /// run, and answers the run. Fails with a boxed [`DaemonTurnHeld`], writing nothing, while the
+    /// session's turn is held for another of its runs, and as the run's start or the driver's start
+    /// of its turn fails.
     fn start_daemon_turn(
         &self,
         request: DaemonTurnStartRequest,
