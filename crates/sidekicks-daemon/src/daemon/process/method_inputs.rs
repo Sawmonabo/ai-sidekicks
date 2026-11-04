@@ -23,6 +23,7 @@ use sidekicks_ipc::presence::PresenceRegister;
 use sidekicks_ipc::registry::{HandlerError, MethodRegistryBuilder, RegistrationError};
 use sidekicks_mcp::binding::resolver::McpAttributionTable;
 use sidekicks_mcp::binding::store::{McpBindingStore, open_first_observation_drain};
+use sidekicks_mcp::client::dispatch::McpToolDispatch;
 use sidekicks_mcp::client::{McpClient, McpClientError};
 use sidekicks_mcp::inventory_service::{McpInventoryService, McpInventorySources};
 use sidekicks_mcp::status::McpServerStatusTracker;
@@ -506,6 +507,7 @@ pub(crate) async fn register_method_inputs(
         Arc::clone(&providers.ports.questions),
         version.clone(),
     )?);
+    let mcp_dispatch = Arc::new(McpToolDispatch::new(Arc::clone(&writer)));
     register_driver_ports(
         &providers.ports,
         DriverPortOwners {
@@ -643,6 +645,7 @@ pub(crate) async fn register_method_inputs(
         accept_stop: &accept_stop,
         data_folder,
         copier,
+        mcp_dispatch,
     })?;
     let driver_methods = Arc::new(DriverMethodSources {
         pool: Arc::clone(&reads),

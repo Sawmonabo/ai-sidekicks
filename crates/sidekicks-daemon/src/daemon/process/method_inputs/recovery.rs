@@ -6,6 +6,7 @@ use std::sync::{Arc, OnceLock};
 
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
+use sidekicks_mcp::client::dispatch::McpToolDispatch;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_queue::provider_session::resumed_runs::ResumedRunsIngress;
@@ -72,6 +73,12 @@ pub(super) struct RecoveryServiceStart<'start> {
     pub(super) data_folder: &'start Path,
     /// The copy the recovery pass copies the store's files aside with.
     pub(super) copier: Arc<DatabaseFileCopier>,
+    /// The tool calls' one dispatch.
+    #[expect(
+        dead_code,
+        reason = "the restart's sweep resumes each receipt a stop left in flight through it"
+    )]
+    pub(super) mcp_dispatch: Arc<McpToolDispatch>,
 }
 
 /// The stored data's methods and the startup recovery pass, which share the projection rebuild
@@ -108,6 +115,7 @@ pub(super) fn build_recovery_services(
         accept_stop,
         data_folder,
         copier,
+        mcp_dispatch: _,
     } = start;
     let projection_rebuild = Arc::new(ProjectionRebuildService::new(
         Arc::clone(reads),

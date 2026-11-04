@@ -27,7 +27,7 @@ use futures::future::BoxFuture;
 use rmcp::service::ServiceError;
 use sidekicks_std::bounded_wait::wait_within;
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_store::database::writer::WriteError;
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
@@ -49,14 +49,7 @@ mod tests;
 
 /// The daemon's one tool call dispatch: the receipts every call is recorded in, and the recorder
 /// each accepted task's handle is stored through.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds the one dispatch every tool call goes through"
-    )
-)]
-pub(crate) struct McpToolDispatch {
+pub struct McpToolDispatch {
     receipts: CommandReceiptStore,
     recorder: McpTaskHandleRecorder,
 }
@@ -147,17 +140,13 @@ enum CallerCancel {
 }
 
 impl McpToolDispatch {
-    /// A dispatch recording each call in `receipts` and each accepted task's handle through
-    /// `recorder`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start builds the one dispatch every tool call goes through"
-        )
-    )]
-    pub(crate) fn new(receipts: CommandReceiptStore, recorder: McpTaskHandleRecorder) -> Self {
-        Self { receipts, recorder }
+    /// A dispatch recording each call's receipt and each accepted task's handle through
+    /// `writer`.
+    pub fn new(writer: Arc<DatabaseWriter>) -> Self {
+        Self {
+            receipts: CommandReceiptStore::new(Arc::clone(&writer)),
+            recorder: McpTaskHandleRecorder::new(writer),
+        }
     }
 
     /// Calls `call`'s tool over `standing`'s live connection: whether the tool takes a task is
