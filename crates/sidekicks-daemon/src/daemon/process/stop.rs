@@ -444,7 +444,6 @@ pub(crate) async fn stop_work(
 /// stands past the bound, and closes the database file, ends the crash monitor, waiting for its
 /// exit, and removes its socket from the run folder, then lets the data folder's lock go last.
 /// Answers each step's failure, every step having run.
-
 pub(crate) async fn close_data_folder(process: &mut DaemonProcess) -> Vec<DaemonStopFailure> {
     let mut failures = Vec::new();
     let remaining = || {
@@ -463,7 +462,6 @@ pub(crate) async fn close_data_folder(process: &mut DaemonProcess) -> Vec<Daemon
     // Their pools and writer handles go before the file closes.
     drop(session);
     drop(process.restart_settle.take());
-
     drop(process.repo.take());
     // Before the file closes, since the drain writes through its writer.
     if let Some(mut drain) = mcp_first_observations {

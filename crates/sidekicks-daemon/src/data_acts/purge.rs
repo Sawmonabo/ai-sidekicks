@@ -352,7 +352,6 @@ impl SessionPurge {
                 "a purged session's name was not dropped from the stop intent"
             );
         }
-
         deps.sessions.forget_session_block_cuts(&session_id);
         deps.context_readings.forget_purged_session(session_id);
         deps.turn_readings.forget_purged_session(session_id);

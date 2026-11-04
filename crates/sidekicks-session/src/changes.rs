@@ -373,7 +373,6 @@ impl SessionChanges {
     }
 
     /// Pins the session to the top of its group; a pinned session keeps its first pin time.
-
     /// Refused as [`SessionChangeError::Refused`] says.
     pub async fn pin(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
         self.set_mark(session_id, SessionMark::Pin, true).await

@@ -620,7 +620,6 @@ impl DaemonProcess {
         let mut provider_accounts = inputs.provider_accounts;
         self.restart_settle = Some(inputs.restart_settle);
         let session = self.session.insert(inputs.session);
-
         let queue = Arc::clone(&session.queue);
         let caller_check = CallerCheck::new(
             Arc::clone(&caller_process_reader),

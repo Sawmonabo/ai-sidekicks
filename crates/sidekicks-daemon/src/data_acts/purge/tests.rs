@@ -76,7 +76,6 @@ use tokio::sync::{mpsc, watch};
 
 use super::rows::{PurgeCaller, SESSION_PURGE_STATEMENT_CAPACITY};
 use super::{SessionPurge, SessionPurgeDeps, SessionPurgeError, SessionPurgeOutcome};
-
 use crate::daemon::release_version::this_build_release_version;
 use crate::daemon::schema::schema_parts;
 
@@ -102,8 +101,6 @@ pub(crate) struct PurgeFixture {
     pub(crate) _shells: TableFixture,
     /// The data folder the purge removes a session's storage folder from.
     pub(crate) home: TempDir,
-    /// The stop intent beside the database, which drops a purged session's name.
-    pub(crate) stop_intent: Arc<StopIntentFile>,
 }
 
 /// A purge over a fresh database; a provider driver it calls fails the test.
@@ -126,7 +123,6 @@ pub(crate) async fn purge_fixture_over(providers: Arc<ProviderRegistry>) -> Purg
         mcp_client,
         shells,
         home,
-        stop_intent,
     } = test_purge(&database, &log, Arc::clone(&recovery), providers).await;
     PurgeFixture {
         database,
@@ -138,19 +134,17 @@ pub(crate) async fn purge_fixture_over(providers: Arc<ProviderRegistry>) -> Purg
         mcp_client,
         _shells: shells,
         home,
-        stop_intent,
     }
 }
 
-/// A purge, the truncation it starts, and the tool-server client, shell table, home folder and
-/// stop intent it works in.
+/// A purge, the truncation it starts, and the tool-server client, shell table and home folder it
+/// works in.
 pub(crate) struct TestPurge {
     pub(crate) purge: SessionPurge,
     pub(crate) truncation: Arc<WriteAheadLogTruncation>,
     pub(crate) mcp_client: Arc<McpClient>,
     pub(crate) shells: TableFixture,
     pub(crate) home: TempDir,
-    pub(crate) stop_intent: Arc<StopIntentFile>,
 }
 
 /// A purge on `database` through `log` and the drivers `providers`, clearing removed sessions from
@@ -190,7 +184,6 @@ pub(crate) async fn test_purge(
         Arc::clone(&log.service),
         Arc::clone(&providers),
     ));
-    let stop_intent = Arc::new(StopIntentFile::new(&database.path()));
     let conversations = Arc::new(ConversationPurge::new(
         Arc::clone(&reads),
         Arc::clone(&providers),
@@ -276,7 +269,7 @@ pub(crate) async fn test_purge(
             home.path().join("daemon.token"),
         )),
         questions,
-        stop_intent: Arc::clone(&stop_intent),
+        stop_intent: Arc::new(StopIntentFile::new(&database.path())),
     });
     TestPurge {
         purge,
@@ -284,7 +277,6 @@ pub(crate) async fn test_purge(
         mcp_client,
         shells,
         home,
-        stop_intent,
     }
 }
 
@@ -424,6 +416,8 @@ async fn a_purge_ends_its_sessions_legs_and_drops_its_stop_intent_name(#[case] d
         }
     });
     let fixture = purge_fixture_over(Arc::new(registry_of_first_provider(Arc::new(driver)))).await;
+    // The intent beside the purge's database, the one the purge drops a name from.
+    let stop_intent = StopIntentFile::new(&fixture.database.path());
     let reader = fixture.database.reader();
     let session_id = SessionId::try_from(mint_uuid_v7()).expect("a session id");
     let other_session_id = SessionId::try_from(mint_uuid_v7()).expect("a session id");
@@ -449,14 +443,12 @@ async fn a_purge_ends_its_sessions_legs_and_drops_its_stop_intent_name(#[case] d
             params![mint_uuid_v7().to_string(), run_id, PROVIDERS[0].id],
         )
         .expect("the test writes the binding");
-    fixture
-        .stop_intent
+    stop_intent
         .write_whole()
         .await
         .expect("the intent is written");
     let named = BTreeSet::from([session_id, other_session_id]);
-    fixture
-        .stop_intent
+    stop_intent
         .name_sessions(&StopIntent::Whole, named.clone())
         .await
         .expect("the intent names the sessions");
@@ -481,7 +473,7 @@ async fn a_purge_ends_its_sessions_legs_and_drops_its_stop_intent_name(#[case] d
         assert_eq!(*lock(&calls), [closed, DriverCall::PurgeSession]);
         assert_eq!(state_of(&reader, session_id), None);
         assert_eq!(
-            fixture.stop_intent.read().await,
+            stop_intent.read().await,
             Some(StopIntent::Sessions(BTreeSet::from([other_session_id]))),
             "only the purged session's name is dropped"
         );
@@ -502,7 +494,7 @@ async fn a_purge_ends_its_sessions_legs_and_drops_its_stop_intent_name(#[case] d
         );
         assert_eq!(event_count(&reader, session_id), 1);
         assert_eq!(
-            fixture.stop_intent.read().await,
+            stop_intent.read().await,
             Some(StopIntent::Sessions(named)),
             "a refused purge keeps every name"
         );

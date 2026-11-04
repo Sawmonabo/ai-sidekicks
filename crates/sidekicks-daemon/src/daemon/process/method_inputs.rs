@@ -823,7 +823,6 @@ pub(crate) async fn register_method_inputs(
         restart_settle,
         project_list_feed,
         clones: clones.ok(),
-
         worktree_setup,
         worktree_creator,
         machine_device_id,
