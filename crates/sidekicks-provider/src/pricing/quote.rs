@@ -158,13 +158,13 @@ pub(crate) fn split_figure(figure: UsdMicros, weights: &[u64]) -> Vec<UsdMicros>
     let mut shares = Vec::with_capacity(weights.len());
     let mut shared: u64 = 0;
     for weight in leading_weights {
-        let share = if total_weight == 0 {
-            0
-        } else {
-            // A figure below 2^53 times a weight below 2^64 fits `u128`.
-            let part = u128::from(whole) * u128::from(*weight) / total_weight;
-            u64::try_from(part).expect("a weighted part is at most the figure")
-        };
+        // A figure below 2^53 times a weight below 2^64 fits `u128`; all-zero weights share nothing
+        // before the last.
+        let share = (u128::from(whole) * u128::from(*weight))
+            .checked_div(total_weight)
+            .map_or(0, |part| {
+                u64::try_from(part).expect("a weighted part is at most the figure")
+            });
         shared += share;
         shares.push(usd_micros_within(share));
     }
