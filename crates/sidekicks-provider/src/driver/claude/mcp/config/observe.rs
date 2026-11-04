@@ -47,3 +47,106 @@ pub(super) fn observed_entry(entry: Option<&Value>) -> McpServerObservedEntry {
         None => McpServerObservedEntry::Absent,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use rstest::rstest;
+    use serde_json::{Value, json};
+    use sidekicks_contracts::mcp::server::config::McpServerConfigInput;
+    use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpWritableBindingRef};
+    use sidekicks_store::events::canonicalizer::canonicalize_json;
+    use tokio::time::{Duration, Instant};
+
+    use super::observe_claude_mcp_server;
+    use crate::driver::claude::mcp::config::ClaudePersonConfigFiles;
+    use crate::driver::claude::mcp::config::compose::compose_claude_mcp_entry;
+    use crate::driver::claude::mcp::config::edit::{
+        ClaudeEditTarget, ClaudeEntryEdit, edit_claude_mcp_entry,
+    };
+    use crate::driver::mcp_server::write::{McpServerObservedEntry, McpServerWriteOutcome};
+
+    // Compose's entry, written by the edit, is what the observe reads back, in Claude Code's own
+    // form, or every landed write would read as a changed entry. Killed by a member compose writes
+    // that the observe drops or renames, by `type` added on an added `stdio` entry, and by the
+    // program's members kept on a move to an address.
+    #[rstest]
+    #[case::stdio_add(
+        json!({}),
+        json!({"transport": "stdio", "command": "npx", "args": ["docs"], "env": {"TOKEN": "t"}}),
+        json!({"command": "npx", "args": ["docs"], "env": {"TOKEN": "t"}})
+    )]
+    #[case::program_to_address(
+        json!({"docs": {"command": "npx", "args": ["docs"], "alwaysAllow": ["x"]}}),
+        json!({
+            "transport": "http",
+            "url": "https://example.com/mcp",
+            "headers": {"Authorization": "Bearer t"},
+        }),
+        json!({
+            "type": "http",
+            "url": "https://example.com/mcp",
+            "headers": {"Authorization": "Bearer t"},
+            "alwaysAllow": ["x"],
+        })
+    )]
+    #[tokio::test]
+    async fn a_composed_entry_reads_back_as_written(
+        #[case] servers: Value,
+        #[case] config: Value,
+        #[case] composed_members: Value,
+    ) {
+        let home = tempfile::tempdir().unwrap();
+        let person = ClaudePersonConfigFiles {
+            person_config: home.path().join(".claude.json"),
+            user_settings: home.path().join(".claude").join("settings.json"),
+        };
+        fs::write(
+            &person.person_config,
+            json!({"numStartups": 3, "mcpServers": servers}).to_string(),
+        )
+        .unwrap();
+        let writable: McpWritableBindingRef = serde_json::from_value(json!({
+            "scope": "user", "provider": "claude", "serverName": "docs"
+        }))
+        .unwrap();
+        let binding = McpServerBindingRef::from(&writable);
+        let config: McpServerConfigInput = serde_json::from_value(config).unwrap();
+
+        let before = observe_claude_mcp_server(&person, home.path(), &binding)
+            .await
+            .unwrap()
+            .entry;
+        let composed = compose_claude_mcp_entry(&writable, &config, &before).unwrap();
+        let outcome = edit_claude_mcp_entry(
+            ClaudeEditTarget::PersonConfig {
+                path: person.person_config.clone(),
+                project_key: None,
+            },
+            binding.server_name(),
+            ClaudeEntryEdit::Set(composed.clone()),
+            &before,
+            Instant::now() + Duration::from_secs(10),
+        )
+        .await;
+        let observed = observe_claude_mcp_server(&person, home.path(), &binding)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            outcome,
+            McpServerWriteOutcome::Applied {
+                reload_failure: None
+            }
+        );
+        assert_eq!(Value::Object(composed.members().clone()), composed_members);
+        let McpServerObservedEntry::Present(observed_entry) = observed.entry else {
+            panic!("the written entry reads back as a declaration");
+        };
+        assert_eq!(
+            canonicalize_json(&Value::Object(composed.members().clone())).unwrap(),
+            canonicalize_json(&Value::Object(observed_entry.members().clone())).unwrap()
+        );
+    }
+}

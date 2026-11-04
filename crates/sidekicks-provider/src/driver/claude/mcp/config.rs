@@ -7,6 +7,7 @@
 //! once sent.
 
 mod compose;
+mod edit;
 mod entry;
 mod lock;
 mod observe;
