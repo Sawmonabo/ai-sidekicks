@@ -45,7 +45,7 @@ use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::params_and_results::RunOpeningItem;
 use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
 use sidekicks_provider::driver::run_control::{
-    ApplyInterventionParams, ApplyInterventionResponse, InterventionResultStatus,
+    ApplyInterventionParams, ApplyInterventionResponse, InterventionResultStatus, ResumeRunOutcome,
     SteerTurnEndedError, WithdrawQueuedMessageResult,
 };
 use sidekicks_provider::driver::session_control::ProviderSessionHandle;
@@ -242,7 +242,12 @@ fn recording_driver(calls: &Arc<DriverCalls>) -> MockProviderDriver {
     driver.expect_resume_run().returning(move |params| {
         let messages = params.messages.iter().map(|message| message.id).collect();
         lock(&resuming.resumes).push((params.run_id, messages));
-        async { Ok(()) }.boxed()
+        async {
+            Ok(ResumeRunOutcome {
+                is_hold_lost: false,
+            })
+        }
+        .boxed()
     });
     driver
 }

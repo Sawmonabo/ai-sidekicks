@@ -59,7 +59,7 @@ pub(crate) fn register_run_control(
     registry.register::<AgentRunResume, _>(move |request, _context: HandlerContext| {
         let pauses = Arc::clone(&pauses);
         let continued = Arc::clone(&continued);
-        async move { Ok(pauses.resume(&request, continued.as_ref()).await?) }.boxed()
+        async move { Ok(pauses.resume(&request, continued.as_ref()).await?.response) }.boxed()
     })?;
     let choices = Arc::clone(&services.choices);
     registry.register::<AgentRunRefusalChoiceResolve, _>(
