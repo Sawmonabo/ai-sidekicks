@@ -1,9 +1,10 @@
 //! What an `initialize` reply declares about the process: the models it offers, their effort
 //! levels and which run in auto mode, its output styles and the one it runs with, its fast mode,
-//! and the commands it lists. The reply is untrusted, so each member is read leniently and a row
-//! naming no value is skipped.
+//! the commands it lists, and the memory stores it keeps. The reply is untrusted, so each member is
+//! read leniently and a row naming no value is skipped.
 
 use std::collections::HashSet;
+use std::path::PathBuf;
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -28,6 +29,8 @@ struct InitializeReply {
     fast_mode_disabled_reason: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     commands: Option<LenientList<CommandRow>>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    memory_paths: Option<MemoryPathsRow>,
 }
 
 #[derive(Deserialize)]
@@ -73,6 +76,14 @@ impl ClaudeModelEffort {
 }
 
 #[derive(Deserialize)]
+struct MemoryPathsRow {
+    #[serde(default, deserialize_with = "read_lenient")]
+    auto: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    team: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct CommandRow {
     #[serde(default, deserialize_with = "read_lenient")]
     name: Option<String>,
@@ -94,7 +105,7 @@ pub(crate) struct ClaudeListedCommand {
     pub(crate) argument_hint: Option<String>,
 }
 
-lenient_object!(ModelRow, CommandRow);
+lenient_object!(ModelRow, MemoryPathsRow, CommandRow);
 
 fn read_reply(reply: Option<&RawValue>) -> InitializeReply {
     reply
@@ -102,7 +113,7 @@ fn read_reply(reply: Option<&RawValue>) -> InitializeReply {
         .unwrap_or_default()
 }
 
-/// What `reply` declares about the process's models, styles and fast mode.
+/// What `reply` declares about the process's models, styles, fast mode and memory stores.
 pub(crate) fn read_claude_initialize_declaration(
     reply: Option<&RawValue>,
 ) -> ClaudeInitializeDeclaration {
@@ -137,7 +148,19 @@ pub(crate) fn read_claude_initialize_declaration(
             .map(|styles| styles.0)
             .unwrap_or_default(),
         output_style: filter_non_empty(reply.output_style),
+        memory_stores: read_memory_stores(reply.memory_paths),
     }
+}
+
+// The auto-memory folder, then the team-memory folder, each kept only where it is an absolute path.
+fn read_memory_stores(memory_paths: Option<MemoryPathsRow>) -> Vec<PathBuf> {
+    memory_paths
+        .into_iter()
+        .flat_map(|paths| [paths.auto, paths.team])
+        .flatten()
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .collect()
 }
 
 /// The commands `reply` lists, in its order, a row naming no command skipped.
