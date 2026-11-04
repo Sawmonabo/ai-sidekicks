@@ -250,6 +250,7 @@ mod tests {
     use sidekicks_store::credential_store::SecretKeychain;
     use sidekicks_store::credential_store::seed_item::item_seed;
     use sidekicks_store::credential_store::service::KeychainService;
+    use sidekicks_store::credential_store::test_keychain::{CountingKeychain, test_keychain};
     use sidekicks_store::database::writer::test_file::TestDatabase;
     use tempfile::TempDir;
 
@@ -262,7 +263,6 @@ mod tests {
         McpIntentReceipt, McpMutationReceipts, McpReceiptKey, McpSavedCheck,
     };
     use crate::mutation::saved_answer::McpSavedAnswer;
-    use crate::test_keychain::{CountingKeychain, test_keychain};
 
     // The method every test's receipts were spent on.
     const METHOD: &str = "mcp.server.upsert";

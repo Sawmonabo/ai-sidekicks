@@ -20,7 +20,6 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::stream::feed::{CreditGate, Feed};
-use sidekicks_ipc::stream::latest_value::KeyedLatestValueFeed;
 use sidekicks_platforms::CredentialStore as PlatformCredentialStore;
 use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
 use sidekicks_provider::driver::contract::MockProviderDriver;
@@ -34,6 +33,7 @@ use sidekicks_provider::driver::mcp_server::write::{
 use sidekicks_provider::driver::test_registry::registry_of_first_provider;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::credential_store::service::KeychainService;
+use sidekicks_store::credential_store::test_keychain::{CountingKeychain, test_keychain};
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use tempfile::TempDir;
@@ -44,7 +44,6 @@ use crate::mutation::receipts::tests::{idempotency_key, receipts_over_a_database
 use crate::mutation::settle::tests::settled;
 use crate::status::notices::McpNoticeBoard;
 use crate::test_inventory::open_test_inventory;
-use crate::test_keychain::{CountingKeychain, test_keychain};
 
 /// The trigger that refuses every receipt's commit, so a write lands and its receipt stays
 /// `pending`.
@@ -223,13 +222,7 @@ impl Fixture {
         let keychain = Arc::new(CountingKeychain::new(keychain));
         let providers = Arc::new(registry_of_first_provider(Arc::new(driver)));
         let board = Arc::new(McpNoticeBoard::default());
-        let subscriber_board = Arc::clone(&board);
-        let notices = KeyedLatestValueFeed::open(move |outlet| {
-            let id = subscriber_board.attach(outlet);
-            ready(Ok(move || subscriber_board.detach(id)))
-        })
-        .await
-        .expect("the board's follow succeeds");
+        let notices = board.follow().await.expect("the board's follow succeeds");
         let inventory = open_test_inventory(
             Arc::clone(&providers),
             Arc::clone(&writer),

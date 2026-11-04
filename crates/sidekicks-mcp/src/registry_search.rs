@@ -8,11 +8,9 @@
 //! every one.
 
 use std::error::Error;
-use std::sync::Mutex;
 use std::time::Duration;
 
-use reqwest::redirect::Policy;
-use reqwest::{Client, StatusCode, Url};
+use reqwest::{StatusCode, Url};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -25,8 +23,7 @@ use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::record::JsonRecord;
 use sidekicks_contracts::wire::text::{NonEmptyText, is_within_length};
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::outbound_http::{CappedBodyError, outbound_client_builder, read_capped_body};
+use sidekicks_std::outbound_http::{CappedBodyError, KeptOutboundClient, read_capped_body};
 
 /// The public MCP Registry the daemon searches.
 pub const MCP_REGISTRY_ADDRESS: &str = "https://registry.modelcontextprotocol.io";
@@ -92,7 +89,7 @@ pub struct McpRegistryClient {
     /// The registry's address, with no path.
     address: String,
     /// The HTTP client, built on first use.
-    client: Mutex<Option<Client>>,
+    client: KeptOutboundClient,
 }
 
 impl McpRegistryClient {
@@ -101,7 +98,7 @@ impl McpRegistryClient {
     pub fn new(address: &str) -> Self {
         Self {
             address: address.to_owned(),
-            client: Mutex::new(None),
+            client: KeptOutboundClient::new(IDLE_CONNECTIONS_PER_HOST),
         }
     }
 
@@ -133,7 +130,9 @@ impl McpRegistryClient {
             }
         }
         let response = self
-            .client()?
+            .client
+            .client()
+            .map_err(|error| McpRegistrySearchError::Unavailable(Box::new(error)))?
             .get(target)
             .timeout(MCP_REGISTRY_SEARCH_TIMEOUT)
             .send()
@@ -163,20 +162,6 @@ impl McpRegistryClient {
                 .collect(),
             next_cursor: page.metadata.next_cursor.and_then(NonEmptyText::new),
         })
-    }
-
-    // The kept client, built when none is.
-    fn client(&self) -> Result<Client, McpRegistrySearchError> {
-        let mut kept = lock(&self.client);
-        if let Some(client) = kept.as_ref() {
-            return Ok(client.clone());
-        }
-        let client = outbound_client_builder(IDLE_CONNECTIONS_PER_HOST)
-            .redirect(Policy::none())
-            .build()
-            .map_err(|error| McpRegistrySearchError::Unavailable(Box::new(error.without_url())))?;
-        *kept = Some(client.clone());
-        Ok(client)
     }
 }
 

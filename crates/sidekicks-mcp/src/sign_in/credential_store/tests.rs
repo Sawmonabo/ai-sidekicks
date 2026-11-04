@@ -4,10 +4,10 @@ use rmcp::transport::auth::{AuthError, CredentialStore as _, StoredCredentials};
 use rstest::rstest;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_store::credential_store::service::KeychainService;
+use sidekicks_store::credential_store::test_keychain::{CountingKeychain, test_keychain};
 
 use super::SignInCustody;
 use crate::sign_in::canonical_server_address;
-use crate::test_keychain::{CountingKeychain, test_keychain};
 
 fn server_address() -> McpServerAddress {
     McpServerAddress::new("https://docs.example.com/mcp").expect("a server address")

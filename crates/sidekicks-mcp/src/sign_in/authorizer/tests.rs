@@ -25,6 +25,7 @@ use serde_json::{Value, json};
 use sidekicks_contracts::dpop::DPOP_PROOF_HEADER_NAME;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_store::credential_store::service::KeychainService;
+use sidekicks_store::credential_store::test_keychain::test_keychain;
 use tempfile::TempDir;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
@@ -35,7 +36,6 @@ use crate::oauth::dpop_proof::DpopKey;
 use crate::sign_in::canonical_server_address;
 use crate::sign_in::credential_store::{DpopKeyScalar, SignInCustody};
 use crate::sign_in::oauth_http_client::OAuthHttpPools;
-use crate::test_keychain::test_keychain;
 
 /// How the fake token endpoint answers a renewal.
 #[derive(Clone, Copy)]

@@ -8,8 +8,7 @@ use std::mem;
 
 use sidekicks_contracts::mcp::server::inventory::McpServerLegStatus;
 use sidekicks_contracts::mcp::server::{
-    MCP_SERVER_STATUS_SEVERITY_ORDER, McpServerBindingRef, McpServerName, McpServerStatus,
-    McpToolName,
+    McpServerBindingRef, McpServerName, McpServerStatus, McpToolName,
 };
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
@@ -575,7 +574,7 @@ fn fold(legs: &HashMap<LegId, Leg>, key: &McpBindingKey, binding_status: &Bindin
     let mut deciding: Option<(usize, McpServerStatus, &LegServer)> = None;
     let mut newest: Option<&WireInstant> = None;
     for (_, server, status) in live_servers(legs, key, binding_status) {
-        let rank = severity_rank(status);
+        let rank = status.severity_rank();
         // The stored instant is fixed-width UTC text, so its text order is its time order.
         let is_newer = |held: &WireInstant| server.observed_at.as_str() > held.as_str();
         if newest.is_none_or(is_newer) {
@@ -606,12 +605,4 @@ fn fold(legs: &HashMap<LegId, Leg>, key: &McpBindingKey, binding_status: &Bindin
             observed_at: None,
         },
     }
-}
-
-/// `status`'s place in the severity order, `0` the most severe.
-fn severity_rank(status: McpServerStatus) -> usize {
-    MCP_SERVER_STATUS_SEVERITY_ORDER
-        .iter()
-        .position(|ranked| *ranked == status)
-        .expect("the severity order lists every status")
 }

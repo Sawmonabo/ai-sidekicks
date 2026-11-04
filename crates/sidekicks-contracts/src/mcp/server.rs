@@ -43,6 +43,24 @@ pub enum McpServerStatus {
     Connected,
 }
 
+impl McpServerStatus {
+    /// This status's place in [`MCP_SERVER_STATUS_SEVERITY_ORDER`], `0` the most severe, which
+    /// a fold of several readings compares.
+    pub fn severity_rank(self) -> usize {
+        MCP_SERVER_STATUS_SEVERITY_ORDER
+            .iter()
+            .position(|ranked| *ranked == self)
+            .expect("the severity order lists every status")
+    }
+
+    /// The most severe of `statuses`; `None` when there are none.
+    pub fn most_severe(statuses: impl IntoIterator<Item = Self>) -> Option<Self> {
+        statuses
+            .into_iter()
+            .min_by_key(|status| status.severity_rank())
+    }
+}
+
 ts_constants! {
     /// The five statuses, most severe first: the daemon's order for folding a server's sessions
     /// into one status, so lost observability (`unknown`) outranks a known-healthy state. A client

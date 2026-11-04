@@ -26,6 +26,7 @@ use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::test_registry::registry_of_first_providers;
 use sidekicks_store::credential_store::SecretKeychain;
 use sidekicks_store::credential_store::service::KeychainService;
+use sidekicks_store::credential_store::test_keychain::test_keychain;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::events::log_service::test_fixture::open_log;
@@ -44,7 +45,6 @@ use crate::sign_in::registration::RELAY_ADDRESS;
 use crate::sign_in::service::{
     AddressedServer, ProviderAccounts, SignInServer, SignInService, SignInTarget,
 };
-use crate::test_keychain::test_keychain;
 
 /// A service over a test database, event log and keychain, with the folders and database it
 /// needs kept alive beside it.

@@ -23,11 +23,10 @@ use sidekicks_ipc::registry::{
 };
 use sidekicks_ipc::stream::feed::{ChangeRecord, Feed, RecordPage, RecordPageRead, SendGate};
 use sidekicks_ipc::stream::frame_batcher::{ChangeFeed, FrameChanges};
-use sidekicks_ipc::stream::latest_value::KeyedLatestValueFeed;
 use sidekicks_mcp::inventory_service::McpInventoryService;
 use sidekicks_mcp::mutation::service::McpMutationService;
 use sidekicks_mcp::registry_search::{MCP_REGISTRY_ADDRESS, McpRegistryClient};
-use sidekicks_mcp::status::notices::{McpNoticeBoard, McpNoticeKey};
+use sidekicks_mcp::status::notices::{McpNoticeBoard, McpNoticeFeed};
 use sidekicks_store::database::connection::read_pool::DatabaseReadError;
 use sidekicks_store::events::log_service::{
     EventLogFollowError, EventLogReadError, EventLogService, FollowStart,
@@ -98,9 +97,6 @@ pub(crate) fn register_mcp_methods(
     )
 }
 
-/// The detach a subscriber's place in the board runs when its feed drops.
-type BoardDetach = Box<dyn FnOnce() + Send>;
-
 /// Opens one subscriber's stream: its place in `board` first, then the log followed from its
 /// head (the start of the log while the sentinel session holds no event). Fails as the log's
 /// first read fails, leaving nothing attached.
@@ -108,12 +104,7 @@ async fn open_mcp_subscribe_feed(
     log: Arc<EventLogService>,
     board: Arc<McpNoticeBoard>,
 ) -> Result<McpSubscribeFeed, HandlerError> {
-    let notices = KeyedLatestValueFeed::open(|outlet| {
-        let id = board.attach(outlet);
-        let detach: BoardDetach = Box::new(move || board.detach(id));
-        async move { Ok(detach) }
-    })
-    .await?;
+    let notices = board.follow().await?;
     let cursor = match log
         .read_follow_start(*DAEMON_SCOPE_SENTINEL_SESSION_ID, FollowStart::Newest)
         .await
@@ -228,7 +219,7 @@ impl ChangeRecord for McpGovernanceRecord {
 struct McpSubscribeFeed {
     events: ChangeFeed<McpGovernanceRecord, FrameChanges<McpGovernanceChange>>,
     unsent_events: VecDeque<McpGovernanceEvent>,
-    notices: KeyedLatestValueFeed<McpNoticeKey, McpSubscribeEmission, BoardDetach>,
+    notices: McpNoticeFeed,
 }
 
 impl Feed for McpSubscribeFeed {

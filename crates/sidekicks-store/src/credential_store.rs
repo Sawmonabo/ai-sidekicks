@@ -15,6 +15,8 @@ pub mod place;
 pub(crate) mod seal;
 pub mod seed_item;
 pub mod service;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_keychain;
 
 use std::borrow::Cow;
 use std::error::Error;

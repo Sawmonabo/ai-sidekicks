@@ -305,13 +305,7 @@ pub async fn open_test_tracker() -> (
     use sidekicks_ipc::stream::latest_value::KeyedLatestValueFeed;
 
     let board = Arc::new(McpNoticeBoard::default());
-    let subscriber_board = Arc::clone(&board);
-    let subscriber = KeyedLatestValueFeed::open(move |outlet| {
-        let id = subscriber_board.attach(outlet);
-        std::future::ready(Ok(move || subscriber_board.detach(id)))
-    })
-    .await
-    .expect("the board's follow succeeds");
+    let subscriber = board.follow().await.expect("the board's follow succeeds");
     let mut first_observations = None;
     let first_observation_feed = KeyedLatestValueFeed::open(|outlet| {
         first_observations = Some(outlet);

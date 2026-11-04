@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use futures::future::join_all;
 use sidekicks_contracts::error::ERROR_MESSAGE_MAX_LEN;
-use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::mcp::server::inventory::{
     McpAnsweredInventoryEntry, McpOverrideOrigin, McpServerIdempotencyClass,
     McpServerInventoryEntry, McpStoreUnavailableInventoryEntry, McpToolOverride, McpToolReading,
@@ -38,6 +37,7 @@ use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_workspace::project::records::{ProjectReadError, ProjectRecords};
 
+use crate::binding::binding_arm;
 use crate::binding::resolver::{
     McpAccountsAsked, McpAttributionTable, McpBindingRow, attached_root_path, resolve_binding_rows,
 };
@@ -47,75 +47,6 @@ use crate::status::McpServerStatusTracker;
 use crate::status::machine_probe::{
     McpMachineProbeGate, McpMachineProbeTurn, wait_for_machine_probe,
 };
-
-/// Builds the arm of the inventory entry `$entry` for `$binding`, the binding's identity moved into
-/// the arm beside the named locals.
-macro_rules! entry_for_binding {
-    ($entry:ident, $binding:expr, { $($member:ident),* $(,)? }) => {
-        match $binding {
-            McpServerBindingRef::User {
-                provider,
-                server_name,
-            } => $entry::User {
-                provider,
-                server_name,
-                $($member,)*
-            },
-            McpServerBindingRef::Project {
-                provider,
-                scope_ref,
-                place,
-                server_name,
-            } => $entry::Project {
-                provider,
-                scope_ref,
-                place,
-                server_name,
-                $($member,)*
-            },
-            McpServerBindingRef::Local {
-                provider,
-                scope_ref,
-                place,
-                server_name,
-            } => $entry::Local {
-                provider,
-                scope_ref,
-                place,
-                server_name,
-                $($member,)*
-            },
-            McpServerBindingRef::Plugin {
-                provider,
-                scope_ref,
-                server_name,
-            } => $entry::Plugin {
-                provider,
-                scope_ref,
-                server_name,
-                $($member,)*
-            },
-            McpServerBindingRef::Connector {
-                provider,
-                scope_ref,
-                server_name,
-            } => $entry::Connector {
-                provider,
-                scope_ref,
-                server_name,
-                $($member,)*
-            },
-            McpServerBindingRef::Managed {
-                provider,
-                server_name,
-            } => $entry::Managed {
-                provider,
-                server_name,
-                $($member,)*
-            },
-        }
-    };
-}
 
 /// What the inventory reads: the providers' drivers, the database the accounts are read from, the
 /// attached projects, the binding store, the bindings' statuses, the attribution table each read
@@ -531,6 +462,7 @@ impl McpInventoryService {
     // One row's inventory entry: the declaration and the status, and what the store keeps where
     // it answered.
     fn entry(&self, key: &McpBindingKey, row: McpBindingRow) -> McpServerInventoryEntry {
+        let enabled = row.own_switch();
         let McpBindingRow {
             declaration,
             stored,
@@ -546,10 +478,8 @@ impl McpInventoryService {
             .and_then(|text| failure_reason_text(&text));
         let superseded_in = unique_places(declaration.superseded_in);
         let organization_managed = declaration.organization_managed;
-        let provider_enabled = config_enabled(&config);
         let Some(stored) = stored else {
             let binding_store_unavailable = True::default();
-            let enabled = (!declaration.is_switch_kept_by_daemon).then_some(provider_enabled);
             // Where the per-project switch lives in the store, the driver's roots alone would read
             // as switched off nowhere else, so the member is absent.
             let disabled_in = if PROJECT_SWITCH_SCOPES.contains(&key.scope) {
@@ -557,7 +487,7 @@ impl McpInventoryService {
             } else {
                 unique_places(declaration.disabled_in)
             };
-            return McpServerInventoryEntry::StoreUnavailable(entry_for_binding!(
+            return McpServerInventoryEntry::StoreUnavailable(binding_arm!(
                 McpStoreUnavailableInventoryEntry,
                 declaration.binding,
                 {
@@ -575,11 +505,7 @@ impl McpInventoryService {
                 }
             ));
         };
-        let enabled = if declaration.is_switch_kept_by_daemon {
-            stored.enabled_override.unwrap_or(provider_enabled)
-        } else {
-            provider_enabled
-        };
+        let enabled = enabled.expect("a row the store answered has its own switch");
         let disabled_in = unique_places(
             declaration
                 .disabled_in
@@ -598,7 +524,7 @@ impl McpInventoryService {
             &stored.tool_overrides,
         );
         let binding_store_unavailable = None;
-        McpServerInventoryEntry::Answered(entry_for_binding!(
+        McpServerInventoryEntry::Answered(binding_arm!(
             McpAnsweredInventoryEntry,
             declaration.binding,
             {
@@ -659,17 +585,6 @@ pub(crate) fn failure_reason_text(text: &str) -> Option<FreeFormText<ERROR_MESSA
         FreeFormText::new(reason)
             .expect("a sanitized, NUL-free, non-blank reason within its cap is free text")
     })
-}
-
-/// Whether a declaration's own config leaves its server on: its `enabled` member, on where it
-/// sets none, as every provider reads an entry without one.
-fn config_enabled(config: &McpServerConfigView) -> bool {
-    match config {
-        McpServerConfigView::Stdio { enabled, .. }
-        | McpServerConfigView::Http { enabled, .. }
-        | McpServerConfigView::Sse { enabled, .. } => enabled.unwrap_or(true),
-        McpServerConfigView::Ws { .. } => true,
-    }
 }
 
 /// `places` without repeats, in their first order; absent where none is left.

@@ -18,9 +18,7 @@ use sidekicks_contracts::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, S
 use sidekicks_contracts::mcp::event::McpSubscribeEmission;
 use sidekicks_contracts::mcp::governance::McpServerStatusChangedNotice;
 use sidekicks_contracts::mcp::server::inventory::McpServerLegStatus;
-use sidekicks_contracts::mcp::server::{
-    MCP_SERVER_STATUS_SEVERITY_ORDER, McpServerName, McpServerStatus,
-};
+use sidekicks_contracts::mcp::server::{McpServerName, McpServerStatus};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{
     McpResourceList, McpResourceListRequest, McpResourceListResponse, SessionAddressedRequest,
@@ -33,11 +31,10 @@ use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
 use sidekicks_ipc::stream::feed::{Feed, SendGate};
-use sidekicks_ipc::stream::latest_value::KeyedLatestValueFeed;
 use sidekicks_mcp::client::McpClient;
 use sidekicks_mcp::client::resources::{McpServerCopyStart, McpServerResources};
 use sidekicks_mcp::status::McpServerStatusTracker;
-use sidekicks_mcp::status::notices::McpNoticeKey;
+use sidekicks_mcp::status::notices::McpNoticeFeed;
 use sidekicks_platforms::Spawner;
 use sidekicks_provider::driver::mcp_server::resources::McpResourceSource;
 use sidekicks_provider::driver::mcp_server::session_switch::McpSessionSwitch;
@@ -217,16 +214,13 @@ impl SessionMcpSwitches {
     }
 }
 
-/// The detach a feed's place on the status board runs when the feed drops.
-type BoardDetach = Box<dyn FnOnce() + Send>;
-
 /// One open `session.mcpServer.subscribe`: the session's list, sent first and again after each
 /// status notice of one of the session's legs and each switch of the session.
 struct SessionMcpServerFeed {
     session_id: SessionId,
     methods: Arc<McpServerMethods>,
     switches: Arc<SessionMcpSwitches>,
-    notices: KeyedLatestValueFeed<McpNoticeKey, McpSubscribeEmission, BoardDetach>,
+    notices: McpNoticeFeed,
     /// `None` only once the feed dropped.
     switched: Option<watch::Receiver<()>>,
     /// Whether a list is owed: at the start and after each change.
@@ -320,13 +314,7 @@ async fn follow_session_servers(
     session_id: SessionId,
 ) -> Result<SessionMcpServerFeed, HandlerError> {
     methods.sources.resolve_driver(session_id).await?;
-    let board = Arc::clone(methods.statuses.notice_board());
-    let notices = KeyedLatestValueFeed::open(|outlet| {
-        let id = board.attach(outlet);
-        let detach: BoardDetach = Box::new(move || board.detach(id));
-        async move { Ok(detach) }
-    })
-    .await?;
+    let notices = methods.statuses.notice_board().follow().await?;
     let switched = Some(switches.follow(session_id));
     Ok(SessionMcpServerFeed {
         session_id,
@@ -379,9 +367,7 @@ async fn compose_session_servers(
                 .filter(|(name, _)| name == server_name)
                 .map(|(_, leg)| leg)
                 .collect();
-            let status = MCP_SERVER_STATUS_SEVERITY_ORDER
-                .into_iter()
-                .find(|ranked| legs.iter().any(|leg| leg.status == *ranked))
+            let status = McpServerStatus::most_severe(legs.iter().map(|leg| leg.status))
                 .unwrap_or(McpServerStatus::Unknown);
             // A leg reports a server only while the server runs on it.
             let is_running = !legs.is_empty();

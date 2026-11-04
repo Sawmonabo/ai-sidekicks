@@ -454,6 +454,7 @@ pub(super) mod tests {
     };
     use sidekicks_std::keyed_lock::KeyedLock;
     use sidekicks_store::credential_store::service::KeychainService;
+    use sidekicks_store::credential_store::test_keychain::{CountingKeychain, test_keychain};
     use sidekicks_store::database::writer::test_file::TestDatabase;
     use tempfile::TempDir;
 
@@ -471,7 +472,6 @@ pub(super) mod tests {
     };
     use crate::mutation::reconciler::McpIntentSettlement;
     use crate::mutation::saved_answer::McpSavedAnswer;
-    use crate::test_keychain::{CountingKeychain, test_keychain};
 
     // The operation every test's receipt was spent on.
     const OPERATION: &str = "mcp.server.enabled.update";
