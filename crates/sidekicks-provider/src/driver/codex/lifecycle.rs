@@ -130,7 +130,7 @@ pub(crate) struct CodexDriver {
     run_routes: Arc<CodexRunRoutes>,
     config_forks: Arc<CodexConfigForks>,
     provider_commands: Arc<CodexProviderCommandCache>,
-    project_rules: Arc<CodexProjectRuleFiles>,
+    pub(super) project_rules: Arc<CodexProjectRuleFiles>,
     pub(super) views: Arc<CodexSessionViews>,
     compaction_limits: Arc<CodexCompactionLimits>,
     model_windows: Arc<CodexModelWindowCache>,

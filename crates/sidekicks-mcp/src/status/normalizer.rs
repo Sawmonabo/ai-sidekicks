@@ -1,7 +1,8 @@
 //! The daemon's status producer of one session leg: each server name a driver reports is
-//! attributed, through the attribution table, to the binding a session at the session's project
-//! root serves it from, or a session in no root from the provider's root-free bindings, then
-//! applied to the leg's status; a report whose name resolves to none is held, the newest per name,
+//! attributed to the binding the session's own set of tool servers sent under that name, else,
+//! through the attribution table, to the binding a session at the session's project root serves
+//! it from, or a session in no root from the provider's root-free bindings, then applied to the
+//! leg's status; a report whose name resolves to none is held, the newest per name,
 //! and applied when a replacement of the table resolves it; the leg's end retires that leg alone.
 //! Beside it, the daemon's own MCP sign-in state, which reads a server whose sign-in the daemon
 //! holds and lacks as `needsAuth`.
@@ -19,17 +20,20 @@ use sidekicks_contracts::wire::text::TextError;
 use sidekicks_provider::driver::mcp_server::status::{
     McpServerReading, McpServerStatusEmission, McpServerStatusProducer, McpServerStatusSink,
 };
+use sidekicks_provider::driver::session_control::SessionToolServer;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_workspace::project::records::AttachedProjectRoot;
 
 use super::{McpLegStatusSink, McpServerStatusTracker};
 use crate::binding::resolver::{McpAttributionTable, McpUnresolvedReports, attached_root_path};
 
-/// Where a session's reported server names are attributed: the attribution table, the provider
-/// the session runs on and its project's root, none for a session in no project with an attached
-/// folder. Composed once per session and shared by the producers of its legs.
+/// Where a session's reported server names are attributed: the binding of each name the session's
+/// own tool servers sent, then the attribution table, read for the provider the session runs on
+/// and its project's root, none for a session in no project with an attached folder. Composed
+/// once per composed set of legs and shared by their producers.
 #[derive(Clone)]
 pub struct McpSessionAttribution {
+    sent: Arc<HashMap<McpServerName, McpServerBindingRef>>,
     table: Arc<McpAttributionTable>,
     provider: ProviderId,
     root: Option<PlacedPath>,
@@ -37,14 +41,22 @@ pub struct McpSessionAttribution {
 
 impl McpSessionAttribution {
     /// The attribution of a session of `provider` in the project whose folder is `root`, or in
-    /// no root where it is `None`, as a chat is. Fails with the path's [`TextError`] when the
-    /// stored root is no path the wire can carry.
+    /// no root where it is `None`, as a chat is, that sent `tool_servers`: a name sent twice keeps
+    /// its first binding, and a switched-off server counts, since a live switch can turn it on.
+    /// Fails with the path's [`TextError`] when the stored root is no path the wire can carry.
     pub fn new(
         table: Arc<McpAttributionTable>,
         provider: ProviderId,
         root: Option<&AttachedProjectRoot>,
+        tool_servers: &[SessionToolServer],
     ) -> Result<Self, TextError> {
+        let mut sent = HashMap::with_capacity(tool_servers.len());
+        for tool_server in tool_servers {
+            sent.entry(tool_server.binding.server_name().clone())
+                .or_insert_with(|| tool_server.binding.clone());
+        }
         Ok(Self {
+            sent: Arc::new(sent),
             table,
             provider,
             root: root.map(attached_root_path).transpose()?,
@@ -97,14 +109,18 @@ impl McpLegStatusProducer {
         }
     }
 
-    // The binding `server_name` resolves to at the session's root.
+    // The binding `server_name` resolves to: the one the session sent under that name, else the
+    // table's at the session's root.
     fn resolve(&self, server_name: &McpServerName) -> Option<McpServerBindingRef> {
         let McpSessionAttribution {
+            sent,
             table,
             provider,
             root,
         } = &self.attribution;
-        table.resolve(provider, root.as_ref(), server_name)
+        sent.get(server_name)
+            .cloned()
+            .or_else(|| table.resolve(provider, root.as_ref(), server_name))
     }
 
     // Applies each held report whose name resolves now, keeps the rest, and has the table hand
@@ -141,10 +157,10 @@ impl McpUnresolvedReports for McpLegStatusProducer {
 }
 
 impl McpServerStatusSink for McpLegStatusProducer {
-    /// Applies the reading to the binding its name resolves to at the session's root, or among the
-    /// provider's root-free bindings for a session in no root; a name that resolves to none is
-    /// held, its newest report replacing an older one, until a replacement of the table resolves
-    /// it.
+    /// Applies the reading to the binding the session sent under its name, else the one its name
+    /// resolves to at the session's root, or among the provider's root-free bindings for a session
+    /// in no root; a name that resolves to none is held, its newest report replacing an older one,
+    /// until a replacement of the table resolves it.
     fn report_status(&self, emission: McpServerStatusEmission) {
         let server_name = emission.server_name().clone();
         if let Some(binding) = self.resolve(&server_name) {
@@ -226,6 +242,7 @@ mod tests {
     use sidekicks_provider::driver::mcp_server::status::{
         McpServerReading, McpServerStatusEmission,
     };
+    use sidekicks_provider::driver::session_control::SessionToolServer;
     use sidekicks_workspace::project::records::AttachedProjectRoot;
 
     use super::{McpSessionAttribution, open_mcp_leg_status_producer};
@@ -281,11 +298,14 @@ mod tests {
     fn attribution() -> McpSessionAttribution {
         let table = Arc::new(McpAttributionTable::default());
         load_at_root(&table, &["docs"]);
-        attribution_on(table)
+        attribution_on(table, &[])
     }
 
-    // A session at `ROOT` attributed through `table`.
-    fn attribution_on(table: Arc<McpAttributionTable>) -> McpSessionAttribution {
+    // A session at `ROOT` attributed through `table`, that sent `tool_servers`.
+    fn attribution_on(
+        table: Arc<McpAttributionTable>,
+        tool_servers: &[SessionToolServer],
+    ) -> McpSessionAttribution {
         McpSessionAttribution::new(
             table,
             provider(),
@@ -295,6 +315,7 @@ mod tests {
                 canonical_root: ROOT.into(),
                 place: None,
             }),
+            tool_servers,
         )
         .expect("the root is a path")
     }
@@ -345,7 +366,7 @@ mod tests {
         let table = Arc::new(McpAttributionTable::default());
         let producer = open_mcp_leg_status_producer(
             &tracker,
-            attribution_on(Arc::clone(&table)),
+            attribution_on(Arc::clone(&table), &[]),
             session_id,
             leg.clone(),
         );
@@ -373,5 +394,70 @@ mod tests {
         assert_eq!(legs, [&leg]);
         assert_eq!(reading.status, Connected);
         drop(producer);
+    }
+
+    // Two sessions at one root send `github` in different scopes, the table loading it at the root
+    // as the project's: each session's reports land on the binding it sent, and still do after a
+    // third session at that root sends `github` in a third scope. Killed by the table read before
+    // the session's set (the user session's leg lands on the project's binding) and by a sent set
+    // kept per provider and root (one session's reports land on the other's, or the third's,
+    // binding).
+    #[tokio::test]
+    async fn two_sessions_at_one_root_keep_their_own_sent_sets() {
+        let (tracker, _subscriber, _first_observations) = open_test_tracker().await;
+        let table = Arc::new(McpAttributionTable::default());
+        load_at_root(&table, &["github"]);
+        let user_github = McpServerBindingRef::User {
+            provider: provider(),
+            server_name: server_name("github"),
+        };
+        let project_github = binding("github");
+        let local_github = McpServerBindingRef::Local {
+            provider: provider(),
+            scope_ref: FilesystemPath::new(ROOT.to_owned()).expect("a path"),
+            place: None,
+            server_name: server_name("github"),
+        };
+        let sending = |binding: &McpServerBindingRef| {
+            [SessionToolServer {
+                binding: binding.clone(),
+                is_enabled: true,
+            }]
+        };
+        let [leg_a, leg_b] = ["leg-a", "leg-b"]
+            .map(|name| RuntimeBindingId::new(name.to_owned()).expect("a binding id"));
+        let open = |sent: &McpServerBindingRef, leg: &RuntimeBindingId| {
+            open_mcp_leg_status_producer(
+                &tracker,
+                attribution_on(Arc::clone(&table), &sending(sent)),
+                SessionId::try_from(mint_uuid_v7()).expect("a session id"),
+                leg.clone(),
+            )
+        };
+        let producer_a = open(&user_github, &leg_a);
+        let producer_b = open(&project_github, &leg_b);
+        let legs_of = |binding: &McpServerBindingRef| {
+            let reading = tracker.reading(&McpBindingKey::of(binding));
+            let legs: Vec<_> = reading.legs.into_iter().map(|leg| leg.binding_id).collect();
+            (legs, reading.status)
+        };
+
+        producer_a.report_status(report("github", Connected));
+        producer_b.report_status(report("github", Connected));
+
+        assert_eq!(legs_of(&user_github), (vec![leg_a.clone()], Connected));
+        assert_eq!(legs_of(&project_github), (vec![leg_b.clone()], Connected));
+
+        let _third = attribution_on(Arc::clone(&table), &sending(&local_github));
+        producer_a.report_status(report("github", Failed));
+        producer_b.report_status(report("github", Failed));
+
+        assert_eq!(legs_of(&user_github), (vec![leg_a], Failed));
+        assert_eq!(legs_of(&project_github), (vec![leg_b], Failed));
+        assert!(
+            legs_of(&local_github).0.is_empty(),
+            "the third's binding has no leg"
+        );
+        drop((producer_a, producer_b));
     }
 }

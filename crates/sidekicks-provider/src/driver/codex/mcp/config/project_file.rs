@@ -2,10 +2,6 @@
 //! in place: every comment and every byte outside that table stays as the person wrote it, and the
 //! edit lands only while the file still holds what was read, so another program's write between
 //! the read and the rename is never lost.
-#![cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the Codex driver's write of a project server")
-)]
 
 use std::fs;
 use std::io;

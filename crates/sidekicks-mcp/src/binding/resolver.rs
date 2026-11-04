@@ -161,8 +161,8 @@ const ROOT_FREE_SCOPES: [McpBindingScope; 4] = [
 ];
 
 /// Which binding each server name a session reports resolves to, per provider and project root:
-/// the set the daemon sent there, then what the provider loads there by its own config; and for
-/// a session in no root, the provider's root-free bindings. It sits behind a lock taken only for
+/// what the provider loads there by its own config, and for a session in no root, the provider's
+/// root-free bindings; a session's own set of tool servers is read by its status producer first. It sits behind a lock taken only for
 /// a lookup or a replacement, never across an await, so a status producer reads it without
 /// waiting. Each read that replaces it is stamped before its driver read, so an older read that
 /// finishes later replaces nothing but, where it asked the accounts and no later read that asked
@@ -198,8 +198,6 @@ impl fmt::Debug for McpWaitingLegs {
 /// The table's bindings, per provider, root and server name.
 #[derive(Debug, Default)]
 struct McpAttributionRoots {
-    /// The set the daemon sent each root's sessions; nothing sends one yet.
-    sent: HashMap<ProviderId, HashMap<PlacedPath, HashMap<McpServerName, McpServerBindingRef>>>,
     /// What the provider loads at each root by its own config, as its last inventory read said.
     provider_loaded:
         HashMap<ProviderId, HashMap<PlacedPath, HashMap<McpServerName, McpServerBindingRef>>>,
@@ -314,10 +312,10 @@ impl McpAttributionTable {
         }
     }
 
-    /// The binding `server_name` resolves to in a session of `provider` at `root`: the daemon's
-    /// sent set first, then what the provider loads there; in a session with no root, the
-    /// provider's root-free binding of that name. `None` for a name none of them holds, which
-    /// never falls back to another root's or scope's binding.
+    /// The binding `server_name` resolves to in a session of `provider` at `root`: what the
+    /// provider loads there; in a session with no root, the provider's root-free binding of that
+    /// name. `None` for a name neither holds, which never falls back to another root's or scope's
+    /// binding; the session's own set is read by its status producer before this.
     pub fn resolve(
         &self,
         provider: &ProviderId,
@@ -326,9 +324,11 @@ impl McpAttributionTable {
     ) -> Option<McpServerBindingRef> {
         let roots = lock(&self.roots);
         match root {
-            Some(root) => [&roots.sent, &roots.provider_loaded]
-                .into_iter()
-                .find_map(|bindings| bindings.get(provider)?.get(root)?.get(server_name)),
+            Some(root) => roots
+                .provider_loaded
+                .get(provider)?
+                .get(root)?
+                .get(server_name),
             None => roots.root_free.get(provider)?.get(server_name),
         }
         .cloned()

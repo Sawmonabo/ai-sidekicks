@@ -433,7 +433,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<requests::McpServerListResponse>().checked(),
         Definition::read::<requests::McpServerReadResponse>().checked(),
         Definition::read::<requests::McpRegistrySearchRequest>().checked(),
-        Definition::read::<requests::McpRegistryEnvironmentVariable>(),
+        Definition::read::<requests::McpRegistryInput>(),
         Definition::read::<requests::McpRegistryPackage>(),
         Definition::read::<requests::McpRegistryRemote>(),
         Definition::read::<requests::McpRegistryServer>(),
