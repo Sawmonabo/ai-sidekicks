@@ -29,7 +29,8 @@ enum Case {
     Stop,
     // `daemon.stop` with a folder where the intent's file goes.
     UnsavedIntent,
-    // The erase's step that ends the work, held at the scheduler's step.
+    // The erase's step that ends the work, held at the scheduler's step, then the erase's close
+    // and the stop that follows it.
     EraseStep,
     // A failed start's release, held at the scheduler's step, then the start's own record.
     FailedStart,
@@ -115,10 +116,11 @@ fn another_version() -> DaemonStartError {
 // Only the person's Stop records its steps: at the scheduler's step the file names that step,
 // this process and when the stop began, and the stop's return removes it, unless the intent could
 // not be saved, which leaves `cannotStop`. The erase's step and a failed start's release write
-// nothing, and the start's own record stands after the release. Killed by the record not written
-// or written after the step's wait (the file names an earlier step), by the record left behind, by
-// the failed stop's record removed, by the record begun in `stop_work`, so the erase writes it,
-// and by the release handed the record.
+// nothing, nor does the stop after the erase let the lock go, and the start's own record stands
+// after the release. Killed by the record not written or written after the step's wait (the file
+// names an earlier step), by the record left behind, by the failed stop's record removed, by the
+// record begun in `stop_work` or begun past the lock's release, so the erase writes it, and by the
+// release handed the record.
 #[rstest]
 #[case::stop(Case::Stop)]
 #[case::unsaved_intent(Case::UnsavedIntent)]
@@ -210,9 +212,21 @@ async fn only_the_stop_records_its_steps_and_it_ends_with_one_fact(#[case] case:
                 hold.read_at_hold(&home)
             );
             drop(close_data_folder(&mut process).await);
+            let after_close = read_status(&home);
+            // What a start that took the freed lock would leave; the stop that follows, whose git
+            // trees' step is still there to run, must not replace or remove it.
+            record_start_failure(&home.run_folder, &another_version());
+            drop(process.stop(DaemonStopReason::Erase).await);
 
             assert_eq!(at_hold, None, "the erase's step writes no record");
-            assert_eq!(read_status(&home), None);
+            assert_eq!(after_close, None);
+            assert_eq!(
+                read_status(&home),
+                Some(ServiceStatusFile::CannotStart(
+                    DaemonCannotStart::SavedSessionsFromAnotherVersion {}
+                )),
+                "the stop after the erase writes nothing"
+            );
         }
         Case::FailedStart => {
             let hold = SchedulerHold::start(&scheduler).await;

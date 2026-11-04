@@ -769,16 +769,16 @@ impl DaemonProcess {
         mut self,
         reason: DaemonStopReason,
     ) -> Result<(), SettleFailures<DaemonStopFailure>> {
-        self.stop_record.begin();
+        // An erase's step let the lock go already, so this stop records nothing after it.
+        if self.data_folder_lock.is_some() {
+            self.stop_record.begin();
+        }
         let mut failures = stop_work(&mut self, reason, DAEMON_STOP_DRAIN_BOUND).await;
         failures.extend(close_data_folder_contents(&mut self).await);
-        // An erase's step let the lock go already, so this stop writes nothing after it.
-        if self.data_folder_lock.is_some() {
-            let is_intent_unsaved = failures
-                .iter()
-                .any(|failure| matches!(failure, DaemonStopFailure::StopIntent(_)));
-            self.stop_record.write_end(is_intent_unsaved).await;
-        }
+        let is_intent_unsaved = failures
+            .iter()
+            .any(|failure| matches!(failure, DaemonStopFailure::StopIntent(_)));
+        self.stop_record.write_end(is_intent_unsaved).await;
         drop(self.data_folder_lock.take());
         settle_all(
             failures

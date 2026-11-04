@@ -103,9 +103,12 @@ impl StopRecord {
     }
 
     /// Ends the record as the stop returns: `cannotStop` when `is_intent_unsaved`, since the
-    /// person's Stop could not keep its intent, else no file. A failed write or removal is logged
-    /// beside the stop's own failures, which it never replaces.
+    /// person's Stop could not keep its intent, else no file; nothing before [`StopRecord::begin`].
+    /// A failed write or removal is logged beside the stop's own failures, which it never replaces.
     pub(crate) async fn write_end(&self, is_intent_unsaved: bool) {
+        if self.stop_started.is_none() {
+            return;
+        }
         let run_folder = self.run_folder.clone();
         let path = &self.run_folder.status_path;
         if is_intent_unsaved {
