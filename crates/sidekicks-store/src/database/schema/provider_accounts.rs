@@ -250,6 +250,8 @@ CREATE TABLE provider_account_usage_turns (
   web_search_requests         INTEGER,  -- the web searches the request ran
   thread_speed      TEXT,     -- the thread's declared tier, which prices the helpers it spawned
   subagent_id       TEXT,     -- the helper the provider attributes the turn to
+  -- Set once the turn's driver left its request unpriced.
+  is_held           INTEGER NOT NULL DEFAULT 0 CHECK(is_held IN (0, 1)),
   -- Whole micro-dollars and where they came from, set once when the turn is priced.
   cost_usd_micros INTEGER,
   cost_source     TEXT

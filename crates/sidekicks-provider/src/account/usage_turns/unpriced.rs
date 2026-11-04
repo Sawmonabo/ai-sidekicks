@@ -1,7 +1,10 @@
 //! The usage rows no figure names yet, as the held requests' repricing reads them: at start only
 //! the distinct keys a price list prices them by, never a row, and once a key is priced its rows a
 //! page at a time, regrouped into the requests they belong to, a request never split across pages.
+//! A page reads only rows their driver handed over and rows written before the daemon started, so
+//! no read reaches a request the live path is still metering.
 
+use std::borrow::Cow;
 use std::num::NonZeroU32;
 use std::sync::LazyLock;
 
@@ -16,6 +19,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::{
     optional_safe_int_column, optional_text_column, text_column,
 };
@@ -31,14 +35,21 @@ const SELECT_UNPRICED_KEYS_SQL: &str = "
     FROM provider_account_usage_turns
    WHERE cost_usd_micros IS NULL";
 
-// One key's rows with no figure, in request order; `IS` matches a NULL selector as a value.
+// One key's rows with no figure that are held or older than the daemon's start, in request order;
+// `IS` matches a NULL selector as a value.
 const UNPRICED_ROWS_SQL: &str = "
   SELECT turn_id, session_id, run_id, subagent_id, occurred_at, input_tokens, output_tokens,
          cache_read_tokens, cache_write_tokens, reasoning_tokens, cache_write_extended_tokens,
          web_search_requests, request_key, thread_speed
     FROM provider_account_usage_turns
    WHERE cost_usd_micros IS NULL AND provider = @provider AND account_id = @account_id
-     AND model_id IS @model_id AND speed IS @speed AND processing_region IS @processing_region";
+     AND model_id IS @model_id AND speed IS @speed AND processing_region IS @processing_region
+     AND (is_held = 1 OR occurred_at < @started_at)";
+
+// A handed-over request's rows still unpriced; a row a removal took is simply not there.
+const MARK_HELD_SQL: &str = "
+  UPDATE provider_account_usage_turns SET is_held = 1
+   WHERE turn_id IN (SELECT value FROM json_each(@turn_ids)) AND cost_usd_micros IS NULL";
 
 static FIRST_PAGE_SQL: LazyLock<String> =
     LazyLock::new(|| format!("{UNPRICED_ROWS_SQL} ORDER BY request_key, turn_id LIMIT @page_rows"));
@@ -161,16 +172,35 @@ pub(crate) fn read_unpriced_keys(
         .collect()
 }
 
+/// The statement that marks the usage rows `row_ids` of a request its driver left unpriced held,
+/// so a page read takes them before the next start; a row already priced keeps its figure unmarked,
+/// and one its account's removal took is gone, so neither is refused.
+pub fn held_mark_statement(row_ids: &[FreeFormText<EVENT_FIELD_MAX_LEN>]) -> WriteStatement {
+    let turn_ids = serde_json::Value::Array(
+        row_ids
+            .iter()
+            .map(|row_id| serde_json::Value::String(row_id.as_str().to_owned()))
+            .collect(),
+    );
+    WriteStatement {
+        sql: Cow::Borrowed(MARK_HELD_SQL),
+        bindings: StatementBindings::Named(vec![text_binding("@turn_ids", &turn_ids.to_string())]),
+        expected_row_count: None,
+    }
+}
+
 /// About `page_rows` of `key`'s rows with no figure after `after` (from the first with `None`),
-/// then the rest of the last request's rows, grouped into requests; fails as the read or a stored
-/// value a row's type refuses fails.
+/// then the rest of the last request's rows, grouped into requests: only rows marked held and rows
+/// that occurred before `started_at`, the daemon's start in the stored form. Fails as the read or
+/// a stored value a row's type refuses fails.
 pub(crate) fn read_unpriced_page(
     connection: &Connection,
     key: &UnpricedUsageKey,
+    started_at: &WireInstant,
     after: Option<&UnpricedPageCursor>,
     page_rows: NonZeroU32,
 ) -> rusqlite::Result<UnpricedPage> {
-    let mut bindings = key_bindings(key);
+    let mut bindings = page_bindings(key, started_at);
     bindings.push(("@page_rows", Value::Integer(i64::from(page_rows.get()))));
     let sql: &str = match after {
         None => &FIRST_PAGE_SQL,
@@ -194,7 +224,7 @@ pub(crate) fn read_unpriced_page(
     let mut next = None;
     if let Some(mut cursor) = last.filter(|_| is_full) {
         if let Some(request_key) = &cursor.request_key {
-            let mut rest_bindings = key_bindings(key);
+            let mut rest_bindings = page_bindings(key, started_at);
             rest_bindings.push(("@request_key", text_value(request_key.as_str())));
             rest_bindings.push(("@turn_id", text_value(cursor.turn_id.as_str())));
             let rest = query_rows(connection, &REQUEST_REST_SQL, &rest_bindings)?;
@@ -211,9 +241,10 @@ pub(crate) fn read_unpriced_page(
     })
 }
 
-// The key's bindings every page read shares.
-fn key_bindings(key: &UnpricedUsageKey) -> Vec<(&'static str, Value)> {
+// The key's and the start's bindings every page read shares.
+fn page_bindings(key: &UnpricedUsageKey, started_at: &WireInstant) -> Vec<(&'static str, Value)> {
     vec![
+        ("@started_at", text_value(started_at.as_str())),
         ("@provider", text_value(key.provider.as_str())),
         ("@account_id", text_value(key.account_id.as_str())),
         (
@@ -304,8 +335,9 @@ mod tests {
     use std::collections::HashSet;
 
     use serde_json::json;
+    use sidekicks_contracts::event::envelope::EventOccurredAt;
     use sidekicks_store::events::session::appender::UnsequencedEventEnvelope;
-    use sidekicks_store::events::test_log::SessionTestLog;
+    use sidekicks_store::events::test_log::{SessionTestLog, run_write_statements};
 
     use super::*;
     use crate::account::usage_turns::tests::{
@@ -313,6 +345,8 @@ mod tests {
     };
 
     const OTHER_MODEL: &str = "claude-sonnet-4-5";
+    // A daemon start after every row a test writes, so every unpriced row is read.
+    const AFTER_EVERY_ROW: &str = "9999-12-31T23:59:59.999Z";
 
     // One row's every field as plain values, so a test reads each one.
     type RowFacts = (
@@ -390,13 +424,53 @@ mod tests {
         )
     }
 
+    fn instant(text: &str) -> WireInstant {
+        WireInstant::try_from(text.to_owned()).expect("the test writes an instant")
+    }
+
     fn page(
         log: &SessionTestLog,
         key: &UnpricedUsageKey,
+        started_at: &str,
         after: Option<&UnpricedPageCursor>,
     ) -> UnpricedPage {
         let page_rows = NonZeroU32::new(2).expect("two is not zero");
-        read_unpriced_page(&log.reader(), key, after, page_rows).expect("the page reads")
+        read_unpriced_page(&log.reader(), key, &instant(started_at), after, page_rows)
+            .expect("the page reads")
+    }
+
+    // The turn ids of every page of `key`'s rows a start at `started_at` reads, sorted.
+    fn every_page_turn(
+        log: &SessionTestLog,
+        key: &UnpricedUsageKey,
+        started_at: &str,
+    ) -> Vec<String> {
+        let mut read = Vec::new();
+        let mut after = None;
+        loop {
+            let page = page(log, key, started_at, after.as_ref());
+            read.extend(
+                request_turns(&page)
+                    .into_iter()
+                    .flat_map(|(_, turns)| turns),
+            );
+            match page.next {
+                Some(next) => after = Some(next),
+                None => break,
+            }
+        }
+        read.sort();
+        read
+    }
+
+    fn fast_us_key() -> UnpricedUsageKey {
+        UnpricedUsageKey {
+            provider: ProviderId::new("claude".to_owned()).expect("a provider id"),
+            account_id: ProviderAccountId::new("account-a".to_owned()).expect("an account id"),
+            model_id: Some(FreeFormText::new(LEAD_MODEL.to_owned()).expect("a model id")),
+            speed: BoundedText::new("fast".to_owned()),
+            processing_region: BoundedText::new("us".to_owned()),
+        }
     }
 
     fn turn_id(envelope: &UnsequencedEventEnvelope) -> String {
@@ -473,14 +547,8 @@ mod tests {
             ])
         );
 
-        let fast_us_key = UnpricedUsageKey {
-            provider: ProviderId::new("claude".to_owned()).expect("a provider id"),
-            account_id: ProviderAccountId::new("account-a".to_owned()).expect("an account id"),
-            model_id: Some(FreeFormText::new(LEAD_MODEL.to_owned()).expect("a model id")),
-            speed: BoundedText::new("fast".to_owned()),
-            processing_region: BoundedText::new("us".to_owned()),
-        };
-        let first = page(&log, &fast_us_key, None);
+        let fast_us_key = fast_us_key();
+        let first = page(&log, &fast_us_key, AFTER_EVERY_ROW, None);
         let mut request_rows = [&request_part, &request_rest].map(turn_id).to_vec();
         request_rows.sort();
         assert_eq!(
@@ -524,32 +592,49 @@ mod tests {
                 .collect::<Vec<_>>(),
             expected_rows
         );
-        let end = page(&log, &fast_us_key, first.next.as_ref());
+        let end = page(&log, &fast_us_key, AFTER_EVERY_ROW, first.next.as_ref());
         assert_eq!((end.requests.len(), end.next), (0, None));
 
         let more_keyless: Vec<_> = (0..3)
             .map(|_| fast_us(&log, [1, 0, 0, 0, 0], &json!({})))
             .collect();
         append(&log, &more_keyless);
-        let mut read = Vec::new();
-        let mut after = None;
-        loop {
-            let page = page(&log, &fast_us_key, after.as_ref());
-            read.extend(
-                request_turns(&page)
-                    .into_iter()
-                    .flat_map(|(_, turns)| turns),
-            );
-            match page.next {
-                Some(next) => after = Some(next),
-                None => break,
-            }
-        }
         let mut expected: Vec<_> = more_keyless.iter().map(turn_id).collect();
         expected.extend([turn_id(&keyless)]);
         expected.extend(request_rows);
         expected.sort();
-        read.sort();
-        assert_eq!(read, expected);
+        assert_eq!(
+            every_page_turn(&log, &fast_us_key, AFTER_EVERY_ROW),
+            expected
+        );
+    }
+
+    // Fails when the start bound is dropped, so a request the live path is still metering is read
+    // and could be priced twice, or when the held mark is ignored, so a request its driver handed
+    // over after the start is never read until the next start.
+    #[test]
+    fn a_page_reads_held_rows_and_rows_older_than_the_start_only() {
+        let log = log_with_accounts();
+        let at = |occurred_at: &str| {
+            let mut envelope = fast_us(&log, [1, 0, 0, 0, 0], &json!({}));
+            envelope.occurred_at =
+                EventOccurredAt::new(occurred_at.to_owned()).expect("the test writes an instant");
+            envelope
+        };
+        let before_start = at("2026-10-14T09:00:00.000Z");
+        let metering = at("2026-10-14T09:00:02.000Z");
+        let handed_over = at("2026-10-14T09:00:02.000Z");
+        append(&log, &[before_start.clone(), metering, handed_over.clone()]);
+        run_write_statements(
+            &log.writer,
+            &[held_mark_statement(std::slice::from_ref(&handed_over.id))],
+        );
+
+        let mut expected = vec![turn_id(&before_start), turn_id(&handed_over)];
+        expected.sort();
+        assert_eq!(
+            every_page_turn(&log, &fast_us_key(), "2026-10-14T09:00:01.000Z"),
+            expected
+        );
     }
 }
