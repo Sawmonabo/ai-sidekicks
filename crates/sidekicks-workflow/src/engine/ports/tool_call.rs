@@ -12,9 +12,9 @@ use crate::engine::ports::PortError;
 
 /// Calls a tool server's tool for a step and records the call's receipt.
 pub trait StepToolCaller: Send + Sync {
-    /// Calls `call`'s tool and returns how the call ended. Fails when the call was not sent, when
-    /// its end was not recorded, or when the call ended without an end the client could read, its
-    /// receipt recorded failed or unknown.
+    /// Calls `call`'s tool and returns how the call ended. Fails when the call was not sent for a
+    /// reason other than its cancel or the daemon's stop, when its end was not recorded, or when
+    /// the call ended without an end the client could read, its receipt recorded failed or unknown.
     fn call_tool(&self, call: StepToolCall) -> BoxFuture<'_, Result<StepToolCallEnd, PortError>>;
 }
 
