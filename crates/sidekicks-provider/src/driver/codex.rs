@@ -36,6 +36,7 @@ use sidekicks_platforms::{
 use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::codex::lifecycle::CodexDriver;
+use crate::driver::codex::mcp::compose_codex_mcp_entry;
 use crate::driver::codex::permission_level::list_codex_modes;
 use crate::driver::codex::service::registry::CODEX_SWITCHING_HOME_FOLDER;
 #[cfg(any(test, feature = "test-support"))]
@@ -633,7 +634,7 @@ impl ProviderDriver for CodexDriver {
         config: &McpServerConfigInput,
         before: &McpServerObserved,
     ) -> Result<McpServerEntry, McpServerWriteRefusal> {
-        self.compose_mcp_server(binding, config, before)
+        compose_codex_mcp_entry(binding, config, &before.entry)
     }
 
     fn write_mcp_server(

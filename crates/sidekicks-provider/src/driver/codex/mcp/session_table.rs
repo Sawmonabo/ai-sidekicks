@@ -14,11 +14,11 @@ use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::driver::codex::mcp::config::server_entry::{
-    ARGS_MEMBER, COMMAND_MEMBER, ENABLED_MEMBER, ENV_MEMBER,
+    ARGS_MEMBER, COMMAND_MEMBER, DEFAULT_TOOLS_APPROVAL_MODE_MEMBER, ENABLED_MEMBER, ENV_MEMBER,
+    TOOL_TIMEOUT_SEC_MEMBER, URL_MEMBER,
 };
 use crate::driver::codex::mcp::sandbox_wrap::{CodexSandboxWrap, wrap_codex_stdio_server};
 use crate::driver::codex::mcp::server_name::CODEX_MCP_SERVER_NAMES;
-use crate::driver::codex::permission_level::CodexProfileFolders;
 use crate::driver::codex::thread::settings::MCP_SERVERS_KEY;
 use crate::driver::mcp_server::write::McpServerEntry;
 use crate::driver::session_control::SessionToolServer;
@@ -97,7 +97,7 @@ pub(crate) struct CodexSessionTableInput<'input> {
     pub(crate) unloaded_entries: &'input [(McpServerBindingRef, McpServerEntry)],
     /// The route to the daemon's tool servers, once its owner registered it.
     pub(crate) route: Option<&'input dyn ToolServerRoute>,
-    /// The root of the repository the conversation runs in ([`codex_repository_root`]), which a
+    /// The root of the repository the conversation runs in, which a
     /// `local` or `project` binding must name to be switched on here.
     pub(crate) repository_root: &'input Path,
     /// Whether the call is a side question's copy, which reaches no tool server.
@@ -163,11 +163,11 @@ pub(crate) fn compose_codex_session_table(table: CodexSessionTableInput<'_>) -> 
         servers.insert(
             DAEMON_TOOL_SERVER_NAME.to_owned(),
             json!({
-                "url": route.url_for(&table.session_id, DAEMON_TOOL_SERVER_NAME),
-                "enabled": true,
+                URL_MEMBER: route.url_for(&table.session_id, DAEMON_TOOL_SERVER_NAME),
+                ENABLED_MEMBER: true,
                 // The daemon judges each of its own calls itself, so Codex asks nothing first.
-                "default_tools_approval_mode": "approve",
-                "tool_timeout_sec": CODEX_DAEMON_TOOL_TIMEOUT_SECONDS,
+                DEFAULT_TOOLS_APPROVAL_MODE_MEMBER: "approve",
+                TOOL_TIMEOUT_SEC_MEMBER: CODEX_DAEMON_TOOL_TIMEOUT_SECONDS,
             }),
         );
     }
@@ -187,16 +187,18 @@ pub(crate) fn codex_unloaded_bindings<'servers>(
     })
 }
 
-/// The root of the repository a conversation in `folders` runs in: the parent of its common git
-/// folder, which a linked worktree shares with its repository, else its working folder outside a
-/// repository.
-pub(crate) fn codex_repository_root(folders: &CodexProfileFolders) -> &Path {
-    folders
-        .git_common_folder
-        .as_deref()
-        .map_or(folders.working_directory.as_path(), |git_common_folder| {
-            git_common_folder.parent().unwrap_or(git_common_folder)
-        })
+/// Whether a call's table for `tool_servers` in `repository_root` leaves `name` running: the
+/// daemon's own server, a name Codex keeps for a server of its own, or a server the session
+/// switches on there.
+pub(crate) fn is_run_by_codex_table(
+    tool_servers: &[SessionToolServer],
+    repository_root: &Path,
+    name: &str,
+) -> bool {
+    name == DAEMON_TOOL_SERVER_NAME
+        || is_kept_by_codex(name)
+        || switched_on_here(tool_servers, repository_root)
+            .any(|binding| binding.server_name().as_str() == name)
 }
 
 // Each binding of `tool_servers` the person switched on that applies in `repository_root`: a
@@ -240,13 +242,14 @@ mod tests {
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
 
     use super::{
-        CodexLoadedServers, CodexSessionTableInput, codex_repository_root, codex_unloaded_bindings,
+        CodexLoadedServers, CodexSessionTableInput, codex_unloaded_bindings,
         compose_codex_session_table,
     };
     use crate::driver::codex::mcp::sandbox_wrap::{
         compose_codex_sandbox_wrap, wrap_codex_stdio_server,
     };
-    use crate::driver::codex::permission_level::CodexProfileFolders;
+    use crate::driver::codex::native_program::CodexNativeCommand;
+    use crate::driver::codex::permission_level::{CodexProfileFolders, codex_repository_root};
     use crate::driver::codex::thread::settings::CodexThreadSettings;
     use crate::driver::mcp_server::write::McpServerEntry;
     use crate::driver::session_control::SessionToolServer;
@@ -307,10 +310,7 @@ mod tests {
     }
 
     fn docs_entry() -> McpServerEntry {
-        McpServerEntry::from_members(
-            serde_json::from_value(json!({ "command": "docs-server", "args": ["--stdio"] }))
-                .expect("the test's entry is an object"),
-        )
+        McpServerEntry::from_json(json!({ "command": "docs-server", "args": ["--stdio"] }))
     }
 
     // The table composed for one call from a linked worktree of `REPOSITORY`, with the daemon's
@@ -457,7 +457,10 @@ mod tests {
         };
         let wrap = compose_codex_sandbox_wrap(
             &settings,
-            Some(PathBuf::from("/opt/codex/bin/codex")),
+            Some(CodexNativeCommand {
+                program: PathBuf::from("/opt/codex/bin/codex"),
+                leading_arguments: Vec::new(),
+            }),
             PathBuf::from("/data/codex-homes/account-1"),
         )
         .expect("the service knows its native program")

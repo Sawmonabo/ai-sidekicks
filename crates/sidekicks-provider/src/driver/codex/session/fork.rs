@@ -21,6 +21,7 @@ use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::codex::capabilities::read_codex_service_model_catalog;
 use crate::driver::codex::delivery::frames::CodexFrameDelivery;
 use crate::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
+use crate::driver::codex::mcp::live_switch::report_codex_servers_switched_off;
 use crate::driver::codex::notification_routing::CodexRoutedFrames;
 use crate::driver::codex::output_speed::{
     compose_codex_service_tier, read_codex_declared_tier, resolve_codex_output_speed_level,
@@ -443,6 +444,10 @@ async fn move_record_to_fork(
     if is_rebound {
         record.end_mcp_server_status_leg();
         record.on_mcp_server_status = legs.and_then(|legs| legs.on_mcp_server_status);
+    } else {
+        // The fork stays on the leg, and its conversation sends no startup for a server it
+        // does not run.
+        report_codex_servers_switched_off(record);
     }
     let routed = task
         .routing

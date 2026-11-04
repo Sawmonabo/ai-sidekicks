@@ -47,7 +47,7 @@ type SubmittedMember = (&'static str, Option<Value>);
 /// The entry Codex holds for `binding` once `config` is written over `before`. Fails with
 /// `McpServerWriteRefusal::EntryInvalid` for a transport Codex reaches no server over, or a value
 /// that does not serialize.
-pub(super) fn compose_codex_mcp_entry(
+pub(crate) fn compose_codex_mcp_entry(
     binding: &McpWritableBindingRef,
     config: &McpServerConfigInput,
     before: &McpServerObservedEntry,
@@ -218,17 +218,12 @@ mod tests {
     use crate::driver::codex::mcp::config::observe::observe_scripted;
     use crate::driver::mcp_server::write::{McpServerEntry, McpServerObservedEntry};
 
-    // The entry `members`, a JSON object.
-    fn entry(members: Value) -> McpServerEntry {
-        McpServerEntry::from_members(
-            serde_json::from_value(members).expect("the test's entry is an object"),
-        )
-    }
-
     // Compose's entry is what Codex's config reads back after the write, in Codex's own form, or
-    // every landed write would read as a changed entry. Killed by keeping `startup_timeout_ms`
-    // beside `startup_timeout_sec`, by keeping the program's members on a switch to an address,
-    // and by dropping the switch-off of an emulated `local` binding.
+    // every landed write would read as a changed entry. Codex's `config/read` lists each layer as
+    // its file holds it, before any merge and with no default added, so the read-back layer is the
+    // written file's own table. Killed by keeping `startup_timeout_ms` beside `startup_timeout_sec`,
+    // by keeping the program's members on a switch to an address, and by dropping the switch-off
+    // of an emulated `local` binding.
     #[rstest]
     #[case::local_add(
         json!({
@@ -239,7 +234,7 @@ mod tests {
     )]
     #[case::user_program_to_address(
         json!({"scope": "user", "provider": "codex", "serverName": "docs"}),
-        McpServerObservedEntry::Present(entry(json!({
+        McpServerObservedEntry::Present(McpServerEntry::from_json(json!({
             "command": "npx",
             "args": ["docs-server"],
             "env": {"DOCS_TOKEN": "docs-token"},

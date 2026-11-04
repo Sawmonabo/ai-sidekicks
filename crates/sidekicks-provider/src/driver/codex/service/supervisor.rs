@@ -10,6 +10,7 @@
 pub(crate) mod connection_events;
 pub(crate) mod drain;
 pub(crate) mod events;
+mod launch;
 mod rate_limit_readings;
 mod reconnect;
 pub(crate) mod refusals;
@@ -43,6 +44,7 @@ use tokio_util::task::TaskTracker;
 use crate::driver::ProviderAccountReader;
 use crate::driver::child_records::DaemonChildRecords;
 use crate::driver::codex::exec_relay::{CodexExecRelay, CodexExecRelayDependencies};
+use crate::driver::codex::native_program::CodexNativeCommand;
 use crate::driver::codex::server_requests::{CodexServerRequestResponder, CodexTokenRefresher};
 use crate::driver::codex::service::asks::CodexServiceAsks;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
@@ -203,8 +205,8 @@ pub(crate) struct CodexService {
     // The log of the lasting process a start named, which the diagnostic-log expiry leaves alone
     // while the service runs.
     lasting_log_file: Mutex<Option<PathBuf>>,
-    // Codex's native program the last start launched or, for a service only joined, resolved.
-    native_program: Mutex<Option<PathBuf>>,
+    // Codex's native command the last start launched or, for a service only joined, resolved.
+    native_command: Mutex<Option<CodexNativeCommand>>,
     // Whether the home's link was moved onto this service's own socket and it still holds it.
     holds_home_link: AtomicBool,
     // The ticket of the connection whose frames are routed; an older one's are not.
@@ -241,7 +243,7 @@ impl CodexService {
             physical_socket: Mutex::default(),
             process_record_file: Mutex::default(),
             lasting_log_file: Mutex::default(),
-            native_program: Mutex::default(),
+            native_command: Mutex::default(),
             holds_home_link: AtomicBool::new(false),
             routed_dial: AtomicU64::new(0),
             threads: Arc::new(Mutex::new(CodexServiceThreads::new(
@@ -290,26 +292,6 @@ impl CodexService {
         self.lock_process_record_file().clone()
     }
 
-    /// The log of the lasting process a start named; `None` before any such start.
-    pub(crate) fn lasting_log_file(&self) -> Option<PathBuf> {
-        self.lock_lasting_log_file().clone()
-    }
-
-    /// Codex's native program the service runs; `None` before any start and where it was not found.
-    pub(crate) fn native_program(&self) -> Option<PathBuf> {
-        lock(&self.native_program).clone()
-    }
-
-    /// Records `program` as the native program the service runs, `None` where none is known.
-    pub(crate) fn set_native_program(&self, program: Option<PathBuf>) {
-        *lock(&self.native_program) = program;
-    }
-
-    /// Records `log_file` as the log the lasting process a start launches writes.
-    pub(crate) fn set_lasting_log_file(&self, log_file: PathBuf) {
-        *self.lock_lasting_log_file() = Some(log_file);
-    }
-
     /// Whether the home's link was moved onto this service's own socket and still belongs to it, so
     /// its restart after a crash points the link back at it.
     pub(crate) fn holds_home_link(&self) -> bool {
@@ -325,17 +307,6 @@ impl CodexService {
     /// never started again and its record goes once its process ends.
     pub(crate) fn mark_replaced(&self) {
         self.send(SupervisorEvent::Replaced);
-    }
-
-    /// The `-c` switches a launch of the service carries past the ones every service shares: the
-    /// driver's, then the service's own, so its own win where both set a key.
-    pub(crate) fn launch_config_overrides(&self) -> Vec<String> {
-        self.dependencies
-            .additional_config_overrides
-            .iter()
-            .chain(&self.config_overrides)
-            .cloned()
-            .collect()
     }
 
     /// The kind of service it is, as its last start found it; a session's recovery and a

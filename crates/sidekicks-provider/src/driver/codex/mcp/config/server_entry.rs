@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use serde::Deserialize;
 use serde::de::IgnoredAny;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::mcp::server::{McpApprovalMode, McpToolName};
 use sidekicks_contracts::wire::number::PositiveNumber;
@@ -58,6 +58,8 @@ pub(crate) const STARTUP_TIMEOUT_SEC_MEMBER: &str = "startup_timeout_sec";
 pub(crate) const STARTUP_TIMEOUT_MS_MEMBER: &str = "startup_timeout_ms";
 /// The member of a server entry that bounds one tool call, in seconds.
 pub(crate) const TOOL_TIMEOUT_SEC_MEMBER: &str = "tool_timeout_sec";
+/// The member of a server entry that sets how its tools are approved where a tool sets nothing.
+pub(crate) const DEFAULT_TOOLS_APPROVAL_MODE_MEMBER: &str = "default_tools_approval_mode";
 // The header Codex sends a bearer token in.
 const AUTHORIZATION_HEADER: &str = "Authorization";
 // The approval mode Codex gives a server's tools when its entry sets none.
@@ -186,19 +188,11 @@ pub(crate) fn read_codex_server_entry(entry: &Value) -> Option<CodexServerDeclar
             .unwrap_or_default(),
     };
     let config = if let Some(command) = entry.command {
-        let mut env_var_names: Vec<String> = Vec::new();
-        let declared = entry.env.iter().flat_map(BTreeMap::keys).cloned().chain(
-            entry
-                .env_vars
-                .into_iter()
-                .flatten()
-                .map(CodexEnvVar::into_name),
-        );
-        for name in declared {
-            if !env_var_names.contains(&name) {
-                env_var_names.push(name);
-            }
+        let env_var_names = CodexStdioVariables {
+            env: entry.env,
+            env_vars: entry.env_vars,
         }
+        .into_names();
         McpServerConfigView::Stdio {
             command,
             args: entry.args,
@@ -248,6 +242,14 @@ pub(crate) fn read_codex_server_entry(entry: &Value) -> Option<CodexServerDeclar
         sign_in_client,
         tool_defaults,
     })
+}
+
+/// The names of the variables a stdio server reads, once each: each name its entry's `env` sets,
+/// then each its `env_vars` names; `None` where either member does not read, which Codex refuses.
+pub(crate) fn read_stdio_variable_names(entry: &Map<String, Value>) -> Option<Vec<String>> {
+    CodexStdioVariables::deserialize(entry)
+        .ok()
+        .map(CodexStdioVariables::into_names)
 }
 
 // A tool list's names that pass the wire bound; Codex matches a longer one against no tool.
@@ -308,6 +310,42 @@ struct CodexServerEntry {
     disabled_tools: Option<Vec<String>>,
     #[serde(default)]
     tools: Option<BTreeMap<String, CodexToolEntry>>,
+}
+
+// The members of a stdio server's entry that name the variables it reads.
+#[derive(Deserialize)]
+#[expect(
+    clippy::zero_sized_map_values,
+    reason = "only the keys are read; each value is skipped unread so none outlives the parse"
+)]
+struct CodexStdioVariables {
+    #[serde(default)]
+    env: Option<BTreeMap<String, IgnoredAny>>,
+    #[serde(default)]
+    env_vars: Option<Vec<CodexEnvVar>>,
+}
+
+impl CodexStdioVariables {
+    // Each name `env` sets, then each `env_vars` names, a repeat dropped.
+    #[expect(
+        clippy::zero_sized_map_values,
+        reason = "only the keys are read; each value is skipped unread so none outlives the parse"
+    )]
+    fn into_names(self) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        let declared = self.env.into_iter().flat_map(BTreeMap::into_keys).chain(
+            self.env_vars
+                .into_iter()
+                .flatten()
+                .map(CodexEnvVar::into_name),
+        );
+        for name in declared {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        names
+    }
 }
 
 // One tool's entry under a server's `tools`: its approval mode, where it sets one.

@@ -1,9 +1,11 @@
 //! The read each Codex start, resume and fork that carries a tool-server table makes first: one
 //! `config/read` of the conversation's folder on the session's own service, whose servers the
 //! call's table switches by name, and the whole entry of each server the session switches on that
-//! the read does not load, read from the person's own Codex folder. A call Codex refuses over a
-//! server that changed since the read is sent once more on a fresh read that loads other servers.
+//! the read does not load, read from the person's own Codex folder once per folder those servers
+//! are declared in. A call Codex refuses over a server that changed since the read is sent once
+//! more on a fresh read that loads other servers.
 
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 
@@ -11,12 +13,15 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 
 use crate::driver::codex::config_read::read_codex_config;
-use crate::driver::codex::mcp::observe_codex_mcp_server;
 use crate::driver::codex::mcp::sandbox_wrap::compose_codex_sandbox_wrap;
 use crate::driver::codex::mcp::session_table::{
-    CodexLoadedServers, CodexSessionTableInput, codex_repository_root, codex_unloaded_bindings,
+    CodexLoadedServers, CodexSessionTableInput, codex_unloaded_bindings,
     compose_codex_session_table,
 };
+use crate::driver::codex::mcp::{
+    codex_binding_folder, observe_in_codex_layers, read_codex_config_layers,
+};
+use crate::driver::codex::permission_level::codex_repository_root;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
 use crate::driver::codex::service::supervisor::CodexService;
@@ -50,9 +55,9 @@ pub(crate) async fn read_codex_loaded_servers(
 /// `loaded`, the call's own read, with the daemon's server on `route` and each stdio server in the
 /// sandbox of `service`, the session's own, where the session runs sandboxed: the whole entry of
 /// each server the session switches on that the read does not load is read through `services`
-/// from the person's own Codex folder, at the binding's root, one read per server and none when
-/// the read loads them all. Fails as the sandbox's wrap fails, as the folder's service cannot be
-/// started or a read fails.
+/// from the person's own Codex folder on one service, at most one started for it, with one
+/// `config/read` per folder those servers are read at, and none when the read loads them all.
+/// Fails as the sandbox's wrap fails, as the folder's service cannot be started or a read fails.
 pub(crate) async fn compose_codex_call_table(
     services: &CodexServiceRegistry,
     service: &CodexService,
@@ -62,26 +67,33 @@ pub(crate) async fn compose_codex_call_table(
 ) -> Result<Map<String, Value>, CodexError> {
     let sandbox_wrap = compose_codex_sandbox_wrap(
         settings,
-        service.native_program(),
+        service.native_command(),
         service.home().codex_home.clone(),
     )?;
     let worktree = settings.working_directory.as_path();
     let repository_root = codex_repository_root(&settings.profile_folders);
-    let unloaded: Vec<&McpServerBindingRef> =
-        codex_unloaded_bindings(&settings.tool_servers, loaded, repository_root).collect();
-    let unloaded_entries = if unloaded.is_empty() {
+    let mut unloaded_by_folder: BTreeMap<PathBuf, Vec<&McpServerBindingRef>> = BTreeMap::new();
+    for binding in codex_unloaded_bindings(&settings.tool_servers, loaded, repository_root) {
+        unloaded_by_folder
+            .entry(codex_binding_folder(binding, worktree))
+            .or_default()
+            .push(binding);
+    }
+    let unloaded_entries = if unloaded_by_folder.is_empty() {
         Vec::new()
     } else {
         services
             .read_on_personal_folder(PersonalFolderRead::Config, |service| async move {
                 let connection = service.connection()?;
-                let mut entries = Vec::with_capacity(unloaded.len());
-                for binding in unloaded {
-                    let folder = binding_folder(binding, worktree);
-                    let observed = observe_codex_mcp_server(&connection, binding, &folder).await?;
-                    // A binding whose folder declares no transport for it has nothing to send.
-                    if let McpServerObservedEntry::Present(entry) = observed.entry {
-                        entries.push((binding.clone(), entry));
+                let mut entries = Vec::new();
+                for (folder, bindings) in unloaded_by_folder {
+                    let layers = read_codex_config_layers(&connection, &folder).await?;
+                    for binding in bindings {
+                        let observed = observe_in_codex_layers(&layers, binding).await?;
+                        // A binding whose folder declares no transport for it has nothing to send.
+                        if let McpServerObservedEntry::Present(entry) = observed.entry {
+                            entries.push((binding.clone(), entry));
+                        }
                     }
                 }
                 Ok::<Vec<(McpServerBindingRef, McpServerEntry)>, CodexError>(entries)
@@ -140,62 +152,63 @@ fn is_stale_configuration_refusal(error: &CodexError) -> bool {
     )
 }
 
-// The folder `binding`'s entry is read at: its root for a `project` or `local` binding, whose
-// layer Codex lists only there, and `worktree` for any other, whose layer is the same anywhere.
-fn binding_folder(binding: &McpServerBindingRef, worktree: &Path) -> PathBuf {
-    match binding {
-        McpServerBindingRef::Project { scope_ref, .. }
-        | McpServerBindingRef::Local { scope_ref, .. } => PathBuf::from(scope_ref.as_str()),
-        McpServerBindingRef::User { .. }
-        | McpServerBindingRef::Plugin { .. }
-        | McpServerBindingRef::Connector { .. }
-        | McpServerBindingRef::Managed { .. } => worktree.to_path_buf(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
 
+    use futures::future::BoxFuture;
     use rstest::rstest;
     use serde_json::{Map, Value, json};
+    use sidekicks_contracts::mcp::server::McpServerBindingRef;
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
     use sidekicks_contracts::session::id::SessionId;
 
-    use super::send_with_stale_name_resend;
+    use super::{compose_codex_call_table, send_with_stale_name_resend};
+    use crate::driver::child_records::UnrecordedChildren;
     use crate::driver::codex::mcp::session_table::{
-        CodexLoadedServers, CodexSessionTableInput, codex_repository_root,
-        compose_codex_session_table,
+        CodexLoadedServers, CodexSessionTableInput, compose_codex_session_table,
     };
-    use crate::driver::codex::permission_level::CodexProfileFolders;
-    use crate::driver::codex::session::detached_conversation::CodexDetachedFrames;
+    use crate::driver::codex::permission_level::{CodexProfileFolders, codex_repository_root};
+    use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome};
+    use crate::driver::codex::service::registry::{CodexServiceRegistry, OneHome};
+    use crate::driver::codex::service::supervisor::CodexProgramResolver;
+    use crate::driver::codex::service::supervisor::test_service::{
+        UnheardEvents, start_scripted_joined_service, test_codex_service_dependencies,
+    };
     use crate::driver::codex::session::errors::CodexError;
     use crate::driver::codex::thread::settings::{
-        CodexThreadSettings, compose_codex_thread_resume_params, compose_codex_thread_start_params,
+        CodexThreadSettings, compose_codex_thread_start_params,
     };
     use crate::driver::codex::transport::connection::scripted_service::{
-        ScriptedService, connect_scripted_service,
+        ScriptedService, scripted_connection,
     };
-    use crate::driver::codex::transport::connection::{
-        CodexAppServerConnection, CodexConnectionHandlers,
-    };
-
-    /// The largest message the scripted connection takes, far above any a test sends.
-    const MESSAGE_LIMIT: usize = 1 << 20;
+    use crate::driver::contract::error::DriverError;
+    use crate::driver::session_control::SessionToolServer;
+    use crate::spawned_version::ResolvedProviderExecutable;
 
     /// The folder the test conversation runs in.
     const WORKTREE: &str = "/work/app";
 
-    fn scripted_connection() -> (CodexAppServerConnection, ScriptedService) {
-        let (events, _frames) = CodexDetachedFrames::new();
-        connect_scripted_service(
-            MESSAGE_LIMIT,
-            CodexConnectionHandlers {
-                events,
-                responder: None,
-                token_refresher: None,
-            },
-        )
+    /// How long a call the test answers runs before the test fails instead of hanging.
+    const SCRIPT_WAIT: Duration = Duration::from_secs(10);
+
+    /// A program whose every start fails at its resolve, counting the starts.
+    #[derive(Default)]
+    struct CountedUnstartedProgram {
+        starts: AtomicUsize,
+    }
+
+    impl CodexProgramResolver for CountedUnstartedProgram {
+        fn resolve<'call>(
+            &'call self,
+            _home: &'call CodexServiceHome,
+        ) -> BoxFuture<'call, Result<ResolvedProviderExecutable, DriverError>> {
+            self.starts.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async { Err(DriverError::Internal("the test runs no program".into())) })
+        }
     }
 
     fn settings() -> CodexThreadSettings {
@@ -261,43 +274,94 @@ mod tests {
         call["params"]["config"]["mcp_servers"].clone()
     }
 
-    // A resume sends the servers its own read loads, not the start's: Codex merges the table into
-    // the person's config, so a server added between the two stays on unless the resume's own
-    // read names it. Killed by reusing the start's read on the resume.
+    // One call whose set switches on five `user` servers its own read does not load reads the
+    // person's folder with one `config/read` on one service and sends each entry whole, and where
+    // no service serves the folder it starts one. Killed by a read or a start per server, and by
+    // an unloaded server left out of the table.
     #[tokio::test]
-    async fn a_resume_switches_off_what_its_own_read_loads() {
-        let (connection, mut script) = scripted_connection();
-        let (connection, settings) = (&connection, &settings());
-        let worktree = Path::new(WORKTREE);
-        let start = send_with_stale_name_resend(connection, worktree, move |loaded| {
-            let params = compose_codex_thread_start_params(settings, table_over(settings, &loaded));
-            async move { connection.request("thread/start", &params).await }
-        });
-        let (started, started_table) = tokio::join!(start, async {
-            answer_read(&mut script, &json!({})).await;
-            answer_call(&mut script, "thread/start", json!({ "result": {} })).await
-        });
-        started.expect("the start is answered");
-        assert_eq!(started_table, json!({}));
+    async fn unloaded_servers_are_read_once_per_folder_on_one_service() {
+        const NAMES: [&str; 5] = ["alpha", "beta", "gamma", "delta", "epsilon"];
+        let mut settings = settings();
+        settings.tool_servers = NAMES
+            .iter()
+            .map(|name| SessionToolServer {
+                binding: serde_json::from_value::<McpServerBindingRef>(
+                    json!({ "scope": "user", "provider": "codex", "serverName": name }),
+                )
+                .expect("the test's binding reads"),
+                is_enabled: true,
+            })
+            .collect();
+        let entries: Map<String, Value> = NAMES
+            .iter()
+            .map(|name| {
+                (
+                    (*name).to_owned(),
+                    json!({ "command": format!("{name}-server") }),
+                )
+            })
+            .collect();
+        let nothing_loaded = CodexLoadedServers::default();
 
-        let resume = send_with_stale_name_resend(connection, worktree, move |loaded| {
-            let params = compose_codex_thread_resume_params(
-                settings,
-                table_over(settings, &loaded),
-                "thread".to_owned(),
+        let mut joined = start_scripted_joined_service();
+        let services = CodexServiceRegistry::holding(&joined);
+        let composing =
+            compose_codex_call_table(&services, &joined.service, &settings, None, &nothing_loaded);
+        let script = &mut joined.script;
+        let (table, ()) = tokio::time::timeout(SCRIPT_WAIT, async {
+            tokio::join!(composing, async {
+                let read = script.next_sent().await;
+                assert_eq!(read["method"], "config/read");
+                script.answer(
+                    &read,
+                    &json!({
+                        "config": { "mcp_servers": entries },
+                        "origins": {},
+                        "layers": [{
+                            "name": { "type": "user", "file": "/home/person/.codex/config.toml" },
+                            "version": "1",
+                            "config": { "mcp_servers": entries },
+                        }],
+                    }),
+                );
+            })
+        })
+        .await
+        .expect("the call's table settles");
+        let table = table.expect("the table is composed");
+        assert!(
+            joined.script.sent.try_recv().is_err(),
+            "one config/read is sent"
+        );
+        for name in NAMES {
+            assert_eq!(
+                table[name],
+                json!({ "command": format!("{name}-server"), "enabled": true })
             );
-            async move { connection.request("thread/resume", &params).await }
-        });
-        let (resumed, resumed_table) = tokio::join!(resume, async {
-            answer_read(
-                &mut script,
-                &json!({ "github": { "url": "https://example.com" } }),
-            )
-            .await;
-            answer_call(&mut script, "thread/resume", json!({ "result": {} })).await
-        });
-        resumed.expect("the resume is answered");
-        assert_eq!(resumed_table, json!({ "github": { "enabled": false } }));
+        }
+
+        let folder = tempfile::tempdir().expect("a scratch folder is made");
+        let program = Arc::new(CountedUnstartedProgram::default());
+        let unserved = CodexServiceRegistry::new(
+            Arc::new(OneHome(CodexServiceHome {
+                codex_home: folder.path().join("home"),
+                kind: CodexHomeKind::PersonalFolder,
+            })),
+            test_codex_service_dependencies(
+                folder.path(),
+                Arc::clone(&program) as Arc<dyn CodexProgramResolver>,
+                Arc::new(UnheardEvents),
+                Arc::new(UnrecordedChildren),
+            ),
+        );
+        let started = tokio::time::timeout(
+            SCRIPT_WAIT,
+            compose_codex_call_table(&unserved, &joined.service, &settings, None, &nothing_loaded),
+        )
+        .await
+        .expect("the call settles");
+        assert!(started.is_err(), "the folder's service never came up");
+        assert_eq!(program.starts.load(Ordering::SeqCst), 1);
     }
 
     // A refusal over a configuration that changed since the read is sent once more only on a
@@ -342,7 +406,7 @@ mod tests {
         #[case] reread: Option<Value>,
         #[case] is_resent: bool,
     ) {
-        let (connection, mut script) = scripted_connection();
+        let (connection, mut script, _frames) = scripted_connection();
         let (connection, settings) = (&connection, &settings());
         let sending = send_with_stale_name_resend(connection, Path::new(WORKTREE), move |loaded| {
             let params = compose_codex_thread_start_params(settings, table_over(settings, &loaded));
@@ -352,7 +416,7 @@ mod tests {
         if let Some(data) = data {
             error["data"] = data;
         }
-        let (sent, ()) = tokio::join!(sending, async {
+        let answering = async {
             answer_read(
                 &mut script,
                 &json!({ "gone": { "command": "gone-server" } }),
@@ -367,7 +431,11 @@ mod tests {
                 let table = answer_call(&mut script, "thread/start", json!({ "result": {} })).await;
                 assert_eq!(table, json!({}));
             }
-        });
+        };
+        let (sent, ()) =
+            tokio::time::timeout(SCRIPT_WAIT, async { tokio::join!(sending, answering) })
+                .await
+                .expect("the call settles");
         assert!(
             script.sent.try_recv().is_err(),
             "nothing else is sent to the service"

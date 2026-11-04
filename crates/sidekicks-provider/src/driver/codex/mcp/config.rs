@@ -21,7 +21,7 @@ use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::mcp_server::read::{McpRootReading, McpServerDeclaration, McpServerPolicy};
 
 pub(super) mod attribution;
-mod compose;
+pub(super) mod compose;
 pub(super) mod observe;
 pub(super) mod plugins;
 mod project_file;

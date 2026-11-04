@@ -425,8 +425,9 @@ pub trait ProviderDriver: Send + Sync {
 
     /// Switches `session_id`'s tool servers to `tool_servers`, the whole set with each server's
     /// switch: written first to the stored set of run `run_id`'s leg, which a relaunch reads, then
-    /// carried to the live conversation, answering when the provider takes it. Fails as the stored
-    /// write fails, with nothing applied, and as the live apply fails, the stored set kept.
+    /// carried to the live conversation, answering when the provider takes it. Fails only as the
+    /// stored write fails, with nothing applied; once the set is stored, a live apply that cannot
+    /// land now answers that the switch waits for the next turn, or the next start once closed.
     fn switch_session_mcp_servers(
         &self,
         session_id: SessionId,

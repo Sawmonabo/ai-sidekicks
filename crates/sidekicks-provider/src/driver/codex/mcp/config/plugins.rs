@@ -17,7 +17,8 @@ use sidekicks_platforms::PathRules;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::mcp::config::server_entry::{
-    CodexServerTransport, ENABLED_MEMBER, read_codex_server_entry, read_codex_server_transport,
+    CWD_MEMBER, CodexServerTransport, ENABLED_MEMBER, OAUTH_MEMBER, read_codex_server_entry,
+    read_codex_server_transport,
 };
 use crate::driver::mcp_server::read::McpServerDeclaration;
 use crate::inbound_json::decode_inbound_json;
@@ -44,8 +45,6 @@ const MCP_SERVERS_MEMBER: &str = "mcpServers";
 const MANIFEST_PATH_PREFIX: &str = "./";
 // The member of a plugin's server entry naming its transport, which Codex's config does not take.
 const TRANSPORT_TYPE_MEMBER: &str = "type";
-// The member of a server entry holding its sign-in client.
-const OAUTH_MEMBER: &str = "oauth";
 // The sign-in client's members a plugin's file may spell in camel case, and Codex's spelling.
 const OAUTH_MEMBER_SPELLINGS: [(&str, &str); 4] = [
     ("callbackUrl", "callback_url"),
@@ -53,8 +52,6 @@ const OAUTH_MEMBER_SPELLINGS: [(&str, &str); 4] = [
     ("clientId", "client_id"),
     ("clientSecret", "client_secret"),
 ];
-// The member of a stdio server's entry naming the folder it runs in.
-const WORKING_FOLDER_MEMBER: &str = "cwd";
 
 /// One server a plugin in the daemon's plugin home declares: its redacted declaration, and its
 /// entry as the plugin's file writes it, credential values included, for the probe that sends it.
@@ -92,11 +89,11 @@ impl CodexPluginServer {
                 entry.insert(OAUTH_MEMBER.to_owned(), Value::Object(oauth));
             }
         }
-        if let Some(Value::String(folder)) = entry.get(WORKING_FOLDER_MEMBER)
+        if let Some(Value::String(folder)) = entry.get(CWD_MEMBER)
             && !Path::new(folder).is_absolute()
         {
             let folder = self.plugin_root.join(folder).display().to_string();
-            entry.insert(WORKING_FOLDER_MEMBER.to_owned(), Value::String(folder));
+            entry.insert(CWD_MEMBER.to_owned(), Value::String(folder));
         }
         entry.insert(ENABLED_MEMBER.to_owned(), Value::Bool(true));
         entry

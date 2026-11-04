@@ -89,9 +89,10 @@ impl CodexDriver {
 
     /// Switches the session's tool servers to `tool_servers`: the set is written to run `run_id`'s
     /// stored leg first, then put on the live record, which owes a fork onto it. Answers
-    /// `AtNextStart` with no live record, `Applied` once an idle session moved onto the fork, and
-    /// `AtNextTurn` while a turn holds the fork back. Fails as the stored write fails, with nothing
-    /// applied, and with `CodexError::Transport` as the fork fails, which the next turn runs first.
+    /// `AtNextStart` with no live record or once the session closed before the fork, `Applied` once
+    /// an idle session moved onto the fork, and `AtNextTurn` while a turn holds the fork back or
+    /// once the fork failed: the set is kept and the fork still owed, its failure reported on its
+    /// own, so the next turn forks first. Fails as the stored write fails, with nothing applied.
     pub(crate) async fn switch_session_mcp_servers(
         &self,
         session_id: SessionId,
@@ -127,11 +128,10 @@ impl CodexDriver {
             Ok(true) => Ok(McpSessionSwitch::Applied),
             // A turn began before the fork ran; that turn's end runs it.
             Ok(false) => Ok(McpSessionSwitch::AtNextTurn),
-            Err(error) => Err(CodexError::Transport {
-                detail: error.to_string(),
-                cause: Some(Box::new(error)),
+            Err(error) if matches!(*error, CodexError::SessionClosed { .. }) => {
+                Ok(McpSessionSwitch::AtNextStart)
             }
-            .into()),
+            Err(_) => Ok(McpSessionSwitch::AtNextTurn),
         }
     }
 
@@ -194,8 +194,8 @@ impl CodexDriver {
         params: CompactContextParams,
     ) -> Result<AgentRunContextCompactResponse, DriverError> {
         let inbound = self.slots.require_live(params.session_id)?;
-        let reading = call_codex_lifecycle(&inbound, |reply| CodexLifecycleCall::ReadCompaction {
-            reply,
+        let reading = call_codex_lifecycle(&inbound, |reply| {
+            CodexLifecycleCall::ReadConversation { reply }
         })
         .await?;
         let connection = reading.connection?;

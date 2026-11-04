@@ -37,7 +37,7 @@ impl CodexDriver {
     ) -> Result<McpResourceSource, DriverError> {
         let inbound = self.slots.require_live(session_id)?;
         let conversation = call_codex_lifecycle(&inbound, |reply| {
-            CodexLifecycleCall::ReadCompaction { reply }
+            CodexLifecycleCall::ReadConversation { reply }
         })
         .await?;
         let connection = conversation.connection?;

@@ -26,7 +26,9 @@ use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::account::api_key::{log_in_with_api_key, read_codex_api_key};
 use crate::driver::codex::app_server_protocol::ThreadLoadedListParams;
 use crate::driver::codex::exec_relay::{CODEX_EXECUTOR_ARGUMENTS, CodexExecRelay, RelayedThread};
-use crate::driver::codex::native_program::{CodexNativeProgram, resolve_codex_native_program};
+use crate::driver::codex::native_program::{
+    CodexNativeCommand, CodexNativeProgram, resolve_codex_native_program,
+};
 use crate::driver::codex::privacy::read_codex_privacy;
 use crate::driver::codex::service::command_line::{
     CodexServiceCommandLineInput, compose_codex_service_arguments,
@@ -169,7 +171,7 @@ pub(super) async fn start_codex_service(
             detail: "The Codex command could not be resolved.".to_owned(),
             cause: Some(Box::new(error)),
         })?;
-    service.set_native_program(None);
+    service.set_native_command(None);
     let started = match service.home().kind {
         CodexHomeKind::Account(_) | CodexHomeKind::ApiKeyAccount(_) | CodexHomeKind::Switching => {
             start_relayed_service(&service, launch, &cancel, &executable).await
@@ -189,17 +191,19 @@ pub(super) async fn start_codex_service(
         }
     }?;
     if started.process.is_none() {
-        service.set_native_program(resolve_joined_native_program(&executable).await);
+        service.set_native_command(resolve_joined_native_command(&executable).await);
     }
     Ok(started)
 }
 
-// The native program of a service the daemon only joined, which launched none, so its stdio
+// The native command of a service the daemon only joined, which launched none, so its stdio
 // servers can run in the sandbox; `None`, logged, where it cannot be found, which fails only a
 // sandboxed call's table.
-async fn resolve_joined_native_program(executable: &ResolvedProviderExecutable) -> Option<PathBuf> {
+async fn resolve_joined_native_command(
+    executable: &ResolvedProviderExecutable,
+) -> Option<CodexNativeCommand> {
     match resolve_native_program_off_thread(executable).await {
-        Ok(native) => Some(native.program),
+        Ok(native) => Some(CodexNativeCommand::of(native.program, &executable.start)),
         Err(error) => {
             tracing::warn!(
                 error = &error as &(dyn std::error::Error + 'static),
@@ -610,7 +614,10 @@ async fn compose_launch(
     let launch =
         compose_codex_native_launch(&service.dependencies().data_folder, executable, arguments)
             .await?;
-    service.set_native_program(Some(launch.program.clone()));
+    service.set_native_command(Some(CodexNativeCommand::of(
+        launch.program.clone(),
+        &executable.start,
+    )));
     Ok(launch)
 }
 
@@ -629,16 +636,8 @@ pub(crate) async fn compose_codex_native_launch(
             detail: "Codex's program could not be found.".to_owned(),
             cause: Some(Box::new(error)),
         })?;
-    let mut launch_arguments: Vec<String> = if native.program == executable.start.program {
-        executable
-            .start
-            .leading_arguments
-            .iter()
-            .map(|argument| argument.to_string_lossy().into_owned())
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let mut launch_arguments =
+        CodexNativeCommand::of(native.program.clone(), &executable.start).leading_arguments;
     launch_arguments.extend(arguments);
     let mut environment = executable.environment.clone();
     native.set_launcher_environment(&mut environment);

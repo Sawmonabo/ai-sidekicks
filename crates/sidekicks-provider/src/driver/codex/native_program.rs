@@ -72,6 +72,37 @@ pub(crate) struct CodexNativeProgram {
     pub(crate) launcher_environment: Vec<(String, String)>,
 }
 
+/// The native Codex program a service runs, with the arguments its start puts before any of the
+/// caller's, which a command run beside the service, a sandboxed tool server's among them, takes
+/// too.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CodexNativeCommand {
+    /// The native program.
+    pub(crate) program: PathBuf,
+    /// The arguments before the caller's own: the start's leading arguments where its program is
+    /// the native one, and none where the native program stands behind Codex's launcher.
+    pub(crate) leading_arguments: Vec<String>,
+}
+
+impl CodexNativeCommand {
+    /// The command that runs `program`, the native program resolved from `start`.
+    pub(crate) fn of(program: PathBuf, start: &ProgramStart) -> Self {
+        let leading_arguments = if program == start.program {
+            start
+                .leading_arguments
+                .iter()
+                .map(|argument| argument.to_string_lossy().into_owned())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        Self {
+            program,
+            leading_arguments,
+        }
+    }
+}
+
 impl CodexNativeProgram {
     /// Sets the launcher's variables over `environment` as the launcher does, every
     /// `CODEX_MANAGED_BY_*` taken off first so one package manager is named; leaves it alone for a

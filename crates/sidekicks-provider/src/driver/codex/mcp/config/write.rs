@@ -4,19 +4,19 @@
 //! written, so the person's own forms of the rest stay. A landed write is followed by one reload
 //! of the running service's servers, whose failure travels inside the applied outcome.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::Deserialize;
 use serde_json::{Map, Value};
-use sidekicks_contracts::mcp::server::config::McpServerConfigInput;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpWritableBindingRef};
+use sidekicks_std::file::atomic_write::AtomicWriteError;
 
 use crate::driver::codex::app_server_protocol::{
     ConfigBatchWriteParams, ConfigEdit, MergeStrategy,
 };
 use crate::driver::codex::lifecycle::CodexDriver;
-use crate::driver::codex::mcp::config::compose::{before_members, compose_codex_mcp_entry};
-use crate::driver::codex::mcp::config::observe::observe_codex_mcp_server;
+use crate::driver::codex::mcp::config::compose::before_members;
+use crate::driver::codex::mcp::config::observe::{codex_binding_folder, observe_codex_mcp_server};
 use crate::driver::codex::mcp::config::project_file::{
     CodexProjectFile, CodexProjectFileEdit, CodexProjectFileError, CodexProjectServerEdit,
 };
@@ -26,8 +26,8 @@ use crate::driver::codex::session::errors::{CODEX_INVALID_REQUEST_CODE, CodexErr
 use crate::driver::codex::thread::settings::MCP_SERVERS_KEY;
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
 use crate::driver::mcp_server::write::{
-    McpServerEntry, McpServerObserved, McpServerWrite, McpServerWriteOutcome,
-    McpServerWriteRefusal, provider_words_without_values,
+    McpServerObserved, McpServerWrite, McpServerWriteOutcome, McpServerWriteRefusal,
+    provider_words_without_values,
 };
 
 /// The request that writes several key paths of Codex's user config at once.
@@ -65,25 +65,13 @@ impl CodexDriver {
         &self,
         binding: &McpServerBindingRef,
     ) -> Result<McpServerObserved, CodexError> {
-        let cwd = mcp_write_folder(binding, &self.project_rules.home_folder);
+        let cwd = codex_binding_folder(binding, &self.project_rules.home_folder);
         let cwd = cwd.as_path();
         self.registry
             .read_on_personal_folder(PersonalFolderRead::Config, |service| async move {
                 observe_codex_mcp_server(&*service.connection()?, binding, cwd).await
             })
             .await
-    }
-
-    /// The entry Codex holds for `binding` once `config` is written over `before`. Fails as
-    /// [`compose_codex_mcp_entry`] does.
-    #[expect(clippy::unused_self, reason = "the driver trait's method shape")]
-    pub(crate) fn compose_mcp_server(
-        &self,
-        binding: &McpWritableBindingRef,
-        config: &McpServerConfigInput,
-        before: &McpServerObserved,
-    ) -> Result<McpServerEntry, McpServerWriteRefusal> {
-        compose_codex_mcp_entry(binding, config, &before.entry)
     }
 
     /// Writes `write` against `before` on the service on the person's own Codex folder; a service
@@ -99,7 +87,7 @@ impl CodexDriver {
             }
             McpServerWrite::SetEnabled { binding, .. } => binding.clone(),
         };
-        let cwd = mcp_write_folder(&binding, &self.project_rules.home_folder);
+        let cwd = codex_binding_folder(&binding, &self.project_rules.home_folder);
         let cwd = cwd.as_path();
         self.registry
             .read_on_personal_folder(PersonalFolderRead::Config, |service| async move {
@@ -107,19 +95,6 @@ impl CodexDriver {
             })
             .await
             .unwrap_or_else(|error| refused_by_provider(&error.to_string()))
-    }
-}
-
-/// The folder Codex's config is read and written at for `binding`: its root for a `project` or
-/// `local` binding, `home`, the person's home folder, for any other.
-fn mcp_write_folder(binding: &McpServerBindingRef, home: &Path) -> PathBuf {
-    match binding {
-        McpServerBindingRef::Project { scope_ref, .. }
-        | McpServerBindingRef::Local { scope_ref, .. } => PathBuf::from(scope_ref.as_str()),
-        McpServerBindingRef::User { .. }
-        | McpServerBindingRef::Plugin { .. }
-        | McpServerBindingRef::Connector { .. }
-        | McpServerBindingRef::Managed { .. } => home.to_path_buf(),
     }
 }
 
@@ -387,12 +362,17 @@ fn project_file_failure(error: &CodexProjectFileError) -> McpServerWriteOutcome 
         CodexProjectFileError::UnwritableValue { .. } => {
             McpServerWriteRefusal::EntryInvalid { words }
         }
-        // The task may have ended after the file was written.
-        CodexProjectFileError::Interrupted(_) => return McpServerWriteOutcome::Unknown,
+        // The file may hold the edit: the task ended after it was written, or it was written and
+        // only its folder's flush failed.
+        CodexProjectFileError::Interrupted(_)
+        | CodexProjectFileError::FolderFlush(_)
+        | CodexProjectFileError::Write(
+            AtomicWriteError::FlushFolder { .. } | AtomicWriteError::Interrupted { .. },
+        ) => return McpServerWriteOutcome::Unknown,
         CodexProjectFileError::Read(_)
         | CodexProjectFileError::DanglingLink
         | CodexProjectFileError::Folder(_)
-        | CodexProjectFileError::Write(_)
+        | CodexProjectFileError::Write(AtomicWriteError::Write { .. })
         | CodexProjectFileError::Create(_) => McpServerWriteRefusal::Provider { words },
     })
 }
@@ -423,6 +403,7 @@ async fn reload_mcp_servers(connection: &CodexAppServerConnection) -> Option<Str
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+    use std::time::Duration;
 
     use rstest::rstest;
     use serde_json::{Map, Value, json};
@@ -431,33 +412,19 @@ mod tests {
 
     use super::write_codex_mcp_server;
     use crate::driver::codex::mcp::config::compose::compose_codex_mcp_entry;
-    use crate::driver::codex::session::detached_conversation::CodexDetachedFrames;
     use crate::driver::codex::transport::connection::scripted_service::{
-        ScriptedService, connect_scripted_service,
-    };
-    use crate::driver::codex::transport::connection::{
-        CodexAppServerConnection, CodexConnectionHandlers,
+        ScriptedService, scripted_connection,
     };
     use crate::driver::mcp_server::write::{
         McpServerEntry, McpServerObserved, McpServerObservedEntry, McpServerWrite,
         McpServerWriteOutcome, McpServerWriteRefusal,
     };
 
-    const MESSAGE_LIMIT: usize = 1 << 20;
     const HOME: &str = "/home/person";
     const SECRET: &str = "SECRET-STRING";
 
-    fn scripted_connection() -> (CodexAppServerConnection, ScriptedService) {
-        let (events, _frames) = CodexDetachedFrames::new();
-        connect_scripted_service(
-            MESSAGE_LIMIT,
-            CodexConnectionHandlers {
-                events,
-                responder: None,
-                token_refresher: None,
-            },
-        )
-    }
+    /// How long a write and its script run before the test fails instead of hanging.
+    const SCRIPT_WAIT: Duration = Duration::from_secs(10);
 
     fn user_binding(server_name: &str) -> McpWritableBindingRef {
         serde_json::from_value(json!({
@@ -472,7 +439,7 @@ mod tests {
 
     fn observed(entry: Value) -> McpServerObserved {
         McpServerObserved {
-            entry: McpServerObservedEntry::Present(McpServerEntry::from_members(members(entry))),
+            entry: McpServerObservedEntry::Present(McpServerEntry::from_json(entry)),
             config_version: Some("sha256:old".to_owned()),
             config_files: vec![format!("{HOME}/.codex/config.toml")],
         }
@@ -523,13 +490,13 @@ mod tests {
     async fn an_update_writes_each_changed_member_then_reloads_once(
         #[case] reload_error: Option<i64>,
     ) {
-        let (connection, mut script) = scripted_connection();
+        let (connection, mut script, _frames) = scripted_connection();
         let before = observed(json!({ "command": "npx", "args": ["docs@1"], "enabled": true }));
         let write = McpServerWrite::Upsert {
             binding: user_binding("docs.v2"),
-            entry: McpServerEntry::from_members(members(
+            entry: McpServerEntry::from_json(
                 json!({ "command": "npx", "args": ["docs@2"], "enabled": true }),
-            )),
+            ),
         };
         let script_run = async {
             let sent = answer_landed_write(&mut script).await;
@@ -585,14 +552,15 @@ mod tests {
     #[case::address_to_program(
         json!({
             "url": "https://docs.example.com/mcp", "bearer_token_env_var": "DOCS_TOKEN",
-            "http_headers": { "X-Team": "a" }, "env_http_headers": { "X-Key": "KEY" },
+            "bearer_token": "docs-token", "http_headers": { "X-Team": "a" },
+            "http_headers_helper": "docs-headers", "env_http_headers": { "X-Key": "KEY" },
             "oauth": { "client_id": "c" }, "oauth_resource": "https://docs.example.com",
-            "enabled": true,
+            "auth": "oauth", "scopes": ["read"], "enabled": true,
         }),
         json!({ "transport": "stdio", "command": "npx" }),
         &[
-            "url", "bearer_token_env_var", "http_headers", "env_http_headers", "oauth",
-            "oauth_resource",
+            "url", "bearer_token_env_var", "bearer_token", "http_headers", "http_headers_helper",
+            "env_http_headers", "oauth", "oauth_resource", "auth",
         ],
     )]
     #[case::cleared_member(
@@ -606,7 +574,7 @@ mod tests {
         #[case] input: Value,
         #[case] other_arm: &[&str],
     ) {
-        let (connection, mut script) = scripted_connection();
+        let (connection, mut script, _frames) = scripted_connection();
         let before = observed(before_entry);
         let binding = user_binding("docs");
         let config: McpServerConfigInput =
@@ -643,7 +611,7 @@ mod tests {
     // Killed by a retry, a reload after the conflict, and a version not read again.
     #[tokio::test]
     async fn a_version_conflict_answers_both_versions_and_sends_nothing_more() {
-        let (connection, mut script) = scripted_connection();
+        let (connection, mut script, _frames) = scripted_connection();
         let before = observed(json!({ "command": "npx" }));
         let write = McpServerWrite::Remove {
             binding: user_binding("docs"),
@@ -671,10 +639,14 @@ mod tests {
                 }),
             );
         };
-        let (outcome, ()) = tokio::join!(
-            write_codex_mcp_server(&connection, &write, &before, Path::new(HOME)),
-            script_run,
-        );
+        let (outcome, ()) = tokio::time::timeout(SCRIPT_WAIT, async {
+            tokio::join!(
+                write_codex_mcp_server(&connection, &write, &before, Path::new(HOME)),
+                script_run,
+            )
+        })
+        .await
+        .expect("the write and its script settle");
         assert_eq!(
             outcome,
             McpServerWriteOutcome::Refused(McpServerWriteRefusal::StaleVersion {
@@ -698,9 +670,8 @@ mod tests {
         #[case] faulted_path: &str,
         #[case] is_file_fault: bool,
     ) {
-        let (connection, mut script) = scripted_connection();
+        let (connection, mut script, _frames) = scripted_connection();
         let before = observed(json!({ "command": "npx", "enabled": true }));
-        let observed_files = before.config_files.clone();
         let write = McpServerWrite::SetEnabled {
             binding: (&user_binding("docs.v2")).into(),
             is_enabled: false,
@@ -743,7 +714,6 @@ mod tests {
         assert_eq!(is_refused_as_file_fault, is_file_fault);
         assert!(!words.contains(SECRET), "{words}");
         assert!(!words.contains("/Users/x"), "{words}");
-        assert_eq!(before.config_files, observed_files);
         assert!(script.sent.try_recv().is_err(), "nothing follows a refusal");
     }
 }

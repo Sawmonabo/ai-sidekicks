@@ -8,11 +8,18 @@ use tokio::sync::mpsc;
 #[cfg(test)]
 use tokio_tungstenite::tungstenite::Bytes;
 
+#[cfg(test)]
+use crate::driver::codex::session::detached_conversation::{
+    CodexDetachedFrame, CodexDetachedFrames,
+};
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::transport::connection::{
     CodexAppServerConnection, CodexConnectionHandlers, ServiceMessageReader, ServiceMessageWriter,
 };
 use crate::driver::codex::transport::socket::CodexSocketEvent;
+
+/// The largest message a test's scripted service takes, far above any a test sends.
+pub(crate) const SCRIPTED_MESSAGE_LIMIT: usize = 1 << 20;
 
 /// The connection's socket as a test drives it: what the connection sent arrives on `sent`, and
 /// what the service sends goes in through `inbound`.
@@ -82,6 +89,26 @@ pub(crate) fn connect_scripted_service(
         handlers,
     );
     (connection, ScriptedService { sent, inbound })
+}
+
+/// A connection on a scripted service that takes messages up to [`SCRIPTED_MESSAGE_LIMIT`], with no
+/// responder and no token refresher, the script, and where the connection's notifications arrive.
+#[cfg(test)]
+pub(crate) fn scripted_connection() -> (
+    CodexAppServerConnection,
+    ScriptedService,
+    mpsc::UnboundedReceiver<CodexDetachedFrame>,
+) {
+    let (events, frames) = CodexDetachedFrames::new();
+    let (connection, script) = connect_scripted_service(
+        SCRIPTED_MESSAGE_LIMIT,
+        CodexConnectionHandlers {
+            events,
+            responder: None,
+            token_refresher: None,
+        },
+    );
+    (connection, script, frames)
 }
 
 struct ScriptedWriter {

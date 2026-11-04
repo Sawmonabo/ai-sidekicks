@@ -31,7 +31,7 @@ use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::app_server_protocol::McpServerOauthLoginParams;
 use crate::driver::codex::config_read::read_codex_config;
 use crate::driver::codex::mcp::config::plugins::read_plugin_server_entries;
-use crate::driver::codex::mcp::config::server_entry::{ENABLED_MEMBER, URL_MEMBER};
+use crate::driver::codex::mcp::config::server_entry::{ENABLED_MEMBER, OAUTH_MEMBER, URL_MEMBER};
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
 use crate::driver::codex::service::supervisor::CodexService;
@@ -75,8 +75,7 @@ const SIGN_IN_FOLDER_NAME_BYTES: usize = 4;
 /// Codex ends a login that outlived its timeout itself.
 const COMPLETION_MARGIN: Duration = Duration::from_secs(10);
 
-/// The member of a server entry holding its sign-in client, and that client's secret.
-const OAUTH_MEMBER: &str = "oauth";
+/// The member of a sign-in client that holds its secret.
 const OAUTH_CLIENT_SECRET_MEMBER: &str = "client_secret";
 
 /// Why a sign-in through Codex's own client did not answer credentials. No case carries a

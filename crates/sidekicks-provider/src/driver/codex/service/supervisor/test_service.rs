@@ -84,7 +84,7 @@ use crate::driver::codex::shells::CodexShellKind;
 #[cfg(test)]
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::connection::scripted_service::{
-    ScriptedService, connect_scripted_service,
+    SCRIPTED_MESSAGE_LIMIT, ScriptedService, connect_scripted_service,
 };
 use crate::driver::contract::error::DriverError;
 #[cfg(test)]
@@ -101,9 +101,6 @@ const TEST_DISPATCHES_HOOK_MODE: bool = false;
 
 /// The kind of shell the test services' hooks are quoted for.
 const TEST_SESSION_SHELL_KIND: CodexShellKind = CodexShellKind::Sh;
-
-/// The largest message the scripted service takes, far above any a test sends.
-const SCRIPTED_MESSAGE_LIMIT: usize = 1 << 20;
 
 /// The scripted connection's ticket, which routes its frames.
 const SCRIPTED_DIAL: u64 = 1;

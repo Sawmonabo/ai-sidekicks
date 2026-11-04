@@ -146,6 +146,14 @@ pub(crate) struct CodexConfigLayerSource {
     pub(crate) dot_codex_folder: Option<String>,
 }
 
+impl CodexConfigLayerSource {
+    /// The kind of the layer that holds the person's own Codex config.
+    pub(crate) const USER_KIND: &'static str = "user";
+
+    /// The kind of a layer that holds a project's own Codex config.
+    pub(crate) const PROJECT_KIND: &'static str = "project";
+}
+
 /// Codex's settings for `cwd` as `connection`'s service resolves them, each layer listed in the
 /// reply when `include_layers` asks. Fails as the request fails, and with `CodexError::Transport`
 /// for a reply `Config` cannot read.

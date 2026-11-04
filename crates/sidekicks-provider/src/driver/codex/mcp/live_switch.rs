@@ -5,9 +5,12 @@
 
 use std::sync::Arc;
 
+use crate::driver::codex::mcp::session_table::is_run_by_codex_table;
+use crate::driver::codex::permission_level::codex_repository_root;
 use crate::driver::codex::session::fork::config_change::CodexConfigForks;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::mcp_server::session_switch::McpSessionSwitch;
+use crate::driver::mcp_server::status::{McpServerReading, McpServerStatusEmission};
 use crate::driver::session_control::SessionToolServer;
 
 /// Puts `tool_servers` on `record`, which every resume and fork composes its table from, and owes
@@ -34,6 +37,31 @@ pub(crate) fn switch_codex_session_servers(
     }
 }
 
+/// Reports to `record`'s status leg each server a startup was heard for on its conversation that
+/// the record's table no longer runs, as switched off: a fork that stays on the leg runs the new
+/// table, and its conversation sends no startup for a server it does not run.
+pub(crate) fn report_codex_servers_switched_off(record: &CodexSessionRecord) {
+    let Some(producer) = &record.on_mcp_server_status else {
+        return;
+    };
+    let settings = &record.thread_settings;
+    let repository_root = codex_repository_root(&settings.profile_folders);
+    for server_name in record.mcp_server_startups.server_names() {
+        if !is_run_by_codex_table(
+            &settings.tool_servers,
+            repository_root,
+            server_name.as_str(),
+        ) {
+            producer.report_status(McpServerStatusEmission {
+                server_name: server_name.clone(),
+                reading: McpServerReading::SwitchedOff,
+                failure_text: None,
+                tool_names: None,
+            });
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -45,10 +73,14 @@ mod tests {
     use crate::driver::codex::DESCRIPTOR;
     use crate::driver::codex::session::calls::CodexSessionTask;
     use crate::driver::codex::session::fork::config_change::run_codex_config_fork;
+    use crate::driver::codex::session::test_fixture::status_sink::{
+        CountingStatusSink, mcp_server_startup,
+    };
     use crate::driver::codex::session::test_fixture::{
         TEST_THREAD, TestCodexSession, fork_reply, no_turns,
     };
     use crate::driver::mcp_server::session_switch::McpSessionSwitch;
+    use crate::driver::mcp_server::status::{McpServerReading, McpServerStatusProducer};
     use crate::driver::session_control::SessionToolServer;
     use crate::driver::test_registry::new_run_id;
 
@@ -62,14 +94,23 @@ mod tests {
         }
     }
 
-    // A switch while the lead's turn runs waits for the turn: it answers `AtNextTurn`, owes the
-    // fork and sends nothing; once the turn is gone the fork reads the config and forks with the
-    // server switched off. Killed by forking under the running turn, by the record's set left
-    // unchanged, and by the held switch never sent.
+    // A switch while the lead's turn runs waits for the turn: it answers `AtNextTurn` and owes
+    // the fork; once the turn is gone the fork reads the config and forks with the server
+    // switched off, and the leg, which the fork keeps, reads the server switched off, since the
+    // new conversation sends no startup for it. Killed by forking under the running turn, by the
+    // record's set left unchanged, by the held switch never sent, and by the leg left reading the
+    // old conversation's startup.
     #[tokio::test(start_paused = true)]
     async fn a_switch_while_the_lead_runs_forks_once_its_turn_settles() {
         let mut session = TestCodexSession::start().await;
         let binding_id = session.record_binding().await;
+        let sink = Arc::new(CountingStatusSink::default());
+        session.task.record.on_mcp_server_status =
+            Some(Arc::clone(&sink) as McpServerStatusProducer);
+        session
+            .task
+            .handle(mcp_server_startup(TEST_THREAD, "tracker", "ready", None))
+            .await;
         let record = &mut session.task.record;
         record.binding_id = Some(binding_id);
         record.thread_settings.tool_servers = vec![tracker(true)];
@@ -103,7 +144,6 @@ mod tests {
         let fork = run_codex_config_fork(&mut task, &session.task.calls.forks);
         let script = &mut session.scripted.script;
         let answer = async {
-            // The first message since the switch is the fork's own read, so the switch sent none.
             let read = script.next_sent().await;
             assert_eq!(read["method"], "config/read");
             script.answer(
@@ -140,5 +180,13 @@ mod tests {
         assert!(forked, "the held switch is sent once the turn settles");
         assert_eq!(session.task.record.thread_id, "thread-2");
         assert!(!session.task.record.is_config_fork_owed);
+        let tracker_reading = sink
+            .reported()
+            .into_iter()
+            .rev()
+            .find(|emission| emission.server_name.as_str() == "tracker")
+            .map(|emission| emission.reading);
+        assert_eq!(tracker_reading, Some(McpServerReading::SwitchedOff));
+        assert_eq!(sink.ends(), 0, "the fork keeps the leg");
     }
 }

@@ -555,10 +555,13 @@ mod tests {
         assert_eq!(config.get("agents.enabled"), agents_enabled.as_ref());
     }
 
-    // Killed by building a conversation's command environment without the switches every
-    // registered provider's background work is turned off by, or by dropping them from the policy.
+    // The commands' policy is the conversation's environment whole: nothing inherited, the
+    // person's own include list emptied, and every variable set, every registered provider's
+    // background switch among them. Killed by sending `set` alone, which leaves the person's own
+    // `include_only` or `filters` to strip the conversation's variables, and by building the
+    // environment without the switches or dropping them from the policy.
     #[test]
-    fn the_conversation_commands_carry_every_providers_background_switch() {
+    fn the_commands_policy_sets_the_conversation_environment_whole() {
         let reserved_names = ReservedEnvironmentNames::of_providers(PROVIDERS);
         let request = ProviderEnvironmentRequest {
             session: SessionEnvironment {
@@ -580,6 +583,15 @@ mod tests {
 
         let params = compose_codex_thread_start_params(&settings, Map::new());
         let config = params.config.expect("a start always carries its config");
+        let set: Map<String, Value> = settings
+            .command_environment
+            .iter()
+            .map(|(name, value)| (name.clone(), json!(value)))
+            .collect();
+        assert_eq!(
+            config["shell_environment_policy"],
+            json!({ "inherit": "none", "include_only": [], "set": set })
+        );
         let switches: Vec<_> = PROVIDERS
             .iter()
             .filter_map(|descriptor| descriptor.background_work.as_ref())
@@ -587,28 +599,8 @@ mod tests {
             .collect();
         assert_ne!(switches.len(), 0);
         for (name, value) in switches {
-            assert_eq!(
-                config["shell_environment_policy"]["set"][name],
-                json!(value)
-            );
+            assert_eq!(set[name], json!(value));
         }
-    }
-
-    // Killed by sending `set` alone, which leaves the person's own `include_only` or `filters` to
-    // strip the conversation's variables.
-    #[test]
-    fn the_commands_policy_replaces_the_persons_include_list() {
-        let settings = CodexThreadSettings {
-            command_environment: vec![("SIDEKICKS_RUN".to_owned(), "run-1".to_owned())],
-            ..settings_with(None)
-        };
-
-        let params = compose_codex_thread_start_params(&settings, Map::new());
-        let config = params.config.expect("a start always carries its config");
-        assert_eq!(
-            config["shell_environment_policy"],
-            json!({ "inherit": "none", "include_only": [], "set": { "SIDEKICKS_RUN": "run-1" } })
-        );
     }
 
     /// A thread request that carries a service tier.

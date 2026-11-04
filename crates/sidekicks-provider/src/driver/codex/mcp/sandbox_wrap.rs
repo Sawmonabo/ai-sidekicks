@@ -15,8 +15,9 @@ use sidekicks_platforms::PathRules;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::lifecycle::naming::lockdown::write_exec_overrides;
 use crate::driver::codex::mcp::config::server_entry::{
-    ARGS_MEMBER, COMMAND_MEMBER, ENV_MEMBER, ENV_VARS_MEMBER,
+    ARGS_MEMBER, COMMAND_MEMBER, ENV_MEMBER, read_stdio_variable_names,
 };
+use crate::driver::codex::native_program::CodexNativeCommand;
 use crate::driver::codex::permission_level::compose_codex_permission_config;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::thread::settings::CodexThreadSettings;
@@ -63,14 +64,26 @@ const CODEX_WINDOWS_SERVER_VARIABLES: &[&str] = &[
     "PWSH",
 ];
 
-/// The member of an `env_vars` item written as a table that names its variable.
-const ENV_VAR_NAME_MEMBER: &str = "name";
+/// The variables Codex hands every stdio server it starts on any system, which name a CA bundle.
+const CODEX_CA_BUNDLE_VARIABLES: &[&str] = &[
+    "CODEX_CA_CERTIFICATE",
+    "SSL_CERT_FILE",
+    "REQUESTS_CA_BUNDLE",
+    "CURL_CA_BUNDLE",
+    "NODE_EXTRA_CA_CERTS",
+    "GIT_SSL_CAINFO",
+    "CARGO_HTTP_CAINFO",
+    "PIP_CERT",
+    "BUNDLE_SSL_CA_CERT",
+    "npm_config_cafile",
+    "NPM_CONFIG_CAFILE",
+];
 
 /// Everything a stdio server's entry is wrapped in the session's sandbox with.
 #[derive(Clone, Debug)]
 pub(crate) struct CodexSandboxWrap {
-    /// Codex's native program, the one the session's service runs.
-    native_program: PathBuf,
+    /// Codex's native command, the one the session's service runs.
+    native_command: CodexNativeCommand,
     /// The session's service home, the sandbox's Codex home.
     service_home: PathBuf,
     /// The id of the level's profile.
@@ -81,19 +94,19 @@ pub(crate) struct CodexSandboxWrap {
     worktree: PathBuf,
 }
 
-/// The wrap of `settings`' session's stdio servers, run by `native_program`, the session's
+/// The wrap of `settings`' session's stdio servers, run by `native_command`, the session's
 /// service's, on `service_home`: one at `Sandboxed`, and none at any other level, whose servers
 /// Codex starts as declared. Fails with `CodexError::Transport` at `Sandboxed` when the service
-/// knows no native program, so no server starts outside the sandbox.
+/// knows no native command, so no server starts outside the sandbox.
 pub(crate) fn compose_codex_sandbox_wrap(
     settings: &CodexThreadSettings,
-    native_program: Option<PathBuf>,
+    native_command: Option<CodexNativeCommand>,
     service_home: PathBuf,
 ) -> Result<Option<CodexSandboxWrap>, CodexError> {
     if settings.level != PermissionLevel::Sandboxed {
         return Ok(None);
     }
-    let native_program = native_program.ok_or_else(|| CodexError::Transport {
+    let native_command = native_command.ok_or_else(|| CodexError::Transport {
         detail: "Codex's program could not be found, so the session's tool servers cannot run \
             in its sandbox."
             .to_owned(),
@@ -105,7 +118,7 @@ pub(crate) fn compose_codex_sandbox_wrap(
         .remove(&config.default_permissions)
         .expect("every level below YOLO defines its own profile");
     Ok(Some(CodexSandboxWrap {
-        native_program,
+        native_command,
         service_home,
         profile_name: config.default_permissions,
         profile: serde_json::to_value(profile).expect("a profile is string-keyed maps and names"),
@@ -114,11 +127,12 @@ pub(crate) fn compose_codex_sandbox_wrap(
 }
 
 /// `entry`, a stdio server's, run inside `wrap`'s sandbox: its `command` Codex's native program,
-/// its `args` the switches that select the level's profile and pin the server's environment to
-/// the names it may read, then `sandbox` with the profile and the worktree, then the entry's own
-/// command and arguments; its `env` its own with Codex's home set to the service home. Every other
-/// member is kept. An entry with no program or with an argument that is not text is kept whole,
-/// since Codex refuses it before anything starts.
+/// its `args` the native command's leading arguments, the switches that select the level's
+/// profile and pin the server's environment to the names it may read, then `sandbox` with the
+/// profile and the worktree, then the entry's own command and arguments; its `env` its own with
+/// Codex's home set to the service home. Every other member is kept. An entry with no program, an
+/// argument that is not text or a variable list that does not read is kept whole, since Codex
+/// refuses it before anything starts.
 pub(crate) fn wrap_codex_stdio_server(
     wrap: &CodexSandboxWrap,
     entry: &Map<String, Value>,
@@ -140,12 +154,16 @@ pub(crate) fn wrap_codex_stdio_server(
         }
         Some(_) => return entry.clone(),
     };
+    let Some(declared_names) = read_stdio_variable_names(entry) else {
+        return entry.clone();
+    };
     let mut wrapped = entry.clone();
     wrapped.insert(
         COMMAND_MEMBER.to_owned(),
-        Value::String(wrap.native_program.to_string_lossy().into_owned()),
+        Value::String(wrap.native_command.program.to_string_lossy().into_owned()),
     );
-    let mut wrapped_arguments = write_exec_overrides(vec![
+    let mut wrapped_arguments = wrap.native_command.leading_arguments.clone();
+    wrapped_arguments.extend(write_exec_overrides(vec![
         (
             format!("permissions.{}", wrap.profile_name),
             wrap.profile.clone(),
@@ -160,9 +178,9 @@ pub(crate) fn wrap_codex_stdio_server(
         ("shell_environment_policy.exclude".to_owned(), json!([])),
         (
             "shell_environment_policy.include_only".to_owned(),
-            json!(server_variable_names(entry)),
+            json!(server_variable_names(&declared_names)),
         ),
-    ]);
+    ]));
     wrapped_arguments.extend([
         "sandbox".to_owned(),
         "-P".to_owned(),
@@ -186,34 +204,18 @@ pub(crate) fn wrap_codex_stdio_server(
     wrapped
 }
 
-// The names a wrapped server may read: Codex's own default set on this system, each name the
-// entry's `env` sets and each variable its `env_vars` names, written as a name or a table.
-fn server_variable_names(entry: &Map<String, Value>) -> BTreeSet<&str> {
+// The names a wrapped server may read: Codex's own default set on this system, the CA bundle
+// variables Codex hands every server, and the names the entry's `env` and `env_vars` declare.
+fn server_variable_names(declared: &[String]) -> BTreeSet<&str> {
     let defaults = match PathRules::NATIVE {
         PathRules::Posix => CODEX_POSIX_SERVER_VARIABLES,
         PathRules::Windows => CODEX_WINDOWS_SERVER_VARIABLES,
     };
-    let declared = entry
-        .get(ENV_MEMBER)
-        .and_then(Value::as_object)
-        .into_iter()
-        .flat_map(Map::keys)
-        .map(String::as_str);
-    let inherited = entry
-        .get(ENV_VARS_MEMBER)
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|variable| match variable {
-            Value::String(name) => Some(name.as_str()),
-            Value::Object(variable) => variable.get(ENV_VAR_NAME_MEMBER)?.as_str(),
-            Value::Null | Value::Bool(_) | Value::Number(_) | Value::Array(_) => None,
-        });
     defaults
         .iter()
+        .chain(CODEX_CA_BUNDLE_VARIABLES)
         .copied()
-        .chain(declared)
-        .chain(inherited)
+        .chain(declared.iter().map(String::as_str))
         .collect()
 }
 
@@ -227,6 +229,7 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
 
     use super::{compose_codex_sandbox_wrap, wrap_codex_stdio_server};
+    use crate::driver::codex::native_program::CodexNativeCommand;
     use crate::driver::codex::permission_level::{
         CodexProfileFolders, compose_codex_permission_config,
     };
@@ -284,10 +287,11 @@ mod tests {
 
     // The wrap at `Sandboxed` and its absence at every other level. Killed by writing a declared
     // value on the command line, by keeping Codex's own or the person's excludes, which drop a
-    // declared `GITHUB_TOKEN`, by leaving a declared name out of the include list, by a Codex home
-    // left to the person's own folder, by a profile that reads back as another, by touching a
-    // member beside the three, by a wrap below or above `Sandboxed`, and by a server started
-    // unsandboxed where the service knows no native program.
+    // declared `GITHUB_TOKEN`, by leaving a declared name or a CA bundle variable out of the
+    // include list, by dropping the native command's leading arguments, by a Codex home left to
+    // the person's own folder, by a profile that reads back as another, by touching a member beside
+    // the three, by a wrap below or above `Sandboxed`, and by a server started unsandboxed where
+    // the service knows no native command.
     #[rstest]
     #[case::read_only(PermissionLevel::Readonly)]
     #[case::ask(PermissionLevel::Ask)]
@@ -306,10 +310,13 @@ mod tests {
         );
         let wrap = compose_codex_sandbox_wrap(
             &settings,
-            Some(PathBuf::from("/opt/codex/bin/codex")),
+            Some(CodexNativeCommand {
+                program: PathBuf::from("/opt/codex/bin/codex"),
+                leading_arguments: vec!["--launched-by".to_owned()],
+            }),
             PathBuf::from(SERVICE_HOME),
         )
-        .expect("a service with a native program wraps its servers");
+        .expect("a service with a native command wraps its servers");
         let Some(wrap) = wrap else {
             assert_ne!(level, PermissionLevel::Sandboxed);
             return;
@@ -321,6 +328,7 @@ mod tests {
         let arguments: Vec<String> = serde_json::from_value(wrapped["args"].clone())
             .expect("the wrapped arguments are text");
         assert_eq!(wrapped["command"], json!("/opt/codex/bin/codex"));
+        assert_eq!(arguments[0], "--launched-by");
         assert!(
             arguments
                 .iter()
@@ -342,7 +350,14 @@ mod tests {
             toml::Value::String("all".to_owned())
         );
         let include_only = override_value(&arguments, "shell_environment_policy.include_only");
-        for name in ["GITHUB_TOKEN", "API_KEY", "ORG_NAME", "PATH"] {
+        for name in [
+            "GITHUB_TOKEN",
+            "API_KEY",
+            "ORG_NAME",
+            "PATH",
+            "SSL_CERT_FILE",
+            "NODE_EXTRA_CA_CERTS",
+        ] {
             assert!(
                 include_only
                     .as_array()

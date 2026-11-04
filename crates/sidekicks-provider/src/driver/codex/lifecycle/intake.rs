@@ -67,7 +67,7 @@ use crate::driver::codex::session::inbound::{
     drain_codex_session_inbound,
 };
 use crate::driver::codex::session::lifecycle_call::{
-    CodexCompactionReading, CodexLifecycleCall, CodexRunningCommandReading,
+    CodexConversationReading, CodexLifecycleCall, CodexRunningCommandReading,
 };
 use crate::driver::codex::session::slots::{CodexSessionLetGo, let_go_codex_session};
 use crate::driver::codex::session::state::CodexSessionRecord;
@@ -380,8 +380,8 @@ impl CodexSessionIntake {
                 let asked = parts.side_questions.ask(record, &params).await;
                 let _unheard = reply.send(asked);
             }
-            CodexLifecycleCall::ReadCompaction { reply } => {
-                let _unheard = reply.send(CodexCompactionReading {
+            CodexLifecycleCall::ReadConversation { reply } => {
+                let _unheard = reply.send(CodexConversationReading {
                     connection: record.service.connection(),
                     provider_account_id: record.provider_account_id.clone(),
                     thread_id: record.thread_id.clone(),
