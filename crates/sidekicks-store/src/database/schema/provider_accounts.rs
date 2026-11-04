@@ -260,8 +260,8 @@ CREATE TABLE provider_account_usage_turns (
   CHECK (run_id IS NULL OR session_id IS NOT NULL)
 ) STRICT;
 
--- The four reads of the table: the account surface's slices by day and by model, a request's rows
--- by its key, and a session's rows by time.
+-- The five reads of the table: the account surface's slices by day and by model, a request's rows
+-- by its key, a session's rows by time, and the held requests' rows no figure names yet.
 CREATE INDEX idx_provider_account_usage_turns_account_day
   ON provider_account_usage_turns(account_id, occurred_at);
 CREATE INDEX idx_provider_account_usage_turns_account_model
@@ -273,6 +273,10 @@ CREATE INDEX idx_provider_account_usage_turns_account_request
 -- the account indexes miss a session that moved accounts.
 CREATE INDEX idx_provider_account_usage_turns_session_time
   ON provider_account_usage_turns(session_id, occurred_at);
+-- The held requests' reads: the keys of the rows no figure names, and one key's rows by request.
+CREATE INDEX idx_provider_account_usage_turns_unpriced
+  ON provider_account_usage_turns(cost_usd_micros, provider, account_id, model_id, speed,
+                                  processing_region, request_key);
 "
     )
 }
