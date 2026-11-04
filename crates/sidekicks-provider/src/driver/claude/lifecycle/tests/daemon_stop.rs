@@ -1,0 +1,190 @@
+//! The daemon's stop of Claude Code's sessions: every slot closing before any process ends, the
+//! surviving background tasks stopped under a person's Stop, a bring-up waited out, and each run
+//! left for the stop's own settle.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use rstest::rstest;
+use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_DRAIN_BOUND_MS;
+use tokio::time::Instant;
+
+use super::held_calls::{holding_session, keep_record, stopped_tasks};
+use super::start_params;
+use crate::driver::claude::session::scripted::channel::{ScriptedChannel, ScriptedWrite};
+use crate::driver::claude::session::scripted::driver::{ScriptedDriver, create_params};
+use crate::driver::claude::session::scripted::held_calls::closes;
+use crate::driver::claude::session::scripted::settle;
+use crate::driver::contract::ProviderDriver;
+use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::test_registry::{new_run_id, new_session_id};
+use crate::run::state_entry::RunStateEntry;
+
+/// What meets a session at the daemon's stop.
+#[derive(Clone, Copy, Debug)]
+enum AtTheStop {
+    /// Under `Restart`, the process writes its turn's `result` and exits while its slot is closing.
+    RestartProcessExits,
+    /// Under `Restart`, the turn's `result` arrives while the close is held.
+    RestartResultArrives,
+    /// Under `Restart`, nothing arrives during the close.
+    RestartNothingArrives,
+    /// Under `Stop`, the process holds a tool server's background task that survives it.
+    StopWithASurvivingTask,
+    /// Under `Stop`, the session's process is still coming up.
+    StopWhileEstablishing,
+}
+
+// The stop's deadline, the daemon's whole stop bound from now.
+fn stop_deadline() -> Instant {
+    Instant::now() + Duration::from_millis(DAEMON_STOP_DRAIN_BOUND_MS)
+}
+
+// Fails when the stop ends a run itself, or a slot closes after its process could end. Mutations:
+// `end_turn_on_close` run under the daemon's stop (an `EndTurnOnClose` in every case);
+// `signal_intended_close` sent under the daemon's stop (the `result` reads `intended_close`); the
+// survivors' stop dropped (no `stop_task`) or sent after the channel's close (`Terminate` first);
+// the slot wait skipped (the stop ends while the bring-up is held).
+#[rstest]
+#[case::restart_process_exits(AtTheStop::RestartProcessExits)]
+#[case::restart_result_arrives(AtTheStop::RestartResultArrives)]
+#[case::restart_nothing_arrives(AtTheStop::RestartNothingArrives)]
+#[case::stop_with_a_surviving_task(AtTheStop::StopWithASurvivingTask)]
+#[case::stop_while_establishing(AtTheStop::StopWhileEstablishing)]
+#[tokio::test(start_paused = true)]
+async fn a_daemon_stop_leaves_each_claude_run_to_the_stops_own_settle(
+    #[case] at_the_stop: AtTheStop,
+) {
+    match at_the_stop {
+        AtTheStop::RestartProcessExits
+        | AtTheStop::RestartResultArrives
+        | AtTheStop::RestartNothingArrives => restart_with_a_live_run(at_the_stop).await,
+        AtTheStop::StopWithASurvivingTask => stop_with_a_surviving_task().await,
+        AtTheStop::StopWhileEstablishing => stop_while_establishing().await,
+    }
+}
+
+// A restart of the daemon meeting a live run, with `at_the_stop` arriving while its close is held:
+// the run is never ended by the close, and a `result` read meanwhile ends it as Claude Code's own.
+async fn restart_with_a_live_run(at_the_stop: AtTheStop) {
+    let fixture = ScriptedDriver::new();
+    let driver: Arc<dyn ProviderDriver> = fixture.driver.clone();
+    let channel = Arc::new(ScriptedChannel::default());
+    let session_id = fixture.create(&channel).await;
+    let start = fixture.next_start().await;
+    let run_id = new_run_id();
+    driver
+        .start_run(start_params(session_id, run_id))
+        .await
+        .expect("the run starts");
+    settle().await;
+    let before = fixture.engine.moves_of_run(run_id);
+    let release_close = channel.hold_next_close();
+
+    let shutdown = tokio::spawn({
+        let driver = Arc::clone(&driver);
+        let deadline = stop_deadline();
+        async move { driver.shutdown(DaemonStopIntent::Restart, deadline).await }
+    });
+    ScriptedDriver::wait_for(|| channel.writes().contains(&ScriptedWrite::Terminate)).await;
+    match at_the_stop {
+        AtTheStop::RestartProcessExits => {
+            fixture.end_turn(&start, session_id);
+            ScriptedDriver::exit(&start);
+        }
+        AtTheStop::RestartResultArrives => fixture.end_turn(&start, session_id),
+        AtTheStop::RestartNothingArrives
+        | AtTheStop::StopWithASurvivingTask
+        | AtTheStop::StopWhileEstablishing => {}
+    }
+    settle().await;
+    release_close.send(()).expect("the close is held");
+    shutdown
+        .await
+        .expect("the stop's task ends")
+        .expect("the driver stops");
+    settle().await;
+
+    assert_eq!(fixture.engine.turn_ends(), []);
+    let mut expected = before;
+    if !matches!(at_the_stop, AtTheStop::RestartNothingArrives) {
+        expected.push(RunStateEntry::Completed {
+            intended_close: None,
+        });
+    }
+    assert_eq!(fixture.engine.moves_of_run(run_id), expected);
+}
+
+// A person's Stop meeting a process that holds a surviving task: its `stop_task` goes out before
+// the process's channel closes, and the run is left to the stop's settle.
+async fn stop_with_a_surviving_task() {
+    let fixture = ScriptedDriver::new();
+    let channel = Arc::new(ScriptedChannel::default());
+    let (session_id, ..) = holding_session(
+        &fixture,
+        &channel,
+        &[("call-A", "task-A"), ("call-B", "task-B")],
+    )
+    .await;
+    keep_record(&fixture, session_id, "call-A", "task-A");
+
+    fixture
+        .driver
+        .shutdown(DaemonStopIntent::Stop, stop_deadline())
+        .await;
+    settle().await;
+
+    assert_eq!(stopped_tasks(&channel), ["task-A"]);
+    let writes = channel.writes();
+    let stop_sent = writes.iter().position(|write| {
+        matches!(write, ScriptedWrite::Control(request) if request["subtype"] == "stop_task")
+    });
+    let closed = writes
+        .iter()
+        .position(|write| *write == ScriptedWrite::Terminate);
+    assert!(
+        matches!((stop_sent, closed), (Some(stop), Some(close)) if stop < close),
+        "the survivor's stop goes out before the process's channel closes: {writes:?}"
+    );
+    assert_eq!(fixture.engine.turn_ends(), []);
+}
+
+// A person's Stop meeting a session whose process is still coming up: the stop waits the bring-up
+// out, then closes it, writing nothing for it.
+async fn stop_while_establishing() {
+    let fixture = ScriptedDriver::new();
+    let driver: Arc<dyn ProviderDriver> = fixture.driver.clone();
+    let channel = Arc::new(ScriptedChannel::default());
+    fixture.starts.script_session(Arc::clone(&channel));
+    let release_start = fixture.starts.hold_next_session_start();
+    let session_id = new_session_id();
+    let create = tokio::spawn({
+        let driver = Arc::clone(&driver);
+        async move { driver.create_session(create_params(session_id)).await }
+    });
+    settle().await;
+    let parts = fixture.driver.composed_parts().expect("composed");
+    assert!(
+        parts.slots().establishing_settled(session_id).is_some(),
+        "the session is coming up"
+    );
+
+    let shutdown = tokio::spawn({
+        let driver = Arc::clone(&driver);
+        let deadline = stop_deadline();
+        async move { driver.shutdown(DaemonStopIntent::Stop, deadline).await }
+    });
+    settle().await;
+    assert!(!shutdown.is_finished(), "the stop waits out the bring-up");
+    release_start.send(()).expect("the start is held");
+    shutdown
+        .await
+        .expect("the stop's task ends")
+        .expect("the driver stops");
+    let _create_answer = create.await.expect("the create's task ends");
+    settle().await;
+
+    assert!(!parts.slots().holds_slot(session_id));
+    assert_eq!(fixture.engine.turn_ends(), []);
+    assert_eq!(closes(fixture.engine.deliveries()), []);
+}

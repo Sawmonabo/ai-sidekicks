@@ -1,5 +1,8 @@
 //! The terminal-reach switch: its row read from the folder's terminal service, its value applied.
 
+use std::time::Duration;
+
+use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_DRAIN_BOUND_MS;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::place::{Place, WindowsPlace};
@@ -7,6 +10,7 @@ use sidekicks_contracts::provider::declaration::{
     ProviderDeclarationId, ProviderRow, ProviderSettingControl, ProviderValue,
 };
 use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, short_socket_folder};
+use tokio::time::Instant;
 
 use super::super::CodexDriver;
 use super::{driver_on_codex_folder, listen_on_codex_folder};
@@ -62,7 +66,12 @@ async fn a_repeated_switch_on_starts_nothing_more() {
     let repeated = driver.apply_row_value(switched(true)).await;
     let second = driver.registry.services();
     let is_still_serving = first.iter().all(|service| service.is_serving());
-    driver.shutdown(DaemonStopIntent::Stop).await;
+    driver
+        .shutdown(
+            DaemonStopIntent::Stop,
+            Instant::now() + Duration::from_millis(DAEMON_STOP_DRAIN_BOUND_MS),
+        )
+        .await;
 
     assert!(is_on);
     assert!(repeated.is_ok());
@@ -86,7 +95,12 @@ async fn a_switch_in_a_place_the_computer_lacks_is_refused_and_starts_nothing() 
         })
         .await;
     let services = driver.registry.services();
-    driver.shutdown(DaemonStopIntent::Stop).await;
+    driver
+        .shutdown(
+            DaemonStopIntent::Stop,
+            Instant::now() + Duration::from_millis(DAEMON_STOP_DRAIN_BOUND_MS),
+        )
+        .await;
 
     let Err(DriverError::Refused(refusal)) = applied else {
         panic!("the place was not refused: {applied:?}");

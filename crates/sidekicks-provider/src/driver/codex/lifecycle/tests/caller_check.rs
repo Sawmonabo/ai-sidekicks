@@ -3,7 +3,9 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 
+use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_DRAIN_BOUND_MS;
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_ipc::caller_process::descent::CallerCheck;
 use sidekicks_ipc::caller_process::descent::test_reader::ScriptedReader;
@@ -12,6 +14,7 @@ use sidekicks_platforms::{
     CAN_BIND_A_SOCKET_LISTENER, ParentProcess, ResponsibleProcess, short_socket_folder,
     this_process,
 };
+use tokio::time::Instant;
 
 use super::{driver_on_codex_folder, listen_on_codex_folder};
 use crate::driver::daemon_stop::DaemonStopIntent;
@@ -54,5 +57,10 @@ async fn the_caller_check_refuses_the_process_serving_a_codex_service_the_driver
             .expect("the check answers"),
         CallerAdmission::Refused
     );
-    driver.shutdown(DaemonStopIntent::Stop).await;
+    driver
+        .shutdown(
+            DaemonStopIntent::Stop,
+            Instant::now() + Duration::from_millis(DAEMON_STOP_DRAIN_BOUND_MS),
+        )
+        .await;
 }

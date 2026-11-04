@@ -11,12 +11,14 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
+use tokio::time::Instant;
 
 use super::{LiveCodexSession, TEST_TURN, answer_stopping_request, driver_holding};
 use crate::driver::codex::run::start::CODEX_TURN_START_TIMEOUT;
 use crate::driver::codex::run::start::record::CodexTurnRequest;
 use crate::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
 use crate::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
+use crate::driver::codex::service::supervisor::test_service::start_scripted_joined_service;
 use crate::driver::codex::service::supervisor::test_service::{
     bind_test_listener, start_scripted_codex_service,
 };
@@ -32,13 +34,15 @@ use crate::driver::codex::session::state::CodexTurnMessage;
 use crate::driver::codex::session::test_fixture::relaunches::{
     RefusedRelaunchStep, TakenRelaunches,
 };
-use crate::driver::codex::session::test_fixture::{TEST_THREAD, turn_completed, turn_reply};
+use crate::driver::codex::session::test_fixture::{
+    TEST_THREAD, open_test_record, turn_completed, turn_reply,
+};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::ports::{ProcessGoneListener, SessionRelaunchListener};
 use crate::driver::session_control::{CloseSessionParams, SessionCloseCause};
-use crate::driver::test_registry::{new_run_id, new_session_id};
+use crate::driver::test_registry::{new_agent_id, new_run_id, new_session_id};
 use crate::port::run_host::test_host::EngineCall;
 use crate::runtime_binding::resume::ResumeFunctionLegs;
 
@@ -294,7 +298,7 @@ async fn the_daemons_stop_refuses_a_create_and_lets_go_one_claimed_before_it_wit
         .await
         .expect("a create claims a free slot before the stop");
 
-    let shutdown = driver.shutdown(DaemonStopIntent::Restart);
+    let shutdown = driver.shutdown(DaemonStopIntent::Restart, Instant::now() + CLOSE_BOUND);
     tokio::pin!(shutdown);
     tokio::select! {
         biased;
@@ -364,7 +368,8 @@ async fn the_daemons_stop_stops_the_turn_of_a_resting_sessions_side_question() {
         )
         .await
         .expect("the copy takes the question");
-    tokio::time::timeout(CLOSE_BOUND, driver.shutdown(DaemonStopIntent::Restart))
+    let shutdown = driver.shutdown(DaemonStopIntent::Restart, Instant::now() + CLOSE_BOUND);
+    tokio::time::timeout(CLOSE_BOUND, shutdown)
         .await
         .expect("the stop ends once the copy's turn is stopped");
     wait_for_side_question_answer(answer)
@@ -599,4 +604,100 @@ fn turn_request() -> CodexTurnRequest {
         output_schema: None,
         level: Some(PermissionLevel::Ask),
     }
+}
+
+/// The service a session runs on at the daemon's stop, and the stop's intent.
+#[derive(Clone, Copy, Debug)]
+enum JoinedStop {
+    /// A person's Stop, the session on a service the daemon only joined.
+    StopOnAJoinedService,
+    /// A person's Stop, the session on a service the daemon started.
+    StopOnTheDaemonsService,
+    /// A restart of the daemon, the session on a service the daemon only joined.
+    RestartOnAJoinedService,
+}
+
+// Real time under a timeout, as above. Killed by dropping the interrupts from `shutdown` (none on
+// the joined service), by sending them after the registry's shutdown (the service no longer
+// serving when they arrive), by sending them under `Restart`, and by sending them to a service
+// the daemon started, whose own stop aborts the turn.
+#[rstest]
+#[case::stop_on_a_joined_service(JoinedStop::StopOnAJoinedService)]
+#[case::stop_on_the_daemons_service(JoinedStop::StopOnTheDaemonsService)]
+#[case::restart_on_a_joined_service(JoinedStop::RestartOnAJoinedService)]
+#[tokio::test]
+async fn a_daemon_stop_interrupts_open_turns_only_on_a_joined_codex_service(
+    #[case] joined_stop: JoinedStop,
+) {
+    let mut scripted = match joined_stop {
+        JoinedStop::StopOnAJoinedService | JoinedStop::RestartOnAJoinedService => {
+            start_scripted_joined_service()
+        }
+        JoinedStop::StopOnTheDaemonsService => start_scripted_codex_service(),
+    };
+    let intent = match joined_stop {
+        JoinedStop::StopOnAJoinedService | JoinedStop::StopOnTheDaemonsService => {
+            DaemonStopIntent::Stop
+        }
+        JoinedStop::RestartOnAJoinedService => DaemonStopIntent::Restart,
+    };
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let driver = driver_holding(&scripted, folder.path());
+    let parts = Arc::clone(driver.parts().expect("the driver composes"));
+    let session_id = new_session_id();
+    // No task reads the record's inbox, so the stop's let-go of it answers at once.
+    let (inbound, _) = codex_session_inbound(session_id);
+    let (mut record, _routing) = open_test_record(
+        &scripted,
+        session_id,
+        new_agent_id(),
+        inbound.clone(),
+        &parts.delivery,
+        parts.pending_compactions.clone(),
+    )
+    .await;
+    let run_id = new_run_id();
+    for turn_id in ["turn-1", "turn-2"] {
+        record.add_active_turn(turn_id.to_owned(), run_id);
+    }
+    driver.views.show(&record);
+    parts
+        .slots
+        .claim_establishing(session_id)
+        .await
+        .expect("the session's slot is free")
+        .install(inbound);
+
+    let shutdown = driver.shutdown(intent, Instant::now() + CLOSE_BOUND);
+    tokio::pin!(shutdown);
+    let mut interrupted = Vec::new();
+    let deadline = tokio::time::sleep(CLOSE_BOUND);
+    tokio::pin!(deadline);
+    loop {
+        tokio::select! {
+            () = &mut deadline => panic!("the stop ends within its bound"),
+            () = &mut shutdown => break,
+            sent = scripted.script.next_sent() => {
+                if sent["method"] == "turn/interrupt" {
+                    // Whether the registry had yet to shut the service down when it arrived.
+                    interrupted.push((sent["params"].clone(), scripted.service.is_serving()));
+                }
+                answer_stopping_request(&scripted.script, &sent);
+            }
+        }
+    }
+
+    let expected = match joined_stop {
+        JoinedStop::StopOnAJoinedService => vec![
+            (json!({"threadId": TEST_THREAD, "turnId": "turn-1"}), true),
+            (json!({"threadId": TEST_THREAD, "turnId": "turn-2"}), true),
+        ],
+        JoinedStop::StopOnTheDaemonsService | JoinedStop::RestartOnAJoinedService => Vec::new(),
+    };
+    interrupted.sort_by_key(|(params, _)| params["turnId"].as_str().map(str::to_owned));
+    assert_eq!(interrupted, expected);
+    assert!(
+        !scripted.service.is_serving(),
+        "the registry's shutdown left the service serving"
+    );
 }
