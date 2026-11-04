@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use rstest::rstest;
 use rusqlite::OptionalExtension as _;
+use serde_json::Value;
 use sidekicks_approval::service::test_fixture::SETTLE_WAIT;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::run::id::RunId;
@@ -176,10 +177,9 @@ async fn a_pass_under_the_stop_intent_settles_named_sessions_by_the_stop(#[case]
                     panic!("the queued run stopped once: {stopped:?}");
                 };
                 assert_eq!(stopped["trigger"], "daemonStop");
-                assert!(
-                    fixture
-                        .run_payloads(session_id, SessionEventType::AgentRunFailed, run_id)
-                        .is_empty()
+                assert_eq!(
+                    fixture.run_payloads(session_id, SessionEventType::AgentRunFailed, run_id),
+                    Vec::<Value>::new()
                 );
                 assert_eq!(
                     fixture.queue_item_state(item_id),
@@ -215,10 +215,9 @@ async fn a_pass_under_the_stop_intent_settles_named_sessions_by_the_stop(#[case]
                 stored_run_state(&fixture.store.database, &resumed_run).0,
                 "running"
             );
-            assert!(
-                fixture
-                    .payloads(&resumed_session, SessionEventType::AgentRunInterrupted)
-                    .is_empty()
+            assert_eq!(
+                fixture.payloads(&resumed_session, SessionEventType::AgentRunInterrupted),
+                Vec::<Value>::new()
             );
             assert_eq!(intent.read().await, None);
         }
