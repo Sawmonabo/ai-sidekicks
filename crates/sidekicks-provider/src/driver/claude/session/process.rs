@@ -287,7 +287,7 @@ impl ClaudeCodeProcess {
         }
         self.input.close();
         let Some(kill_at) = kill_at else {
-            if timeout(exit_wait, self.wait_for_exit()).await.is_err() {
+            if timeout(exit_wait, self.exited()).await.is_err() {
                 self.ends.ask(ChildEnd::Stop);
                 self.wait_for_exit().await;
             }
