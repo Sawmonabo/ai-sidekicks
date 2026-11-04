@@ -1,6 +1,6 @@
 //! A paused run the person continued while the daemon's restart held its lead, a helper beneath
 //! the lead or the lead itself: the lead's continue, run on the queue's own task, that the
-//! provider failed.
+//! provider failed, and the person's next continue once a process holds the session.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -21,8 +21,10 @@ use sidekicks_provider::driver::session_control::{
     DriverResumeResult, ProviderTurnAnswer, ResumedRunAnswer,
 };
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
+use sidekicks_provider::process_identity::TEST_PROVIDER_PROCESS;
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_session::queue_store::RecordedQueueItemState;
+use sidekicks_session::run::engine::test_fixture::stored_run_state;
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::timeout;
 
@@ -31,10 +33,10 @@ use super::{DriverCalls, WAIT, fixture, recording_driver};
 // A helper the restart cut, continued while its lead is held with no process, moves to `running`
 // and hands the lead's continue to the queue's task; the provider failing that continue halts the
 // helper in the recovery status as the provider's failure and moves it back to `paused`, its
-// message still kept for its words, so the person's next continue tries again. Killed by the
-// restore dropped, which leaves it `running`, and by its words settled on the failure.
+// message given back to wait for the person's next continue. Killed by the restore dropped, which
+// leaves it `running`, by its words kept, and by its message settled on the failure.
 #[tokio::test]
-async fn a_failed_helper_continue_halts_and_pauses_the_helper_with_its_words_kept() {
+async fn a_failed_helper_continue_halts_and_pauses_the_helper_with_its_message_waiting() {
     let calls = Arc::new(DriverCalls::default());
     let mut driver = recording_driver(&calls);
     let resumes = Arc::new(AtomicUsize::new(0));
@@ -142,16 +144,7 @@ async fn a_failed_helper_continue_halts_and_pauses_the_helper_with_its_words_kep
             }
         )]
     );
-    let kept = fixture
-        .queue
-        .delivery
-        .kept_words(fixture.session_id)
-        .await
-        .expect("the kept words read");
-    assert_eq!(
-        kept.get(&helper).map(|words| words.message_ids.clone()),
-        Some(vec![item_id])
-    );
+    assert!(!fixture.queue.delivery.is_handed(&item_id));
     assert_eq!(
         fixture.stored_state(item_id),
         RecordedQueueItemState::Queued
@@ -160,11 +153,12 @@ async fn a_failed_helper_continue_halts_and_pauses_the_helper_with_its_words_kep
 
 // A lead the person continued while a helper beneath it waited on them moves to `running` with no
 // process and its message kept; the provider failing the continue the helper's answer starts moves
-// the helper back to its wait and the lead back to `paused`, its message still kept for its words,
-// so the person's next continue tries again. Killed by the lead's restore dropped (it stays
-// `running` with no process) and by its words settled on the failure.
+// the helper back to its wait and the lead back to `paused`, its message given back, and the
+// person's next continue, once a process holds the session, carries that message once. Killed by
+// the lead's restore dropped (it stays `running` with no process), by its words kept, which the
+// next continue then skips, and by its message settled on the failure.
 #[tokio::test]
-async fn a_failed_continue_of_a_held_lead_pauses_it_with_its_words_kept() {
+async fn a_failed_continue_of_a_held_lead_leaves_its_message_for_the_next_continue() {
     let calls = Arc::new(DriverCalls::default());
     let mut driver = recording_driver(&calls);
     let resumes = Arc::new(AtomicUsize::new(0));
@@ -232,25 +226,42 @@ async fn a_failed_continue_of_a_held_lead_pauses_it_with_its_words_kept() {
         helper,
         RunStateEntry::WaitingForApproval,
     );
-    timeout(WAIT, fixture.queue.stop())
+    // Waits for the continue's task alone, so the queue still takes the next Continue.
+    fixture.queue.continues.close();
+    timeout(WAIT, fixture.queue.continues.wait())
         .await
         .expect("the lead's continue ends");
 
     assert_eq!(resumes.load(Ordering::SeqCst), 2);
     assert_eq!(fixture.run_state(lead), "paused");
     assert_eq!(fixture.run_state(helper), "waitingForApproval");
-    let kept = fixture
-        .queue
-        .delivery
-        .kept_words(fixture.session_id)
-        .await
-        .expect("the kept words read");
-    assert_eq!(
-        kept.get(&lead).map(|words| words.message_ids.clone()),
-        Some(vec![item_id])
-    );
+    assert!(!fixture.queue.delivery.is_handed(&item_id));
     assert_eq!(
         fixture.stored_state(item_id),
         RecordedQueueItemState::Queued
     );
+
+    // A process comes up for the session, and the person continues the lead again.
+    fixture.process.set(Some(TEST_PROVIDER_PROCESS));
+    fixture
+        .queue
+        .provider_sessions
+        .record_test_opening(fixture.session_id);
+    let (_, version) = stored_run_state(&fixture.database, &lead);
+    let version = u64::try_from(version).expect("a stored version is not negative");
+    timeout(
+        WAIT,
+        fixture.queue.pauses.resume(
+            &AgentRunResumeRequest {
+                target_run_id: lead,
+                expected_run_version: SafeInt::new(version).expect("a version"),
+            },
+            &fixture.queue.delivery,
+        ),
+    )
+    .await
+    .expect("the continue answers")
+    .expect("the lead is continued");
+
+    assert_eq!(calls.resumes(), [(lead, vec![item_id])]);
 }

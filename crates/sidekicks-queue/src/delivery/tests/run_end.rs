@@ -5,38 +5,15 @@ use std::sync::Arc;
 
 use rstest::rstest;
 use rusqlite::{OptionalExtension as _, params};
-use sidekicks_contracts::artifacts::attachment_reference::AttachmentReferenceList;
-use sidekicks_contracts::artifacts::id::ArtifactId;
-use sidekicks_contracts::plan::PlanId;
-use sidekicks_contracts::run::queue::{
-    PlanMessage, PlanMessageKind, QueueItemId, QueueItemNotDeliveredReason,
-};
-use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
-use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
+use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_session::queue_store::{
-    NewQueueItem, QueueItemBody, QueueItemReader, QueueMessageBody, RecordedQueueItemState,
-    insert_queue_item_statement,
-};
+use sidekicks_session::queue_store::{QueueItemReader, RecordedQueueItemState};
 use sidekicks_store::events::session::appender::{SessionEventAppender, SessionEventLinkage};
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 use super::{Fixture, HANDS_AT_ONCE, driver_handing, fixture, stored_item};
 use crate::delivery::run_end::stop_message_ends;
-
-/// A waiting item's form, with the words it carries.
-#[derive(Clone, Copy)]
-pub(super) enum Form {
-    /// A lead message carrying only words.
-    Words(&'static str),
-    /// A lead message carrying a file beside its words.
-    WithFiles(&'static str),
-    /// A helper's message carrying only words.
-    Helper(&'static str),
-    Review,
-    PlanMessage,
-}
+use crate::test_items::{Form, insert_form};
 
 /// What became of a waiting item.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,74 +34,6 @@ impl Ended {
     }
 }
 
-fn message(words: &str) -> QueueMessageBody {
-    QueueMessageBody {
-        content: FreeFormText::new(words.to_owned()).expect("a test message"),
-        attachments: None,
-        skills: None,
-        answers_question_id: None,
-        output_speed_for_turn: None,
-        workspace_id: None,
-    }
-}
-
-fn body_of(form: Form) -> QueueItemBody {
-    match form {
-        Form::Words(words) | Form::Helper(words) => QueueItemBody::Message(message(words)),
-        Form::WithFiles(words) => QueueItemBody::Message(QueueMessageBody {
-            attachments: Some(AttachmentReferenceList(vec![
-                ArtifactId::try_from(mint_uuid_v7()).expect("a minted UUID is an artifact id"),
-            ])),
-            ..message(words)
-        }),
-        Form::Review => QueueItemBody::Review {
-            target: SessionReviewTarget::Staged,
-        },
-        Form::PlanMessage => QueueItemBody::PlanMessage {
-            plan_message: PlanMessage {
-                plan_id: PlanId::try_from(mint_uuid_v7()).expect("a minted UUID is a plan id"),
-                kind: PlanMessageKind::Seed,
-                source_session_id: None,
-            },
-            text: FreeFormText::new("Implement the plan.".to_owned()).expect("a plan message"),
-        },
-    }
-}
-
-/// Queues an item of `form` for the fixture's run, after every one before it, a helper's moved
-/// into a helper's box.
-pub(super) async fn queue(fixture: &Fixture, form: Form) -> QueueItemId {
-    let item = NewQueueItem {
-        id: QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id"),
-        session_id: fixture.session_id,
-        body: body_of(form),
-        target_run_id: fixture.run_id,
-        device_id: None,
-        client_idempotency_key: Some(
-            ClientUuid::new(mint_uuid_v7().to_string()).expect("a minted UUID is a client key"),
-        ),
-        replaces_queue_item_id: None,
-        now: WireInstant::now(),
-    };
-    fixture
-        .log
-        .writer
-        .write(vec![insert_queue_item_statement(&item)])
-        .await
-        .expect("the test queues its item");
-    if let Form::Helper(_) = form {
-        fixture
-            .database
-            .reader()
-            .execute(
-                "UPDATE queue_items SET child_handle = 'helper' WHERE id = ?1",
-                params![item.id.text().as_str()],
-            )
-            .expect("the test moves the message into a helper's box");
-    }
-    item.id
-}
-
 /// The session's draft as the test reads it back.
 pub(super) fn held_draft(fixture: &Fixture) -> Option<String> {
     fixture
@@ -140,7 +49,7 @@ pub(super) fn held_draft(fixture: &Fixture) -> Option<String> {
 }
 
 /// Holds `text` as the session's draft, as the person's typing does.
-pub(super) fn hold_draft(fixture: &Fixture, text: &str) {
+fn hold_draft(fixture: &Fixture, text: &str) {
     fixture
         .database
         .reader()
@@ -173,11 +82,11 @@ pub(super) fn hold_draft(fixture: &Fixture, text: &str) {
     &[Ended::Canceled],
     Some("Only"),
 )]
-#[case::a_message_with_files_beside_one_with_words(
-    &[Form::WithFiles("With a file"), Form::Words("Words")],
+#[case::a_message_with_files_between_two_with_words(
+    &[Form::Words("Before"), Form::WithFiles("With a file"), Form::Words("After")],
     None,
-    &[Ended::Failed, Ended::Canceled],
-    Some("Words"),
+    &[Ended::Canceled, Ended::Failed, Ended::Canceled],
+    Some("Before\nAfter"),
 )]
 #[case::a_helpers_message_a_review_and_a_plan_message(
     &[Form::Helper("To the helper"), Form::Review, Form::PlanMessage],
@@ -198,7 +107,16 @@ async fn a_stop_returns_each_waiting_message_by_its_form(
     }
     let mut ids = Vec::with_capacity(forms.len());
     for form in forms {
-        ids.push(queue(&fixture, *form).await);
+        ids.push(
+            insert_form(
+                &fixture.database,
+                &fixture.log,
+                fixture.session_id,
+                fixture.run_id,
+                *form,
+            )
+            .await,
+        );
     }
     let waiting = QueueItemReader::new(&fixture.database.reader())
         .list_waiting_for_run(&fixture.run_id)

@@ -1,4 +1,4 @@
-//! A person's removal of a waiting message, or of a lead message that reads not delivered, and the
+//! A person's removal of a waiting message, or of a lead item that reads not delivered, and the
 //! settle every cancel of a waiting message shares: a queued run left with no message to start
 //! with ends `stopped` in the same write.
 
@@ -17,28 +17,18 @@ use sidekicks_session::run::read::read_run_through;
 use sidekicks_std::keyed_lock::KeyHold;
 
 use super::RunQueue;
-use crate::delivery::{QueueWithdrawal, is_lead_message};
+use super::withdrawal::CancelOutcome;
+use crate::delivery::QueueWithdrawal;
 use crate::error::QueueError;
 use crate::refusals::{
     UnreturnedReason, change_refused, left_queue_refusal, queue_item_not_found, unreturned_refusal,
 };
 
-/// What the cancel of an item read not delivered found.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum UndeliveredCancel {
-    /// It reads canceled: canceled now, or by an earlier cancel.
-    Canceled,
-    /// A late admission landed first: a run took it.
-    Taken,
-}
-
 impl RunQueue {
-    /// Removes a waiting message, after which nothing reaches the agent, or a lead message that
-    /// reads not delivered, which reads canceled with its hand kept. Refuses an item the queue
-    /// does not hold, one the agent has taken, one its provider did not give back, which then
-    /// reads not delivered, a helper's message that reads not delivered, and a hand-off's seed
-    /// (`handOffSeed`), which only the hand-off's end withdraws. Removing the last message of a
-    /// run that has not started ends that run `stopped` in the same write.
+    /// Removes a waiting message or a lead item that reads not delivered, so nothing reaches the
+    /// agent, ending a queued run left with no message `stopped` in the same write. Refuses an
+    /// item the queue does not hold, one the agent has taken, one its provider did not give back,
+    /// a helper's message that reads not delivered, and a hand-off's seed (`handOffSeed`).
     pub async fn cancel(
         &self,
         request: AgentQueueItemCancelRequest,
@@ -80,10 +70,11 @@ impl RunQueue {
         };
         match item.state {
             RecordedQueueItemState::Queued => {}
-            RecordedQueueItemState::NotDelivered { .. } if is_lead_message(&item) => {
+            // A lead item read not delivered is canceled with its hand kept.
+            RecordedQueueItemState::NotDelivered { .. } if item.child_handle.is_none() => {
                 return match self.cancel_undelivered(&item).await? {
-                    UndeliveredCancel::Canceled => Ok(canceled),
-                    UndeliveredCancel::Taken => {
+                    CancelOutcome::Canceled => Ok(canceled),
+                    CancelOutcome::Taken => {
                         Err(unreturned_refusal(item.id, UnreturnedReason::Taken).into())
                     }
                 };
@@ -154,20 +145,20 @@ impl RunQueue {
     pub(super) async fn cancel_undelivered(
         &self,
         item: &QueueItemRecord,
-    ) -> Result<UndeliveredCancel, QueueError> {
+    ) -> Result<CancelOutcome, QueueError> {
         let Err(error) = self
             .recorder
             .record_undelivered_cancel(item, &WireInstant::now())
             .await
         else {
-            return Ok(UndeliveredCancel::Canceled);
+            return Ok(CancelOutcome::Canceled);
         };
         if !error.is_refused() {
             return Err(error.into());
         }
         match self.read_item(item.id).await?.map(|current| current.state) {
-            Some(RecordedQueueItemState::Admitted) => Ok(UndeliveredCancel::Taken),
-            Some(RecordedQueueItemState::Canceled) => Ok(UndeliveredCancel::Canceled),
+            Some(RecordedQueueItemState::Admitted) => Ok(CancelOutcome::Taken),
+            Some(RecordedQueueItemState::Canceled) => Ok(CancelOutcome::Canceled),
             Some(
                 RecordedQueueItemState::Queued
                 | RecordedQueueItemState::NotDelivered { .. }

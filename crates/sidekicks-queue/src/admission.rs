@@ -20,6 +20,7 @@
 
 mod continues;
 mod opening;
+mod queued_run_end;
 mod skill_picks;
 
 use std::collections::{HashMap, HashSet};
@@ -31,8 +32,6 @@ use sidekicks_contracts::orchestration::OrchestrationRunConfig;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_contracts::run::control::{RunFailureCategory, StopTrigger};
-use sidekicks_contracts::run::failure_cause::{DaemonFailureOrigin, RunFailureCause};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemNotDeliveredReason};
 use sidekicks_contracts::run::state::RunState;
@@ -46,7 +45,6 @@ use sidekicks_provider::driver::contract::error::{DriverError, bound_failure_det
 use sidekicks_provider::driver::error_causes::session_process_unavailable;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::process_identity::ProviderProcessIds;
-use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_session::driver_resolution::{
     read_session_driver, read_session_provider, resolve_admitted_account, resolve_session_driver,
 };
@@ -59,13 +57,11 @@ use sidekicks_session::run::engine::errors::RunEngineError;
 use sidekicks_session::run::read::read_run_through;
 use sidekicks_session::run::refusals::RunRefusal;
 use sidekicks_session::run::start_request::RunStartRequest;
-use sidekicks_session::run::state_change::{RunStateChange, RunWriteCompanions};
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
-use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use tokio::sync::watch;
 use tokio_util::task::TaskTracker;
@@ -73,12 +69,13 @@ use tracing::Instrument as _;
 
 pub(crate) use self::opening::RunOpenings;
 use crate::delivery::QueueDelivery;
+use crate::delivery::run_end::FAILED_DELIVERY_REASON;
 use crate::error::QueueError;
 use crate::memory_gate::{
     AdmissionWork, MemoryAdmission, MemoryAdmissionState, MemoryGate, ProviderStartEstimate,
 };
 use crate::provider_session::ProviderSessions;
-use crate::recorder::{QueueRecordError, QueueRecorder, outcome_draft_of};
+use crate::recorder::QueueRecorder;
 use crate::run_token_limit::RunTokenLimitReader;
 use crate::session_lock::QueueSessionLock;
 
@@ -355,52 +352,6 @@ impl QueueAdmission {
         Ok(())
     }
 
-    /// Ends the queued run `run_id` `stopped`, quietly, once the person removed every message it
-    /// was queued for, with `outcomes` and `statements` in the same write. Called under `hold`;
-    /// fails with the write's refusal when the run or one of the messages has left `queued`.
-    pub(crate) async fn stop_emptied_run(
-        &self,
-        hold: &KeyHold<'_, SessionId>,
-        run_id: RunId,
-        outcomes: Vec<(QueueItemRecord, QueueItemOutcome)>,
-        statements: Vec<WriteStatement>,
-    ) -> Result<(), QueueError> {
-        let stopped = RunStateEntry::Stopped {
-            intended_close: None,
-            trigger: Some(StopTrigger::MessagesRemoved),
-        };
-        let end = RunStateChange::new(run_id, stopped);
-        self.end_queued_run(hold, end, outcomes, statements).await
-    }
-
-    // Writes `end`, expected from `queued`, with each of `outcomes` and then `statements` in the
-    // same write, then releases the run's place and raises the messages' queues.
-    async fn end_queued_run(
-        &self,
-        _hold: &KeyHold<'_, SessionId>,
-        mut end: RunStateChange,
-        outcomes: Vec<(QueueItemRecord, QueueItemOutcome)>,
-        statements: Vec<WriteStatement>,
-    ) -> Result<(), QueueError> {
-        end.expected_state = Some(RunState::Queued);
-        let run_id = end.run_id;
-        let now = WireInstant::now();
-        let mut companions = RunWriteCompanions::default();
-        let mut items = Vec::with_capacity(outcomes.len());
-        for (item, outcome) in outcomes {
-            let (draft, statement) =
-                outcome_draft_of(&item, &outcome, &now).map_err(QueueRecordError::from)?;
-            companions.statements.push(statement);
-            companions.preceding_events.push(draft);
-            items.push(item);
-        }
-        companions.statements.extend(statements);
-        self.deps.engine.transition(end, companions).await?;
-        self.release(run_id);
-        self.deps.recorder.raise_committed(&items, false);
-        Ok(())
-    }
-
     /// Marks the admission stopping, so [`QueueAdmission::wait`] answers once no start or
     /// continue runs; one started after still counts.
     pub(crate) fn close(&self) {
@@ -522,7 +473,7 @@ impl QueueAdmission {
                     .as_ref()
                     .is_some_and(is_waiting)
             {
-                self.record_not_delivered(&opening, QueueItemNotDeliveredReason::Failed {})
+                self.record_not_delivered(&opening, FAILED_DELIVERY_REASON)
                     .await?;
             }
             return Err(start_error.into());
@@ -563,12 +514,7 @@ impl QueueAdmission {
         let detail = bound_failure_detail(&describe_error(&error), START_FAILED_FALLBACK.clone());
         let hold = self.deps.session_lock.hold_session(session_id).await;
         let ended = self
-            .end_waiting_undelivered(
-                &hold,
-                run_id,
-                QueueItemNotDeliveredReason::Failed {},
-                detail,
-            )
+            .end_waiting_undelivered(&hold, run_id, FAILED_DELIVERY_REASON, detail)
             .await;
         if let Err(end_error) = ended {
             log_failure(
@@ -672,41 +618,6 @@ impl QueueAdmission {
             .await
     }
 
-    async fn end_waiting_undelivered(
-        &self,
-        hold: &KeyHold<'_, SessionId>,
-        run_id: RunId,
-        reason: QueueItemNotDeliveredReason,
-        detail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
-    ) -> Result<(), QueueError> {
-        let outcomes = self
-            .read_waiting(run_id)
-            .await?
-            .into_iter()
-            .map(|item| {
-                let outcome = QueueItemOutcome::NotDelivered {
-                    reason: reason.clone(),
-                };
-                (item, outcome)
-            })
-            .collect();
-        let failed = RunStateEntry::Failed {
-            intended_close: None,
-            failure_cause: Some(RunFailureCause::SetupFailed {
-                origin: DaemonFailureOrigin::Value,
-                code: None,
-                message: detail,
-            }),
-            provider_failure_detail: None,
-            process_exit: None,
-        };
-        let end = RunStateChange {
-            failure_category: Some(RunFailureCategory::SetupFailure),
-            ..RunStateChange::new(run_id, failed)
-        };
-        self.end_queued_run(hold, end, outcomes, Vec::new()).await
-    }
-
     async fn record_admitted(
         &self,
         item: &QueueItemRecord,
@@ -717,22 +628,6 @@ impl QueueAdmission {
             .record_outcome(
                 item,
                 QueueItemOutcome::Admitted { run_id },
-                &WireInstant::now(),
-            )
-            .await?;
-        Ok(())
-    }
-
-    async fn record_not_delivered(
-        &self,
-        item: &QueueItemRecord,
-        reason: QueueItemNotDeliveredReason,
-    ) -> Result<(), QueueError> {
-        self.deps
-            .recorder
-            .record_outcome(
-                item,
-                QueueItemOutcome::NotDelivered { reason },
                 &WireInstant::now(),
             )
             .await?;

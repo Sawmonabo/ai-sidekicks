@@ -46,8 +46,8 @@ pub(crate) fn is_transition_allowed(from: RunState, to: RunStateChangeState) -> 
 
 // The states each state may move to. A move several triggers share, such as `running -> failed`
 // on an error during execution or at a restart, is one entry; the token limit's stop is the one
-// way into `stopped` from a waiting or pausing state, and the person's stop of the service the one
-// from `queued`.
+// way into `stopped` from a waiting or pausing state, and `queued -> stopped` is taken by the
+// person's stop of the service and by the removal of every message a queued run waited for.
 fn next_states(from: RunState) -> &'static [RunStateChangeState] {
     use RunStateChangeState as Next;
     match from {
@@ -58,8 +58,8 @@ fn next_states(from: RunState) -> &'static [RunStateChangeState] {
             Next::Interrupted,
             Next::WaitingForInput,
         ],
-        // A paused helper whose continue of the lead the restart held failed goes back to its
-        // pause, as an answered wait goes back to its wait.
+        // A paused helper, or a held lead the person continued, whose continue of the lead the
+        // restart held failed goes back to its pause, as an answered wait goes back to its wait.
         RunState::Running => &[
             Next::WaitingForApproval,
             Next::WaitingForInput,

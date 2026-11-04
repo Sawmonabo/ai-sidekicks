@@ -21,10 +21,7 @@ use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
 use sidekicks_provider::driver::run_control::{
@@ -39,10 +36,7 @@ use sidekicks_provider::process_identity::{
     ProcessStandIn, ProviderProcessIds, TEST_PROVIDER_PROCESS,
 };
 use sidekicks_session::questions::schema::schema_parts;
-use sidekicks_session::queue_store::{
-    NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, QueueMessageBody,
-    insert_queue_item_statement,
-};
+use sidekicks_session::queue_store::{QueueItemBody, QueueItemReader, QueueItemRecord};
 use sidekicks_session::run::engine::test_fixture::insert_running_run;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
@@ -55,6 +49,7 @@ use tokio::time::timeout;
 use super::test_fixture::test_delivery_deps;
 use super::{OpeningMessages, QueueDelivery, QueueDeliveryDeps};
 use crate::session_lock::QueueSessionLock;
+use crate::test_items::{self, words};
 
 /// The statements the tests' read pool prepares: the delivery's reads and the recorder's.
 const READ_STATEMENT_CAPACITY: usize = 8;
@@ -222,32 +217,10 @@ fn count_withdraws(driver: &mut MockProviderDriver) -> Arc<AtomicUsize> {
 
 /// Queues a message for the fixture's run, after every one before it, and reads it back.
 async fn insert_item(fixture: &Fixture) -> QueueItemRecord {
-    let item = NewQueueItem {
-        id: QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id"),
-        session_id: fixture.session_id,
-        body: QueueItemBody::Message(QueueMessageBody {
-            content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
-            attachments: None,
-            skills: None,
-            answers_question_id: None,
-            output_speed_for_turn: None,
-            workspace_id: None,
-        }),
-        target_run_id: fixture.run_id,
-        device_id: None,
-        client_idempotency_key: Some(
-            ClientUuid::new(mint_uuid_v7().to_string()).expect("a minted UUID is a client key"),
-        ),
-        replaces_queue_item_id: None,
-        now: WireInstant::now(),
-    };
-    fixture
-        .log
-        .writer
-        .write(vec![insert_queue_item_statement(&item)])
-        .await
-        .expect("the test queues its message");
-    stored_item(fixture, item.id)
+    let body = QueueItemBody::Message(words("Look again"));
+    let item_id =
+        test_items::insert_item(&fixture.log, fixture.session_id, fixture.run_id, body).await;
+    stored_item(fixture, item_id)
 }
 
 fn stored_item(fixture: &Fixture, item_id: QueueItemId) -> QueueItemRecord {

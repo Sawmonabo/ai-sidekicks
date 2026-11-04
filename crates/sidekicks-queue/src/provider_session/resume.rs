@@ -201,27 +201,24 @@ impl ProviderSessions {
     }
 
     /// Continues `session_id`'s lead with the answers the person gave while the daemon's restart
-    /// held it, and with each paused run the person continued, a helper beneath it or the lead
-    /// itself, carrying its words from `continued_words`, whose messages are delivered with it
-    /// once the provider carried the continue, once none is still owed it: its conversation is
-    /// resumed under the session's transition lock even where this process opened it, so the
-    /// resume carries the continue. A driver holding the session live lets its record go and
-    /// takes it again; one holding nothing brings a process up. Nothing is resumed while the lead
-    /// is still held or nothing is owed. Fails with [`ProviderSessionError::Closed`] or
-    /// [`ProviderSessionError::BeingDeleted`] for an ended session,
-    /// [`ProviderSessionError::NoConversation`] for one with none to resume,
-    /// [`ProviderSessionError::ResumeRefused`] for a resume the provider refused, its answers then
-    /// owed to the next resume, and as the composition, the driver or the binding's record fails;
-    /// the provider's refusal, a missing conversation or the driver's failure posts the provider's
-    /// words as the session's provider warning. A continue whose provider no driver
-    /// answers, or is not installed, posts the `providerMissing` notice first.
+    /// held it and the words of each paused run `continued_words` carries, once none is still owed.
+    /// Fails for an ended session, one with no conversation, the provider's refusal (its answers
+    /// owed to the next resume) and as the composition, the driver or the binding's record fails.
     pub(crate) async fn resume_after_answer(
         &self,
         session_id: SessionId,
         continued_words: &ContinuedWords<'_>,
     ) -> Result<(), ProviderSessionError> {
+        // Resumed under the transition lock even where this process opened the conversation, so
+        // the resume carries the continue: a driver holding the session live lets its record go
+        // and takes it again, one holding nothing brings a process up, and nothing is resumed
+        // while the lead is still held or nothing is owed.
         let _hold = self.deps.transition_lock.acquire(session_id).await;
         self.refuse_ended(session_id).await?;
+        // A missing conversation, the provider's refusal or the driver's failure posts the
+        // provider's words as the session's provider warning, and a provider no driver answers
+        // posts the `providerMissing` notice first. The carried runs' messages are delivered once
+        // the provider carried the continue.
         let Some(leg) = read_session_leg(&self.deps.pool, session_id).await? else {
             let failed = ProviderSessionError::NoConversation { session_id };
             return Err(self.answer_failed_continue(session_id, failed).await);

@@ -1,6 +1,7 @@
 //! The withdrawal of the message the daemon sent for a plan, when what it carried out has ended:
 //! a hand-off's seed, taken back from a fresh session that was archived, closed or purged before a
-//! run took it, so no run opens with it and no retry sends it again.
+//! run took it, so no run opens with it and no retry sends it again; and what a cancel of a queue
+//! item found, which a person's removal shares.
 
 use sidekicks_contracts::plan::PlanId;
 use sidekicks_contracts::run::queue::PlanMessageKind;
@@ -10,16 +11,16 @@ use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 
 use super::RunQueue;
-use super::cancel::UndeliveredCancel;
 use crate::delivery::QueueWithdrawal;
 use crate::error::QueueError;
 
-/// What the withdrawal of a plan message found.
+/// What a cancel of a queue item found: a plan message's withdrawal, or a person's removal of an
+/// item that reads not delivered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PlanMessageWithdrawal {
-    /// It reads canceled: withdrawn now, or by an earlier withdrawal.
+pub enum CancelOutcome {
+    /// It reads canceled: canceled now, or by an earlier cancel.
     Canceled,
-    /// A run took it, or is starting with it: it stays, and what it carries out goes on.
+    /// A run took it, or is starting with it: it stays.
     Taken,
 }
 
@@ -34,7 +35,7 @@ impl RunQueue {
         session_id: SessionId,
         plan_id: PlanId,
         kind: PlanMessageKind,
-    ) -> Result<Option<PlanMessageWithdrawal>, QueueError> {
+    ) -> Result<Option<CancelOutcome>, QueueError> {
         let hold = self.session_lock.hold_session(session_id).await;
         let found = self
             .pool
@@ -51,14 +52,9 @@ impl RunQueue {
         };
         let withdrawal = match item.state {
             RecordedQueueItemState::Queued => self.withdraw_queued(&hold, item).await?,
-            RecordedQueueItemState::NotDelivered { .. } => {
-                match self.cancel_undelivered(&item).await? {
-                    UndeliveredCancel::Canceled => PlanMessageWithdrawal::Canceled,
-                    UndeliveredCancel::Taken => PlanMessageWithdrawal::Taken,
-                }
-            }
-            RecordedQueueItemState::Admitted => PlanMessageWithdrawal::Taken,
-            RecordedQueueItemState::Canceled => PlanMessageWithdrawal::Canceled,
+            RecordedQueueItemState::NotDelivered { .. } => self.cancel_undelivered(&item).await?,
+            RecordedQueueItemState::Admitted => CancelOutcome::Taken,
+            RecordedQueueItemState::Canceled => CancelOutcome::Canceled,
             RecordedQueueItemState::Superseded => {
                 unreachable!("the read passes over an item a retry superseded")
             }
@@ -73,15 +69,15 @@ impl RunQueue {
         &self,
         hold: &KeyHold<'_, SessionId>,
         item: QueueItemRecord,
-    ) -> Result<PlanMessageWithdrawal, QueueError> {
+    ) -> Result<CancelOutcome, QueueError> {
         let withdrawals = self
             .delivery
             .take_back(hold, std::slice::from_ref(&item))
             .await?;
         if withdrawals.get(&item.id) != Some(&QueueWithdrawal::Returned) {
-            return Ok(PlanMessageWithdrawal::Taken);
+            return Ok(CancelOutcome::Taken);
         }
         self.settle_canceled(hold, item).await?;
-        Ok(PlanMessageWithdrawal::Canceled)
+        Ok(CancelOutcome::Canceled)
     }
 }

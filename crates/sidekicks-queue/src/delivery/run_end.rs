@@ -15,29 +15,33 @@ use sidekicks_store::events::session::appender::SessionEventDraftError;
 use crate::delivery::is_lead_message;
 use crate::recorder::outcome_draft_of;
 
+/// The reason a waiting message whose delivery failed reads not delivered.
+pub(crate) const FAILED_DELIVERY_REASON: QueueItemNotDeliveredReason =
+    QueueItemNotDeliveredReason::Failed {};
+
 /// The outcome of a waiting message whose delivery failed: the one way a waiting message fails.
 pub(crate) const FAILED_DELIVERY: QueueItemOutcome = QueueItemOutcome::NotDelivered {
-    reason: QueueItemNotDeliveredReason::Failed {},
+    reason: FAILED_DELIVERY_REASON,
 };
 
 /// The ends of `items`, the messages waiting for a run the person's stop of the service settles
 /// or an interrupt returns to the draft, in queue order, for one write: a lead message carrying
-/// only words is canceled and its words go back into the draft ahead of what it holds, and every
-/// other item ends not delivered, kept whole. A run's own opening ends with the rest, since the
-/// Stop ends the run it opens. Fails when an item's event cannot be drafted.
+/// only words is canceled and its words go back into the draft, every other item ends not
+/// delivered, kept whole. Fails when an item's event cannot be drafted.
 pub fn stop_message_ends(
     items: &[QueueItemRecord],
     now: &WireInstant,
 ) -> Result<RunWriteCompanions, SessionEventDraftError> {
-    let mut companions = RunWriteCompanions::default();
-    let mut returned = Vec::new();
-    for item in items {
-        let outcome = returned_message_outcome(item);
-        if outcome == QueueItemOutcome::Canceled {
-            returned.push(item.clone());
-        }
-        add_outcome(&mut companions, item, &outcome, now)?;
-    }
+    // A run's own opening ends with the rest, since the Stop ends the run it opens.
+    let outcomes: Vec<QueueItemOutcome> = items.iter().map(returned_message_outcome).collect();
+    let returned: Vec<&QueueItemRecord> = items
+        .iter()
+        .zip(&outcomes)
+        .filter(|(_, outcome)| **outcome == QueueItemOutcome::Canceled)
+        .map(|(item, _)| item)
+        .collect();
+    let mut companions = outcome_companions(items.iter().zip(&outcomes), now)?;
+    // The returned words go ahead of what the draft holds.
     companions
         .statements
         .extend(build_returned_words_draft(&returned, now));
@@ -46,22 +50,34 @@ pub fn stop_message_ends(
 
 /// The ends of `items`, every one not delivered, its delivery failed, for the write that ends
 /// their run or for a write of their own. Fails when an item's event cannot be drafted.
-pub fn not_delivered_ends(
+pub(crate) fn not_delivered_ends(
     items: &[QueueItemRecord],
     now: &WireInstant,
 ) -> Result<RunWriteCompanions, SessionEventDraftError> {
+    let failed = FAILED_DELIVERY;
+    outcome_companions(items.iter().map(|item| (item, &failed)), now)
+}
+
+/// The row move of each item of `outcomes` to the outcome beside it, with its event, for one
+/// write, each event ahead of the run's own. Fails when an item's event cannot be drafted.
+pub(crate) fn outcome_companions<'a>(
+    outcomes: impl IntoIterator<Item = (&'a QueueItemRecord, &'a QueueItemOutcome)>,
+    now: &WireInstant,
+) -> Result<RunWriteCompanions, SessionEventDraftError> {
     let mut companions = RunWriteCompanions::default();
-    for item in items {
-        add_outcome(&mut companions, item, &FAILED_DELIVERY, now)?;
+    for (item, outcome) in outcomes {
+        let (draft, statement) = outcome_draft_of(item, outcome, now)?;
+        companions.statements.push(statement);
+        companions.preceding_events.push(draft);
     }
     Ok(companions)
 }
 
-/// The draft write that puts the words of `items`, the lead messages one session's caller returns,
-/// back ahead of the session's held draft, one line per message in queue order; `None` when
-/// `items` carry no words.
-pub fn build_returned_words_draft(
-    items: &[QueueItemRecord],
+// The draft write that puts the words of `items`, the lead messages one session's caller returns,
+// back ahead of the session's held draft, one line per message in queue order; `None` when
+// `items` carry no words.
+fn build_returned_words_draft(
+    items: &[&QueueItemRecord],
     now: &WireInstant,
 ) -> Option<WriteStatement> {
     let session_id = items.first()?.session_id;
@@ -111,17 +127,4 @@ fn carries_only_words(message: &QueueMessageBody) -> bool {
         && skills.as_ref().is_none_or(Vec::is_empty)
         && output_speed_for_turn.is_none()
         && workspace_id.is_none()
-}
-
-// Adds the row move of `item` to `outcome` to `companions`, and its event ahead of the run's own.
-fn add_outcome(
-    companions: &mut RunWriteCompanions,
-    item: &QueueItemRecord,
-    outcome: &QueueItemOutcome,
-    now: &WireInstant,
-) -> Result<(), SessionEventDraftError> {
-    let (draft, statement) = outcome_draft_of(item, outcome, now)?;
-    companions.statements.push(statement);
-    companions.preceding_events.push(draft);
-    Ok(())
 }

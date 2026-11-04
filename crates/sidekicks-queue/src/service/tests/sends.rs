@@ -584,14 +584,6 @@ impl Fixture {
             .expect("the test reads the item's transcript row");
         serde_json::from_str(&payload).expect("a stored payload is JSON")
     }
-
-    /// The events the session's log holds.
-    pub(super) fn count_events(&self) -> i64 {
-        self.database
-            .reader()
-            .query_row("SELECT COUNT(*) FROM session_events", [], |row| row.get(0))
-            .expect("the test counts the log's events")
-    }
 }
 
 /// The id of the item a queued send answers.
@@ -699,7 +691,7 @@ async fn an_edit_of_a_waiting_plan_message_is_refused() {
     let item_id = fixture
         .send_plan_message(new_plan_id(), PlanMessageKind::Build, client_key())
         .await;
-    let events = fixture.count_events();
+    let events = fixture.count_events(None, None);
 
     let edited = fixture.replace_item(item_id).await;
     fixture.queue.stop().await;
@@ -713,7 +705,7 @@ async fn an_edit_of_a_waiting_plan_message_is_refused() {
         json!("planMessage")
     );
     assert_eq!(fixture.count_items(), 1);
-    assert_eq!(fixture.count_events(), events);
+    assert_eq!(fixture.count_events(None, None), events);
     assert_eq!(
         fixture.stored_state(item_id),
         RecordedQueueItemState::Queued
@@ -840,7 +832,7 @@ async fn a_person_removes_a_build_message_but_never_a_hand_off_s_seed() {
         .cancel_item(build_id)
         .await
         .expect("the build message is removed");
-    let events = fixture.count_events();
+    let events = fixture.count_events(None, None);
     let seed_canceled = fixture.cancel_item(seed_id).await;
     fixture.queue.stop().await;
 
@@ -860,5 +852,5 @@ async fn a_person_removes_a_build_message_but_never_a_hand_off_s_seed() {
         fixture.stored_state(seed_id),
         RecordedQueueItemState::Queued
     );
-    assert_eq!(fixture.count_events(), events);
+    assert_eq!(fixture.count_events(None, None), events);
 }

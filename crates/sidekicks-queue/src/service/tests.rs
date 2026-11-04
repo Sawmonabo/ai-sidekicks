@@ -63,8 +63,7 @@ use sidekicks_provider::runtime_binding::test_store::{
 use sidekicks_session::checkpoints::schema::schema_parts as checkpoint_schema_parts;
 use sidekicks_session::questions::schema::schema_parts;
 use sidekicks_session::queue_store::{
-    NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, QueueMessageBody,
-    RecordedQueueItemState, insert_queue_item_statement,
+    QueueItemBody, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
 };
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::run::engine::test_fixture::{
@@ -97,6 +96,7 @@ use crate::provider_session::test_opening::{
 };
 use crate::provider_session::{ProviderSessions, ProviderSessionsDeps};
 use crate::run_token_limit::RunTokenLimitReader;
+use crate::test_items::{Form, insert_form, insert_item, words};
 
 /// The statements the tests' read pool prepares, every reader's together.
 const READ_STATEMENT_CAPACITY: usize = 32;
@@ -429,18 +429,6 @@ impl RunTokenLimitReader for ConfiguredTokenLimit {
     }
 }
 
-/// A message carrying only `text`.
-fn words(text: &str) -> QueueMessageBody {
-    QueueMessageBody {
-        content: FreeFormText::new(text.to_owned()).expect("a test message"),
-        attachments: None,
-        skills: None,
-        answers_question_id: None,
-        output_speed_for_turn: None,
-        workspace_id: None,
-    }
-}
-
 fn client_key() -> ClientUuid {
     ClientUuid::new(mint_uuid_v7().to_string()).expect("a minted UUID is a client key")
 }
@@ -534,24 +522,12 @@ impl Fixture {
 
     /// Queues an item carrying `body` for `run_id`, after every one before it, and answers its id.
     async fn queue_body(&self, run_id: RunId, body: QueueItemBody) -> QueueItemId {
-        let item_id =
-            QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id");
-        let item = NewQueueItem {
-            id: item_id,
-            session_id: self.session_id,
-            body,
-            target_run_id: run_id,
-            device_id: None,
-            client_idempotency_key: Some(client_key()),
-            replaces_queue_item_id: None,
-            now: WireInstant::now(),
-        };
-        self.log
-            .writer
-            .write(vec![insert_queue_item_statement(&item)])
-            .await
-            .expect("the test queues its item");
-        item_id
+        insert_item(&self.log, self.session_id, run_id, body).await
+    }
+
+    /// Queues an item of `form` for `run_id`, after every one before it, and answers its id.
+    async fn queue_form(&self, run_id: RunId, form: Form) -> QueueItemId {
+        insert_form(&self.database, &self.log, self.session_id, run_id, form).await
     }
 
     /// Sends a message to the session's lead as a person does and answers its id. Fails as the
@@ -603,6 +579,35 @@ impl Fixture {
 
     fn run_state(&self, run_id: RunId) -> String {
         stored_run_state(&self.database, &run_id).0
+    }
+
+    /// The events the session's log holds, only those of `event_type` and about the queue item
+    /// `item_id` where either is given.
+    fn count_events(&self, event_type: Option<&str>, item_id: Option<QueueItemId>) -> i64 {
+        self.database
+            .reader()
+            .query_row(
+                "SELECT COUNT(*) FROM session_events
+                 WHERE (?1 IS NULL OR type = ?1)
+                   AND (?2 IS NULL OR json_extract(payload, '$.queueItemId') = ?2)",
+                params![event_type, item_id.map(|item_id| item_id.to_string())],
+                |row| row.get(0),
+            )
+            .expect("the test counts the log's events")
+    }
+
+    /// The runs the log holds ended `stopped` once every message they waited for was removed.
+    fn count_stopped_by_removal(&self) -> i64 {
+        self.database
+            .reader()
+            .query_row(
+                "SELECT COUNT(*) FROM session_events
+                 WHERE type = 'agent.run.stopped'
+                   AND json_extract(payload, '$.trigger') = 'messagesRemoved'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("the test reads the runs' ends")
     }
 
     fn count_items(&self) -> i64 {

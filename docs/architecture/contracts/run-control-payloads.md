@@ -135,7 +135,7 @@ type QueueItemByState<Members> = Members & {
     | { state: "notDelivered"; notDeliveredReason: QueueItemNotDeliveredReason }
   );
 
-// `agent.queueItem.cancel`: `Remove`. Removes a waiting message, or a lead message that reads not
+// `agent.queueItem.cancel`: `Remove`. Removes a waiting message, or a lead item that reads not
 // delivered; removing the last message of a queued run ends that run `stopped` with the trigger
 // `messagesRemoved`. Refused for an item the queue does not hold (`agent.queueItem.notFound`), one
 // the agent has taken (`agent.queueItem.changeRefused`, `alreadyTaken`), one Claude Code does not
@@ -193,7 +193,8 @@ type AgentRunInterveneRequest =
       reason?: string;
       // The messages still waiting when the turn ends: sent at once as the next turn (`nextTurn`),
       // or put back into the draft one line per message in send order (`returnToDraft`, which
-      // `Interrupt everything` sends).
+      // `Interrupt everything` sends), where a message with files, a review or a plan message
+      // ends not delivered instead.
       pending: "nextTurn" | "returnToDraft";
       // `Send now` on a waiting message on a provider that reads no priority message (Codex): the
       // interrupt ends the turn and this item goes first, the rest following in order as the next

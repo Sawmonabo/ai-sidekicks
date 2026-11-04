@@ -1,29 +1,27 @@
-//! A person's removal of a message, answered by what the item reads: a waiting one is canceled, a
-//! queued run left with none ending `stopped`; a lead message read not delivered is canceled, a
-//! helper's refused; and a late admission landing first answers it taken.
+//! A person's removal of an item, answered by what it reads: a waiting one is canceled, a queued
+//! run left with none ending `stopped`; a lead item read not delivered is canceled, a helper's
+//! message refused; and a late admission landing first answers it taken.
 
 use rstest::rstest;
-use rusqlite::params;
 use sidekicks_contracts::agent::tree::ChildHandle;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::run::queue::{
-    AgentQueueItemCancelRequest, QueueItemId, QueueItemNotDeliveredReason,
-};
+use sidekicks_contracts::run::queue::{AgentQueueItemCancelRequest, QueueItemId};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_session::queue_store::RecordedQueueItemState;
 
 use super::{Fixture, fixture};
-use crate::delivery::run_end::FAILED_DELIVERY;
+use crate::delivery::run_end::{FAILED_DELIVERY, FAILED_DELIVERY_REASON};
 use crate::error::QueueError;
-use crate::service::cancel::UndeliveredCancel;
+use crate::service::withdrawal::CancelOutcome;
+use crate::test_items::Form;
 
 /// What the removed item reads when the person removes it.
 #[derive(Clone, Copy, Debug)]
 enum Removed {
-    /// A lead message that reads not delivered.
-    LeadNotDelivered,
+    /// A lead item of this form that reads not delivered.
+    LeadNotDelivered(Form),
     /// A helper's message that reads not delivered.
     HelperNotDelivered,
     /// The only message a queued run waits for.
@@ -51,19 +49,7 @@ impl Fixture {
                 &WireInstant::now(),
             )
             .await
-            .expect("the test fails the message's delivery");
-    }
-
-    /// The `event_type` events the session's log holds.
-    fn count_events_of_type(&self, event_type: &str) -> i64 {
-        self.database
-            .reader()
-            .query_row(
-                "SELECT COUNT(*) FROM session_events WHERE type = ?1",
-                [event_type],
-                |row| row.get(0),
-            )
-            .expect("the test counts the log's events")
+            .expect("the test fails the item's delivery");
     }
 }
 
@@ -86,13 +72,22 @@ fn answer_of(answered: Result<(), QueueError>) -> Answer {
     }
 }
 
-// A removal answers by what the item reads: a lead message not delivered is canceled with one
-// event, a helper's refused not delivered, a queued run's last message canceled with the run
-// ending `stopped` on `messagesRemoved` and no failure, and a late admission landing before the
-// cancel's write answers it taken. Killed by the state check left at `queued` only, the widening
-// taken past the lead, the emptied run ended `failed`, and a refused write swallowed.
+// A removal answers by what the item reads: a lead item not delivered, a message, a review or a
+// plan message, is canceled with one event, a helper's refused not delivered, a queued run's last
+// message canceled with the run ending `stopped` on `messagesRemoved` and no failure, and a late
+// admission landing before the cancel's write answers it taken. Killed by the state check left at
+// `queued` only, the widening narrowed to a lead message or taken past the lead, the emptied run
+// ended `failed`, and a refused write swallowed.
 #[rstest]
-#[case::a_lead_message_not_delivered(Removed::LeadNotDelivered, Answer::Canceled)]
+#[case::a_lead_message_not_delivered(
+    Removed::LeadNotDelivered(Form::Words("Look again")),
+    Answer::Canceled
+)]
+#[case::a_lead_review_not_delivered(Removed::LeadNotDelivered(Form::Review), Answer::Canceled)]
+#[case::a_lead_plan_message_not_delivered(
+    Removed::LeadNotDelivered(Form::PlanMessage),
+    Answer::Canceled
+)]
 #[case::a_helpers_message_not_delivered(
     Removed::HelperNotDelivered,
     Answer::Refused("notDelivered")
@@ -107,28 +102,23 @@ async fn a_removal_answers_by_what_the_item_reads(
     let fixture = fixture(MockProviderDriver::new()).await;
     let run_state = match removed {
         Removed::LastOfQueuedRun => "queued",
-        Removed::LeadNotDelivered | Removed::HelperNotDelivered | Removed::AdmittedFirst => {
+        Removed::LeadNotDelivered(_) | Removed::HelperNotDelivered | Removed::AdmittedFirst => {
             "completed"
         }
     };
     let run_id = fixture.insert_run(run_state).await;
-    let item_id = fixture.queue_message(run_id).await;
-    let mut child_handle = None;
-    match removed {
-        Removed::LastOfQueuedRun => {}
-        Removed::LeadNotDelivered | Removed::AdmittedFirst => fixture.fail_delivery(item_id).await,
-        Removed::HelperNotDelivered => {
-            fixture.fail_delivery(item_id).await;
-            fixture
-                .database
-                .reader()
-                .execute(
-                    "UPDATE queue_items SET child_handle = 'helper' WHERE id = ?1",
-                    params![item_id.text().as_str()],
-                )
-                .expect("the test moves the message into a helper's box");
-            child_handle = ChildHandle::new("helper".to_owned());
-        }
+    let form = match removed {
+        Removed::LeadNotDelivered(form) => form,
+        Removed::HelperNotDelivered => Form::Helper("Look again"),
+        Removed::LastOfQueuedRun | Removed::AdmittedFirst => Form::Words("Look again"),
+    };
+    let item_id = fixture.queue_form(run_id, form).await;
+    let child_handle = match removed {
+        Removed::HelperNotDelivered => ChildHandle::new("helper".to_owned()),
+        Removed::LeadNotDelivered(_) | Removed::LastOfQueuedRun | Removed::AdmittedFirst => None,
+    };
+    if !matches!(removed, Removed::LastOfQueuedRun) {
+        fixture.fail_delivery(item_id).await;
     }
 
     let answered = match removed {
@@ -147,11 +137,11 @@ async fn a_removal_answers_by_what_the_item_reads(
                 .await
                 .expect("a refused cancel re-reads as taken");
             match taken {
-                UndeliveredCancel::Canceled => Answer::Canceled,
-                UndeliveredCancel::Taken => Answer::Refused("alreadyTaken"),
+                CancelOutcome::Canceled => Answer::Canceled,
+                CancelOutcome::Taken => Answer::Refused("alreadyTaken"),
             }
         }
-        Removed::LeadNotDelivered | Removed::HelperNotDelivered | Removed::LastOfQueuedRun => {
+        Removed::LeadNotDelivered(_) | Removed::HelperNotDelivered | Removed::LastOfQueuedRun => {
             let cancel = fixture
                 .queue
                 .cancel(AgentQueueItemCancelRequest {
@@ -164,9 +154,9 @@ async fn a_removal_answers_by_what_the_item_reads(
     };
 
     assert_eq!(answered, expected);
-    let canceled_events = fixture.count_events_of_type("agent.queueItem.canceled");
+    let canceled_events = fixture.count_events(Some("agent.queueItem.canceled"), None);
     match removed {
-        Removed::LeadNotDelivered => {
+        Removed::LeadNotDelivered(_) => {
             assert_eq!(
                 fixture.stored_state(item_id),
                 RecordedQueueItemState::Canceled
@@ -177,7 +167,7 @@ async fn a_removal_answers_by_what_the_item_reads(
             assert_eq!(
                 fixture.stored_state(item_id),
                 RecordedQueueItemState::NotDelivered {
-                    reason: QueueItemNotDeliveredReason::Failed {},
+                    reason: FAILED_DELIVERY_REASON,
                 }
             );
             assert_eq!(canceled_events, 0);
@@ -189,19 +179,8 @@ async fn a_removal_answers_by_what_the_item_reads(
             );
             assert_eq!(canceled_events, 1);
             assert_eq!(fixture.run_state(run_id), "stopped");
-            let stopped_by_removal: i64 = fixture
-                .database
-                .reader()
-                .query_row(
-                    "SELECT COUNT(*) FROM session_events
-                     WHERE type = 'agent.run.stopped'
-                       AND json_extract(payload, '$.trigger') = 'messagesRemoved'",
-                    [],
-                    |row| row.get(0),
-                )
-                .expect("the test reads the run's end");
-            assert_eq!(stopped_by_removal, 1);
-            assert_eq!(fixture.count_events_of_type("agent.run.failed"), 0);
+            assert_eq!(fixture.count_stopped_by_removal(), 1);
+            assert_eq!(fixture.count_events(Some("agent.run.failed"), None), 0);
         }
         Removed::AdmittedFirst => {
             assert_eq!(

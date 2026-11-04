@@ -31,7 +31,7 @@ use sidekicks_session::run::state_change::RunWriteCompanions;
 use sidekicks_std::keyed_lock::KeyHold;
 
 use crate::delivery::run_end::not_delivered_ends;
-use crate::delivery::state::{HandRoute, is_kept_by_process};
+use crate::delivery::state::{HandRoute, HandedMessage, is_kept_by_process};
 use crate::delivery::{DeliveryError, QueueDelivery, reordered_of};
 use crate::provider_session::held_run_continue::{KeptMessages, KeptWords};
 use crate::recorder::QueueRecordError;
@@ -134,18 +134,19 @@ impl QueueDelivery {
         Ok(())
     }
 
-    /// The words the messages continues kept in `session_id` make, by the run each was kept for,
-    /// with their ids: each message's words then a line naming each file's path, the messages in
-    /// the queue's order joined by a blank line, as a held lead's continue carries them. Fails as
-    /// a read or the files' lookup fails.
+    /// The words the messages continues kept in `session_id` while no provider process held it
+    /// make, by the run each was kept for, with their ids, as a held lead's continue carries them.
+    /// Fails as a read or the files' lookup fails.
     pub(crate) async fn kept_words(
         &self,
         session_id: SessionId,
     ) -> Result<HashMap<RunId, KeptWords>, Box<dyn Error + Send + Sync>> {
+        // A hand an unanswered resume kept while a process ran may be taken already, so its
+        // provider's record settles it instead.
         let kept: Vec<(QueueItemId, RunId)> = self
             .lock_state()
             .hands()
-            .filter(|(_, handed)| matches!(handed.route, HandRoute::Continue { is_kept: true, .. }))
+            .filter(|(_, handed)| is_kept_without_process(handed))
             .map(|(item_id, handed)| (*item_id, handed.run_id))
             .collect();
         let mut by_run: HashMap<RunId, Vec<QueueItemRecord>> = HashMap::new();
@@ -161,6 +162,7 @@ impl QueueDelivery {
         let mut words = HashMap::new();
         for (run_id, mut items) in by_run {
             items.sort_by_key(|item| item.position);
+            // Each message's words then a line naming each file's path, joined by a blank line.
             let mut texts = Vec::new();
             for item in &items {
                 let Some(message) = item.body.as_message() else {
@@ -185,6 +187,14 @@ impl QueueDelivery {
         Ok(words)
     }
 
+    /// Forgets the hands of the messages a continue of `run_id` kept while no provider process held
+    /// its session, so the run's next continue reads them again. Called once a failed continue
+    /// moved the run back to `paused`, under the session's queue lock.
+    pub(crate) fn forget_kept_words(&self, run_id: RunId) {
+        self.lock_state()
+            .retain_hands(|handed| handed.run_id != run_id || !is_kept_without_process(handed));
+    }
+
     /// Admits into `run_id` each of `taken` still waiting, the provider's own record of the run's
     /// conversation holding it after the daemon's restart, or a held lead's continue carrying it as
     /// a continued run's words, so no hand sends it again; one no longer waiting is left as it
@@ -203,11 +213,9 @@ impl QueueDelivery {
         Ok(())
     }
 
-    /// The messages still waiting for `run_id`, in the queue's order, with the companions that
-    /// end each not delivered in the run's own write, the provider's record of the run unreadable
-    /// after the daemon's restart, so the person decides whether to send each again. Called by a
-    /// resume's ingress before the resumed binding is recorded, under the session's transition
-    /// lock alone. Fails as the read fails or an end's event does not draft.
+    /// The messages still waiting for `run_id`, in the queue's order, with the companions that end
+    /// each not delivered in the run's own write, for a resume whose provider record is unreadable.
+    /// Called under the session's transition lock alone; fails as the read or an event draft fails.
     pub async fn read_unread_ends(
         &self,
         run_id: RunId,
@@ -297,6 +305,12 @@ impl KeptMessages for QueueDelivery {
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         Box::pin(async move { Ok(self.admit_taken_after_restart(run_id, &message_ids).await?) })
     }
+}
+
+// Whether `handed` is a message a continue kept while no provider process held its session: its
+// words go with the held lead's continue.
+fn is_kept_without_process(handed: &HandedMessage) -> bool {
+    matches!(handed.route, HandRoute::Continue { is_kept: true, .. }) && handed.process.is_none()
 }
 
 // The provider sessions were dropped: the daemon is stopping, so no session opens.
