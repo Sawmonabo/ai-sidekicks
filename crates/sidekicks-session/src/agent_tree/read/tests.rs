@@ -26,16 +26,17 @@ use crate::agents::projection::test_fixture::{
     binding, project, resolved_run_queued, run_statements, session_created, write_log_row,
 };
 
-// The provider that names every helper of these tests, in its started rows and its nodes alike.
-const HELPER_PROVIDER: &str = "test-provider";
+/// The provider that names every helper of these tests, in its started rows and its nodes alike.
+pub(crate) const HELPER_PROVIDER: &str = "test-provider";
 
-// The instant `second` seconds into the tests' minute, so rows written in order also start in
-// order.
-fn at(second: u32) -> String {
+/// The instant `second` seconds into the tests' minute, so rows written in order also start in
+/// order.
+pub(crate) fn at(second: u32) -> String {
     format!("2026-10-28T09:00:{second:02}.000Z")
 }
 
-fn agent_id() -> AgentId {
+/// A fresh agent id.
+pub(crate) fn agent_id() -> AgentId {
     AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id")
 }
 
@@ -50,18 +51,23 @@ fn helper_member(run_id: RunId, handle: &ChildHandle) -> AgentTreeMember {
     }
 }
 
-// One session's runs, nodes and log, on a database holding the agent tree's and the agents'
-// tables, with a lead agent whose `agents` row runs on `model-lead`.
-struct SessionLog {
+/// One session's runs, nodes and log, on a database holding the agent tree's and the agents'
+/// tables, with a lead agent whose `agents` row runs on `model-lead`.
+pub(crate) struct SessionLog {
     _database: TestDatabase,
-    connection: Connection,
-    session_id: SessionId,
-    sequence: i64,
-    lead: AgentId,
+    /// The connection every row is written and read through.
+    pub(crate) connection: Connection,
+    /// The session.
+    pub(crate) session_id: SessionId,
+    /// The sequence the next row of the log takes.
+    pub(crate) sequence: i64,
+    /// The session's lead agent.
+    pub(crate) lead: AgentId,
 }
 
 impl SessionLog {
-    fn new() -> Self {
+    /// A fresh session with its lead.
+    pub(crate) fn new() -> Self {
         let database = TestDatabase::new(
             crate::agent_tree::schema::schema_parts()
                 .with_parts(crate::agents::schema::schema_parts()),
@@ -87,9 +93,9 @@ impl SessionLog {
         }
     }
 
-    // Writes one row of the log at `occurred_at`, filed under `run_id` where it names one, and
-    // answers its sequence.
-    fn event(
+    /// Writes one row of the log at `occurred_at`, filed under `run_id` where it names one, and
+    /// answers its sequence.
+    pub(crate) fn event(
         &mut self,
         event_type: SessionEventType,
         payload: &Value,
@@ -109,8 +115,8 @@ impl SessionLog {
         sequence
     }
 
-    // A run in `state` for `agent_id`, under `parent` reached as it names, queued at `queued_at`.
-    fn run(
+    /// A run in `state` for `agent_id`, under `parent` reached as it names, queued at `queued_at`.
+    pub(crate) fn run(
         &mut self,
         parent: Option<(RunId, ChildRunProvenance)>,
         state: RunState,
@@ -141,9 +147,9 @@ impl SessionLog {
         run_id
     }
 
-    // A helper's own run under `parent_run_id`, for the lead's agent as a provider subagent's is,
-    // with the helper start that names it.
-    fn own_run(
+    /// A helper's own run under `parent_run_id`, for the lead's agent as a provider subagent's is,
+    /// with the helper start that names it.
+    pub(crate) fn own_run(
         &mut self,
         parent_run_id: RunId,
         subagent_id: &str,
@@ -171,8 +177,8 @@ impl SessionLog {
         run_id
     }
 
-    // The one place a test builds and writes a node.
-    fn node(
+    /// The one place a test builds and writes a node.
+    pub(crate) fn node(
         &self,
         own_run_id: RunId,
         subagent_id: &str,
@@ -198,7 +204,8 @@ impl SessionLog {
         handle
     }
 
-    fn bind(&self, handle: &ChildHandle, own_run_id: RunId, updated_at: &str) {
+    /// Binds the node `handle` to its newest own run `own_run_id`.
+    pub(crate) fn bind(&self, handle: &ChildHandle, own_run_id: RunId, updated_at: &str) {
         let updated_at = WireInstant::try_from(updated_at.to_owned()).expect("an instant");
         run_statements(
             &self.connection,

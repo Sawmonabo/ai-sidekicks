@@ -6,3 +6,4 @@ pub mod projection;
 pub mod read;
 pub mod schema;
 pub mod store;
+pub mod sweep;
