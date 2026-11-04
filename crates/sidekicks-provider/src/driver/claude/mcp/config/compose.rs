@@ -4,7 +4,6 @@
 
 use serde::Serialize;
 use serde_json::{Map, Value};
-use sidekicks_contracts::mcp::server::McpWritableBindingRef;
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpServerConfigInput};
 
 use crate::driver::mcp_server::write::{
@@ -44,9 +43,9 @@ const PROGRAM_MEMBERS: [&str; 3] = [COMMAND_MEMBER, ARGS_MEMBER, ENV_MEMBER];
 /// The members only an entry that reaches an address holds, removed when it moves to a program.
 const ADDRESS_MEMBERS: [&str; 2] = [URL_MEMBER, HEADERS_MEMBER];
 
-/// The words a write over a switch answers with: Claude Code's switch is the daemon's own.
-const NO_SWITCH_WORDS: &str = "Claude Code keeps no switch in its config, so no entry is written \
-                               over one.";
+/// The words a write of a switch, or over one, answers with: Claude Code's switch is the daemon's
+/// own.
+pub(super) const NO_SWITCH_WORDS: &str = "Claude Code keeps no switch for a server in its config.";
 
 /// One submitted member: its name in Claude Code's entry, and the value it is set to, `None`
 /// removing it.
@@ -67,15 +66,7 @@ struct SubmittedMembers {
 /// submitted member set or removed; an add holds the submitted members alone, with `type` left
 /// off a `stdio` entry as `claude mcp add-json` leaves it. Fails `Provider` over a switch, and
 /// `EntryInvalid` for a member Claude Code does not read or a value that does not serialize.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's MCP write, observe and compose methods call it"
-    )
-)]
 pub(super) fn compose_claude_mcp_entry(
-    _binding: &McpWritableBindingRef,
     config: &McpServerConfigInput,
     before: &McpServerObservedEntry,
 ) -> Result<McpServerEntry, McpServerWriteRefusal> {
@@ -273,7 +264,6 @@ fn set_member<T: Serialize>(
 #[cfg(test)]
 mod tests {
     use serde_json::{Value, json};
-    use sidekicks_contracts::mcp::server::McpWritableBindingRef;
     use sidekicks_contracts::mcp::server::config::McpServerConfigInput;
 
     use super::compose_claude_mcp_entry;
@@ -291,10 +281,6 @@ mod tests {
     // from the declaration, each of which drops `alwaysAllow` and `oauth`.
     #[test]
     fn an_update_keeps_every_member_the_input_does_not_model() {
-        let binding: McpWritableBindingRef = serde_json::from_value(json!({
-            "scope": "user", "provider": "claude", "serverName": "docs"
-        }))
-        .expect("the test's binding reads");
         let held = json!({
             "command": "npx",
             "args": ["docs-server"],
@@ -308,7 +294,6 @@ mod tests {
         .expect("the test's declaration reads");
 
         let composed = compose_claude_mcp_entry(
-            &binding,
             &config,
             &McpServerObservedEntry::Present(entry(held.clone())),
         )

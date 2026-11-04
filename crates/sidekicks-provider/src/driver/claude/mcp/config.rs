@@ -4,7 +4,8 @@
 //! deny lists. Every credential-bearing value is dropped at the read: a declaration keeps names
 //! only, and a remote address is held whole only in memory, for the duplicate match. The one read
 //! that keeps values takes a single server's entry for the probe that sends it, which drops it
-//! once sent.
+//! once sent. Beside the read sit the observe, compose, guarded edit and write of one server's
+//! entry in the person's own config, which keep values only in memory.
 
 mod compose;
 mod edit;
@@ -13,6 +14,7 @@ mod lock;
 mod observe;
 mod plugin_manifest;
 mod policy;
+mod write;
 
 pub(crate) use self::entry::{ClaudeDeclaredEntry, ClaudePluginFolders, ClaudeServerEntryReader};
 

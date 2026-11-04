@@ -14,13 +14,6 @@ use crate::driver::mcp_server::write::{McpServerEntry, McpServerObserved, McpSer
 /// What Claude Code's config holds for `binding`, read from the person's files and the plugins in
 /// `plugin_home`. Claude Code keeps no switch in its config, so it never answers a switch, and it
 /// versions no file and names none. Fails as the config read fails.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's MCP write, observe and compose methods call it"
-    )
-)]
 pub(super) async fn observe_claude_mcp_server(
     person: &ClaudePersonConfigFiles,
     plugin_home: &Path,
@@ -62,9 +55,7 @@ mod tests {
     use super::observe_claude_mcp_server;
     use crate::driver::claude::mcp::config::ClaudePersonConfigFiles;
     use crate::driver::claude::mcp::config::compose::compose_claude_mcp_entry;
-    use crate::driver::claude::mcp::config::edit::{
-        ClaudeEditTarget, ClaudeEntryEdit, edit_claude_mcp_entry,
-    };
+    use crate::driver::claude::mcp::config::edit::{ClaudeEditTarget, edit_claude_mcp_entry};
     use crate::driver::mcp_server::write::{McpServerObservedEntry, McpServerWriteOutcome};
 
     // Compose's entry, written by the edit, is what the observe reads back, in Claude Code's own
@@ -118,14 +109,14 @@ mod tests {
             .await
             .unwrap()
             .entry;
-        let composed = compose_claude_mcp_entry(&writable, &config, &before).unwrap();
+        let composed = compose_claude_mcp_entry(&config, &before).unwrap();
         let outcome = edit_claude_mcp_entry(
             ClaudeEditTarget::PersonConfig {
                 path: person.person_config.clone(),
                 project_key: None,
             },
             binding.server_name(),
-            ClaudeEntryEdit::Set(composed.clone()),
+            &composed,
             &before,
             Instant::now() + Duration::from_secs(10),
         )

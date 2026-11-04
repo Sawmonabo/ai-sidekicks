@@ -39,13 +39,6 @@ const SERVERS_FILE_TRIES: usize = 5;
 
 /// The config file an edit goes to.
 #[derive(Clone, Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's MCP write method names the file it edits"
-    )
-)]
 pub(super) enum ClaudeEditTarget {
     /// The person's own config, its `user` servers at `mcpServers` and a project's `local` ones
     /// under `projects.<project_key>.mcpServers`; edited under Claude Code's lock.
@@ -63,19 +56,6 @@ pub(super) enum ClaudeEditTarget {
     },
 }
 
-/// What an edit does to the binding's entry.
-#[derive(Clone, Debug, PartialEq)]
-#[expect(
-    dead_code,
-    reason = "the Claude driver's MCP write method sets and removes entries with it"
-)]
-pub(super) enum ClaudeEntryEdit {
-    /// Writes the entry whole in place of the one held.
-    Set(McpServerEntry),
-    /// Removes the entry's key and nothing else.
-    Remove,
-}
-
 /// How one try of an edit ended.
 enum EditTry {
     /// The edit's outcome.
@@ -84,33 +64,27 @@ enum EditTry {
     FileChanged,
 }
 
-/// Applies `edit` to `server_name`'s entry in `target`, but only while the entry there is still
-/// `before`. The person's config waits for Claude Code's lock until `deadline`. Answers `Applied`
-/// once written or where the edit changes nothing, `Unknown` where the write's end is not known,
-/// and every other end as a refusal, nothing written: the lock held or the hold past its bound as
-/// `ConfigFileBusy`, the entry changed as `EntryChanged`, the file changed as `ProjectFileChanged`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's MCP write, observe and compose methods call it"
-    )
-)]
+/// Writes `entry` whole in place of `server_name`'s entry in `target`, but only while the entry
+/// there is still `before`. The person's config waits for Claude Code's lock until `deadline`.
+/// Answers `Applied` once written or where the entry is already held, `Unknown` where the write's
+/// end is not known, and every other end as a refusal, nothing written: the lock held or the hold
+/// past its bound as `ConfigFileBusy`, the entry changed as `EntryChanged`, the file changed as
+/// `ProjectFileChanged`.
 pub(super) async fn edit_claude_mcp_entry(
     target: ClaudeEditTarget,
     server_name: &McpServerName,
-    edit: ClaudeEntryEdit,
+    entry: &McpServerEntry,
     before: &McpServerObservedEntry,
     deadline: tokio::time::Instant,
 ) -> McpServerWriteOutcome {
-    edit_entry(target, server_name, edit, before, deadline, || ()).await
+    edit_entry(target, server_name, entry, before, deadline, || ()).await
 }
 
 // The edit, with `on_rename_due` called on each try just before its unchanged check.
 async fn edit_entry<RenameDue>(
     target: ClaudeEditTarget,
     server_name: &McpServerName,
-    edit: ClaudeEntryEdit,
+    entry: &McpServerEntry,
     before: &McpServerObservedEntry,
     deadline: tokio::time::Instant,
     on_rename_due: RenameDue,
@@ -147,7 +121,7 @@ where
             let tried = edit_once(
                 &file,
                 &keys,
-                &edit,
+                entry,
                 before,
                 Some(LOCK_HOLD_MAX),
                 on_rename_due,
@@ -165,7 +139,7 @@ where
         ClaudeEditTarget::ProjectServersFile { .. } => {
             for _try in 0..SERVERS_FILE_TRIES {
                 if let EditTry::Ended(outcome) =
-                    edit_once(&file, &keys, &edit, before, None, on_rename_due.clone()).await
+                    edit_once(&file, &keys, entry, before, None, on_rename_due.clone()).await
                 {
                     return outcome;
                 }
@@ -179,7 +153,7 @@ where
 async fn edit_once<RenameDue>(
     file: &Path,
     keys: &[String],
-    edit: &ClaudeEntryEdit,
+    entry: &McpServerEntry,
     before: &McpServerObservedEntry,
     hold_max: Option<Duration>,
     on_rename_due: RenameDue,
@@ -187,14 +161,14 @@ async fn edit_once<RenameDue>(
 where
     RenameDue: FnOnce() + Send + 'static,
 {
-    let (file, keys, edit, before) = (
+    let (file, keys, edited, before) = (
         file.to_path_buf(),
         keys.to_vec(),
-        edit.clone(),
+        Value::Object(entry.members().clone()),
         before.clone(),
     );
     match tokio::task::spawn_blocking(move || {
-        edit_file(&file, &keys, &edit, &before, hold_max, on_rename_due)
+        edit_file(&file, &keys, edited, &before, hold_max, on_rename_due)
     })
     .await
     {
@@ -215,7 +189,7 @@ where
 fn edit_file(
     file: &Path,
     keys: &[String],
-    edit: &ClaudeEntryEdit,
+    edited: Value,
     before: &McpServerObservedEntry,
     hold_max: Option<Duration>,
     on_rename_due: impl FnOnce(),
@@ -252,11 +226,7 @@ fn edit_file(
             McpServerWriteRefusal::EntryChanged,
         ));
     }
-    let edited = match edit {
-        ClaudeEntryEdit::Set(entry) => Some(Value::Object(entry.members().clone())),
-        ClaudeEntryEdit::Remove => None,
-    };
-    if held == edited.as_ref() {
+    if held == Some(&edited) {
         return EditTry::Ended(McpServerWriteOutcome::Applied {
             reload_failure: None,
         });
@@ -264,23 +234,12 @@ fn edit_file(
     let (server_name, containers) = keys
         .split_last()
         .expect("an entry's place ends with its server's name");
-    match edited {
-        Some(entry) => {
-            let Some(servers) = servers_object(&mut config, containers) else {
-                return config_file_invalid(
-                    "a member holding the server in Claude Code's config is not a JSON object",
-                );
-            };
-            servers.insert(server_name.clone(), entry);
-        }
-        None => {
-            if let Some(servers) =
-                value_at_mut(&mut config, containers).and_then(Value::as_object_mut)
-            {
-                servers.remove(server_name);
-            }
-        }
-    }
+    let Some(servers) = servers_object(&mut config, containers) else {
+        return config_file_invalid(
+            "a member holding the server in Claude Code's config is not a JSON object",
+        );
+    };
+    servers.insert(server_name.clone(), edited);
     // Two-space indentation and no closing newline, as Claude Code writes its config.
     let rendered = match serde_json::to_string_pretty(&config) {
         Ok(rendered) => rendered,
@@ -328,14 +287,6 @@ fn value_at<'config>(config: &'config Value, keys: &[String]) -> Option<&'config
     keys.iter().try_fold(config, |value, key| value.get(key))
 }
 
-fn value_at_mut<'config>(
-    config: &'config mut Value,
-    keys: &[String],
-) -> Option<&'config mut Value> {
-    keys.iter()
-        .try_fold(config, |value, key| value.get_mut(key))
-}
-
 // The object at `keys` in `config`, each missing member on the way made an empty object; `None`
 // where a member on the way is something other than an object.
 fn servers_object<'config>(
@@ -381,7 +332,7 @@ mod tests {
     use sidekicks_std::file::atomic_write::write_file_atomically;
     use tokio::time::Instant;
 
-    use super::{ClaudeEditTarget, ClaudeEntryEdit, edit_entry};
+    use super::{ClaudeEditTarget, edit_entry};
     use crate::driver::mcp_server::write::{
         McpServerEntry, McpServerObservedEntry, McpServerWriteOutcome, McpServerWriteRefusal,
     };
@@ -509,7 +460,7 @@ mod tests {
         let outcome = edit_entry(
             target,
             &McpServerName::new("docs".to_owned()).unwrap(),
-            ClaudeEntryEdit::Set(entry(written.clone())),
+            &entry(written.clone()),
             &McpServerObservedEntry::Present(entry(observed)),
             Instant::now() + Duration::from_millis(300),
             on_rename_due,
