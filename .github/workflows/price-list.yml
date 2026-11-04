@@ -1,0 +1,115 @@
+# The price list a release ships: fetches LiteLLM's list at the head of its `main` over the daemon's
+# vendored copy, rewrites the copy's sidecar (the commit and the list's SHA3-256), runs the daemon's
+# release check over it, and uploads the list and its sidecar as the `price-list` artifact.
+#
+# A release calls it from one job that `uses:` this file. Each platform's build `needs:` that job
+# and, before `cargo build --release`, downloads the `price-list` artifact with
+# `path: crates/sidekicks-daemon/vendor/litellm`. The artifact is rooted at that folder, so the two
+# files land over the vendored ones and every platform ships the same copy.
+#
+# The job fails when the fetch fails, when `main` does not resolve to a commit id, when the list is
+# past the runtime's 16 MiB cap, when the daemon's build finds the list does not match its sidecar,
+# and when the check refuses the list whole. A rate the runtime drops alone is named in the check's
+# log and passes.
+
+name: Price list
+
+on:
+  workflow_call:
+    outputs:
+      commit:
+        description: The LiteLLM commit the price list was fetched at.
+        value: ${{ jobs.price-list.outputs.commit }}
+
+permissions:
+  contents: read
+
+jobs:
+  price-list:
+    name: price list
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      commit: ${{ steps.fetch.outputs.commit }}
+    env:
+      # Any Cargo warning fails the build, rustdoc's included, without discarding Cargo's cache.
+      CARGO_BUILD_WARNINGS: deny
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # `curl --max-filesize` ends a transfer of unknown length once it passes the cap, from curl
+      # 8.4.0 on; the runner's curl is newer.
+      - name: Fetch the price list
+        id: fetch
+        env:
+          PRICE_LIST: crates/sidekicks-daemon/vendor/litellm/model_prices_and_context_window.json
+          PRICE_LIST_SOURCE: crates/sidekicks-daemon/vendor/litellm/source.txt
+        run: |
+          set -euo pipefail
+          commit="$(git ls-remote https://github.com/BerriAI/litellm.git refs/heads/main | cut -f1)"
+          if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::LiteLLM's main did not resolve to one commit id: '${commit}'"
+            exit 1
+          fi
+          curl -fsSL --proto '=https' --max-filesize 16777216 -o "$PRICE_LIST" \
+            "https://raw.githubusercontent.com/BerriAI/litellm/${commit}/model_prices_and_context_window.json"
+          hash="$(openssl dgst -sha3-256 -r "$PRICE_LIST" | cut -d' ' -f1)"
+          printf 'commit=%s\nsha3-256=%s\n' "$commit" "$hash" > "$PRICE_LIST_SOURCE"
+          echo "commit=${commit}" >> "$GITHUB_OUTPUT"
+
+      # SHA-pinned; Renovate's pinGitHubActionDigests preset (renovate.json5) keeps it current.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 10.33.2
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: "pnpm"
+
+      # The daemon embeds the bundles and grammars this package builds, so it compiles only after.
+      - name: Build the daemon's engines
+        run: |
+          pnpm install --frozen-lockfile --filter @ai-sidekicks/daemon-engines
+          pnpm --filter @ai-sidekicks/daemon-engines build
+
+      # The newest stable Rust, with the WebAssembly target `rust-toolchain.toml` lists for the
+      # compression module, so Cargo finds it installed; SHA-pinned.
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      # As in `ci.yml`: nextest's prebuilt Linux binary, one exact release, checked against its
+      # pinned SHA-256 before it is unpacked.
+      - name: Install cargo-nextest
+        run: |
+          ASSET="cargo-nextest-0.9.148-x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSL "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.148/${ASSET}" -o "/tmp/${ASSET}"
+          echo "223ba936714cc861a9cdedad5a8eb664dfdd69d6fbdf6cea6aa8184f523290dc  /tmp/${ASSET}" | sha256sum -c -
+          tar -xzf "/tmp/${ASSET}" -C "${CARGO_HOME:-$HOME/.cargo}/bin"
+
+      # The daemon's build checks the list against the new sidecar as it compiles; the test then
+      # decodes every row, fails on a list refused whole and prints each rate refused alone.
+      - name: Check the price list
+        run: |
+          cargo nextest run -p sidekicks-daemon --locked --success-output immediate \
+            -E 'test(/(^|::)vendored_price_list$/)'
+
+      # Only the calling run reads the artifact.
+      - name: Upload the price list
+        uses: actions/upload-artifact@v7
+        with:
+          name: price-list
+          path: |
+            crates/sidekicks-daemon/vendor/litellm/model_prices_and_context_window.json
+            crates/sidekicks-daemon/vendor/litellm/source.txt
+          if-no-files-found: error
+          retention-days: 1

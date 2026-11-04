@@ -12,10 +12,13 @@ use serde::Deserialize as _;
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::event::usage::UsageTokenCountRecordedPayload;
+use sidekicks_contracts::event::usage::{
+    UsageCostSource, UsageCostUpdatedPayload, UsageTokenCountRecordedPayload,
+};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use sidekicks_contracts::run::subagent::SubagentId;
+use sidekicks_contracts::session::cost::UsdMicros;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -30,6 +33,12 @@ use sidekicks_store::events::projection::{
 use sidekicks_store::events::session::appender::UnsequencedEventEnvelope;
 
 use crate::driver::contract::account::WindowTurnSpend;
+
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the held requests' repricing reads them")
+)]
+pub(crate) mod unpriced;
 
 // The provider column is the account's own, so a row is written only while its account is held:
 // a rebuild after the account's removal writes nothing for it, as the removal's cascade left it.
@@ -52,27 +61,47 @@ SELECT @turn_id, account_id, provider, @occurred_at, @model_id, @input_tokens, @
   @cache_read_tokens, @cache_write_tokens, @reasoning_tokens, credential_generation
 FROM provider_accounts WHERE account_id = @account_id AND removal_intent = 0";
 
+// A turn's figure is set once: a priced row keeps its figure, and a row its account's removal
+// took is gone, so the row count is not checked.
+const SET_USAGE_TURN_COST_SQL: &str = "UPDATE provider_account_usage_turns
+   SET cost_usd_micros = @cost_usd_micros, cost_source = @cost_source
+ WHERE turn_id = @turn_id AND cost_usd_micros IS NULL";
+
+// As the figure above, on a turn no session owns, which no cost event names.
+const SET_SESSIONLESS_USAGE_TURN_COST_SQL: &str = "UPDATE provider_account_usage_turns
+   SET cost_usd_micros = @cost_usd_micros, cost_source = @cost_source
+ WHERE turn_id = @turn_id AND session_id IS NULL AND cost_usd_micros IS NULL";
+
 // Only the session's own rows: a turn no session owns has no session and survives.
 const CLEAR_USAGE_TURNS_SQL: &str = "DELETE FROM provider_account_usage_turns WHERE session_id = ?";
 
-const USAGE_TURN_EVENT_TYPES: [SessionEventType; 1] = [SessionEventType::UsageTokenCountRecorded];
+const USAGE_TURN_EVENT_TYPES: [SessionEventType; 2] = [
+    SessionEventType::UsageTokenCountRecorded,
+    SessionEventType::UsageCostUpdated,
+];
 
-/// The statements that write the usage row of a `usage.tokenCount.recorded` event in the append's
-/// own write; none for any other event. Fails when the stored payload does not read as its
+/// The statements that write a usage event's rows in the append's own write: the row of a
+/// `usage.tokenCount.recorded` event, the figure a `usage.cost.updated` event sets on each row it
+/// names, and none for any other event. Fails when the stored payload does not read as its
 /// variant, which the append's own checks rule out.
 pub fn usage_turn_projection_statements(
     envelope: &UnsequencedEventEnvelope,
 ) -> Result<Vec<WriteStatement>, serde_json::Error> {
-    if envelope.event_type() != SessionEventType::UsageTokenCountRecorded {
-        return Ok(Vec::new());
+    let event_type = envelope.event_type();
+    if event_type == SessionEventType::UsageTokenCountRecorded {
+        let recorded = UsageTokenCountRecordedPayload::deserialize(envelope.payload())?;
+        return Ok(vec![insert_usage_turn_statement(
+            envelope.id.as_str(),
+            envelope.occurred_at.as_str(),
+            envelope.session_id(),
+            &recorded,
+        )]);
     }
-    let recorded = UsageTokenCountRecordedPayload::deserialize(envelope.payload())?;
-    Ok(vec![insert_usage_turn_statement(
-        envelope.id.as_str(),
-        envelope.occurred_at.as_str(),
-        envelope.session_id(),
-        &recorded,
-    )])
+    if event_type == SessionEventType::UsageCostUpdated {
+        let cost = UsageCostUpdatedPayload::deserialize(envelope.payload())?;
+        return Ok(usage_cost_statements(&cost).collect());
+    }
+    Ok(Vec::new())
 }
 
 /// The `provider_account_usage_turns` rows of each session's usage events, as a rebuild replaces
@@ -118,6 +147,8 @@ impl SessionProjectionFold for UsageTurnsProjection {
                 envelope.session_id,
                 recorded,
             ));
+        } else if let SessionEvent::UsageCostUpdated(cost) = event {
+            statements.extend(usage_cost_statements(cost));
         }
         Ok(())
     }
@@ -207,6 +238,61 @@ pub fn sessionless_usage_turn_statement(
     }
 }
 
+/// The statement that sets the figure of the turn `turn_id` no session owns, as the repricing
+/// prices it directly: in whole micro-dollars, from `cost_source`. A turn already priced keeps its
+/// figure, and one its account's removal took is gone, so neither is refused.
+pub fn sessionless_usage_cost_statement(
+    turn_id: &str,
+    cost_usd_micros: UsdMicros,
+    cost_source: UsageCostSource,
+) -> WriteStatement {
+    usage_cost_statement(
+        SET_SESSIONLESS_USAGE_TURN_COST_SQL,
+        turn_id,
+        cost_usd_micros,
+        cost_source,
+    )
+}
+
+// One statement per token event the cost names, setting that row's own share once.
+fn usage_cost_statements(
+    cost: &UsageCostUpdatedPayload,
+) -> impl Iterator<Item = WriteStatement> + '_ {
+    cost.priced_events.as_slice().iter().map(|priced| {
+        usage_cost_statement(
+            SET_USAGE_TURN_COST_SQL,
+            priced.event_id.as_str(),
+            priced.cost_usd_micros,
+            cost.cost_source,
+        )
+    })
+}
+
+fn usage_cost_statement(
+    sql: &'static str,
+    turn_id: &str,
+    cost_usd_micros: UsdMicros,
+    cost_source: UsageCostSource,
+) -> WriteStatement {
+    // The column holds the source's wire word, which the table's check lists.
+    let cost_source = match cost_source {
+        UsageCostSource::ProviderReported => "providerReported",
+        UsageCostSource::DerivedExact => "derivedExact",
+    };
+    WriteStatement {
+        sql: Cow::Borrowed(sql),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@turn_id", turn_id),
+            (
+                Cow::Borrowed("@cost_usd_micros"),
+                Value::Integer(i64::from(cost_usd_micros.0)),
+            ),
+            text_binding("@cost_source", cost_source),
+        ]),
+        expected_row_count: None,
+    }
+}
+
 /// The binding of `generation`, a credential generation, as the integer its column stores.
 pub(crate) fn credential_generation_binding(
     name: &'static str,
@@ -244,20 +330,20 @@ mod tests {
 
     use super::*;
 
-    const LEAD_MODEL: &str = "claude-opus-4-5";
+    pub(super) const LEAD_MODEL: &str = "claude-opus-4-5";
     const HELPER_MODEL: &str = "claude-haiku-4-5";
 
     // One turn's figures: the account and generation charged, the model and the five counts.
-    struct Turn<'a> {
-        account: &'a str,
-        generation: u64,
-        model: &'a str,
-        subagent: Option<&'a str>,
-        counts: [u64; 5],
+    pub(super) struct Turn<'a> {
+        pub(super) account: &'a str,
+        pub(super) generation: u64,
+        pub(super) model: &'a str,
+        pub(super) subagent: Option<&'a str>,
+        pub(super) counts: [u64; 5],
     }
 
     // A session log beside the accounts `account-a` and `account-b`.
-    fn log_with_accounts() -> SessionTestLog {
+    pub(super) fn log_with_accounts() -> SessionTestLog {
         let log = SessionTestLog::new(schema_parts());
         for (account, provider) in [("account-a", "claude"), ("account-b", "claude")] {
             log.writer
@@ -278,7 +364,7 @@ mod tests {
     }
 
     // As `recorded`, with each of `members` also set on the payload.
-    fn recorded_with(
+    pub(super) fn recorded_with(
         log: &SessionTestLog,
         turn: &Turn<'_>,
         members: &Json,
@@ -310,8 +396,32 @@ mod tests {
         test_envelope(log.session_id, &event)
     }
 
+    // The `usage.cost.updated` envelope pricing each `(event, figure)` of `priced` at the exact rates.
+    pub(super) fn priced(
+        log: &SessionTestLog,
+        priced: &[(&UnsequencedEventEnvelope, u64)],
+    ) -> UnsequencedEventEnvelope {
+        let event: SessionEvent = serde_json::from_value(json!({
+            "type": "usage.cost.updated",
+            "payload": {
+                "sessionId": log.session_id,
+                "costUsdMicros": priced.iter().map(|(_, figure)| figure).sum::<u64>(),
+                "costSource": "derivedExact",
+                "pricedEvents": priced
+                    .iter()
+                    .map(|(envelope, figure)| {
+                        json!({"eventId": envelope.id.as_str(), "costUsdMicros": figure})
+                    })
+                    .collect::<Vec<_>>(),
+                "modelId": LEAD_MODEL,
+            },
+        }))
+        .expect("the test writes a cost event");
+        test_envelope(log.session_id, &event)
+    }
+
     // Writes each envelope's row as the append's own write does.
-    fn append(log: &SessionTestLog, envelopes: &[UnsequencedEventEnvelope]) {
+    pub(super) fn append(log: &SessionTestLog, envelopes: &[UnsequencedEventEnvelope]) {
         for envelope in envelopes {
             run_write_statements(
                 &log.writer,
@@ -615,5 +725,55 @@ mod tests {
             .collect::<rusqlite::Result<_>>()
             .expect("each row reads");
         assert_eq!(Json::Object(summed), per_model_block);
+    }
+
+    // Each row's figure and source, ordered by its turn id.
+    fn figures(log: &SessionTestLog) -> Vec<(String, Option<i64>, Option<String>)> {
+        log.reader()
+            .prepare(
+                "SELECT turn_id, cost_usd_micros, cost_source
+                 FROM provider_account_usage_turns ORDER BY turn_id",
+            )
+            .expect("the read prepares")
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .expect("the rows read")
+            .collect::<rusqlite::Result<_>>()
+            .expect("each row reads")
+    }
+
+    // Fails when a cost event's figures are not projected onto the rows it names, when a rebuild
+    // drops or recomputes them, or when a second cost event naming a priced row reprices it.
+    #[test]
+    fn a_cost_event_sets_each_row_figure_once_and_a_rebuild_writes_the_same() {
+        let log = log_with_accounts();
+        let turn = |counts| Turn {
+            account: "account-a",
+            generation: 1,
+            model: LEAD_MODEL,
+            subagent: None,
+            counts,
+        };
+        let first = recorded(&log, &turn([10, 4, 0, 0, 0]));
+        let second = recorded(&log, &turn([12, 5, 0, 0, 0]));
+        let cost = priced(&log, &[(&first, 5_000), (&second, 5_001)]);
+        let envelopes = [first, second, cost];
+        append(&log, &envelopes);
+
+        let mut expected: Vec<_> = envelopes[..2]
+            .iter()
+            .zip([5_000, 5_001])
+            .map(|(envelope, figure)| {
+                let source = Some("derivedExact".to_owned());
+                (envelope.id.as_str().to_owned(), Some(figure), source)
+            })
+            .collect();
+        expected.sort();
+        assert_eq!(figures(&log), expected);
+
+        rebuild(&log, &envelopes);
+        assert_eq!(figures(&log), expected);
+
+        append(&log, &[priced(&log, &[(&envelopes[0], 9)])]);
+        assert_eq!(figures(&log), expected);
     }
 }
