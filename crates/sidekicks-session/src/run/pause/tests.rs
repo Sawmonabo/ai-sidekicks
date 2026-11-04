@@ -3,6 +3,7 @@
 //! a run ended under the driver call, and the provider's reports held while a resume runs.
 
 mod owed_continuation;
+mod unopened;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -181,6 +182,7 @@ struct WaitingMessages {
     kept: Mutex<Vec<WaitingMessage>>,
     releases: AtomicUsize,
     admissions: AtomicUsize,
+    openings: AtomicUsize,
     // The kept messages a settle delivered with the run, those it gave back, and those it ended
     // not delivered.
     settled_taken: Mutex<Vec<QueueItemId>>,
@@ -196,6 +198,7 @@ impl Default for WaitingMessages {
             kept: Mutex::default(),
             releases: AtomicUsize::default(),
             admissions: AtomicUsize::default(),
+            openings: AtomicUsize::default(),
             settled_taken: Mutex::default(),
             settled_given_back: Mutex::default(),
             failed: Mutex::default(),
@@ -218,6 +221,14 @@ impl WaitingMessages {
 }
 
 impl ContinuedMessages for WaitingMessages {
+    fn open_session(
+        &self,
+        _session_id: SessionId,
+    ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
+        self.openings.fetch_add(1, Ordering::SeqCst);
+        async { Ok(()) }.boxed()
+    }
+
     fn hold_session(&self, session_id: SessionId) -> BoxFuture<'_, KeyHold<'_, SessionId>> {
         self.session_lock.acquire(session_id).boxed()
     }

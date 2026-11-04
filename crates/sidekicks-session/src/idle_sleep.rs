@@ -4,7 +4,9 @@
 //! a provider whose sessions never sleep answers no holds and stays awake. A recurring job the
 //! provider keeps lets the session sleep and wakes it two minutes before each run, through the
 //! program's scheduler on the wall clock; the kept jobs and wake-ups are stored, so the daemon's
-//! next start wakes each session on its schedule and leaves every other session asleep.
+//! next start wakes each session on its schedule and leaves every other session asleep. A scheduled
+//! wake that fails leaves the session asleep with the wake of its next fire armed, never the same
+//! fire again.
 //!
 //! The run queue's provider sessions, the one place a session's process opens, tell the idle sleep
 //! of each opening and close, and a sleeping session is brought up through them.
@@ -54,7 +56,8 @@ use tokio_util::task::TaskTracker;
 use crate::driver_resolution::read_session_driver;
 use crate::idle_sleep::holds::{HoldSources, SessionHolds, read_session_holds};
 use crate::idle_sleep::kept_schedules::{
-    delete_schedules_statement, next_wake_at, read_stored_schedules, replace_schedules_statements,
+    FIRE_MARGIN, delete_schedules_statement, next_wake_at, read_stored_schedules,
+    replace_schedules_statements,
 };
 use crate::idle_sleep::openings::{SessionProcessFollower, SessionProcessWaker};
 
@@ -163,7 +166,9 @@ struct SessionSleep {
     // The holds the daemon's own parts took, each a `SleepHold`.
     registered_holds: usize,
     // The wake armed for the session's next timed fire while it sleeps.
-    armed_wake: Option<ScheduledJobHandle>,
+    armed_wake: Option<ArmedWake>,
+    // The fire a scheduled wake under way serves, so a failed wake arms the fire after it.
+    served_fire: Option<Timestamp>,
     // The timed fires last read for the session, which its armed wake follows.
     kept_schedules: Vec<KeptSchedule>,
     // Whether `kept_schedules` is what is stored; a failed write leaves it for the next check.
@@ -171,6 +176,12 @@ struct SessionSleep {
     // Whether a failed store of the session's timed fires was written to the log since the last
     // store that went through, so a failure repeated at each check is logged once.
     is_store_failure_logged: bool,
+}
+
+// A sleeping session's armed wake and the timed fire it comes two minutes before.
+struct ArmedWake {
+    job: ScheduledJobHandle,
+    fire: Timestamp,
 }
 
 enum SleepPhase {
@@ -204,6 +215,7 @@ impl SessionSleep {
             phase: SleepPhase::Asleep,
             registered_holds: 0,
             armed_wake: None,
+            served_fire: None,
             kept_schedules: Vec::new(),
             are_schedules_stored: true,
             is_store_failure_logged: false,
@@ -315,7 +327,7 @@ impl SessionIdleSleep {
         }
         for entry in lock(&self.sessions).values_mut() {
             if let Some(armed) = entry.armed_wake.take() {
-                armed.cancel();
+                armed.job.cancel();
             }
         }
         self.transitions.close();
@@ -379,6 +391,7 @@ impl SessionIdleSleep {
         if let Some(entry) = sessions.get_mut(&session_id)
             && matches!(entry.phase, SleepPhase::Asleep)
         {
+            entry.served_fire = entry.armed_wake.as_ref().map(|armed| armed.fire);
             entry.phase = SleepPhase::Waking { kept: Vec::new() };
             self.begin_resume(session_id, entry);
         }
@@ -387,7 +400,7 @@ impl SessionIdleSleep {
     // Starts the one resume of `session_id`, whose entry was just moved to waking.
     fn begin_resume(&self, session_id: SessionId, entry: &mut SessionSleep) {
         if let Some(armed) = entry.armed_wake.take() {
-            armed.cancel();
+            armed.job.cancel();
         }
         let idle_sleep = self.shared();
         self.transitions
@@ -416,6 +429,8 @@ impl SessionIdleSleep {
             };
             if outcome.is_err() {
                 self.arm_wake(session_id, entry);
+            } else {
+                entry.served_fire = None;
             }
             kept
         };
@@ -686,7 +701,7 @@ impl SessionIdleSleep {
                 .remove(&session_id)
                 .and_then(|entry| entry.armed_wake)
             {
-                armed.cancel();
+                armed.job.cancel();
             }
         }
         self.deps
@@ -696,15 +711,19 @@ impl SessionIdleSleep {
         Ok(())
     }
 
-    // Arms the wake of sleeping `session_id` for its next timed fire, in place of any armed one. A
-    // wake the scheduler refuses is written to the log; the session then wakes for a message only.
+    // Arms the wake of sleeping `session_id` for its next timed fire, in place of any armed one;
+    // after a scheduled wake that failed, the next fire past the one it served. A wake the
+    // scheduler refuses is written to the log; the session then wakes for a message only.
     fn arm_wake(&self, session_id: SessionId, entry: &mut SessionSleep) {
         if let Some(armed) = entry.armed_wake.take() {
-            armed.cancel();
+            armed.job.cancel();
         }
-        let Some(wake_at) =
-            next_wake_at(&entry.kept_schedules, Timestamp::now(), &TimeZone::system())
-        else {
+        let now = Timestamp::now();
+        let from = entry
+            .served_fire
+            .take()
+            .map_or(now, |served| served.max(now));
+        let Some(wake_at) = next_wake_at(&entry.kept_schedules, from, &TimeZone::system()) else {
             return;
         };
         let waking = self.this.clone();
@@ -720,7 +739,12 @@ impl SessionIdleSleep {
             },
         );
         match scheduled {
-            Ok(armed) => entry.armed_wake = Some(armed),
+            Ok(job) => {
+                entry.armed_wake = Some(ArmedWake {
+                    job,
+                    fire: wake_at + FIRE_MARGIN,
+                });
+            }
             Err(error) => tracing::warn!(
                 session_id = %session_id,
                 error = &error as &(dyn Error + 'static),
@@ -746,10 +770,9 @@ impl SessionIdleSleep {
     /// Where `session_id`'s next scheduled wake is armed for, so a test reads what a sleep armed.
     #[cfg(test)]
     pub(crate) fn armed_wake_at(&self, session_id: SessionId) -> Option<Timestamp> {
-        lock(&self.sessions).get(&session_id).and_then(|entry| {
-            entry.armed_wake.as_ref()?;
-            next_wake_at(&entry.kept_schedules, Timestamp::now(), &TimeZone::system())
-        })
+        lock(&self.sessions)
+            .get(&session_id)
+            .and_then(|entry| Some(entry.armed_wake.as_ref()?.fire - FIRE_MARGIN))
     }
 
     /// Waits for every stop and resume under way, so a test reads where they left each session.
@@ -776,7 +799,7 @@ impl SessionProcessFollower for SessionIdleSleep {
         // A stop or resume under way settles the session itself.
         if matches!(entry.phase, SleepPhase::Asleep) {
             if let Some(armed) = entry.armed_wake.take() {
-                armed.cancel();
+                armed.job.cancel();
             }
             entry.phase = SleepPhase::Awake { idle_since: None };
         }

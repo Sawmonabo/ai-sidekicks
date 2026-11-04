@@ -1,7 +1,7 @@
 //! A delivery tests build over their own test store, with no provider process, no run being
 //! started and no interrupted run to continue, and the hand a send into a live run makes.
 
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
@@ -73,6 +73,8 @@ pub(crate) fn test_delivery_deps(
         processes: Arc::new(ProcessStandIn::default()),
         openings: Arc::new(NoOpenings),
         continuation: Arc::new(NoContinuation),
+        // No session is opened.
+        provider_sessions: Weak::new(),
     }
 }
 

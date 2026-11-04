@@ -166,7 +166,8 @@ impl ClaudeRunControls {
     /// Continues a run with the messages that waited for it. A helper's held calls are answered,
     /// with the messages as the person's words when there are any, each file a line naming its
     /// path; the lead's waiting messages go as user messages with their files, the first starting
-    /// its next turn when its last one ended on the pause. Fails `NoLiveSession`,
+    /// its next turn when its last one ended on the pause, after Claude Code's continuation words
+    /// where the continue owes them. Fails `NoLiveSession`,
     /// `SessionTurnInFlight` while another turn holds the session, as the files' read fails before
     /// anything is sent, with the run's refusal for a lead's picture Claude Code refuses,
     /// `session.message.resetRefused` with nothing written for a lead's message that would reset
@@ -228,7 +229,7 @@ impl ClaudeRunControls {
             .routes
             .lead_run_on(session_id)
             .is_some_and(|lead| lead.run_id == params.run_id);
-        if !params.messages.is_empty() && !is_lead {
+        if (params.is_continuation_owed || !params.messages.is_empty()) && !is_lead {
             self.start
                 .routes
                 .hold_turn_again(params.run_id)
@@ -241,6 +242,9 @@ impl ClaudeRunControls {
                 })?;
         }
         lock(&self.pauses).resume_lead(&session_id);
+        if params.is_continuation_owed {
+            self.write_continuation_words(&live, params.run_id).await?;
+        }
         for (message, attachment_blocks) in params.messages.into_iter().zip(blocks) {
             self.write_message(
                 &live,
@@ -571,9 +575,9 @@ impl ClaudeRunControls {
         background_claude_task(&live, tool_use_id).await
     }
 
-    // Writes one message for `run_id`, a steer into its running turn or not, recorded before the
-    // write since Claude Code may report it taken first; a write that never left is dropped again.
-    async fn write_message(
+    /// Writes one message for `run_id`, a steer into its running turn or not, recorded before the
+    /// write since Claude Code may report it taken first; a write that never left is dropped again.
+    pub(super) async fn write_message(
         &self,
         live: &LiveClaudeSession,
         run_id: RunId,

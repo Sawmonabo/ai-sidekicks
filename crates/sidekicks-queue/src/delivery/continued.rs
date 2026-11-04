@@ -5,7 +5,9 @@
 //! own record says what became of it, which is final only once no live provider process still holds
 //! it. After the daemon's restart, when no hand is remembered, a resumed run's record settles the
 //! waiting messages the same way: one it holds admitted, every one ended not delivered when it is
-//! unreadable. An item an undo's release reserved as the run's opening goes first.
+//! unreadable. An item an undo's release reserved as the run's opening goes first. A paused run
+//! continued in a session no process of this daemon holds since its restart has the session opened
+//! first, as its first admission would.
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::run::id::RunId;
@@ -180,7 +182,31 @@ impl QueueDelivery {
     }
 }
 
+// The provider sessions were dropped: the daemon is stopping, so no session opens.
+#[derive(Debug, thiserror::Error)]
+#[error("the daemon stopped before session {session_id} was opened")]
+struct SessionsStopped {
+    session_id: SessionId,
+}
+
 impl ContinuedMessages for QueueDelivery {
+    fn open_session(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
+        Box::pin(async move {
+            let sessions = self
+                .shared
+                .deps
+                .provider_sessions
+                .upgrade()
+                .ok_or(SessionsStopped { session_id })?;
+            // A deferred opening starts no process; the driver then refuses the continue.
+            sessions.resume_after_restart(session_id).await?;
+            Ok(())
+        })
+    }
+
     fn hold_session(&self, session_id: SessionId) -> BoxFuture<'_, KeyHold<'_, SessionId>> {
         Box::pin(self.shared.deps.session_lock.hold_session(session_id))
     }

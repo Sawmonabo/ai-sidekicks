@@ -217,6 +217,7 @@ impl RunQueue {
                 processes: Arc::clone(&processes),
                 openings: Arc::clone(&openings) as Arc<dyn OpeningMessages>,
                 continuation: Arc::new(lifecycle.clone()) as Arc<dyn InterruptedRunContinuation>,
+                provider_sessions: Arc::downgrade(&provider_sessions),
             });
             let admission = Arc::new(QueueAdmission::new(QueueAdmissionDeps {
                 pool: Arc::clone(&pool),
