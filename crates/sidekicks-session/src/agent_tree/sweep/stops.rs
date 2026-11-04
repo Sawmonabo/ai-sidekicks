@@ -150,25 +150,24 @@ impl AgentTreeSweep {
                 let answer = self
                     .stop_helper(session_id, &provider_name, run_id, subagent_id.clone())
                     .await;
-                match answer {
-                    // A helper read interrupted keeps its run's record, so its stop for good is
-                    // told by an event of its own, once the driver has answered.
-                    StopAnswer::Stopped(ChildStoppedState::Stopped)
-                        if descendant.state == RunState::Interrupted =>
-                    {
-                        self.record_held_stop(SubagentLifecyclePayload {
-                            session_id,
-                            run_id: carrying_run_id,
-                            provider: provider_name,
-                            subagent_id,
-                            child_run_id: Some(run_id),
-                            parent_tool_call_id: None,
-                            source_epoch: None,
-                            source_position: None,
-                        })
-                        .await
-                    }
-                    answer => answer,
+                // A helper read interrupted keeps its run's record, so its stop for good is told
+                // by an event of its own, once the driver has answered.
+                let is_held_stop = descendant.state == RunState::Interrupted
+                    && matches!(answer, StopAnswer::Stopped(ChildStoppedState::Stopped));
+                if is_held_stop {
+                    self.record_held_stop(SubagentLifecyclePayload {
+                        session_id,
+                        run_id: carrying_run_id,
+                        provider: provider_name,
+                        subagent_id,
+                        child_run_id: Some(run_id),
+                        parent_tool_call_id: None,
+                        source_epoch: None,
+                        source_position: None,
+                    })
+                    .await
+                } else {
+                    answer
                 }
             }
             DescendantStop::Run { run_id } => self.stop_run(run_id, actor).await,
