@@ -166,7 +166,8 @@ pub(crate) struct TaskStopFailure {
 }
 
 /// Waits within `bound` for each background task, one the start began or a service's own, named
-/// by what it does, and ends one still running then. Answers each task that ended abnormally or ran past the bound.
+/// by what it does, and ends one still running then. Answers each task that ended abnormally or
+/// ran past the bound.
 pub(crate) async fn end_start_tasks(
     tasks: impl IntoIterator<Item = (&'static str, JoinHandle<()>)>,
     bound: Duration,
@@ -220,21 +221,20 @@ pub(crate) enum CrashMonitorEndFailure {
 
 /// Ends the daemon's work, `bound` counted from this call: the person's Stop first writes its
 /// intent whole; that write and the stop's record of each step it waits on, which a cut write could
-/// land after the stop's end record, are the waits `bound` does not cut; then the stop token, so the work under way
-/// ends; then, within what is left of `bound`, the socket, so no new call comes, the mutating
-/// calls under way, the machine keys'
-/// background read, the capability refresh, the providers' registration, the tool servers' client,
-/// the run queue, the worktree cleanup's requests and the start's background tasks, the clone
-/// service with its askpass broker, the worktrees' setup commands, the repository services'
-/// background work, the attention decisions, the session services' follows with the chats' write
-/// watch and file recount, whose watermark a clean end stores, the renames' name pushes, the
-/// highlighter, the terminals, the provider accounts' sign-ins, the start's sweep of new accounts'
-/// homes and the account observer, the scheduler, the working-folder watch, the projects list, the
-/// search index, the drivers, the person's Stop's drain of the live runs, the turn end captures
-/// under way, the git trees a failed call left and, last, the kept worktrees' reads. The drivers
-/// are told `reason`'s intent, once a stop the person asked for over the socket since has
-/// replaced a restart, which writes the intent there. Answers each step's failure, every step
-/// having run.
+/// land after the stop's end record, are the waits `bound` does not cut; then the stop token, so
+/// the work under way ends; then, within what is left of `bound`, the socket, so no new call comes,
+/// the mutating calls under way, the machine keys' background read, the capability refresh, the
+/// providers' registration, the tool servers' client, the run queue, the worktree cleanup's
+/// requests and the start's background tasks, the clone service with its askpass broker, the
+/// worktrees' setup commands, the repository services' background work, the attention decisions,
+/// the session services' follows with the chats' write watch and file recount, whose watermark a
+/// clean end stores, the renames' name pushes, the highlighter, the terminals, the provider
+/// accounts' sign-ins, the start's sweep of new accounts' homes and the account observer, the
+/// scheduler, the working-folder watch, the projects list, the search index, the drivers, the
+/// person's Stop's drain of the live runs, the turn end captures under way, the git trees a failed
+/// call left and, last, the kept worktrees' reads. The drivers are told `reason`'s intent, once a
+/// stop the person asked for over the socket since has replaced a restart, which writes the intent
+/// there. Answers each step's failure, every step having run.
 pub(crate) async fn stop_work(
     process: &mut DaemonProcess,
     reason: DaemonStopReason,
@@ -587,7 +587,7 @@ pub(crate) async fn stop_work(
     failures
 }
 
-/// Closes everything that holds a file in the data folder, as [`close_data_folder_contents`] does,
+/// Closes everything that holds a file in the data folder, as `close_data_folder_contents` does,
 /// then lets the data folder's lock go last. Answers each step's failure, every step having run.
 pub(crate) async fn close_data_folder(process: &mut DaemonProcess) -> Vec<DaemonStopFailure> {
     let failures = close_data_folder_contents(process).await;
