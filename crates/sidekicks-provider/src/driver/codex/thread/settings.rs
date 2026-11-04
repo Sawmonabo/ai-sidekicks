@@ -452,12 +452,14 @@ fn compose_helper_roles(settings: &CodexThreadSettings) -> Option<Value> {
 }
 
 // Each command gets exactly the conversation's environment: nothing inherited from the service.
+// Codex merges the policy into the person's own, so the empty `include_only` replaces theirs and
+// sets aside their older `filters`, either of which would strip the conversation's variables.
 fn compose_shell_environment_policy(command_environment: &[(String, String)]) -> Value {
     let set: Map<String, Value> = command_environment
         .iter()
         .map(|(name, value)| (name.clone(), Value::String(value.clone())))
         .collect();
-    json!({ "inherit": "none", "set": set })
+    json!({ "inherit": "none", "include_only": [], "set": set })
 }
 
 // A level's config members, a struct of string-keyed maps and plain values, as one JSON object's
@@ -588,6 +590,23 @@ mod tests {
                 json!(value)
             );
         }
+    }
+
+    // Killed by sending `set` alone, which leaves the person's own `include_only` or `filters` to
+    // strip the conversation's variables.
+    #[test]
+    fn the_commands_policy_replaces_the_persons_include_list() {
+        let settings = CodexThreadSettings {
+            command_environment: vec![("SIDEKICKS_RUN".to_owned(), "run-1".to_owned())],
+            ..settings_with(None)
+        };
+
+        let params = compose_codex_thread_start_params(&settings, Map::new());
+        let config = params.config.expect("a start always carries its config");
+        assert_eq!(
+            config["shell_environment_policy"],
+            json!({ "inherit": "none", "include_only": [], "set": { "SIDEKICKS_RUN": "run-1" } })
+        );
     }
 
     /// A thread request that carries a service tier.
