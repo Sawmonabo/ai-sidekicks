@@ -316,7 +316,7 @@ async fn a_held_plan_holds_the_session_open_for_any_time() {
             .is_some()
     );
     assert_eq!(record.hold_ends(), []);
-    assert!(session.channel.answers().is_empty());
+    assert_eq!(session.channel.answers(), Vec::<(String, Value)>::new());
 }
 
 // A gone process's held plans are dropped with no report, whether their take had returned or was

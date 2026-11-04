@@ -27,7 +27,7 @@ use crate::driver::codex::service::supervisor::test_service::{
 };
 use crate::driver::codex::service::supervisor::{CodexProgramResolver, CodexServiceDependencies};
 use crate::driver::contract::error::DriverError;
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::runtime_binding::test_store::test_provider_account_id;
 use crate::spawned_version::ResolvedProviderExecutable;
 

@@ -150,7 +150,7 @@ async fn a_stop_with_a_deadline_kills_a_process_that_ignores_its_input_and_its_s
         &child_records,
         &ProviderProcessRegistry::default(),
         launch,
-        Arc::clone(&listener),
+        Arc::clone(&listener) as Arc<dyn ClaudeProcessListener>,
         None,
     )
     .await
