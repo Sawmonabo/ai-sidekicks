@@ -4,12 +4,13 @@
 //! later continue and stays handed past the run's end, until the provider shows it took it or its
 //! own record says what became of it, which is final only once no live provider process still holds
 //! it. After the daemon's restart, when no hand is remembered, a resumed run's record settles the
-//! waiting messages the same way: one it holds admitted, every one ended not delivered when it is
-//! unreadable. An item an undo's release reserved as the run's opening goes first. A paused run
-//! continued in a session no process of this daemon holds since its restart has the session opened
-//! first, as its first admission would. A paused helper continued under a lead the restart still
-//! holds keeps its messages for the lead's continue, which carries them as the helper's words and
-//! has them delivered with the helper once the provider took it.
+//! waiting messages the same way: one it holds admitted, and when it is unreadable every one ended
+//! not delivered in the run's own write, or alone where the run is left as it is. An item an
+//! undo's release reserved as the run's opening goes first. A paused run continued in a session no
+//! process of this daemon holds since its restart has the session opened first, as its first
+//! admission would. A paused helper continued under a lead the restart still holds keeps its
+//! messages for the lead's continue, which carries them as the helper's words and has them
+//! delivered with the helper once the provider took it.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -18,6 +19,7 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_provider::driver::attachments::{compose_message_text, resolve_message_attachments};
 use sidekicks_provider::driver::message_handing::MessageHanding;
 use sidekicks_provider::driver::run_control::WaitingMessage;
@@ -25,11 +27,14 @@ use sidekicks_provider::port::run_pause::{
     ContinuedMessages, ContinuedMessagesError, SessionOpening,
 };
 use sidekicks_session::queue_store::{QueueItemRecord, RecordedQueueItemState};
+use sidekicks_session::run::state_change::RunWriteCompanions;
 use sidekicks_std::keyed_lock::KeyHold;
 
+use crate::delivery::run_end::not_delivered_ends;
 use crate::delivery::state::{HandRoute, is_kept_by_process};
 use crate::delivery::{DeliveryError, QueueDelivery, reordered_of};
 use crate::provider_session::held_run_continue::{KeptHelperMessages, KeptHelperWords};
+use crate::recorder::QueueRecordError;
 
 impl QueueDelivery {
     // The unhanded lead messages waiting for `run_id` of `session_id`, a continue that did not go
@@ -198,19 +203,49 @@ impl QueueDelivery {
         Ok(())
     }
 
-    /// Ends each of `message_ids` still waiting not delivered, the provider's record of the run
-    /// they were looked up against unreadable after the daemon's restart, so the person decides
-    /// whether to send each again; one no longer waiting is left as it stands. Called by a
+    /// The messages still waiting for `run_id`, in the queue's order, with the companions that
+    /// end each not delivered in the run's own write, the provider's record of the run unreadable
+    /// after the daemon's restart, so the person decides whether to send each again. Called by a
     /// resume's ingress before the resumed binding is recorded, under the session's transition
-    /// lock alone. Fails at the first read or record that fails, the ends before it kept.
+    /// lock alone. Fails as the read fails or an end's event does not draft.
+    pub async fn read_unread_ends(
+        &self,
+        run_id: RunId,
+    ) -> Result<(Vec<QueueItemRecord>, RunWriteCompanions), DeliveryError> {
+        let waiting: Vec<QueueItemRecord> = self
+            .read_waiting(run_id)
+            .await?
+            .into_iter()
+            .filter(|item| item.body.as_message().is_some())
+            .collect();
+        let companions =
+            not_delivered_ends(&waiting, &WireInstant::now()).map_err(QueueRecordError::from)?;
+        Ok((waiting, companions))
+    }
+
+    /// Ends `items`, at least one, which [`QueueDelivery::read_unread_ends`] read, not delivered
+    /// in one write of their own, for a resumed run whose finalize left it as it is and so wrote
+    /// none of their ends, then forgets their hands and raises their queues. Fails as the write
+    /// fails, refused when one of them has left `queued`; nothing is written then.
     pub async fn fail_unread_after_restart(
         &self,
-        message_ids: &[QueueItemId],
+        items: &[QueueItemRecord],
     ) -> Result<(), DeliveryError> {
-        for item_id in message_ids {
-            self.fail_waiting(*item_id).await?;
-        }
+        let ends =
+            not_delivered_ends(items, &WireInstant::now()).map_err(QueueRecordError::from)?;
+        self.shared.deps.recorder.record_ends(ends).await?;
+        self.settle_ended(items);
         Ok(())
+    }
+
+    /// Forgets the hand of each of `items` and raises their queues, once a write that moved them
+    /// out of `queued` committed: a resumed run's own write or
+    /// [`QueueDelivery::fail_unread_after_restart`]'s.
+    pub fn settle_ended(&self, items: &[QueueItemRecord]) {
+        for item in items {
+            self.forget_hand(item.id);
+        }
+        self.shared.deps.recorder.raise_committed(items, false);
     }
 
     // Admits `item_id` into `run_id` while it still waits, its provider having taken it; its
