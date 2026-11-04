@@ -1,9 +1,10 @@
 //! The one place a Claude Code process's environment is composed: the session's environment with
-//! the run's credential variables and the withheld names removed, then the variables the app sets
-//! on every Claude Code process, the question tool's switches among them, and the home it runs on:
-//! an account's folders with the scratch folder the daemon keeps under its own data folder for
-//! each configuration home, a throwaway folder that holds all three for one read, or a throwaway
-//! folder on an account's own credential store.
+//! the run's credential variables and the withheld names (the person's telemetry settings among
+//! them) removed, then the variables the app sets on every Claude Code process, the question
+//! tool's switches among them, and the home it runs on: an account's folders with the scratch
+//! folder the daemon keeps under its own data folder for each configuration home, a throwaway
+//! folder that holds all three for one read, or a throwaway folder on an account's own credential
+//! store.
 
 use std::path::{Path, PathBuf};
 
@@ -18,7 +19,24 @@ use crate::driver::claude::account::credentials::{
 use crate::service_log::provider_home_key;
 use crate::spawn_environment::{
     ProviderEnvironmentRequest, SessionEnvironment, SpawnEnvironmentError,
-    build_provider_process_environment,
+    WithheldEnvironmentNames, build_provider_process_environment,
+};
+
+// The person's telemetry settings no Claude Code process inherits, so its exports reach only the
+// daemon's receiver: every `OTEL_` name and the switches Claude Code reads beside them. The
+// person's opt-outs of Anthropic's own telemetry (`DISABLE_TELEMETRY`,
+// `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`) are kept.
+const CLAUDE_TELEMETRY_WITHHELD: WithheldEnvironmentNames<'static> = WithheldEnvironmentNames {
+    prefixes: &["OTEL_"],
+    names: &[
+        "BETA_TRACING_ENDPOINT",
+        "ENABLE_BETA_TRACING_DETAILED",
+        "CLAUDE_CODE_ENABLE_TELEMETRY",
+        "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA",
+        "ENABLE_ENHANCED_TELEMETRY_BETA",
+        "CLAUDE_CODE_OTEL_FLUSH_TIMEOUT_MS",
+        "CLAUDE_CODE_OTEL_SHUTDOWN_TIMEOUT_MS",
+    ],
 };
 
 // The data folder's folder of Claude Code scratch folders, and in it the folder of each home's.
@@ -171,7 +189,8 @@ pub(crate) fn claude_text_variable<'environment>(
 }
 
 /// The whole environment a session process, a relaunch or the sign-in check starts with, the
-/// question tool's previews and extended questions switched on, with `additional_mandated_pairs`
+/// person's telemetry settings withheld, the question tool's previews and extended questions
+/// switched on, with `additional_mandated_pairs`
 /// (a pair a caller sets on this one process) over it. Fails as
 /// `build_provider_process_environment` does: a mandated name claimed twice, or an account or
 /// scratch folder that is relative or ends up empty.
@@ -215,6 +234,7 @@ pub(crate) fn compose_claude_process_environment(
             credential_homes: &credential_homes,
         },
         additional_mandated_pairs,
+        CLAUDE_TELEMETRY_WITHHELD,
     )
 }
 
