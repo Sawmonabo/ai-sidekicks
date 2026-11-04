@@ -58,7 +58,7 @@ pub(crate) type EndReason = Arc<dyn Error + Send + Sync + 'static>;
 /// Run on the write queue's task right after the write's batch commits, with the sequence of each
 /// of its event rows in order, before the next batch is sent and before any caller hears of it.
 /// It runs only for a write that committed, whether or not its caller still waits.
-pub(crate) type CommitHook = Box<dyn FnOnce(&[SafeInt<0>]) + Send>;
+pub type CommitHook = Box<dyn FnOnce(&[SafeInt<0>]) + Send>;
 
 /// A read run on the writer's thread, on its connection, right after each batch that committed a
 /// write and before any caller of the batch hears, so what it reads follows the commits in their
@@ -111,7 +111,7 @@ pub struct DatabaseWriterOptions {
 #[derive(Debug)]
 pub struct CommittedWrite {
     /// What each statement did.
-    pub(crate) statement_results: Vec<StatementResult>,
+    pub statement_results: Vec<StatementResult>,
     /// Each event row's sequence.
     pub(crate) sequences: Vec<SafeInt<0>>,
 }
