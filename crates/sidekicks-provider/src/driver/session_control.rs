@@ -538,6 +538,24 @@ pub struct SetSessionGoalParams {
     pub(crate) goal_text: String,
 }
 
+impl SetSessionGoalParams {
+    /// The params of setting `goal_text` on `binding_id`, the live binding of `session_id`'s run
+    /// `run_id`.
+    pub fn new(
+        session_id: SessionId,
+        binding_id: RuntimeBindingId,
+        run_id: RunId,
+        goal_text: String,
+    ) -> Self {
+        Self {
+            session_id,
+            binding_id,
+            run_id,
+            goal_text,
+        }
+    }
+}
+
 /// Params of `clear_session_goal` (gated on `sessionGoals`); addresses one live binding.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[expect(
@@ -551,6 +569,18 @@ pub struct ClearSessionGoalParams {
     pub(crate) binding_id: RuntimeBindingId,
     /// The run, for context.
     pub(crate) run_id: RunId,
+}
+
+impl ClearSessionGoalParams {
+    /// The params of clearing the goal on `binding_id`, the live binding of `session_id`'s run
+    /// `run_id`.
+    pub fn new(session_id: SessionId, binding_id: RuntimeBindingId, run_id: RunId) -> Self {
+        Self {
+            session_id,
+            binding_id,
+            run_id,
+        }
+    }
 }
 
 /// `session.permissionLevel.notOffered`: the session's provider, its account or its model cannot
