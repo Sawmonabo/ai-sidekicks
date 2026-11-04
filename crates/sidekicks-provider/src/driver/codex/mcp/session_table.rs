@@ -83,6 +83,7 @@ impl CodexLoadedServers {
 }
 
 /// Everything one call's `mcp_servers` table is composed from.
+#[derive(Clone, Copy)]
 pub(crate) struct CodexSessionTableInput<'input> {
     /// The session, which names its servers' addresses on the daemon's route.
     pub(crate) session_id: SessionId,
