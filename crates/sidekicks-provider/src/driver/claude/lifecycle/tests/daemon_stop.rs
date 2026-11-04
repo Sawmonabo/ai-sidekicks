@@ -152,6 +152,9 @@ async fn stop_with_a_surviving_task() {
 // A person's Stop meeting a session whose process is still coming up: the stop waits the bring-up
 // out, then closes it, writing nothing for it.
 async fn stop_while_establishing() {
+    // On the real clock: a paused one jumps to the stop's deadline while the bring-up waits on its
+    // file work, which would end the slot wait early.
+    tokio::time::resume();
     let fixture = ScriptedDriver::new();
     let driver: Arc<dyn ProviderDriver> = fixture.driver.clone();
     let channel = Arc::new(ScriptedChannel::default());

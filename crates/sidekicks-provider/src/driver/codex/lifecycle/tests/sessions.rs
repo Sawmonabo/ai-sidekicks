@@ -610,11 +610,11 @@ fn turn_request() -> CodexTurnRequest {
 #[derive(Clone, Copy, Debug)]
 enum JoinedStop {
     /// A person's Stop, the session on a service the daemon only joined.
-    StopOnAJoinedService,
+    JoinedUnderStop,
     /// A person's Stop, the session on a service the daemon started.
-    StopOnTheDaemonsService,
+    DaemonsOwnUnderStop,
     /// A restart of the daemon, the session on a service the daemon only joined.
-    RestartOnAJoinedService,
+    JoinedUnderRestart,
 }
 
 // Real time under a timeout, as above. Killed by dropping the interrupts from `shutdown` (none on
@@ -622,24 +622,22 @@ enum JoinedStop {
 // serving when they arrive), by sending them under `Restart`, and by sending them to a service
 // the daemon started, whose own stop aborts the turn.
 #[rstest]
-#[case::stop_on_a_joined_service(JoinedStop::StopOnAJoinedService)]
-#[case::stop_on_the_daemons_service(JoinedStop::StopOnTheDaemonsService)]
-#[case::restart_on_a_joined_service(JoinedStop::RestartOnAJoinedService)]
+#[case::joined_under_stop(JoinedStop::JoinedUnderStop)]
+#[case::daemons_own_under_stop(JoinedStop::DaemonsOwnUnderStop)]
+#[case::joined_under_restart(JoinedStop::JoinedUnderRestart)]
 #[tokio::test]
 async fn a_daemon_stop_interrupts_open_turns_only_on_a_joined_codex_service(
     #[case] joined_stop: JoinedStop,
 ) {
     let mut scripted = match joined_stop {
-        JoinedStop::StopOnAJoinedService | JoinedStop::RestartOnAJoinedService => {
+        JoinedStop::JoinedUnderStop | JoinedStop::JoinedUnderRestart => {
             start_scripted_joined_service()
         }
-        JoinedStop::StopOnTheDaemonsService => start_scripted_codex_service(),
+        JoinedStop::DaemonsOwnUnderStop => start_scripted_codex_service(),
     };
     let intent = match joined_stop {
-        JoinedStop::StopOnAJoinedService | JoinedStop::StopOnTheDaemonsService => {
-            DaemonStopIntent::Stop
-        }
-        JoinedStop::RestartOnAJoinedService => DaemonStopIntent::Restart,
+        JoinedStop::JoinedUnderStop | JoinedStop::DaemonsOwnUnderStop => DaemonStopIntent::Stop,
+        JoinedStop::JoinedUnderRestart => DaemonStopIntent::Restart,
     };
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let driver = driver_holding(&scripted, folder.path());
@@ -688,11 +686,11 @@ async fn a_daemon_stop_interrupts_open_turns_only_on_a_joined_codex_service(
     }
 
     let expected = match joined_stop {
-        JoinedStop::StopOnAJoinedService => vec![
+        JoinedStop::JoinedUnderStop => vec![
             (json!({"threadId": TEST_THREAD, "turnId": "turn-1"}), true),
             (json!({"threadId": TEST_THREAD, "turnId": "turn-2"}), true),
         ],
-        JoinedStop::StopOnTheDaemonsService | JoinedStop::RestartOnAJoinedService => Vec::new(),
+        JoinedStop::DaemonsOwnUnderStop | JoinedStop::JoinedUnderRestart => Vec::new(),
     };
     interrupted.sort_by_key(|(params, _)| params["turnId"].as_str().map(str::to_owned));
     assert_eq!(interrupted, expected);
