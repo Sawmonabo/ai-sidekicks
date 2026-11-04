@@ -17,7 +17,6 @@ use sidekicks_contracts::run::control::StopTrigger;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
-use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::session::controls::events::{
     AgentRunStepLimitReachedPayload, AgentRunTokenLimitReachedPayload,
 };
@@ -39,7 +38,7 @@ use crate::run::engine::live::{CutGuard, StepInterruptGuard};
 use crate::run::engine::turns::{WriteWithResend, set_step_limit_reached};
 use crate::run::engine::{LiveAppend, RunEngine, settled};
 use crate::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
-use crate::run::read::RunRead;
+use crate::run::read::{RunRead, read_helper_lead};
 use crate::run::refusals::RunRefusal;
 use crate::run::transitions::is_transition_allowed;
 
@@ -59,14 +58,6 @@ static SELECT_TOKEN_LIMIT_REACHED_SQL: LazyLock<String> = LazyLock::new(|| {
             .category()
             .as_str(),
         SessionEventType::AgentRunTokenLimitReached.as_str()
-    )
-});
-
-// Whether a run is a provider's own subagent.
-static SELECT_IS_PROVIDER_SUBAGENT_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT EXISTS (SELECT 1 FROM runs WHERE run_id = ?1 AND reached_by = '{}')",
-        <&'static str>::from(ChildRunProvenance::ProviderSubagent)
     )
 });
 
@@ -636,11 +627,7 @@ impl RunEngine {
     async fn is_provider_subagent(&self, run_id: RunId) -> Result<bool, RunEngineError> {
         self.pool
             .read(ReadLength::Short, move |reader| {
-                Ok::<_, RunEngineError>(
-                    reader
-                        .prepare_cached(&SELECT_IS_PROVIDER_SUBAGENT_SQL)?
-                        .query_row([run_id.text().as_str()], |row| row.get(0))?,
-                )
+                Ok::<_, RunEngineError>(read_helper_lead(reader, &run_id)?.is_some())
             })
             .await
     }

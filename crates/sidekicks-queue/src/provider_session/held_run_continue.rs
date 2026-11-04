@@ -1,10 +1,11 @@
 //! The held lead's continue a relaunch carries: composed from the answers the person gave while
 //! the daemon's restart held the session's lead, the lead's own and those of the helpers beneath
-//! it, once no answer is still owed it, each answer's continue mark claimed before the driver is
-//! called and given back when the driver fails or defers, or later tells the queue it did not
-//! carry the continue, so the next relaunch carries it again.
+//! it, and from each paused helper beneath it the person continued, with the words its kept
+//! messages make, once no answer is still owed it, each answer's continue mark claimed before the
+//! driver is called and given back when the driver fails or defers, or later tells the queue it
+//! did not carry the continue, so the next relaunch carries it again.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
 use std::sync::Weak;
@@ -16,7 +17,9 @@ use sidekicks_approval::service::ApprovalService;
 use sidekicks_contracts::approval::ApprovalRequestId;
 use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::driver::idle_sleep::KeptSchedule;
 use sidekicks_provider::driver::ports::ContinueGivenBackListener;
@@ -25,7 +28,9 @@ use sidekicks_provider::driver::session_control::held_run_continue::{
     ContinueAnswer, ContinueEntry, HeldRunContinue,
 };
 use sidekicks_session::questions::service::QuestionsService;
+use sidekicks_session::run::pause::owes_continuation;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::ReadLength;
 use tokio_util::task::TaskTracker;
 
 use crate::provider_session::ProviderSessions;
@@ -147,6 +152,38 @@ impl OrphanedAnswerSource<QuestionId> for QuestionsService {
     }
 }
 
+/// The messages a paused helper's continue kept for its lead's continue, and the words they make,
+/// each file a line naming its path.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct KeptHelperWords {
+    /// The kept messages, delivered with the helper once a continue carried their words.
+    pub(crate) message_ids: Vec<QueueItemId>,
+    /// The words they make.
+    pub(crate) words: String,
+}
+
+/// Delivers a paused helper's kept messages once its lead's continue carried their words, under
+/// the session's transition lock alone, before the runs the resume named are settled.
+pub(crate) trait KeptHelperMessages: Send + Sync {
+    /// Delivers each of `message_ids` still waiting with `run_id`. Fails as a read or record
+    /// fails.
+    fn deliver_carried(
+        &self,
+        run_id: RunId,
+        message_ids: Vec<QueueItemId>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+}
+
+/// What a continue of the person's carries for the paused helpers they continued: each helper's
+/// kept words, by its run, as the queue read them before the continue, and where their messages
+/// are delivered once it carried them.
+pub(crate) struct HelperWords<'a> {
+    /// Each paused helper's kept words, by its run; a helper with none waiting has no entry.
+    pub(crate) kept: HashMap<RunId, KeptHelperWords>,
+    /// Delivers the kept messages of the helpers a continue carried.
+    pub(crate) messages: &'a dyn KeptHelperMessages,
+}
+
 // One continue mark a relaunch claimed.
 #[derive(Clone, Copy, Debug)]
 pub(super) enum ClaimedMark {
@@ -154,13 +191,15 @@ pub(super) enum ClaimedMark {
     Question(QuestionId),
 }
 
-/// The continue a relaunch claimed for the held lead, the marks it claimed, and the runs waiting on
-/// the person, every ask of theirs answered, that it continues, each beside the wait it leaves.
+/// The continue a relaunch claimed for the held lead, the marks it claimed, the runs waiting on
+/// the person, every ask of theirs answered, that it continues, each beside the wait it leaves,
+/// and the kept messages of each continued helper whose words it carries.
 #[derive(Default)]
 pub(super) struct ClaimedContinue {
     pub(super) held_run_continue: Option<HeldRunContinue>,
     pub(super) claims: Vec<ClaimedMark>,
     pub(super) answered_runs: Vec<(RunId, RunState)>,
+    pub(super) helper_messages: Vec<(RunId, Vec<QueueItemId>)>,
 }
 
 // The marks of the continue a relaunch handed its driver for the lead `lead_run_id`, kept until
@@ -259,12 +298,15 @@ impl ProviderSessions {
     // it. A run waiting on the person whose every ask is answered, an answer of its owed, counts as
     // running: the continue carries it on, and `live_runs` names it running where a continue was
     // claimed. An answer of a run outside the lead and its helpers is left out, as is one another
-    // relaunch claimed first; a failed claim gives back the marks claimed before it.
+    // relaunch claimed first; a failed claim gives back the marks claimed before it. Given
+    // `helper_words`, each helper beneath the lead the person continued from the restart's cut
+    // (running, no turn open, its newest turn end the cut) is owed too, with its kept words.
     pub(super) async fn claim_held_run_continue(
         &self,
         session_id: SessionId,
         live_runs: &mut [LiveRunResume],
         kept_schedules: &[KeptSchedule],
+        helper_words: Option<&HelperWords<'_>>,
     ) -> Result<ClaimedContinue, ProviderSessionError> {
         let may_continue = |run: &LiveRunResume| {
             run.is_lead()
@@ -361,6 +403,22 @@ impl ProviderSessions {
                 answer,
             });
         }
+        let mut helper_messages = Vec::new();
+        if let Some(helper_words) = helper_words {
+            for (helper, subagent_id) in self.continued_helpers(lead, &continued_runs).await? {
+                let kept = helper_words.kept.get(&helper);
+                if let Some(kept) = kept {
+                    helper_messages.push((helper, kept.message_ids.clone()));
+                }
+                entries.push(ContinueEntry {
+                    run_id: helper,
+                    subagent_id: Some(subagent_id),
+                    answer: ContinueAnswer::HelperContinued {
+                        words: kept.map(|kept| kept.words.clone()),
+                    },
+                });
+            }
+        }
         if entries.is_empty() {
             return Ok(ClaimedContinue {
                 claims,
@@ -391,7 +449,42 @@ impl ProviderSessions {
             )),
             claims,
             answered_runs,
+            helper_messages,
         })
+    }
+
+    // Each helper beneath `lead` the person continued from the restart's cut, with its id: running
+    // with no turn open, its newest turn end the cut. Fails as the read fails.
+    async fn continued_helpers(
+        &self,
+        lead: &LiveRunResume,
+        live_runs: &[LiveRunResume],
+    ) -> Result<Vec<(RunId, SubagentId)>, ProviderSessionError> {
+        let candidates: Vec<(RunId, SubagentId)> = live_runs
+            .iter()
+            .filter(|run| {
+                !run.is_stopping
+                    && run.run_state == RunState::Running
+                    && run.open_turns.is_empty()
+                    && lead.is_above(run, live_runs)
+            })
+            .filter_map(|run| Some((run.run_id, run.subagent_id.clone()?)))
+            .collect();
+        if candidates.is_empty() {
+            return Ok(candidates);
+        }
+        self.deps
+            .pool
+            .read(ReadLength::Short, move |reader| {
+                let mut continued = Vec::new();
+                for (run_id, subagent_id) in candidates {
+                    if owes_continuation(reader, &run_id)? {
+                        continued.push((run_id, subagent_id));
+                    }
+                }
+                Ok::<_, ProviderSessionError>(continued)
+            })
+            .await
     }
 
     /// Whether `run_id` waits on an ask of its own the person has not answered, a card or a

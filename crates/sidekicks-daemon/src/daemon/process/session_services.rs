@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Weak};
 
 use futures::future::BoxFuture;
+use sidekicks_artifact::attachment_resolver::ArtifactAttachmentResolver;
 use sidekicks_artifact::chat_file_versions::ChatFileVersions;
 use sidekicks_artifact::payload_store::PayloadStore;
 use sidekicks_artifact::plans::service::PlansService;
@@ -485,6 +486,10 @@ pub(crate) fn build_session_services(
         provider_accounts,
         token_limits,
         halted_runs,
+        attachments: Arc::new(ArtifactAttachmentResolver::new(
+            Arc::clone(&reads),
+            Arc::clone(&payloads),
+        )),
     });
     engine
         .set_interrupt_queue(Arc::downgrade(&queue) as Weak<_>)

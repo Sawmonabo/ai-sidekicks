@@ -7,20 +7,29 @@
 //! waiting messages the same way: one it holds admitted, every one ended not delivered when it is
 //! unreadable. An item an undo's release reserved as the run's opening goes first. A paused run
 //! continued in a session no process of this daemon holds since its restart has the session opened
-//! first, as its first admission would.
+//! first, as its first admission would. A paused helper continued under a lead the restart still
+//! holds keeps its messages for the lead's continue, which carries them as the helper's words and
+//! has them delivered with the helper once the provider took it.
+
+use std::collections::HashMap;
+use std::error::Error;
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_provider::driver::attachments::{compose_message_text, resolve_message_attachments};
 use sidekicks_provider::driver::message_handing::MessageHanding;
 use sidekicks_provider::driver::run_control::WaitingMessage;
-use sidekicks_provider::port::run_pause::{ContinuedMessages, ContinuedMessagesError};
-use sidekicks_session::queue_store::RecordedQueueItemState;
+use sidekicks_provider::port::run_pause::{
+    ContinuedMessages, ContinuedMessagesError, SessionOpening,
+};
+use sidekicks_session::queue_store::{QueueItemRecord, RecordedQueueItemState};
 use sidekicks_std::keyed_lock::KeyHold;
 
 use crate::delivery::state::{HandRoute, is_kept_by_process};
 use crate::delivery::{DeliveryError, QueueDelivery, reordered_of};
+use crate::provider_session::held_run_continue::{KeptHelperMessages, KeptHelperWords};
 
 impl QueueDelivery {
     // The unhanded lead messages waiting for `run_id` of `session_id`, a continue that did not go
@@ -120,11 +129,64 @@ impl QueueDelivery {
         Ok(())
     }
 
+    /// The words the messages continues kept in `session_id` make, by the run each was kept for,
+    /// with their ids: each message's words then a line naming each file's path, the messages in
+    /// the queue's order joined by a blank line, as a helper's continue composes them. Fails as a
+    /// read or the files' lookup fails.
+    pub(crate) async fn kept_helper_words(
+        &self,
+        session_id: SessionId,
+    ) -> Result<HashMap<RunId, KeptHelperWords>, Box<dyn Error + Send + Sync>> {
+        let kept: Vec<(QueueItemId, RunId)> = self
+            .lock_state()
+            .hands()
+            .filter(|(_, handed)| matches!(handed.route, HandRoute::Continue { is_kept: true, .. }))
+            .map(|(item_id, handed)| (*item_id, handed.run_id))
+            .collect();
+        let mut by_run: HashMap<RunId, Vec<QueueItemRecord>> = HashMap::new();
+        for (item_id, run_id) in kept {
+            if let Some(item) = self.read_item(item_id).await?
+                && item.session_id == session_id
+                && item.state == RecordedQueueItemState::Queued
+            {
+                by_run.entry(run_id).or_default().push(item);
+            }
+        }
+        let attachments = &*self.shared.deps.attachments;
+        let mut words = HashMap::new();
+        for (run_id, mut items) in by_run {
+            items.sort_by_key(|item| item.position);
+            let mut texts = Vec::new();
+            for item in &items {
+                let Some(message) = item.body.as_message() else {
+                    continue;
+                };
+                let files = resolve_message_attachments(
+                    attachments,
+                    &session_id,
+                    &message.attachment_ids(),
+                )
+                .await?;
+                texts.push(compose_message_text(message.content.as_str(), &files));
+            }
+            words.insert(
+                run_id,
+                KeptHelperWords {
+                    message_ids: items.iter().map(|item| item.id).collect(),
+                    words: texts.join("\n\n"),
+                },
+            );
+        }
+        Ok(words)
+    }
+
     /// Admits into `run_id` each of `taken` still waiting, the provider's own record of the run's
-    /// conversation holding it after the daemon's restart, so no hand sends it again; one no
-    /// longer waiting is left as it stands. Called by a resume's ingress for each lead run the
-    /// resume named, before the resumed binding is recorded, under the session's transition lock
-    /// alone. Fails at the first read or record that fails, the admissions before it kept.
+    /// conversation holding it after the daemon's restart, or a held lead's continue carrying it as
+    /// a continued helper's words, so no hand sends it again; one no longer waiting is left as it
+    /// stands. Called by a resume's ingress for each lead run the resume named, and by a relaunch
+    /// for each helper whose words its continue carried, before the resumed binding is recorded,
+    /// under the session's transition lock alone. Fails at the first read or record that fails,
+    /// the admissions before it kept.
     pub async fn admit_taken_after_restart(
         &self,
         run_id: RunId,
@@ -182,6 +244,16 @@ impl QueueDelivery {
     }
 }
 
+impl KeptHelperMessages for QueueDelivery {
+    fn deliver_carried(
+        &self,
+        run_id: RunId,
+        message_ids: Vec<QueueItemId>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        Box::pin(async move { Ok(self.admit_taken_after_restart(run_id, &message_ids).await?) })
+    }
+}
+
 // The provider sessions were dropped: the daemon is stopping, so no session opens.
 #[derive(Debug, thiserror::Error)]
 #[error("the daemon stopped before session {session_id} was opened")]
@@ -193,7 +265,7 @@ impl ContinuedMessages for QueueDelivery {
     fn open_session(
         &self,
         session_id: SessionId,
-    ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
+    ) -> BoxFuture<'_, Result<SessionOpening, ContinuedMessagesError>> {
         Box::pin(async move {
             let sessions = self
                 .shared
@@ -201,10 +273,20 @@ impl ContinuedMessages for QueueDelivery {
                 .provider_sessions
                 .upgrade()
                 .ok_or(SessionsStopped { session_id })?;
-            // A deferred opening starts no process; the driver then refuses the continue.
-            sessions.resume_after_restart(session_id).await?;
-            Ok(())
+            let resumed = sessions.resume_after_restart(session_id).await?;
+            Ok(if resumed.is_deferred {
+                SessionOpening::Deferred
+            } else {
+                SessionOpening::Opened
+            })
         })
+    }
+
+    fn continue_held_lead(&self, session_id: SessionId, helper_run_id: RunId) {
+        self.shared
+            .deps
+            .held_lead_continuation
+            .continue_held_lead(session_id, helper_run_id);
     }
 
     fn hold_session(&self, session_id: SessionId) -> BoxFuture<'_, KeyHold<'_, SessionId>> {

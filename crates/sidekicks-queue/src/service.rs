@@ -39,6 +39,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_provider::driver::ProviderAccountReader;
+use sidekicks_provider::driver::attachments::AttachmentResolver;
 use sidekicks_provider::driver::ports::{ContinueGivenBackListener, ProcessGoneListener};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::process_identity::ProviderProcessIds;
@@ -66,7 +67,8 @@ use self::answer_continue::HaltedRunRecord;
 use crate::admission::{QUEUE_DELIVERY_TIMEOUT, QueueAdmission, QueueAdmissionDeps, RunOpenings};
 use crate::changes::QueueChangeSignals;
 use crate::delivery::{
-    InterruptedRunContinuation, OpeningMessages, QueueDelivery, QueueDeliveryDeps, QueueWithdrawal,
+    HeldLeadContinuation, InterruptedRunContinuation, OpeningMessages, QueueDelivery,
+    QueueDeliveryDeps, QueueWithdrawal,
 };
 use crate::error::QueueError;
 use crate::memory_gate::MemoryGate;
@@ -138,6 +140,9 @@ pub struct RunQueueDeps {
     pub token_limits: Arc<PortRegistration<Arc<dyn RunTokenLimitReader>>>,
     /// Marks a run whose continue after an orphaned answer failed on the daemon's side as halted.
     pub halted_runs: Arc<dyn HaltedRunRecord>,
+    /// Binds a kept message's files to their stored copies, for the words a continued helper's
+    /// messages make in its lead's continue.
+    pub attachments: Arc<dyn AttachmentResolver>,
 }
 
 /// The daemon's one run queue: the handlers' sends and changes, the interventions' interrupts, and
@@ -177,90 +182,95 @@ pub struct RunQueue {
 impl RunQueue {
     /// The queue over `deps`, following every session's committed events from now on.
     pub fn new(deps: RunQueueDeps) -> Arc<Self> {
-        let RunQueueDeps {
-            pool,
-            event_log,
-            writer,
-            signals,
-            engine,
-            providers,
-            provider_sessions,
-            memory_gate,
-            processes,
-            pauses,
-            followers,
-            read_damaged_from_sequence,
-            provider_accounts,
-            token_limits,
-            halted_runs,
-        } = deps;
-        let recorder = Arc::new(QueueRecorder::new(QueueRecorderDeps {
-            event_log,
-            writer: Arc::clone(&writer),
-            pool: Arc::clone(&pool),
-            signals,
-        }));
-        let session_lock = Arc::new(QueueSessionLock::new());
-        let openings = Arc::new(RunOpenings::default());
-        let undo_reads = (
-            Arc::clone(&providers),
-            Arc::clone(&provider_sessions),
-            Arc::clone(&read_damaged_from_sequence),
-        );
-        let mut parts = None;
-        let lifecycle = Arc::new_cyclic(|lifecycle: &Weak<QueueRunLifecycle>| {
-            let delivery = QueueDelivery::new(QueueDeliveryDeps {
-                pool: Arc::clone(&pool),
-                recorder: Arc::clone(&recorder),
-                providers: Arc::clone(&providers),
-                session_lock: Arc::clone(&session_lock),
-                processes: Arc::clone(&processes),
-                openings: Arc::clone(&openings) as Arc<dyn OpeningMessages>,
-                continuation: Arc::new(lifecycle.clone()) as Arc<dyn InterruptedRunContinuation>,
-                provider_sessions: Arc::downgrade(&provider_sessions),
-            });
-            let admission = Arc::new(QueueAdmission::new(QueueAdmissionDeps {
-                pool: Arc::clone(&pool),
-                recorder: Arc::clone(&recorder),
-                engine: Arc::clone(&engine),
-                provider_sessions: Arc::clone(&provider_sessions),
-                providers: Arc::clone(&providers),
+        Arc::new_cyclic(|this: &Weak<Self>| {
+            let RunQueueDeps {
+                pool,
+                event_log,
+                writer,
+                signals,
+                engine,
+                providers,
+                provider_sessions,
+                memory_gate,
+                processes,
+                pauses,
+                followers,
+                read_damaged_from_sequence,
                 provider_accounts,
                 token_limits,
-                memory_gate: Arc::clone(&memory_gate),
-                processes,
-                session_lock: Arc::clone(&session_lock),
-                read_damaged_from_sequence,
-                openings,
-                delivery: delivery.clone(),
-                delivery_timeout: QUEUE_DELIVERY_TIMEOUT,
+                halted_runs,
+                attachments,
+            } = deps;
+            let recorder = Arc::new(QueueRecorder::new(QueueRecorderDeps {
+                event_log,
+                writer: Arc::clone(&writer),
+                pool: Arc::clone(&pool),
+                signals,
             }));
-            parts = Some((delivery.clone(), Arc::clone(&admission)));
-            QueueRunLifecycle::new(QueueRunLifecycleDeps {
+            let session_lock = Arc::new(QueueSessionLock::new());
+            let openings = Arc::new(RunOpenings::default());
+            let undo_reads = (
+                Arc::clone(&providers),
+                Arc::clone(&provider_sessions),
+                Arc::clone(&read_damaged_from_sequence),
+            );
+            let mut parts = None;
+            let lifecycle = Arc::new_cyclic(|lifecycle: &Weak<QueueRunLifecycle>| {
+                let delivery = QueueDelivery::new(QueueDeliveryDeps {
+                    pool: Arc::clone(&pool),
+                    recorder: Arc::clone(&recorder),
+                    providers: Arc::clone(&providers),
+                    session_lock: Arc::clone(&session_lock),
+                    processes: Arc::clone(&processes),
+                    openings: Arc::clone(&openings) as Arc<dyn OpeningMessages>,
+                    continuation: Arc::new(lifecycle.clone())
+                        as Arc<dyn InterruptedRunContinuation>,
+                    held_lead_continuation: Arc::new(this.clone()) as Arc<dyn HeldLeadContinuation>,
+                    provider_sessions: Arc::downgrade(&provider_sessions),
+                    attachments,
+                });
+                let admission = Arc::new(QueueAdmission::new(QueueAdmissionDeps {
+                    pool: Arc::clone(&pool),
+                    recorder: Arc::clone(&recorder),
+                    engine: Arc::clone(&engine),
+                    provider_sessions: Arc::clone(&provider_sessions),
+                    providers: Arc::clone(&providers),
+                    provider_accounts,
+                    token_limits,
+                    memory_gate: Arc::clone(&memory_gate),
+                    processes,
+                    session_lock: Arc::clone(&session_lock),
+                    read_damaged_from_sequence,
+                    openings,
+                    delivery: delivery.clone(),
+                    delivery_timeout: QUEUE_DELIVERY_TIMEOUT,
+                }));
+                parts = Some((delivery.clone(), Arc::clone(&admission)));
+                QueueRunLifecycle::new(QueueRunLifecycleDeps {
+                    pool: Arc::clone(&pool),
+                    recorder: Arc::clone(&recorder),
+                    admission,
+                    delivery,
+                    provider_sessions: Arc::clone(&provider_sessions),
+                    memory_gate,
+                    pauses: Arc::clone(&pauses),
+                    session_lock: Arc::clone(&session_lock),
+                })
+            });
+            let (delivery, admission) =
+                parts.expect("the lifecycle's construction built its parts");
+            let sends = QueueSends::new(QueueSendsDeps {
                 pool: Arc::clone(&pool),
                 recorder: Arc::clone(&recorder),
-                admission,
-                delivery,
-                provider_sessions: Arc::clone(&provider_sessions),
-                memory_gate,
-                pauses: Arc::clone(&pauses),
-                session_lock: Arc::clone(&session_lock),
-            })
-        });
-        let (delivery, admission) = parts.expect("the lifecycle's construction built its parts");
-        let sends = QueueSends::new(QueueSendsDeps {
-            pool: Arc::clone(&pool),
-            recorder: Arc::clone(&recorder),
-            delivery: delivery.clone(),
-            admission: Arc::clone(&admission),
-            lifecycle: Arc::clone(&lifecycle),
-        });
-        let following = {
-            let lifecycle = Arc::clone(&lifecycle);
-            followers.follow_all(move |event| lifecycle.observe(event))
-        };
-        let (providers, provider_sessions, read_damaged_from_sequence) = undo_reads;
-        Arc::new_cyclic(|this: &Weak<Self>| {
+                delivery: delivery.clone(),
+                admission: Arc::clone(&admission),
+                lifecycle: Arc::clone(&lifecycle),
+            });
+            let following = {
+                let lifecycle = Arc::clone(&lifecycle);
+                followers.follow_all(move |event| lifecycle.observe(event))
+            };
+            let (providers, provider_sessions, read_damaged_from_sequence) = undo_reads;
             let unreleased: Weak<dyn UnreleasedInterrupts> = this.clone();
             session_lock.settle_with(unreleased);
             Self {

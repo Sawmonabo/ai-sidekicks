@@ -16,6 +16,16 @@ use crate::driver::run_control::WaitingMessage;
 /// A failure the waiting-message queue reports, kept whole.
 pub type ContinuedMessagesError = Box<dyn Error + Send + Sync>;
 
+/// Where a continue's opening of its session left it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionOpening {
+    /// A process of this daemon holds the session, opened now or before.
+    Opened,
+    /// The provider started no process, every run in progress waiting on the person, pausing or
+    /// stopping, so no process of this daemon holds the session.
+    Deferred,
+}
+
 /// The messages waiting for a paused run that its resume delivers: read once the resume is sure to
 /// go, taken once the driver continued the run with them, given back when it did not, and kept
 /// when the driver sent them and no answer came. Each call runs under the queue's own lock on the
@@ -24,13 +34,20 @@ pub type ContinuedMessagesError = Box<dyn Error + Send + Sync>;
 pub trait ContinuedMessages: Send + Sync {
     /// Opens `session_id`'s provider session where no process of this daemon holds it yet, as
     /// its first admission after the daemon's restart would, so a continue reaches a live driver;
-    /// a session already open is left as it is. Never called under the session's hold, since the
-    /// opening takes the session's transition lock and may start a process. Fails as the opening
-    /// fails.
+    /// a session already open is left as it is. Answers whether a process now holds it. Never
+    /// called under the session's hold, since the opening takes the session's transition lock and
+    /// may start a process. Fails as the opening fails.
     fn open_session(
         &self,
         session_id: SessionId,
-    ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>>;
+    ) -> BoxFuture<'_, Result<SessionOpening, ContinuedMessagesError>>;
+
+    /// Hands the continue of `session_id`'s lead, which the restart holds, to the queue's own task
+    /// once the person continued `helper_run_id`, a paused helper beneath it the restart cut, now
+    /// written `running` with its messages kept: the lead continues once no other helper holds it,
+    /// carrying every continued helper's words, and a failed continue moves the helper back to
+    /// `paused` with its words kept. Never called under the session's hold or a run's write.
+    fn continue_held_lead(&self, session_id: SessionId, helper_run_id: RunId);
 
     /// Takes the queue's own per-session lock on `session_id`, which every hand and take-back of a
     /// session's waiting messages runs under.

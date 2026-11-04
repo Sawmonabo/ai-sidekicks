@@ -7,6 +7,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::test_registry::NothingServed;
 use sidekicks_provider::process_identity::ProcessStandIn;
 use sidekicks_session::queue_store::QueueItemRecord;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -15,7 +16,8 @@ use sidekicks_store::events::log_service::EventLogService;
 
 use crate::changes::QueueChangeSignals;
 use crate::delivery::{
-    DeliveryError, InterruptedRunContinuation, OpeningMessages, QueueDelivery, QueueDeliveryDeps,
+    DeliveryError, HeldLeadContinuation, InterruptedRunContinuation, OpeningMessages,
+    QueueDelivery, QueueDeliveryDeps,
 };
 use crate::recorder::{QueueRecorder, QueueRecorderDeps};
 use crate::session_lock::QueueSessionLock;
@@ -38,6 +40,10 @@ struct NoContinuation;
 
 impl InterruptedRunContinuation for NoContinuation {
     fn continue_interrupted_run(&self, _session_id: SessionId, _run_id: RunId) {}
+}
+
+impl HeldLeadContinuation for NoContinuation {
+    fn continue_held_lead(&self, _session_id: SessionId, _helper_run_id: RunId) {}
 }
 
 /// A delivery reading through `pool`, recording each outcome in `event_log` and `writer`, and
@@ -73,8 +79,10 @@ pub(crate) fn test_delivery_deps(
         processes: Arc::new(ProcessStandIn::default()),
         openings: Arc::new(NoOpenings),
         continuation: Arc::new(NoContinuation),
+        held_lead_continuation: Arc::new(NoContinuation),
         // No session is opened.
         provider_sessions: Weak::new(),
+        attachments: Arc::new(NothingServed),
     }
 }
 

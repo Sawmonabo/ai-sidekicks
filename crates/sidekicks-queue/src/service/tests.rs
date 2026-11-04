@@ -1,9 +1,10 @@
 //! The run queue's tests, over a test database holding a session whose lead is bound to the
 //! table's first provider, whose driver is a stand-in that records what it is asked: a send to a
 //! session that takes no change and the removal of a queued run's last message here; sends,
-//! starts, run ends, the interrupts' queue, a plan message's withdrawal and an undo in the modules
-//! below.
+//! starts, run ends, a continued helper's failed lead continue, the interrupts' queue, a plan
+//! message's withdrawal and an undo in the modules below.
 
+mod helper_continue;
 mod interrupt;
 mod run_ends;
 mod sends;
@@ -50,7 +51,9 @@ use sidekicks_provider::driver::run_control::{
 };
 use sidekicks_provider::driver::session_control::ProviderSessionHandle;
 use sidekicks_provider::driver::test_registry::registered_test_accounts;
-use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_provider};
+use sidekicks_provider::driver::test_registry::{
+    NothingServed, new_run_id, registry_of_first_provider,
+};
 use sidekicks_provider::driver::{CurrentProviderAccount, PROVIDERS};
 use sidekicks_provider::process_identity::{ProcessStandIn, ProviderProcessIds};
 use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
@@ -405,6 +408,7 @@ fn queue_over(
             Arc::new(token_limits)
         },
         halted_runs,
+        attachments: Arc::new(NothingServed),
     })
 }
 

@@ -29,7 +29,9 @@ use sidekicks_provider::driver::run_control::{TakenMessages, WaitingMessage};
 use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
 };
-use sidekicks_provider::port::run_pause::{ContinuedMessages, ContinuedMessagesError};
+use sidekicks_provider::port::run_pause::{
+    ContinuedMessages, ContinuedMessagesError, SessionOpening,
+};
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -183,6 +185,10 @@ struct WaitingMessages {
     releases: AtomicUsize,
     admissions: AtomicUsize,
     openings: AtomicUsize,
+    // Where each opening of the session leaves it.
+    opening: SessionOpening,
+    // The helpers whose held lead's continue was handed over.
+    held_lead_continues: Mutex<Vec<RunId>>,
     // The kept messages a settle delivered with the run, those it gave back, and those it ended
     // not delivered.
     settled_taken: Mutex<Vec<QueueItemId>>,
@@ -199,6 +205,8 @@ impl Default for WaitingMessages {
             releases: AtomicUsize::default(),
             admissions: AtomicUsize::default(),
             openings: AtomicUsize::default(),
+            opening: SessionOpening::Opened,
+            held_lead_continues: Mutex::default(),
             settled_taken: Mutex::default(),
             settled_given_back: Mutex::default(),
             failed: Mutex::default(),
@@ -224,9 +232,17 @@ impl ContinuedMessages for WaitingMessages {
     fn open_session(
         &self,
         _session_id: SessionId,
-    ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
+    ) -> BoxFuture<'_, Result<SessionOpening, ContinuedMessagesError>> {
         self.openings.fetch_add(1, Ordering::SeqCst);
-        async { Ok(()) }.boxed()
+        let opening = self.opening;
+        async move { Ok(opening) }.boxed()
+    }
+
+    fn continue_held_lead(&self, _session_id: SessionId, helper_run_id: RunId) {
+        self.held_lead_continues
+            .lock()
+            .expect("the continues read")
+            .push(helper_run_id);
     }
 
     fn hold_session(&self, session_id: SessionId) -> BoxFuture<'_, KeyHold<'_, SessionId>> {

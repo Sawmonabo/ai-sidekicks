@@ -37,6 +37,7 @@ use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_provider::driver::attachments::AttachmentResolver;
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
 use sidekicks_provider::driver::registry::ProviderRegistry;
@@ -85,6 +86,12 @@ pub(crate) trait InterruptedRunContinuation: Send + Sync {
     fn continue_interrupted_run(&self, session_id: SessionId, run_id: RunId);
 }
 
+/// Continues a lead the daemon's restart holds once a paused helper beneath it was continued.
+pub(crate) trait HeldLeadContinuation: Send + Sync {
+    /// Called once `helper_run_id` of `session_id` was written `running` with its messages kept.
+    fn continue_held_lead(&self, session_id: SessionId, helper_run_id: RunId);
+}
+
 /// What the delivery reads, writes and calls.
 pub(crate) struct QueueDeliveryDeps {
     /// The read pool every queue and run read goes through.
@@ -101,9 +108,14 @@ pub(crate) struct QueueDeliveryDeps {
     pub(crate) openings: Arc<dyn OpeningMessages>,
     /// Continues an interrupted run once the provider kept nothing more for it.
     pub(crate) continuation: Arc<dyn InterruptedRunContinuation>,
+    /// Continues the held lead of a paused helper the person continued.
+    pub(crate) held_lead_continuation: Arc<dyn HeldLeadContinuation>,
     /// The provider sessions, which open the session of a paused run being continued; held weakly,
     /// since their resumed runs' settle holds this delivery.
     pub(crate) provider_sessions: Weak<ProviderSessions>,
+    /// Binds a kept message's files to their stored copies, for the words a continued helper's
+    /// messages make.
+    pub(crate) attachments: Arc<dyn AttachmentResolver>,
 }
 
 /// What a withdraw ahead of a change found: the message is the queue's to change, or it stays

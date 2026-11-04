@@ -28,7 +28,6 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{
     InterruptInterventionRecord, InterventionId, InterventionState, InterventionType, RunLimit,
 };
-use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::ClientUuid;
@@ -46,7 +45,7 @@ use crate::interventions::store::{
 };
 use crate::queue_store::{QueueItemReader, SELECT_WAITING_FOR_RUN_SQL};
 use crate::run::engine::turns::guards::TURN_END_TYPES_SQL;
-use crate::run::read::LiveRun;
+use crate::run::read::{LiveRun, read_helper_lead};
 use crate::run::state_change::RunWriteCompanions;
 
 // The run's interrupts that have no outcome yet, the person's or the daemon's own at a limit, in
@@ -63,16 +62,6 @@ static SELECT_PENDING_INTERRUPTS_SQL: LazyLock<String> = LazyLock::new(|| {
         <&'static str>::from(InterventionType::Interrupt),
         <&'static str>::from(InterventionState::Requested),
         <&'static str>::from(InterventionState::Accepted)
-    )
-});
-
-// The run a provider's helper was dispatched beneath, whose process it runs in; no row for a run
-// reached any other way.
-static SELECT_HELPER_LEAD_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT parent_run_id FROM runs
-  WHERE run_id = @run_id AND reached_by = '{}'",
-        <&'static str>::from(ChildRunProvenance::ProviderSubagent)
     )
 });
 
@@ -402,14 +391,7 @@ pub fn read_is_run_stopping(reader: &Connection, run_id: &RunId) -> rusqlite::Re
         if read_has_own_stop(reader, &run_id)? {
             return Ok(true);
         }
-        let lead = reader
-            .prepare_cached(&SELECT_HELPER_LEAD_SQL)?
-            .query_row(named_params! { "@run_id": run_id.text().as_str() }, |row| {
-                optional_text_column(row, 0, |text| RunId::new(&text))
-            })
-            .optional()?
-            .flatten();
-        match lead {
+        match read_helper_lead(reader, &run_id)? {
             Some(lead) => run_id = lead,
             None => return Ok(false),
         }

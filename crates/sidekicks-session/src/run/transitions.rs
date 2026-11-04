@@ -57,10 +57,13 @@ fn next_states(from: RunState) -> &'static [RunStateChangeState] {
             Next::Interrupted,
             Next::WaitingForInput,
         ],
+        // A paused helper whose continue of the lead the restart held failed goes back to its
+        // pause, as an answered wait goes back to its wait.
         RunState::Running => &[
             Next::WaitingForApproval,
             Next::WaitingForInput,
             Next::Pausing,
+            Next::Paused,
             Next::Interrupted,
             Next::Completed,
             Next::Failed,
@@ -110,6 +113,7 @@ mod tests {
     #[case(Now::Running, Next::WaitingForApproval, true)]
     #[case(Now::Running, Next::WaitingForInput, true)]
     #[case(Now::Running, Next::Pausing, true)]
+    #[case(Now::Running, Next::Paused, true)]
     #[case(Now::Running, Next::Interrupted, true)]
     #[case(Now::Running, Next::Completed, true)]
     #[case(Now::Running, Next::Failed, true)]
@@ -142,7 +146,6 @@ mod tests {
     #[case(Now::Queued, Next::Running, false)]
     #[case(Now::Queued, Next::Interrupted, false)]
     #[case(Now::Starting, Next::Completed, false)]
-    #[case(Now::Running, Next::Paused, false)]
     #[case(Now::Running, Next::Running, false)]
     #[case(Now::WaitingForInput, Next::WaitingForApproval, false)]
     #[case(Now::Paused, Next::Pausing, false)]
