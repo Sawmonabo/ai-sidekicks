@@ -514,34 +514,30 @@ impl ClaudeRunControls {
             text: sentence,
             origin: OutboundTextOrigin::SystemNarration,
         };
-        let told = match apart {
-            Some(process) => {
-                let frame =
-                    compose_claude_user_frame(&text, mint_uuid_v7().to_string(), Vec::new());
-                match process.write_user_frame(frame).await {
-                    ClaudeWriteAttempt::Written => Ok(()),
-                    ClaudeWriteAttempt::Failed { cause, .. } => {
-                        Err(ClaudeSessionError::InputUnwritable(cause).into())
-                    }
+        let told = if let Some(process) = apart {
+            let frame = compose_claude_user_frame(&text, mint_uuid_v7().to_string(), Vec::new());
+            match process.write_user_frame(frame).await {
+                ClaudeWriteAttempt::Written => Ok(()),
+                ClaudeWriteAttempt::Failed { cause, .. } => {
+                    Err(ClaudeSessionError::InputUnwritable(cause).into())
                 }
             }
-            None => {
-                let message_uuid = mint_uuid_v7().to_string();
-                self.start
-                    .retry_after_turn_change(session_id, || {
-                        let (text, message_uuid) = (text.clone(), message_uuid.clone());
-                        async move {
-                            if self.start.slots.live_session(session_id).is_none()
-                                || self.start.idle_sleep.is_asleep(session_id)
-                            {
-                                return Ok(());
-                            }
-                            self.write_to_lead_once(session_id, text, message_uuid)
-                                .await
+        } else {
+            let message_uuid = mint_uuid_v7().to_string();
+            self.start
+                .retry_after_turn_change(session_id, || {
+                    let (text, message_uuid) = (text.clone(), message_uuid.clone());
+                    async move {
+                        if self.start.slots.live_session(session_id).is_none()
+                            || self.start.idle_sleep.is_asleep(session_id)
+                        {
+                            return Ok(());
                         }
-                    })
-                    .await
-            }
+                        self.write_to_lead_once(session_id, text, message_uuid)
+                            .await
+                    }
+                })
+                .await
         };
         if let Err(error) = told {
             record_unheard_claude_failure(
