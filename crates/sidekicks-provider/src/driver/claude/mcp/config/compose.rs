@@ -2,13 +2,13 @@
 //! before, the other transport's members removed where the transport changes, and the submitted
 //! members set, so every member the declaration does not model survives as it was.
 
-use serde::Serialize;
 use serde_json::{Map, Value};
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpServerConfigInput};
 
 use super::{HTTP_TYPE, SSE_TYPE, STDIO_TYPE, URL_MEMBER};
 use crate::driver::mcp_server::write::{
-    McpServerEntry, McpServerObservedEntry, McpServerWriteRefusal, provider_words_without_values,
+    McpServerEntry, McpServerObservedEntry, McpServerWriteRefusal, SubmittedMember,
+    apply_submitted_member, provider_words_without_values, set_member,
 };
 
 /// The member of Claude Code's entry naming its transport, read as `stdio` where it is absent.
@@ -35,10 +35,6 @@ const ADDRESS_MEMBERS: [&str; 2] = [URL_MEMBER, HEADERS_MEMBER];
 /// The words a write of a switch, or over one, answers with: Claude Code's switch is the daemon's
 /// own.
 pub(super) const NO_SWITCH_WORDS: &str = "Claude Code keeps no switch for a server in its config.";
-
-/// One submitted member: its name in Claude Code's entry, and the value it is set to, `None`
-/// removing it.
-type SubmittedMember = (&'static str, Option<Value>);
 
 /// What one declaration submits, by the names of Claude Code's entry.
 struct SubmittedMembers {
@@ -91,11 +87,8 @@ pub(crate) fn compose_claude_mcp_entry(
             });
         }
     };
-    for (member, value) in submitted.members {
-        match value {
-            Some(value) => members.insert(member.to_owned(), value),
-            None => members.remove(member),
-        };
+    for submitted_member in submitted.members {
+        apply_submitted_member(&mut members, submitted_member);
     }
     Ok(McpServerEntry::from_members(members))
 }
@@ -223,31 +216,6 @@ fn refuse_unread_members(
         }),
         None => Ok(()),
     }
-}
-
-// `member` set to the submitted value, removed where it is cleared (`Some(None)`), and `None`
-// where it is absent.
-#[expect(
-    clippy::option_option,
-    reason = "it reads a submitted member's absent, cleared and set meanings"
-)]
-fn set_member<T: Serialize>(
-    member: &'static str,
-    value: Option<Option<&T>>,
-) -> Result<Option<SubmittedMember>, McpServerWriteRefusal> {
-    value
-        .map(|value| {
-            value
-                .map(serde_json::to_value)
-                .transpose()
-                .map(|value| (member, value))
-                .map_err(|failure| McpServerWriteRefusal::EntryInvalid {
-                    words: provider_words_without_values(&format!(
-                        "The daemon could not write the server's {member} setting: {failure}"
-                    )),
-                })
-        })
-        .transpose()
 }
 
 #[cfg(test)]

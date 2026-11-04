@@ -83,7 +83,7 @@ impl CodexDriver {
     ) -> McpServerWriteOutcome {
         let binding = match write {
             McpServerWrite::Upsert { binding, .. } | McpServerWrite::Remove { binding } => {
-                McpServerBindingRef::from(binding)
+                binding.binding()
             }
             McpServerWrite::SetEnabled { binding, .. } => binding.clone(),
         };
@@ -94,7 +94,7 @@ impl CodexDriver {
                 Ok(write_codex_mcp_server(&*service.connection()?, write, before, cwd).await)
             })
             .await
-            .unwrap_or_else(|error| refused_by_provider(&error.to_string()))
+            .unwrap_or_else(|error| McpServerWriteOutcome::refused_in_words(&error.to_string()))
     }
 }
 
@@ -136,7 +136,7 @@ pub(super) async fn write_codex_mcp_server(
                             })
                             .collect()
                     };
-                    let binding = McpServerBindingRef::from(binding);
+                    let binding = binding.binding();
                     write_user_file(connection, edits, &binding, before, cwd).await
                 }
             }
@@ -148,7 +148,7 @@ pub(super) async fn write_codex_mcp_server(
             McpWritableBindingRef::User { server_name, .. }
             | McpWritableBindingRef::Local { server_name, .. } => {
                 let edits = vec![(server_key_path(server_name), Value::Null)];
-                let binding = McpServerBindingRef::from(binding);
+                let binding = binding.binding();
                 write_user_file(connection, edits, &binding, before, cwd).await
             }
         },
@@ -276,7 +276,7 @@ async fn batch_write_failure(
         ..
     } = &error
     else {
-        return refused_by_provider(&error.to_string());
+        return McpServerWriteOutcome::refused_in_words(&error.to_string());
     };
     if *code == CODEX_INTERNAL_ERROR_CODE {
         return McpServerWriteOutcome::Unknown;
@@ -374,13 +374,6 @@ fn project_file_failure(error: &CodexProjectFileError) -> McpServerWriteOutcome 
         | CodexProjectFileError::Folder(_)
         | CodexProjectFileError::Write(AtomicWriteError::Write { .. })
         | CodexProjectFileError::Create(_) => McpServerWriteRefusal::Provider { words },
-    })
-}
-
-/// A refusal in the provider's `words`, with no config value.
-fn refused_by_provider(words: &str) -> McpServerWriteOutcome {
-    McpServerWriteOutcome::Refused(McpServerWriteRefusal::Provider {
-        words: provider_words_without_values(words),
     })
 }
 
@@ -673,7 +666,7 @@ mod tests {
         let (connection, mut script, _frames) = scripted_connection();
         let before = observed(json!({ "command": "npx", "enabled": true }));
         let write = McpServerWrite::SetEnabled {
-            binding: (&user_binding("docs.v2")).into(),
+            binding: user_binding("docs.v2").binding(),
             is_enabled: false,
         };
         let message = format!(

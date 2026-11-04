@@ -5,6 +5,7 @@ use std::fmt;
 use std::sync::LazyLock;
 
 use regex::Regex;
+use serde::Serialize;
 use serde_json::{Map, Value};
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpWritableBindingRef};
 use sidekicks_ipc::redaction::{redact_paths, scrub_credentials};
@@ -17,6 +18,14 @@ static QUOTED_SPAN: LazyLock<Regex> = LazyLock::new(|| {
 
 /// The word a quoted span of a provider's words is replaced with.
 const ELIDED_SPAN: &str = "…";
+
+/// The member of an entry that switches its server, where a provider keeps the switch in the
+/// entry; an entry that sets none runs its server.
+const ENTRY_SWITCH_MEMBER: &str = "enabled";
+
+/// One submitted member of a declaration: its name in the provider's entry, and the value it is
+/// set to, `None` removing it.
+pub(crate) type SubmittedMember = (&'static str, Option<Value>);
 
 /// A declaration's members as the provider holds them, values included. It lives only in memory,
 /// and its `Debug` prints the members' names alone, since a value may carry a credential.
@@ -34,6 +43,15 @@ impl McpServerEntry {
     /// The entry's members, values included.
     pub fn members(&self) -> &Map<String, Value> {
         &self.members
+    }
+
+    /// Whether the entry runs its server: its `enabled` member, on where it sets none, as an
+    /// entry of a provider that keeps no switch in its entries always reads.
+    pub fn switch(&self) -> bool {
+        self.members
+            .get(ENTRY_SWITCH_MEMBER)
+            .and_then(Value::as_bool)
+            .unwrap_or(true)
     }
 
     /// The entry a test writes as a JSON object; panics on any other value.
@@ -114,6 +132,15 @@ pub enum McpServerWriteOutcome {
     Unknown,
 }
 
+impl McpServerWriteOutcome {
+    /// A refusal in the provider's or the daemon's `words`, its quoted values and paths removed.
+    pub(crate) fn refused_in_words(words: &str) -> Self {
+        Self::Refused(McpServerWriteRefusal::Provider {
+            words: provider_words_without_values(words),
+        })
+    }
+}
+
 /// Why the provider surely does not hold a write.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum McpServerWriteRefusal {
@@ -155,6 +182,42 @@ pub enum McpServerWriteRefusal {
 pub fn provider_words_without_values(words: &str) -> String {
     let elided = QUOTED_SPAN.replace_all(words, ELIDED_SPAN);
     redact_paths(&scrub_credentials(&elided))
+}
+
+/// `member` set to the submitted value, removed where it is cleared (`Some(None)`), and `None`
+/// where it is absent. Fails `EntryInvalid` for a value that does not serialize.
+#[expect(
+    clippy::option_option,
+    reason = "it reads a submitted member's absent, cleared and set meanings"
+)]
+pub(crate) fn set_member<T: Serialize>(
+    member: &'static str,
+    value: Option<Option<&T>>,
+) -> Result<Option<SubmittedMember>, McpServerWriteRefusal> {
+    value
+        .map(|value| {
+            value
+                .map(serde_json::to_value)
+                .transpose()
+                .map(|value| (member, value))
+                .map_err(|failure| McpServerWriteRefusal::EntryInvalid {
+                    words: provider_words_without_values(&format!(
+                        "The daemon could not write the server's {member} setting: {failure}"
+                    )),
+                })
+        })
+        .transpose()
+}
+
+/// Writes `submitted` into `members`: its value set, or the member removed where it is cleared.
+pub(crate) fn apply_submitted_member(
+    members: &mut Map<String, Value>,
+    (member, value): SubmittedMember,
+) {
+    match value {
+        Some(value) => members.insert(member.to_owned(), value),
+        None => members.remove(member),
+    };
 }
 
 #[cfg(test)]

@@ -389,9 +389,7 @@ pub(super) fn refused_by_daemon(
     context: &str,
     failure: &(dyn Error + 'static),
 ) -> McpServerWriteOutcome {
-    McpServerWriteOutcome::Refused(McpServerWriteRefusal::Provider {
-        words: provider_words_without_values(&format!("{context}: {}", describe_error(failure))),
-    })
+    McpServerWriteOutcome::refused_in_words(&format!("{context}: {}", describe_error(failure)))
 }
 
 #[cfg(test)]

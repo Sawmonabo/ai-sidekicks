@@ -4,17 +4,17 @@
 
 use serde::Deserialize;
 use serde_json::Value;
-use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_ipc::domain_error::DomainError;
 
 use crate::driver::codex::app_server_protocol::McpServerStatusDetail;
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::mcp::status_list::list_codex_mcp_server_status_pages;
 use crate::driver::codex::session::lifecycle_call::{CodexLifecycleCall, call_codex_lifecycle};
 use crate::driver::contract::error::DriverError;
-use crate::driver::mcp_server::resources::{McpResourceSource, read_listed_mcp_resource};
+use crate::driver::mcp_server::resources::{
+    McpResourceSource, not_a_session_server, read_listed_mcp_resource,
+};
 
 // One server's row of the full list: its name and its resources; the rest is not read.
 #[derive(Deserialize)]
@@ -74,13 +74,7 @@ impl CodexDriver {
         )
         .await?;
         if !is_listed {
-            return Err(DriverError::from(DomainError::new(
-                format!(
-                    "{} is not one of this session's tool servers",
-                    server_name.as_str()
-                ),
-                RefusalCode::McpServerNotRunning,
-            )));
+            return Err(DriverError::from(not_a_session_server(&server_name)));
         }
         Ok(McpResourceSource::Listed {
             resources,

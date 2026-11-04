@@ -36,7 +36,7 @@ use sidekicks_mcp::client::resources::{McpServerCopyStart, McpServerResources};
 use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_mcp::status::notices::McpNoticeFeed;
 use sidekicks_platforms::Spawner;
-use sidekicks_provider::driver::mcp_server::resources::McpResourceSource;
+use sidekicks_provider::driver::mcp_server::resources::{McpResourceSource, not_a_session_server};
 use sidekicks_provider::driver::mcp_server::session_switch::McpSessionSwitch;
 use sidekicks_provider::driver::session_control::SessionToolServer;
 use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
@@ -426,17 +426,6 @@ async fn switch_session_server(
         server_name,
         enabled,
     })
-}
-
-// The refusal of a server the session's stored set does not hold.
-fn not_a_session_server(server_name: &McpServerName) -> DomainError {
-    DomainError::new(
-        format!(
-            "{} is not one of this session's tool servers",
-            server_name.as_str()
-        ),
-        RefusalCode::McpServerNotRunning,
-    )
 }
 
 // The server's resources: refused `session.notFound` for a session the daemon does not hold,

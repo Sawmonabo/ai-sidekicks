@@ -2,7 +2,6 @@
 //! other transport's members removed, the submitted members set, and an emulated `local` binding
 //! switched off.
 
-use serde::Serialize;
 use serde_json::{Map, Value};
 use sidekicks_contracts::mcp::server::McpWritableBindingRef;
 use sidekicks_contracts::mcp::server::config::McpServerConfigInput;
@@ -15,7 +14,8 @@ use crate::driver::codex::mcp::config::server_entry::{
     TOOL_TIMEOUT_SEC_MEMBER, URL_MEMBER,
 };
 use crate::driver::mcp_server::write::{
-    McpServerEntry, McpServerObservedEntry, McpServerWriteRefusal, provider_words_without_values,
+    McpServerEntry, McpServerObservedEntry, McpServerWriteRefusal, SubmittedMember,
+    apply_submitted_member, set_member,
 };
 
 /// The members only an entry that starts a program holds, removed when an address is submitted.
@@ -41,9 +41,6 @@ const ADDRESS_MEMBERS: [&str; 9] = [
     AUTH_MEMBER,
 ];
 
-/// One submitted member: its name in Codex's entry, and the value it is set to, `None` removing it.
-type SubmittedMember = (&'static str, Option<Value>);
-
 /// The entry Codex holds for `binding` once `config` is written over `before`. Fails with
 /// `McpServerWriteRefusal::EntryInvalid` for a transport Codex reaches no server over, or a value
 /// that does not serialize.
@@ -57,11 +54,9 @@ pub(crate) fn compose_codex_mcp_entry(
     for member in other_transport_members {
         members.remove(*member);
     }
-    for (member, value) in submitted {
-        match value {
-            Some(value) => members.insert(member.to_owned(), value),
-            None => members.remove(member),
-        };
+    for submitted_member in submitted {
+        let member = submitted_member.0;
+        apply_submitted_member(&mut members, submitted_member);
         // The seconds member takes the place of the older milliseconds one.
         if member == STARTUP_TIMEOUT_SEC_MEMBER {
             members.remove(STARTUP_TIMEOUT_MS_MEMBER);
@@ -179,39 +174,14 @@ fn read_submitted_members(
     ))
 }
 
-// `member` set to the submitted value, removed where it is cleared (`Some(None)`), and `None`
-// where it is absent.
-#[expect(
-    clippy::option_option,
-    reason = "it reads a submitted member's absent, cleared and set meanings"
-)]
-fn set_member<T: Serialize>(
-    member: &'static str,
-    value: Option<Option<&T>>,
-) -> Result<Option<SubmittedMember>, McpServerWriteRefusal> {
-    value
-        .map(|value| {
-            value
-                .map(serde_json::to_value)
-                .transpose()
-                .map(|value| (member, value))
-                .map_err(|failure| McpServerWriteRefusal::EntryInvalid {
-                    words: provider_words_without_values(&format!(
-                        "The daemon could not write the server's {member} setting: {failure}"
-                    )),
-                })
-        })
-        .transpose()
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::Path;
 
     use rstest::rstest;
     use serde_json::{Value, json};
+    use sidekicks_contracts::mcp::server::McpWritableBindingRef;
     use sidekicks_contracts::mcp::server::config::McpServerConfigInput;
-    use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpWritableBindingRef};
     use sidekicks_store::events::canonicalizer::canonicalize_json;
 
     use super::compose_codex_mcp_entry;
@@ -262,12 +232,7 @@ mod tests {
             "version": "sha256:written",
             "config": {"mcp_servers": {"docs": read_back}},
         }]);
-        let observed = observe_scripted(
-            &McpServerBindingRef::from(&binding),
-            Path::new("/work/app"),
-            &layers,
-        )
-        .await;
+        let observed = observe_scripted(&binding.binding(), Path::new("/work/app"), &layers).await;
 
         let McpServerObservedEntry::Present(observed_entry) = observed.entry else {
             panic!("the written entry reads back as a declaration");

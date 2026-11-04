@@ -481,14 +481,6 @@ binding_addressed! {
     pub enum McpServerBindingRef in every scope {}
 }
 
-impl From<&McpWritableBindingRef> for McpServerBindingRef {
-    /// The same binding in the union of every scope, so a writable binding compares against the
-    /// bindings a provider declares.
-    fn from(binding: &McpWritableBindingRef) -> Self {
-        binding.binding()
-    }
-}
-
 impl McpServerBindingRef {
     /// The provider whose config declares the binding, which every scope carries.
     pub fn provider(&self) -> &ProviderId {

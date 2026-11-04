@@ -19,7 +19,9 @@ use crate::driver::claude::mcp::machine_probe::sent_entry::{
 };
 use crate::driver::claude::session::transport::control::ClaudeToolServerEntry;
 use crate::driver::contract::error::DriverError;
-use crate::driver::mcp_server::resources::{McpResourceSource, McpServerReach};
+use crate::driver::mcp_server::resources::{
+    McpResourceSource, McpServerReach, not_a_session_server,
+};
 use crate::spawn_environment::remove_environment_names;
 
 impl ClaudeDriver {
@@ -36,29 +38,20 @@ impl ClaudeDriver {
         server_name: McpServerName,
     ) -> Result<McpResourceSource, DriverError> {
         let live = self.parts()?.run_start.live_session(session_id)?;
-        let not_running = || {
-            DriverError::from(DomainError::new(
-                format!(
-                    "{} is not one of this session's tool servers",
-                    server_name.as_str()
-                ),
-                RefusalCode::McpServerNotRunning,
-            ))
-        };
         let binding = live
             .spawn_bound_legs
             .tool_servers
             .iter()
             .find(|tool_server| tool_server.binding.server_name() == &server_name)
             .map(|tool_server| tool_server.binding.clone())
-            .ok_or_else(not_running)?;
+            .ok_or_else(|| DriverError::from(not_a_session_server(&server_name)))?;
         let (person, plugin_home) = self.resolve_mcp_entry_places().await;
         let declared = ClaudeServerEntryReader::new(&person, &plugin_home)
             .read(&binding)
             .await
             .map_err(|error| DriverError::Internal(Box::new(error)))?
             .filter(|declared| declared.entry.is_object())
-            .ok_or_else(not_running)?;
+            .ok_or_else(|| DriverError::from(not_a_session_server(&server_name)))?;
         if is_signed_in_by_provider(&declared.entry) {
             return Ok(McpResourceSource::SignedInByProvider);
         }

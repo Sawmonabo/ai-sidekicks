@@ -47,8 +47,8 @@ mod tests {
 
     use rstest::rstest;
     use serde_json::{Value, json};
+    use sidekicks_contracts::mcp::server::McpWritableBindingRef;
     use sidekicks_contracts::mcp::server::config::McpServerConfigInput;
-    use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpWritableBindingRef};
     use sidekicks_store::events::canonicalizer::canonicalize_json;
     use tokio::time::{Duration, Instant};
 
@@ -102,7 +102,7 @@ mod tests {
             "scope": "user", "provider": "claude", "serverName": "docs"
         }))
         .unwrap();
-        let binding = McpServerBindingRef::from(&writable);
+        let binding = writable.binding();
         let config: McpServerConfigInput = serde_json::from_value(config).unwrap();
 
         let before = observe_claude_mcp_server(&person, home.path(), &binding)

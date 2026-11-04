@@ -30,10 +30,6 @@ use crate::mutation::reconciler::{
 };
 use crate::mutation::saved_answer::McpSavedAnswer;
 
-/// The entry member a provider that keeps a binding's switch inside its entry writes it in; a
-/// member that is absent reads as switched on.
-const ENTRY_SWITCH_MEMBER: &str = "enabled";
-
 /// The daemon's words when the provider's config holds what it held before the change.
 const UNLANDED_WORDS: &str = "the change did not reach the provider's config, so send it again";
 
@@ -95,13 +91,9 @@ pub(crate) async fn observe_settlement(
             Some(McpServerObservedEntry::Switch(is_enabled)) => {
                 McpSwitchObservation::Switch(is_enabled)
             }
-            Some(McpServerObservedEntry::Present(entry)) => McpSwitchObservation::Switch(
-                entry
-                    .members()
-                    .get(ENTRY_SWITCH_MEMBER)
-                    .and_then(Value::as_bool)
-                    .unwrap_or(true),
-            ),
+            Some(McpServerObservedEntry::Present(entry)) => {
+                McpSwitchObservation::Switch(entry.switch())
+            }
             Some(McpServerObservedEntry::Absent) => McpSwitchObservation::Absent,
             None => McpSwitchObservation::Unread,
         };

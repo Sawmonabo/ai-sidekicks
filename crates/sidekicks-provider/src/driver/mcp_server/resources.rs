@@ -7,11 +7,13 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 use serde_json::Value;
-use sidekicks_contracts::mcp::server::McpServerBindingRef;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
+use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::session::controls::methods::SessionMcpResource;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::ComposedText;
+use sidekicks_ipc::domain_error::DomainError;
 
 /// Where a session's server's resources come from, as its driver answers.
 #[derive(Clone, Debug, PartialEq)]
@@ -83,6 +85,18 @@ struct ListedResource {
     mime_type: Option<String>,
     #[serde(default)]
     size: Option<u64>,
+}
+
+/// The refusal of `server_name`, which is not one of the session's tool servers:
+/// `mcp.server.notRunning`.
+pub fn not_a_session_server(server_name: &McpServerName) -> DomainError {
+    DomainError::new(
+        format!(
+            "{} is not one of this session's tool servers",
+            server_name.as_str()
+        ),
+        RefusalCode::McpServerNotRunning,
+    )
 }
 
 /// `resource`, one resource as MCP's `Resource` writes it, as the attachment list shows it;
