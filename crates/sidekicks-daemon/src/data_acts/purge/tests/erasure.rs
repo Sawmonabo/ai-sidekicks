@@ -382,9 +382,6 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
     );
 }
 
-// Each session is damaged, so a removed one must leave the recovery state too. Kills: a caller's
-// from-states widened or narrowed, a refused mark that changes the row, and the recovery state not
-// cleared after the rows went.
 // Mutation: leave the client's session close out of the purge; the connection then stays open.
 #[tokio::test]
 async fn a_purge_closes_the_sessions_tool_server_connections() {
@@ -421,6 +418,9 @@ async fn a_purge_closes_the_sessions_tool_server_connections() {
         .expect("the session's connection reads closed");
 }
 
+// Each session is damaged, so a removed one must leave the recovery state too. Kills: a caller's
+// from-states widened or narrowed, a refused mark that changes the row, and the recovery state not
+// cleared after the rows went.
 #[rstest]
 #[case::retention_of_an_archived_session(PurgeCaller::Retention, SessionState::Archived, true)]
 #[case::retention_of_an_active_session(PurgeCaller::Retention, SessionState::Active, false)]
