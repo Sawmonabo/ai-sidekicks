@@ -82,6 +82,7 @@ session_event_types! {
     /// The event types of the `runLifecycle` category.
     RUN_LIFECYCLE_EVENT_TYPES = RunLifecycle [
         AgentRunQueued = "agent.run.queued",
+        AgentRunParentCorrected = "agent.run.parentCorrected",
         AgentRunStarting = "agent.run.starting",
         AgentRunRunning = "agent.run.running",
         AgentRunWaitingForApproval = "agent.run.waitingForApproval",

@@ -405,6 +405,19 @@ run_event_payloads! {
     }
 }
 
+/// The `agent.run.parentCorrected` payload: the run now hangs under `parentRunId`, the run whose
+/// call started it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AgentRunParentCorrectedPayload {
+    /// The session.
+    pub session_id: SessionId,
+    /// The run moved.
+    pub run_id: RunId,
+    /// The run whose call started it.
+    pub parent_run_id: RunId,
+}
+
 literal! {
     /// The actor of an intervention the daemon made itself, such as a stop at a spend limit.
     pub enum DaemonInterventionActor = const "daemon";
@@ -571,6 +584,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<AgentTurnInterruptedPayload>().checked(),
         Definition::read::<AgentTurnFailedPayload>().checked(),
         Definition::read::<AgentRunWorkerShuttingDownPayload>().checked(),
+        Definition::read::<AgentRunParentCorrectedPayload>().checked(),
         Definition::read::<InterventionActor>(),
         Definition::read::<AgentInterventionRequestedPayload>(),
         Definition::read::<AgentInterventionAcceptedPayload>(),

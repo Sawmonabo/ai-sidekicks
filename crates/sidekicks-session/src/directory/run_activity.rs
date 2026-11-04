@@ -56,6 +56,7 @@ pub(crate) fn run_outcome_of(
         | SessionEventType::AgentRunWaitingForInput
         | SessionEventType::AgentRunPausing
         | SessionEventType::AgentRunRolledBack
+        | SessionEventType::AgentRunParentCorrected
         | SessionEventType::AgentRunProviderInitialized
         | SessionEventType::AgentTurnStarted
         | SessionEventType::AgentTurnCompleted

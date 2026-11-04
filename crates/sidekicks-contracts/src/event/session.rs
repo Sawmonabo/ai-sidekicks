@@ -55,11 +55,11 @@ use crate::run::events::{
     AgentInterventionDegradedPayload, AgentInterventionExpiredPayload,
     AgentInterventionFailedPayload, AgentInterventionRejectedPayload,
     AgentInterventionRequestedPayload, AgentRunCompletedPayload, AgentRunFailedPayload,
-    AgentRunInterruptedPayload, AgentRunPausedPayload, AgentRunPausingPayload,
-    AgentRunProviderInitializedPayload, AgentRunRunningPayload, AgentRunStartingPayload,
-    AgentRunStoppedPayload, AgentRunWaitingForApprovalPayload, AgentRunWaitingForInputPayload,
-    AgentRunWorkerShuttingDownPayload, AgentTurnCompletedPayload, AgentTurnFailedPayload,
-    AgentTurnInterruptedPayload, AgentTurnStartedPayload,
+    AgentRunInterruptedPayload, AgentRunParentCorrectedPayload, AgentRunPausedPayload,
+    AgentRunPausingPayload, AgentRunProviderInitializedPayload, AgentRunRunningPayload,
+    AgentRunStartingPayload, AgentRunStoppedPayload, AgentRunWaitingForApprovalPayload,
+    AgentRunWaitingForInputPayload, AgentRunWorkerShuttingDownPayload, AgentTurnCompletedPayload,
+    AgentTurnFailedPayload, AgentTurnInterruptedPayload, AgentTurnStartedPayload,
 };
 use crate::run::id::RunId;
 use crate::run::provider_choice::{
@@ -455,6 +455,9 @@ session_events! {
     /// Emitted when a run is queued.
     AgentRunQueued(#[garde(dive)] AgentRunQueuedPayload) = "agent.run.queued"
         => read(run_queued_run),
+    /// Emitted when a run moves under the run whose call started it.
+    AgentRunParentCorrected(AgentRunParentCorrectedPayload) = "agent.run.parentCorrected"
+        => required,
     /// Emitted when a turn reaches the step bound and ends there.
     AgentRunStepLimitReached(AgentRunStepLimitReachedPayload) = "agent.run.stepLimit.reached"
         => required,
