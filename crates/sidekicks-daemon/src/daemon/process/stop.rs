@@ -69,7 +69,8 @@ pub(crate) enum DaemonStopFailure {
     /// A worktree's setup command could not be ended.
     #[error(transparent)]
     WorktreeSetup(#[from] WorktreeSetupError),
-    /// The tool servers' connections were still closing when the drain bound ran out.
+    /// The tool servers' connections were still closing when the drain bound ran out; a close cut
+    /// there leaves its receipts in flight for the next start's sweep.
     #[error("the tool servers' connections were still closing when the stop's drain bound ran out")]
     ToolServersClosing,
     /// A task the start began in the background was still running when the drain bound ran out,
