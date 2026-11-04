@@ -463,6 +463,7 @@ pub(super) mod tests {
         McpReceiptDigest, McpReceiptKey, McpSavedCheck,
     };
     use crate::binding::store::McpBindingKey;
+    use crate::mutation::receipt_key::MCP_RECEIPT_KEY_STATEMENT_CAPACITY;
     use crate::schema::schema_parts;
 
     /// A receipt key whose 32 bytes are all `fill`.
@@ -507,7 +508,14 @@ pub(super) mod tests {
         }
     }
 
-    async fn receipts_over_a_database() -> (TestDatabase, McpMutationReceipts) {
+    /// A receipt store over a fresh database of the crate's schema, with the writer and the read
+    /// pool it goes through, each prepared for the receipt key's statements too.
+    pub(in crate::mutation) async fn receipts_over_a_database() -> (
+        TestDatabase,
+        McpMutationReceipts,
+        Arc<DatabaseWriter>,
+        Arc<DatabaseReadPool>,
+    ) {
         let database = TestDatabase::new(schema_parts());
         let writer = Arc::new(
             DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
@@ -516,9 +524,10 @@ pub(super) mod tests {
         );
         let reads = Arc::new(DatabaseReadPool::new(
             database.path(),
-            MCP_MUTATION_RECEIPTS_STATEMENT_CAPACITY,
+            MCP_MUTATION_RECEIPTS_STATEMENT_CAPACITY + MCP_RECEIPT_KEY_STATEMENT_CAPACITY,
         ));
-        (database, McpMutationReceipts::new(writer, reads))
+        let receipts = McpMutationReceipts::new(Arc::clone(&writer), Arc::clone(&reads));
+        (database, receipts, writer, reads)
     }
 
     async fn check(
@@ -608,7 +617,7 @@ pub(super) mod tests {
     /// dropped, by a pending row answered as saved, and by a field left unread.
     #[tokio::test]
     async fn the_saved_check_answers_by_status_and_digest() {
-        let (_database, receipts) = receipts_over_a_database().await;
+        let (_database, receipts, _writer, _reads) = receipts_over_a_database().await;
         let (committed_key, pending_key) = (idempotency_key(), idempotency_key());
         let response = json!({ "applied": true });
 
@@ -657,7 +666,7 @@ pub(super) mod tests {
     /// missing digest is read.
     #[tokio::test]
     async fn a_receipt_committed_on_a_lost_key_answers_its_failure_under_any_request() {
-        let (database, receipts) = receipts_over_a_database().await;
+        let (database, receipts, _writer, _reads) = receipts_over_a_database().await;
         let key = idempotency_key();
         let failure = json!({ "type": "mcp.bindingStoreUnavailable" });
         receipts
@@ -695,7 +704,7 @@ pub(super) mod tests {
     /// count.
     #[tokio::test]
     async fn a_commit_is_one_write_of_a_pending_receipt() {
-        let (database, receipts) = receipts_over_a_database().await;
+        let (database, receipts, _writer, _reads) = receipts_over_a_database().await;
         let key = idempotency_key();
         receipts
             .begin(&intent(&key, digest_of(1)))
@@ -743,7 +752,7 @@ pub(super) mod tests {
     /// reversed, and by an expiry of a committed receipt.
     #[tokio::test]
     async fn a_begin_prunes_old_committed_receipts_and_an_expiry_only_pending_ones() {
-        let (database, receipts) = receipts_over_a_database().await;
+        let (database, receipts, _writer, _reads) = receipts_over_a_database().await;
         let (old_committed, old_pending, recent_committed) =
             (idempotency_key(), idempotency_key(), idempotency_key());
         let reader = database.reader();
