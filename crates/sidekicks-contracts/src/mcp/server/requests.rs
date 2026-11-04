@@ -521,6 +521,7 @@ mod tests {
     use rstest::rstest;
 
     use super::{McpServerSignOutRequest, McpServerUpsertRequest};
+    use crate::mcp::server::config::McpServerConfigInput;
     use crate::wire::attachment::{ReceivedError, parse_received};
 
     const KEY: &str = "00000000-0000-4000-8000-000000000000";
@@ -557,6 +558,76 @@ mod tests {
         assert!(matches!(
             parse_received::<McpServerSignOutRequest>(logout(&padded).as_bytes(), vec![]),
             Err(ReceivedError::Read { .. })
+        ));
+    }
+
+    /// A clearable member reads absent as keep, `null` as remove and a value as set, on a remote
+    /// member and a shared one alike, and writes each back as sent; a switch still refuses `null`.
+    #[rstest]
+    #[case::absent(serde_json::json!({}), None, None)]
+    #[case::null(
+        serde_json::json!({ "bearerTokenEnvVar": null, "startupTimeoutSec": null }),
+        Some(None),
+        Some(None)
+    )]
+    #[case::value(
+        serde_json::json!({ "bearerTokenEnvVar": "TOKEN", "startupTimeoutSec": 10.0 }),
+        Some(Some("TOKEN")),
+        Some(Some(10.0))
+    )]
+    fn a_clearable_member_keeps_its_three_meanings(
+        #[case] members: serde_json::Value,
+        #[case] bearer: Option<Option<&str>>,
+        #[case] startup: Option<Option<f64>>,
+    ) {
+        let upsert = |members: &serde_json::Value| {
+            let mut config =
+                serde_json::json!({ "transport": "http", "url": "https://example.com/" });
+            for (name, value) in members.as_object().expect("the members are an object") {
+                config[name] = value.clone();
+            }
+            let request = serde_json::json!({
+                "scope": "user",
+                "provider": "codex",
+                "serverName": "s",
+                "clientIdempotencyKey": KEY,
+                "config": config,
+            });
+            (config, request.to_string())
+        };
+        let (sent, request) = upsert(&members);
+        let read = parse_received::<McpServerUpsertRequest>(request.as_bytes(), vec![])
+            .expect("a clearable member is read absent, null or set");
+        let McpServerUpsertRequest::User { config, .. } = &read else {
+            panic!("{read:?} is not the user arm");
+        };
+        let McpServerConfigInput::Http {
+            bearer_token_env_var,
+            startup_timeout_sec,
+            ..
+        } = config
+        else {
+            panic!("{config:?} is not the http arm");
+        };
+        assert_eq!(
+            bearer_token_env_var
+                .as_ref()
+                .map(|member| member.as_ref().map(|name| name.as_str())),
+            bearer
+        );
+        assert_eq!(
+            (*startup_timeout_sec).map(|member| member.map(|seconds| seconds.get())),
+            startup
+        );
+        assert_eq!(
+            serde_json::to_value(config).expect("the config writes"),
+            sent
+        );
+
+        let (_, switched_off) = upsert(&serde_json::json!({ "enabled": null }));
+        assert!(matches!(
+            parse_received::<McpServerUpsertRequest>(switched_off.as_bytes(), vec![]),
+            Err(ReceivedError::Shape { .. })
         ));
     }
 }
