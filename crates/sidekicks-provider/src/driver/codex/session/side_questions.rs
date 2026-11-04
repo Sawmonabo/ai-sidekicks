@@ -114,7 +114,7 @@ struct CodexSideQuestion {
 /// What one frame of a copy did.
 enum CopyFrameTaken {
     /// The frame was kept, with the cost it metered where it was a usage reading.
-    Kept(Option<MeteredUsage>),
+    Kept(Option<Box<MeteredUsage>>),
     /// The copy's turn ended, as the frame's turn reads where it carried one.
     Ended(Option<CopyTurn>),
 }
@@ -159,12 +159,12 @@ impl CodexSideQuestion {
                 self.answer = Some(text);
                 CopyFrameTaken::Kept(None)
             }
-            CopyFrameReading::Usage(delta) => CopyFrameTaken::Kept(Some(MeteredUsage {
+            CopyFrameReading::Usage(delta) => CopyFrameTaken::Kept(Some(Box::new(MeteredUsage {
                 session_id: self.session_id,
                 binding_id: self.binding_id.clone(),
                 owner: MeteredUsageOwner::SessionCopy,
-                delta,
-            })),
+                delta: *delta,
+            }))),
             CopyFrameReading::Ended(turn) => CopyFrameTaken::Ended(turn),
             CopyFrameReading::Other => CopyFrameTaken::Kept(None),
         }
@@ -380,7 +380,9 @@ impl CodexSideQuestions {
         let mut questions = self.lock();
         let question = questions.get_mut(&thread_id)?;
         match question.take_frame(method, params) {
-            CopyFrameTaken::Kept(usage) => Some(CodexDivertedFrame { usage }),
+            CopyFrameTaken::Kept(usage) => Some(CodexDivertedFrame {
+                usage: usage.map(|usage| *usage),
+            }),
             CopyFrameTaken::Ended(turn) => {
                 let question = questions
                     .remove(&thread_id)
@@ -643,7 +645,7 @@ async fn read_copy_turn(
         }
         match question.take_frame(&method, &params) {
             CopyFrameTaken::Kept(Some(metered)) => {
-                file_copy_usage(usage, metered, &question.provider_account_id).await;
+                file_copy_usage(usage, *metered, &question.provider_account_id).await;
             }
             CopyFrameTaken::Kept(None) => {}
             CopyFrameTaken::Ended(turn) => return turn,
