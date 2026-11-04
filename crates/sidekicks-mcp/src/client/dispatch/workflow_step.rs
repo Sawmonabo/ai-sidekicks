@@ -26,7 +26,8 @@ impl McpStepToolCaller {
         Self { client, dispatch }
     }
 
-    /// Dispatches `call` and writes its end; a cancel before the call was sent ends it canceled.
+    /// Dispatches `call` and writes its end; a cancel before the call was sent ends it canceled,
+    /// and the client's stop ends it stopping, writing nothing.
     async fn call(&self, call: StepToolCall) -> Result<StepToolCallEnd, PortError> {
         let StepToolCall {
             session_id,
@@ -55,15 +56,17 @@ impl McpStepToolCaller {
         {
             Ok(dispatched) => dispatched,
             Err(McpToolDispatchError::Canceled) => return Ok(StepToolCallEnd::Canceled),
+            Err(McpToolDispatchError::ClientStopping) => return Ok(StepToolCallEnd::Stopping),
             Err(error) => return Err(error.into()),
         };
         let (end, written) = dispatched.complete().await;
         match written {
             // The dispatch wrote the end itself at the session's close.
             Ok(()) | Err(McpCallCompletionError::Settled) => {}
+            Err(McpCallCompletionError::ClientStopping) => return Ok(StepToolCallEnd::Stopping),
             Err(error) => return Err(error.into()),
         }
-        Ok(step_end(end?))
+        Ok(end?.into())
     }
 }
 
@@ -73,16 +76,18 @@ impl StepToolCaller for McpStepToolCaller {
     }
 }
 
-// The step's end of a tool call's end: unknown when the session closed under the call, or the
-// server lost its task.
-fn step_end(end: McpToolCallEnd) -> StepToolCallEnd {
-    match end {
-        McpToolCallEnd::Answered { result } => StepToolCallEnd::Answered { result },
-        McpToolCallEnd::Failed { error } => StepToolCallEnd::Failed { error },
-        McpToolCallEnd::Canceled => StepToolCallEnd::Canceled,
-        McpToolCallEnd::TaskUnknown { .. }
-        | McpToolCallEnd::ConnectionClosed
-        | McpToolCallEnd::InputLost => StepToolCallEnd::Unknown,
+/// The step's end of a tool call's end: unknown when the session closed under the call, or the
+/// server lost its task or the input it waited on.
+impl From<McpToolCallEnd> for StepToolCallEnd {
+    fn from(end: McpToolCallEnd) -> Self {
+        match end {
+            McpToolCallEnd::Answered { result } => Self::Answered { result },
+            McpToolCallEnd::Failed { error } => Self::Failed { error },
+            McpToolCallEnd::Canceled => Self::Canceled,
+            McpToolCallEnd::TaskUnknown { .. }
+            | McpToolCallEnd::ConnectionClosed
+            | McpToolCallEnd::InputLost => Self::Unknown,
+        }
     }
 }
 
@@ -106,9 +111,10 @@ mod tests {
         Reply, method_not_found, text_result, tracked_end, v1_status_reply,
     };
 
-    // Mutations: leave out the end's write; or take the step's result from another arm.
+    // Mutations: leave out the end's write; take the step's result from another arm; or map the
+    // client's stop to an error.
     #[tokio::test(start_paused = true)]
-    async fn a_steps_call_returns_the_answer_and_completes_its_receipt() {
+    async fn a_steps_call_returns_the_answer_and_completes_its_receipt_and_a_stop_ends_it() {
         let fixture = Fixture::new().await;
         // Held, so the server answers for the whole call.
         let _connected = fixture
@@ -120,24 +126,31 @@ mod tests {
             .await;
         let caller =
             McpStepToolCaller::new(Arc::clone(&fixture.client), Arc::clone(&fixture.dispatch));
+        let step_call = |command_id: &str| StepToolCall {
+            session_id: fixture.session_id,
+            run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
+            server: fixture.name.clone(),
+            tool: FreeFormText::new("track".to_owned()).expect("a short tool name"),
+            arguments: None,
+            command_id: command_id.to_owned(),
+            cancel: CancellationToken::new(),
+        };
 
         let end = caller
-            .call_tool(StepToolCall {
-                session_id: fixture.session_id,
-                run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
-                server: fixture.name.clone(),
-                tool: FreeFormText::new("track".to_owned()).expect("a short tool name"),
-                arguments: None,
-                command_id: "command-1".to_owned(),
-                cancel: CancellationToken::new(),
-            })
+            .call_tool(step_call("command-1"))
             .await
             .expect("the call ends");
+        fixture.client.stop().await;
+        let stopped = caller
+            .call_tool(step_call("command-2"))
+            .await
+            .expect("a call the stop ends is no failure");
 
         let McpToolCallEnd::Answered { result } = tracked_end() else {
             panic!("the tracked end is an answer");
         };
         assert_eq!(end, StepToolCallEnd::Answered { result });
+        assert_eq!(stopped, StepToolCallEnd::Stopping);
         assert_eq!(
             fixture.receipts(),
             [StoredReceipt {

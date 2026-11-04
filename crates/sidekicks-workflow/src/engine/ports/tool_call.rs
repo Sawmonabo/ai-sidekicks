@@ -12,8 +12,9 @@ use crate::engine::ports::PortError;
 
 /// Calls a tool server's tool for a step and records the call's receipt.
 pub trait StepToolCaller: Send + Sync {
-    /// Calls `call`'s tool and returns how the call ended. Fails when the call was not sent, or
-    /// when its end was not recorded.
+    /// Calls `call`'s tool and returns how the call ended. Fails when the call was not sent, when
+    /// its end was not recorded, or when the call ended without an end the client could read, its
+    /// receipt recorded failed or unknown.
     fn call_tool(&self, call: StepToolCall) -> BoxFuture<'_, Result<StepToolCallEnd, PortError>>;
 }
 
@@ -53,6 +54,9 @@ pub enum StepToolCallEnd {
     /// The call was canceled.
     Canceled,
     /// The call's outcome is unknown: the session closed under the call, or the server lost its
-    /// task.
+    /// task or the input it waited on.
     Unknown,
+    /// The daemon is stopping: nothing was written, any receipt stays in flight, and the step
+    /// drops its work.
+    Stopping,
 }
