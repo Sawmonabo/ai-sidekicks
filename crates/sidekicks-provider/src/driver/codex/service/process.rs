@@ -28,6 +28,7 @@ use tokio::sync::{oneshot, watch};
 use tokio::time::{Instant, timeout_at};
 use tokio_tungstenite::tungstenite::{self, Message};
 
+use crate::child_ending::ChildEnds;
 use crate::driver::child_records::{
     ChildRecord, DaemonChildRecords, RecordedChild, spawn_recorded_child,
 };
@@ -107,8 +108,7 @@ fn share_service_exit(answer: oneshot::Receiver<io::Result<ProcessExit>>) -> Cod
 /// tail of what it printed kept for its exit.
 pub(crate) struct ManagedCodexService {
     process_id: Option<u32>,
-    // The end asked last; a kill is never replaced by a stop.
-    ends: watch::Sender<Option<ChildEnd>>,
+    ends: ChildEnds,
     exit: CodexServiceExit,
 }
 
@@ -120,27 +120,17 @@ impl ManagedCodexService {
 
     /// Asks the service to stop; its exit answers once it has.
     pub(crate) fn stop(&self) {
-        self.ask_to_end(ChildEnd::Stop);
+        self.ends.ask(ChildEnd::Stop);
     }
 
     /// Ends the service at once, for one that did not stop when asked.
     pub(crate) fn kill(&self) {
-        self.ask_to_end(ChildEnd::Kill);
+        self.ends.ask(ChildEnd::Kill);
     }
 
     /// How the service ended, answered once it has exited and both its outputs have ended.
     pub(crate) fn exited(&self) -> CodexServiceExit {
         self.exit.clone()
-    }
-
-    fn ask_to_end(&self, end: ChildEnd) {
-        self.ends.send_if_modified(|asked| {
-            let is_changed = *asked != Some(ChildEnd::Kill) && *asked != Some(end);
-            if is_changed {
-                *asked = Some(end);
-            }
-            is_changed
-        });
     }
 }
 
@@ -161,7 +151,7 @@ pub(crate) async fn start_managed_codex_service(
     let RecordedChild { child, record } =
         spawn_recorded_child(spawner, child_records, command, None).await?;
     let process_id = child.id();
-    let (ends, ends_received) = watch::channel(None);
+    let (ends, ends_received) = ChildEnds::new();
     let (exit, exit_received) = oneshot::channel();
     tokio::spawn(own_managed_child(child, record, ends_received, exit));
     Ok(ManagedCodexService {
