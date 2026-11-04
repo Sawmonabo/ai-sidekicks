@@ -35,7 +35,7 @@ use tokio::time::{Instant, timeout, timeout_at};
 use self::account::ClaudeProcessAccount;
 use self::stdin::ClaudeInputWriter;
 pub(crate) use self::stdout::{CLAUDE_OUTPUT_LINE_MAX_BYTES, ClaudeOutputReader};
-use crate::child_ending::ChildEnding;
+use crate::child_ending::{ChildEnding, ChildEnds};
 use crate::driver::child_records::{
     ChildRecord, ChildSecret, DaemonChildRecords, RecordedChild, spawn_recorded_child,
 };
@@ -127,28 +127,12 @@ pub(crate) struct ClaudeTurnHolds {
     pub(crate) session_id: SessionId,
 }
 
-/// The ends asked of one child; a kill is never replaced by a stop. Dropped, it kills the child.
-pub(crate) struct ClaudeChildEnds(watch::Sender<Option<ChildEnd>>);
-
-impl ClaudeChildEnds {
-    /// Asks the child to end as `end`.
-    pub(crate) fn ask(&self, end: ChildEnd) {
-        self.0.send_if_modified(|asked| {
-            let is_changed = *asked != Some(ChildEnd::Kill) && *asked != Some(end);
-            if is_changed {
-                *asked = Some(end);
-            }
-            is_changed
-        });
-    }
-}
-
 /// One live Claude Code process.
 pub(crate) struct ClaudeCodeProcess {
     identity: ProviderProcessIdentity,
     input: ClaudeInputWriter,
     requests: ClaudeControlRequests,
-    ends: Arc<ClaudeChildEnds>,
+    ends: Arc<ChildEnds>,
     end: watch::Receiver<Option<ClaudeProcessEnd>>,
     startup_hooks: watch::Receiver<usize>,
 }
@@ -219,8 +203,8 @@ impl ClaudeCodeProcess {
         let requests = ClaudeControlRequests::new(Arc::new(move |request_id: &str| {
             withdrawing_input.enqueue_line(compose_withdrawal_line(request_id));
         }));
-        let (ends_sender, ends) = watch::channel(None);
-        let ends_sender = Arc::new(ClaudeChildEnds(ends_sender));
+        let (ends_sender, ends) = ChildEnds::new();
+        let ends_sender = Arc::new(ends_sender);
         let (startup_hooks_sender, startup_hooks) = watch::channel(0);
         let reader = ClaudeOutputReader::new(
             requests.clone(),

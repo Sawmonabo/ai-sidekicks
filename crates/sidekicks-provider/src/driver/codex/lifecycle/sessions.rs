@@ -278,24 +278,46 @@ impl CodexDriver {
     /// live session's copy whose turn started is let go here, a resting session's by its own
     /// task, and one still starting its turn by its ask. Under `Stop`, each open turn on a service
     /// the daemon does not own is interrupted next, by `deadline`, since that service runs on.
+    /// Every step ends by `deadline`, the first one it cuts logged: a copy whose let-go it cut
+    /// runs its turn on until its service's next start, and a record claimed past it is dropped
+    /// with the driver.
     pub(crate) async fn shutdown(&self, intent: DaemonStopIntent, deadline: Instant) {
         self.tasks.close();
         self.slots.refuse_establishing();
-        if let Some(parts) = self.parts.get() {
-            parts.side_questions.stop_every_copy().await;
+        let mut cut_step = None;
+        let copies_stopped = async {
+            if let Some(parts) = self.parts.get() {
+                parts.side_questions.stop_every_copy().await;
+            }
+        };
+        if timeout_at(deadline, copies_stopped).await.is_err() {
+            cut_step = Some("stopping the side questions' copies");
         }
         if intent == DaemonStopIntent::Stop {
             self.interrupt_joined_turns(deadline).await;
         }
-        self.registry.shutdown(intent).await;
-        for session_id in self.slots.held_sessions() {
-            let claim = self.slots.claim_closing(session_id).await;
-            if let Some(inbound) = claim.live() {
-                let_go_codex_session_record(&inbound, CodexRecordExit::SessionContinues).await;
-                claim.vacate();
+        self.registry.shutdown(intent, deadline).await;
+        let records_let_go = async {
+            for session_id in self.slots.held_sessions() {
+                let claim = self.slots.claim_closing(session_id).await;
+                if let Some(inbound) = claim.live() {
+                    let_go_codex_session_record(&inbound, CodexRecordExit::SessionContinues).await;
+                    claim.vacate();
+                }
             }
+        };
+        if timeout_at(deadline, records_let_go).await.is_err() {
+            cut_step = cut_step.or(Some("letting each live record go"));
         }
-        self.tasks.wait().await;
+        if timeout_at(deadline, self.tasks.wait()).await.is_err() {
+            cut_step = cut_step.or(Some("waiting for the driver's tasks"));
+        }
+        if let Some(step) = cut_step {
+            tracing::warn!(
+                step,
+                "the Codex driver's shutdown was cut at the stop's deadline"
+            );
+        }
     }
 
     // Sends `turn/interrupt` for every open turn of each live session on a service the daemon does

@@ -13,8 +13,8 @@ use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, short_socket_folder};
 use sidekicks_std::port_registration::PortRegistration;
 
 use super::stand_in::{
-    account_home, account_stand_in_services, another_daemon, is_running, last_launch_arguments,
-    per_home_services, recorded_requests, services_on, this_daemon,
+    account_home, account_stand_in_services, another_daemon, daemon_stop_deadline, is_running,
+    last_launch_arguments, per_home_services, recorded_requests, services_on, this_daemon,
     wait_for_end_and_record_removal,
 };
 use crate::driver::ProviderAccountReader;
@@ -120,7 +120,9 @@ async fn a_lasting_service_keeps_its_sign_in_in_the_store_its_home_names(
         .ensure_started(services.dependencies.startup_timeout)
         .await;
     let arguments = last_launch_arguments(&services);
-    daemon.shutdown(DaemonStopIntent::Stop).await;
+    daemon
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
 
     assert!(started.is_ok(), "{started:?}");
     let count = |switch: &str| {
@@ -151,7 +153,9 @@ async fn a_restart_keeps_an_account_homes_service_and_the_next_stop_ends_it() {
         .expect("the home resolves");
     let started = kept.ensure_started(startup_timeout).await;
     let kept_process = kept.process_id().expect("the service runs a process");
-    first.shutdown(DaemonStopIntent::Restart).await;
+    first
+        .shutdown(DaemonStopIntent::Restart, daemon_stop_deadline())
+        .await;
     let is_kept_running = is_running(kept_process);
 
     let next = another_daemon(&services);
@@ -161,7 +165,8 @@ async fn a_restart_keeps_an_account_homes_service_and_the_next_stop_ends_it() {
         .expect("the home resolves");
     let rejoined = joined.ensure_started(startup_timeout).await;
     let joined_process = joined.process_id();
-    next.shutdown(DaemonStopIntent::Stop).await;
+    next.shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
     let is_stopped =
         wait_for_end_and_record_removal(kept_process, &services, startup_timeout).await;
 
@@ -202,7 +207,9 @@ async fn an_api_key_accounts_service_is_handed_its_key_at_each_start() {
         .await
         .expect("the home resolves");
     let started = kept.ensure_started(startup_timeout).await;
-    first.shutdown(DaemonStopIntent::Restart).await;
+    first
+        .shutdown(DaemonStopIntent::Restart, daemon_stop_deadline())
+        .await;
 
     let next = another_daemon(&services);
     let joined = next
@@ -213,7 +220,8 @@ async fn an_api_key_accounts_service_is_handed_its_key_at_each_start() {
     let rejoined = joined.ensure_started(startup_timeout).await;
     // Read as the start answered: anything sent after, a resume among it, comes later.
     let sent = recorded_requests(&services, &codex_home);
-    next.shutdown(DaemonStopIntent::Stop).await;
+    next.shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
 
     assert!(started.is_ok(), "{started:?}");
     assert!(rejoined.is_ok(), "{rejoined:?}");

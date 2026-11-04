@@ -7,7 +7,32 @@ use std::time::Duration;
 
 use process_wrap::tokio::ChildWrapper;
 use sidekicks_platforms::{ChildEnd, ask_child_to_stop};
+use tokio::sync::watch;
 use tokio::time::{Instant, Sleep};
+
+/// The ends asked of one child, sent to the task that owns it; a kill is never replaced by a stop.
+/// Dropped, its owner kills the child.
+pub(crate) struct ChildEnds(watch::Sender<Option<ChildEnd>>);
+
+impl ChildEnds {
+    /// Nothing asked yet, with the receiver the child's owner reads each end from.
+    pub(crate) fn new() -> (Self, watch::Receiver<Option<ChildEnd>>) {
+        let (sender, receiver) = watch::channel(None);
+        (Self(sender), receiver)
+    }
+
+    /// Asks the child to end as `end`; the same end asked again or a stop after a kill changes
+    /// nothing.
+    pub(crate) fn ask(&self, end: ChildEnd) {
+        self.0.send_if_modified(|asked| {
+            let is_changed = *asked != Some(ChildEnd::Kill) && *asked != Some(end);
+            if is_changed {
+                *asked = Some(end);
+            }
+            is_changed
+        });
+    }
+}
 
 /// The end asked of one child so far, with the kill a stop arms once its grace passes.
 pub(crate) struct ChildEnding {

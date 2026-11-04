@@ -6,6 +6,7 @@ use serde_json::json;
 use sidekicks_platforms::CAN_LINK_A_SOCKET;
 use tokio::task::JoinHandle;
 
+use self::stand_in::daemon_stop_deadline;
 use super::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_account_service_for, start_scripted_codex_service,
@@ -212,7 +213,9 @@ async fn a_failed_switch_off_wait_puts_the_service_back_only_into_an_empty_slot(
         "error": {"code": -32603, "message": "the read failed"}}));
     retiring.await.expect("the retirement ends");
     let registered = registry.services();
-    registry.shutdown(DaemonStopIntent::Stop).await;
+    registry
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
 
     let expected = filling.unwrap_or_else(|| Arc::clone(&scripted.service));
     assert!(

@@ -4,26 +4,35 @@ use std::time::Duration;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use sidekicks_platforms::{
     CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, ProcessRecord, bind_socket_listener,
-    pin_child_process, read_socket_link, replace_socket_link,
+    pin_child_process, read_socket_link, replace_socket_link, short_socket_folder,
 };
+use tokio::time::Instant;
 
 use super::stand_in::{
-    CRASH_WAIT, StandInServices, cut_short_planned_restart, home_record_file, is_running,
-    mark_kept_records_draining, send_signal, stand_in_services, this_daemon,
-    wait_for_end_and_record_removal, wait_until_gone,
+    CRASH_WAIT, StandInServices, account_home, cut_short_planned_restart, daemon_stop_deadline,
+    home_record_file, is_running, mark_kept_records_draining, send_signal, services_on,
+    stand_in_services, this_daemon, wait_for_end_and_record_removal, wait_until_gone,
 };
 use crate::driver::PROVIDER_REGISTRATIONS;
 use crate::driver::codex::DESCRIPTOR;
+use crate::driver::codex::service::home::CodexHomeKind;
 use crate::driver::codex::service::record::{LastingServiceRecord, LastingServiceRecordFile};
 use crate::driver::codex::service::registry::home_socket_path;
 use crate::driver::codex::service::supervisor::test_service::{
-    HANG_UP_IGNORED_NAME, StandInReplies, answer_as_codex_service,
+    HANG_UP_IGNORED_NAME, ProgramPerHome, STOP_IGNORED_NAME, StandInReplies,
+    answer_as_codex_service,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 // The start bound of the daemon whose join of a stopped former service must run out.
 const JOIN_START_BOUND: Duration = Duration::from_secs(3);
+
+// The bound of the daemon's stop of a service that ignores its stop.
+const STOP_BOUND: Duration = Duration::from_millis(300);
+
+// How long past the stop's deadline the service may take to be reaped once killed.
+const KILL_MARGIN: Duration = Duration::from_secs(1);
 
 // Fails when a daemon restarted in the middle of a planned restart retires both services, which
 // ends every terminal session inside them, joins the one the home's link does not name, or leaves
@@ -47,7 +56,9 @@ async fn a_restart_cut_short_joins_the_socket_link_holder_and_drains_the_other()
     let is_first_drained =
         wait_for_end_and_record_removal(first_process, &services, startup_timeout).await;
     let is_second_running = is_running(second_process);
-    daemon.shutdown(DaemonStopIntent::Stop).await;
+    daemon
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
 
     assert!(started.is_ok(), "{started:?}");
     assert_eq!(joined_process, Some(second_process));
@@ -82,7 +93,9 @@ async fn a_restart_cut_short_whose_socket_link_holder_died_points_the_link_back_
     let is_first_running = is_running(first_process);
     let link =
         read_socket_link(&home_socket_path(&services.home.codex_home)).expect("the link reads");
-    daemon.shutdown(DaemonStopIntent::Stop).await;
+    daemon
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
 
     assert!(is_second_killed && is_second_gone);
     assert!(started.is_ok(), "{started:?}");
@@ -131,7 +144,9 @@ async fn a_restart_joins_an_unrecorded_service_on_the_link_and_drains_the_record
     let is_first_drained =
         wait_for_end_and_record_removal(first_process, &services, startup_timeout).await;
     let link = read_socket_link(&home_socket).expect("the link reads");
-    daemon.shutdown(DaemonStopIntent::Stop).await;
+    daemon
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
     answering.abort();
 
     assert!(is_second_killed && is_second_gone);
@@ -173,7 +188,9 @@ async fn a_former_service_that_never_answers_its_join_is_stopped_and_the_next_st
         wait_for_end_and_record_removal(first_process, &services, CRASH_WAIT).await;
     let launched = service.ensure_started(startup_timeout).await;
     let launched_process = service.process_id();
-    daemon.shutdown(DaemonStopIntent::Stop).await;
+    daemon
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
     if !is_first_retired {
         send_signal(first_process, "-CONT");
         send_signal(first_process, "-KILL");
@@ -221,7 +238,9 @@ async fn a_draining_service_is_never_where_the_link_is_pointed_back() {
         read_socket_link(&home_socket_path(&services.home.codex_home)).expect("the link reads");
     let launched_socket = launched.physical_socket();
     let is_first_still_running = is_running(first_process);
-    daemon.shutdown(DaemonStopIntent::Stop).await;
+    daemon
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
     send_signal(first_process, "-KILL");
 
     assert!(is_second_killed && is_second_gone);
@@ -265,7 +284,9 @@ async fn a_restart_finding_every_service_draining_launches_beside_them_at_once()
     let link =
         read_socket_link(&home_socket_path(&services.home.codex_home)).expect("the link reads");
     let launched_socket = launched.physical_socket();
-    daemon.shutdown(DaemonStopIntent::Stop).await;
+    daemon
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
     send_signal(first_process, "-KILL");
     send_signal(second_process, "-KILL");
 
@@ -328,7 +349,11 @@ async fn a_daemon_stop_returns_without_waiting_on_a_drain_under_way() {
     .await
     .is_ok();
 
-    let stopped = tokio::time::timeout(CRASH_WAIT, registry.shutdown(DaemonStopIntent::Stop)).await;
+    let stopped = tokio::time::timeout(
+        CRASH_WAIT,
+        registry.shutdown(DaemonStopIntent::Stop, daemon_stop_deadline()),
+    )
+    .await;
     let retired = tokio::time::timeout(CRASH_WAIT, retiring).await;
     let is_first_running = is_running(first_process);
     send_signal(first_process, "-KILL");
@@ -343,6 +368,55 @@ async fn a_daemon_stop_returns_without_waiting_on_a_drain_under_way() {
         is_first_running,
         "the drained service was ended rather than left to drain"
     );
+}
+
+// Fails when the daemon's stop leaves its own service, which ignores the stop it is asked, running
+// past the stop's deadline. Killed by the stop keeping its own grace under the daemon's stop: the
+// kill then comes 2 s after the ask, past the deadline and its margin.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_daemon_stop_kills_a_service_that_ignores_its_stop_at_the_deadline() {
+    if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
+    let folder = short_socket_folder().expect("a scratch folder is made");
+    let records_folder = folder.path().to_owned();
+    let home = account_home(folder.path(), CodexHomeKind::CapabilityRead);
+    let services = services_on(home, folder, move |mut program| {
+        program
+            .environment
+            .push((STOP_IGNORED_NAME.to_owned(), "1".to_owned()));
+        Arc::new(ProgramPerHome {
+            program,
+            records_folder,
+        })
+    });
+    // The capability read's service is the daemon's own child.
+    let service = this_daemon(&services)
+        .capability_read_service()
+        .await
+        .expect("the read's folder is made");
+    service
+        .ensure_started(services.dependencies.startup_timeout)
+        .await
+        .expect("the read's service starts");
+    let process_id = service
+        .process_id()
+        .expect("the read's service runs a process of its own");
+
+    let deadline = Instant::now() + STOP_BOUND;
+    service.shutdown(DaemonStopIntent::Stop, deadline).await;
+    let returned_at = Instant::now();
+    // The service ignores its stop, so only the kill ends it.
+    let is_killed = tokio::time::timeout_at(deadline + KILL_MARGIN, wait_until_gone(process_id))
+        .await
+        .unwrap_or(false);
+
+    assert!(
+        returned_at <= deadline + KILL_MARGIN,
+        "the stop returned {:?} past its deadline",
+        returned_at - deadline
+    );
+    assert!(is_killed, "the service outlived the stop's deadline");
 }
 
 // Fails when the erase leaves a draining service to a drain whose record it deletes, leaves a
