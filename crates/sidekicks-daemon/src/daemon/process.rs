@@ -603,6 +603,7 @@ impl DaemonProcess {
         // Before the socket serves, so no creation is under way.
         settle_interrupted_creations(self.worktree_creator.insert(inputs.worktree_creator)).await;
         let mcp_inventory = inputs.mcp_inventory;
+        let mcp_mutations = inputs.mcp_mutations;
         self.mcp_client = Some(inputs.mcp_client);
         let mut provider_accounts = inputs.provider_accounts;
         let session = self.session.insert(inputs.session);
@@ -726,6 +727,9 @@ impl DaemonProcess {
             () = self.work_stop.cancelled() => {}
         }
         self.check_stop("waiting for the providers' first reads")?;
+        // After the first reads too: a settle reads each provider's config, which may start its
+        // service. It runs in the background and never holds the start.
+        mcp_mutations.settle_pending();
         // After the first reads, so each provider's read joins what its start runs.
         self.mcp_attribution_fills = Some(McpAttributionFills::start(
             mcp_inventory,

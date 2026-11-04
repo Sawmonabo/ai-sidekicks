@@ -26,6 +26,7 @@ use sidekicks_mcp::binding::store::{McpBindingStore, open_first_observation_drai
 use sidekicks_mcp::client::dispatch::McpToolDispatch;
 use sidekicks_mcp::client::{McpClient, McpClientError};
 use sidekicks_mcp::inventory_service::{McpInventoryService, McpInventorySources};
+use sidekicks_mcp::mutation::service::{McpMutationService, McpMutationSources};
 use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_mcp::status::machine_probe::McpMachineProbeGate;
 use sidekicks_mcp::status::notices::McpNoticeBoard;
@@ -231,6 +232,9 @@ pub(crate) struct MethodInputs {
     pub(crate) workspace_work: WorkspaceWork,
     /// The MCP server inventory, whose fills of the attribution table the start begins.
     pub(crate) mcp_inventory: Arc<McpInventoryService>,
+    /// The MCP binding edits' service, whose pass over the edits a stop left unfinished the start
+    /// requests.
+    pub(crate) mcp_mutations: Arc<McpMutationService>,
     /// The provider accounts' background observer, started once the recovery pass has run.
     pub(crate) provider_accounts: ProviderAccountObservation,
     /// The daemon's one client of the sessions' tool servers, which the stop stops.
@@ -366,6 +370,15 @@ pub(crate) async fn register_method_inputs(
         tracker: Arc::clone(&mcp_status),
         attribution: mcp_attribution,
         probe_gate: Arc::new(McpMachineProbeGate::default()),
+    }));
+    let mcp_mutations = Arc::new(McpMutationService::new(McpMutationSources {
+        providers: Arc::clone(&registry),
+        inventory: Arc::clone(&mcp_inventory),
+        keychain: Arc::new(secret_items.keychain(KeychainService::McpReceiptKey)),
+        writer: Arc::clone(&writer),
+        reads: Arc::clone(&reads),
+        removal_rows: None,
+        board: Arc::clone(&mcp_notice_board),
     }));
     let worktree_sources = Arc::new(WorktreeSources {
         reads: Arc::clone(&reads),
@@ -754,6 +767,7 @@ pub(crate) async fn register_method_inputs(
                 log: Arc::clone(&database.event_log),
                 board: mcp_notice_board,
                 inventory: Arc::clone(&mcp_inventory),
+                mutations: Arc::clone(&mcp_mutations),
             },
             run_safety_holds: Arc::clone(&session.run_safety_holds),
             sessions: Arc::clone(&session.sessions),
@@ -827,6 +841,7 @@ pub(crate) async fn register_method_inputs(
         web_address_sender,
         workspace_work: workspace.work,
         mcp_inventory,
+        mcp_mutations,
         provider_accounts: accounts.observation,
         mcp_client,
     })
