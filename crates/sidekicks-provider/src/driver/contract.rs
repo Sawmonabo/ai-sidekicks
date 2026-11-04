@@ -60,6 +60,7 @@ use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 use crate::port::session_inbox_address::SessionInboxAddresser;
 use crate::pricing::receiver::TelemetryExportReader;
+use crate::pricing::rule::RequestPricer;
 
 pub mod account;
 pub mod error;
@@ -197,6 +198,12 @@ pub trait ProviderDriver: Send + Sync {
     /// The reader of the telemetry the provider's processes export, which the daemon hands the
     /// receiver under the provider's id; `None` where the provider exports none.
     fn telemetry_export_reader(&self) -> Option<Arc<dyn TelemetryExportReader>> {
+        None
+    }
+
+    /// The rule that prices this provider's requests, which its live pricing and the repricing of
+    /// held requests both call; `None` where the driver prices none.
+    fn request_pricer(&self) -> Option<Arc<dyn RequestPricer>> {
         None
     }
 
