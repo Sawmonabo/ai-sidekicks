@@ -8,10 +8,10 @@ use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use futures::future::{BoxFuture, Shared};
+use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_std::mutex_lock::lock;
 
-use crate::hand_over::brief::projection::{BriefBudgetPolicy, BriefProjection, BriefRendering};
-use crate::hand_over::canonical_transcript::CanonicalTranscriptProjection;
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 
 /// A target a coordinator established, named by its provider session id alone: a resume handle may
@@ -29,7 +29,7 @@ impl EstablishedBriefTarget {
 }
 
 /// A delivery addressed to a target this coordinator did not establish, refused before anything
-/// is rendered or sent.
+/// is sent.
 #[derive(Debug, thiserror::Error)]
 #[error(
     "refusing to deliver a brief into provider session `{provider_session_id}`: this coordinator \
@@ -41,11 +41,16 @@ pub(crate) struct UnownedBriefTargetError {
 }
 
 /// The brief turn handed to the gateway: the daemon's own narration, which the driver sends marked
-/// as such and encodes its own way.
+/// as such and encodes its own way, under the daemon's own message id so the provider's record of
+/// the conversation can be searched for it.
 #[derive(Clone, Debug)]
 pub(crate) struct BriefTurn {
     /// The target's provider session id.
     pub(crate) target_provider_session_id: String,
+    /// The run the brief is sent into.
+    pub(crate) run_id: RunId,
+    /// The id the brief is sent under.
+    pub(crate) message_id: QueueItemId,
     /// The brief's text.
     pub(crate) brief: OutboundText,
 }
@@ -72,18 +77,8 @@ pub(crate) enum BriefDeliveryDisposition {
     },
 }
 
-/// One delivery's outcome, always a degraded continuation: the new model sees a summary, never the
-/// conversation.
-#[derive(Clone, Debug)]
-pub(crate) struct BriefDeliverySettlement {
-    /// Whether the brief landed.
-    pub(crate) disposition: BriefDeliveryDisposition,
-    /// What was rendered, whether or not it landed, with what the brief could not carry.
-    pub(crate) rendering: BriefRendering,
-}
-
 /// The one delivery into a target, settled or in flight; every caller awaits the same one.
-type SharedDelivery = Shared<BoxFuture<'static, Arc<BriefDeliverySettlement>>>;
+type SharedDelivery = Shared<BoxFuture<'static, Arc<BriefDeliveryDisposition>>>;
 
 /// Each established target and its one delivery, by provider session id.
 #[derive(Default)]
@@ -100,21 +95,15 @@ struct DeliveryRecords {
 pub(crate) struct BriefDeliveryCoordinator {
     /// Where the brief is sent.
     gateway: Arc<dyn BriefTargetGateway>,
-    /// How the brief is rendered.
-    projection: Arc<BriefProjection>,
     /// Never held across an await.
     records: Mutex<DeliveryRecords>,
 }
 
 impl BriefDeliveryCoordinator {
-    /// A coordinator sending through `gateway`, rendering with `projection`.
-    pub(crate) fn new(
-        gateway: Arc<dyn BriefTargetGateway>,
-        projection: Arc<BriefProjection>,
-    ) -> Self {
+    /// A coordinator sending through `gateway`.
+    pub(crate) fn new(gateway: Arc<dyn BriefTargetGateway>) -> Self {
         Self {
             gateway,
-            projection,
             records: Mutex::new(DeliveryRecords::default()),
         }
     }
@@ -139,15 +128,16 @@ impl BriefDeliveryCoordinator {
         records.deliveries.remove(provider_session_id);
     }
 
-    /// Delivers the brief for `projection` into `target` under `budget`, at most once per target,
-    /// and settles what happened. An error, before anything is rendered or sent, when `target` is
+    /// Delivers the composed `brief` into `target`'s run `run_id` under `message_id`, at most once
+    /// per target, and settles what happened. An error, before anything is sent, when `target` is
     /// not a handle this coordinator holds.
     pub(crate) async fn deliver(
         &self,
-        projection: CanonicalTranscriptProjection,
         target: &EstablishedBriefTarget,
-        budget: BriefBudgetPolicy,
-    ) -> Result<Arc<BriefDeliverySettlement>, UnownedBriefTargetError> {
+        run_id: RunId,
+        message_id: QueueItemId,
+        brief: String,
+    ) -> Result<Arc<BriefDeliveryDisposition>, UnownedBriefTargetError> {
         let provider_session_id = target.provider_session_id();
         let delivery = {
             let mut records = lock(&self.records);
@@ -167,10 +157,15 @@ impl BriefDeliveryCoordinator {
                 .or_insert_with(|| {
                     send_once(
                         Arc::clone(&self.gateway),
-                        Arc::clone(&self.projection),
-                        projection,
-                        provider_session_id.to_owned(),
-                        budget,
+                        BriefTurn {
+                            target_provider_session_id: provider_session_id.to_owned(),
+                            run_id,
+                            message_id,
+                            brief: OutboundText {
+                                text: brief,
+                                origin: OutboundTextOrigin::SystemNarration,
+                            },
+                        },
                     )
                 })
                 .clone()
@@ -180,29 +175,11 @@ impl BriefDeliveryCoordinator {
 }
 
 /// The one send into a target, shared, so it runs to its end once however many callers await it.
-fn send_once(
-    gateway: Arc<dyn BriefTargetGateway>,
-    projection: Arc<BriefProjection>,
-    transcript: CanonicalTranscriptProjection,
-    target_provider_session_id: String,
-    budget: BriefBudgetPolicy,
-) -> SharedDelivery {
+fn send_once(gateway: Arc<dyn BriefTargetGateway>, turn: BriefTurn) -> SharedDelivery {
     async move {
-        let rendering = projection.render(transcript, budget);
-        let turn = BriefTurn {
-            target_provider_session_id,
-            brief: OutboundText {
-                text: rendering.text.clone(),
-                origin: OutboundTextOrigin::SystemNarration,
-            },
-        };
-        let disposition = match gateway.send_brief_turn(turn).await {
+        Arc::new(match gateway.send_brief_turn(turn).await {
             Ok(()) => BriefDeliveryDisposition::Delivered,
             Err(cause) => BriefDeliveryDisposition::Unconfirmed { cause },
-        };
-        Arc::new(BriefDeliverySettlement {
-            disposition,
-            rendering,
         })
     }
     .boxed()
@@ -217,16 +194,14 @@ mod tests {
 
     use futures::FutureExt as _;
     use futures::future::BoxFuture;
-    use sidekicks_contracts::run::id::RunId;
+    use sidekicks_contracts::run::queue::QueueItemId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
-    use sidekicks_store::database::writer::test_file::test_session_id;
 
     use super::{
         BriefDeliveryCoordinator, BriefDeliveryDisposition, BriefSendError, BriefTargetGateway,
         BriefTurn,
     };
-    use crate::hand_over::brief::projection::{BriefBudgetPolicy, BriefProjection};
-    use crate::hand_over::canonical_transcript::CanonicalTranscriptProjection;
+    use crate::driver::test_registry::new_run_id;
 
     /// A target whose every send fails after counting it.
     struct FailingGateway {
@@ -240,13 +215,8 @@ mod tests {
         }
     }
 
-    fn empty_transcript() -> CanonicalTranscriptProjection {
-        CanonicalTranscriptProjection {
-            session_id: test_session_id(),
-            run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
-            built_at_position: 0,
-            turns: Vec::new(),
-        }
+    fn new_message_id() -> QueueItemId {
+        QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id")
     }
 
     #[tokio::test]
@@ -254,19 +224,18 @@ mod tests {
         let gateway = Arc::new(FailingGateway {
             sends: AtomicUsize::new(0),
         });
-        let coordinator = BriefDeliveryCoordinator::new(
-            Arc::clone(&gateway) as Arc<dyn BriefTargetGateway>,
-            Arc::new(BriefProjection::default()),
-        );
+        let coordinator =
+            BriefDeliveryCoordinator::new(Arc::clone(&gateway) as Arc<dyn BriefTargetGateway>);
         let target = coordinator.establish_target("provider-session");
-        let budget = BriefBudgetPolicy::for_context_window(1_000);
+        let (run_id, message_id) = (new_run_id(), new_message_id());
+        let brief = || "brief".to_owned();
 
         let (first, second) = futures::join!(
-            coordinator.deliver(empty_transcript(), &target, budget),
-            coordinator.deliver(empty_transcript(), &target, budget),
+            coordinator.deliver(&target, run_id.clone(), message_id.clone(), brief()),
+            coordinator.deliver(&target, run_id.clone(), message_id.clone(), brief()),
         );
         let later = coordinator
-            .deliver(empty_transcript(), &target, budget)
+            .deliver(&target, run_id.clone(), message_id.clone(), brief())
             .await
             .expect("the coordinator established the target");
         let first = first.expect("the coordinator established the target");
@@ -278,18 +247,16 @@ mod tests {
         ));
         assert!(Arc::ptr_eq(&first, &later));
         assert!(matches!(
-            first.disposition,
+            *first,
             BriefDeliveryDisposition::Unconfirmed { .. }
         ));
 
-        let other = BriefDeliveryCoordinator::new(
-            Arc::clone(&gateway) as Arc<dyn BriefTargetGateway>,
-            Arc::new(BriefProjection::default()),
-        );
+        let other =
+            BriefDeliveryCoordinator::new(Arc::clone(&gateway) as Arc<dyn BriefTargetGateway>);
         let foreign = other.establish_target("provider-session");
         assert!(
             coordinator
-                .deliver(empty_transcript(), &foreign, budget)
+                .deliver(&foreign, run_id, message_id, brief())
                 .await
                 .is_err()
         );
