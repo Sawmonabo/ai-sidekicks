@@ -9,7 +9,7 @@
 //! and the daemon.
 
 pub mod binding;
-pub(crate) mod client;
+pub mod client;
 pub(crate) mod command_receipts;
 pub mod errors;
 pub mod inventory_service;

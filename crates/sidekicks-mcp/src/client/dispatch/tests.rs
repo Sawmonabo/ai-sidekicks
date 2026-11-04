@@ -18,14 +18,13 @@ use crate::client::McpClient;
 use crate::client::connection::standing::McpStandingConnection;
 use crate::client::connection::{McpConnectionStart, McpServerConnection};
 use crate::client::tasks::McpTaskContact::{CancelRefused, Reached};
-use crate::client::tasks::recorder::McpTaskHandleRecorder;
 use crate::client::tasks::{McpTaskContact, McpToolCallEnd};
 use crate::client::test_server::{
     Reply, Responder, TestServer, contact, method_not_found, start_test_server, test_client,
     text_result, track_call, tracked_end, v1_initialize_result, v1_status_reply, v1_task,
     wait_for_contact,
 };
-use crate::command_receipts::{CommandReceiptStore, background_statement};
+use crate::command_receipts::background_statement;
 use crate::schema::schema_parts;
 
 /// A receipt row as stored: its status, whether it was claimed and ended, and its four task
@@ -43,8 +42,8 @@ pub(super) struct StoredReceipt {
 /// server's address.
 pub(super) struct Fixture {
     database: TestDatabase,
-    pub(super) dispatch: McpToolDispatch,
-    pub(super) client: McpClient,
+    pub(super) dispatch: Arc<McpToolDispatch>,
+    pub(super) client: Arc<McpClient>,
     pub(super) card: Arc<QuestionCard>,
     pub(super) session_id: SessionId,
     pub(super) name: McpServerName,
@@ -59,15 +58,12 @@ impl Fixture {
                 .await
                 .expect("the writer opens its database"),
         );
-        let dispatch = McpToolDispatch::new(
-            CommandReceiptStore::new(Arc::clone(&writer)),
-            McpTaskHandleRecorder::new(Arc::clone(&writer)),
-        );
+        let dispatch = Arc::new(McpToolDispatch::new(writer));
         let (client, card) = test_client();
         Self {
             database,
             dispatch,
-            client,
+            client: Arc::new(client),
             card,
             session_id: SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id"),
             name: FreeFormText::new("tracker".to_owned()).expect("a short server name"),

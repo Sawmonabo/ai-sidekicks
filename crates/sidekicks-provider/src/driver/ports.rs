@@ -36,6 +36,7 @@ use crate::port::repository_reader::RepositoryReader;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
 use crate::port::run_pause::{ContinuedMessages, RunPauses};
+use crate::port::server_prompts::ServerPromptPort;
 use crate::port::session_account_move::SessionAccountMoveRecorder;
 use crate::port::session_advisor_store::SessionAdvisorStore;
 use crate::port::session_level_follower::SessionLevelFollower;
@@ -206,6 +207,8 @@ pub struct DriverPorts {
     pub permission_asks: Arc<PortRegistration<Arc<dyn PermissionAskPort>>>,
     /// The questions card's intake.
     pub questions: Arc<PortRegistration<Arc<dyn QuestionPort>>>,
+    /// The tool servers' prompts for the `/` list; until it is registered, the list holds none.
+    pub server_prompts: Arc<PortRegistration<Arc<dyn ServerPromptPort>>>,
     /// The plan record's intake.
     pub plans: Arc<PortRegistration<Arc<dyn PlanPort>>>,
     /// The approval pipeline's intake of reviewer blocks, and its release of held presses.
@@ -279,6 +282,7 @@ impl DriverPorts {
             database_writer: Arc::new(PortRegistration::new("database writer")),
             permission_asks: Arc::new(PortRegistration::new("permission asks")),
             questions: Arc::new(PortRegistration::new("questions")),
+            server_prompts: Arc::new(PortRegistration::new("server prompts")),
             plans: Arc::new(PortRegistration::new("plans")),
             reviewer_denials: Arc::new(PortRegistration::new("reviewer denials")),
             session_advisors: Arc::new(PortRegistration::new("session advisors")),
