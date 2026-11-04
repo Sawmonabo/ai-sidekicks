@@ -54,7 +54,8 @@ fn helper_member(run_id: RunId, handle: &ChildHandle) -> AgentTreeMember {
 /// One session's runs, nodes and log, on a database holding the agent tree's and the agents'
 /// tables, with a lead agent whose `agents` row runs on `model-lead`.
 pub(crate) struct SessionLog {
-    _database: TestDatabase,
+    /// The database, which a test may open the event log on.
+    pub(crate) database: TestDatabase,
     /// The connection every row is written and read through.
     pub(crate) connection: Connection,
     /// The session.
@@ -85,7 +86,7 @@ impl SessionLog {
             ),
         );
         Self {
-            _database: database,
+            database,
             connection,
             session_id,
             sequence: 0,
@@ -240,7 +241,8 @@ impl SessionLog {
             .expect("the tree reads")
     }
 
-    fn read(&self) -> AgentChildRunLinkListResponse {
+    /// The whole tree, every row of the log read.
+    pub(crate) fn read(&self) -> AgentChildRunLinkListResponse {
         self.read_before(None, &[])
     }
 }

@@ -314,6 +314,10 @@ session_events! {
     /// Emitted when a provider's own subagent finishes, paired to its start.
     AgentSubagentCompleted(#[garde(dive)] SubagentLifecyclePayload) = "agent.subagent.completed"
         => required,
+    /// Emitted when a helper already interrupted is stopped for good; its own run keeps its
+    /// `interrupted` record.
+    AgentSubagentStopped(#[garde(dive)] SubagentLifecyclePayload) = "agent.subagent.stopped"
+        => required,
     /// Emitted when the provider process reports its start for a run; it moves no state.
     AgentRunProviderInitialized(AgentRunProviderInitializedPayload)
         = "agent.run.providerInitialized" => versioned,

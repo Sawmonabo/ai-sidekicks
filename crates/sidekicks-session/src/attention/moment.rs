@@ -467,6 +467,7 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         | SessionEvent::AgentToolCallFailed(_)
         | SessionEvent::AgentSubagentStarted(_)
         | SessionEvent::AgentSubagentCompleted(_)
+        | SessionEvent::AgentSubagentStopped(_)
         | SessionEvent::AgentRunProviderInitialized(_)
         | SessionEvent::AgentTurnStarted(_)
         | SessionEvent::AgentTurnCompleted(_)

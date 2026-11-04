@@ -310,6 +310,7 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         | SessionEventType::AgentToolCallFailed
         | SessionEventType::AgentSubagentStarted
         | SessionEventType::AgentSubagentCompleted
+        | SessionEventType::AgentSubagentStopped
         | SessionEventType::AgentCommandEnded
         | SessionEventType::AgentQueueItemCreated
         | SessionEventType::AgentQueueItemAdmitted

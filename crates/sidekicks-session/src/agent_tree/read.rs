@@ -57,18 +57,21 @@ static SELECT_SESSION_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 // Each readable helper start that names the helper's own run, with the provider and its id for
-// the helper, which pair the run to its node.
+// the helper, which pair the run to its node; and each readable stop of a helper already
+// interrupted, which names its own run. The row's type tells the two apart.
 static SELECT_HELPER_STARTS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT json_extract(started.payload, '$.childRunId'),
        json_extract(started.payload, '$.provider'),
-       json_extract(started.payload, '$.subagentId')
+       json_extract(started.payload, '$.subagentId'),
+       started.type
   FROM session_events AS started
   WHERE started.session_id = @session_id
-    AND started.type = '{started}'
+    AND started.type IN ('{started}', '{stopped}')
     AND json_extract(started.payload, '$.childRunId') IS NOT NULL
     AND {readable}",
         started = SessionEventType::AgentSubagentStarted.as_str(),
+        stopped = SessionEventType::AgentSubagentStopped.as_str(),
         readable = readable_event_sql("started"),
     )
 });
@@ -341,7 +344,7 @@ pub(crate) struct StoredRun {
     pub(crate) parent_run_id: Option<RunId>,
     /// How its parent reached it, `None` for a lead run.
     pub(crate) reached_by: Option<ChildRunProvenance>,
-    /// Where it stands.
+    /// Where it stands; `Stopped` for an interrupted helper's run a later helper stop names.
     pub(crate) state: RunState,
     /// When its `agent.run.queued` row was written, `None` when the log holds none.
     pub(crate) queued_at: Option<WireInstant>,
@@ -366,14 +369,16 @@ pub(crate) struct SessionTree {
 
 impl SessionTree {
     /// `session_id`'s runs and nodes, each own run paired to its node through the helper starts
-    /// readable before `read_bound`. Fails as SQLite or a stored column does.
+    /// readable before `read_bound`, and each interrupted own run that a helper stop readable
+    /// before it names read as `Stopped`, its row keeping `interrupted`. Fails as SQLite or a
+    /// stored column does.
     pub(crate) fn read(
         reader: &Connection,
         session_id: &SessionId,
         read_bound: i64,
     ) -> Result<Self, AgentTreeReadError> {
         let session = session_id.text();
-        let runs = reader
+        let mut runs = reader
             .prepare_cached(&SELECT_SESSION_RUNS_SQL)?
             .query_map(named_params! { "@session_id": session.as_str() }, |row| {
                 Ok((
@@ -417,12 +422,22 @@ impl SessionTree {
                     text_column(row, 0, |text| RunId::new(&text))?,
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
                 ))
             },
         )?;
         for start in starts {
-            let (run_id, provider, subagent_id) = start?;
-            if let Some(&place) = node_of_helper.get(&(provider.as_str(), subagent_id.as_str())) {
+            let (run_id, provider, subagent_id, event_type) = start?;
+            if event_type == SessionEventType::AgentSubagentStopped.as_str() {
+                if let Some(run) = runs
+                    .get_mut(&run_id)
+                    .filter(|run| run.state == RunState::Interrupted)
+                {
+                    run.state = RunState::Stopped;
+                }
+            } else if let Some(&place) =
+                node_of_helper.get(&(provider.as_str(), subagent_id.as_str()))
+            {
                 node_of_run.insert(run_id, place);
             }
         }

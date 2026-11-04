@@ -79,6 +79,7 @@ pub(crate) fn run_outcome_of(
         | SessionEventType::AgentToolCallFailed
         | SessionEventType::AgentSubagentStarted
         | SessionEventType::AgentSubagentCompleted
+        | SessionEventType::AgentSubagentStopped
         | SessionEventType::AgentCommandEnded
         | SessionEventType::AgentQueueItemCreated
         | SessionEventType::AgentQueueItemAdmitted

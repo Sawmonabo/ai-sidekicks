@@ -1,13 +1,15 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use futures::FutureExt as _;
 use rstest::rstest;
+use rusqlite::Connection;
 use serde_json::json;
 use sidekicks_contracts::agent::tree::{AgentTreeMember, ChildHandle};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::orchestration::ChildRunLink;
 use sidekicks_contracts::run::children::{ChildStopOutcome, ChildStoppedState};
 use sidekicks_contracts::run::events::{DaemonInterventionActor, InterventionActor};
 use sidekicks_contracts::run::id::RunId;
@@ -22,12 +24,16 @@ use sidekicks_provider::driver::error_causes::unanswered;
 use sidekicks_provider::driver::run_control::HelperStopOutcome;
 use sidekicks_provider::driver::test_registry::registry_of_first_provider;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::test_file::TestDatabase;
+use sidekicks_store::events::log_service::test_fixture::open_log;
+use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::read::session_read_bound;
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use tokio::sync::Barrier;
 
 use super::AgentTreeSweep;
 use crate::agent_tree::read::tests::{SessionLog, agent_id, at};
-use crate::agent_tree::sweep::{AGENT_TREE_SWEEP_STATEMENT_CAPACITY, SweepRoot};
+use crate::agent_tree::sweep::{AGENT_TREE_SWEEP_STATEMENT_CAPACITY, SweepRoot, read_descendants};
 use crate::agents::projection::test_fixture::write_log_row;
 use crate::interventions::service::tests::{Harness, applied, harness};
 use crate::run::engine::test_fixture::insert_running_run;
@@ -57,8 +63,13 @@ fn daemon() -> InterventionActor {
 }
 
 // A sweep reading the database at `path`, stopping helpers through `driver` and runs through
-// `harness`'s interventions service.
-fn sweep(path: PathBuf, driver: MockProviderDriver, harness: &Harness) -> AgentTreeSweep {
+// `harness`'s interventions service, and appending through `appender`.
+fn sweep(
+    path: PathBuf,
+    driver: MockProviderDriver,
+    harness: &Harness,
+    appender: Arc<SessionEventAppender>,
+) -> AgentTreeSweep {
     AgentTreeSweep::new(
         Arc::new(DatabaseReadPool::new(
             path,
@@ -66,7 +77,39 @@ fn sweep(path: PathBuf, driver: MockProviderDriver, harness: &Harness) -> AgentT
         )),
         Arc::new(registry_of_first_provider(Arc::new(driver))),
         (*harness.service).clone(),
+        appender,
     )
+}
+
+// An appender on the event log of `database`.
+async fn appender(database: &TestDatabase) -> Arc<SessionEventAppender> {
+    Arc::new(SessionEventAppender::new(
+        open_log(database, None).await.service,
+        SESSION_EVENT_VERSION.clone(),
+    ))
+}
+
+// The run each `agent.subagent.stopped` row of the database at `path` that names `own_run` as the
+// helper's own run is filed under, read on a connection of its own.
+fn held_stops(path: &Path, own_run: RunId) -> Vec<String> {
+    let connection = Connection::open(path).expect("the test opens the database");
+    let mut statement = connection
+        .prepare(
+            "SELECT run_id FROM session_events
+              WHERE type = ?1 AND json_extract(payload, '$.childRunId') = ?2",
+        )
+        .expect("the test prepares its read");
+    statement
+        .query_map(
+            [
+                SessionEventType::AgentSubagentStopped.as_str(),
+                own_run.text().as_str(),
+            ],
+            |row| row.get(0),
+        )
+        .expect("the test reads the log")
+        .collect::<rusqlite::Result<_>>()
+        .expect("each row reads")
 }
 
 // Five helpers under one lead run, whose driver answers each stop only once all five are asked,
@@ -121,7 +164,7 @@ async fn every_helper_is_stopped_at_once_and_answered_in_dispatch_order() {
             .path()
             .expect("the test's database is a file"),
     );
-    let sweep = sweep(path, driver, &harness);
+    let sweep = sweep(path, driver, &harness, appender(&log.database).await);
     let read_bound = session_read_bound(|_| None, &log.session_id, None);
 
     let outcomes = tokio::time::timeout(
@@ -239,7 +282,12 @@ async fn a_bridged_run_is_stopped_by_the_run_engines_interrupt(#[case] interrupt
     if matches!(interrupt, RunInterrupt::AlreadyInterrupted) {
         harness.set_run("interrupted", 2);
     }
-    let sweep = sweep(harness.database.path(), MockProviderDriver::new(), &harness);
+    let sweep = sweep(
+        harness.database.path(),
+        MockProviderDriver::new(),
+        &harness,
+        appender(&harness.database).await,
+    );
     let read_bound = session_read_bound(|_| None, &harness.session_id, None);
 
     let outcomes = sweep
@@ -285,4 +333,116 @@ async fn a_bridged_run_is_stopped_by_the_run_engines_interrupt(#[case] interrupt
     };
     assert_eq!(outcomes, [expected]);
     assert_eq!(harness.stored_rows().len(), rows);
+}
+
+// Two helpers under one lead run, each answered stopped: the one read interrupted is told by
+// exactly one `agent.subagent.stopped`, filed under the run it runs under and naming its own run,
+// appended once its driver answered; the tree then reads it stopped, and a second sweep lists it
+// no more. The running one appends none. Killed by the event appended for a running helper (the
+// running helper's read finds a row), by the tree read ignoring the event (the node reads
+// interrupted and is listed again), and by the append made before the answer (the driver finds
+// the row as it answers).
+#[tokio::test]
+async fn a_held_helper_stopped_for_good_is_told_by_its_own_event() {
+    let harness = harness(MockProviderDriver::new()).await;
+    let mut log = SessionLog::new();
+    let lead = log.lead;
+    let lead_run = log.run(None, RunState::Running, lead, &at(0));
+    let held_run = log.own_run(lead_run, "helper-held", RunState::Interrupted, &at(1));
+    let held = log.node(held_run, "helper-held", None, &at(1));
+    let running_run = log.own_run(lead_run, "helper-running", RunState::Running, &at(2));
+    let running = log.node(running_run, "helper-running", None, &at(2));
+    // The helpers' provider is the one the sweep's registry answers.
+    log.connection
+        .execute(
+            "UPDATE agent_tree_nodes SET provider_name = ?1",
+            [PROVIDERS[0].id],
+        )
+        .expect("the test names the helpers' provider");
+    let path = log.database.path();
+    let answer_path = path.clone();
+    let mut driver = MockProviderDriver::new();
+    driver
+        .expect_stop_child_run()
+        .times(2)
+        .returning(move |params| {
+            assert_eq!(
+                held_stops(&answer_path, params.run_id),
+                Vec::<String>::new(),
+                "nothing is told of a helper's stop before its driver answers"
+            );
+            async { Ok(HelperStopOutcome::Stopped) }.boxed()
+        });
+    let sweep = sweep(
+        path.clone(),
+        driver,
+        &harness,
+        appender(&log.database).await,
+    );
+    let read_bound = session_read_bound(|_| None, &log.session_id, None);
+
+    let outcomes = sweep
+        .stop_descendants(
+            log.session_id,
+            SweepRoot::Run(lead_run),
+            None,
+            read_bound,
+            daemon(),
+        )
+        .await
+        .expect("the session's agents read");
+
+    let stopped = |child_handle: &ChildHandle| ChildStopOutcome::Stopped {
+        child: AgentTreeMember::ProviderChild {
+            run_id: lead_run,
+            child_handle: child_handle.clone(),
+        },
+        state: ChildStoppedState::Stopped,
+        reason: None,
+    };
+    assert_eq!(outcomes, [stopped(&held), stopped(&running)]);
+    assert_eq!(
+        held_stops(&path, held_run),
+        [lead_run.text().as_str().to_owned()]
+    );
+    assert_eq!(held_stops(&path, running_run), Vec::<String>::new());
+    let states: Vec<(ChildHandle, RunState)> = log
+        .read()
+        .children
+        .iter()
+        .filter_map(|link| match link {
+            ChildRunLink::ProviderChild {
+                child_handle,
+                state,
+                ..
+            } => Some((child_handle.clone(), *state)),
+            ChildRunLink::Run { .. } => None,
+        })
+        .collect();
+    assert_eq!(
+        states,
+        [
+            (held, RunState::Stopped),
+            (running.clone(), RunState::Running)
+        ]
+    );
+    let read_bound = session_read_bound(|_| None, &log.session_id, None);
+    let listed: Vec<AgentTreeMember> = read_descendants(
+        &log.connection,
+        &log.session_id,
+        &SweepRoot::Run(lead_run),
+        None,
+        read_bound,
+    )
+    .expect("the descendants read")
+    .into_iter()
+    .map(|descendant| descendant.member)
+    .collect();
+    assert_eq!(
+        listed,
+        [AgentTreeMember::ProviderChild {
+            run_id: lead_run,
+            child_handle: running,
+        }]
+    );
 }

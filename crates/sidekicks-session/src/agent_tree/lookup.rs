@@ -23,9 +23,10 @@ use crate::agent_tree::store::read_child_handle;
 /// The statements the agent tree lookup keeps prepared: one per way a helper is named.
 pub const AGENT_TREE_LOOKUP_STATEMENT_CAPACITY: usize = 3;
 
-// A node with its own run's state and the trigger of that run's newest stop, in the order
-// `helper_of_row` reads them, filtered by `filter`. The unary `+` drops the node's run id column's
-// affinity, which would keep the log's run index from serving.
+// A node with its own run's state, the trigger of that run's newest stop, and whether a helper
+// stop of the session names that run as the helper's own, in the order `helper_of_row` reads them,
+// filtered by `filter`. The unary `+` drops the node's run id column's affinity, which would keep
+// the log's run index from serving; the helper stop is found through the log's type index.
 fn select_helpers_sql(filter: &str) -> String {
     let stopped = SessionEventType::AgentRunStopped;
     format!(
@@ -33,11 +34,15 @@ fn select_helpers_sql(filter: &str) -> String {
     (SELECT json_extract(e.payload, '$.trigger') FROM session_events AS e
       WHERE e.session_id = n.session_id AND e.run_id = +n.own_run_id
         AND e.category = '{category}' AND e.type = '{stopped_type}'
-      ORDER BY e.sequence DESC LIMIT 1)
+      ORDER BY e.sequence DESC LIMIT 1),
+    EXISTS (SELECT 1 FROM session_events AS h
+      WHERE h.session_id = n.session_id AND h.type = '{helper_stopped_type}'
+        AND json_extract(h.payload, '$.childRunId') = n.own_run_id)
   FROM agent_tree_nodes AS n JOIN runs AS r ON r.run_id = n.own_run_id
   {filter}",
         category = stopped.category().as_str(),
         stopped_type = stopped.as_str(),
+        helper_stopped_type = SessionEventType::AgentSubagentStopped.as_str(),
     )
 }
 
@@ -65,14 +70,27 @@ static SELECT_HELPER_BY_PROVIDER_PATH_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// A helper whose own run ended interrupted and that a stop of every agent then stopped for good
+// reads as stopped by it, its run's row keeping `interrupted`.
 fn helper_of_row(row: &Row<'_>) -> rusqlite::Result<AgentTreeHelper> {
+    let own_run_state = text_column(row, 4, closed_word::<RunState>)?;
+    let is_held_stop: bool = row.get(6)?;
+    let (own_run_state, own_run_stop_trigger) =
+        if own_run_state == RunState::Interrupted && is_held_stop {
+            (RunState::Stopped, Some(StopTrigger::StopAll))
+        } else {
+            (
+                own_run_state,
+                optional_text_column(row, 5, closed_word::<StopTrigger>)?,
+            )
+        };
     Ok(AgentTreeHelper {
         child_handle: text_column(row, 0, read_child_handle)?,
         subagent_id: row.get(1)?,
         provider_path: row.get(2)?,
         own_run_id: text_column(row, 3, |text| RunId::new(&text))?,
-        own_run_state: text_column(row, 4, closed_word::<RunState>)?,
-        own_run_stop_trigger: optional_text_column(row, 5, closed_word::<StopTrigger>)?,
+        own_run_state,
+        own_run_stop_trigger,
     })
 }
 
@@ -274,6 +292,32 @@ mod tests {
         );
     }
 
+    // Writes the `agent.subagent.stopped` of the helper whose own run is `own_run_id`, filed under
+    // `carrying_run_id`, the run it runs under.
+    fn write_held_stop(
+        writer: &Connection,
+        session_id: SessionId,
+        carrying_run_id: RunId,
+        own_run_id: RunId,
+    ) {
+        insert_test_event(
+            writer,
+            session_id,
+            json!({
+                "type": "agent.subagent.stopped",
+                "payload": {
+                    "sessionId": session_id,
+                    "runId": carrying_run_id,
+                    "provider": PROVIDER,
+                    "subagentId": "thread-helper",
+                    "childRunId": own_run_id,
+                },
+            }),
+            None,
+            "2026-10-14T09:00:00.000Z",
+        );
+    }
+
     // A node of `subagent_id` under `provider_name` with `name` and `provider_path`, its first own
     // run `own_run_id` started at `started_at`.
     fn node(
@@ -321,15 +365,19 @@ mod tests {
 
     // One session holds `earlier`, stopped with no trigger, and `helper`, which shares its name and
     // path, inserted after it with a handle that sorts before it, and bound later to a newer own run
-    // in `own_state` after a first run that completed; beside them a node with no name or path, a
-    // node under another provider, and a newer node of the same name and path in another session.
-    // Killed by the session filter dropped (`thread-elsewhere` found, and by name or path the other
-    // session's newer node answered), by the provider filter dropped from the id read
-    // (`thread-foreign` found), by the state read from a run other than the node's own (the first
-    // run's `completed` or another node's state answered), by the trigger read from another run's
-    // event (`earlier` reading `tokenLimit` when the helper stops with it), by `ORDER BY` reversed
-    // or dropped (`earlier` answered by name or path), and by a NULL column matched (the unnamed
-    // node answered for a name or path no node holds).
+    // in `own_state` after a first run that completed; an interrupted own run is then stopped with
+    // every agent by an `agent.subagent.stopped` filed under another run. Beside them a node with
+    // no name or path whose own run is interrupted, a node under another provider, and a newer node
+    // of the same name and path in another session. Killed by the session filter dropped
+    // (`thread-elsewhere` found, and by name or path the other session's newer node answered), by
+    // the provider filter dropped from the id read (`thread-foreign` found), by the state read from
+    // a run other than the node's own (the first run's `completed` or another node's state
+    // answered), by the trigger read from another run's event (`earlier` reading `tokenLimit` when
+    // the helper stops with it), by `ORDER BY` reversed or dropped (`earlier` answered by name or
+    // path), by a NULL column matched (the unnamed node answered for a name or path no node holds),
+    // by the helper stop ignored (the helper reading `interrupted`), and by the helper stop matched
+    // on a run other than the node's own (the helper reading `interrupted` when matched on the run
+    // it is filed under, the unnamed node reading `stopped` when matched on none).
     #[rstest]
     #[case::running("running", None, RunState::Running, None)]
     #[case::completed("completed", None, RunState::Completed, None)]
@@ -338,6 +386,12 @@ mod tests {
         Some("tokenLimit"),
         RunState::Stopped,
         Some(StopTrigger::TokenLimit)
+    )]
+    #[case::stopped_with_every_agent_once_interrupted(
+        "interrupted",
+        None,
+        RunState::Stopped,
+        Some(StopTrigger::StopAll)
     )]
     fn a_helper_is_found_by_each_name_with_its_own_run(
         #[case] own_state: &str,
@@ -388,7 +442,10 @@ mod tests {
         if own_state == "stopped" {
             write_stopped(&writer, session_id, own_run, own_trigger);
         }
-        let unnamed_run = insert_run(&writer, session_id, "waitingForInput");
+        let unnamed_run = insert_run(&writer, session_id, "interrupted");
+        if own_state == "interrupted" {
+            write_held_stop(&writer, session_id, test_run_id(), own_run);
+        }
         write_node(
             &writer,
             &node(
@@ -449,7 +506,7 @@ mod tests {
                 ("handle-c", "agent-unnamed"),
                 None,
                 unnamed_run,
-                (RunState::WaitingForInput, None),
+                (RunState::Interrupted, None),
             ))
         );
         assert_eq!(by_id(PROVIDER, "thread-foreign"), None);
