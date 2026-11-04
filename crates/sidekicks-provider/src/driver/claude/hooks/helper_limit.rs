@@ -1,7 +1,7 @@
-//! The person's `Helpers at once` on Claude Code: the pre-tool hook on the helper tool lets a new
-//! helper start while fewer than the limit run, and holds its start unanswered until one of the
-//! session's running helpers finishes. Claude Code has no limit of its own to set. The running
-//! helpers are the ones the session's routing holds, so the count has one source.
+//! The person's `Helpers at once` on Claude Code: the pre-tool hook on the helper and message tools
+//! lets a new helper start, or a message wake a helper that had ended, while fewer than the limit
+//! run, and holds the call unanswered until one of the session's running helpers finishes. The
+//! running helpers are the ones the session's routing holds, so the count has one source.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::num::NonZeroUsize;
@@ -11,6 +11,10 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::claude::session::state::ClaudeSessionRoutingBand;
+#[cfg(test)]
+use crate::driver::test_registry::fixed_session_id;
+#[cfg(test)]
+use crate::thread_frame_router::ChildThreadAnnouncement;
 use crate::thread_frame_router::{SubagentLifecycleEmission, SubagentLifecycleEventType};
 
 // A held helper-tool callback: its request id and its tool call id.
@@ -89,8 +93,9 @@ impl ClaudeHelperLimit {
         );
     }
 
-    /// Answers a new helper's start: admitted while the session runs fewer than its limit, or
-    /// when the session has no limit.
+    /// Answers a new helper's start, or the wake of an ended one by a message, either named by
+    /// its tool call `tool_use_id`: admitted while the session runs fewer than its limit, or when
+    /// the session has no limit.
     pub(crate) fn answer_start(
         &mut self,
         session_id: &SessionId,
@@ -163,100 +168,138 @@ impl ClaudeHelperLimit {
     }
 }
 
+/// A session limited to one helper at once over a routing band that holds the session's own
+/// thread, whose helpers a test starts and ends.
 #[cfg(test)]
-mod tests {
-    use std::num::NonZeroUsize;
-    use std::sync::{Arc, Mutex};
+pub(in crate::driver::claude::hooks) struct OneHelperAtOnce {
+    /// The limit, holding only this session.
+    pub(in crate::driver::claude::hooks) limit: Mutex<ClaudeHelperLimit>,
+    band: Arc<Mutex<ClaudeSessionRoutingBand>>,
+}
 
-    use rstest::rstest;
-    use serde_json::json;
-    use sidekicks_contracts::session::id::SessionId;
-    use sidekicks_contracts::wire::integer::SafeInt;
-    use sidekicks_std::mutex_lock::lock;
-
-    use super::{ClaudeHelperLimit, ClaudeHelperStartAnswer};
-    use crate::driver::claude::session::scripted::channel::ScriptedWrite;
-    use crate::driver::claude::session::scripted::driver::create_params;
-    use crate::driver::claude::session::scripted::{ScriptedSession, settle};
-    use crate::driver::claude::session::state::ClaudeSessionRoutingBand;
-    use crate::driver::session_control::{CreateSessionParams, SubagentPolicy};
-    use crate::driver::test_registry::fixed_session_id;
-    use crate::thread_frame_router::{
-        ChildThreadAnnouncement, SubagentLifecycleEmission, SubagentLifecycleEventType,
-    };
-
-    fn lifecycle(event_type: SubagentLifecycleEventType) -> [SubagentLifecycleEmission; 1] {
-        [SubagentLifecycleEmission {
-            event_type,
-            subagent_id: "h1".to_owned(),
-            parent_tool_call_id: Some("t1".to_owned()),
-        }]
-    }
-
-    // A session limited to one helper at once, with `r1` admitted and `r2` held behind it, and
-    // the band whose router holds its helpers.
-    fn one_admitted_one_held() -> (
-        ClaudeHelperLimit,
-        SessionId,
-        Arc<Mutex<ClaudeSessionRoutingBand>>,
-    ) {
-        let session_id = fixed_session_id();
+#[cfg(test)]
+impl OneHelperAtOnce {
+    /// The limit on the fixed test session, with no helper started.
+    pub(in crate::driver::claude::hooks) fn new() -> Self {
         let mut band = ClaudeSessionRoutingBand::new();
         drop(band.router.register_session_thread("session".to_owned()));
         let band = Arc::new(Mutex::new(band));
         let mut limit = ClaudeHelperLimit::default();
-        limit.limit_session(&session_id, NonZeroUsize::MIN, Arc::clone(&band));
+        limit.limit_session(&fixed_session_id(), NonZeroUsize::MIN, Arc::clone(&band));
+        Self {
+            limit: Mutex::new(limit),
+            band,
+        }
+    }
+
+    /// Announces the helper `helper_id`, started by the call `call_id`, as running, and returns
+    /// the held requests that frees.
+    pub(in crate::driver::claude::hooks) fn start_helper(
+        &self,
+        helper_id: &str,
+        call_id: &str,
+    ) -> Vec<String> {
+        drop(
+            lock(&self.band)
+                .router
+                .register_child_thread(ChildThreadAnnouncement {
+                    child_thread_id: helper_id.to_owned(),
+                    declared_parent_thread_id: Some("session".to_owned()),
+                    subagent_id: Some(helper_id.to_owned()),
+                    waiting_call_id: None,
+                }),
+        );
+        self.observe(SubagentLifecycleEventType::Started, helper_id, call_id)
+    }
+
+    /// Ends the running helper `helper_id`, started by the call `call_id`, and returns the held
+    /// requests released, oldest first.
+    pub(in crate::driver::claude::hooks) fn end_helper(
+        &self,
+        helper_id: &str,
+        call_id: &str,
+    ) -> Vec<String> {
+        assert!(lock(&self.band).router.complete_child_thread(helper_id));
+        self.observe(SubagentLifecycleEventType::Completed, helper_id, call_id)
+    }
+
+    fn observe(
+        &self,
+        event_type: SubagentLifecycleEventType,
+        helper_id: &str,
+        call_id: &str,
+    ) -> Vec<String> {
+        lock(&self.limit).observe_lifecycle(
+            &fixed_session_id(),
+            &[SubagentLifecycleEmission {
+                event_type,
+                subagent_id: helper_id.to_owned(),
+                parent_tool_call_id: Some(call_id.to_owned()),
+            }],
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use serde_json::json;
+    use sidekicks_contracts::wire::integer::SafeInt;
+    use sidekicks_std::mutex_lock::lock;
+
+    use super::{ClaudeHelperStartAnswer, OneHelperAtOnce};
+    use crate::driver::claude::session::scripted::channel::ScriptedWrite;
+    use crate::driver::claude::session::scripted::driver::create_params;
+    use crate::driver::claude::session::scripted::{ScriptedSession, settle};
+    use crate::driver::session_control::{CreateSessionParams, SubagentPolicy};
+    use crate::driver::test_registry::fixed_session_id;
+
+    // A session limited to one helper at once, with `r1` admitted and `r2` held behind it.
+    fn one_admitted_one_held() -> OneHelperAtOnce {
+        let one = OneHelperAtOnce::new();
+        let session_id = fixed_session_id();
         assert_eq!(
-            limit.answer_start(&session_id, "r1", "t1"),
+            lock(&one.limit).answer_start(&session_id, "r1", "t1"),
             ClaudeHelperStartAnswer::Admit
         );
         assert_eq!(
-            limit.answer_start(&session_id, "r2", "t2"),
+            lock(&one.limit).answer_start(&session_id, "r2", "t2"),
             ClaudeHelperStartAnswer::Hold
         );
-        (limit, session_id, band)
+        one
     }
 
     // Killed by a running helper the routing holds left uncounted, which frees the held start
     // at its start or the turn's end while the helper still runs.
     #[test]
     fn a_held_start_waits_for_a_running_helper_to_finish() {
-        let (mut limit, session_id, band) = one_admitted_one_held();
-        drop(
-            lock(&band)
-                .router
-                .register_child_thread(ChildThreadAnnouncement {
-                    child_thread_id: "h1".to_owned(),
-                    declared_parent_thread_id: Some("session".to_owned()),
-                    subagent_id: Some("h1".to_owned()),
-                    waiting_call_id: None,
-                }),
-        );
-        let started = lifecycle(SubagentLifecycleEventType::Started);
+        let one = one_admitted_one_held();
+        assert_eq!(one.start_helper("h1", "t1"), Vec::<String>::new());
         assert_eq!(
-            limit.observe_lifecycle(&session_id, &started),
+            lock(&one.limit).turn_ended(&fixed_session_id()),
             Vec::<String>::new()
         );
-        assert_eq!(limit.turn_ended(&session_id), Vec::<String>::new());
 
-        assert!(lock(&band).router.complete_child_thread("h1"));
-        let completed = lifecycle(SubagentLifecycleEventType::Completed);
-        assert_eq!(limit.observe_lifecycle(&session_id, &completed), ["r2"]);
+        assert_eq!(one.end_helper("h1", "t1"), ["r2"]);
     }
 
     #[test]
     fn a_turn_end_frees_an_admitted_start_that_never_announced() {
-        let (mut limit, session_id, _band) = one_admitted_one_held();
+        let one = one_admitted_one_held();
 
-        assert_eq!(limit.turn_ended(&session_id), ["r2"]);
+        assert_eq!(lock(&one.limit).turn_ended(&fixed_session_id()), ["r2"]);
     }
 
     #[test]
     fn a_withdrawn_hold_is_never_admitted() {
-        let (mut limit, session_id, _band) = one_admitted_one_held();
-        limit.withdraw_start(&session_id, "r2");
+        let one = one_admitted_one_held();
+        let session_id = fixed_session_id();
+        lock(&one.limit).withdraw_start(&session_id, "r2");
 
-        assert_eq!(limit.turn_ended(&session_id), Vec::<String>::new());
+        assert_eq!(
+            lock(&one.limit).turn_ended(&session_id),
+            Vec::<String>::new()
+        );
     }
 
     // The requests the session's process had answered, in order.

@@ -13,7 +13,6 @@ pub(crate) mod file;
 pub(crate) mod records;
 
 use std::collections::HashMap;
-use std::error::Error;
 use std::sync::{Mutex, MutexGuard};
 
 use serde::Deserialize;
@@ -26,8 +25,7 @@ use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::run::controls::ClaudeRunControls;
 use crate::driver::claude::run::start::ClaudeDaemonTurnOpening;
 use crate::driver::claude::session::errors::{
-    ClaudeSessionError,
-    ClaudeSessionUnavailableReason::{self, CommandAbsent, SessionTurnInFlight},
+    ClaudeSessionUnavailableReason::CommandAbsent, is_unavailable_for,
 };
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
@@ -132,18 +130,9 @@ impl ClaudeGoalCommands {
             origin: OutboundTextOrigin::HumanText,
         };
         let written = if live.is_some() {
-            // A run that took the turn between the read and the run's start takes the goal instead.
-            match controls
+            controls
                 .write_to_lead(session_id, text(), message_uuid.clone())
                 .await
-            {
-                Err(error) if is_unavailable_for(&error, SessionTurnInFlight) => {
-                    controls
-                        .write_to_lead(session_id, text(), message_uuid.clone())
-                        .await
-                }
-                written => written,
-            }
         } else {
             start
                 .start_daemon_turn(
@@ -261,21 +250,6 @@ fn degraded() -> DriverGoalResult {
     DriverGoalResult::Degraded {
         fallback_action: None,
     }
-}
-
-// Whether the run's start was refused unavailable for `refused_reason`, at the start's own check or
-// under the run engine.
-fn is_unavailable_for(error: &DriverError, refused_reason: ClaudeSessionUnavailableReason) -> bool {
-    std::iter::successors(Some(error as &(dyn Error + 'static)), |&error| {
-        error.source()
-    })
-    .filter_map(|error| error.downcast_ref::<ClaudeSessionError>())
-    .any(|error| {
-        matches!(
-            error,
-            ClaudeSessionError::Unavailable { reason, .. } if *reason == refused_reason
-        )
-    })
 }
 
 #[cfg(test)]

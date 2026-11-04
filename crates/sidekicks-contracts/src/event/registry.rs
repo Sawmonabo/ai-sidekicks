@@ -122,6 +122,7 @@ session_event_types! {
         AgentToolCallFailed = "agent.toolCall.failed",
         AgentSubagentStarted = "agent.subagent.started",
         AgentSubagentCompleted = "agent.subagent.completed",
+        AgentSubagentStopped = "agent.subagent.stopped",
         AgentCommandEnded = "agent.command.ended",
     ]
     /// The event types of the `interactiveRequest` category.

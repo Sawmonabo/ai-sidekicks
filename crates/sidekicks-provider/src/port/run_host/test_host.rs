@@ -4,7 +4,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -26,7 +26,7 @@ use tokio::sync::{Notify, oneshot};
 
 use crate::driver::test_registry::new_run_id;
 use crate::port::inbound_dispatch::InboundDispatch;
-use crate::port::run_host::{RunHost, RunHostError};
+use crate::port::run_host::{DaemonTurnHeld, RunHost, RunHostError};
 use crate::run::delivery::{
     InboundDelivery, InboundOutcome, LateAppendableRow, MachineScopedRow, RunSetupRefusal,
     SessionScopedRow, UnstampedRow,
@@ -109,6 +109,7 @@ pub(crate) struct RecordingRunEngine {
     daemon_turn_start_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
     turns_numbered: Mutex<HashMap<RunId, u64>>,
     fails_daemon_turns: AtomicBool,
+    daemon_turns_held: AtomicUsize,
     leaves_turns_unnumbered: AtomicBool,
     session_legs: Mutex<HashMap<SessionId, RuntimeBinding>>,
     changed: Notify,
@@ -227,6 +228,12 @@ impl RecordingRunEngine {
     /// Makes every later daemon turn's start fail before any run exists.
     pub(crate) fn fail_daemon_turns(&self) {
         self.fails_daemon_turns.store(true, Ordering::SeqCst);
+    }
+
+    /// Refuses the next `count` daemon turns' starts with [`DaemonTurnHeld`], before any run
+    /// exists, as the engine refuses one while the session's turn is held for another run.
+    pub(crate) fn refuse_next_daemon_turns_held(&self, count: usize) {
+        self.daemon_turns_held.store(count, Ordering::SeqCst);
     }
 
     /// Makes every later turn open with no number, as a turn the engine could not number.
@@ -398,6 +405,16 @@ impl RunHost for RecordingRunEngine {
         let run_id = new_run_id();
         if self.fails_daemon_turns.load(Ordering::SeqCst) {
             return async move { Err(DaemonTurnsRefused { run_id }.into()) }.boxed();
+        }
+        let is_held = self
+            .daemon_turns_held
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+                left.checked_sub(1)
+            })
+            .is_ok();
+        if is_held {
+            let session_id = request.session_id;
+            return async move { Err(DaemonTurnHeld { session_id }.into()) }.boxed();
         }
         self.record(EngineCall::StartDaemonTurn(run_id));
         let hold = lock(&self.daemon_turn_start_holds).pop_front();

@@ -312,6 +312,24 @@ impl From<ClaudeSessionError> for DriverError {
     }
 }
 
+/// Whether `error` is, or was caused by, the refusal of a session that is unavailable for
+/// `refused_reason`, whether the driver's own check or the run engine's refusal gave it.
+pub(crate) fn is_unavailable_for(
+    error: &DriverError,
+    refused_reason: ClaudeSessionUnavailableReason,
+) -> bool {
+    std::iter::successors(Some(error as &(dyn Error + 'static)), |&error| {
+        error.source()
+    })
+    .filter_map(|error| error.downcast_ref::<ClaudeSessionError>())
+    .any(|error| {
+        matches!(
+            error,
+            ClaudeSessionError::Unavailable { reason, .. } if *reason == refused_reason
+        )
+    })
+}
+
 // The capability a refused request shows the build lacks: a request the daemon composes cannot be
 // malformed, so a refusal of one of these means the build does not take it. `set_model`'s refusal
 // is the model check's own, never a missing capability.

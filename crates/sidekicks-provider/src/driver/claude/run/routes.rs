@@ -88,12 +88,14 @@ enum TurnHolder {
     Command,
 }
 
-/// A session's turn: its holder, and how many times it was released, so a waiter wakes on each
-/// release even when a new hold follows at once.
+/// A session's turn: its holder, how many times it was released, so a waiter wakes on each
+/// release even when a new hold follows at once, and how many times its holder changed or a run's
+/// end was written on it, so a waiter wakes on any of those since its mark.
 #[derive(Debug, Default)]
 struct TurnState {
     holder: Option<TurnHolder>,
     releases: u64,
+    changes: u64,
 }
 
 impl TurnState {
@@ -118,8 +120,8 @@ impl RouteTables {
             .or_insert_with(|| watch::Sender::new(TurnState::default()))
     }
 
-    // Changes the session's turn where `change` says it did, answering what `change` answers; a
-    // session never held answers as a free turn would.
+    // Changes the session's turn where `change` says it did, counting the change, and answers what
+    // `change` answers; a session never held answers as a free turn would.
     fn change_turn<T>(
         &mut self,
         session_id: SessionId,
@@ -129,6 +131,9 @@ impl RouteTables {
         self.turn(session_id).send_if_modified(|state| {
             let (is_changed, outcome) = change(state);
             answer = Some(outcome);
+            if is_changed {
+                state.changes += 1;
+            }
             is_changed
         });
         answer.expect("send_if_modified calls its closure once")
@@ -176,6 +181,36 @@ impl ClaudeRunRoutes {
             // A closed turn is a session gone, which holds nothing.
             Ok(Ok(_) | Err(_)) => true,
             Err(_elapsed) => false,
+        }
+    }
+
+    /// How many times the session's turn has changed hands or seen a run's end written, the mark
+    /// [`Self::when_turn_changed_after`] waits past; 0 for a session never held.
+    pub(crate) fn turn_mark(&self, session_id: SessionId) -> u64 {
+        self.lock().turn(session_id).borrow().changes
+    }
+
+    /// Answers once the session's turn has changed hands or seen a run's end written since `mark`
+    /// was taken, at once when it already has, or once the session's turn is closed. It has no
+    /// deadline: every refusal of a held turn ends in one of those.
+    pub(crate) async fn when_turn_changed_after(&self, session_id: SessionId, mark: u64) {
+        let mut receiver = self.lock().turn(session_id).subscribe();
+        // Any count but the mark is a change: one past it, or a turn forgotten with its session
+        // and begun again from 0.
+        if receiver
+            .wait_for(|state| state.changes != mark)
+            .await
+            .is_err()
+        {
+            tracing::debug!(%session_id, "a session's turn closed while a write waited on it");
+        }
+    }
+
+    /// Counts a run's end written on the session, which frees its turn for the run engine though
+    /// the routes' holder does not change; a session whose turn is not kept has no waiter to wake.
+    pub(crate) fn note_run_end_written(&self, session_id: SessionId) {
+        if let Some(turn) = self.lock().turns.get(&session_id) {
+            turn.send_modify(|state| state.changes += 1);
         }
     }
 
@@ -550,5 +585,38 @@ mod tests {
                 .when_turn_released(session, Duration::from_secs(60))
                 .await
         );
+    }
+
+    // Killed by an end-written note that counts nothing, which leaves a waiter marked before it
+    // asleep, and by a waiter that reads the count when it starts to wait instead of its mark.
+    #[tokio::test(start_paused = true)]
+    async fn a_change_waiter_wakes_on_a_note_or_a_hold_after_its_mark() {
+        let routes = ClaudeRunRoutes::default();
+        let session = session();
+        let before = routes.turn_mark(session);
+        routes.note_run_end_written(session);
+        tokio::time::timeout(
+            Duration::from_secs(60),
+            routes.when_turn_changed_after(session, before),
+        )
+        .await
+        .expect("the note is a change after the mark");
+
+        let after = routes.turn_mark(session);
+        let unchanged = tokio::time::timeout(
+            Duration::from_secs(60),
+            routes.when_turn_changed_after(session, after),
+        )
+        .await;
+        assert!(unchanged.is_err(), "nothing changed after the second mark");
+        routes
+            .hold_turn(run(), session, binding())
+            .expect("the turn is free");
+        tokio::time::timeout(
+            Duration::from_secs(60),
+            routes.when_turn_changed_after(session, after),
+        )
+        .await
+        .expect("the hold is a change after the mark");
     }
 }

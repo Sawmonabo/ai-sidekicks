@@ -34,6 +34,7 @@ fn helper(
         state,
         stop: DescendantStop::Helper {
             provider_name: ProviderId::new(HELPER_PROVIDER.to_owned()).expect("a provider id"),
+            carrying_run_id: carrying_run,
             run_id: own_run,
             subagent_id: SubagentId::new(subagent_id.to_owned()).expect("a helper id"),
         },

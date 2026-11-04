@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use futures::future::join_all;
 use sidekicks_contracts::agent::tree::AgentTreeMember;
+use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_REASON_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
@@ -16,7 +17,8 @@ use sidekicks_contracts::run::intervention::{
     AgentRunInterveneRequest, AgentRunInterveneResponse, InterventionInterruptRequest,
     InterventionState,
 };
-use sidekicks_contracts::run::subagent::SubagentId;
+use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::run::subagent::{SubagentId, SubagentLifecyclePayload};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::contract::error::bound_provider_words;
@@ -25,6 +27,9 @@ use sidekicks_provider::driver::run_control::{HelperStopOutcome, HelperStopParam
 use sidekicks_std::error_description::describe_error;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::events::session::appender::{
+    SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
 
 use crate::agent_tree::read::AgentTreeReadError;
@@ -60,6 +65,8 @@ pub struct AgentTreeSweep {
     providers: Arc<ProviderRegistry>,
     // The interventions service, which interrupts a bridged or workflow run.
     interventions: InterventionService,
+    // The session's log, which a helper already interrupted and then stopped is told to.
+    appender: Arc<SessionEventAppender>,
 }
 
 // How one descendant's stop came out, before it is told with its member.
@@ -74,16 +81,19 @@ enum StopAnswer {
 
 impl AgentTreeSweep {
     /// A sweep reading through `pool`, stopping helpers through `providers`' drivers and runs
-    /// through `interventions`.
+    /// through `interventions`, and appending through `appender` one `agent.subagent.stopped` for
+    /// each helper read interrupted that its driver then stopped for good.
     pub fn new(
         pool: Arc<DatabaseReadPool>,
         providers: Arc<ProviderRegistry>,
         interventions: InterventionService,
+        appender: Arc<SessionEventAppender>,
     ) -> Self {
         Self {
             pool,
             providers,
             interventions,
+            appender,
         }
     }
 
@@ -133,15 +143,57 @@ impl AgentTreeSweep {
         let answer = match descendant.stop {
             DescendantStop::Helper {
                 provider_name,
+                carrying_run_id,
                 run_id,
                 subagent_id,
             } => {
-                self.stop_helper(session_id, &provider_name, run_id, subagent_id)
+                let answer = self
+                    .stop_helper(session_id, &provider_name, run_id, subagent_id.clone())
+                    .await;
+                // A helper read interrupted keeps its run's record, so its stop for good is told
+                // by an event of its own, once the driver has answered.
+                let is_held_stop = descendant.state == RunState::Interrupted
+                    && matches!(answer, StopAnswer::Stopped(ChildStoppedState::Stopped));
+                if is_held_stop {
+                    self.record_held_stop(SubagentLifecyclePayload {
+                        session_id,
+                        run_id: carrying_run_id,
+                        provider: provider_name,
+                        subagent_id,
+                        child_run_id: Some(run_id),
+                        parent_tool_call_id: None,
+                        source_epoch: None,
+                        source_position: None,
+                    })
                     .await
+                } else {
+                    answer
+                }
             }
             DescendantStop::Run { run_id } => self.stop_run(run_id, actor).await,
         };
         outcome_of(descendant.member, answer)
+    }
+
+    // Appends `agent.subagent.stopped` of `stopped`, the stop answered stopped once it is kept and
+    // failed when it is not.
+    async fn record_held_stop(&self, stopped: SubagentLifecyclePayload) -> StopAnswer {
+        let session_id = stopped.session_id;
+        let draft = match SessionEventDraft::of_session(
+            session_id,
+            &SessionEvent::AgentSubagentStopped(stopped),
+        ) {
+            Ok(draft) => draft,
+            Err(error) => return StopAnswer::Failed(describe_error(&error)),
+        };
+        match self
+            .appender
+            .append(draft, SessionEventLinkage::default())
+            .await
+        {
+            Ok(_) => StopAnswer::Stopped(ChildStoppedState::Stopped),
+            Err(error) => StopAnswer::Failed(describe_error(&error)),
+        }
     }
 
     // A helper's stop by its provider's driver.

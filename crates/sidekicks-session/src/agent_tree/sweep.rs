@@ -62,6 +62,8 @@ pub enum DescendantStop {
     Helper {
         /// The provider that named the helper, whose driver stops it.
         provider_name: ProviderId,
+        /// The run the helper runs under.
+        carrying_run_id: RunId,
         /// The helper's newest own run.
         run_id: RunId,
         /// The provider's id of the helper.
@@ -158,6 +160,7 @@ pub fn read_descendants(
                             state: run.state,
                             stop: DescendantStop::Helper {
                                 provider_name: node.provider_name.clone(),
+                                carrying_run_id: tree.carrying_run(place)?,
                                 run_id,
                                 subagent_id,
                             },
