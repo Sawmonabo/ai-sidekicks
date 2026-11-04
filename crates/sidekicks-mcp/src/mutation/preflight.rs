@@ -50,7 +50,7 @@ pub(crate) fn check_mutation(
     match check {
         McpMutationCheck::Upsert { binding, config } => check_upsert(binding, config, declared),
         McpMutationCheck::Remove { binding } => {
-            check_declared_binding(&McpServerBindingRef::from(*binding), declared)
+            check_declared_binding(&binding.binding(), declared)
         }
         McpMutationCheck::SetEnabled { binding } => check_declared_binding(binding, declared),
     }
@@ -63,7 +63,7 @@ fn check_upsert(
     config: &McpServerConfigInput,
     declared: &[McpServerBindingRef],
 ) -> Result<(), McpRefusal> {
-    let binding = McpServerBindingRef::from(binding);
+    let binding = binding.binding();
     let Some(descriptor) = descriptor_of(binding.provider().as_str()) else {
         return Err(config_invalid("no provider has this id".to_owned()));
     };
