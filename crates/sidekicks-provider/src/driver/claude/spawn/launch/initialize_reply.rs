@@ -30,7 +30,7 @@ struct InitializeReply {
     #[serde(default, deserialize_with = "read_lenient")]
     commands: Option<LenientList<CommandRow>>,
     #[serde(default, deserialize_with = "read_lenient")]
-    memory_paths: Option<MemoryPathsRow>,
+    memory_paths: Option<MemoryPaths>,
 }
 
 #[derive(Deserialize)]
@@ -76,7 +76,7 @@ impl ClaudeModelEffort {
 }
 
 #[derive(Deserialize)]
-struct MemoryPathsRow {
+struct MemoryPaths {
     #[serde(default, deserialize_with = "read_lenient")]
     auto: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
@@ -105,7 +105,7 @@ pub(crate) struct ClaudeListedCommand {
     pub(crate) argument_hint: Option<String>,
 }
 
-lenient_object!(ModelRow, MemoryPathsRow, CommandRow);
+lenient_object!(ModelRow, MemoryPaths, CommandRow);
 
 fn read_reply(reply: Option<&RawValue>) -> InitializeReply {
     reply
@@ -153,7 +153,7 @@ pub(crate) fn read_claude_initialize_declaration(
 }
 
 // The auto-memory folder, then the team-memory folder, each kept only where it is an absolute path.
-fn read_memory_stores(memory_paths: Option<MemoryPathsRow>) -> Vec<PathBuf> {
+fn read_memory_stores(memory_paths: Option<MemoryPaths>) -> Vec<PathBuf> {
     memory_paths
         .into_iter()
         .flat_map(|paths| [paths.auto, paths.team])

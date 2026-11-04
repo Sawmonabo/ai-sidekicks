@@ -67,8 +67,8 @@ pub(crate) struct ClaudeInitializeDeclaration {
     pub(crate) output_styles: Vec<String>,
     /// The output style the process runs with, where the reply names one.
     pub(crate) output_style: Option<String>,
-    /// The folders of Claude Code's auto-memory store and, where the reply names one, its
-    /// team-memory store, in that order.
+    /// The folders of Claude Code's auto-memory and team-memory stores, each kept where the reply
+    /// names it as an absolute path, the auto-memory store first when it is kept.
     pub(crate) memory_stores: Vec<PathBuf>,
 }
 
