@@ -1,12 +1,14 @@
-//! The status file the service writes in its run folder when its start fails, on every operating
-//! system: why it cannot start, which the desktop's main process and `sidekicks daemon status` read
-//! while the service is not answering.
+//! The status file the service writes in its run folder, on every operating system, holding one of
+//! three facts: why its last start failed, the stop under way, or why its last stop failed. The
+//! desktop's main process and `sidekicks daemon status` read it while the service is not answering.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::free_form_string::FilesystemPath;
+use crate::process_identity::ProcessIdentity;
 use crate::typescript::{Definition, TypeScriptModule};
+use crate::wire::instant::WireInstant;
 
 /// Why the service cannot start, in `reason`, with the folder a damaged store's copy sits in.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -31,24 +33,144 @@ pub enum DaemonCannotStart {
     SavedSessionsFromAnotherVersion {},
 }
 
-/// The status file's content.
+/// A step of the service's stop that waits on work with no time bound of its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum DaemonStopStep {
+    /// The serving socket closing.
+    Gateway,
+    /// The providers' capability refresh ending.
+    CapabilityRefresh,
+    /// The run queue ending, so no run is admitted or delivered.
+    RunQueue,
+    /// The repository services' background work ending.
+    RepositoryAttachments,
+    /// The attention service's decision task ending, a write under way waited out.
+    AttentionDecisions,
+    /// The web address's sender ending, a write under way waited out.
+    WebAddressSender,
+    /// The session services' follows of the log ending with the chats' write watch.
+    SessionFollows,
+    /// The chats' file recount ending, where no session services ran.
+    ChatsRecount,
+    /// The chats' change feed ending.
+    ChatsChanges,
+    /// The background jobs' scheduler ending.
+    Scheduler,
+    /// The repositories' folder watch ending.
+    FolderWatch,
+    /// The session search index closing.
+    SearchIndex,
+    /// The turn-end captures under way, each waited out whole.
+    TurnCaptures,
+    /// The trees of git's failed calls ending.
+    GitTrees,
+    /// The workspace services' work settling, the last step, so nothing writes once the stop ends.
+    WorkspaceWorkSettle,
+}
+
+/// The stop under way: the step it waits on, when it began and the service's own process.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ServiceStatusFile {
+pub struct DaemonStopping {
+    /// The step under way.
+    pub step: DaemonStopStep,
+    /// When the stop began, on the wall clock.
+    #[garde(dive)]
+    pub stop_started: WireInstant,
+    /// The service's own process, so a reader knows the record is stale once that process is gone.
+    pub process: ProcessIdentity,
+}
+
+/// Why the service's last stop failed, in `reason`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(
+    tag = "reason",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+#[garde(allow_unvalidated)]
+pub enum DaemonCannotStop {
+    /// The person's Stop could not be kept on disk, so the next start would resume what was
+    /// stopped.
+    StopIntent {},
+}
+
+/// The status file's content: one of three facts, keyed by its name.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub enum ServiceStatusFile {
     /// Why the last start failed.
-    pub cannot_start: DaemonCannotStart,
+    CannotStart(#[garde(dive)] DaemonCannotStart),
+    /// The stop under way.
+    Stopping(#[garde(dive)] DaemonStopping),
+    /// Why the last stop failed.
+    CannotStop(#[garde(dive)] DaemonCannotStop),
 }
 
 /// The module's TypeScript face.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "daemon/service-status",
-    doc: "The status file the service writes in its run folder when its start fails: why it \
-          cannot start.",
+    doc: "The status file the service writes in its run folder: why it cannot start, the stop \
+          under way, or why it cannot stop.",
     definitions: &[
         Definition::read::<DaemonCannotStart>(),
+        Definition::read::<DaemonStopStep>(),
+        Definition::read::<DaemonStopping>(),
+        Definition::read::<DaemonCannotStop>(),
         Definition::read::<ServiceStatusFile>().checked(),
     ],
     constants: &[],
     method_tables: &[],
 };
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::ServiceStatusFile;
+
+    /// Each of the three facts reads and writes back byte for byte; a file holding two facts and a
+    /// `stopping` with a member it does not declare are refused. Mutation: drop
+    /// `deny_unknown_fields` from `DaemonStopping`, so the unknown member reads; the two facts are
+    /// refused by the one-key shape of the file itself.
+    #[rstest]
+    #[case::cannot_start(
+        r#"{"cannotStart":{"reason":"savedSessionsFromAnotherVersion"}}"#,
+        true
+    )]
+    #[case::stopping(
+        concat!(
+            r#"{"stopping":{"step":"scheduler","stopStarted":"2026-11-03T23:00:00.000Z","#,
+            r#""process":{"processId":4242,"bootId":"boot","processStartTime":"1730674800"}}}"#
+        ),
+        true
+    )]
+    #[case::cannot_stop(r#"{"cannotStop":{"reason":"stopIntent"}}"#, true)]
+    #[case::two_facts(
+        concat!(
+            r#"{"cannotStart":{"reason":"savedSessionsFromAnotherVersion"},"#,
+            r#""cannotStop":{"reason":"stopIntent"}}"#
+        ),
+        false
+    )]
+    #[case::stopping_with_an_unknown_member(
+        concat!(
+            r#"{"stopping":{"step":"scheduler","stopStarted":"2026-11-03T23:00:00.000Z","#,
+            r#""process":{"processId":4242,"bootId":"boot","processStartTime":"1730674800"},"#,
+            r#""exitCode":1}}"#
+        ),
+        false
+    )]
+    fn the_status_file_holds_exactly_one_fact(#[case] text: &str, #[case] is_accepted: bool) {
+        let parsed = serde_json::from_str::<ServiceStatusFile>(text);
+
+        assert_eq!(parsed.is_ok(), is_accepted, "{text}");
+        if let Ok(file) = parsed {
+            assert_eq!(serde_json::to_string(&file).expect("the file writes"), text);
+        }
+    }
+}

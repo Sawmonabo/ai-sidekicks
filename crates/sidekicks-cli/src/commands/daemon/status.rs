@@ -239,7 +239,8 @@ fn report_not_answering<Output: Write, ErrorOutput: Write>(
     Ok(ExitCode::Unavailable)
 }
 
-/// Why the service's last start failed, from its status file; `None` where it wrote none.
+/// Why the service's last start failed, from its status file; `None` where it wrote none or the
+/// file holds another fact.
 pub(crate) fn read_cannot_start() -> anyhow::Result<Option<DaemonCannotStart>> {
     let run_folder = daemon_run_folder()
         .context("could not find where the background service records why it cannot start")?;
@@ -262,7 +263,10 @@ pub(crate) fn read_cannot_start() -> anyhow::Result<Option<DaemonCannotStart>> {
             path.display()
         )
     })?;
-    Ok(Some(file.cannot_start))
+    Ok(match file {
+        ServiceStatusFile::CannotStart(cannot_start) => Some(cannot_start),
+        ServiceStatusFile::Stopping(_) | ServiceStatusFile::CannotStop(_) => None,
+    })
 }
 
 /// The reason's lines, each ended by a newline: one sentence, or a title over one line.

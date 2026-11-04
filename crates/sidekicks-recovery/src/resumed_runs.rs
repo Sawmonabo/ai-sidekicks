@@ -3,12 +3,14 @@
 //! waiting messages are first looked up by their ids in the provider's own record of the run's
 //! conversation, since after a restart nothing remembers which were handed: one it holds is
 //! admitted into the run, so no hand sends it again, one it lacks waits for the queue's own hand
-//! under the same id, and an unreadable record ends them not delivered and the run as gone. Each
-//! named run still live is then finalized from the state it was stored in before the restart, and
-//! one its provider runs on has each of its pending interrupts handed again, a person's or a
-//! limit's, so a stop asked before the restart still reaches its turn; a live run the answer
-//! leaves out is left to the restart settle. A run the resume's continue carries on from a wait
-//! whose asks are all answered is moved to running before its runs are taken.
+//! under the same id, and an unreadable record has the run finalized as gone with the messages
+//! still waiting for it ended not delivered in the same write, or in one of their own where the
+//! finalize leaves the run as it is. Each named run still live is finalized from the state it was
+//! stored in before the restart, and one its provider runs on has each of its pending interrupts
+//! handed again, a person's or a limit's, so a stop asked before the restart still reaches its
+//! turn; a live run the answer leaves out is left to the restart settle. A run the resume's
+//! continue carries on from a wait whose asks are all answered is moved to running before its runs
+//! are taken.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -28,7 +30,7 @@ use sidekicks_queue::delivery::{DeliveryError, QueueDelivery};
 use sidekicks_queue::provider_session::resumed_runs::{ResumedRuns, ResumedRunsIngress};
 use sidekicks_session::driver_resolution::{LiveRunDriverError, read_run_driver};
 use sidekicks_session::interventions::service::InterventionService;
-use sidekicks_session::queue_store::QueueItemReader;
+use sidekicks_session::queue_store::{QueueItemReader, QueueItemRecord};
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::engine::errors::RunEngineError;
 use sidekicks_session::run::read::RunStateReader;
@@ -49,8 +51,8 @@ pub struct ResumedRunsFinalizeDeps {
     pub reads: Arc<DatabaseReadPool>,
     /// The finalize of each run.
     pub run_engine: Arc<RunEngine>,
-    /// The queue's delivery, which admits a message a run's provider took and ends one whose
-    /// record could not be read.
+    /// The queue's delivery, which admits a message a run's provider took and reads the ends of
+    /// those whose record could not be read.
     pub delivery: QueueDelivery,
     /// The drivers, found by the provider each run is bound to.
     pub providers: Arc<ProviderRegistry>,
@@ -58,6 +60,13 @@ pub struct ResumedRunsFinalizeDeps {
     /// to a run its provider runs on.
     pub interventions: Arc<InterventionService>,
 }
+
+// The turn a lead run is finalized from and, where its record was unreadable, the messages still
+// waiting for it with the companions that end them not delivered.
+type SentSettle = (
+    ProviderTurnAnswer,
+    Option<(Vec<QueueItemRecord>, RunWriteCompanions)>,
+);
 
 /// Finalizes each run a session's resume named as the provider answered for it.
 pub struct ResumedRunsFinalize {
@@ -96,11 +105,12 @@ impl ResumedRunsFinalize {
     /// run that has started has the session's waiting messages settled against its provider's
     /// record first, whatever the answer, then every named run is finalized from the state it is
     /// stored in, which nothing moves before the resumed binding is recorded, and the provider's
-    /// answer for it, or as gone where its record could not be read, and one the finalize leaves
-    /// running has its pending interrupts, a person's or a limit's, handed again on a task of their
-    /// own; a named run that has ended is skipped. Writes take the session's append hold
-    /// themselves, since the caller holds only its transition lock. Fails at the first read, driver
-    /// lookup, record or finalize that fails.
+    /// answer for it, or as gone where its record could not be read, the messages still waiting
+    /// for it then ended not delivered in the finalize's write, or in one of their own where the
+    /// finalize writes nothing, and one the finalize leaves running has its pending interrupts, a
+    /// person's or a limit's, handed again on a task of their own; a named run that has ended is
+    /// skipped. Writes take the session's append hold themselves, since the caller holds only its
+    /// transition lock. Fails at the first read, driver lookup, record or finalize that fails.
     pub async fn finalize(&self, resumed: ResumedRuns) -> Result<(), ResumedRunsFinalizeError> {
         let session_id = resumed.session_id;
         let live_runs = self
@@ -117,23 +127,32 @@ impl ResumedRunsFinalize {
                 continue;
             };
             // A run still queued never ran a conversation, so no message went into it.
-            let turn = if live_run.is_lead() && live_run.run.state != RunState::Queued {
+            let (turn, unread) = if live_run.is_lead() && live_run.run.state != RunState::Queued {
                 self.settle_sent(session_id, live_run.run_id, answer.turn)
                     .await?
             } else {
-                answer.turn
+                (answer.turn, None)
             };
+            let (unread_items, companions) = unread.unwrap_or_default();
             let resumed_move = self
                 .deps
                 .run_engine
-                .finalize_resumed_run(
-                    live_run,
-                    live_run.run.state,
-                    turn,
-                    RunWriteCompanions::default(),
-                    None,
-                )
+                .finalize_resumed_run(live_run, live_run.run.state, turn, companions, None)
                 .await?;
+            if !unread_items.is_empty() {
+                match resumed_move {
+                    // The finalize's write carried their ends.
+                    ResumedRunMove::Paused { .. } | ResumedRunMove::TurnGone => {
+                        self.deps.delivery.settle_ended(&unread_items);
+                    }
+                    ResumedRunMove::Left | ResumedRunMove::Running => {
+                        self.deps
+                            .delivery
+                            .fail_unread_after_restart(&unread_items)
+                            .await?;
+                    }
+                }
+            }
             if resumed_move == ResumedRunMove::Running {
                 self.deps
                     .interventions
@@ -145,17 +164,18 @@ impl ResumedRunsFinalize {
 
     // Looks the session's waiting messages up by their ids in the record of lead run `run_id`'s
     // conversation, admitting each it holds into the run; answers the turn the run is finalized
-    // from: `answered`, or gone once an unreadable record ended the messages not delivered, since
-    // what the provider holds is unknown. A read with no answer back leaves both.
+    // from: `answered`, or gone where the record is unreadable, since what the provider holds is
+    // unknown, beside the messages still waiting for the run and the companions that end them not
+    // delivered in its write. A read with no answer back leaves both.
     async fn settle_sent(
         &self,
         session_id: SessionId,
         run_id: RunId,
         answered: ProviderTurnAnswer,
-    ) -> Result<ProviderTurnAnswer, ResumedRunsFinalizeError> {
+    ) -> Result<SentSettle, ResumedRunsFinalizeError> {
         let message_ids = self.read_waiting_messages(session_id).await?;
         if message_ids.is_empty() {
-            return Ok(answered);
+            return Ok((answered, None));
         }
         let driver = read_run_driver::<ResumedRunsFinalizeError>(
             &self.deps.reads,
@@ -176,7 +196,7 @@ impl ResumedRunsFinalize {
                     .delivery
                     .admit_taken_after_restart(run_id, &taken)
                     .await?;
-                Ok(answered)
+                Ok((answered, None))
             }
             Err(unanswered @ DriverError::Unanswered(_)) => {
                 tracing::warn!(
@@ -186,7 +206,7 @@ impl ResumedRunsFinalize {
                     "the provider's record of a resumed run gave no answer; its waiting messages \
                      go again under their own ids"
                 );
-                Ok(answered)
+                Ok((answered, None))
             }
             Err(unreadable) => {
                 tracing::warn!(
@@ -196,11 +216,8 @@ impl ResumedRunsFinalize {
                     "the provider's record of a resumed run could not be read; its waiting \
                      messages end not delivered and the run ends"
                 );
-                self.deps
-                    .delivery
-                    .fail_unread_after_restart(&message_ids)
-                    .await?;
-                Ok(ProviderTurnAnswer::Gone)
+                let unread = self.deps.delivery.read_unread_ends(run_id).await?;
+                Ok((ProviderTurnAnswer::Gone, Some(unread)))
             }
         }
     }
@@ -643,5 +660,77 @@ mod tests {
             *steered.lock().expect("the steers are readable"),
             sent_again
         );
+    }
+
+    // An unreadable record ends the messages waiting for the run not delivered once, in the run's
+    // own write where the finalize writes one: a running lead's gone turn ends it, a pausing lead
+    // reaches `paused`, and a paused lead, which the finalize leaves as it is, has them written
+    // alone. Killed by the companions dropped (the message left waiting) and by them written twice
+    // (the second write refused, or a second end recorded).
+    #[rstest]
+    #[case::a_gone_run("running", "interrupted")]
+    #[case::a_pausing_lead("pausing", "paused")]
+    #[case::a_left_run("paused", "paused")]
+    #[tokio::test]
+    async fn an_unreadable_record_ends_its_waiting_messages_in_the_runs_write(
+        #[case] stored_as: &str,
+        #[case] settled_as: &str,
+    ) {
+        let mut driver = MockProviderDriver::new();
+        driver.expect_message_handing().return_const(HANDS_AT_ONCE);
+        driver
+            .expect_find_taken_messages()
+            .times(1)
+            .returning(|params| {
+                let unreadable = Err(DriverError::from(session_process_unavailable(
+                    params.session_id,
+                )));
+                async move { unreadable }.boxed()
+            });
+        let fixture = fixture(driver).await;
+        let run_id = test_run_id();
+        fixture.insert_running_turn(run_id).await;
+        fixture
+            .database
+            .reader()
+            .execute(
+                "UPDATE runs SET state = ?2 WHERE run_id = ?1",
+                [run_id.text().as_str(), stored_as],
+            )
+            .expect("the test stores the run's state");
+        bind_run_to_first_provider(&fixture.database, run_id);
+        let item_id = fixture.queue_message(run_id).await;
+
+        fixture
+            .finalize
+            .finalize(ResumedRuns {
+                session_id: fixture.session_id,
+                runs: vec![ResumedRunAnswer {
+                    run_id,
+                    turn: ProviderTurnAnswer::StillRunning,
+                }],
+            })
+            .await
+            .expect("the resumed run is settled");
+
+        assert_eq!(
+            fixture.item_state(item_id),
+            RecordedQueueItemState::NotDelivered {
+                reason: QueueItemNotDeliveredReason::Failed {},
+            }
+        );
+        let not_delivered_ends: i64 = fixture
+            .database
+            .reader()
+            .query_row(
+                "SELECT count(*) FROM session_events
+                  WHERE type = 'agent.queueItem.notDelivered'
+                    AND json_extract(payload, '$.queueItemId') = ?1",
+                [item_id.text().as_str()],
+                |row| row.get(0),
+            )
+            .expect("the test reads the message's ends");
+        assert_eq!(not_delivered_ends, 1);
+        assert_eq!(stored_run_state(&fixture.database, &run_id).0, settled_as);
     }
 }

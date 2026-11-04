@@ -21,13 +21,14 @@ use sidekicks_artifact::plans::service::{PlanError, PlansService};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_queue::delivery::run_end::stop_message_ends;
 use sidekicks_session::interventions::store::{read_pending_retries, settle_retry_after_restart};
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::engine::errors::RunEngineError;
 use sidekicks_session::run::provider_choice::run_end::{
     read_ended_runs_with_open_choices, settle_open_choices_of_ended_run,
 };
-use sidekicks_session::run::read::{LiveRun, RunStateReader, SessionRun};
+use sidekicks_session::run::read::{LiveRun, RunRead, RunStateReader, SessionRun};
 use sidekicks_session::run::restart::{read_has_own_stop, read_is_run_stopping};
 use sidekicks_std::settle_all::SettleFailures;
 use sidekicks_store::database::connection::read_pool::{
@@ -37,6 +38,7 @@ use sidekicks_store::events::session::append_lock::SessionAppendHold;
 use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraftError, SessionEventLinkage,
 };
+use tokio::time::{Instant, timeout_at};
 use tokio_util::sync::CancellationToken;
 
 /// The provider failure detail a run the restart left live ends `failed` with.
@@ -45,9 +47,10 @@ pub(crate) const RESTART_FAILURE_DETAIL: &str =
 
 /// The statements the settle's own reads run: the one-session listings of its live runs, its
 /// pending retries, and its ended runs with an open turn, with a pending ask and with an open
-/// choice, and an ended run's choice settle (its row, the newest request of each dialog and whether
-/// it was settled since), and the row of a run a resume took that has ended since.
-pub const RESTART_SETTLE_STATEMENT_CAPACITY: usize = 9;
+/// choice, an ended run's choice settle (its row, the newest request of each dialog and whether it
+/// was settled since), the row of a run a resume took that has ended since, and the every-session
+/// listing of the live runs the person's stop of the service settles.
+pub const RESTART_SETTLE_STATEMENT_CAPACITY: usize = 10;
 
 /// What the restart settle reads and writes through.
 pub struct RestartSettleDeps {
@@ -124,6 +127,16 @@ pub(crate) struct RearmedRuns {
     pub(crate) stopping: BTreeSet<RunId>,
     /// The runs `paused`.
     pub(crate) paused_run_ids: Vec<RunId>,
+}
+
+/// How a settle ends the live runs no resume took.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum LiveRunsEnd<'detail> {
+    /// After a restart, a `failed` end carrying these words.
+    AfterRestart(&'detail str),
+    /// At the person's stop of the service: no run fails with words, and the messages waiting for
+    /// each run end in its write, a lead message carrying only words put back into the draft.
+    AtStop,
 }
 
 /// What a settle of a session's live runs did: its tally, and the runs it ended `failed`.
@@ -230,11 +243,13 @@ impl RestartSettle {
     }
 
     /// Settles `session_id`'s pending faster-model retries, then ends each run of it still live
-    /// that `resumed` does not name as [`RunEngine::settle_run_after_restart`] decides, a `failed`
-    /// end carrying `failure_detail`, writing under `hold` where the caller holds the session's
-    /// appends and reading `stop`, where the caller has one, before each step. Whether a stop wins
-    /// over each run is read for all of them before the first settles, since a lead's own end
-    /// discharges the stop its helper waits on, so the order the runs settle in decides nothing.
+    /// that `resumed` does not name by `end`: after a restart as
+    /// [`RunEngine::settle_run_after_restart`] decides, a `failed` end carrying its words, and at
+    /// the person's stop of the service as [`RunEngine::settle_run_at_stop`] decides, writing under
+    /// `hold` where the caller holds the session's appends and reading `stop`, where the caller has
+    /// one, before each step. After a restart, whether a stop wins over each run is read for all of
+    /// them before the first settles, since a lead's own end discharges the stop its helper waits
+    /// on, so the order the runs settle in decides nothing.
     /// A run `resumed` names is counted resumed while it is live and not paused, a pausing run
     /// among them since its pause is still to land, nowhere while it is paused, and by its end
     /// where the resume's finalize ended it. Fails at the first read or write that fails, or with
@@ -243,7 +258,7 @@ impl RestartSettle {
         &self,
         session_id: SessionId,
         resumed: &BTreeSet<RunId>,
-        failure_detail: &str,
+        end: LiveRunsEnd<'_>,
         hold: Option<&SessionAppendHold>,
         stop: Option<&CancellationToken>,
     ) -> Result<LiveSettlement, RestartSettleError> {
@@ -253,14 +268,21 @@ impl RestartSettle {
         let live_runs = self
             .read(move |reader| RunStateReader::new(reader).list_live_runs(Some(&session_id)))
             .await?;
-        let unsettled: Vec<RunId> = live_runs
-            .iter()
-            .filter(|live_run| {
-                live_run.run.state != RunState::Queued && !resumed.contains(&live_run.run_id)
-            })
-            .map(|live_run| live_run.run_id)
-            .collect();
-        let stopping = self.read_stopping(unsettled, read_is_run_stopping).await?;
+        // The Stop's table reads no run's own stop, so no stopping set is read for it.
+        let stopping = match end {
+            LiveRunsEnd::AfterRestart(_) => {
+                let unsettled: Vec<RunId> = live_runs
+                    .iter()
+                    .filter(|live_run| {
+                        live_run.run.state != RunState::Queued
+                            && !resumed.contains(&live_run.run_id)
+                    })
+                    .map(|live_run| live_run.run_id)
+                    .collect();
+                self.read_stopping(unsettled, read_is_run_stopping).await?
+            }
+            LiveRunsEnd::AtStop => BTreeSet::new(),
+        };
         let mut settlement = LiveSettlement::default();
         for live_run in &live_runs {
             if resumed.contains(&live_run.run_id) {
@@ -272,14 +294,7 @@ impl RestartSettle {
             }
             check_stop(stop)?;
             let settled = self
-                .deps
-                .run_engine
-                .settle_run_after_restart(
-                    live_run,
-                    stopping.contains(&live_run.run_id),
-                    failure_detail,
-                    hold,
-                )
+                .settle_run(live_run, end, stopping.contains(&live_run.run_id), hold)
                 .await?;
             if settled.state == RunState::Failed {
                 settlement.failed_run_ids.push(live_run.run_id);
@@ -306,6 +321,26 @@ impl RestartSettle {
             }
         }
         Ok(settlement)
+    }
+
+    /// Settles every live run at the person's stop of the service, session by session, each in
+    /// one write as [`RunEngine::settle_run_at_stop`] decides, its waiting messages ending in it.
+    /// Each run is awaited only until `deadline`; a run cut there, and every run after it, is left
+    /// to the next start, which settles them again. Fails at the first read or write that fails.
+    pub async fn settle_at_stop(&self, deadline: Instant) -> Result<(), RestartSettleError> {
+        let mut live_runs = self
+            .read(|reader| RunStateReader::new(reader).list_live_runs(None))
+            .await?;
+        live_runs.sort_by_key(|live_run| live_run.run.session_id);
+        for live_run in &live_runs {
+            let settle = self.settle_run(live_run, LiveRunsEnd::AtStop, false, None);
+            // Past the deadline, what is left stays live for the next start.
+            let Ok(settled) = timeout_at(deadline, settle).await else {
+                return Ok(());
+            };
+            settled?;
+        }
+        Ok(())
     }
 
     /// Settles what `session_id`'s runs that had ended left open: their open turns, then their
@@ -355,6 +390,30 @@ impl RestartSettle {
             .end_holds_lost_at_restart(session_id)
             .await?;
         Ok(())
+    }
+
+    // Ends `live_run` by `end`, after a restart with `is_stopping` saying whether a stop of its own
+    // wins over it, under `hold` where the caller holds the run's session.
+    async fn settle_run(
+        &self,
+        live_run: &LiveRun,
+        end: LiveRunsEnd<'_>,
+        is_stopping: bool,
+        hold: Option<&SessionAppendHold>,
+    ) -> Result<RunRead, RunEngineError> {
+        let engine = &self.deps.run_engine;
+        match end {
+            LiveRunsEnd::AfterRestart(failure_detail) => {
+                engine
+                    .settle_run_after_restart(live_run, is_stopping, failure_detail, hold)
+                    .await
+            }
+            LiveRunsEnd::AtStop => {
+                engine
+                    .settle_run_at_stop(live_run, stop_message_ends, hold)
+                    .await
+            }
+        }
     }
 
     // Each pending retry's settlement in one write of its own; a retry that moved since its read

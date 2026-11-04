@@ -770,8 +770,10 @@ async fn a_start_on_a_file_its_repair_cannot_heal_fails_naming_the_copy_aside() 
             .expect("the status file is written"),
     )
     .expect("the status file reads");
-    let DaemonCannotStart::SavedSessionsUnrepaired { aside_folder } = status.cannot_start else {
-        panic!("the status file says {:?}", status.cannot_start);
+    let ServiceStatusFile::CannotStart(DaemonCannotStart::SavedSessionsUnrepaired { aside_folder }) =
+        status
+    else {
+        panic!("the status file says {status:?}");
     };
     assert_eq!(
         aside_copies(&data_folder),
@@ -836,9 +838,8 @@ async fn a_start_on_a_file_its_repair_heals_serves_the_fresh_file_beside_the_cop
         folder_path: run_path,
     };
     create_missing_private_folders(&run_folder.folder_path).expect("the run folder is made");
-    let earlier_status = ServiceStatusFile {
-        cannot_start: DaemonCannotStart::SavedSessionsFromAnotherVersion {},
-    };
+    let earlier_status =
+        ServiceStatusFile::CannotStart(DaemonCannotStart::SavedSessionsFromAnotherVersion {});
     fs::write(
         &run_folder.status_path,
         serde_json::to_vec(&earlier_status).expect("the status serializes"),

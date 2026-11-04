@@ -48,8 +48,11 @@ use crate::projection_rebuild::{
     ProjectionRebuildError, ProjectionRebuildRequest, ProjectionRebuildService, REBUILD_PAGE_SIZE,
     mark_stale_statement,
 };
-use crate::restart_settle::{RESTART_FAILURE_DETAIL, RestartSettle, RestartSettleError};
+use crate::restart_settle::{
+    LiveRunsEnd, RESTART_FAILURE_DETAIL, RestartSettle, RestartSettleError,
+};
 use crate::status::{LastGoodPoint, RecoveryStatusTracker};
+use crate::stop_intent::{StopIntentError, StopIntentFile};
 
 /// The statements damaged history's own reads run: the last event before a damaged one, and
 /// whether a session has a row.
@@ -97,6 +100,8 @@ pub struct DamagedHistoryDeps {
     pub purge: Arc<dyn DamagedSessionPurge>,
     /// The recovery state that says which sessions are damaged.
     pub status: Arc<RecoveryStatusTracker>,
+    /// The intent the person's Stop left, under which a continue ends runs as the Stop does.
+    pub stop_intent: Arc<StopIntentFile>,
 }
 
 /// Finds a damaged session's last good point and rebuilds its projections through it, and runs
@@ -141,6 +146,10 @@ pub enum RecoveryActionError {
     /// What the restart left in the session was not settled.
     #[error(transparent)]
     Settle(#[from] RestartSettleError),
+    /// The session's name was not dropped from the stop intent after its runs ended as the Stop
+    /// ends them, so the next start ends them again.
+    #[error("the session's name was not dropped from the stop intent")]
+    StopIntent(#[source] StopIntentError),
     /// A continue failed after its skip: the session is back at its point, its cursor marked
     /// stale so the next start rebuilds it past the skip, the mark's own failure beside it.
     #[error(transparent)]
@@ -174,6 +183,7 @@ impl From<RecoveryActionError> for HandlerError {
             | RecoveryActionError::Draft(_)
             | RecoveryActionError::Skip(_)
             | RecoveryActionError::Settle(_)
+            | RecoveryActionError::StopIntent(_)
             | RecoveryActionError::Unfinished(_)
             | RecoveryActionError::Purge(_)) => Self::Internal(Box::new(fault)),
         }
@@ -207,7 +217,8 @@ impl DamagedHistory {
     }
 
     /// `Continue from here`: under one hold of the session's appends, skips its damaged events
-    /// through its head, rebuilds it past them and ends its live runs and pending retries; then
+    /// through its head, rebuilds it past them and ends its live runs and pending retries, as the
+    /// person's Stop ends them where the stop intent names the session, then drops its name; then
     /// settles what its ended runs left, and it takes work again. Refuses a session not held
     /// [`RecoveryActionError::NotFound`], and one not damaged or with no readable event
     /// [`RecoveryActionError::Refused`]; a failure after the skip leaves the session at its point
@@ -297,7 +308,9 @@ impl DamagedHistory {
             .map_err(RecoveryActionError::Purge)
     }
 
-    // The rebuild past the skip and the settle of the live runs, under the continue's hold.
+    // The rebuild past the skip and the settle of the live runs, under the continue's hold. Where
+    // the stop intent names the session its runs end as the Stop ends them, and its name is
+    // dropped once that settle has committed.
     async fn continue_held(
         &self,
         session_id: SessionId,
@@ -315,16 +328,28 @@ impl DamagedHistory {
                 Some(hold),
             )
             .await?;
+        let is_named = self
+            .deps
+            .stop_intent
+            .read()
+            .await
+            .is_some_and(|intent| intent.names(&session_id));
+        let end = if is_named {
+            LiveRunsEnd::AtStop
+        } else {
+            LiveRunsEnd::AfterRestart(RESTART_FAILURE_DETAIL)
+        };
         self.deps
             .restart_settle
-            .settle_live(
-                session_id,
-                &BTreeSet::new(),
-                RESTART_FAILURE_DETAIL,
-                Some(hold),
-                None,
-            )
+            .settle_live(session_id, &BTreeSet::new(), end, Some(hold), None)
             .await?;
+        if is_named {
+            self.deps
+                .stop_intent
+                .drop_named(&session_id)
+                .await
+                .map_err(RecoveryActionError::StopIntent)?;
+        }
         Ok(())
     }
 
