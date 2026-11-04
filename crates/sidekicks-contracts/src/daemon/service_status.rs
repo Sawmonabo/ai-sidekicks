@@ -4,11 +4,24 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::free_form_string::FilesystemPath;
 use crate::process_identity::ProcessIdentity;
-use crate::typescript::{Definition, TypeScriptModule};
+use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
+
+ts_constants! {
+    /// Each stop step's words after `The background service is still`, keyed by the step's wire
+    /// name.
+    DAEMON_STOP_STEP_PHRASES = DaemonStopStep::VARIANTS
+        .iter()
+        .map(|step| {
+            let name = serde_json::from_value::<String>(serde_json::to_value(step)?)?;
+            Ok((name, serde_json::Value::from(step.phrase())))
+        })
+        .collect::<serde_json::Result<serde_json::Map<String, serde_json::Value>>>()?;
+}
 
 /// Why the service cannot start, in `reason`, with the folder a damaged store's copy sits in.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -33,8 +46,10 @@ pub enum DaemonCannotStart {
     SavedSessionsFromAnotherVersion {},
 }
 
-/// A step of the service's stop that waits on work with no time bound of its own.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+/// A step of the service's stop that a `stopping` record names while its wait runs.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum DaemonStopStep {
     /// The serving socket closing.
@@ -67,6 +82,29 @@ pub enum DaemonStopStep {
     GitTrees,
     /// The workspace services' work settling, the last step, so nothing writes once the stop ends.
     WorkspaceWorkSettle,
+}
+
+impl DaemonStopStep {
+    /// The step in a person's words, which follow `The background service is still`.
+    pub const fn phrase(self) -> &'static str {
+        match self {
+            Self::Gateway => "closing the connection to the app",
+            Self::CapabilityRefresh => "finishing a check of what each provider offers",
+            Self::RunQueue => "stopping the message queue",
+            Self::RepositoryAttachments => "ending the repositories' background work",
+            Self::AttentionDecisions => "finishing the notifications under way",
+            Self::WebAddressSender => "finishing a send to the web address",
+            Self::SessionFollows => "ending the sessions' updates",
+            Self::ChatsRecount => "recounting the chats' files",
+            Self::ChatsChanges => "closing the chats' updates",
+            Self::Scheduler => "stopping the background jobs",
+            Self::FolderWatch => "stopping the watch on the repositories' folders",
+            Self::SearchIndex => "closing the search index",
+            Self::TurnCaptures => "saving the file changes of the last turns",
+            Self::GitTrees => "cleaning up after git",
+            Self::WorkspaceWorkSettle => "finishing the workspace cleanup",
+        }
+    }
 }
 
 /// The stop under way: the step it waits on, when it began and the service's own process.
@@ -123,7 +161,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<DaemonCannotStop>(),
         Definition::read::<ServiceStatusFile>().checked(),
     ],
-    constants: &[],
+    constants: TS_CONSTANTS,
     method_tables: &[],
 };
 
