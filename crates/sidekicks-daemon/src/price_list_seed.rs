@@ -38,7 +38,7 @@ mod tests {
 
     /// The release check over the vendored list: the seed is the vendored bytes and every row
     /// decodes, each rate refused alone named in the log. Kills a seed that is not the vendored
-    /// bytes, and a check that reads only the rows in use.
+    /// bytes, and a release that passes a copy refused whole.
     #[test]
     fn vendored_price_list() {
         let seed = price_list_seed();
