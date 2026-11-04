@@ -579,7 +579,7 @@ methods! {
             mutating: true,
             params: SessionMcpServerEnabledUpdateRequest,
             result: SessionMcpServerEnabledUpdateResponse,
-            refusals: [SessionNotFound, ProviderUnavailable, ProviderTimeout],
+            refusals: [SessionNotFound, McpServerNotRunning, ProviderUnavailable, ProviderTimeout],
         },
         /// Lists one working server's resources.
         McpResourceList = query "mcp.resource.list" {
