@@ -215,21 +215,24 @@ impl Feed for SessionMcpServerFeed {
         gate: &'a dyn SendGate,
     ) -> BoxFuture<'a, Result<Option<SessionMcpServerList>, HandlerError>> {
         async move {
+            let session_id = self.session_id;
             while !self.is_list_owed {
                 let switched = self
                     .switched
                     .as_mut()
                     .expect("the receiver is held until the feed drops");
                 let change = tokio::select! {
-                    notice = self.notices.recv() => SessionMcpChange::Notice(notice?),
+                    notice = self.notices.recv() => SessionMcpChange::Notice(
+                        notice?.map(|notice| names_session(&notice, session_id)),
+                    ),
                     is_open = switched.changed() => SessionMcpChange::Switched(is_open.is_ok()),
                 };
                 match change {
                     SessionMcpChange::Notice(None) | SessionMcpChange::Switched(false) => {
                         return Ok(None);
                     }
-                    SessionMcpChange::Notice(Some(notice)) => {
-                        self.is_list_owed = names_session(&notice, self.session_id);
+                    SessionMcpChange::Notice(Some(is_this_session)) => {
+                        self.is_list_owed = is_this_session;
                     }
                     SessionMcpChange::Switched(true) => self.is_list_owed = true,
                 }
@@ -254,10 +257,10 @@ impl Drop for SessionMcpServerFeed {
     }
 }
 
-/// What woke a session's feed: a notice from the status board, `None` once the board stopped, or
-/// a switch, `false` once the switches stopped.
+/// What woke a session's feed: a notice from the status board, whether it names the session, or
+/// `None` once the board stopped; or a switch, `false` once the switches stopped.
 enum SessionMcpChange {
-    Notice(Option<McpSubscribeEmission>),
+    Notice(Option<bool>),
     Switched(bool),
 }
 
@@ -616,7 +619,7 @@ mod tests {
             )
             .expect("the session's run is stored");
         let bindings = Arc::new(open_store(&database).await);
-        let mut leg_input = resumable_binding_input(run_id.clone(), provider.clone());
+        let mut leg_input = resumable_binding_input(run_id, provider.clone());
         leg_input.spawn_config.tool_servers = Some(tool_servers.clone());
         bindings
             .create(leg_input)
@@ -745,7 +748,7 @@ mod tests {
                     .expect_switch_session_mcp_servers()
                     .times(1)
                     .returning(move |session_id, run_id, tool_servers| {
-                        lock(&recorded).push((session_id, run_id.clone(), tool_servers.clone()));
+                        lock(&recorded).push((session_id, run_id, tool_servers.clone()));
                         let bindings = Arc::clone(&bindings);
                         Box::pin(async move {
                             let is_written = bindings
@@ -799,7 +802,7 @@ mod tests {
         }];
         assert_eq!(
             *lock(&calls),
-            vec![(fixture.session_id, fixture.run_id.clone(), off)],
+            vec![(fixture.session_id, fixture.run_id, off)],
             "the driver gets the whole set and the stored leg's run once"
         );
         let sent = feed.next(&gate).await.expect("the feed reads");
