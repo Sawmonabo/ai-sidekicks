@@ -4,6 +4,7 @@
 //! inbound frame.
 
 use std::collections::HashSet;
+use std::path::PathBuf;
 
 use crate::driver::claude::event_normalizer::ClaudeSubagentLifecycleSignal;
 use crate::driver::mcp_server::status::McpServerStatusIngestResult;
@@ -50,9 +51,9 @@ pub(crate) struct ClaudeOfferedModel {
     pub(crate) effort_levels: Option<Vec<String>>,
 }
 
-/// What the `initialize` reply declared about the session's models, styles and commands: the
-/// models it offers, in its order, which of them run in auto mode, the output styles the process
-/// offers, and the commands it lists.
+/// What the `initialize` reply declared about the session's models, styles, commands and memory:
+/// the models it offers, in its order, which of them run in auto mode, the output styles the
+/// process offers, the commands it lists, and the folders of its memory stores.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ClaudeInitializeDeclaration {
     /// The fast mode it reports.
@@ -68,6 +69,9 @@ pub(crate) struct ClaudeInitializeDeclaration {
     pub(crate) output_style: Option<String>,
     /// The commands it lists, by name without the `/`, in its order.
     pub(crate) commands: Vec<String>,
+    /// The folders of Claude Code's auto-memory and team-memory stores, each kept where the reply
+    /// names it as an absolute path, the auto-memory store first when it is kept.
+    pub(crate) memory_stores: Vec<PathBuf>,
 }
 
 impl ClaudeInitializeDeclaration {

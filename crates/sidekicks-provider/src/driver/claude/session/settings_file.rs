@@ -22,8 +22,8 @@ use sidekicks_std::missing_entry::MissingEntry;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 
 use crate::driver::claude::session::rules::{
-    CLAUDE_SHARED_SETTINGS_FILE, ClaudeProjectFolder, local_settings_path,
-    resolve_claude_local_settings_file, settings_path,
+    CLAUDE_SHARED_SETTINGS_FILE, ClaudeProjectFolder, list_claude_local_settings_files,
+    settings_path,
 };
 use crate::inbound_json::decode_inbound_json;
 use crate::project_rule_folders::RuleFileHolds;
@@ -206,17 +206,17 @@ pub(crate) fn refuse_unread_settings(
     }
 }
 
-/// The managed settings files in a managed folder that hold a settings object, each read once, in
-/// the order Claude Code applies them, and every file or folder that could not be read.
+/// The settings files of one tier that hold a settings object, each read once, in the order Claude
+/// Code applies them, and every file or folder that could not be read.
 #[derive(Debug, Default)]
-pub(crate) struct ClaudeManagedSettings {
+pub(crate) struct ClaudeSettingsFiles {
     /// Each file that holds a settings object, with that object.
     pub(crate) files: Vec<(PathBuf, Map<String, Value>)>,
     /// What could not be read.
     pub(crate) failures: Vec<ClaudeSettingsReadError>,
 }
 
-impl ClaudeManagedSettings {
+impl ClaudeSettingsFiles {
     /// The value at `key_path` in force as Claude Code merges the files, key by key: the last
     /// file whose value `select` takes decides, with that file; `None` where no file sets it.
     pub(crate) fn find<Setting>(
@@ -234,25 +234,38 @@ impl ClaudeManagedSettings {
     }
 }
 
-/// Reads the managed settings in `managed_settings_folder` once: `managed-settings.json`, then each
-/// `managed-settings.d/*.json` in name order, JavaScript's, by UTF-16 code units. A missing file or
-/// folder, or one holding no settings object, sets nothing; any other read failure is kept beside
-/// the files read.
-pub(crate) async fn read_claude_managed_settings(
-    managed_settings_folder: &Path,
-) -> ClaudeManagedSettings {
-    let mut managed = ClaudeManagedSettings::default();
-    for file in list_managed_settings_files(managed_settings_folder, &mut managed.failures).await {
+/// Reads each of `files` once, in order. A file the daemon cannot read, or one holding no settings
+/// object, sets nothing; any other read failure is kept beside the files read.
+pub(crate) async fn read_claude_settings_files(files: Vec<PathBuf>) -> ClaudeSettingsFiles {
+    let mut read = ClaudeSettingsFiles::default();
+    for file in files {
         match read_claude_settings_file(&file).await {
-            Ok(Some(settings)) => managed.files.push((file, settings)),
+            Ok(Some(settings)) => read.files.push((file, settings)),
             Ok(None) => {}
-            Err(failure) => managed.failures.push(ClaudeSettingsReadError {
+            Err(failure) => read.failures.push(ClaudeSettingsReadError {
                 path: file,
                 failure,
             }),
         }
     }
-    managed
+    read
+}
+
+/// Reads the managed settings in `managed_settings_folder` once: `managed-settings.json`, then each
+/// `managed-settings.d/*.json` in name order, JavaScript's, by UTF-16 code units, as
+/// [`read_claude_settings_files`] reads them. A drop-in folder that cannot be listed is kept
+/// among the failures, ahead of the files'.
+pub(crate) async fn read_claude_managed_settings(
+    managed_settings_folder: &Path,
+) -> ClaudeSettingsFiles {
+    let mut failures = Vec::new();
+    let files = list_managed_settings_files(managed_settings_folder, &mut failures).await;
+    let read = read_claude_settings_files(files).await;
+    failures.extend(read.failures);
+    ClaudeSettingsFiles {
+        files: read.files,
+        failures,
+    }
 }
 
 /// Reads one key from the managed settings in `managed_settings_folder` as Claude Code merges
@@ -342,22 +355,20 @@ pub(crate) async fn read_claude_setting<Setting>(
             return Ok(Some((ClaudeSettingsSource::Managed, setting.value)));
         }
     }
-    let working_folder = sources.project_folder.working_folder;
-    let local_settings = resolve_claude_local_settings_file(
+    let mut files: Vec<_> = list_claude_local_settings_files(
         sources.project_folder,
         sources.home_folder,
         sources.path_rules,
     )
-    .path;
-    let working_local_settings = local_settings_path(working_folder);
-    let mut files = vec![(ClaudeSettingsSource::Project, local_settings.clone())];
-    // Claude Code reads the folder's own local file too where it keeps the project's elsewhere.
-    if working_local_settings != local_settings {
-        files.push((ClaudeSettingsSource::Project, working_local_settings));
-    }
+    .into_iter()
+    .map(|file| (ClaudeSettingsSource::Project, file))
+    .collect();
     files.push((
         ClaudeSettingsSource::Project,
-        settings_path(working_folder, CLAUDE_SHARED_SETTINGS_FILE),
+        settings_path(
+            sources.project_folder.working_folder,
+            CLAUDE_SHARED_SETTINGS_FILE,
+        ),
     ));
     files.push((
         ClaudeSettingsSource::Person,
@@ -566,6 +577,7 @@ mod tests {
         ClaudeSettingsSource, ClaudeSettingsSources, read_claude_managed_setting,
         read_claude_setting,
     };
+    use crate::driver::claude::session::memory::CLAUDE_AUTO_MEMORY_SETTING;
     use crate::driver::claude::session::rules::ClaudeProjectFolder;
 
     // Writes `contents` to `file`, making its folder, where the case names one.
@@ -651,7 +663,7 @@ mod tests {
                 account_settings_file: &account_settings_file,
                 path_rules: PathRules::NATIVE,
             },
-            &["autoMemoryEnabled"],
+            &[CLAUDE_AUTO_MEMORY_SETTING],
             Value::as_bool,
         )
         .await

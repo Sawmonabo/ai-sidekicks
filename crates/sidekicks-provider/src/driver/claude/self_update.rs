@@ -16,7 +16,7 @@ use sidekicks_platforms::PathRules;
 
 use crate::driver::claude::mcp::config::ClaudePersonConfigFiles;
 use crate::driver::claude::session::settings_file::{
-    ClaudeManagedSettings, ClaudeSettingsReadError, find_claude_setting,
+    ClaudeSettingsFiles, ClaudeSettingsReadError, find_claude_setting,
     read_claude_managed_settings, read_claude_settings_file,
 };
 use crate::driver::claude::switch_variable::is_switched_on;
@@ -130,7 +130,7 @@ pub(crate) async fn read_claude_self_update(
 ) -> Result<ClaudeSelfUpdateReading, ClaudeSettingsReadError> {
     let mut managed = match managed_settings_folder {
         Some(folder) => read_claude_managed_settings(folder).await,
-        None => ClaudeManagedSettings::default(),
+        None => ClaudeSettingsFiles::default(),
     };
     if !managed.failures.is_empty() {
         return Err(managed.failures.swap_remove(0));
@@ -194,7 +194,7 @@ fn find_deciding_variable(
     environment: &[(String, String)],
     user_settings_file: &Path,
     user_settings: Option<&Map<String, Value>>,
-    managed: &ClaudeManagedSettings,
+    managed: &ClaudeSettingsFiles,
 ) -> Option<(String, ClaudeVariableSource)> {
     let key_path = [ENV_KEY, variable.name()];
     if let Some(setting) = managed.find(&key_path, env_value_text) {

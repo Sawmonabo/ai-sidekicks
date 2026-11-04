@@ -103,6 +103,13 @@ pub(crate) enum ClaudeControlRequest {
     },
     /// Reads the settings that took effect.
     GetSettings {},
+    /// Reads the hooks the process loaded as its `/hooks` menu lists them, with the settings files
+    /// it skipped and what managed settings do to them.
+    #[expect(
+        dead_code,
+        reason = "the inspector's hooks listing sends it after each spawn and at each opening"
+    )]
+    GetHooksListing {},
     /// Reads the status of each MCP server the process holds, answered by a
     /// [`ClaudeMcpStatusReply`](super::mcp_status::ClaudeMcpStatusReply).
     McpStatus {},
@@ -201,6 +208,7 @@ impl ClaudeControlRequest {
             Self::SetMaxThinkingTokens { .. } => ClaudeControlSubtype::SetMaxThinkingTokens,
             Self::McpSetServers { .. } => ClaudeControlSubtype::McpSetServers,
             Self::GetSettings {} => ClaudeControlSubtype::GetSettings,
+            Self::GetHooksListing {} => ClaudeControlSubtype::GetHooksListing,
             Self::McpStatus {} => ClaudeControlSubtype::McpStatus,
             Self::RewindConversation { .. } => ClaudeControlSubtype::RewindConversation,
             Self::CancelAsyncMessage { .. } => ClaudeControlSubtype::CancelAsyncMessage,
@@ -237,6 +245,8 @@ pub(crate) enum ClaudeControlSubtype {
     McpSetServers,
     /// `get_settings`.
     GetSettings,
+    /// `get_hooks_listing`.
+    GetHooksListing,
     /// `mcp_status`.
     McpStatus,
     /// `rewind_conversation`.
@@ -281,6 +291,7 @@ impl ClaudeControlSubtype {
             Self::SetMaxThinkingTokens => "set_max_thinking_tokens",
             Self::McpSetServers => "mcp_set_servers",
             Self::GetSettings => "get_settings",
+            Self::GetHooksListing => "get_hooks_listing",
             Self::McpStatus => "mcp_status",
             Self::RewindConversation => "rewind_conversation",
             Self::CancelAsyncMessage => "cancel_async_message",

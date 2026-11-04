@@ -143,7 +143,13 @@ fn hook_event_name(listed: &str) -> String {
 // The service's `hooks/list` reply, read for the members trust needs.
 async fn list_hooks(connection: &CodexAppServerConnection) -> Result<HooksListReply, CodexError> {
     let reply = connection
-        .request(HOOKS_LIST_METHOD, &HooksListParams { cwds: Vec::new() })
+        .request(
+            HOOKS_LIST_METHOD,
+            &HooksListParams {
+                cwds: Vec::new(),
+                thread_id: None,
+            },
+        )
         .await?;
     serde_json::from_str(&decode_inbound_json(reply.get().as_bytes())).map_err(|error| {
         CodexError::Transport {
