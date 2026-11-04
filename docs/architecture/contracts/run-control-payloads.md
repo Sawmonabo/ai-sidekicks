@@ -135,10 +135,12 @@ type QueueItemByState<Members> = Members & {
     | { state: "notDelivered"; notDeliveredReason: QueueItemNotDeliveredReason }
   );
 
-// `agent.queueItem.cancel`: `Remove`. Refused for an item the queue does not hold
-// (`agent.queueItem.notFound`), one the agent has taken (`agent.queueItem.changeRefused`,
-// `alreadyTaken`), and one Claude Code does not give back, which then reads not delivered
-// (`notDelivered`).
+// `agent.queueItem.cancel`: `Remove`. Removes a waiting message, or a lead message that reads not
+// delivered; removing the last message of a queued run ends that run `stopped` with the trigger
+// `messagesRemoved`. Refused for an item the queue does not hold (`agent.queueItem.notFound`), one
+// the agent has taken (`agent.queueItem.changeRefused`, `alreadyTaken`), one Claude Code does not
+// give back, which then reads not delivered (`notDelivered`), a helper's message that reads not
+// delivered (`notDelivered`), and a hand-off's seed (`handOffSeed`).
 interface AgentQueueItemCancelRequest {
   queueItemId: QueueItemId;
   childHandle?: ChildHandle; // the child whose queue holds the item

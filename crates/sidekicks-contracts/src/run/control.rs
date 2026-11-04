@@ -567,7 +567,7 @@ methods! {
             result: AgentQueueItemListResponse,
             refusals: [SessionNotFound, AgentChildRunNotFound, AgentChildRunControlRefused],
         },
-        /// Removes a waiting message.
+        /// Removes a waiting message, or a lead message that reads not delivered.
         AgentQueueItemCancel = mutation "agent.queueItem.cancel" {
             mutating: true,
             params: AgentQueueItemCancelRequest,
