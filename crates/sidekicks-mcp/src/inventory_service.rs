@@ -29,7 +29,8 @@ use sidekicks_provider::account::homes::{AccountHome, AccountHomesReadError, rea
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::mcp_server::read::{
-    McpProbeReading, McpProbeScope, McpServerToolDefaults, McpServersReadRequest,
+    McpProbeReading, McpProbeScope, McpServerDeclaration, McpServerToolDefaults,
+    McpServersReadRequest,
 };
 use sidekicks_provider::driver::mcp_server::status::McpServerReading;
 use sidekicks_provider::driver::registry::ProviderRegistry;
@@ -264,6 +265,37 @@ impl McpInventoryService {
             .ok_or_else(|| not_found().into())
     }
 
+    /// Every declaration `provider` holds across the attached roots and its accounts, read as a
+    /// list reads it, with no probe and no refresh; a provider that is not registered declares
+    /// none. Fails as a source or the provider's driver cannot be read.
+    pub(crate) async fn read_declarations(
+        &self,
+        provider: &ProviderId,
+    ) -> Result<Vec<McpServerDeclaration>, McpInventoryError> {
+        let Some((provider, driver)) = self
+            .sources
+            .providers
+            .drivers()
+            .find(|(registered, _driver)| *registered == provider)
+        else {
+            return Ok(Vec::new());
+        };
+        let context = self.read_context().await?;
+        let rows = self
+            .read_resolved_rows(
+                provider,
+                driver.as_ref(),
+                &context,
+                false,
+                McpProbeScope::None,
+            )
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(_key, row)| row.declaration)
+            .collect())
+    }
+
     /// Fills the attribution table from one read per provider of what it loads at each attached
     /// root, with no account, no probe and no refresh, so a leg that reports before any list
     /// resolves its servers; the status tracker's readings stay as they are. A provider whose read
@@ -390,6 +422,27 @@ impl McpInventoryService {
         is_refresh: bool,
         probe: McpProbeScope,
     ) -> Result<Vec<(McpBindingKey, McpServerInventoryEntry)>, McpInventoryError> {
+        Ok(self
+            .read_resolved_rows(provider, driver, context, is_refresh, probe)
+            .await?
+            .into_iter()
+            .map(|(key, row)| {
+                let entry = self.entry(&key, row);
+                (key, entry)
+            })
+            .collect())
+    }
+
+    // The read [`Self::read_provider_rows`] makes, each binding's row resolved and keyed before
+    // it becomes an entry.
+    async fn read_resolved_rows(
+        &self,
+        provider: &ProviderId,
+        driver: &dyn ProviderDriver,
+        context: &McpInventoryContext,
+        is_refresh: bool,
+        probe: McpProbeScope,
+    ) -> Result<Vec<(McpBindingKey, McpBindingRow)>, McpInventoryError> {
         let provider_account_ids = context
             .accounts
             .iter()
@@ -456,13 +509,7 @@ impl McpInventoryService {
             let listed = rows.iter().map(|(key, _row)| key.clone()).collect();
             self.sources.tracker.forget_probes_of(provider, &listed);
         }
-        Ok(rows
-            .into_iter()
-            .map(|(key, row)| {
-                let entry = self.entry(&key, row);
-                (key, entry)
-            })
-            .collect())
+        Ok(rows)
     }
 
     /// Records in the status tracker each probe reading that observed its server, with its error
@@ -494,15 +541,9 @@ impl McpInventoryService {
         let status = status_reading.status;
         let legs = (!status_reading.legs.is_empty()).then_some(status_reading.legs);
         let observed_at = status_reading.observed_at;
-        let probe_failure_reason = status_reading.probe_failure_reason.and_then(|text| {
-            // A blank text carries no reason; past that, the NUL dropped and the cap kept leave
-            // nothing the text check refuses.
-            let reason = sanitize_failure_reason(&text.replace('\0', ""), ERROR_MESSAGE_MAX_LEN);
-            (!reason.chars().all(is_ecmascript_whitespace)).then(|| {
-                FreeFormText::new(reason)
-                    .expect("a sanitized, NUL-free, non-blank reason within its cap is free text")
-            })
-        });
+        let probe_failure_reason = status_reading
+            .probe_failure_reason
+            .and_then(|text| failure_reason_text(&text));
         let superseded_in = unique_places(declaration.superseded_in);
         let organization_managed = declaration.organization_managed;
         let provider_enabled = config_enabled(&config);
@@ -605,6 +646,19 @@ fn read_failure_cause(
                 .expect("the fallback is text")
         },
     )
+}
+
+/// `text`, a provider's or a driver's words about a failure, as the wire carries a failure reason:
+/// with no credential, address query, file path or NUL, cut to its cap; `None` where nothing but
+/// whitespace is left.
+pub(crate) fn failure_reason_text(text: &str) -> Option<FreeFormText<ERROR_MESSAGE_MAX_LEN>> {
+    // A blank text carries no reason; past that, the NUL dropped and the cap kept leave nothing
+    // the text check refuses.
+    let reason = sanitize_failure_reason(&text.replace('\0', ""), ERROR_MESSAGE_MAX_LEN);
+    (!reason.chars().all(is_ecmascript_whitespace)).then(|| {
+        FreeFormText::new(reason)
+            .expect("a sanitized, NUL-free, non-blank reason within its cap is free text")
+    })
 }
 
 /// Whether a declaration's own config leaves its server on: its `enabled` member, on where it
