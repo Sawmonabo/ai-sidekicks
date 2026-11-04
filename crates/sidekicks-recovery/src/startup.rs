@@ -24,6 +24,7 @@
 //! failed store.
 
 mod heal;
+mod receipt_sessions;
 mod session;
 
 use std::collections::BTreeSet;
@@ -50,6 +51,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_mcp::client::dispatch::restart_sweep::{McpRestartSweep, McpRestartSweepError};
 use sidekicks_provider::driver::contract::error::bound_failure_detail;
 use sidekicks_queue::provider_session::ProviderSessions;
 use sidekicks_session::interventions::store::read_pending_retries;
@@ -149,6 +151,8 @@ pub struct StartupRecoveryDeps {
     pub copier: Arc<DatabaseFileCopier>,
     /// The intent the person's Stop left, under which the pass ends work as the Stop does.
     pub stop_intent: Arc<StopIntentFile>,
+    /// The sweep resuming each tool call receipt the stop left in flight.
+    pub mcp_sweep: McpRestartSweep,
 }
 
 /// Runs the recovery pass a start makes before the daemon takes writes.
@@ -192,6 +196,8 @@ enum PassFailure {
     Stopped,
     #[error("the stop intent could not be rewritten once a session was settled")]
     StopIntent(#[source] StopIntentError),
+    #[error("the tool call receipts the stop left in flight could not be swept")]
+    McpSweep(#[from] McpRestartSweepError),
 }
 
 // The sessions the pass works on, as its listing found them.
@@ -334,7 +340,7 @@ impl StartupRecovery {
             .await?;
         }
         let mut heal = heal::HealState::default();
-        let mut is_any_damaged = false;
+        let mut damaged = BTreeSet::new();
         for &session_id in &listing.stale {
             pass.phase = RecoveryPhase::ProjectionRebuild;
             if self
@@ -342,7 +348,7 @@ impl StartupRecovery {
                 .await?
             {
                 // A damaged session takes no write, so what the restart left in it stays.
-                is_any_damaged = true;
+                damaged.insert(session_id);
                 continue;
             }
             pass.phase = RecoveryPhase::RunResumption;
@@ -358,6 +364,24 @@ impl StartupRecovery {
             )
             .await?;
         }
+
+        if stop.is_cancelled() {
+            return Err(PassFailure::Stopped);
+        }
+        let is_any_damaged = !damaged.is_empty();
+        // Each receipt's session as the pass knows it now: stopped as the intent read at the
+        // pass's start names it, its receipts in a damaged session left in flight.
+        self.deps
+            .mcp_sweep
+            .start(move |connection, run_id| {
+                let run = RunStateReader::new(connection).read_run(run_id)?;
+                Ok(receipt_sessions::receipt_session(
+                    run.as_ref(),
+                    read_intent.as_ref(),
+                    &damaged,
+                ))
+            })
+            .await?;
 
         if is_any_damaged {
             // The outcome was decided when a session's rebuild failed, not in the step after it.
