@@ -10,6 +10,7 @@ pub(crate) mod event_subscribe;
 pub(crate) mod group;
 pub(crate) mod links;
 pub(crate) mod list;
+pub(crate) mod mcp_servers;
 pub(crate) mod read;
 pub(crate) mod recovery;
 pub(crate) mod restart;

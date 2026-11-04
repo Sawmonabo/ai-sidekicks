@@ -411,13 +411,7 @@ impl McpLegs {
             .max_by(|one, other| one.observed_at.as_str().cmp(other.observed_at.as_str()))
             .map(|reading| reading.names.clone());
         let legs: Vec<McpServerLegStatus> = live_servers(&self.legs, key, binding_status)
-            .map(|(leg_id, server, status)| McpServerLegStatus {
-                session_id: leg_id.session_id,
-                binding_id: leg_id.binding_id.clone(),
-                status,
-                observed_at: Some(server.observed_at.clone()),
-                failed_reason: None,
-            })
+            .map(|(leg_id, server, status)| leg_status(leg_id, server, status))
             .collect();
         // With no live leg in the aggregate the probe's reading is the one that decides.
         let probe_failure_reason = (legs.is_empty() && fold.status == McpServerStatus::Failed)
@@ -451,16 +445,7 @@ impl McpLegs {
             .flat_map(|(leg_id, leg)| {
                 leg.servers.iter().filter_map(move |(name, server)| {
                     let status = server.status.filter(|_| !server.is_switched_off)?;
-                    Some((
-                        name.clone(),
-                        McpServerLegStatus {
-                            session_id: leg_id.session_id,
-                            binding_id: leg_id.binding_id.clone(),
-                            status,
-                            observed_at: Some(server.observed_at.clone()),
-                            failed_reason: None,
-                        },
-                    ))
+                    Some((name.clone(), leg_status(leg_id, server, status)))
                 })
             })
             .collect()
@@ -558,6 +543,17 @@ fn leg_server(
 
 /// The entries of `key`'s legs that are in its aggregate, not switched off and holding a status,
 /// each with that status.
+// One leg's reading of a server whose status is `status`, as the wire lists it.
+fn leg_status(leg_id: &LegId, server: &LegServer, status: McpServerStatus) -> McpServerLegStatus {
+    McpServerLegStatus {
+        session_id: leg_id.session_id,
+        binding_id: leg_id.binding_id.clone(),
+        status,
+        observed_at: Some(server.observed_at.clone()),
+        failed_reason: None,
+    }
+}
+
 fn live_servers<'a>(
     legs: &'a HashMap<LegId, Leg>,
     key: &'a McpBindingKey,
