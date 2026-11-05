@@ -3,7 +3,7 @@
 
 mod admission;
 mod branch_cancellation;
-mod commit;
+pub(crate) mod commit;
 mod dispatch;
 mod live_runs;
 pub(crate) mod node_settings;

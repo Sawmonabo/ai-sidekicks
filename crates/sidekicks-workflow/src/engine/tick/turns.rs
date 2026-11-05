@@ -16,6 +16,7 @@ use sidekicks_contracts::workflow::definition::document::{WorkflowDefinitionId, 
 use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowStepError};
 use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 use sidekicks_contracts::workflow::run::step::events::WorkflowStepSkipReason;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 use sidekicks_store::database::connection::read_pool::{
@@ -273,9 +274,13 @@ impl EngineTick {
             inputs: inputs.clone(),
             input_ref: trigger_input.clone(),
         };
+        live.counts.moved(None, (WorkflowStepStatus::Pending, None));
         live.steps.insert(
             ready.step.execution_index.get(),
             LiveStep {
+                step: ready.step.clone(),
+                status: WorkflowStepStatus::Pending,
+                wait_cause: None,
                 sources: trigger.sources,
                 inputs,
                 input_ref: trigger_input,
@@ -303,7 +308,13 @@ impl EngineTick {
             workflow_version_id: live.scope.workflow_version_id,
         };
         let mut turn = RunTurn {
-            commit: RunTurnCommit::new(keys, Arc::clone(&self.payloads)),
+            commit: RunTurnCommit::new(
+                keys,
+                run_id,
+                live.counts,
+                std::mem::take(&mut live.person_wait),
+                Arc::clone(&self.payloads),
+            ),
             readied: Vec::new(),
             last_readying_event: None,
         };
@@ -317,8 +328,13 @@ impl EngineTick {
         let RunTurn {
             commit, readied, ..
         } = turn;
-        match commit.append(&self.appender, &live.record).await {
+        match commit
+            .append(&self.appender, &live.record, live.live_steps())
+            .await
+        {
             Ok(committed) => {
+                live.counts = committed.counts;
+                live.person_wait = committed.person_wait;
                 // The write answers each readied step in the order the turn readied it.
                 let mut dispatched = Vec::new();
                 for (turn_readied, (_step, readying_sequence)) in
@@ -343,6 +359,9 @@ impl EngineTick {
                     live.steps.insert(
                         ready.step.execution_index.get(),
                         LiveStep {
+                            step: ready.step,
+                            status: WorkflowStepStatus::Pending,
+                            wait_cause: None,
                             sources: ready.sources,
                             inputs,
                             input_ref,
@@ -417,10 +436,16 @@ impl EngineTick {
             .report(report, self.reported(live, &step))
             .await
             .expect("only a settlement stores a payload");
-        if let Some(last_hold_report_at) = hold
-            && let Some(live_step) = live.steps.get_mut(&execution_index)
-        {
-            live_step.last_hold_report_at = last_hold_report_at;
+        if let Some(last_hold_report_at) = hold {
+            let status = if last_hold_report_at.is_some() {
+                WorkflowStepStatus::WaitingMemory
+            } else {
+                WorkflowStepStatus::Running
+            };
+            live.move_step(execution_index, status, None);
+            if let Some(live_step) = live.steps.get_mut(&execution_index) {
+                live_step.last_hold_report_at = last_hold_report_at;
+            }
         }
     }
 
@@ -493,7 +518,7 @@ impl EngineTick {
     /// Follows the settlement of `step` at `at`: a completion or a pass-on settles the walk and
     /// records the outputs, a retry readies the next attempt, a cancel drops the step. What
     /// follows a park, an end, a person wait or a spent account is the run's wave or wait, which
-    /// keeps the step live.
+    /// keeps the step live, failed or waiting.
     async fn follow_settlement(
         &self,
         live: &mut LiveRun,
@@ -541,10 +566,24 @@ impl EngineTick {
                 live.steps.remove(&step.execution_index.get());
                 turn.last_readying_event = Some((readying_event, at));
             }
-            SettlementAnswer::Park
-            | SettlementAnswer::End
-            | SettlementAnswer::PersonWait { .. }
-            | SettlementAnswer::AccountSpent { .. } => {}
+            SettlementAnswer::Park | SettlementAnswer::End => {
+                live.move_step(step.execution_index.get(), WorkflowStepStatus::Failed, None);
+            }
+            SettlementAnswer::PersonWait { opened, .. } => {
+                live.move_step(
+                    step.execution_index.get(),
+                    WorkflowStepStatus::Waiting,
+                    Some(opened.cause),
+                );
+            }
+            SettlementAnswer::AccountSpent { .. } => {
+                let account = Some(WorkflowWaitCause::Account);
+                live.move_step(
+                    step.execution_index.get(),
+                    WorkflowStepStatus::Waiting,
+                    account,
+                );
+            }
         }
     }
 
@@ -764,6 +803,8 @@ impl EngineTick {
             .get(&step.node_id)
             .expect("a step's node is the run's");
         ReportedStep {
+            status: live_step.status,
+            wait_cause: live_step.wait_cause,
             readying_sequence: live_step.readying_sequence,
             last_hold_report_at: live_step.last_hold_report_at.as_ref(),
             node,

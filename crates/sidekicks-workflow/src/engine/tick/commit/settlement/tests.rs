@@ -261,8 +261,9 @@ enum FailureCase {
 /// and the cut hold added, then `phase.failed` and `step.failed`, and answers as its node routes
 /// it: a retry writes the next attempt's `pending` row and `phase.retried` in the same write; a
 /// decline is never retried and passes its input on with its words on event and row; a stop
-/// parks. Mutations: a decline retried; the cut hold dropped; a waiting step's failure refused by
-/// the CHECK; the retry's row outside the failure's write.
+/// parks, its run `failed` with no end instant and `workflow.run.failed` parked the write's last.
+/// Mutations: a decline retried; the cut hold dropped; a waiting step's failure refused by the
+/// CHECK; the retry's row outside the failure's write; a park that moves no count.
 #[rstest]
 #[case::retry_left(FailureCase::RetryLeft)]
 #[case::declined_continue(FailureCase::DeclinedContinue)]
@@ -314,6 +315,8 @@ async fn a_failure_routes_as_its_node_says(#[case] case: FailureCase) {
         node: &node,
         spec: &harness.spec,
         inputs: &inputs,
+        status: WorkflowStepStatus::Running,
+        wait_cause: None,
     };
     let failed = StepReportKind::Settled(StepSettlement::Failed {
         failure,
@@ -391,13 +394,24 @@ async fn a_failure_routes_as_its_node_says(#[case] case: FailureCase) {
                 json!("The step was declined: not now")
             );
         }
-        FailureCase::HeldStop => {
-            assert_eq!(types.len(), 2);
-            assert_eq!(harness.step_row(1).1, 5_000);
-        }
-        FailureCase::DeadlineStop => {
-            assert_eq!(types.len(), 2);
-            assert_eq!(harness.step_row(1).1, 0);
+        FailureCase::HeldStop | FailureCase::DeadlineStop => {
+            assert_eq!(types[2..], ["workflow.run.failed"]);
+            assert_eq!(events[2].3["outcome"], json!("parked"));
+            let run_row: (String, Option<String>) = harness
+                .rows
+                .query_row(
+                    "SELECT status, finished_at FROM workflow_runs WHERE id = ?1",
+                    params![run_id().text().as_str()],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .expect("the run's row reads");
+            assert_eq!(run_row, ("failed".to_owned(), None));
+            let pool_wait_ms = if matches!(case, FailureCase::HeldStop) {
+                5_000
+            } else {
+                0
+            };
+            assert_eq!(harness.step_row(1).1, pool_wait_ms);
         }
     }
 }

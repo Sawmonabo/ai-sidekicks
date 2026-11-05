@@ -673,8 +673,8 @@ async fn a_failed_turn_drops_its_run_and_deletes_its_payloads() {
 }
 
 /// A's output, its input passed on, is above the inline cap, and the store refuses every write
-/// past A's input. Mutations: the failure swallowed and the step left running; a re-report with
-/// no bound; a retry.
+/// past A's input; with no error route the failure parks the run. Mutations: the failure swallowed
+/// and the step left running; a re-report with no bound; a retry; a park that writes no run event.
 #[rstest]
 #[case::no_on_error(None, 1)]
 #[case::continue_passes_on(Some("continue"), 2)]
@@ -729,6 +729,19 @@ async fn a_step_whose_payload_cannot_be_stored_fails_in_its_place(
         failed_events,
         ["workflow.phase.failed", "workflow.step.failed"]
     );
+    // With no error route the failure parks the run; passed on, the run goes on.
+    let run_failures: Vec<Value> = harness
+        .events()
+        .into_iter()
+        .filter(|(_, event_type, _, _)| event_type == "workflow.run.failed")
+        .map(|(_, _, _, payload)| payload["outcome"].clone())
+        .collect();
+    let parks = if on_error.is_none() {
+        vec![json!("parked")]
+    } else {
+        Vec::new()
+    };
+    assert_eq!(run_failures, parks);
     assert_eq!(
         harness.faults("settlementWriteFailed").len(),
         write_failures

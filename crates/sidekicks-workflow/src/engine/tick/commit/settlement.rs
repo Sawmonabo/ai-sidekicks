@@ -15,7 +15,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::events::WorkflowGateReachedPayload;
-use sidekicks_contracts::workflow::run::status::WorkflowWaitCause;
+use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 use sidekicks_contracts::workflow::run::step::events::{
     WorkflowPhaseCancellationReason, WorkflowPhaseCompletedPayload, WorkflowPhaseFailedPayload,
     WorkflowPhaseSuspendedPayload, WorkflowStepCanceledPayload, WorkflowStepCompletedPayload,
@@ -59,8 +59,14 @@ impl RunTurnCommit {
                 log_lines,
                 run_variables,
             } => {
-                self.complete(step, at, outputs, cost, log_lines, run_variables)
-                    .await
+                let answer = self
+                    .complete(step, at, outputs, cost, log_lines, run_variables)
+                    .await?;
+                self.counts.moved(
+                    Some(reported.standing()),
+                    (WorkflowStepStatus::Succeeded, None),
+                );
+                Ok(answer)
             }
             StepSettlement::Failed { failure, log_lines } => {
                 self.fail(step, at, failure, log_lines, reported).await
@@ -101,14 +107,17 @@ impl RunTurnCommit {
                 if matches!(ask, PersonAsk::Approval { .. }) {
                     self.push(
                         at,
-                        SessionEvent::WorkflowGateReached(WorkflowGateReachedPayload {
-                            session_id: self.keys.session_id,
-                            workflow_run_id: step.workflow_run_id,
-                            definition_id: self.keys.definition_id,
-                            workflow_version_id: self.keys.workflow_version_id,
-                        }),
+                        SessionEvent::WorkflowGateReached(run_payload!(
+                            WorkflowGateReachedPayload,
+                            self.keys,
+                            step.workflow_run_id,
+                        )),
                     );
                 }
+                self.counts.moved(
+                    Some(reported.standing()),
+                    (WorkflowStepStatus::Waiting, Some(opened.cause)),
+                );
                 let wait_opened = StepMove::WaitOpened {
                     cause: opened.cause,
                     deadline_at: opened.deadline_at.clone(),
@@ -134,6 +143,13 @@ impl RunTurnCommit {
                 ));
                 let suspended = account_suspended(self, &step, provider_account_id);
                 self.push(at, suspended);
+                self.counts.moved(
+                    Some(reported.standing()),
+                    (
+                        WorkflowStepStatus::Waiting,
+                        Some(WorkflowWaitCause::Account),
+                    ),
+                );
                 self.moves
                     .push((step.clone(), StepMove::Settled(StepEnding::AccountSpent)));
                 self.moves.push((
@@ -176,6 +192,10 @@ impl RunTurnCommit {
                     )),
                 );
                 let readying_event = self.events.len() - 1;
+                self.counts.moved(
+                    Some(reported.standing()),
+                    (WorkflowStepStatus::Canceled, None),
+                );
                 self.moves
                     .push((step, StepMove::Settled(StepEnding::Canceled)));
                 Ok(SettlementAnswer::Canceled { readying_event })
@@ -371,6 +391,13 @@ impl RunTurnCommit {
             )),
         );
         let readying_event = self.events.len() - 1;
+        self.counts.moved(
+            Some(reported.standing()),
+            (WorkflowStepStatus::Failed, None),
+        );
+        if matches!(route, StepFailureRoute::Park) {
+            self.counts.parked();
+        }
         self.moves
             .push((step, StepMove::Settled(StepEnding::Failed(failure))));
         Ok(match route {

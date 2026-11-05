@@ -8,7 +8,7 @@ use std::sync::LazyLock;
 use rusqlite::types::Value;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
-use sidekicks_contracts::wire::id::UuidTextForm;
+use sidekicks_contracts::wire::id::{UuidText, UuidTextForm};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
@@ -66,8 +66,19 @@ static CANCEL_STEP_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE workflow_steps
   SET status = '{canceled}', finished_at = @finished_at,
-      total_pool_wait_ms = total_pool_wait_ms + @pool_wait_ms
+      total_pool_wait_ms = total_pool_wait_ms + @pool_wait_ms, {CLEAR_WAIT_COLUMNS_SQL}
   WHERE {STEP_KEY_SQL}"
+    )
+});
+
+// Matches only while the step still holds the wait it is resumed from, so a resume of a wait the
+// row no longer holds refuses its write.
+static RESUME_STEP_SQL: LazyLock<String> = LazyLock::new(|| {
+    let running = <&'static str>::from(WorkflowStepStatus::Running);
+    let waiting = <&'static str>::from(WorkflowStepStatus::Waiting);
+    format!(
+        "UPDATE workflow_steps SET status = '{running}', {CLEAR_WAIT_COLUMNS_SQL}
+  WHERE {STEP_KEY_SQL} AND status = '{waiting}' AND wait_id IS @wait_id"
     )
 });
 
@@ -194,8 +205,8 @@ pub(crate) fn set_step_permission_level(
     )
 }
 
-/// Moves `step` to `canceled`, ended at `finished_at`, adding `pool_wait_ms`, the time a hold the
-/// cancel cut ran since its last report.
+/// Moves `step` to `canceled`, ended at `finished_at`, with every wait column emptied, adding
+/// `pool_wait_ms`, the time a hold the cancel cut ran since its last report.
 pub(crate) fn cancel_step(
     step: &WorkflowStepKey,
     finished_at: &WireInstant,
@@ -208,6 +219,24 @@ pub(crate) fn cancel_step(
             text_binding("@finished_at", finished_at.as_str()),
             pool_wait_binding(pool_wait_ms),
         ],
+    )
+}
+
+/// Moves `step` from `waiting` back to `running` with every wait column emptied, while it still
+/// waits under `wait_id`, `None` for a wait with no id (a chain's question); the write is refused
+/// at this statement when the row no longer holds that wait.
+pub(crate) fn resume_step(
+    step: &WorkflowStepKey,
+    wait_id: Option<&UuidTextForm>,
+) -> WriteStatement {
+    let wait_id = wait_id.map(UuidTextForm::text);
+    keyed_statement(
+        &RESUME_STEP_SQL,
+        step,
+        vec![nullable_text_binding(
+            "@wait_id",
+            wait_id.as_ref().map(UuidText::as_str),
+        )],
     )
 }
 

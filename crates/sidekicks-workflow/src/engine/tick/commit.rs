@@ -6,14 +6,19 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use sidekicks_contracts::approval::ApprovalDecision;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::workflow::definition::document::WorkflowNode;
+use sidekicks_contracts::workflow::definition::document::{WorkflowNode, WorkflowNodeId};
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
-use sidekicks_contracts::workflow::run::status::WorkflowWaitCause;
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use sidekicks_contracts::workflow::run::status::{
+    WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
+};
 use sidekicks_contracts::workflow::run::step::events::{
     WorkflowParallelJoinBranchesCanceledPayload, WorkflowPhaseAdmittedPayload,
     WorkflowPhaseCancelingPayload, WorkflowPhaseProgressedPayload, WorkflowPhaseRetriedPayload,
@@ -26,7 +31,9 @@ use sidekicks_store::events::session::appender::{
     SessionEventAppender, SessionEventDraft, SessionEventEmitError, SessionEventLinkage,
 };
 
-use super::run_status::whole_milliseconds_between;
+use super::run_status::{
+    GoingRunStatus, RunPersonWait, RunStepCounts, going_run_status, whole_milliseconds_between,
+};
 use super::walk::{WalkReady, WalkSkip};
 use super::{BranchCancelReason, StepReport, StepReportKind};
 use crate::engine::event_record::{EngineDecision, RunEngineRecord, StepEnding, StepTransition};
@@ -55,7 +62,24 @@ macro_rules! step_payload {
     };
 }
 
+/// A run event's payload: the run `$run_id` with the session, definition and version `$keys`
+/// name, then `$member`s.
+macro_rules! run_payload {
+    ($payload:ident, $keys:expr, $run_id:expr $(, $member:ident: $value:expr)* $(,)?) => {
+        $payload {
+            session_id: $keys.session_id,
+            workflow_run_id: $run_id,
+            definition_id: $keys.definition_id,
+            workflow_version_id: $keys.workflow_version_id,
+            $($member: $value,)*
+        }
+    };
+}
+
+mod run_events;
 mod settlement;
+
+pub(crate) use run_events::RunLiveStep;
 
 /// One run's events and row statements for this turn, in the order handed: each event typed,
 /// with its instant, until the append drafts it, since a readied step adds to an event held.
@@ -63,6 +87,14 @@ mod settlement;
 pub(crate) struct RunTurnCommit {
     /// The run's session, whose log takes the write, its definition and the version it pins.
     keys: RunEventKeys,
+    /// The run.
+    run_id: WorkflowRunId,
+    /// The run's step counts, moved by each change the turn makes to a step.
+    counts: RunStepCounts,
+    /// The run's status as the turn found it.
+    status_before: GoingRunStatus,
+    /// The run's person-wait columns as the turn found them.
+    person_wait: RunPersonWait,
     /// The store of a payload above the inline cap, written before the append.
     payloads: Arc<dyn StepPayloadArtifacts>,
     /// The turn's events, in write order.
@@ -75,6 +107,9 @@ pub(crate) struct RunTurnCommit {
     artifact_ids: Vec<ArtifactId>,
     /// Each applied report that moved its step, recorded once the write commits.
     moves: Vec<(WorkflowStepKey, StepMove)>,
+    /// Each gate answer the turn writes, its outcome beside its approval step, recorded once the
+    /// write commits.
+    gates: Vec<(ApprovalDecision, Option<WorkflowNodeId>)>,
 }
 
 /// An event of the turn, at the instant it records.
@@ -131,6 +166,17 @@ pub(crate) struct ReportedStep<'tick> {
     pub(crate) spec: &'tick WorkflowNodeKindSpec,
     /// The step's input items, one list per input handle of `spec`.
     pub(crate) inputs: &'tick [Vec<WorkflowItem>],
+    /// Where the step stands before the report, which the run's step counts move it from.
+    pub(crate) status: WorkflowStepStatus,
+    /// What the step waits on, while it is `waiting`.
+    pub(crate) wait_cause: Option<WorkflowWaitCause>,
+}
+
+impl ReportedStep<'_> {
+    /// The step's status and wait cause before the report.
+    fn standing(&self) -> (WorkflowStepStatus, Option<WorkflowWaitCause>) {
+        (self.status, self.wait_cause)
+    }
 }
 
 /// What a settled step hands back to the tick, moved, never copied: what follows and what the
@@ -207,9 +253,10 @@ pub(crate) struct SettlementWriteFailure {
     pub(crate) artifact_ids: Vec<ArtifactId>,
 }
 
-/// What a committed turn answers: each event's sequence, in write order, and the readying
-/// sequence of each step whose `pending` row the write stored.
-#[derive(Debug, Default, PartialEq)]
+/// What a committed turn answers: each event's sequence, in write order, the readying sequence of
+/// each step whose `pending` row the write stored, and the run's step counts and person-wait
+/// columns after the turn, which the tick keeps for the run's next turn.
+#[derive(Debug, PartialEq)]
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct RunTurnCommitted {
     /// Each event's sequence, in write order.
@@ -217,6 +264,10 @@ pub(crate) struct RunTurnCommitted {
     /// Each step readied, beside the sequence of the event whose write readied it, which the tick
     /// keeps as that step's readying sequence.
     pub(crate) readied: Vec<(WorkflowStepKey, SafeInt<0>)>,
+    /// The run's step counts after the turn.
+    pub(crate) counts: RunStepCounts,
+    /// The run's person-wait columns after the turn.
+    pub(crate) person_wait: RunPersonWait,
 }
 
 /// Why a turn's write was not kept; none of it is stored.
@@ -232,18 +283,35 @@ pub(crate) struct RunTurnCommitFailure {
 
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 impl RunTurnCommit {
-    /// An empty turn of the run whose events name `keys`, storing a payload above the inline cap
-    /// through `payloads`.
-    pub(crate) fn new(keys: RunEventKeys, payloads: Arc<dyn StepPayloadArtifacts>) -> Self {
+    /// An empty turn of the run `run_id`, whose events name `keys`, with its step counts and
+    /// person-wait columns as the tick keeps them, storing a payload above the inline cap through
+    /// `payloads`.
+    pub(crate) fn new(
+        keys: RunEventKeys,
+        run_id: WorkflowRunId,
+        counts: RunStepCounts,
+        person_wait: RunPersonWait,
+        payloads: Arc<dyn StepPayloadArtifacts>,
+    ) -> Self {
         Self {
             keys,
+            run_id,
+            counts,
+            status_before: going_run_status(&counts),
+            person_wait,
             payloads,
             events: Vec::new(),
             statements: Vec::new(),
             pending: Vec::new(),
             artifact_ids: Vec::new(),
             moves: Vec::new(),
+            gates: Vec::new(),
         }
+    }
+
+    /// The run this turn writes.
+    pub(crate) fn run_id(&self) -> WorkflowRunId {
+        self.run_id
     }
 
     /// Applies `report` of `reported`, its events at its instant and its row changes after the
@@ -263,6 +331,10 @@ impl RunTurnCommit {
             StepReportKind::WaitingOnPool { hold_started_at } => {
                 if at == hold_started_at {
                     self.statements.push(hold_step(&step));
+                    self.counts.moved(
+                        Some(reported.standing()),
+                        (WorkflowStepStatus::WaitingMemory, None),
+                    );
                 } else {
                     let since = last_hold_report_at.unwrap_or(&hold_started_at);
                     let pool_wait_ms = whole_milliseconds_between(since, &at);
@@ -285,6 +357,11 @@ impl RunTurnCommit {
                 let pool_wait_ms =
                     held_milliseconds(hold_started_at.as_ref(), last_hold_report_at, &at);
                 self.statements.push(admit_step(&step, pool_wait_ms));
+                self.counts.moved(
+                    Some(reported.standing()),
+                    (WorkflowStepStatus::Running, None),
+                );
+                self.counts.admitted();
                 self.push(
                     &at,
                     SessionEvent::WorkflowPhaseAdmitted(step_payload!(
@@ -436,25 +513,162 @@ impl RunTurnCommit {
         self.add_pending(ready, input_ref, readying_event);
     }
 
-    /// Commits the turn through `appender` in one write: its last event appended with the others
-    /// before it and every statement ahead of the rows. Once it commits, each report that moved
-    /// its step goes to `record`. A turn with nothing writes nothing. Fails with
-    /// [`RunTurnCommitFailure`], nothing of the turn stored.
-    pub(crate) async fn append(
+    /// Commits the turn through `appender` in one write: its events, then the run event its
+    /// status move implies as the last, and every statement ahead of the rows, the run's own after
+    /// the steps'. `live_steps` are the run's steps the tick keeps live after the turn, which a
+    /// resumption point names beside the steps this turn readied. Once it commits, each report
+    /// that moved its step, each gate answer and the run's status go to `record`. A turn with
+    /// nothing writes nothing. Fails with [`RunTurnCommitFailure`], nothing of the turn stored.
+    pub(crate) async fn append<'tick>(
         self,
         appender: &SessionEventAppender,
         record: &RunEngineRecord,
+        live_steps: impl IntoIterator<Item = RunLiveStep<'tick>>,
     ) -> Result<RunTurnCommitted, RunTurnCommitFailure> {
+        let DraftedTurn {
+            session_id: _,
+            mut drafts,
+            statements,
+            artifact_ids,
+            answer,
+        } = self.drafted(live_steps)?;
+        let event_count = drafts.len();
+        let Some(last) = drafts.pop() else {
+            return Ok(answer.unwritten());
+        };
+        let linkage = SessionEventLinkage {
+            transactional_prelude: statements,
+            preceding_events: drafts,
+            ..SessionEventLinkage::default()
+        };
+        match appender.append(last, linkage).await {
+            Ok(receipt) => Ok(answer
+                .recorded(sequences_ending_at(receipt.sequence, event_count), record)
+                .await),
+            Err(error) => Err(RunTurnCommitFailure {
+                error: error.into(),
+                artifact_ids,
+            }),
+        }
+    }
+
+    /// Commits the turns of `writes`, each beside its run's live steps and record, in one write
+    /// across every session they live in, all or none: the turns of one session in one append, in
+    /// the order given, and the sessions in the order their first turn comes. Each turn is drafted
+    /// and answers as [`RunTurnCommit::append`] says. Every session's turns hold an event. Fails
+    /// with [`RunTurnCommitFailure`], nothing of any turn stored, naming every turn's artifacts;
+    /// a refused statement's index counts across the whole write.
+    pub(crate) async fn append_together<'tick>(
+        writes: Vec<(
+            RunTurnCommit,
+            Vec<RunLiveStep<'tick>>,
+            &'tick RunEngineRecord,
+        )>,
+        appender: &SessionEventAppender,
+    ) -> Result<Vec<RunTurnCommitted>, RunTurnCommitFailure> {
+        let mut drafted = Vec::with_capacity(writes.len());
+        let mut draft_error = None;
+        let mut artifact_ids = Vec::new();
+        for (commit, live_steps, record) in writes {
+            match commit.drafted(live_steps) {
+                Ok(turn) => {
+                    artifact_ids.extend(turn.artifact_ids.iter().copied());
+                    drafted.push((turn, record));
+                }
+                Err(failure) => {
+                    artifact_ids.extend(failure.artifact_ids);
+                    draft_error.get_or_insert(failure.error);
+                }
+            }
+        }
+        if let Some(error) = draft_error {
+            return Err(RunTurnCommitFailure {
+                error,
+                artifact_ids,
+            });
+        }
+        // Each session's turns, by their place in `drafted`, in the order the sessions first come.
+        let mut sessions: Vec<(SessionId, Vec<usize>)> = Vec::new();
+        for (place, (turn, _)) in drafted.iter().enumerate() {
+            match sessions
+                .iter_mut()
+                .find(|(session_id, _)| *session_id == turn.session_id)
+            {
+                Some((_, places)) => places.push(place),
+                None => sessions.push((turn.session_id, vec![place])),
+            }
+        }
+        let event_counts: Vec<usize> = drafted.iter().map(|(turn, _)| turn.drafts.len()).collect();
+        let mut appends = Vec::with_capacity(sessions.len());
+        for (_, places) in &sessions {
+            let mut drafts = Vec::new();
+            let mut statements = Vec::new();
+            for &place in places {
+                let turn = &mut drafted[place].0;
+                drafts.append(&mut turn.drafts);
+                statements.append(&mut turn.statements);
+            }
+            let last = drafts
+                .pop()
+                .expect("every session's turns of a write hold an event");
+            appends.push((
+                last,
+                SessionEventLinkage {
+                    transactional_prelude: statements,
+                    preceding_events: drafts,
+                    ..SessionEventLinkage::default()
+                },
+            ));
+        }
+        let receipts = match appender.append_together(appends).await {
+            Ok(receipts) => receipts,
+            Err(error) => {
+                return Err(RunTurnCommitFailure {
+                    error: error.into(),
+                    artifact_ids,
+                });
+            }
+        };
+        let mut sequences: Vec<Vec<SafeInt<0>>> = vec![Vec::new(); drafted.len()];
+        for ((_, places), receipt) in sessions.iter().zip(receipts) {
+            let session_count: usize = places.iter().map(|&place| event_counts[place]).sum();
+            let mut session_sequences =
+                sequences_ending_at(receipt.sequence, session_count).into_iter();
+            for &place in places {
+                sequences[place] = session_sequences
+                    .by_ref()
+                    .take(event_counts[place])
+                    .collect();
+            }
+        }
+        let mut committed = Vec::with_capacity(drafted.len());
+        for ((turn, record), turn_sequences) in drafted.into_iter().zip(sequences) {
+            committed.push(turn.answer.recorded(turn_sequences, record).await);
+        }
+        Ok(committed)
+    }
+
+    /// The turn drafted for its write: the run's status move added, then each event drafted at its
+    /// instant. Fails with [`RunTurnCommitFailure`] when an event does not draft.
+    fn drafted<'tick>(
+        mut self,
+        live_steps: impl IntoIterator<Item = RunLiveStep<'tick>>,
+    ) -> Result<DraftedTurn, RunTurnCommitFailure> {
+        let run_status = self.add_run_status_move(live_steps);
         let Self {
             keys,
+            run_id: _,
+            counts,
+            status_before: _,
+            person_wait,
             payloads: _,
             events,
             statements,
             pending,
             artifact_ids,
             moves,
+            gates,
         } = self;
-        let event_count = events.len();
         let drafted = events
             .into_iter()
             .map(|turn_event| {
@@ -464,51 +678,26 @@ impl RunTurnCommit {
                 )
             })
             .collect::<Result<Vec<_>, SessionEventEmitError>>();
-        let mut drafts = match drafted {
-            Ok(drafts) => drafts,
-            Err(error) => {
-                return Err(RunTurnCommitFailure {
-                    error,
-                    artifact_ids,
-                });
-            }
-        };
-        let Some(last) = drafts.pop() else {
-            return Ok(RunTurnCommitted::default());
-        };
-        let linkage = SessionEventLinkage {
-            transactional_prelude: statements,
-            preceding_events: drafts,
-            ..SessionEventLinkage::default()
-        };
-        let receipt = match appender.append(last, linkage).await {
-            Ok(receipt) => receipt,
-            Err(error) => {
-                return Err(RunTurnCommitFailure {
-                    error: error.into(),
-                    artifact_ids,
-                });
-            }
-        };
-        // One write's events take consecutive sequences, the last event the receipt's.
-        let event_count = SafeInt::from_usize(event_count).get();
-        let first = receipt.sequence.get() + 1 - event_count;
-        let event_sequences: Vec<SafeInt<0>> = (0..event_count)
-            .map(|offset| {
-                SafeInt::new(first + offset).expect("a sequence below the receipt's is safe")
-            })
-            .collect();
-        let readied = pending
-            .into_iter()
-            .map(|(step, readying_event)| (step, event_sequences[readying_event]))
-            .collect();
-        for (step, step_move) in &moves {
-            record.decision(Some(step), step_move.decision()).await;
+        match drafted {
+            Ok(drafts) => Ok(DraftedTurn {
+                session_id: keys.session_id,
+                drafts,
+                statements,
+                artifact_ids,
+                answer: TurnAnswer {
+                    pending,
+                    moves,
+                    gates,
+                    run_status,
+                    counts,
+                    person_wait,
+                },
+            }),
+            Err(error) => Err(RunTurnCommitFailure {
+                error,
+                artifact_ids,
+            }),
         }
-        Ok(RunTurnCommitted {
-            event_sequences,
-            readied,
-        })
     }
 
     /// Writes the `pending` row of `ready` on `input_ref` at the instant of the event at
@@ -519,6 +708,7 @@ impl RunTurnCommit {
         input_ref: WorkflowPayloadRef,
         readying_event: usize,
     ) {
+        self.counts.moved(None, (WorkflowStepStatus::Pending, None));
         self.statements.push(insert_pending_step(
             &ready.step,
             &ready.sources,
@@ -565,6 +755,84 @@ impl RunTurnCommit {
             self.artifact_ids.push(*artifact_id);
         }
     }
+}
+
+/// A turn drafted for its write: its session, its events and statements, the artifacts its
+/// payload refs name, and what it answers once the write commits.
+struct DraftedTurn {
+    session_id: SessionId,
+    drafts: Vec<SessionEventDraft>,
+    statements: Vec<WriteStatement>,
+    artifact_ids: Vec<ArtifactId>,
+    answer: TurnAnswer,
+}
+
+/// What a drafted turn records and answers once its write commits.
+struct TurnAnswer {
+    /// Each step whose `pending` row the turn writes, beside the index of the event it rides.
+    pending: Vec<(WorkflowStepKey, usize)>,
+    moves: Vec<(WorkflowStepKey, StepMove)>,
+    gates: Vec<(ApprovalDecision, Option<WorkflowNodeId>)>,
+    /// The status the turn stored on the run, where it moved it.
+    run_status: Option<WorkflowRunStatus>,
+    counts: RunStepCounts,
+    person_wait: RunPersonWait,
+}
+
+impl TurnAnswer {
+    /// The answer of a turn that wrote nothing: the counts and the columns as handed in.
+    fn unwritten(self) -> RunTurnCommitted {
+        RunTurnCommitted {
+            event_sequences: Vec::new(),
+            readied: Vec::new(),
+            counts: self.counts,
+            person_wait: self.person_wait,
+        }
+    }
+
+    /// The answer of a turn whose events committed at `event_sequences`, in write order, once
+    /// each move, gate answer and status move went to `record`.
+    async fn recorded(
+        self,
+        event_sequences: Vec<SafeInt<0>>,
+        record: &RunEngineRecord,
+    ) -> RunTurnCommitted {
+        let readied = self
+            .pending
+            .into_iter()
+            .map(|(step, readying_event)| (step, event_sequences[readying_event]))
+            .collect();
+        for (step, step_move) in &self.moves {
+            record.decision(Some(step), step_move.decision()).await;
+        }
+        for (outcome, node_id) in self.gates {
+            record
+                .decision(None, EngineDecision::GateResolved { outcome, node_id })
+                .await;
+        }
+        if let Some(status) = self.run_status {
+            record
+                .decision(None, EngineDecision::RunStatus(status))
+                .await;
+        }
+        RunTurnCommitted {
+            event_sequences,
+            readied,
+            counts: self.counts,
+            person_wait: self.person_wait,
+        }
+    }
+}
+
+/// The sequences of `count` events of one session's write, consecutive and ending at `last`.
+fn sequences_ending_at(last: SafeInt<0>, count: usize) -> Vec<SafeInt<0>> {
+    let count = SafeInt::from_usize(count).get();
+    let first = last.get() + 1 - count;
+    (0..count)
+        .map(|offset| {
+            SafeInt::new(first + offset).expect("a sequence below the last one's is safe")
+        })
+        .collect()
 }
 
 impl StepMove {

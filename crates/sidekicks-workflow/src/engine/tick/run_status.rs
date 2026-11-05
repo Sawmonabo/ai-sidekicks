@@ -4,6 +4,7 @@
 //! the log.
 
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 
 /// What the status rules read of a going run's steps, kept as counts so a write or the fold keeps
 /// them as it applies each change rather than scanning the run again.
@@ -31,6 +32,64 @@ pub(crate) struct RunStepCounts {
     /// Failed steps whose failure parks the run: failed under `onError: stop`, or by the crash
     /// sweep.
     pub(crate) parking_failures: usize,
+}
+
+impl RunStepCounts {
+    /// Moves one step from `from`, its status and wait cause, to `to`; `from` is `None` for a step
+    /// new to the run. A settled status counts nowhere.
+    pub(crate) fn moved(
+        &mut self,
+        from: Option<(WorkflowStepStatus, Option<WorkflowWaitCause>)>,
+        to: (WorkflowStepStatus, Option<WorkflowWaitCause>),
+    ) {
+        if let Some(from) = from {
+            self.count(from, false);
+        }
+        self.count(to, true);
+    }
+
+    /// Records that a step of the run was admitted.
+    pub(crate) fn admitted(&mut self) {
+        self.has_admitted_step = true;
+    }
+
+    /// Records a failed step whose failure parks the run.
+    pub(crate) fn parked(&mut self) {
+        self.parking_failures += 1;
+    }
+
+    // Counts one step in, or out of, the counts of `status`, and of its account wait.
+    fn count(
+        &mut self,
+        (status, wait_cause): (WorkflowStepStatus, Option<WorkflowWaitCause>),
+        is_in: bool,
+    ) {
+        let counted = match status {
+            WorkflowStepStatus::Pending => &mut self.pending,
+            WorkflowStepStatus::Running => &mut self.running,
+            WorkflowStepStatus::WaitingMemory => &mut self.waiting_memory,
+            WorkflowStepStatus::Waiting => &mut self.waiting,
+            WorkflowStepStatus::Succeeded
+            | WorkflowStepStatus::Failed
+            | WorkflowStepStatus::Skipped
+            | WorkflowStepStatus::Canceled => return,
+        };
+        shift(counted, is_in);
+        if status == WorkflowStepStatus::Waiting && wait_cause == Some(WorkflowWaitCause::Account) {
+            shift(&mut self.account_waits, is_in);
+        }
+    }
+}
+
+// Adds one to `count`, or takes one from it.
+fn shift(count: &mut usize, is_in: bool) {
+    *count = if is_in {
+        *count + 1
+    } else {
+        count
+            .checked_sub(1)
+            .expect("a step leaves only a status it was counted in")
+    };
 }
 
 /// A going run's status as its steps give it. The ended statuses never come from here: each comes
@@ -154,7 +213,7 @@ pub(crate) struct RunPersonWait {
     )
 )]
 pub(crate) fn person_wait_after(
-    before: &RunPersonWait,
+    before: RunPersonWait,
     change: Option<RunStatusChange>,
     leaves_waiting: bool,
     account_waits: usize,
@@ -165,18 +224,21 @@ pub(crate) fn person_wait_after(
             change,
             Some(RunStatusChange::Resumed | RunStatusChange::FailedPark)
         );
-    match &before.since {
+    match before.since {
         Some(since) if closes => RunPersonWait {
             since: None,
             total_ms: before
                 .total_ms
-                .saturating_add(whole_milliseconds_between(since, at)),
+                .saturating_add(whole_milliseconds_between(&since, at)),
         },
         None if change == Some(RunStatusChange::Waiting) && account_waits == 0 => RunPersonWait {
             since: Some(at.clone()),
             total_ms: before.total_ms,
         },
-        _ => before.clone(),
+        since => RunPersonWait {
+            since,
+            total_ms: before.total_ms,
+        },
     }
 }
 
@@ -287,14 +349,14 @@ mod tests {
         let nothing_open = RunPersonWait::default();
 
         let open = person_wait_after(
-            &nothing_open,
+            nothing_open.clone(),
             Some(RunStatusChange::Waiting),
             false,
             0,
             &opened_at,
         );
         assert_eq!(open.since, Some(opened_at.clone()));
-        let closed = person_wait_after(&open, Some(RunStatusChange::Resumed), false, 0, &closed_at);
+        let closed = person_wait_after(open, Some(RunStatusChange::Resumed), false, 0, &closed_at);
         assert_eq!(
             closed,
             RunPersonWait {
@@ -304,7 +366,7 @@ mod tests {
         );
 
         let on_an_account = person_wait_after(
-            &nothing_open,
+            nothing_open,
             Some(RunStatusChange::Waiting),
             false,
             1,
@@ -312,7 +374,7 @@ mod tests {
         );
         assert_eq!(on_an_account.since, None);
 
-        let closed_again = person_wait_after(&closed, None, true, 0, &closed_at);
+        let closed_again = person_wait_after(closed.clone(), None, true, 0, &closed_at);
         assert_eq!(closed_again, closed);
 
         let opened_later = RunPersonWait {
@@ -320,7 +382,7 @@ mod tests {
             total_ms: 1_500,
         };
         let closed_earlier = person_wait_after(
-            &opened_later,
+            opened_later,
             Some(RunStatusChange::FailedPark),
             true,
             0,

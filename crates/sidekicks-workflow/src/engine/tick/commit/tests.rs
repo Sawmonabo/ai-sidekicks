@@ -13,7 +13,9 @@ use sidekicks_contracts::workflow::definition::document::{
 };
 use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStepStatus};
+use sidekicks_contracts::workflow::run::status::{
+    WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
+};
 use sidekicks_contracts::workflow::run::step::events::{
     WorkflowReadiedStep, WorkflowStepSkipReason,
 };
@@ -30,6 +32,7 @@ use super::{ReportedStep, RunTurnCommit, RunTurnCommitted, SettlementAnswer};
 use crate::engine::event_record::{EngineRecorder, RunEngineRecord};
 use crate::engine::ports::kept_payloads::KeptPayloads;
 use crate::engine::ports::{EngineRecordSink, KeptEngineRecords, StepPayloadArtifacts};
+use crate::engine::tick::run_status::{RunPersonWait, RunStepCounts};
 use crate::engine::tick::walk::{WalkReady, WalkSkip};
 use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
 use crate::runs::gate_resolution::RunEventKeys;
@@ -39,7 +42,7 @@ use crate::test_rows::{
 };
 
 pub(super) const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e80";
-const VERSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e81";
+pub(super) const VERSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e81";
 const RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e82";
 const RUN_STARTED_AT: &str = "2026-10-02T00:00:00.000Z";
 
@@ -90,8 +93,26 @@ impl TurnHarness {
         }
     }
 
-    /// An empty turn of the harness's run, writing through its payload store.
+    /// An empty turn of the harness's run with two steps running, so a turn that settles one
+    /// leaves the run running, writing through its payload store.
     pub(super) fn commit(&self) -> RunTurnCommit {
+        self.commit_with(
+            RunStepCounts {
+                has_admitted_step: true,
+                running: 2,
+                ..RunStepCounts::default()
+            },
+            RunPersonWait::default(),
+        )
+    }
+
+    /// An empty turn of the harness's run with `counts` and `person_wait`, writing through its
+    /// payload store.
+    pub(super) fn commit_with(
+        &self,
+        counts: RunStepCounts,
+        person_wait: RunPersonWait,
+    ) -> RunTurnCommit {
         RunTurnCommit::new(
             RunEventKeys {
                 session_id: SessionId::new(TEST_SESSION_ID).expect("the test's session id"),
@@ -100,12 +121,15 @@ impl TurnHarness {
                 workflow_version_id: WorkflowVersionId::new(VERSION_ID)
                     .expect("the test's version id"),
             },
+            run_id(),
+            counts,
+            person_wait,
             Arc::clone(&self.payloads) as Arc<dyn StepPayloadArtifacts>,
         )
     }
 
-    /// The harness's node as the tick knows a step of it, readied by `readying_sequence`, its
-    /// hold last reported at `last_hold_report_at`, with no input.
+    /// The harness's node as the tick knows a running step of it, readied by
+    /// `readying_sequence`, its hold last reported at `last_hold_report_at`, with no input.
     pub(super) fn reported<'tick>(
         &'tick self,
         readying_sequence: SafeInt<0>,
@@ -117,12 +141,24 @@ impl TurnHarness {
             node: &self.node,
             spec: &self.spec,
             inputs: &[],
+            status: WorkflowStepStatus::Running,
+            wait_cause: None,
         }
     }
 
+    /// The harness's node as the tick knows a step of it waiting on `cause`, with no input.
+    pub(super) fn reported_waiting(&self, cause: WorkflowWaitCause) -> ReportedStep<'_> {
+        ReportedStep {
+            status: WorkflowStepStatus::Waiting,
+            wait_cause: Some(cause),
+            ..self.reported(sequence(0), None)
+        }
+    }
+
+    /// Commits `commit` with no step left live beside what it readied.
     pub(super) async fn append(&self, commit: RunTurnCommit) -> RunTurnCommitted {
         commit
-            .append(&self.appender, &self.record)
+            .append(&self.appender, &self.record, [])
             .await
             .expect("the turn's write commits")
     }
@@ -373,6 +409,13 @@ async fn a_turn_is_one_write_in_report_order() {
         RunTurnCommitted {
             event_sequences: (0..5).map(sequence).collect(),
             readied: vec![(ready.step.clone(), sequence(4))],
+            counts: RunStepCounts {
+                has_admitted_step: true,
+                running: 2,
+                pending: 1,
+                ..RunStepCounts::default()
+            },
+            person_wait: RunPersonWait::default(),
         }
     );
     let events = harness.events();
@@ -420,7 +463,7 @@ async fn a_turn_is_one_write_in_report_order() {
     let skip_event = refused.skipped(&again, &empty_payload(), &empty_payload(), instant(t4));
     refused.readied(&ready, artifact_payload(refused_artifact), skip_event);
     let failure = refused
-        .append(&harness.appender, &harness.record)
+        .append(&harness.appender, &harness.record, [])
         .await
         .expect_err("a second row for one step refuses the write");
     assert!(
