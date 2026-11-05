@@ -1,11 +1,12 @@
 //! The stop of the lasting services the records keep: the erase's, and the daemon's, which leaves
 //! a live service's record, a launch's and a join's under way among them, to its supervisor.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
+use interprocess::local_socket::tokio::Listener;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use sidekicks_platforms::{
     CAN_LINK_A_SOCKET, CAN_SIGNAL_A_STOP, LeftoverSweep, POSIX_SHELL, ProcessRecord,
@@ -13,24 +14,28 @@ use sidekicks_platforms::{
     shell_line_command,
 };
 use tokio::io::AsyncReadExt as _;
+use tokio::task::JoinHandle;
 use tokio::time::{Instant, timeout};
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
-use crate::driver::codex::service::process::repin_lasting_codex_service;
-use crate::driver::codex::service::record::{LastingServiceRecord, LastingServiceRecordFile};
+use crate::driver::codex::service::process::{CodexProcessLaunch, repin_lasting_codex_service};
+use crate::driver::codex::service::record::{
+    LastingServiceRecord, LastingServiceRecordFile, LockedServiceRecord,
+};
 use crate::driver::codex::service::supervisor::own_record::socket_record_file;
 use crate::driver::codex::service::supervisor::start::kept_records::{
     KeptServicesStop, lock_record, stop_kept_services,
 };
 use crate::driver::codex::service::supervisor::start::terminal::join_former_service;
 use crate::driver::codex::service::supervisor::start::{
-    compose_launch, launch_lasting_service, name_lasting_log_file,
+    LaunchedLastingService, StartFailure, compose_launch, launch_lasting_service,
+    name_lasting_log_file,
 };
 use crate::driver::codex::service::supervisor::test_service::{
-    STAND_IN_CODEX, TestCodexProgram, UnheardEvents, bind_test_listener,
-    test_codex_service_dependencies, write_failing_codex,
+    STAND_IN_CODEX, StandInReplies, TestCodexProgram, UnheardEvents, answer_as_codex_service,
+    bind_test_listener, test_codex_service_dependencies, write_failing_codex,
 };
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceSocket};
 
@@ -228,26 +233,28 @@ async fn a_daemon_stop_of_kept_records_leaves_a_live_service_s_record_to_its_sup
     );
 }
 
-// Fails when a launch on a socket of its own beside the home's, as a terminal service launches
-// beside a draining one, publishes its record after a daemon stop began and before the stop takes
-// the folder's lock, and the kept stop ends it and removes its record beside the start's own
-// teardown; or when the failed launch leaves its record named the service's in place of the home
-// socket's. Killed by dropping the launch's publish of its record file before it writes the
-// record, by reading the live records before the folder's lock, and by dropping the failure's
-// restore of the name before it.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_daemon_stop_leaves_a_launch_beside_under_way_to_its_supervisor() {
-    if !CAN_SIGNAL_A_STOP {
-        return;
-    }
-    let folder = tempfile::tempdir().expect("a scratch folder is made");
-    let home_socket = folder.path().join("home.sock");
-    let own_socket = folder.path().join("own.sock");
-    // Held unanswered, so the launch is under way once its dial is accepted.
-    let Some(listener) = bind_test_listener(&own_socket) else {
-        return;
-    };
-    let program = folder.path().join("codex");
+// A terminal service on the home socket of `folder`, set to launch beside it on a socket of its
+// own, its listener bound and handed back for the test to answer, with the home socket's record
+// keeping a running stand-in and named the service's, as a former start left it.
+struct BesideLaunch {
+    service: Arc<CodexService>,
+    // Taken by the one launch the set-up is for.
+    process_launch: Option<CodexProcessLaunch>,
+    log_file: PathBuf,
+    own_socket: PathBuf,
+    listener: Listener,
+    data_folder: PathBuf,
+    home_record: LastingServiceRecordFile,
+    beside_record: LastingServiceRecordFile,
+    _home_service: tokio::process::Child,
+}
+
+// Sets up a launch beside the home's under `folder`; `None` where the system binds no listener.
+async fn prepare_beside_launch(folder: &Path) -> Option<BesideLaunch> {
+    let home_socket = folder.join("home.sock");
+    let own_socket = folder.join("own.sock");
+    let listener = bind_test_listener(&own_socket)?;
+    let program = folder.join("codex");
     create_file_atomically(
         &program,
         STAND_IN_CODEX.as_bytes(),
@@ -256,7 +263,7 @@ async fn a_daemon_stop_leaves_a_launch_beside_under_way_to_its_supervisor() {
     )
     .expect("the stand-in is written");
     let dependencies = test_codex_service_dependencies(
-        folder.path(),
+        folder,
         Arc::new(TestCodexProgram {
             program,
             environment: vec![("PATH".to_owned(), "/usr/bin:/bin".to_owned())],
@@ -297,20 +304,87 @@ async fn a_daemon_stop_leaves_a_launch_beside_under_way_to_its_supervisor() {
     };
     let log_file = name_lasting_log_file(&service)
         .unwrap_or_else(|failure| panic!("the log is named: {:?}", failure.error));
-    // The home socket's record, which a former start of the service named its own and which keeps
-    // a running service, so the stop finds the folder before the launch writes its own record.
+    // A running service in it, so a stop finds the folder before the launch writes its record.
     let home_record = socket_record_file(&service).expect("the home's record file is named");
-    let _home_service =
+    let home_service =
         spawn_recorded_stand_in(&home_record, &home_socket, "echo; exec sleep 60").await;
     service.set_process_record_file(Some(home_record.clone()));
     let beside_record = LastingServiceRecordFile::of_socket(&data_folder, &codex_home, &own_socket)
         .expect("the record file is named");
-    // The folder's lock, held as a start holds it across its launch.
-    let locked = lock_record(beside_record.clone())
+    Some(BesideLaunch {
+        service,
+        process_launch: Some(process_launch),
+        log_file,
+        own_socket,
+        listener,
+        data_folder,
+        home_record,
+        beside_record,
+        _home_service: home_service,
+    })
+}
+
+// Launches `beside` under `locked`, stood down by `cancel`, on a task of its own.
+fn spawn_beside_launch(
+    beside: &mut BesideLaunch,
+    locked: &Arc<LockedServiceRecord>,
+    cancel: &CancellationToken,
+) -> JoinHandle<Result<LaunchedLastingService, StartFailure>> {
+    let (service, locked, cancel) = (
+        Arc::clone(&beside.service),
+        Arc::clone(locked),
+        cancel.clone(),
+    );
+    let (log_file, own_socket) = (beside.log_file.clone(), beside.own_socket.clone());
+    let process_launch = beside
+        .process_launch
+        .take()
+        .expect("the set-up is for one launch");
+    tokio::spawn(async move {
+        launch_lasting_service(
+            &service,
+            1,
+            &cancel,
+            process_launch,
+            &log_file,
+            &locked,
+            &own_socket,
+        )
+        .await
+    })
+}
+
+// Ends every stand-in a record under `data_folder` keeps, which outlives the test otherwise.
+async fn end_recorded_stand_ins(data_folder: PathBuf) {
+    stop_kept_services(
+        data_folder,
+        KeptServicesStop::DaemonStop {
+            deadline: Instant::now() + Duration::from_secs(5),
+        },
+        &[],
+    )
+    .await;
+}
+
+// Fails when a launch on a socket of its own beside the home's, as a terminal service launches
+// beside a draining one, publishes its record after a daemon stop began and before the stop takes
+// the folder's lock, which the start holds across its launch, and the kept stop then ends it and
+// removes its record. Killed by dropping the launch's publish of its record file and by reading
+// the live records before the folder's lock.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_daemon_stop_leaves_a_launch_beside_published_after_it_began_to_its_supervisor() {
+    if !CAN_SIGNAL_A_STOP {
+        return;
+    }
+    let folder = tempfile::tempdir().expect("a scratch folder is made");
+    let Some(mut beside) = prepare_beside_launch(folder.path()).await else {
+        return;
+    };
+    let locked = lock_record(beside.beside_record.clone())
         .await
         .unwrap_or_else(|failure| panic!("the record locks: {:?}", failure.error));
     let stopping = tokio::spawn({
-        let (data_folder, service) = (data_folder.clone(), Arc::clone(&service));
+        let (data_folder, service) = (beside.data_folder.clone(), Arc::clone(&beside.service));
         async move {
             stop_kept_services(
                 data_folder,
@@ -324,33 +398,28 @@ async fn a_daemon_stop_leaves_a_launch_beside_under_way_to_its_supervisor() {
     });
     // Lets the stop list the folder and wait on its lock before the launch publishes.
     tokio::time::sleep(Duration::from_millis(200)).await;
-    let cancel = CancellationToken::new();
-    let launching = tokio::spawn({
-        let (service, locked, cancel) = (Arc::clone(&service), Arc::clone(&locked), cancel.clone());
-        async move {
-            launch_lasting_service(
-                &service,
-                1,
-                &cancel,
-                process_launch,
-                &log_file,
-                &locked,
-                &own_socket,
-            )
-            .await
-        }
-    });
-    let held = timeout(Duration::from_secs(10), listener.accept())
+    let launching = spawn_beside_launch(&mut beside, &locked, &CancellationToken::new());
+    let stream = timeout(Duration::from_secs(10), beside.listener.accept())
         .await
         .expect("the launch dials within its wait")
         .expect("the dial is accepted");
+    tokio::spawn(answer_as_codex_service(
+        stream,
+        StandInReplies::default(),
+        |_request| {},
+    ));
+    let launched = timeout(Duration::from_secs(10), launching)
+        .await
+        .expect("the launch ends")
+        .expect("the launch's task ends");
 
     drop(locked);
-    let failures = timeout(Duration::from_secs(10), stopping)
+    let failures = timeout(Duration::from_secs(15), stopping)
         .await
         .expect("the stop ends")
         .expect("the stop's task ends");
-    let kept = beside_record
+    let kept = beside
+        .beside_record
         .lock()
         .and_then(|locked| locked.read())
         .expect("the record reads");
@@ -359,36 +428,60 @@ async fn a_daemon_stop_leaves_a_launch_beside_under_way_to_its_supervisor() {
             .expect("the process table reads")
             .is_some()
     });
-    drop((held, listener));
+    let is_launched = launched.is_ok();
+    drop(launched);
+    end_recorded_stand_ins(beside.data_folder).await;
+
+    assert!(
+        is_launched,
+        "the launch failed on a socket answered as Codex"
+    );
+    assert!(failures.is_empty(), "{failures:?}");
+    assert!(
+        kept.is_some(),
+        "the kept stop removed a launch's record published under the start's hold"
+    );
+    assert!(
+        is_running,
+        "the kept stop ended a launch published under the start's hold"
+    );
+}
+
+// Fails when a launch beside the home's that fails, here stood down while its dial waits, leaves
+// its record named the service's in place of the home socket's, so the service's retire and its
+// next start act on the failed launch's record. Killed by dropping the failure's restore of the
+// name before the launch.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_launch_beside_leaves_the_home_socket_s_record_the_service_s() {
+    let folder = tempfile::tempdir().expect("a scratch folder is made");
+    let Some(mut beside) = prepare_beside_launch(folder.path()).await else {
+        return;
+    };
+    let locked = lock_record(beside.beside_record.clone())
+        .await
+        .unwrap_or_else(|failure| panic!("the record locks: {:?}", failure.error));
+    let cancel = CancellationToken::new();
+    let launching = spawn_beside_launch(&mut beside, &locked, &cancel);
+    let held = timeout(Duration::from_secs(10), beside.listener.accept())
+        .await
+        .expect("the launch dials within its wait")
+        .expect("the dial is accepted");
+    let named_under_way = beside.service.process_record_file();
+
+    drop(held);
     cancel.cancel();
     let launched = timeout(Duration::from_secs(10), launching)
         .await
         .expect("the stood-down launch ends")
         .expect("the launch's task ends");
-    // The failure hands back the launched process for a teardown this test leaves undone.
-    let Err(_failure) = launched else {
-        panic!("the launch answered on a socket held unanswered");
-    };
-    let named = service.process_record_file();
-    // Ends the stand-ins, which outlive this test otherwise, before any assertion can fail.
-    stop_kept_services(
-        data_folder,
-        KeptServicesStop::DaemonStop {
-            deadline: Instant::now() + Duration::from_secs(5),
-        },
-        &[],
-    )
-    .await;
+    let named = beside.service.process_record_file();
+    drop((launched, locked));
+    end_recorded_stand_ins(beside.data_folder).await;
 
-    assert!(failures.is_empty(), "{failures:?}");
-    assert!(
-        kept.is_some(),
-        "the kept stop removed a launch's record under way"
-    );
-    assert!(is_running, "the kept stop ended a launch under way");
+    assert_eq!(named_under_way, Some(beside.beside_record));
     assert_eq!(
         named,
-        Some(home_record),
+        Some(beside.home_record),
         "a failed launch left its record named the service's"
     );
 }
