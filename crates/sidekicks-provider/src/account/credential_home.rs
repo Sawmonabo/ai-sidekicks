@@ -336,10 +336,8 @@ pub async fn sign_out_every_home<S: BuildHasher>(
     let data_folder = data_folder.to_path_buf();
     let homes = reads
         .read(ReadLength::Short, move |connection| {
-            Ok(homes_to_erase(
-                query_account_homes(connection)?,
-                &data_folder,
-            )?)
+            let rows = query_account_homes(connection)?;
+            homes_to_erase(rows, &data_folder).map_err(AccountHomesReadError::Marks)
         })
         .await?;
     let accounts = homes
