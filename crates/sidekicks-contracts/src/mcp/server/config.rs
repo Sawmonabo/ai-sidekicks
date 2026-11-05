@@ -464,6 +464,15 @@ pub struct ProviderMcpDeclaration {
 }
 
 impl McpServerConfigInput {
+    /// The switch the declaration asks for; `None` keeps the provider's.
+    pub fn enabled(&self) -> Option<bool> {
+        match self {
+            Self::Stdio { enabled, .. }
+            | Self::Http { enabled, .. }
+            | Self::Sse { enabled, .. } => *enabled,
+        }
+    }
+
     /// The declaration's transport.
     pub fn transport(&self) -> McpTransport {
         match self {
