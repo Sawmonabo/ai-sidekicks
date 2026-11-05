@@ -589,12 +589,15 @@ async fn a_git_folder_that_is_gone_or_not_named_is_unavailable(
 // Stores `session_id`'s row and the project mount its workspaces are of.
 fn store_session_and_mount(connection: &Connection, session_id: SessionId) {
     insert_session_row(connection, session_id.text().as_str(), None, None);
-    for row in project_and_mount_rows("mount", None) {
+    for row in project_and_mount_rows(MOUNT_ID, None) {
         connection
             .execute_batch(&row)
             .expect("the project and its mount are stored");
     }
 }
+
+// The project and mount every session of these tests works in, a UUID as a project id reads.
+const MOUNT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e74";
 
 // Stores a workspace `id` of `session_id` in `state`, prepared at `fs_root` where it names one.
 fn insert_workspace(
@@ -610,7 +613,7 @@ fn insert_workspace(
         .execute(
             "INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, fs_root, \
              state, metadata, created_at, updated_at) \
-             VALUES (?1, ?2, 'mount', ?3, ?4, ?5, ?6, ?7, ?7)",
+             VALUES (?1, ?2, ?8, ?3, ?4, ?5, ?6, ?7, ?7)",
             params![
                 id,
                 session_id.text().as_str(),
@@ -618,7 +621,8 @@ fn insert_workspace(
                 fs_root,
                 <&'static str>::from(state),
                 metadata.to_string(),
-                at
+                at,
+                MOUNT_ID
             ],
         )
         .expect("the test stores a workspace");
