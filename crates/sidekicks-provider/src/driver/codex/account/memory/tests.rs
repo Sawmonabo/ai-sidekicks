@@ -28,56 +28,87 @@ enum HomeFolder {
 }
 
 // Codex's own rule picks a home's store: a set version over everything else, else the second for a
-// fresh home with the feature on and dual writes not off, else the first.
+// fresh home with the feature on and dual writes not off, else the first. A requirement's pin of
+// the feature wins over the config's, and the feature's own key over its legacy `memory_tool`.
 #[rstest]
 // Killed by a set version ignored.
 #[case::set_first(
     json!({"features": {"memories": true}, "memories": {"version": "v1"}}),
+    None,
     HomeFolder::WithoutFirstStore,
     CodexMemoryStore::First
 )]
 // Killed by the folder or `dual_write` read over a set version.
 #[case::set_second(
     json!({"memories": {"version": "v2", "dual_write": false}}),
+    None,
     HomeFolder::WithFirstStore,
     CodexMemoryStore::Second
 )]
 // Killed by a fixed `memories/`.
 #[case::fresh_home(
     json!({"features": {"memories": true}}),
+    None,
     HomeFolder::WithoutFirstStore,
     CodexMemoryStore::Second
 )]
 // Killed by the second picked whatever stands.
 #[case::first_store_stands(
     json!({"features": {"memories": true}}),
+    None,
     HomeFolder::WithFirstStore,
     CodexMemoryStore::First
 )]
 // Killed by `dual_write = false` ignored.
 #[case::dual_write_off(
     json!({"features": {"memories": true}, "memories": {"dual_write": false}}),
+    None,
     HomeFolder::WithoutFirstStore,
     CodexMemoryStore::First
 )]
 // Killed by `dual_write` read as "must be unset".
 #[case::dual_write_on(
     json!({"features": {"memories": true}, "memories": {"dual_write": true}}),
+    None,
     HomeFolder::WithoutFirstStore,
     CodexMemoryStore::Second
 )]
 // Killed by the feature ignored.
-#[case::feature_off(json!({}), HomeFolder::WithoutFirstStore, CodexMemoryStore::First)]
+#[case::feature_off(json!({}), None, HomeFolder::WithoutFirstStore, CodexMemoryStore::First)]
 // Killed by a failed check read as "absent", failing open. A path holding a NUL byte fails the
 // check before any system call, on every system.
 #[case::check_fails(
     json!({"features": {"memories": true}}),
+    None,
     HomeFolder::Unreadable,
+    CodexMemoryStore::First
+)]
+// Killed by the requirements left unread, and by the config's switch read over a requirement's.
+#[case::required_on(
+    json!({"features": {"memories": false}}),
+    Some(json!({"memories": true})),
+    HomeFolder::WithoutFirstStore,
+    CodexMemoryStore::Second
+)]
+// Killed by the legacy key ignored.
+#[case::legacy_key_on(
+    json!({"features": {"memory_tool": true}}),
+    None,
+    HomeFolder::WithoutFirstStore,
+    CodexMemoryStore::Second
+)]
+// Killed by the legacy key read over the feature's own, and by a requirement that turns the
+// feature off ignored where the config turns it on.
+#[case::own_key_wins_in_requirements(
+    json!({"features": {"memories": true}}),
+    Some(json!({"memories": false, "memory_tool": true})),
+    HomeFolder::WithoutFirstStore,
     CodexMemoryStore::First
 )]
 #[tokio::test]
 async fn codex_picks_a_homes_memory_store_by_its_own_rule(
     #[case] config: Value,
+    #[case] feature_requirements: Option<Value>,
     #[case] home_folder: HomeFolder,
     #[case] expected: CodexMemoryStore,
 ) {
@@ -91,8 +122,11 @@ async fn codex_picks_a_homes_memory_store_by_its_own_rule(
         }
         HomeFolder::Unreadable => scratch.path().join("memory\0home"),
     };
-    let settings = CodexMemorySettings::read(config.as_object().expect("a config is an object"))
-        .expect("the settings read");
+    let requirements = json!({
+        "requirements": feature_requirements
+            .map(|features| json!({"featureRequirements": features})),
+    });
+    let settings = CodexMemorySettings::read(config, requirements).expect("the settings read");
 
     assert_eq!(resolve_codex_memory_store(&home, settings).await, expected);
 }
@@ -129,12 +163,20 @@ async fn codex_legs(
 }
 
 // Answers the import's config read on `scripted` with `config`, asserting it is Codex's config
-// read for no project folder.
+// read for no project folder, then its requirements read with none set.
 async fn answer_config_read(scripted: &mut ScriptedCodexService, config: &Value) {
     let config_read = scripted.script.next_sent().await;
     assert_eq!(config_read["method"], "config/read", "{config_read}");
     assert!(config_read["params"]["cwd"].is_null(), "{config_read}");
     scripted.script.answer(&config_read, config);
+    let requirements_read = scripted.script.next_sent().await;
+    assert_eq!(
+        requirements_read["method"], "configRequirements/read",
+        "{requirements_read}"
+    );
+    scripted
+        .script
+        .answer(&requirements_read, &json!({"requirements": null}));
 }
 
 // Codex's own memories land in the account's home and in the switching home, each file counted

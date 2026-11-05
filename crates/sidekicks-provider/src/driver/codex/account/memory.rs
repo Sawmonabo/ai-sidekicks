@@ -7,7 +7,9 @@
 use std::io;
 use std::path::Path;
 
-use serde_json::{Map, Value};
+use serde::Deserialize;
+use serde::de::DeserializeOwned;
+use serde_json::Value;
 use tokio::runtime::Handle;
 
 use crate::account::credential_home::CredentialHome;
@@ -15,23 +17,23 @@ use crate::driver::codex::account::CodexAccountLegs;
 use crate::driver::codex::config_read::read_codex_config;
 use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
 use crate::driver::codex::service::registry::{CodexServiceRegistry, switching_home};
+use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::transport::connection::read_codex_object;
 use crate::driver::contract::account::MemoryImportStore;
 
-// The dotted keys of a Codex config that pick a home's memory store: the feature table and its
-// memory switch, and the memory table with the store it names and whether both stores are written.
-const FEATURES_KEY: &str = "features";
-const FEATURES_MEMORIES_KEY: &str = "features.memories";
-const MEMORIES_KEY: &str = "memories";
-const MEMORIES_VERSION_KEY: &str = "memories.version";
-const MEMORIES_DUAL_WRITE_KEY: &str = "memories.dual_write";
+/// The request that reads the requirements Codex's managed policy sets, `[features]` pins among
+/// them.
+const CONFIG_REQUIREMENTS_READ_METHOD: &str = "configRequirements/read";
 
 /// One of a Codex home's two memory stores: the first, `memories/`, which
 /// `memories.version = "v1"` names, or the second, `memories_v2/`, which `"v2"` names.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 pub(crate) enum CodexMemoryStore {
     /// The first store, `memories/`.
+    #[serde(rename = "v1")]
     First,
     /// The second store, `memories_v2/`.
+    #[serde(rename = "v2")]
     Second,
 }
 
@@ -45,67 +47,96 @@ impl CodexMemoryStore {
     }
 }
 
-/// The three settings Codex picks a home's memory store by, as a Codex config sets them.
+// What a Codex config sets of the memory feature and the memory stores; an absent or `null` key
+// is unset, and every other key is left unread.
+#[derive(Deserialize)]
+struct CodexMemoryConfig {
+    features: Option<CodexMemoryFeature>,
+    memories: Option<CodexMemoryTable>,
+}
+
+// The memory feature's switch in a table of features, under its own key or its legacy one.
+#[derive(Deserialize)]
+struct CodexMemoryFeature {
+    memories: Option<bool>,
+    memory_tool: Option<bool>,
+}
+
+impl CodexMemoryFeature {
+    // The switch, its own key winning where both are set, as Codex reads them.
+    fn switch(&self) -> Option<bool> {
+        self.memories.or(self.memory_tool)
+    }
+}
+
+// The memory table: the store it names and whether both stores are written.
+#[derive(Deserialize)]
+struct CodexMemoryTable {
+    version: Option<CodexMemoryStore>,
+    dual_write: Option<bool>,
+}
+
+// A `configRequirements/read` reply, as far as the features its policy pins.
+#[derive(Deserialize)]
+struct CodexRequirementsRead {
+    requirements: Option<CodexFeatureRequirements>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CodexFeatureRequirements {
+    feature_requirements: Option<CodexMemoryFeature>,
+}
+
+/// The three settings Codex picks a home's memory store by, as its config and its requirements
+/// set them.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct CodexMemorySettings {
     // The store `memories.version` names; `None` where it is unset.
     version: Option<CodexMemoryStore>,
-    // Whether `features.memories` turns the memory feature on; off where it is unset.
+    // Whether the memory feature is on: as a requirement pins it, else as the config sets it; off
+    // where neither does.
     is_memory_feature_on: bool,
     // `memories.dual_write` as set; `None` where it is unset, which Codex reads as not `false`.
     dual_write: Option<bool>,
 }
 
 impl CodexMemorySettings {
-    /// Reads the settings from `config`, a Codex config as JSON, such as a `config/read` reply's
-    /// effective config. Fails with the dotted key whose value is of a type Codex does not read
-    /// there; an absent or `null` key is unset.
-    pub(crate) fn read(config: &Map<String, Value>) -> Result<Self, &'static str> {
-        let features = read_table(config, FEATURES_KEY)?;
-        let memories = read_table(config, MEMORIES_KEY)?;
-        let version = memories
-            .and_then(|table| read_member(table, MEMORIES_VERSION_KEY))
-            .map(|version| match version.as_str() {
-                Some("v1") => Ok(CodexMemoryStore::First),
-                Some("v2") => Ok(CodexMemoryStore::Second),
-                _ => Err(MEMORIES_VERSION_KEY),
-            })
-            .transpose()?;
+    /// Reads the settings from `config`, a `config/read` reply's effective config, and
+    /// `requirements`, a `configRequirements/read` reply, whose pin of the memory feature wins
+    /// over the config's. Fails with the path of a value of a type Codex does not read there.
+    pub(crate) fn read(config: Value, requirements: Value) -> io::Result<Self> {
+        let config: CodexMemoryConfig = read_reply(config, "effective config")?;
+        let requirements: CodexRequirementsRead = read_reply(requirements, "requirements")?;
+        let required = requirements
+            .requirements
+            .and_then(|requirements| requirements.feature_requirements);
+        let required = required.as_ref().and_then(CodexMemoryFeature::switch);
+        let configured = config
+            .features
+            .as_ref()
+            .and_then(CodexMemoryFeature::switch);
+        let memories = config.memories;
         Ok(Self {
-            version,
-            is_memory_feature_on: read_switch(features, FEATURES_MEMORIES_KEY)?.unwrap_or(false),
-            dual_write: read_switch(memories, MEMORIES_DUAL_WRITE_KEY)?,
+            version: memories.as_ref().and_then(|table| table.version),
+            is_memory_feature_on: required.or(configured).unwrap_or(false),
+            dual_write: memories.and_then(|table| table.dual_write),
         })
     }
 }
 
-// The member of `table` the dotted `key` ends in; `None` where it is absent or `null`.
-fn read_member<'config>(table: &'config Map<String, Value>, key: &str) -> Option<&'config Value> {
-    let name = key.rsplit_once('.').map_or(key, |(_, name)| name);
-    table.get(name).filter(|value| !value.is_null())
-}
-
-// The table `key` names in `config`; `None` where it is unset, and `key` as the failure where it
-// holds anything but a table.
-fn read_table<'config>(
-    config: &'config Map<String, Value>,
-    key: &'static str,
-) -> Result<Option<&'config Map<String, Value>>, &'static str> {
-    read_member(config, key)
-        .map(|value| value.as_object().ok_or(key))
-        .transpose()
-}
-
-// The switch `key` names in `table`; `None` where it or its table is unset, and `key` as the
-// failure where it holds anything but `true` or `false`.
-fn read_switch(
-    table: Option<&Map<String, Value>>,
-    key: &'static str,
-) -> Result<Option<bool>, &'static str> {
-    table
-        .and_then(|table| read_member(table, key))
-        .map(|value| value.as_bool().ok_or(key))
-        .transpose()
+// `value`, Codex's `reply`, read as `Shape`; fails with the path of a value of a type Codex does
+// not read there, never the value, which may be a secret.
+fn read_reply<Shape: DeserializeOwned>(value: Value, reply: &str) -> io::Result<Shape> {
+    serde_path_to_error::deserialize(value).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "Codex's {reply} holds a value of a type Codex does not read at `{}`",
+                error.path()
+            ),
+        )
+    })
 }
 
 /// The store Codex reads and writes in `codex_home` under `settings`: the one `memories.version`
@@ -152,24 +183,31 @@ pub(super) fn codex_memory_import_stores(
 }
 
 // The store Codex picks for the person's own folder `personal_home`, by the config Codex loads
-// there for no project folder. Fails as the read fails, and as a setting of a type Codex does not
-// read.
+// there for no project folder and the requirements its managed policy sets. Fails as either read
+// fails, and as a setting of a type Codex does not read.
 async fn read_personal_memory_store(
     registry: &CodexServiceRegistry,
     personal_home: &Path,
 ) -> io::Result<CodexMemoryStore> {
-    let read = registry
+    let (config, requirements) = registry
         .read_on_personal_folder(PersonalFolderRead::Config, |service| async move {
-            read_codex_config::<Map<String, Value>>(&*service.connection()?, None, false).await
+            let connection = service.connection()?;
+            let config = read_codex_config::<Value>(&connection, None, false).await?;
+            let reply = connection
+                .request(CONFIG_REQUIREMENTS_READ_METHOD, &())
+                .await?;
+            let requirements =
+                read_codex_object::<Value>(reply.get()).ok_or_else(|| CodexError::Transport {
+                    detail: format!(
+                        "Codex's \"{CONFIG_REQUIREMENTS_READ_METHOD}\" reply could not be read."
+                    ),
+                    cause: None,
+                })?;
+            Ok((config.config, requirements))
         })
         .await
         .map_err(io::Error::other)?;
-    let settings = CodexMemorySettings::read(&read.config).map_err(|key| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("Codex's effective `{key}` holds a value of a type Codex does not read"),
-        )
-    })?;
+    let settings = CodexMemorySettings::read(config, requirements)?;
     Ok(resolve_codex_memory_store(personal_home, settings).await)
 }
 
