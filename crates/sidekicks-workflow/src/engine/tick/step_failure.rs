@@ -5,9 +5,11 @@
 use std::time::Duration;
 
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::workflow::definition::document::{WorkflowNode, WorkflowNodeOnError};
+use sidekicks_contracts::workflow::definition::document::{
+    WorkflowNode, WorkflowNodeId, WorkflowNodeOnError,
+};
 use sidekicks_contracts::workflow::definition::item::{
-    WorkflowItem, WorkflowPairedItem, WorkflowPairedItems,
+    WorkflowItem, WorkflowPairedItem, WorkflowPairedItems, WorkflowStepError,
 };
 use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
@@ -137,16 +139,8 @@ fn passed_on_items(
     failure: &StepFailure,
     inputs: &[Vec<WorkflowItem>],
 ) -> Vec<WorkflowItem> {
-    let mut error = match failure {
-        StepFailure::Failed(error) | StepFailure::EndsRun(error) => (**error).clone(),
-        StepFailure::Declined { words, .. } => uncoded_step_error(match words {
-            Some(words) => format!("The step was declined: {}", words.as_str()),
-            None => "The step was declined".to_owned(),
-        }),
-    };
-    let (_message, node_id, item_index) = error_members(&mut error);
-    node_id.get_or_insert_with(|| node.id.clone());
-    let failed_item = item_index.map(SafeInt::get);
+    let mut error = step_failure_error(&node.id, failure);
+    let failed_item = error_members(&mut error).2.map(SafeInt::get);
     main_inputs(spec, inputs)
         .enumerate()
         .flat_map(|(input_index, items)| {
@@ -170,6 +164,27 @@ fn passed_on_items(
             }
         })
         .collect()
+}
+
+/// The error `failure` records on the step of node `node_id`: its own, naming that node where it
+/// names none, or for a decline one naming the decline and carrying its words where the person
+/// typed any.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+pub(crate) fn step_failure_error(
+    node_id: &WorkflowNodeId,
+    failure: &StepFailure,
+) -> WorkflowStepError {
+    let mut error = match failure {
+        StepFailure::Failed(error) | StepFailure::EndsRun(error) => (**error).clone(),
+        StepFailure::Declined { words, .. } => uncoded_step_error(match words {
+            Some(words) => format!("The step was declined: {}", words.as_str()),
+            None => "The step was declined".to_owned(),
+        }),
+    };
+    error_members(&mut error)
+        .1
+        .get_or_insert_with(|| node_id.clone());
+    error
 }
 
 /// How a failure stops its run.

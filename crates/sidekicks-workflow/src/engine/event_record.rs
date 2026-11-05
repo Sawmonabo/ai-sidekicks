@@ -28,7 +28,7 @@ use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use sidekicks_std::mutex_lock::lock;
 
 use crate::engine::ports::EngineRecordSink;
-use crate::engine::tick::{BranchCancelReason, StepSettlement};
+use crate::engine::tick::BranchCancelReason;
 use crate::kinds::StepFailure;
 use crate::secrets::redaction::RunRedaction;
 
@@ -146,7 +146,28 @@ pub(crate) enum StepTransition<'report> {
         count: usize,
     },
     /// The step ended; only how it ended and a failure's code are recorded.
-    Settled(&'report StepSettlement),
+    Settled(StepEnding<&'report StepFailure>),
+}
+
+/// How a step ended, carrying its failure where it failed.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the engine's tick and waits, which record every report that moves a step"
+    )
+)]
+pub(crate) enum StepEnding<Failure> {
+    /// It finished with its outputs.
+    Completed,
+    /// It failed.
+    Failed(Failure),
+    /// It waits on a person.
+    PersonWait,
+    /// It waits on its agent run's spent account.
+    AccountSpent,
+    /// It was canceled.
+    Canceled,
 }
 
 /// A deadline the engine arms or clears.
@@ -599,17 +620,17 @@ fn step_reported(line: &mut Map<String, Value>, transition: &StepTransition<'_>)
             line.insert("reason".to_owned(), json!(reason));
             line.insert("count".to_owned(), json!(count));
         }
-        StepTransition::Settled(settlement) => {
+        StepTransition::Settled(ending) => {
             line.insert("report".to_owned(), json!("settled"));
-            let word = match settlement {
-                StepSettlement::Completed { .. } => "completed",
-                StepSettlement::Failed { failure, .. } => {
+            let word = match ending {
+                StepEnding::Completed => "completed",
+                StepEnding::Failed(failure) => {
                     line.insert("failure".to_owned(), failure_code(failure));
                     "failed"
                 }
-                StepSettlement::PersonWait { .. } => "personWait",
-                StepSettlement::AccountSpent { .. } => "accountSpent",
-                StepSettlement::Canceled { .. } => "canceled",
+                StepEnding::PersonWait => "personWait",
+                StepEnding::AccountSpent => "accountSpent",
+                StepEnding::Canceled => "canceled",
             };
             line.insert("settlement".to_owned(), json!(word));
         }
@@ -676,11 +697,10 @@ mod tests {
     use sidekicks_std::mutex_lock::lock;
 
     use super::{
-        EngineDecision, EngineIntent, EngineOutcome, EngineRecorder, RunEngineRecord,
+        EngineDecision, EngineIntent, EngineOutcome, EngineRecorder, RunEngineRecord, StepEnding,
         StepTransition,
     };
     use crate::engine::ports::{EngineRecordSink, KeptEngineRecords};
-    use crate::engine::tick::StepSettlement;
     use crate::kinds::{StepFailure, coded_step_error};
     use crate::secrets::redaction::RunRedaction;
 
@@ -796,14 +816,13 @@ mod tests {
         assert_ne!(next_lines[0]["lifeId"], life_id);
     }
 
-    /// A failed step's line carries its code and none of its message or log lines, and the run's
-    /// secret, here inside the step's node id, reaches no line. Mutations: the message recorded;
-    /// the log lines recorded; the scrub skipped.
+    /// A failed step's line carries its code and none of its message, and the run's secret, here
+    /// inside the step's node id, reaches no line. Mutations: the message recorded; the scrub
+    /// skipped.
     #[tokio::test]
     async fn a_line_carries_no_secret_and_no_step_text() {
         const RUN: &str = "0190a2b4-7c3d-7e5f-8a1b-2c3d4e5f6a7c";
         const SECRET: &str = "correct-horse-battery-staple";
-        const PROMPT: &str = "Summarize the quarterly numbers for the board";
         let sink = Arc::new(KeptEngineRecords::default());
         let recorder = EngineRecorder::new(Arc::clone(&sink) as Arc<dyn EngineRecordSink>);
         let run = recorder.for_run(
@@ -812,19 +831,16 @@ mod tests {
         );
         let node_id = format!("deploy-{SECRET}");
         let step = step(RUN, &node_id);
-        let settlement = StepSettlement::Failed {
-            failure: StepFailure::Failed(Box::new(coded_step_error(
-                RefusalCode::WorkflowStepTimedOut,
-                format!("the call with token {SECRET} timed out"),
-                json!({}),
-                None,
-            ))),
-            log_lines: vec![format!("prompt: {PROMPT}")],
-        };
+        let failure = StepFailure::Failed(Box::new(coded_step_error(
+            RefusalCode::WorkflowStepTimedOut,
+            format!("the call with token {SECRET} timed out"),
+            json!({}),
+            None,
+        )));
 
         run.decision(
             Some(&step),
-            EngineDecision::StepReported(StepTransition::Settled(&settlement)),
+            EngineDecision::StepReported(StepTransition::Settled(StepEnding::Failed(&failure))),
         )
         .await;
         run.decision(
@@ -855,7 +871,6 @@ mod tests {
                 !text.contains("timed out"),
                 "a line carries the message: {text}"
             );
-            assert!(!text.contains(PROMPT), "a line carries a log line: {text}");
         }
         let recorded_node = lines[0]["nodeId"].as_str().expect("the node id is text");
         assert!(recorded_node.starts_with("deploy-") && recorded_node != node_id);
