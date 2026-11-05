@@ -25,7 +25,7 @@ use sidekicks_contracts::daemon::backup::BACKUP_DEFAULT_FOLDER_NAME;
 use sidekicks_contracts::daemon::data::{
     DaemonDataEraseResponse, DataEraseSignOutFailure, DataEraseSignedInAccount,
 };
-use sidekicks_provider::account::credential_home::{HomeLeftSignedIn, HomeSignOutError};
+use sidekicks_provider::account::credential_home::{HomeSignOutError, HomesSignOut};
 use sidekicks_provider::account::homes::AccountHomesReadError;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::daemon_stop::{DaemonStopIntent, RecordedServicesStop};
@@ -40,12 +40,9 @@ pub(crate) mod mode;
 pub(crate) type EraseStep = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
 
 /// Signs every account home the erase deletes out, answering each account that did not sign out
-/// with why; fails when the homes cannot be read.
-pub(crate) type AccountsSignOut = Arc<
-    dyn Fn() -> BoxFuture<'static, Result<Vec<HomeLeftSignedIn>, AccountHomesReadError>>
-        + Send
-        + Sync,
->;
+/// with why and whether a row could not be named; fails when the homes cannot be read.
+pub(crate) type AccountsSignOut =
+    Arc<dyn Fn() -> BoxFuture<'static, Result<HomesSignOut, AccountHomesReadError>> + Send + Sync>;
 
 /// What the erase acts on.
 pub(crate) struct DataEraseDeps {
@@ -234,11 +231,13 @@ impl DataErase {
     }
 
     // Signs every provider account out, each account that did not sign out and a failed read of
-    // the accounts told in the service log and in the answer.
+    // the accounts told in the service log and in the answer; a row that could not be named, or a
+    // read that failed, answers that the account list could not all be read.
     async fn sign_out_accounts(&self) -> DaemonDataEraseResponse {
         match (self.deps.sign_out_accounts)().await {
-            Ok(unsigned) => DaemonDataEraseResponse {
-                signed_in_accounts: unsigned
+            Ok(signed_out) => DaemonDataEraseResponse {
+                signed_in_accounts: signed_out
+                    .left_signed_in
                     .into_iter()
                     .map(|left| {
                         tracing::warn!(
@@ -254,7 +253,7 @@ impl DataErase {
                         }
                     })
                     .collect(),
-                is_account_list_unread: false,
+                is_account_list_unread: signed_out.has_unnamed_home,
             },
             Err(failure) => {
                 tracing::warn!(

@@ -233,7 +233,9 @@ pub struct DataEraseSignedInAccount {
 pub struct DaemonDataEraseResponse {
     /// Each account left signed in with its provider, with why; empty when every one signed out.
     pub signed_in_accounts: Vec<DataEraseSignedInAccount>,
-    /// Whether the accounts could not be read, so none was signed out.
+    /// Whether the account list could not all be read: none was signed out where it could not be
+    /// read at all, and a row naming no valid account or provider id was left signed in while the
+    /// rest were signed out.
     pub is_account_list_unread: bool,
 }
 

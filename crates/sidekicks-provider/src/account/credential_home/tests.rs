@@ -142,9 +142,11 @@ fn a_claude_code_home_s_agent_memory_resolves_to_the_all_projects_folder() {
 // Every home the erase deletes is signed out in its own folders before the homes go: a listed
 // account's, one whose removal has begun, a removed account's kept home and one minted for a
 // sign-in that did not finish, while a removed mark whose home is gone signs nothing out; each
-// refused one is answered with its provider and how it stood on the list. Killed by a row
+// refused one is answered with its provider and how it stood on the list; a row whose provider is
+// no provider id is answered as unnamed while the rest still sign out. Killed by a row
 // mid-removal skipped, by the removed or the minted marks unread, by a gone home signed out, by
-// the listing or the provider wrong, and by a sign-out run in another account's folders.
+// the listing or the provider wrong, by a sign-out run in another account's folders, by the
+// unnamed row not answered, and by an unnamed row failing the whole read.
 #[tokio::test]
 async fn every_home_the_erase_deletes_is_signed_out_and_a_refused_one_is_answered() {
     let database = TestDatabase::new(schema_parts());
@@ -181,6 +183,19 @@ async fn every_home_the_erase_deletes_is_signed_out_and_a_refused_one_is_answere
     let unfinished = registry.mint(claude()).expect("an account is minted");
     let gone = ProviderAccountId::new("account-gone".to_owned()).expect("a test account id");
     mark_removed(data_folder.path(), &gone, &claude()).expect("a home with no folder is marked");
+    writer
+        .write(vec![WriteStatement {
+            sql: Cow::Borrowed(
+                "INSERT INTO provider_accounts (account_id, provider, credential_home_path,
+                   billing_mode, created_at, updated_at)
+                 VALUES ('account-unnamed', 'Not A Provider', '/nowhere', 'unknown',
+                   '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')",
+            ),
+            bindings: StatementBindings::None,
+            expected_row_count: Some(1),
+        }])
+        .await
+        .expect("a damaged row is stored");
     let reads = DatabaseReadPool::new(
         database.path(),
         PROVIDER_ACCOUNT_REGISTRY_STATEMENT_CAPACITY,
@@ -191,7 +206,7 @@ async fn every_home_the_erase_deletes_is_signed_out_and_a_refused_one_is_answere
         unfinished.account_id().clone(),
     ]));
 
-    let failed = sign_out_every_home(
+    let answered = sign_out_every_home(
         &reads,
         data_folder.path(),
         &HashMap::from([(claude(), Arc::clone(&legs) as Arc<dyn ProviderAccountLegs>)]),
@@ -200,7 +215,9 @@ async fn every_home_the_erase_deletes_is_signed_out_and_a_refused_one_is_answere
     .await
     .expect("the homes read");
 
-    let mut failed: Vec<_> = failed
+    assert!(answered.has_unnamed_home, "the damaged row is answered");
+    let mut failed: Vec<_> = answered
+        .left_signed_in
         .into_iter()
         .map(|left| (left.account_id, left.provider, left.listing))
         .collect();

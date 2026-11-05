@@ -14,7 +14,9 @@ use sidekicks_contracts::daemon::secrets_place::{PlaceRecord, SecretsPlace};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_platforms::CredentialStore;
-use sidekicks_provider::account::credential_home::{HomeLeftSignedIn, HomeSignOutError};
+use sidekicks_provider::account::credential_home::{
+    HomeLeftSignedIn, HomeSignOutError, HomesSignOut,
+};
 use sidekicks_provider::account::homes::AccountHomesReadError;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
@@ -33,7 +35,7 @@ use super::{
 type CallLog = Arc<Mutex<Vec<String>>>;
 
 // What the accounts' sign-out answers.
-type SignOutAnswer = Result<Vec<HomeLeftSignedIn>, AccountHomesReadError>;
+type SignOutAnswer = Result<HomesSignOut, AccountHomesReadError>;
 
 fn record(calls: &CallLog, call: String) {
     lock(calls).push(call);
@@ -54,13 +56,15 @@ fn write_file(path: &Path) {
 
 // The erase runs in its order: the sign-ins under way end, then the provider accounts sign out in
 // their homes while the folder and the keychain are whole, and only then does the erase answer,
-// naming the account left signed in; then the work stops while the data folder is whole, each
+// naming the account left signed in and that a home row could not be named, so the account list
+// could not all be read; then the work stops while the data folder is whole, each
 // provider's services end, the keychain's items go before the data folder closes, and the process
 // ends last; the data folder goes but for an earlier backup, and a project folder is untouched. An
 // account that does not sign out stops nothing. A second erase sent while the accounts sign out is
 // refused and starts nothing. Killed by the sign-ins' end run after the sign-outs, after the answer
 // or not at all, by the sign-out moved after the answer or after the work stops, by the account
-// left signed in missing from the answer or answered without its provider or listing, by an erase
+// left signed in missing from the answer or answered without its provider or listing, by the
+// unnamed row's flag dropped from the answer, by an erase
 // that stops on that account, by a delete before the stop, by items deleted after the folder, by a
 // provider service ended as for a restart, by a project folder or a backup deleted, by a second
 // erase let run beside the first, and by a second erase answered as the first.
@@ -156,12 +160,15 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
                     .wait_for(|is_open| *is_open)
                     .await
                     .expect("the gate stays while the test runs");
-                Ok(vec![HomeLeftSignedIn {
-                    account_id: signed_in_account(),
-                    provider: claude(),
-                    listing: DataEraseAccountListing::Removed,
-                    cause: HomeSignOutError::Overran,
-                }])
+                Ok(HomesSignOut {
+                    left_signed_in: vec![HomeLeftSignedIn {
+                        account_id: signed_in_account(),
+                        provider: claude(),
+                        listing: DataEraseAccountListing::Removed,
+                        cause: HomeSignOutError::Overran,
+                    }],
+                    has_unnamed_home: true,
+                })
             }
             .boxed()
         }),
@@ -211,7 +218,7 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
                 listing: DataEraseAccountListing::Removed,
                 cause: DataEraseSignOutFailure::TimedOut,
             }],
-            is_account_list_unread: false,
+            is_account_list_unread: true,
         }
     );
     tokio::time::timeout(Duration::from_secs(10), ended.notified())

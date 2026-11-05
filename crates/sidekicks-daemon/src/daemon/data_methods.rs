@@ -197,6 +197,7 @@ mod tests {
     };
     use sidekicks_ipc::stream::feed::CreditGate;
     use sidekicks_platforms::CredentialStore;
+    use sidekicks_provider::account::credential_home::HomesSignOut;
     use sidekicks_provider::driver::contract::MockProviderDriver;
     use sidekicks_provider::driver::test_registry::registry_of_first_provider;
     use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
@@ -271,7 +272,13 @@ mod tests {
             }),
             sign_out_accounts: Arc::new(move || {
                 signed_out.store(true, Ordering::SeqCst);
-                async { Ok(Vec::new()) }.boxed()
+                async {
+                    Ok(HomesSignOut {
+                        left_signed_in: Vec::new(),
+                        has_unnamed_home: false,
+                    })
+                }
+                .boxed()
             }),
             end_sign_ins: Arc::new(move || {
                 sign_ins_ended.store(true, Ordering::SeqCst);

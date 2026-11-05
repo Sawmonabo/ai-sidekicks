@@ -380,19 +380,29 @@ pub async fn sign_out_homes<'legs>(
         .collect()
 }
 
+/// What [`sign_out_every_home`] did: each account it left signed in, with why, and whether a row
+/// named no valid account or provider id, so the account list could not all be read.
+#[derive(Debug)]
+pub struct HomesSignOut {
+    /// Each account left signed in, with why.
+    pub left_signed_in: Vec<HomeLeftSignedIn>,
+    /// Whether a row named no valid account or provider id, so its home was left signed in.
+    pub has_unnamed_home: bool,
+}
+
 /// Signs every home `Erase all data` deletes out through its provider's legs among `legs`, as
 /// [`sign_out_homes`] does: each listed account's, each whose removal has begun, each removed
 /// account's kept home and each home minted for a sign-in that did not finish, read from the
 /// accounts table on `reads` and the marks under the daemon's `data_folder`. Answers each account
 /// it could not sign out, with why. A row that names no valid account or provider id is left
-/// signed in and told in the service log, since no answer can name it, and the rest sign out.
-/// Fails when the rows or the marks cannot be read at all, with nothing signed out.
+/// signed in, told in the service log and answered as [`HomesSignOut::has_unnamed_home`], and the
+/// rest sign out. Fails when the rows or the marks cannot be read at all, with nothing signed out.
 pub async fn sign_out_every_home<S: BuildHasher>(
     reads: &DatabaseReadPool,
     data_folder: &Path,
     legs: &HashMap<ProviderId, Arc<dyn ProviderAccountLegs>, S>,
     bound: Duration,
-) -> Result<Vec<HomeLeftSignedIn>, AccountHomesReadError> {
+) -> Result<HomesSignOut, AccountHomesReadError> {
     let data_folder = data_folder.to_path_buf();
     let homes = reads
         .read(ReadLength::Short, move |connection| {
@@ -400,21 +410,28 @@ pub async fn sign_out_every_home<S: BuildHasher>(
             homes_to_erase(rows, &data_folder).map_err(AccountHomesReadError::Marks)
         })
         .await?;
-    let accounts = homes.into_iter().filter_map(|home| {
-        home.sign_out()
-            .inspect_err(|unnamed| {
+    let mut has_unnamed_home = false;
+    let mut accounts = Vec::new();
+    for home in homes {
+        match home.sign_out() {
+            Ok(account) => accounts.push(account),
+            Err(unnamed) => {
                 tracing::warn!(
-                    error = unnamed as &(dyn std::error::Error + 'static),
+                    error = &unnamed as &(dyn std::error::Error + 'static),
                     "an account home names no valid id, so it was left signed in"
                 );
-            })
-            .ok()
-    });
+                has_unnamed_home = true;
+            }
+        }
+    }
     let sign_out = |provider: &ProviderId, account_id, folders| {
         legs.get(provider)
             .map(|legs| legs.sign_out_home(account_id, folders))
     };
-    Ok(sign_out_homes(accounts, sign_out, bound).await)
+    Ok(HomesSignOut {
+        left_signed_in: sign_out_homes(accounts, sign_out, bound).await,
+        has_unnamed_home,
+    })
 }
 
 pub mod marks;
