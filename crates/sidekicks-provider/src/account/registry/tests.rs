@@ -1,5 +1,8 @@
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::error::Error;
+use std::fs;
+use std::sync::Arc;
 
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::{
@@ -15,7 +18,11 @@ use super::{
     AccountAdmission, HealthObservation, HealthObserver, ProviderAccountRegistry,
     RegisteredAccount, open_test_registry,
 };
+use crate::account::credential_home::marks::read_minted_homes;
+use crate::account::credential_home::test_legs::RecordedSignOuts;
 use crate::account::errors::ProviderAccountRegistryError;
+use crate::account::resolver::credential_home_folders;
+use crate::driver::contract::account::ProviderAccountLegs;
 use crate::driver::schema::schema_parts;
 
 fn provider(id: &str) -> ProviderId {
@@ -321,4 +328,67 @@ fn error_chain(error: &(dyn Error + 'static)) -> Vec<String> {
         current = error.source();
     }
     chain
+}
+
+// A new account's home is signed out in its own folders through its provider's legs where they
+// are given, then removed with its mark; a home whose sign-out the provider refuses stays with its
+// file and its mark, so the next start sweeps it; with no legs nothing is signed out. Killed by
+// the sign-out skipped, by the removal run past a refused sign-out, by the mark cleared on a kept
+// home, and by a sign-out run where no legs are given.
+#[tokio::test]
+async fn a_new_account_s_home_is_signed_out_before_it_goes_and_kept_when_refused() {
+    let database = TestDatabase::new(schema_parts());
+    let data_folder = tempfile::tempdir().expect("a data folder");
+    let (registry, _writer) = open_test_registry(&database, data_folder.path()).await;
+    let [signed_out, refused, unsigned] = [(); 3].map(|()| {
+        let minted = registry
+            .mint(provider("claude"))
+            .expect("the account is minted");
+        fs::write(minted.home().path().join("settings.json"), "{}").expect("a file in the home");
+        minted
+    });
+    let sign_outs = Arc::new(RecordedSignOuts::refusing([refused.account_id().clone()]));
+    let legs = HashMap::from([(
+        provider("claude"),
+        Arc::clone(&sign_outs) as Arc<dyn ProviderAccountLegs>,
+    )]);
+    let expected = [&signed_out, &refused].map(|minted| {
+        let folders = credential_home_folders(minted.provider(), minted.home());
+        (minted.account_id().clone(), folders)
+    });
+    let gone = [&signed_out, &unsigned].map(|minted| minted.home().path().to_path_buf());
+    let (refused_id, kept) = (
+        refused.account_id().clone(),
+        refused.home().path().to_path_buf(),
+    );
+
+    for (minted, legs) in [
+        (signed_out, Some(&legs)),
+        (refused, Some(&legs)),
+        (unsigned, None),
+    ] {
+        registry
+            .abandon(minted, legs)
+            .await
+            .expect("a home gone or kept answers without a failure");
+    }
+
+    assert_eq!(
+        sign_outs.signed_out(),
+        expected,
+        "each given home signs out in its folders"
+    );
+    for home in gone {
+        assert!(!home.exists(), "a signed-out or unsigned home is removed");
+    }
+    assert!(
+        kept.join("settings.json").is_file(),
+        "a refused home stays whole"
+    );
+    let marked: Vec<_> = read_minted_homes(data_folder.path())
+        .expect("the marks read")
+        .into_iter()
+        .map(|home| home.account_id)
+        .collect();
+    assert_eq!(marked, [refused_id], "only the kept home stays marked");
 }
