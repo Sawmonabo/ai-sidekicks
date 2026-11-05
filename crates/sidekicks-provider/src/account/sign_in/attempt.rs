@@ -35,8 +35,8 @@ use crate::driver::contract::error::bound_provider_words;
 
 /// An account's sign-in slot and its listed attempt, held from the start until the attempt
 /// settles. Every path that ends it before a row took its minted home has that home removed
-/// first, signed out before where its flow showed an address, and dropped, it unlists the attempt
-/// and frees the slot, so a failed or abandoned start leaves none of them.
+/// first, signed out before it only where its flow showed an address (the settle), and dropped,
+/// it unlists the attempt and frees the slot, so a failed or abandoned start leaves none of them.
 pub(super) struct Reservation {
     /// The account held in flight until the attempt settles.
     pub(super) _in_flight_guard: InFlightGuard,
