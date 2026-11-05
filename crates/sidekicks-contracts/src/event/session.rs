@@ -532,7 +532,7 @@ session_events! {
     /// when a first-to-arrive merge cancels a branch once another branch arrived.
     WorkflowStepCanceled(WorkflowStepCanceledPayload) = "workflow.step.canceled",
     /// Emitted when a workflow step is skipped.
-    WorkflowStepSkipped(WorkflowStepSkippedPayload) = "workflow.step.skipped",
+    WorkflowStepSkipped(#[garde(dive)] WorkflowStepSkippedPayload) = "workflow.step.skipped",
     /// Emitted when a workflow gate is answered.
     WorkflowGateResolved(WorkflowGateResolvedPayload) = "workflow.gate.resolved",
     /// Emitted when a workflow is authored or a new version of it is written.
@@ -563,7 +563,7 @@ session_events! {
     /// Emitted when a workflow phase is asked to stop and is winding down.
     WorkflowPhaseCanceling(WorkflowPhaseCancelingPayload) = "workflow.phase.canceling",
     /// Emitted when a failed workflow phase is retried as a new attempt.
-    WorkflowPhaseRetried(WorkflowPhaseRetriedPayload) = "workflow.phase.retried",
+    WorkflowPhaseRetried(#[garde(dive)] WorkflowPhaseRetriedPayload) = "workflow.phase.retried",
     /// Emitted when a waiting workflow step resumes.
     WorkflowPhaseResumed(WorkflowPhaseResumedPayload) = "workflow.phase.resumed",
     /// Emitted when a workflow phase finishes.

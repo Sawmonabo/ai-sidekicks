@@ -22,7 +22,9 @@ use crate::workflow::definition::document::WorkflowNodeId;
 use crate::workflow::definition::item::WorkflowStepError;
 use crate::workflow::run::events::workflow_run_event;
 use crate::workflow::run::gate_resolution::WorkflowGateResolutionId;
-use crate::workflow::run::step::record::{WorkflowCost, WorkflowPayloadRef, workflow_step_key};
+use crate::workflow::run::step::record::{
+    WorkflowCost, WorkflowPayloadRef, WorkflowStepSource, workflow_step_key,
+};
 
 ts_constants! {
     /// Every reason a step is skipped.
@@ -42,6 +44,23 @@ macro_rules! workflow_step_event {
             }
         }
     };
+}
+
+workflow_step_key! {
+    position
+    /// A step the event's write readied, by its node, its attempt and which execution of the node,
+    /// with what its `pending` row stores, so a rebuild writes the same row; the run is the
+    /// event's own.
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    #[garde(allow_unvalidated)]
+    pub struct WorkflowReadiedStep {
+        /// The feed of each main input slot in slot order, `null` for a slot nothing fed.
+        pub sources: Vec<Option<WorkflowStepSource>>,
+        /// The input.
+        #[garde(dive)]
+        pub input_ref: WorkflowPayloadRef,
+    }
 }
 
 workflow_step_event! {
@@ -94,13 +113,17 @@ workflow_step_event! {
         )]
         #[schemars(with = "WorkflowCost")]
         pub cost: Option<WorkflowCost>,
+        /// The steps this event's write readied, each with what its `pending` row stores; empty
+        /// where it readied none.
+        #[garde(dive)]
+        pub readied: Vec<WorkflowReadiedStep>,
     }
 }
 
 workflow_step_event! {
     /// `workflow.step.failed`: the error, its failure code if one names it, the failed item, and
     /// the words a person typed with the Decline that failed it.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
     pub struct WorkflowStepFailedPayload {
@@ -124,6 +147,10 @@ workflow_step_event! {
         )]
         #[schemars(with = "NonEmptyText")]
         pub decline_reason: Option<NonEmptyText>,
+        /// The steps this event's write readied, each with what its `pending` row stores; empty
+        /// where it readied none.
+        #[garde(dive)]
+        pub readied: Vec<WorkflowReadiedStep>,
     }
 }
 
@@ -382,9 +409,15 @@ workflow_step_event! {
 
 workflow_step_event! {
     /// `workflow.phase.retried`: a failed phase was retried; the step named is the new attempt.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    pub struct WorkflowPhaseRetriedPayload {}
+    #[garde(allow_unvalidated)]
+    pub struct WorkflowPhaseRetriedPayload {
+        /// The steps this event's write readied, each with what its `pending` row stores; empty
+        /// where it readied none.
+        #[garde(dive)]
+        pub readied: Vec<WorkflowReadiedStep>,
+    }
 }
 
 workflow_step_event! {
@@ -424,11 +457,16 @@ pub enum WorkflowStepSkipReason {
 
 workflow_step_event! {
     /// `workflow.step.skipped`: why the step was skipped.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    #[garde(allow_unvalidated)]
     pub struct WorkflowStepSkippedPayload {
         /// Why.
         pub reason: WorkflowStepSkipReason,
+        /// The steps this event's write readied, each with what its `pending` row stores; empty
+        /// where it readied none.
+        #[garde(dive)]
+        pub readied: Vec<WorkflowReadiedStep>,
     }
 }
 
@@ -464,6 +502,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           completed, failed or held for memory, a join's siblings canceled, and a gate resolved, \
           each naming its step by the step record's key.",
     definitions: &[
+        Definition::read::<WorkflowReadiedStep>(),
         Definition::read::<WorkflowStepCanceledPayload>().checked(),
         Definition::read::<WorkflowStepStartedPayload>().checked(),
         Definition::read::<WorkflowStepCompletedPayload>().checked(),

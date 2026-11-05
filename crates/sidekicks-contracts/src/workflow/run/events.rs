@@ -10,6 +10,7 @@ use crate::wire::text::NonEmptyText;
 use crate::workflow::definition::document::{WorkflowNodeId, WorkflowVersionId};
 use crate::workflow::run::control::{WorkflowCancelReason, names_whole_repin};
 use crate::workflow::run::id::WorkflowRunId;
+use crate::workflow::run::step::events::WorkflowReadiedStep;
 use crate::workflow::run::step::record::{WorkflowPayloadRef, workflow_step_key};
 use crate::workflow::run::trigger::{
     WorkflowRunChainPlace, WorkflowRunMode, WorkflowRunTrigger, WorkflowStartedBy,
@@ -141,7 +142,7 @@ workflow_run_event! {
     /// `workflow.run.resumed`: a person or an armed schedule resumed a waiting or failed run, with
     /// where it picks up and, only on an accepted re-pin, the version it left and the one it
     /// joined, both or neither.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
     #[garde(custom(|payload: &Self, (): &()| names_whole_repin(
@@ -171,6 +172,10 @@ workflow_run_event! {
         )]
         #[schemars(with = "WorkflowVersionId")]
         pub repinned_to_workflow_version_id: Option<WorkflowVersionId>,
+        /// The steps this event's write readied, each with what its `pending` row stores; empty
+        /// where it readied none.
+        #[garde(dive)]
+        pub readied: Vec<WorkflowReadiedStep>,
     }
 }
 
