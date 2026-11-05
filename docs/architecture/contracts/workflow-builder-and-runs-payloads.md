@@ -139,6 +139,7 @@ type WorkflowRunSummary = {
   // Whether the person marked the run Keep, which the row shows as a mark and `Delete runs older than…`
   // leaves.
   keep: boolean;
+  summary?: string; // the run's own summary line, which a `Write a summary` step writes; absent until one does
 } & (
   | { status: "waiting"; waitCause: "account"; resumeAt?: string }
   | { status: "waiting"; waitCause: Exclude<WorkflowWaitCause, "account"> }

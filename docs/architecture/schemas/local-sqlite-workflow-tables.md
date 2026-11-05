@@ -128,6 +128,7 @@ CREATE TABLE workflow_runs (
   -- Result
   error_json                TEXT                        -- JSON: the run's typed error, the contracts' WorkflowStepError; NULL unless status in ('failed','canceled','crashed')
                             CHECK(error_json IS NULL OR json_valid(error_json)),
+  summary                   TEXT,                      -- the run's one summary line, which a `Write a summary` step writes on the run; NULL until one does
   -- Chains: a run that starts runs. Every row names its chain's first run; the first run's own row
   -- counts the runs the chain has started and records the person's answer to the chain's question,
   -- which is itself a row in workflow_gate_resolutions, so a chain needs no table of its own.
