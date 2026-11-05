@@ -344,6 +344,11 @@ CREATE TABLE workflow_steps (
                     CHECK(json_valid(output_ref)),
   log_ref           TEXT NOT NULL
                     CHECK(json_valid(log_ref)),
+  -- JSON array: how many items each main output holds, in output order, so the one joined
+  -- list output_ref stores splits back into one list per output handle.
+  output_item_counts_json TEXT NOT NULL DEFAULT '[]'
+                    CHECK(json_valid(output_item_counts_json)
+                      AND json_type(output_item_counts_json) = 'array'),
   cost_usd_micros   INTEGER,                       -- NULL when never billed
   -- The account that paid. No foreign key: removing an account must neither
   -- rewrite nor block the step's cost record.

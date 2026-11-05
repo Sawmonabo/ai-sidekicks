@@ -622,9 +622,11 @@ interface WorkflowPhaseWaitingOnPoolPayload extends WorkflowStepEventPayload {
 }
 // The step boundaries. A started event names the input it ran on and, on an agent step whose
 // account cannot run its run's level, the level it runs at in its place; a finished event the
-// output and log it produced plus its cost where a provider was billed; a failed event the error,
-// the item index that failed and the words typed with the `Decline` that failed a command step; a
-// canceled event the step alone; and a skipped event why it was skipped. A step's started event
+// output and log it produced, how many items each of its main outputs holds, plus its cost where a
+// provider was billed; a failed event the error, the item index that failed and the words typed
+// with the `Decline` that failed a command step; a canceled event the step alone; and a skipped
+// event why it was skipped. Each finished, failed, canceled or skipped event lists the steps its
+// write readied. A step's started event
 // precedes its finished, failed or canceled event.
 interface WorkflowStepStartedPayload extends WorkflowStepEventPayload {
   inputRef: WorkflowPayloadRef;
@@ -634,6 +636,8 @@ interface WorkflowStepCompletedPayload extends WorkflowStepEventPayload {
   outputRef: WorkflowPayloadRef;
   logRef: WorkflowPayloadRef;
   cost?: WorkflowCost;
+  outputItemCounts: number[]; // per main output in output order, the error output last: where each
+  // list ends in the items outputRef stores joined
   readied: WorkflowReadiedStep[];
 }
 interface WorkflowStepFailedPayload extends WorkflowStepEventPayload {
@@ -642,7 +646,9 @@ interface WorkflowStepFailedPayload extends WorkflowStepEventPayload {
   declineReason?: string; // only where words were typed on the `Decline`
   readied: WorkflowReadiedStep[];
 }
-type WorkflowStepCanceledPayload = WorkflowStepEventPayload;
+interface WorkflowStepCanceledPayload extends WorkflowStepEventPayload {
+  readied: WorkflowReadiedStep[];
+}
 interface WorkflowStepSkippedPayload extends WorkflowStepEventPayload {
   reason: "noItems" | "disabled";
   readied: WorkflowReadiedStep[];

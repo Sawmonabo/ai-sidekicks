@@ -66,9 +66,15 @@ workflow_step_key! {
 workflow_step_event! {
     /// `workflow.step.canceled`: a step that was running or waiting when its run ended failed or
     /// canceled, or a branch a first-to-arrive merge canceled once another branch arrived.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    pub struct WorkflowStepCanceledPayload {}
+    #[garde(allow_unvalidated)]
+    pub struct WorkflowStepCanceledPayload {
+        /// The steps this event's write readied, each with what its `pending` row stores; empty
+        /// where it readied none.
+        #[garde(dive)]
+        pub readied: Vec<WorkflowReadiedStep>,
+    }
 }
 
 workflow_step_event! {
@@ -113,6 +119,9 @@ workflow_step_event! {
         )]
         #[schemars(with = "WorkflowCost")]
         pub cost: Option<WorkflowCost>,
+        /// How many items each main output holds, in output order, the error output last where
+        /// the node has one: the boundaries of the output lists `outputRef` stores joined.
+        pub output_item_counts: Vec<SafeInt<0>>,
         /// The steps this event's write readied, each with what its `pending` row stores; empty
         /// where it readied none.
         #[garde(dive)]

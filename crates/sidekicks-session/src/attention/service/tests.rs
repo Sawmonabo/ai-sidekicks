@@ -384,6 +384,7 @@ async fn a_notify_steps_entry_is_decided_by_the_running_task() {
             "attempt": 1, "executionIndex": 0,
             "outputRef": {"kind": "inline", "items": []},
             "logRef": {"kind": "inline", "items": []},
+            "readied": [], "outputItemCounts": [],
         }}),
         SessionEventLinkage {
             transactional_prelude: notify_entry_statements(

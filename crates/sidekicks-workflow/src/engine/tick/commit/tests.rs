@@ -480,7 +480,11 @@ async fn a_canceled_held_step_adds_its_cut_hold(
         )
         .await
         .expect("a cancel writes no payload");
-    assert!(matches!(answer, Some(SettlementAnswer::Canceled)));
+    let readying_event = usize::from(is_sibling_failure);
+    assert!(matches!(
+        answer,
+        Some(SettlementAnswer::Canceled { readying_event: index }) if index == readying_event
+    ));
     harness.append(commit).await;
 
     assert_eq!(harness.step_row(1), ("canceled".to_owned(), pool_wait_ms));

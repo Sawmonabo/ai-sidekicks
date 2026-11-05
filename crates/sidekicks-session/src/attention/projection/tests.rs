@@ -38,6 +38,7 @@ async fn muting_withdraws_raised_end_banners_and_keeps_waits_and_notices() {
                 "attempt": 1, "executionIndex": 0,
                 "outputRef": {"kind": "inline", "items": []},
                 "logRef": {"kind": "inline", "items": []},
+                "readied": [], "outputItemCounts": [],
             }}),
             SessionEventLinkage {
                 transactional_prelude: notify,

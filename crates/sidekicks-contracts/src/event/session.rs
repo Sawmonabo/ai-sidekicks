@@ -540,7 +540,7 @@ session_events! {
     WorkflowStepFailed(#[garde(dive)] WorkflowStepFailedPayload) = "workflow.step.failed",
     /// Emitted when a running or waiting step ends because its run ended failed or canceled, or
     /// when a first-to-arrive merge cancels a branch once another branch arrived.
-    WorkflowStepCanceled(WorkflowStepCanceledPayload) = "workflow.step.canceled",
+    WorkflowStepCanceled(#[garde(dive)] WorkflowStepCanceledPayload) = "workflow.step.canceled",
     /// Emitted when a workflow step is skipped.
     WorkflowStepSkipped(#[garde(dive)] WorkflowStepSkippedPayload) = "workflow.step.skipped",
     /// Emitted when a workflow gate is answered.

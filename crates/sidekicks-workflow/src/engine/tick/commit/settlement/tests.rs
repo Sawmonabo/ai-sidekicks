@@ -86,11 +86,13 @@ fn account() -> ProviderAccountId {
     serde_json::from_value(json!("account-1")).expect("the test's account id")
 }
 
-/// A completed step stores its 70 KiB outputs as an artifact and its ten-line log inline, its
-/// row `succeeded` with the cost, `phase.completed` before `step.completed`, and hands the outputs
-/// back; its one kept variable, itself above the cap, is kept as an artifact the store reads back
+/// A completed step stores its 70 KiB outputs, two lists joined, as an artifact and its ten-line
+/// log inline, its row `succeeded` with the cost and each list's item count, which
+/// `step.completed` repeats after `phase.completed`, and hands the outputs back; its one kept
+/// variable, itself above the cap, is kept as an artifact the store reads back
 /// in the step's own write, and its unkept one is not; a deleted workflow keeps none and still
-/// commits the turn. Mutations: a payload above the cap kept inline; an unkept variable kept;
+/// commits the turn. Mutations: a payload above the cap kept inline; the lists' counts dropped
+/// from the row or the event; an unkept variable kept;
 /// kept values written outside the step's write; a deleted workflow's value kept or its turn
 /// refused; the kept artifact not resolved on the read.
 #[rstest]
@@ -113,6 +115,9 @@ async fn a_completed_step_stores_its_outputs_and_keeps_its_kept_values(#[case] i
         (0..10)
             .map(|index| item(json!({ "index": index, "text": "x".repeat(7 * 1024) })))
             .collect::<Vec<_>>(),
+        (0..3)
+            .map(|index| item(json!({ "index": index })))
+            .collect(),
     ];
     let log_lines: Vec<String> = (0..10).map(|index| format!("line {index}")).collect();
     let cost: WorkflowCost =
@@ -189,6 +194,11 @@ async fn a_completed_step_stores_its_outputs_and_keeps_its_kept_values(#[case] i
     assert_eq!(log_ref["kind"], json!("inline"));
     assert_eq!(log_ref["items"][9], json!({ "json": { "line": "line 9" } }));
     assert_eq!(harness.step_row(1).0, "succeeded");
+    assert_eq!(
+        step_json(&harness, "output_item_counts_json", 1),
+        json!([10, 3])
+    );
+    assert_eq!(harness.events()[1].3["outputItemCounts"], json!([10, 3]));
     assert_eq!(step_json(&harness, "cost_usd_micros", 1), json!(1500));
     assert_eq!(
         step_json(&harness, "cost_account_id", 1),

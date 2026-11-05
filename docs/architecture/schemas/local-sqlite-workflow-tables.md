@@ -255,6 +255,12 @@ CREATE TABLE workflow_steps (
                     CHECK(json_valid(output_ref)),
   log_ref           TEXT NOT NULL
                     CHECK(json_valid(log_ref)),
+  -- JSON array: how many items each main output holds, in output order, the error output last, so
+  -- output_ref's one joined list splits back into one list per output handle; '[]' until the step
+  -- settles with outputs.
+  output_item_counts_json TEXT NOT NULL DEFAULT '[]'
+                    CHECK(json_valid(output_item_counts_json)
+                      AND json_type(output_item_counts_json) = 'array'),
   cost_usd_micros   INTEGER,                     -- integer micro-dollars; NULL = never billed; the step still reads `$0.00` and names no account
   cost_account_id   TEXT,                          -- the provider account that paid; deliberately no foreign key, for the reason agent_definitions states
   error_json        TEXT                           -- JSON: the typed step error (message plus the node it belongs to); NULL on every non-failed status

@@ -386,22 +386,23 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
     step_event("workflow.step.completed", json!({
         "outputRef": {"kind": "inline", "items": []},
         "logRef": {"kind": "inline", "items": []},
+        "readied": [], "outputItemCounts": [],
     })),
     resolve(AttentionOpenEntries::Step(step_key()))
 )]
 #[case::step_failed(
-    step_event("workflow.step.failed", json!({"error": {"message": "It broke"}})),
+    step_event("workflow.step.failed", json!({"error": {"message": "It broke"}, "readied": []})),
     resolve(AttentionOpenEntries::Step(step_key()))
 )]
 #[case::step_canceled(
-    step_event("workflow.step.canceled", json!({})),
+    step_event("workflow.step.canceled", json!({"readied": []})),
     resolve(AttentionOpenEntries::Step(step_key()))
 )]
 #[case::workflow_run_resumed(
     json!({"type": "workflow.run.resumed", "payload": {
         "sessionId": SESSION, "workflowRunId": WORKFLOW_RUN, "definitionId": DEFINITION,
         "workflowVersionId": VERSION,
-        "resumptionPoint": {"activeSteps": [], "pendingGates": []},
+        "resumptionPoint": {"activeSteps": [], "pendingGates": []}, "readied": [],
     }}),
     resolve(AttentionOpenEntries::WorkflowRun(workflow_run_id()))
 )]

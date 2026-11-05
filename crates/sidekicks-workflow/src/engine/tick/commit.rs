@@ -188,8 +188,11 @@ pub(crate) enum SettlementAnswer {
         /// The step's agent run, kept to resume when the account is back.
         run: Box<dyn AgentStepRun>,
     },
-    /// The step was canceled.
-    Canceled,
+    /// The step was canceled; a step its leaving readies rides `workflow.step.canceled`.
+    Canceled {
+        /// The index of `workflow.step.canceled`, which `readied` takes.
+        readying_event: usize,
+    },
 }
 
 /// Why a settlement was not added to the turn: a payload it stores could not be written. Nothing
@@ -383,6 +386,7 @@ impl RunTurnCommit {
             &skip.sources,
             input_ref,
             output_ref,
+            &skip.output_lengths,
             &at,
         ));
         self.keep_artifact(input_ref);
@@ -537,6 +541,8 @@ impl RunTurnCommit {
         } else if let SessionEvent::WorkflowStepFailed(readying) = event {
             &mut readying.readied
         } else if let SessionEvent::WorkflowPhaseRetried(readying) = event {
+            &mut readying.readied
+        } else if let SessionEvent::WorkflowStepCanceled(readying) = event {
             &mut readying.readied
         } else {
             unreachable!("a step is readied only by an event that carries its readied steps")

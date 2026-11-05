@@ -12,6 +12,7 @@ use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::events::WorkflowGateReachedPayload;
 use sidekicks_contracts::workflow::run::status::WorkflowWaitCause;
@@ -171,11 +172,13 @@ impl RunTurnCommit {
                         WorkflowStepCanceledPayload,
                         session_id,
                         step,
+                        readied: Vec::new(),
                     )),
                 );
+                let readying_event = self.events.len() - 1;
                 self.moves
                     .push((step, StepMove::Settled(StepEnding::Canceled)));
-                Ok(SettlementAnswer::Canceled)
+                Ok(SettlementAnswer::Canceled { readying_event })
             }
         }
     }
@@ -200,10 +203,12 @@ impl RunTurnCommit {
             Err(error) => return Err(write_failure(error, written)),
         };
         self.artifact_ids.extend(written);
+        let output_lengths: Vec<usize> = outputs.iter().map(Vec::len).collect();
         self.statements.push(succeed_step(
             &step,
             at,
             &output_ref,
+            &output_lengths,
             &log_ref,
             cost.as_ref(),
         ));
@@ -233,6 +238,7 @@ impl RunTurnCommit {
                 output_ref: output_ref,
                 log_ref: log_ref,
                 cost: cost,
+                output_item_counts: output_lengths.into_iter().map(SafeInt::from_usize).collect(),
                 readied: Vec::new(),
             )),
         );
@@ -308,13 +314,13 @@ impl RunTurnCommit {
             Ok(log_ref) => log_ref,
             Err(error) => return Err(write_failure(error, written)),
         };
-        let output_ref = match &route {
+        let output = match &route {
             StepFailureRoute::PassOn { outputs } => {
                 match self
                     .write_payload(&step, &joined_outputs(outputs), &mut written)
                     .await
                 {
-                    Ok(output_ref) => Some(output_ref),
+                    Ok(output_ref) => Some((output_ref, outputs.iter().map(Vec::len).collect())),
                     Err(error) => return Err(write_failure(error, written)),
                 }
             }
@@ -333,7 +339,11 @@ impl RunTurnCommit {
                 finished_at: at,
                 error: &error,
                 decline_reason: decline_reason.as_ref(),
-                output_ref: output_ref.as_ref(),
+                output: output
+                    .as_ref()
+                    .map(|(output_ref, output_lengths): &(_, Vec<usize>)| {
+                        (output_ref, output_lengths.as_slice())
+                    }),
                 log_ref: &log_ref,
                 pool_wait_ms: cut_hold_milliseconds(reported.last_hold_report_at, at),
             },

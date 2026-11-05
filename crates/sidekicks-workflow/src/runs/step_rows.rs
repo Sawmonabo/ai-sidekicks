@@ -31,9 +31,10 @@ pub(crate) const CLEAR_WAIT_COLUMNS_SQL: &str = "wait_cause = NULL, resume_at = 
 
 // A step the walk readied or skipped: its row is new, written at the event's instant.
 const INSERT_STEP_SQL: &str = "INSERT INTO workflow_steps (workflow_run_id, node_id, attempt,
-    execution_index, source_json, status, started_at, finished_at, input_ref, output_ref, log_ref)
+    execution_index, source_json, status, started_at, finished_at, input_ref, output_ref, log_ref,
+    output_item_counts_json)
   VALUES (@workflow_run_id, @node_id, @attempt, @execution_index, @source_json, @status,
-    @started_at, @finished_at, @input_ref, @output_ref, @log_ref)";
+    @started_at, @finished_at, @input_ref, @output_ref, @log_ref, @output_item_counts_json)";
 
 static HOLD_STEP_SQL: LazyLock<String> = LazyLock::new(|| {
     let waiting_memory = <&'static str>::from(WorkflowStepStatus::WaitingMemory);
@@ -75,20 +76,21 @@ static SUCCEED_STEP_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE workflow_steps
   SET status = '{succeeded}', finished_at = @finished_at, output_ref = @output_ref,
-      log_ref = @log_ref, cost_usd_micros = @cost_usd_micros, cost_account_id = @cost_account_id,
+      output_item_counts_json = @output_item_counts_json, log_ref = @log_ref, cost_usd_micros = @cost_usd_micros, cost_account_id = @cost_account_id,
       {CLEAR_WAIT_COLUMNS_SQL}
   WHERE {STEP_KEY_SQL}"
     )
 });
 
-// A step passing its input on stores it as its output; any other failure keeps the empty output
-// its pending row stored.
+// A step passing its input on stores it as its output and its lists' lengths; any other failure
+// keeps the empty output its pending row stored.
 static FAIL_STEP_SQL: LazyLock<String> = LazyLock::new(|| {
     let failed = <&'static str>::from(WorkflowStepStatus::Failed);
     format!(
         "UPDATE workflow_steps
   SET status = '{failed}', finished_at = @finished_at, error_json = @error_json,
       decline_reason = @decline_reason, output_ref = COALESCE(@output_ref, output_ref),
+      output_item_counts_json = COALESCE(@output_item_counts_json, output_item_counts_json),
       log_ref = @log_ref, total_pool_wait_ms = total_pool_wait_ms + @pool_wait_ms,
       {CLEAR_WAIT_COLUMNS_SQL}
   WHERE {STEP_KEY_SQL}"
@@ -118,7 +120,7 @@ static WAIT_ON_ACCOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 /// The row of `step`, readied with `sources` on `input_ref` at `started_at`, the instant of the
-/// event whose write readied it: `pending`, with an empty output and log.
+/// event whose write readied it: `pending`, with an empty output and log and no output lists.
 pub(crate) fn insert_pending_step(
     step: &WorkflowStepKey,
     sources: &[Option<WorkflowStepSource>],
@@ -131,16 +133,19 @@ pub(crate) fn insert_pending_step(
         WorkflowStepStatus::Pending,
         (started_at, None),
         [input_ref, &empty_payload(), &empty_payload()],
+        &[],
     )
 }
 
 /// The row of `step`, skipped at `at` with `sources` on `input_ref`, passing `output_ref` on: a
-/// disabled node's input, or an empty list for a step whose input carried no items.
+/// disabled node's input, or an empty list for a step whose input carried no items, which holds
+/// `output_lengths` items on each main output in output order.
 pub(crate) fn insert_skipped_step(
     step: &WorkflowStepKey,
     sources: &[Option<WorkflowStepSource>],
     input_ref: &WorkflowPayloadRef,
     output_ref: &WorkflowPayloadRef,
+    output_lengths: &[usize],
     at: &WireInstant,
 ) -> WriteStatement {
     insert_step(
@@ -149,6 +154,7 @@ pub(crate) fn insert_skipped_step(
         WorkflowStepStatus::Skipped,
         (at, Some(at)),
         [input_ref, output_ref, &empty_payload()],
+        output_lengths,
     )
 }
 
@@ -204,12 +210,14 @@ pub(crate) fn cancel_step(
     )
 }
 
-/// Moves `step` to `succeeded` at `finished_at`, storing its output, its log and `cost`, where a
-/// provider was billed, with every wait column emptied.
+/// Moves `step` to `succeeded` at `finished_at`, storing its output, joined from lists of
+/// `output_lengths` items in output order, its log and `cost`, where a provider was billed, with
+/// every wait column emptied.
 pub(crate) fn succeed_step(
     step: &WorkflowStepKey,
     finished_at: &WireInstant,
     output_ref: &WorkflowPayloadRef,
+    output_lengths: &[usize],
     log_ref: &WorkflowPayloadRef,
     cost: Option<&WorkflowCost>,
 ) -> WriteStatement {
@@ -219,6 +227,10 @@ pub(crate) fn succeed_step(
         vec![
             text_binding("@finished_at", finished_at.as_str()),
             (Cow::Borrowed("@output_ref"), payload_value(output_ref)),
+            (
+                Cow::Borrowed("@output_item_counts_json"),
+                output_lengths_value(output_lengths),
+            ),
             (Cow::Borrowed("@log_ref"), payload_value(log_ref)),
             (
                 Cow::Borrowed("@cost_usd_micros"),
@@ -240,8 +252,9 @@ pub(crate) struct FailedStepRow<'row> {
     pub(crate) error: &'row WorkflowStepError,
     /// The words typed with the Decline that failed it.
     pub(crate) decline_reason: Option<&'row NonEmptyText>,
-    /// The input it passed on as its output; `None` keeps the stored output.
-    pub(crate) output_ref: Option<&'row WorkflowPayloadRef>,
+    /// The input it passed on as its output, beside how many items each of its output lists
+    /// holds; `None` keeps the stored output.
+    pub(crate) output: Option<(&'row WorkflowPayloadRef, &'row [usize])>,
     /// Its log.
     pub(crate) log_ref: &'row WorkflowPayloadRef,
     /// The time a hold the failure cut ran since its last report, in milliseconds.
@@ -264,7 +277,14 @@ pub(crate) fn fail_step(step: &WorkflowStepKey, row: &FailedStepRow<'_>) -> Writ
             ),
             (
                 Cow::Borrowed("@output_ref"),
-                row.output_ref.map_or(Value::Null, payload_value),
+                row.output
+                    .map_or(Value::Null, |(output_ref, _)| payload_value(output_ref)),
+            ),
+            (
+                Cow::Borrowed("@output_item_counts_json"),
+                row.output.map_or(Value::Null, |(_, output_lengths)| {
+                    output_lengths_value(output_lengths)
+                }),
             ),
             (Cow::Borrowed("@log_ref"), payload_value(row.log_ref)),
             pool_wait_binding(row.pool_wait_ms),
@@ -315,13 +335,14 @@ pub(crate) fn wait_step_on_account(
 }
 
 // The new row of `step` at `status`, started and finished at `instants`, storing `payloads`: its
-// input, output and log.
+// input, output and log, the output holding `output_lengths` items on each main output.
 fn insert_step(
     step: &WorkflowStepKey,
     sources: &[Option<WorkflowStepSource>],
     status: WorkflowStepStatus,
     (started_at, finished_at): (&WireInstant, Option<&WireInstant>),
     [input_ref, output_ref, log_ref]: [&WorkflowPayloadRef; 3],
+    output_lengths: &[usize],
 ) -> WriteStatement {
     let source_json =
         serde_json::to_string(sources).expect("a step's sources write as JSON, holding only ids");
@@ -333,6 +354,10 @@ fn insert_step(
         (Cow::Borrowed("@input_ref"), payload_value(input_ref)),
         (Cow::Borrowed("@output_ref"), payload_value(output_ref)),
         (Cow::Borrowed("@log_ref"), payload_value(log_ref)),
+        (
+            Cow::Borrowed("@output_item_counts_json"),
+            output_lengths_value(output_lengths),
+        ),
     ];
     bindings.extend(step_key_bindings(step));
     WriteStatement {
@@ -385,6 +410,10 @@ fn payload_value(payload: &WorkflowPayloadRef) -> Value {
         serde_json::to_string(payload)
             .expect("a payload ref writes as JSON, its items being JSON values"),
     )
+}
+
+fn output_lengths_value(output_lengths: &[usize]) -> Value {
+    Value::Text(serde_json::to_string(output_lengths).expect("a list of lengths writes as JSON"))
 }
 
 fn empty_payload() -> WorkflowPayloadRef {
