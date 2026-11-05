@@ -12,8 +12,9 @@ use crate::driver::codex::service::home::CodexServiceKind;
 use crate::driver::codex::service::process::LastingCodexService;
 use crate::driver::codex::service::record::LastingServiceRecordFile;
 use crate::driver::codex::service::supervisor::CodexService;
+use crate::driver::codex::service::supervisor::own_record::socket_record_file;
 use crate::driver::codex::service::supervisor::start::kept_records::{
-    lock_record, socket_record_file, take_kept_service,
+    lock_record, take_kept_service,
 };
 use crate::driver::codex::service::supervisor::start::{
     CodexServiceProcess, LaunchedLastingService, StartFailure, StartedService, compose_launch,

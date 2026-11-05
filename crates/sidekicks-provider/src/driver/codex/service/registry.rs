@@ -36,8 +36,9 @@ use crate::driver::codex::service::home::{
 };
 use crate::driver::codex::service::record::{LastingServiceRecordFile, recorded_home_keys};
 use crate::driver::codex::service::socket_link::{is_listening, point_socket_link_at_service};
+use crate::driver::codex::service::supervisor::own_record::socket_record_file;
 use crate::driver::codex::service::supervisor::start::kept_records::{
-    KeptServicesStop, report_kept_service_unstopped, socket_record_file, stop_kept_services,
+    KeptServicesStop, report_kept_service_unstopped, stop_kept_services,
 };
 #[cfg(any(test, feature = "test-support"))]
 use crate::driver::codex::service::supervisor::test_service::ScriptedCodexService;

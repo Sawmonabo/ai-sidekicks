@@ -32,9 +32,9 @@ use crate::driver::codex::service::socket_link::{
 };
 use crate::driver::codex::service::start_lock::CodexStartLock;
 use crate::driver::codex::service::supervisor::CodexService;
+use crate::driver::codex::service::supervisor::own_record::socket_record_file;
 use crate::driver::codex::service::supervisor::start::kept_records::{
-    KeptRecordsOutcome, lock_record, reconcile_kept_records, retire_kept_record,
-    settle_own_records, socket_record_file,
+    KeptRecordsOutcome, lock_record, reconcile_kept_records, retire_kept_record, settle_own_records,
 };
 use crate::driver::codex::service::supervisor::start::{
     CodexServiceProcess, LaunchedLastingService, StartFailure, StartedService, compose_launch,

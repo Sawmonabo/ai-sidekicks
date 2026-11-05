@@ -34,6 +34,9 @@ use crate::driver::codex::service::socket_link::{
 };
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::drain::{LastingServiceDrainWatch, read_drain_end};
+use crate::driver::codex::service::supervisor::own_record::{
+    retire_last_process_record, socket_record_file,
+};
 use crate::driver::codex::service::supervisor::runner::{SERVICE_STOP_GRACE, stop_grace_by};
 use crate::driver::codex::service::supervisor::start::{
     StartFailure, start_failed, take_start_lock,
@@ -80,7 +83,7 @@ struct RunningRecord {
 
 /// Takes the lock of the folder's records for `record_file` on the blocking pool. Fails as the
 /// lock does.
-pub(super) async fn lock_record(
+pub(in super::super) async fn lock_record(
     record_file: LastingServiceRecordFile,
 ) -> Result<Arc<LockedServiceRecord>, StartFailure> {
     tokio::task::spawn_blocking(move || record_file.lock())
@@ -210,7 +213,7 @@ async fn clear_home_link(record: &LastingServiceRecord) -> Option<CodexError> {
 /// still runs, or what it left is ended where it is gone, and the record goes either way; one
 /// draining is left to its drain, which removes it. A service that cannot be stopped is logged.
 /// Fails as the read, the re-pin or the removal does.
-pub(super) async fn retire_kept_record(
+pub(in super::super) async fn retire_kept_record(
     locked: &Arc<LockedServiceRecord>,
     control_socket: &Path,
 ) -> Result<(), StartFailure> {
@@ -487,36 +490,6 @@ pub(crate) fn report_kept_service_unstopped(error: &(dyn std::error::Error + 'st
     );
 }
 
-/// The record file of the lasting service on the socket `service` dials, where a start of it
-/// records the process it launches. Fails as [`LastingServiceRecordFile::of_socket`] does.
-pub(crate) fn socket_record_file(service: &CodexService) -> io::Result<LastingServiceRecordFile> {
-    LastingServiceRecordFile::of_socket(
-        &service.dependencies().data_folder,
-        &service.home().codex_home,
-        service.socket_path(),
-    )
-}
-
-/// Retires the record of the process `service`'s last start brought up, else of its own socket,
-/// once that process has ended and nothing starts it again. Fails as the record's lock or its
-/// retire does.
-pub(in super::super) async fn retire_own_record(service: &CodexService) -> Result<(), CodexError> {
-    let socket = service.socket_path().to_owned();
-    let record_file = match service.process_record_file() {
-        Some(record_file) => record_file,
-        None => socket_record_file(service).map_err(|error| CodexError::Transport {
-            detail: "The Codex service's record could not be named.".to_owned(),
-            cause: Some(Box::new(error)),
-        })?,
-    };
-    let locked = lock_record(record_file)
-        .await
-        .map_err(|failure| failure.error)?;
-    retire_kept_record(&locked, &socket)
-        .await
-        .map_err(|failure| failure.error)
-}
-
 // Every record kept for the folder's services under the start's own hold `own`: its own first,
 // then every other, each under the same hold. Fails as a record's read fails.
 async fn read_kept_records(
@@ -671,11 +644,7 @@ pub(super) async fn settle_own_records(
     deadline: Instant,
 ) -> Result<KeptRecordsOutcome, StartFailure> {
     let socket = service.socket_path();
-    if let Some(last) = service.process_record_file()
-        && last != *locked.file()
-    {
-        retire_kept_record(&Arc::new(locked.sibling(last)), socket).await?;
-    }
+    retire_last_process_record(service, locked, socket).await?;
     if let Some(record) = read_record(locked).await?
         && record.is_draining
         && let Some(lasting) = repin(record.process.clone()).await?

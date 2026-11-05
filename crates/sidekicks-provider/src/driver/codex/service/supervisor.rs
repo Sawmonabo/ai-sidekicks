@@ -10,6 +10,7 @@
 pub(crate) mod connection_events;
 pub(crate) mod drain;
 pub(crate) mod events;
+pub(crate) mod own_record;
 mod rate_limit_readings;
 mod reconnect;
 pub(crate) mod refusals;
@@ -279,19 +280,6 @@ impl CodexService {
     /// it was dialed through, or the path itself where that is no link; `None` before any start.
     pub(crate) fn physical_socket(&self) -> Option<PathBuf> {
         self.lock_physical_socket().clone()
-    }
-
-    /// The record file of the lasting process the last start brought up, or the one a launch under
-    /// way writes; `None` before any start and for a service with no lasting process.
-    pub(crate) fn process_record_file(&self) -> Option<LastingServiceRecordFile> {
-        lock(&self.process_record_file).clone()
-    }
-
-    /// Publishes `record_file` as the record of the service's lasting process: a launch publishes
-    /// it before it writes the record, so a daemon stop leaves that record to this service, and an
-    /// adopted start publishes what it brought up.
-    pub(crate) fn set_process_record_file(&self, record_file: Option<LastingServiceRecordFile>) {
-        *lock(&self.process_record_file) = record_file;
     }
 
     /// The log of the lasting process a start named; `None` before any such start.
