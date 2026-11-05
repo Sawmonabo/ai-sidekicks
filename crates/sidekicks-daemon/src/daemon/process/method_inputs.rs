@@ -354,6 +354,8 @@ pub(crate) async fn register_method_inputs(
         writer: &writer,
         reads: &reads,
     });
+    mcp.session_tool_servers
+        .register_inventory(Arc::clone(&mcp_inventory))?;
     let worktree_sources = Arc::new(WorktreeSources {
         reads: Arc::clone(&reads),
         records: Arc::clone(&port.project_records),
