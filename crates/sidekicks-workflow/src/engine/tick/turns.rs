@@ -7,7 +7,7 @@ mod reports;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -110,11 +110,14 @@ pub(crate) struct EngineTick {
     retries: JoinSet<Option<WorkflowStepKey>>,
 }
 
-/// One run's share of a turn while it is gathered: its write, what it readied and the last event
-/// whose write readies steps.
+/// One run's share of a turn while it is gathered: its write, what it readied, the reports its
+/// cancels queued to apply next, and the last event whose write readies steps.
 struct RunTurn {
     commit: RunTurnCommit,
     readied: Vec<TurnReadied>,
+    /// The reports a cancel or a closed wave queued, applied in order after the report that
+    /// queued them, so nothing recurses.
+    follow_ups: VecDeque<StepReport>,
     /// The index and instant of the turn's last event that carries readied steps.
     last_readying_event: Option<(usize, WireInstant)>,
 }
@@ -354,11 +357,15 @@ impl EngineTick {
                 Arc::clone(&self.payloads),
             ),
             readied: Vec::new(),
+            follow_ups: VecDeque::new(),
             last_readying_event: None,
         };
         let batch = std::mem::take(&mut live.next_batch);
         for report in batch.into_iter().chain(reports) {
             self.apply_report(&mut live, &mut turn, report).await;
+            while let Some(follow_up) = turn.follow_ups.pop_front() {
+                self.apply_report(&mut live, &mut turn, follow_up).await;
+            }
         }
         if live.steps.is_empty() {
             self.flush(&mut live, &mut turn).await;

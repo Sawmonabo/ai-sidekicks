@@ -416,16 +416,7 @@ impl RunTurnCommit {
                 self.moves.push((step, StepMove::Canceling));
             }
             StepReportKind::BranchesCanceled { reason, count } => {
-                self.push(
-                    &at,
-                    SessionEvent::WorkflowParallelJoinBranchesCanceled(step_payload!(
-                        WorkflowParallelJoinBranchesCanceledPayload,
-                        session_id,
-                        step,
-                    )),
-                );
-                self.moves
-                    .push((step, StepMove::BranchesCanceled { reason, count }));
+                self.branches_canceled(step, &at, reason, count);
             }
             StepReportKind::Settled(settlement) => {
                 return self
@@ -435,6 +426,29 @@ impl RunTurnCommit {
             }
         }
         Ok(None)
+    }
+
+    /// Writes `workflow.parallelJoin.branchesCanceled` on `step` at `at`, whose turn canceled
+    /// `count` of its run's running branches for `reason`, and records the decision. The step
+    /// need not be live: the deciding step may have settled before its wave did.
+    pub(crate) fn branches_canceled(
+        &mut self,
+        step: WorkflowStepKey,
+        at: &WireInstant,
+        reason: BranchCancelReason,
+        count: usize,
+    ) {
+        let session_id = self.keys.session_id;
+        self.push(
+            at,
+            SessionEvent::WorkflowParallelJoinBranchesCanceled(step_payload!(
+                WorkflowParallelJoinBranchesCanceledPayload,
+                session_id,
+                step,
+            )),
+        );
+        self.moves
+            .push((step, StepMove::BranchesCanceled { reason, count }));
     }
 
     /// Writes the `skipped` row of `skip` at `at`, on `input_ref`, passing `output_ref` on, and

@@ -1,6 +1,8 @@
-//! The report path of the tick's loop: each report a live step sent added to its run's turn, a
-//! settlement's payload failure failed in its place, and what each settlement answers followed.
+//! The report path of the tick's loop: each report first offered to its run's waves, then added
+//! to its run's turn, a settlement's payload failure failed in its place, and what each settlement
+//! answers followed.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -10,20 +12,31 @@ use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 
 use super::{EngineTick, ReadiedNext, RunTurn, TurnReadied, step_failure};
 use crate::engine::event_record::EngineFault;
+use crate::engine::ports::AgentStepRun;
+use crate::engine::tick::branch_cancellation::WaveSettle;
 use crate::engine::tick::commit::{RunTurnCommit, SettlementAnswer, SettlementWriteFailure};
 use crate::engine::tick::live_runs::LiveRun;
 use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
 use crate::kinds::StepFailure;
 
 impl EngineTick {
-    /// Adds `report` of a live step of `live` to the turn and follows what a settlement answers;
-    /// a report of a step that is not live is dropped.
+    /// Offers `report` to the run's waves, then adds it to the turn and follows what a settlement
+    /// answers. A wave's `branchesCanceled` is written whether or not its deciding step is live;
+    /// any other report of a step that is not live is dropped.
     pub(super) async fn apply_report(
         &self,
         live: &mut LiveRun,
         turn: &mut RunTurn,
         report: StepReport,
     ) {
+        let Some(report) = offer_to_waves(live, &mut turn.follow_ups, report).await else {
+            return;
+        };
+        if let StepReportKind::BranchesCanceled { reason, count } = report.kind {
+            turn.commit
+                .branches_canceled(report.step, &report.at, reason, count);
+            return;
+        }
         let execution_index = report.step.execution_index.get();
         if !live.steps.contains_key(&execution_index) {
             return;
@@ -38,9 +51,14 @@ impl EngineTick {
                 self.follow_settlement(live, turn, &step, at, answer).await;
                 return;
             }
+            StepReportKind::Canceling => {
+                if let Some(live_step) = live.steps.get_mut(&execution_index) {
+                    live_step.is_winding_down = true;
+                }
+                None
+            }
             StepReportKind::Started { .. }
             | StepReportKind::Progressed
-            | StepReportKind::Canceling
             | StepReportKind::BranchesCanceled { .. } => None,
         };
         let step = report.step.clone();
@@ -202,5 +220,55 @@ impl EngineTick {
                 );
             }
         }
+    }
+}
+
+/// Offers `report` to each wave of `live` in order: a member's settlement is held by its wave,
+/// and the last one closes the wave, whose reports queue on `follow_ups`; an agent run a member
+/// hands back is stopped. Answers the report when no wave holds it.
+async fn offer_to_waves(
+    live: &mut LiveRun,
+    follow_ups: &mut VecDeque<StepReport>,
+    mut report: StepReport,
+) -> Option<StepReport> {
+    let mut index = 0;
+    while index < live.waves.len() {
+        let step = report.step.clone();
+        match live.waves[index].settle(report) {
+            WaveSettle::Passed(passed) => {
+                report = passed;
+                index += 1;
+            }
+            WaveSettle::Pending { run_to_stop } => {
+                stop_agent_run(live, &step, run_to_stop).await;
+                return None;
+            }
+            WaveSettle::Closed {
+                reports,
+                run_to_stop,
+            } => {
+                live.waves.remove(index);
+                follow_ups.extend(reports);
+                stop_agent_run(live, &step, run_to_stop).await;
+                return None;
+            }
+        }
+    }
+    Some(report)
+}
+
+/// Stops `run`, the agent run of `step` of `live` that no cancel reaches any more, recording a
+/// stop that could not be sent.
+async fn stop_agent_run(
+    live: &LiveRun,
+    step: &WorkflowStepKey,
+    run: Option<Box<dyn AgentStepRun>>,
+) {
+    if let Some(run) = run
+        && let Err(error) = run.cancel().await
+    {
+        live.record
+            .fault(Some(step), EngineFault::AgentRunStopFailed, error.as_ref())
+            .await;
     }
 }
