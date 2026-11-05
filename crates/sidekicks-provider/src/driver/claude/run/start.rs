@@ -75,6 +75,15 @@ pub(crate) enum ClaudeDaemonTurnOpening {
     },
     /// The turn Claude Code started by itself.
     Provider,
+    /// Words the daemon tells the session's live, awake process only: with none live or the
+    /// session asleep, the turn is refused `NoLiveSession` before anything wakes, opens or is
+    /// written.
+    Narration {
+        /// The words.
+        text: OutboundText,
+        /// The message's id.
+        message_id: String,
+    },
 }
 
 /// Starts runs on live Claude Code sessions; clones share everything.
@@ -212,48 +221,52 @@ impl ClaudeRunStart {
     /// resolver, and the run's binding opens its process. A text or command opening is refused
     /// `SessionTurnInFlight`, before any run exists, while anything holds the session's turn, and
     /// so is any opening the run engine refuses for a turn it holds for another run; every opening
-    /// on a live process holding no posture is refused `ExecutionPostureAbsent`. Fails as the wake
-    /// or the admission fails, and as the run engine's start fails, the run then ended `failed` by
-    /// the engine.
+    /// on a live process holding no posture is refused `ExecutionPostureAbsent`, and a narration
+    /// with no live, awake process `NoLiveSession`. Fails as the wake or the admission fails, and
+    /// as the run engine's start fails, the run then ended `failed` by the engine; a refusal of the
+    /// run's binding reaches the caller as that refusal.
     pub(crate) async fn start_daemon_turn(
         &self,
         session_id: SessionId,
         opening: ClaudeDaemonTurnOpening,
     ) -> Result<RunId, DriverError> {
-        self.wake_if_asleep(session_id).await?;
-        let (admitted_provider_account_id, execution_posture) =
-            if let Some(live) = self.slots.live_session(session_id) {
-                let execution_posture =
-                    lock(&live.settings)
-                        .execution_posture
-                        .clone()
-                        .ok_or_else(|| {
-                            claude_session_unavailable(
-                                ClaudeSessionUnavailableReason::ExecutionPostureAbsent,
-                                session_id,
-                                None,
-                            )
-                        })?;
-                (live.admitted_provider_account_id(), execution_posture)
-            } else {
-                let admission = self.bindings.admit_daemon_turn(session_id).await.map_err(
-                    |error| match error {
-                        // A refusal a client reads by its code reaches it as that refusal.
-                        DaemonTurnBindingError::Refused { refusal, .. } => {
-                            DriverError::Refused(refusal)
-                        }
-                        error @ (DaemonTurnBindingError::NoProviderSession { .. }
-                        | DaemonTurnBindingError::NotAdmitted { .. }
-                        | DaemonTurnBindingError::BindingNotRecorded { .. }) => {
-                            DriverError::Internal(Box::new(error))
-                        }
-                    },
-                )?;
-                (
-                    admission.admitted_provider_account_id,
-                    admission.execution_posture,
-                )
-            };
+        let is_live_only = matches!(opening, ClaudeDaemonTurnOpening::Narration { .. });
+        if !is_live_only {
+            self.wake_if_asleep(session_id).await?;
+        }
+        let live = self.slots.live_session(session_id);
+        if is_live_only && (live.is_none() || self.idle_sleep.is_asleep(session_id)) {
+            return Err(claude_session_unavailable(
+                ClaudeSessionUnavailableReason::NoLiveSession,
+                session_id,
+                None,
+            )
+            .into());
+        }
+        let (admitted_provider_account_id, execution_posture) = if let Some(live) = live {
+            let execution_posture =
+                lock(&live.settings)
+                    .execution_posture
+                    .clone()
+                    .ok_or_else(|| {
+                        claude_session_unavailable(
+                            ClaudeSessionUnavailableReason::ExecutionPostureAbsent,
+                            session_id,
+                            None,
+                        )
+                    })?;
+            (live.admitted_provider_account_id(), execution_posture)
+        } else {
+            let admission = self
+                .bindings
+                .admit_daemon_turn(session_id)
+                .await
+                .map_err(daemon_turn_binding_failure)?;
+            (
+                admission.admitted_provider_account_id,
+                admission.execution_posture,
+            )
+        };
         let is_provider_started = matches!(opening, ClaudeDaemonTurnOpening::Provider);
         if !is_provider_started && self.routes.is_turn_held(session_id) {
             return Err(claude_session_unavailable(
@@ -300,7 +313,10 @@ impl ClaudeRunStart {
                     )
                     .into()
                 } else {
-                    DriverError::Internal(error)
+                    match error.downcast::<DaemonTurnBindingError>() {
+                        Ok(binding) => daemon_turn_binding_failure(*binding),
+                        Err(error) => DriverError::Internal(error),
+                    }
                 }
             })
     }
@@ -381,6 +397,9 @@ impl ClaudeRunStart {
                 text,
                 message_id,
             }) => (text, message_id, Vec::new(), Some(name)),
+            Some(ClaudeDaemonTurnOpening::Narration { text, message_id }) => {
+                (text, message_id, Vec::new(), None)
+            }
             // The engine starts each run's turn once.
             None => return Ok(()),
         };
@@ -576,6 +595,19 @@ pub(crate) fn claude_attachment_failure(
         .picture_refusal()
         .and_then(|sentence| claude_run_refusal(live, sentence))
         .unwrap_or_else(|| DriverError::Internal(Box::new(error)))
+}
+
+// A daemon turn's admission or binding that failed: its refusal as the refusal a client reads by
+// its code, and any other failure as internal.
+fn daemon_turn_binding_failure(error: DaemonTurnBindingError) -> DriverError {
+    match error {
+        DaemonTurnBindingError::Refused { refusal, .. } => DriverError::Refused(refusal),
+        error @ (DaemonTurnBindingError::NoProviderSession { .. }
+        | DaemonTurnBindingError::NotAdmitted { .. }
+        | DaemonTurnBindingError::BindingNotRecorded { .. }) => {
+            DriverError::Internal(Box::new(error))
+        }
+    }
 }
 
 // The run's refusal in `sentence`, naming the full id of the model the session runs; none for a

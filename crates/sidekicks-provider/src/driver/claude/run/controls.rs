@@ -34,7 +34,8 @@ use crate::driver::claude::run::start::{
     ClaudeRunStart, claude_attachment_failure, claude_session_unavailable,
 };
 use crate::driver::claude::session::errors::{
-    ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
+    ClaudeSessionError, ClaudeSessionUnavailableReason, is_unavailable_for,
+    record_unheard_claude_failure,
 };
 use crate::driver::claude::session::establishment::resume::ClaudeContinuedTurn;
 use crate::driver::claude::session::state::LiveClaudeSession;
@@ -491,7 +492,7 @@ impl ClaudeRunControls {
     // own words: a helper at its next tool call, a process apart from the session's own (`apart`)
     // in its running turn, and the lead in its running turn or as its own run while no run holds
     // its turn. The words open no process: with none of the session's live, or the session asleep,
-    // nothing is written and nothing failed. The stop stands whether or not the words reach it,
+    // the start refuses them, so nothing is written and nothing failed. The stop stands whether or not the words reach it,
     // so a failed write is recorded.
     async fn tell_command_stopped(
         &self,
@@ -524,20 +525,23 @@ impl ClaudeRunControls {
             }
         } else {
             let message_uuid = mint_uuid_v7().to_string();
-            self.start
+            let written = self
+                .start
                 .retry_after_turn_change(session_id, || {
-                    let (text, message_uuid) = (text.clone(), message_uuid.clone());
-                    async move {
-                        if self.start.slots.live_session(session_id).is_none()
-                            || self.start.idle_sleep.is_asleep(session_id)
-                        {
-                            return Ok(());
-                        }
-                        self.write_to_lead_once(session_id, text, message_uuid)
-                            .await
-                    }
+                    self.write_to_lead_once(session_id, text.clone(), message_uuid.clone(), true)
                 })
-                .await
+                .await;
+            match written {
+                Err(error)
+                    if is_unavailable_for(
+                        &error,
+                        ClaudeSessionUnavailableReason::NoLiveSession,
+                    ) =>
+                {
+                    Ok(())
+                }
+                written => written,
+            }
         };
         if let Err(error) = told {
             record_unheard_claude_failure(

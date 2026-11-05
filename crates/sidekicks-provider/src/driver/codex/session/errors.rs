@@ -283,15 +283,18 @@ impl CodexError {
     }
 
     /// A daemon turn on `session_id` the run engine did not start: held for another run's turn
-    /// as `SessionTurnInFlight`, and any other failure as the engine's.
+    /// as `SessionTurnInFlight`, its binding's failure as [`Self::from_daemon_turn_binding`]
+    /// answers it, and any other failure as the engine's.
     pub(crate) fn from_daemon_turn_start(
         session_id: SessionId,
         error: Box<dyn Error + Send + Sync>,
     ) -> Self {
         if error.downcast_ref::<DaemonTurnHeld>().is_some() {
-            Self::SessionTurnInFlight { session_id }
-        } else {
-            Self::Driver(DriverError::Internal(error))
+            return Self::SessionTurnInFlight { session_id };
+        }
+        match error.downcast::<DaemonTurnBindingError>() {
+            Ok(binding) => Self::from_daemon_turn_binding(*binding),
+            Err(error) => Self::Driver(DriverError::Internal(error)),
         }
     }
 

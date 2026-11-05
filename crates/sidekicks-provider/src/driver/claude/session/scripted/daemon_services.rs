@@ -14,6 +14,7 @@ use futures::future::BoxFuture;
 use futures::future::ready;
 use serde_json::{Map, Value};
 use sidekicks_contracts::artifacts::id::ArtifactId;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
@@ -23,6 +24,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::tool_call_status::TOOL_CALL_STATUS_MAX_LEN;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_std::mutex_lock::lock;
 
 use super::binding_id;
@@ -89,13 +91,14 @@ pub(crate) type ScriptedProcessOpener =
 
 /// Approval ports, the queue's intake of taken messages, the status line intake and the session
 /// message readings, each recording what reaches it, and the queue's opening of a daemon turn's
-/// process once a test sets one.
+/// process once a test sets one, or its refusal of every daemon turn's binding.
 #[derive(Default)]
 pub(crate) struct RecordingPorts {
     calls: Mutex<Vec<PortCall>>,
     taken: Mutex<Vec<(String, RunId)>>,
     message_readings: Mutex<Vec<SessionMessageReading>>,
     process_opener: Mutex<Option<ScriptedProcessOpener>>,
+    refuses_daemon_turn_bindings: AtomicBool,
 }
 
 impl RecordingPorts {
@@ -117,6 +120,13 @@ impl RecordingPorts {
     /// Brings each daemon turn's session process up through `opener` before its binding opens.
     pub(crate) fn open_processes_for_daemon_turns(&self, opener: ScriptedProcessOpener) {
         *lock(&self.process_opener) = Some(opener);
+    }
+
+    /// Refuses every daemon turn's binding from now on, as the queue refuses one on a session
+    /// closed meanwhile.
+    pub(crate) fn refuse_daemon_turn_bindings(&self) {
+        self.refuses_daemon_turn_bindings
+            .store(true, Ordering::SeqCst);
     }
 
     fn record(&self, call: PortCall) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
@@ -370,6 +380,15 @@ impl DaemonTurnBindingResolver for ScriptedBindings {
         _run_id: RunId,
         session_id: SessionId,
     ) -> BoxFuture<'_, Result<DaemonTurnBinding, DaemonTurnBindingError>> {
+        if self.0.refuses_daemon_turn_bindings.load(Ordering::SeqCst) {
+            let refusal =
+                DomainError::new("the session is closed", RefusalCode::SessionAlreadyClosed);
+            return ready(Err(DaemonTurnBindingError::Refused {
+                session_id,
+                refusal: Box::new(refusal),
+            }))
+            .boxed();
+        }
         let opener = lock(&self.0.process_opener).clone();
         async move {
             if let Some(opener) = opener {

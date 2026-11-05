@@ -23,30 +23,35 @@ impl ClaudeRunControls {
     ) -> Result<(), DriverError> {
         self.start
             .retry_after_turn_change(session_id, move || {
-                self.write_to_lead_once(session_id, text.clone(), message_uuid.clone())
+                self.write_to_lead_once(session_id, text.clone(), message_uuid.clone(), false)
             })
             .await
     }
 
     /// One try of [`Self::write_to_lead`]: a steer into the turn running, else the session's own
-    /// run. Fails as `write_to_lead` does, with no wait.
+    /// run, which `is_live_only` opens only on a live, awake process, refusing `NoLiveSession`
+    /// otherwise. Fails as `write_to_lead` does, with no wait.
     pub(super) async fn write_to_lead_once(
         &self,
         session_id: SessionId,
         text: OutboundText,
         message_uuid: String,
+        is_live_only: bool,
     ) -> Result<(), DriverError> {
         let Some(lead) = self.start.routes.lead_run_on(session_id) else {
-            self.start
-                .start_daemon_turn(
-                    session_id,
-                    ClaudeDaemonTurnOpening::Text {
-                        text,
-                        message_id: message_uuid,
-                        attachment_blocks: Vec::new(),
-                    },
-                )
-                .await?;
+            let opening = if is_live_only {
+                ClaudeDaemonTurnOpening::Narration {
+                    text,
+                    message_id: message_uuid,
+                }
+            } else {
+                ClaudeDaemonTurnOpening::Text {
+                    text,
+                    message_id: message_uuid,
+                    attachment_blocks: Vec::new(),
+                }
+            };
+            self.start.start_daemon_turn(session_id, opening).await?;
             return Ok(());
         };
         // Written into the turn running, it is a steer and opens no turn of its own.
@@ -60,14 +65,18 @@ impl ClaudeRunControls {
 mod tests {
     use std::sync::Arc;
 
+    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use tokio::task::JoinHandle;
 
+    use crate::driver::claude::run::start::ClaudeDaemonTurnOpening;
     use crate::driver::claude::session::errors::{
-        ClaudeSessionUnavailableReason::SessionTurnInFlight, is_unavailable_for,
+        ClaudeSessionUnavailableReason::{NoLiveSession, SessionTurnInFlight},
+        is_unavailable_for,
     };
     use crate::driver::claude::session::scripted::{ScriptedSession, settle};
     use crate::driver::contract::error::DriverError;
+    use crate::driver::test_registry::new_session_id;
     use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 
     // Writes to the lead of a session whose last run released its turn and on whose turn the run
@@ -151,6 +160,54 @@ mod tests {
             .expect("the write's task ends")
             .expect_err("a turn that never changes refuses the write at the deadline");
         assert!(is_unavailable_for(&unchanged, SessionTurnInFlight));
+        assert_eq!(session.engine.first_daemon_turn_run(), None);
+    }
+
+    // Killed by answering a refusal of the run's binding, raised inside the run's start for a
+    // session closed meanwhile, as an internal fault.
+    #[tokio::test(start_paused = true)]
+    async fn a_write_whose_binding_is_refused_answers_that_refusal() {
+        let session = ScriptedSession::new().await;
+        session.ports.refuse_daemon_turn_bindings();
+        let text = OutboundText {
+            text: "Carry on.".to_owned(),
+            origin: OutboundTextOrigin::HumanText,
+        };
+        let refused = session
+            .parts
+            .run_controls
+            .write_to_lead(session.session_id, text, mint_uuid_v7().to_string())
+            .await
+            .expect_err("the binding's refusal refuses the write");
+        assert!(
+            matches!(&refused, DriverError::Refused(refusal)
+                if refusal.code == RefusalCode::SessionAlreadyClosed),
+            "{refused:?}"
+        );
+        assert_eq!(
+            session.channel.user_frames(),
+            Vec::<serde_json::Value>::new()
+        );
+    }
+
+    // Killed by admitting a narration on a session with no live process, which starts a run and
+    // opens a process to tell no one.
+    #[tokio::test(start_paused = true)]
+    async fn a_narration_with_no_live_process_starts_no_run() {
+        let session = ScriptedSession::new().await;
+        let opening = ClaudeDaemonTurnOpening::Narration {
+            text: OutboundText {
+                text: "The user stopped `sleep 100`.".to_owned(),
+                origin: OutboundTextOrigin::SystemNarration,
+            },
+            message_id: mint_uuid_v7().to_string(),
+        };
+        let refused = session
+            .start
+            .start_daemon_turn(new_session_id(), opening)
+            .await
+            .expect_err("a narration with no live process is refused");
+        assert!(is_unavailable_for(&refused, NoLiveSession));
         assert_eq!(session.engine.first_daemon_turn_run(), None);
     }
 }
