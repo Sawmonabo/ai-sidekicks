@@ -32,6 +32,7 @@ use crate::command::askpass::command_askpass_program_path;
 use crate::command::channel::command_channel_root;
 use crate::command::wrapper::command_wrapper_program_path;
 use crate::compaction_wait::PendingCompactionRegistry;
+use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::account::CodexAccountLegs;
 use crate::driver::codex::account_home_logs::AccountHomeLogExpiry;
 use crate::driver::codex::calibration::CodexCompactionLimits;
@@ -49,6 +50,7 @@ use crate::driver::codex::lifecycle::intake::CodexSessionIntake;
 use crate::driver::codex::lifecycle::service_events::CodexDriverServiceEvents;
 use crate::driver::codex::lifecycle::views::CodexSessionViews;
 use crate::driver::codex::model_windows::CodexModelWindowCache;
+use crate::driver::codex::pricing::CodexRequestPricer;
 use crate::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::driver::codex::rules::CodexProjectRuleFiles;
 use crate::driver::codex::run::control::{CodexRunControl, CodexRunControlDependencies};
@@ -89,6 +91,7 @@ use crate::driver::ports::DriverPorts;
 use crate::driver::{DriverServices, attachments::AttachmentResolver};
 use crate::driver::{ProviderAccountReader, SessionSpawnContextResolver};
 use crate::port::run_host::RunHost;
+use crate::pricing::live::LivePricing;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::ExecutionPostureService;
 use crate::runtime_binding::writer::RuntimeBindingWriter;
@@ -186,6 +189,9 @@ pub(crate) struct CodexDriverParts {
     pub(crate) model_windows: Arc<CodexModelWindowCache>,
     /// The binding store, which keeps each binding's recovery data.
     pub(crate) runtime_bindings: Arc<dyn RuntimeBindingWriter>,
+    /// Codex's live pricing, which every session's recorder and every copy price through and a
+    /// reroute marks its model in use on.
+    pub(crate) pricing: Arc<LivePricing>,
 }
 
 impl CodexDriver {
@@ -338,6 +344,11 @@ impl CodexDriver {
                 .map_err(internal)?,
         );
         let effects = Arc::new(CodexDriverEffects::new(Arc::clone(&self.link)));
+        let pricing = Arc::new(LivePricing::new(
+            DESCRIPTOR.provider_id(),
+            Arc::new(CodexRequestPricer),
+            ports,
+        ));
         let delivery = Arc::new(CodexFrameDelivery::new(CodexFrameDeliveryDependencies {
             engine: Arc::clone(&engine),
             dispatch: Arc::clone(&dispatch),
@@ -348,6 +359,7 @@ impl CodexDriver {
             stopped_helpers: Arc::clone(&self.stopped_helpers),
             effects,
             provider_accounts: Arc::clone(&ports.provider_accounts),
+            pricing: Arc::clone(&pricing),
         }));
         let hand_off = Arc::new(CodexAskHandOff::new(CodexAskHandOffDependencies {
             delivery: Arc::clone(&delivery),
@@ -500,6 +512,7 @@ impl CodexDriver {
             retries,
             adoptions,
             tasks: self.tasks.clone(),
+            pricing,
         })
     }
 

@@ -47,6 +47,7 @@ use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::question::ProviderQuestion;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
+use crate::pricing::live::LivePricing;
 use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::{InboundDelivery, InboundOutcome};
 use crate::run::turn_end::ProviderTurnEnd;
@@ -102,6 +103,8 @@ pub(crate) struct CodexFrameDeliveryDependencies {
     pub(crate) effects: Arc<dyn CodexFrameEffects>,
     /// The accounts, whose credential generation a spent allowance is filed under.
     pub(crate) provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
+    /// Codex's live pricing, which a reroute marks the model it moved to in use on.
+    pub(crate) pricing: Arc<LivePricing>,
 }
 
 /// One of the person's messages Codex took into a turn, by the id it was sent under.

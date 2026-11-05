@@ -53,11 +53,15 @@ impl CodexFrameDelivery {
                 }
             }
             "model/rerouted" => {
+                let to_model = read_non_empty_string(members, "toModel");
+                // Marked in use first, so a model the price list lacks is fetched at the reroute.
+                if let Some(to_model) = to_model {
+                    self.dependencies.pricing.mark_in_use(&[to_model]).await;
+                }
                 // The turn runs on the model it moved to, whether or not its row has a run.
-                if let (Some(turn_id), Some(to_model)) = (
-                    read_non_empty_string(members, "turnId"),
-                    read_non_empty_string(members, "toModel"),
-                ) && let Some(input) = record.turn_input_by_turn_id.get_mut(turn_id)
+                if let (Some(turn_id), Some(to_model)) =
+                    (read_non_empty_string(members, "turnId"), to_model)
+                    && let Some(input) = record.turn_input_by_turn_id.get_mut(turn_id)
                 {
                     to_model.clone_into(&mut input.model);
                 }

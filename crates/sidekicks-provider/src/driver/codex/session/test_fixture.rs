@@ -88,6 +88,7 @@ use crate::driver::codex::session::state::{CodexEstablishedConversation, CodexSe
 use crate::driver::codex::thread::settings::CodexThreadSettings;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
+use crate::driver::codex::{DESCRIPTOR, pricing::CodexRequestPricer};
 use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
 use crate::driver::run_control::{DaemonTurnBindingResolver, RunToolBoundary};
@@ -101,6 +102,7 @@ use crate::driver::{
 use crate::port::question::ProviderQuestion;
 use crate::port::run_host::RunHost;
 use crate::port::run_host::test_host::RecordingRunEngine;
+use crate::pricing::live::LivePricing;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::{ExecutionPostureService, compose_execution_posture};
 use crate::runtime_binding::store::RuntimeBindingStore;
@@ -179,6 +181,12 @@ impl TestCodexSession {
         let bindings = Arc::new(open_store(&database).await);
         let run_routes = Arc::new(CodexRunRoutes::default());
         let pending_compactions = PendingCompactionRegistry::default();
+        let ports = Arc::new(DriverPorts::new());
+        let pricing = Arc::new(LivePricing::new(
+            DESCRIPTOR.provider_id(),
+            Arc::new(CodexRequestPricer),
+            &ports,
+        ));
         let delivery = Arc::new(CodexFrameDelivery::new(CodexFrameDeliveryDependencies {
             engine: Arc::clone(&engine) as _,
             dispatch: Arc::clone(&engine) as _,
@@ -189,6 +197,7 @@ impl TestCodexSession {
             stopped_helpers: Arc::new(CodexStoppedHelpers::new(TaskTracker::new())),
             effects: Arc::new(NoEffects),
             provider_accounts: Arc::new(PortRegistration::new("provider accounts")),
+            pricing,
         }));
         let session_id = new_session_id();
         let lead_agent_id = new_agent_id();
@@ -254,7 +263,6 @@ impl TestCodexSession {
             daemon_turn_bindings: Arc::clone(&daemon_turn_bindings)
                 as Arc<dyn DaemonTurnBindingResolver>,
         };
-        let ports = Arc::new(DriverPorts::new());
         let queue = Arc::new(RecordedQueue::default());
         assert!(ports.message_taken.register(queue.clone()).is_ok());
         assert!(ports.message_refused.register(queue.clone()).is_ok());

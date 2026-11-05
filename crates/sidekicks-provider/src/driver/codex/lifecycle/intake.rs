@@ -212,7 +212,7 @@ impl CodexSessionIntake {
             let report = report.clone();
             let bindings = Arc::clone(&self.parts.runtime_bindings);
             let account_moves = Arc::clone(&self.parts.ports.session_account_moves);
-            let mut pricing = CodexRecorderPricing::new(&self.parts.ports);
+            let mut pricing = CodexRecorderPricing::new(Arc::clone(&self.parts.pricing));
             self.parts.tasks.spawn(async move {
                 while let Some(item) = items.recv().await {
                     match item {

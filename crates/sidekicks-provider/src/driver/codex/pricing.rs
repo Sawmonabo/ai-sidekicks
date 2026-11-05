@@ -32,7 +32,6 @@ use crate::driver::codex::config_read::{
     CodexProcessingRegion, OPENAI_REGION_PREFIXES, read_codex_processing_region,
 };
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
-use crate::driver::ports::DriverPorts;
 use crate::port::usage_sink::{MeteredUsage, UsageSink};
 use crate::pricing::list::{PriceTable, SpeedPricing};
 use crate::pricing::live::{LivePricing, LiveUsageRow};
@@ -152,25 +151,17 @@ impl RequestPricer for CodexRequestPricer {
     }
 }
 
-/// One Codex session's pricing on its usage recorder: the live pricing through Codex's rule, and
-/// the region of the service it last read one on.
+/// One recorder's pricing of Codex rows: the driver's one live pricing, and the region of the
+/// service it last read one on.
 pub(crate) struct CodexRecorderPricing {
-    live: LivePricing,
+    live: Arc<LivePricing>,
     region: Option<(CodexServiceId, Option<RegionWord>)>,
 }
 
 impl CodexRecorderPricing {
-    /// The recorder-side pricing over the usage record, price list, repricing and accounts in
-    /// `ports`.
-    pub(crate) fn new(ports: &DriverPorts) -> Self {
-        Self {
-            live: LivePricing::new(
-                DESCRIPTOR.provider_id(),
-                Arc::new(CodexRequestPricer),
-                ports,
-            ),
-            region: None,
-        }
+    /// The recorder-side pricing through `live`, the driver's live pricing of Codex's rule.
+    pub(crate) fn new(live: Arc<LivePricing>) -> Self {
+        Self { live, region: None }
     }
 
     /// Records `batch`, metered on `service` for `folder`, through `sink` in order, each delta

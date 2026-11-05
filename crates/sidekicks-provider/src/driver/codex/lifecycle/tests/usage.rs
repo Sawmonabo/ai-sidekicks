@@ -1,10 +1,12 @@
-//! A live session's metered spend, recorded through the usage sink and priced as it is recorded.
+//! A live session's metered spend, recorded through the usage sink and priced as it is recorded,
+//! and the models it moves to marked in use.
 
 use std::error::Error;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use axum::http::StatusCode;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde_json::{Value, json};
@@ -143,10 +145,10 @@ async fn answer_region_read(live: &mut LiveCodexSession) {
         .answer(&request, &json!({ "config": {}, "origins": {} }));
 }
 
-// Waits until `is_done` holds of `usage`.
-async fn wait_for(usage: &GatedUsage, is_done: impl Fn(&GatedUsage) -> bool) {
+// Waits until `is_done` holds.
+async fn wait_until(is_done: impl Fn() -> bool) {
     tokio::time::timeout(Duration::from_secs(10), async {
-        while !is_done(usage) {
+        while !is_done() {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
     })
@@ -188,10 +190,7 @@ async fn a_stalled_sink_loses_no_metered_spend_and_records_it_in_order() {
     open.send_replace(true);
 
     let expected: Vec<Option<u64>> = (1..=reports).map(Some).collect();
-    wait_for(&usage, |usage| {
-        lock(&usage.input_deltas).len() >= expected.len()
-    })
-    .await;
+    wait_until(|| lock(&usage.input_deltas).len() >= expected.len()).await;
     // The sink held the first delta alone while stalled.
     assert_eq!(handed_while_stalled, 1);
     assert_eq!(*lock(&usage.input_deltas), expected);
@@ -239,7 +238,7 @@ async fn a_total_that_did_not_grow_records_and_prices_nothing() {
         .send(&token_usage_frame(&counts(3_000, 300), &counts(2_000, 200)));
     answer_region_read(&mut live).await;
 
-    wait_for(&usage, |usage| lock(&usage.costs).len() >= 2).await;
+    wait_until(|| lock(&usage.costs).len() >= 2).await;
     stop.cancel();
     assert_eq!(*lock(&usage.input_deltas), [Some(1_000), Some(2_000)]);
     let costs: Vec<(UsageCostSource, Vec<u64>)> = lock(&usage.costs)
@@ -257,4 +256,40 @@ async fn a_total_that_did_not_grow_records_and_prices_nothing() {
         ]
     );
     assert!(lock(&usage.held).is_empty());
+}
+
+// Killed by a reroute that marks no model in use, which leaves the list's fetch for the model to
+// the first request's miss: a reroute to a model the held copy lacks fetches the list at once.
+#[tokio::test]
+async fn a_reroute_to_a_model_the_list_lacks_fetches_the_list_at_once() {
+    let live = LiveCodexSession::start(&[]).await;
+    let scratch = TempDir::new().expect("a scratch folder");
+    let stop = CancellationToken::new();
+    let (price_list, server) = started_list(
+        &scratch.path().join("price-list"),
+        r#"W/"gpt-5""#,
+        br#"{"m1": {"input_cost_per_token": 3e-06},
+            "seed-only": {"input_cost_per_token": 2e-06},
+            "gpt-5": {"input_cost_per_token": 1.25e-06}}"#,
+        &stop,
+    )
+    .await;
+    server.script(StatusCode::NOT_MODIFIED, Some(r#"W/"gpt-5""#), b"");
+    assert!(live.driver.ports.price_list.register(price_list).is_ok());
+
+    live.scripted.script.send(&json!({
+        "jsonrpc": "2.0",
+        "method": "model/rerouted",
+        "params": {
+            "threadId": TEST_THREAD, "turnId": TEST_TURN, "fromModel": "gpt-5",
+            "toModel": "gpt-5.5-cyber", "reason": "highRiskCyberActivity",
+        },
+    }));
+    wait_until(|| server.if_none_match().len() == 2).await;
+    stop.cancel();
+
+    assert_eq!(
+        server.if_none_match(),
+        [None, Some(r#"W/"gpt-5""#.to_owned())]
+    );
 }
