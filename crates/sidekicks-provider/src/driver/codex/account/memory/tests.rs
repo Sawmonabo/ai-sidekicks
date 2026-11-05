@@ -152,10 +152,11 @@ async fn codex_memories_land_in_the_account_and_switching_homes_and_count_once()
     write(&switching.join("two.md"), b"another account's");
     let account = fixture.account("codex").await;
     let before = snapshot(&own);
+    let config = json!({"config": {}, "origins": {}});
 
     let (outcome, ()) = tokio::join!(
         fixture.import(&legs, &account),
-        answer_config_read(&mut scripted, &json!({"config": {}, "origins": {}})),
+        answer_config_read(&mut scripted, &config),
     );
     let outcome = outcome.expect("the memory is imported");
 
@@ -184,13 +185,11 @@ async fn codexs_second_memory_store_lands_in_the_second_store_of_both_homes() {
     write(&own.join("memories/stale.md"), b"stale");
     write(&own.join("memories_v2/one.md"), b"one");
     let account = fixture.account("codex").await;
+    let config = json!({"config": {"memories": {"version": "v2"}}, "origins": {}});
 
     let (outcome, ()) = tokio::join!(
         fixture.import(&legs, &account),
-        answer_config_read(
-            &mut scripted,
-            &json!({"config": {"memories": {"version": "v2"}}, "origins": {}}),
-        ),
+        answer_config_read(&mut scripted, &config),
     );
     let outcome = outcome.expect("the memory is imported");
 
