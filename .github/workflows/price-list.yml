@@ -81,20 +81,12 @@ jobs:
           pnpm --filter @ai-sidekicks/daemon-engines build
 
       # The newest stable Rust, with the WebAssembly target `rust-toolchain.toml` lists for the
-      # compression module, so Cargo finds it installed; SHA-pinned.
+      # compression module, so Cargo finds it installed, and cargo-nextest for the test below.
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        uses: ./.github/actions/setup-rust
         with:
           targets: wasm32-unknown-unknown
-
-      # As in `ci.yml`: nextest's prebuilt Linux binary, one exact release, checked against its
-      # pinned SHA-256 before it is unpacked.
-      - name: Install cargo-nextest
-        run: |
-          ASSET="cargo-nextest-0.9.148-x86_64-unknown-linux-gnu.tar.gz"
-          curl -fsSL "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.148/${ASSET}" -o "/tmp/${ASSET}"
-          echo "223ba936714cc861a9cdedad5a8eb664dfdd69d6fbdf6cea6aa8184f523290dc  /tmp/${ASSET}" | sha256sum -c -
-          tar -xzf "/tmp/${ASSET}" -C "${CARGO_HOME:-$HOME/.cargo}/bin"
+          nextest: "true"
 
       # The daemon's build checks the list against the new sidecar as it compiles; the test then
       # decodes every row, fails on a list refused whole and prints each rate refused alone.
