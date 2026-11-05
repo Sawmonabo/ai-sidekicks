@@ -1,7 +1,7 @@
 //! The daemon's services every process the driver starts reads: where a spawn builds its legs and
 //! context, and the environment each process composes from them.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use sidekicks_contracts::machine::settings::EnvironmentRow;
@@ -11,14 +11,21 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 
 use crate::background_work::BackgroundWorkForms;
 use crate::driver::ProviderAccountFolders;
+use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::commands::ClaudeCommandChannels;
+use crate::driver::claude::delivery::requests::answers::{
+    claude_project_folder, read_claude_repository,
+};
 use crate::driver::claude::session::permission_level::ClaudeCommandSandboxCheck;
+use crate::driver::claude::session::rules::CLAUDE_USER_SETTINGS_FILE;
+use crate::driver::claude::session::settings_file::ClaudeSettingsSources;
 use crate::driver::claude::spawn::environment::{
-    ClaudeAccountFolders, ClaudeProcessEnvironmentRequest, ClaudeProcessHome,
+    ClaudeAccountFolders, ClaudeProcessEnvironmentRequest, ClaudeProcessHome, claude_config_folder,
     compose_claude_process_environment,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
+use crate::port::repository_reader::RepositoryReading;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::ExecutionPostureService;
 use crate::runtime_binding::writer::RuntimeBindingWriter;
@@ -116,4 +123,67 @@ impl ClaudeSpawnSources {
             .await?;
         self.account_process_environment(&folders, &[], &[])
     }
+
+    /// The repository of `working_folder` as Claude Code places its project settings; `None`
+    /// outside git, and before the daemon registers its repository reader.
+    pub(crate) async fn read_repository(
+        &self,
+        working_folder: &Path,
+    ) -> Option<(RepositoryReading, bool)> {
+        let repositories = self.ports.repositories.port()?;
+        read_claude_repository(&**repositories, working_folder).await
+    }
+
+    /// Where the settings of a Claude Code process started with `environment` in
+    /// `working_folder` are read from. It fails nothing; a folder outside git, or a daemon with no
+    /// repository reader yet, reads with no repository.
+    pub(crate) async fn read_settings_sources(
+        &self,
+        environment: &[(String, String)],
+        working_folder: &Path,
+    ) -> ClaudeSettingsSourcesReading {
+        ClaudeSettingsSourcesReading {
+            managed_settings_folder: DESCRIPTOR.managed_settings_folder(),
+            working_folder: working_folder.to_path_buf(),
+            repository: self.read_repository(working_folder).await,
+            home_folder: self.home_folder.clone(),
+            account_settings_file: claude_account_settings_file(environment),
+        }
+    }
+}
+
+/// Where a session's Claude Code settings are read from, read once for one process's environment
+/// and working folder; `sources` lends them.
+pub(crate) struct ClaudeSettingsSourcesReading {
+    managed_settings_folder: Option<PathBuf>,
+    working_folder: PathBuf,
+    repository: Option<(RepositoryReading, bool)>,
+    home_folder: PathBuf,
+    account_settings_file: PathBuf,
+}
+
+impl ClaudeSettingsSourcesReading {
+    /// The settings sources this reading holds, spelled by the running system's path rules.
+    pub(crate) fn sources(&self) -> ClaudeSettingsSources<'_> {
+        ClaudeSettingsSources {
+            managed_settings_folder: self.managed_settings_folder.as_deref(),
+            project_folder: claude_project_folder(&self.working_folder, self.repository.as_ref()),
+            home_folder: &self.home_folder,
+            account_settings_file: &self.account_settings_file,
+            path_rules: PathRules::NATIVE,
+        }
+    }
+}
+
+/// The config folder a Claude Code process started with `environment` reads, which every home the
+/// driver starts a process on names.
+pub(crate) fn claude_account_config_folder(environment: &[(String, String)]) -> PathBuf {
+    claude_config_folder(environment, PathRules::NATIVE)
+        .expect("every Claude Code home names its config folder")
+}
+
+/// The account home's own settings file a Claude Code process started with `environment` reads,
+/// in its config folder.
+pub(crate) fn claude_account_settings_file(environment: &[(String, String)]) -> PathBuf {
+    claude_account_config_folder(environment).join(CLAUDE_USER_SETTINGS_FILE)
 }

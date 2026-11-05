@@ -50,8 +50,8 @@ const CLAUDE_LOCAL_SETTINGS_EXCLUDE_PATTERN: &str = "/.claude/settings.local.jso
 /// under a home folder, the person's own settings file.
 pub(crate) const CLAUDE_SHARED_SETTINGS_FILE: [&str; 2] = [".claude", "settings.json"];
 
-// The person's own settings file in a Claude Code home's config folder.
-const CLAUDE_USER_SETTINGS_FILE: &str = "settings.json";
+/// The person's own settings file in a Claude Code home's config folder.
+pub(crate) const CLAUDE_USER_SETTINGS_FILE: &str = "settings.json";
 
 // The name Claude Code gives a connector it fetches itself starts so, and is written more tightly.
 const CLAUDE_CONNECTOR_SERVER_PREFIX: &str = "claude.ai ";
