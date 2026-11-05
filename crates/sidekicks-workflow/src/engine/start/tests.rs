@@ -57,7 +57,9 @@ use crate::engine::ports::{
     ChainAskAfterReader, EngineRecordSink, KeptEngineRecords, PortError, REFUSED_PORT_CALL,
     StepPayloadArtifacts,
 };
-use crate::kinds::{NodeKindTable, command_test_kind, git_test_kind};
+use crate::kinds::{
+    NodeKindTable, PassThroughExecutor, command_test_kind, git_test_kind, test_kind,
+};
 use crate::schema::schema_parts;
 use crate::test_rows::{TEST_SESSION_ID, insert_run, insert_workflow_version_body};
 
@@ -239,8 +241,34 @@ impl Fixture {
             chain_ask_after: Arc::new(AskAfter(chain_ask_after)),
             kept_values,
             kinds: Arc::new(
-                NodeKindTable::new(vec![git_test_kind(), command_test_kind()])
-                    .expect("the kinds build"),
+                NodeKindTable::new(vec![
+                    test_kind(
+                        json!({
+                            "kind": "trigger.manual", "version": 1, "category": "trigger",
+                            "displayName": "Manual", "description": "A run started by hand.",
+                            "icon": "play", "params": [], "inputs": [],
+                            "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
+                            "outputsDeriveFromParams": false,
+                        }),
+                        None,
+                        Box::new(PassThroughExecutor),
+                    ),
+                    test_kind(
+                        json!({
+                            "kind": "human.approval", "version": 1, "category": "human",
+                            "displayName": "Approval", "description": "A person's yes or no.",
+                            "icon": "check", "params": [],
+                            "inputs": [{ "type": "main", "id": "inputs/main/0", "label": "In" }],
+                            "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
+                            "outputsDeriveFromParams": false,
+                        }),
+                        None,
+                        Box::new(PassThroughExecutor),
+                    ),
+                    git_test_kind(),
+                    command_test_kind(),
+                ])
+                .expect("the kinds build"),
             ),
             data_folder: test_folder(&database).join("data"),
             recorder: Arc::new(EngineRecorder::new(
