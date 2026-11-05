@@ -58,7 +58,8 @@ const QUIET: Duration = Duration::from_millis(300);
 enum Script {
     /// Outputs one empty list.
     Empty,
-    /// Outputs ten items of 7 KiB, above the inline cap together.
+    /// Waits for the test's release, then outputs ten items of 7 KiB, above the inline cap
+    /// together.
     Large,
     /// Waits for its cancel, then passes its inputs on.
     AwaitCancel,
@@ -90,7 +91,10 @@ impl NodeExecutor for ScriptedExecutor {
         Box::pin(async move {
             Ok(StepOutcome::Outputs(match self.script {
                 Script::Empty => vec![Vec::new()],
-                Script::Large => vec![large_items()],
+                Script::Large => {
+                    self.signal.release.notified().await;
+                    vec![large_items()]
+                }
                 Script::AwaitCancel => {
                     context.cancel.cancelled().await;
                     self.signal.reached.notify_one();
@@ -632,8 +636,13 @@ async fn a_failed_turn_drops_its_run_and_deletes_its_payloads() {
         )
         .await;
     harness
-        .wait_until(|rows| step_column(rows, "S", "status").as_deref() == Some("running"))
+        .wait_until(|rows| {
+            ["S", "X"]
+                .iter()
+                .all(|node_id| step_column(rows, node_id, "status").as_deref() == Some("running"))
+        })
         .await;
+    harness.signal.release.notify_one();
 
     timeout(WAIT, harness.signal.reached.notified())
         .await
