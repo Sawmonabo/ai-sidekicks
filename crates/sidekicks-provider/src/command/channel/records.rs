@@ -161,10 +161,11 @@ impl RecordFollower {
                         CommandWindowStart {
                             session_id,
                             apart_run: self.apart_run,
-                            party,
                             command: command.clone(),
-                            stdout_path: stdout_path.clone(),
+                            // The wrapper's line names no tool call.
+                            tool_call_id: None,
                         },
+                        party,
                         Arc::clone(&self.channel),
                     ))
                 } else {
@@ -401,19 +402,20 @@ impl RecordFollower {
     }
 }
 
-// Opens `start`'s capture window on a task of its own, which answers the wrapper `go` once the open
-// settled, opened or not, then makes the window's calls in the order they are sent, and closes it
-// untold where they end unclosed. Bounded by the wrapper's records: one `Began` and one close. The
-// open has no bound of its own: one that never settles holds the wrapper at its wait for `go` until
-// the daemon stops or the wrapper is killed, and this task until the daemon stops.
+// Opens `start`'s capture window on a task of its own, which answers `party`, the wrapper, `go`
+// once the open settled, opened or not, then makes the window's calls in the order they are sent,
+// and closes it untold where they end unclosed. Bounded by the wrapper's records: one `Began` and
+// one close. The open has no bound of its own: one that never settles holds the wrapper at its
+// wait for `go` until the daemon stops or the wrapper is killed, and this task until the daemon
+// stops.
 fn open_window(
     capture: Arc<dyn CommandCapture>,
     start: CommandWindowStart,
+    party: PartyId,
     channel: Arc<CommandChannel>,
 ) -> mpsc::UnboundedSender<WindowCall> {
     let (calls, mut waiting_calls) = mpsc::unbounded_channel();
     tokio::spawn(async move {
-        let party = start.party;
         let opened = capture.open_window(start).await;
         send_request(&channel, party, &DaemonRequest::Go {}).await;
         let window = match opened {
