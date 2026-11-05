@@ -28,6 +28,7 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
 use sidekicks_store::database::stored_column::{optional_safe_int_column, safe_int_column};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+use sidekicks_workflow::engine::ports::ChainAskAfterReader;
 use tokio::sync::{Mutex, watch};
 
 /// The statements the store's reads prepare, counted into the read pool's statement capacity: the
@@ -168,6 +169,13 @@ impl RunTokenLimitReader for ConfigurationStore {
                 )?)
             })
             .boxed()
+    }
+}
+
+impl ChainAskAfterReader for ConfigurationStore {
+    /// `Ask me after one start leads to` as the configuration stands now.
+    fn chain_ask_after_runs(&self) -> Option<WorkflowChainAskAfterRuns> {
+        self.current.borrow().workflow_chain_ask_after_runs
     }
 }
 
