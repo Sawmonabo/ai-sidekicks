@@ -7,7 +7,8 @@
 //! person. A crash in between leaves a stored wait the restart asks again, never a question with no
 //! stored wait to answer. The deadline on the row is the truth: one armed instant per engine holds
 //! the earliest, read again from the rows at start, after each write that moves a deadline, and by
-//! the scheduler across sleep.
+//! the scheduler across sleep. The answer's intake, which makes an answer the step's resume and
+//! settlement, is `answers`.
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -54,6 +55,8 @@ use crate::engine::ports::{
 };
 use crate::engine::tick::{RunScope, StepReport, StepReportKind, StepSettlement};
 use crate::kinds::{PersonAsk, StepFailure, coded_step_error, uncoded_step_error};
+
+pub(crate) mod answers;
 
 /// The statements the deadline clock and the answer's row read run on a read connection: the
 /// earliest deadline, the steps due by an instant and one waiting step by its wait id.
