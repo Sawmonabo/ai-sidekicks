@@ -424,10 +424,13 @@ async fn a_spawn_context_carries_the_sessions_memory_switch(#[case] auto_memory:
     assert_eq!(context.auto_memory, auto_memory);
 }
 
+// The project mount the session's workspaces are of, a UUID as a mount id is.
+const MOUNT_ID: &str = "0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5e";
+
 // Stores `session_id`'s row and the project mount its workspaces are of.
 fn store_session_and_mount(connection: &Connection, session_id: SessionId) {
     insert_session_row(connection, session_id.text().as_str(), None, None);
-    for row in project_and_mount_rows("mount", None) {
+    for row in project_and_mount_rows(MOUNT_ID, None) {
         connection
             .execute_batch(&row)
             .expect("the project and its mount are stored");
@@ -448,10 +451,11 @@ fn insert_workspace(
         .execute(
             "INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, fs_root, \
              state, metadata, created_at, updated_at) \
-             VALUES (?1, ?2, 'mount', ?3, ?4, ?5, ?6, ?7, ?7)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
             params![
                 id,
                 session_id.text().as_str(),
+                MOUNT_ID,
                 <&'static str>::from(ExecutionMode::BoundRoot),
                 fs_root,
                 <&'static str>::from(state),
