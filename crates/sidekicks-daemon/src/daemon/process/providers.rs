@@ -58,6 +58,7 @@ use sidekicks_queue::delivery::QueueDelivery;
 use sidekicks_queue::provider_session::ProviderSessions;
 use sidekicks_session::addresses::{ForeignPlaceError, SessionInboxAddresses};
 use sidekicks_session::agent_tree::lookup::StoredAgentTreeLookup;
+use sidekicks_session::checkpoints::command_windows::CommandWindows;
 use sidekicks_session::checkpoints::edits::EditCheckpoints;
 use sidekicks_session::console_state::ConsoleStateAdvisors;
 use sidekicks_session::idle_sleep::SessionIdleSleep;
@@ -330,6 +331,8 @@ pub(crate) struct DriverPortOwners {
     pub(crate) running_commands: Arc<RunningCommandSets>,
     /// The copy kept before each edit an agent's file tool makes, which each driver's hook awaits.
     pub(crate) edit_checkpoints: Arc<EditCheckpoints>,
+    /// The captures around every command an agent runs, which each driver's command legs open.
+    pub(crate) command_windows: Arc<CommandWindows>,
     /// Each run's latest turn readings.
     pub(crate) turn_readings: Arc<TurnReadings>,
     /// Each session's latest context reading.
@@ -401,6 +404,7 @@ pub(crate) fn register_driver_ports(
     ports.usage.register(owners.usage)?;
     ports.command_output.register(owners.running_commands)?;
     ports.edit_checkpoint.register(owners.edit_checkpoints)?;
+    ports.command_capture.register(owners.command_windows)?;
     ports.turn_readings.register(owners.turn_readings)?;
     ports.context_readings.register(owners.context_readings)?;
     ports

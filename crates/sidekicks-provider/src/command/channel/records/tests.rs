@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::process::Child;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -75,30 +76,34 @@ impl InputWaitReader for NoTerminals {
     }
 }
 
-/// A call a capture was handed, named by the wrapper whose window it is.
+/// A call a capture was handed, its window named by its open's ordinal, from 1.
 #[derive(Debug, PartialEq, Eq)]
 enum CaptureCall {
-    Open(PartyId),
-    Began(PartyId, bool),
-    Close(PartyId, CommandWindowEnd),
+    Open(usize),
+    Began(usize, bool),
+    Close(usize, CommandWindowEnd),
 }
 
 /// A capture whose opens settle as the test sets `opens`: held while it reads `None`, then each
-/// opened or failed as it reads; each call is handed to the test, each window named by its party.
+/// opened or failed as it reads; each call is handed to the test, each window named by its open's
+/// ordinal.
 struct HeldCapture {
     opens: watch::Receiver<Option<bool>>,
     calls: mpsc::UnboundedSender<CaptureCall>,
+    /// How many opens it was asked.
+    opened: AtomicUsize,
 }
 
 impl CommandCapture for HeldCapture {
     fn open_window(
         &self,
-        start: CommandWindowStart,
+        _start: CommandWindowStart,
     ) -> BoxFuture<'_, Result<CommandWindowId, CommandWindowOpenError>> {
         let mut opens = self.opens.clone();
+        let window = self.opened.fetch_add(1, Ordering::SeqCst) + 1;
         // A call after the test ended, the close of a window it left open, reaches no one.
         self.calls
-            .send(CaptureCall::Open(start.party))
+            .send(CaptureCall::Open(window))
             .unwrap_or_default();
         async move {
             let opened = *opens
@@ -106,7 +111,7 @@ impl CommandCapture for HeldCapture {
                 .await
                 .expect("the test holds the opens");
             if opened == Some(true) {
-                Ok(CommandWindowId::new(start.party.to_string()))
+                Ok(CommandWindowId::new(window.to_string()))
             } else {
                 Err(CommandWindowOpenError::CaptureFailed(
                     "the test failed it".into(),
@@ -117,17 +122,17 @@ impl CommandCapture for HeldCapture {
     }
 
     fn command_began(&self, window: &CommandWindowId, is_covered: bool) -> BoxFuture<'_, ()> {
-        let party = window.as_str().parse().expect("a party");
+        let window = window.as_str().parse().expect("an open's ordinal");
         self.calls
-            .send(CaptureCall::Began(party, is_covered))
+            .send(CaptureCall::Began(window, is_covered))
             .unwrap_or_default();
         async {}.boxed()
     }
 
     fn close_window(&self, window: CommandWindowId, end: CommandWindowEnd) -> BoxFuture<'_, ()> {
-        let party = window.as_str().parse().expect("a party");
+        let window = window.as_str().parse().expect("an open's ordinal");
         self.calls
-            .send(CaptureCall::Close(party, end))
+            .send(CaptureCall::Close(window, end))
             .unwrap_or_default();
         async {}.boxed()
     }
@@ -148,7 +153,11 @@ fn held_capture(
     let (calls, called) = mpsc::unbounded_channel();
     let capture = unregistered_capture();
     capture
-        .register(Arc::new(HeldCapture { opens, calls }))
+        .register(Arc::new(HeldCapture {
+            opens,
+            calls,
+            opened: AtomicUsize::new(0),
+        }))
         .expect("the capture registers once");
     (capture, called)
 }
@@ -619,7 +628,7 @@ async fn a_line_s_go_waits_for_its_window_which_closes_after_its_open() {
     let (first, first_keys, ready) = started_party(None);
     let first_id = ready[0];
     write_party_record(&channel, &first_keys, first_id, 1, &starting(None));
-    assert_eq!(next_call(&mut called).await, CaptureCall::Open(first_id));
+    assert_eq!(next_call(&mut called).await, CaptureCall::Open(1));
     until("the wrapper is acknowledged", || {
         !sent_requests(&channel, &first_keys, first_id).is_empty()
     })
@@ -637,10 +646,7 @@ async fn a_line_s_go_waits_for_its_window_which_closes_after_its_open() {
     .await;
     let began = PartyRecord::Began { is_covered: false };
     write_party_record(&channel, &first_keys, first_id, 2, &began);
-    assert_eq!(
-        next_call(&mut called).await,
-        CaptureCall::Began(first_id, false)
-    );
+    assert_eq!(next_call(&mut called).await, CaptureCall::Began(1, false));
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(
         sent_requests(&channel, &first_keys, first_id),
@@ -654,7 +660,7 @@ async fn a_line_s_go_waits_for_its_window_which_closes_after_its_open() {
     assert_eq!(
         next_call(&mut called).await,
         CaptureCall::Close(
-            first_id,
+            1,
             CommandWindowEnd::Exited {
                 exit_code: Some(3),
                 signal: None,
@@ -668,7 +674,7 @@ async fn a_line_s_go_waits_for_its_window_which_closes_after_its_open() {
     let (second, second_keys, ready) = started_party(None);
     let second_id = ready[0];
     write_party_record(&channel, &second_keys, second_id, 1, &starting(None));
-    assert_eq!(next_call(&mut called).await, CaptureCall::Open(second_id));
+    assert_eq!(next_call(&mut called).await, CaptureCall::Open(2));
     write_party_record(&channel, &second_keys, second_id, 2, &exited);
     until("the exited wrapper is let go", || {
         channel.party_process(second_id).is_none()
@@ -678,7 +684,7 @@ async fn a_line_s_go_waits_for_its_window_which_closes_after_its_open() {
     opens.send_replace(Some(true));
     assert_eq!(
         next_call(&mut called).await,
-        CaptureCall::Close(second_id, CommandWindowEnd::Unrun)
+        CaptureCall::Close(2, CommandWindowEnd::Unrun)
     );
     no_call(&mut called, "the window closed twice").await;
 
@@ -687,12 +693,12 @@ async fn a_line_s_go_waits_for_its_window_which_closes_after_its_open() {
     let (mut third, third_keys, ready) = started_party(None);
     let third_id = ready[0];
     write_party_record(&channel, &third_keys, third_id, 1, &starting(None));
-    assert_eq!(next_call(&mut called).await, CaptureCall::Open(third_id));
+    assert_eq!(next_call(&mut called).await, CaptureCall::Open(3));
     third.kill().expect("the wrapper is killed");
     third.wait().expect("the killed wrapper is reaped");
     assert_eq!(
         next_call(&mut called).await,
-        CaptureCall::Close(third_id, CommandWindowEnd::Unrun)
+        CaptureCall::Close(3, CommandWindowEnd::Unrun)
     );
     follower.abort();
     end_party(first);
@@ -752,7 +758,7 @@ async fn a_wrapper_with_no_window_or_a_failed_one_is_answered_go() {
         .find(|id| **id != outer_id)
         .expect("the nested party is ready");
     write_party_record(&channel, &outer_keys, outer_id, 1, &starting(None));
-    assert_eq!(next_call(&mut called).await, CaptureCall::Open(outer_id));
+    assert_eq!(next_call(&mut called).await, CaptureCall::Open(1));
     answered_go(&outer_keys, outer_id).await;
     write_party_record(&channel, &nested_keys, nested_id, 1, &starting(None));
     answered_go(&nested_keys, nested_id).await;

@@ -172,6 +172,8 @@ async fn fixture() -> Fixture {
         folder_watch,
         workspaces,
         snapshots,
+        command_captures,
+        packing,
         ..
     } = repo;
     let (writes, workspace_writes) = mpsc::channel(8);
@@ -249,6 +251,8 @@ async fn fixture() -> Fixture {
         working_folders: Arc::clone(&folder_watch),
         git,
         snapshots,
+        command_captures,
+        packing,
         list_feed,
         plan_holds,
         payloads,

@@ -9,9 +9,11 @@
 //! - Then the files only this session names go: its shells end and stay refused until the rows
 //!   are gone, its tool-server connections start closing and no new one opens, then the
 //!   provider's copy of each conversation, a chat's managed workspace folder, the session's own
-//!   storage folder with its runs' capture folders, and the project rules the session wrote into
-//!   its project's files. A failure there leaves the mark and every row, so
-//!   purging the session again finishes it.
+//!   storage folder with its runs' capture folders, the copies a restore made of the clones it
+//!   kept on other volumes, its own folders on other volumes whose volume is mounted (each with
+//!   its user folder once that is empty; a folder whose volume is absent is owed instead, in the
+//!   rows' write), and the project rules the session wrote into its project's files. A failure
+//!   there leaves the mark and every row, so purging the session again finishes it.
 //! - Then one write, under the session's append lock, deletes every row naming the session, its
 //!   plans and the hand-off that made it among them, and appends its `session.event.compacted`
 //!   receipt on the daemon's sentinel session, led by two guards: the session is still marked,
@@ -55,9 +57,14 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_mcp::client::McpClient;
+use sidekicks_platforms::remove_tree_awaited;
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_recovery::damaged_history::DamagedSessionPurge;
 use sidekicks_recovery::status::RecoveryStatusTracker;
+use sidekicks_session::checkpoints::store::shadows::VolumeFolder;
+use sidekicks_session::checkpoints::volume_folders::{
+    VolumeFolderRemoval, remove_volume_folder, restored_clones_folder,
+};
 use sidekicks_session::conversation_purge::{ConversationPurge, ConversationPurgeError};
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::questions::service::QuestionsService;
@@ -137,6 +144,10 @@ pub(crate) enum SessionPurgeError {
     /// The session's own storage folder could not be removed.
     #[error("the session's storage folder could not be removed")]
     StorageFolder(#[source] io::Error),
+    /// A session's folder on another volume, or the restored copies of its clones, could not be
+    /// removed, or its volume read.
+    #[error("a session's folder on another volume could not be removed")]
+    VolumeFolder(#[source] io::Error),
     /// The project rules the session made could not be taken out of the providers' files.
     #[error(transparent)]
     ProjectRules(#[from] ApprovalRuleError),
@@ -319,13 +330,24 @@ impl SessionPurge {
             .map_err(SessionPurgeError::StorageFolder)?;
         deps.packing
             .forget_owner(&session_storage_folder(&deps.data_folder, &session_id));
+        remove_tree_awaited(&restored_clones_folder(&deps.data_folder, &session_id))
+            .await
+            .map_err(SessionPurgeError::VolumeFolder)?;
+        let owed_folders = remove_volume_folders(targets.volume_folders, meter)
+            .await
+            .map_err(SessionPurgeError::VolumeFolder)?;
         let withdrawn = deps
             .project_rules
             .withdraw_project_rules(session_id)
             .await?;
 
         let linked_session_ids = self
-            .delete_rows(session_id, &targets.workflow_run_ids, operation_id)
+            .delete_rows(
+                session_id,
+                &targets.workflow_run_ids,
+                &owed_folders,
+                operation_id,
+            )
             .await?;
         deps.recovery.mark_session_deleted(&session_id);
         deps.sessions.forget_session_block_cuts(&session_id);
@@ -388,12 +410,13 @@ impl SessionPurge {
         }
     }
 
-    // The one write that deletes every row naming the session with its receipt, under the
-    // session's append lock; answers the sessions it was linked to.
+    // The one write that deletes every row naming the session with its receipt and owes each of
+    // `owed_folders`, under the session's append lock; answers the sessions it was linked to.
     async fn delete_rows(
         &self,
         session_id: SessionId,
         workflow_run_ids: &[WorkflowRunId],
+        owed_folders: &[VolumeFolder],
         operation_id: &FreeFormText<EVENT_FIELD_MAX_LEN>,
     ) -> Result<Vec<SessionId>, SessionPurgeError> {
         let deps = &self.deps;
@@ -424,6 +447,7 @@ impl SessionPurge {
                 range.map(|(_first, last)| last),
                 workflow_run_ids,
                 &gone_worktree_ids,
+                owed_folders,
             );
             #[cfg(test)]
             self.rows_write_pause.pass().await;
@@ -533,4 +557,25 @@ fn stored_sequence(sequence: i64) -> SafeInt<0> {
         .ok()
         .and_then(SafeInt::new)
         .expect("a stored sequence is a safe integer")
+}
+
+// Removes each of `folders` whose volume is mounted, in one task charged to `meter`, and answers
+// those whose volume is absent; fails at the first folder whose removal or volume read fails.
+async fn remove_volume_folders(
+    folders: Vec<VolumeFolder>,
+    meter: &ProcessorMeter,
+) -> io::Result<Vec<VolumeFolder>> {
+    meter
+        .run_blocking(move || -> io::Result<Vec<VolumeFolder>> {
+            let mut absent = Vec::new();
+            for folder in folders {
+                match remove_volume_folder(&folder)? {
+                    VolumeFolderRemoval::Removed => {}
+                    VolumeFolderRemoval::VolumeAbsent => absent.push(folder),
+                }
+            }
+            Ok(absent)
+        })
+        .await
+        .map_err(io::Error::other)?
 }
