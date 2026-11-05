@@ -1,5 +1,5 @@
-//! The program this process runs: the processor it is built for, and its path on disk, which a
-//! later read finds gone once the program's file is removed, or on Linux replaced.
+//! The program this process runs: the processor and C library it is built for, and its path on
+//! disk, which a later read finds gone once the program's file is removed, or on Linux replaced.
 
 #[cfg(not(target_os = "linux"))]
 pub(crate) mod replaced_mark;
@@ -18,6 +18,10 @@ pub const RUNNING_ARCH: Arch = Arch::X64;
 /// The processor this build runs on, in Node's spelling.
 #[cfg(target_arch = "aarch64")]
 pub const RUNNING_ARCH: Arch = Arch::Arm64;
+
+/// Whether this build links against musl rather than the system's own C library: true only for
+/// the Linux builds the service ships for musl systems.
+pub const IS_MUSL_BUILD: bool = cfg!(target_env = "musl");
 
 /// Where the running program's file is now.
 #[derive(Clone, Debug, PartialEq, Eq)]
