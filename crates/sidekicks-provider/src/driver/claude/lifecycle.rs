@@ -4,6 +4,7 @@
 
 mod controls;
 mod held_calls;
+mod inspector;
 mod runs;
 mod sessions;
 #[cfg(test)]
@@ -72,6 +73,9 @@ use crate::driver::claude::session::inspector_reads::ClaudeInspectorReads;
 use crate::driver::claude::session::permission_level::ClaudeCommandSandboxCheck;
 use crate::driver::claude::session::permission_level::check_claude_command_sandbox;
 use crate::driver::claude::session::restart::ClaudeSessionRestarts;
+use crate::driver::claude::session::restart::ended_process::{
+    ClaudeEndedConversation, ended_conversation_of,
+};
 use crate::driver::claude::session::slots::ClaudeSessionSlots;
 use crate::driver::claude::spawn::launch::ClaudeProcessLauncher;
 use crate::driver::claude::spawn::launch::installed_build::{
@@ -295,6 +299,21 @@ impl ClaudeDriver {
     /// session is live either.
     pub(crate) fn composed_parts(&self) -> Option<&Arc<ClaudeSessionParts>> {
         self.parts.get()
+    }
+
+    /// The conversation, and the environment naming its home, that the session's next process
+    /// starts from: the live process's, else the last ended one's; `None` when no process ran
+    /// since the daemon started.
+    pub(super) fn last_conversation(
+        &self,
+        session_id: SessionId,
+    ) -> Option<ClaudeEndedConversation> {
+        let parts = self.composed_parts()?;
+        parts
+            .slots()
+            .live_session(session_id)
+            .map(|live| ended_conversation_of(&live))
+            .or_else(|| parts.restarts.ended_conversation(session_id))
     }
 
     // Every piece a session shares, wired over `engine` and its `dispatch`.

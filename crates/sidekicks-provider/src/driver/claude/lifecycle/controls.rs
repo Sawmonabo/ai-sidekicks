@@ -270,12 +270,9 @@ impl ClaudeDriver {
         let parts = self.composed_parts();
         let live = parts.and_then(|parts| parts.slots().live_session(params.session_id));
         if let Some(project_folder) = &params.project_folder {
-            let ended =
-                parts.and_then(|parts| parts.restarts.ended_conversation(params.session_id));
-            let spawn_environment = match (&live, ended) {
-                (Some(live), _) => live.spawn_bound_legs.spawn_environment.clone(),
-                (None, Some(ended)) => ended.spawn_environment,
-                (None, None) => {
+            let spawn_environment = match self.last_conversation(params.session_id) {
+                Some(conversation) => conversation.spawn_environment,
+                None => {
                     let account = self.resting_account(params.session_id).await?;
                     self.sources.account_environment(&account).await?
                 }
