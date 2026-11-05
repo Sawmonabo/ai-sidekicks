@@ -378,8 +378,12 @@ impl RestartSettle {
         live_runs.sort_by_key(|live_run| live_run.run.session_id);
         let mut settled_runs = Vec::new();
         for live_run in &live_runs {
+            // A spent bound settles nothing more, so no settle starts inside the timer's last tick;
+            // what is left stays live for the next start.
+            if Instant::now() >= deadline {
+                break;
+            }
             let settle = self.settle_run(live_run, LiveRunsEnd::AtStop, false, None);
-            // Past the deadline, what is left stays live for the next start.
             let Ok(settled) = timeout_at(deadline, settle).await else {
                 break;
             };

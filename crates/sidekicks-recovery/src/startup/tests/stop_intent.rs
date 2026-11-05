@@ -25,7 +25,7 @@ use super::resume::{
 };
 use crate::session_write_refusal::refuse_call_naming_session;
 use crate::stop_intent::{StopIntent, StopIntentFile};
-use crate::test_pass::{PassFixture, insert_runs};
+use crate::test_pass::{PassFixture, insert_runs, queue_message};
 
 // What the person's Stop left, and how the pass meets it.
 #[derive(Clone, Copy, Debug)]
@@ -184,7 +184,7 @@ async fn a_pass_under_the_stop_intent_settles_named_sessions_by_the_stop(#[case]
             let session_id = fixture.new_session();
             let run_id = test_run_id();
             insert_runs(&fixture.store.database, session_id, &[(run_id, "queued")]);
-            let item_id = fixture.queue_message(session_id, run_id).await;
+            let item_id = queue_message(&fixture.store.writer, session_id, run_id).await;
             if matches!(case, Case::WholeQueuedMessage) {
                 intent.write_whole().await.expect("the Stop writes");
             }
@@ -407,7 +407,7 @@ async fn a_pass_under_the_stop_intent_settles_named_sessions_by_the_stop(#[case]
                     .expect("the run's settle reads its facts")
                     .expect("the pause reports");
                 // Queued after the read, so the settle's guard refuses its write.
-                fixture.queue_message(session_id, run_id).await;
+                queue_message(&fixture.store.writer, session_id, run_id).await;
                 paused.release.send(()).expect("the settle is let go");
             }
             tokio::time::timeout(SETTLE_WAIT, running)
@@ -450,8 +450,8 @@ async fn a_pass_under_the_stop_intent_admits_the_messages_the_provider_took() {
         PassFixture::over_drivers(vec![Arc::new(driver) as Arc<dyn ProviderDriver>]).await;
     fixture.end_seeded_run();
     let (session_id, run_id, _) = fixture.running_session(0).await;
-    let taken = fixture.queue_message(session_id, run_id).await;
-    let returned = fixture.queue_message(session_id, run_id).await;
+    let taken = queue_message(&fixture.store.writer, session_id, run_id).await;
+    let returned = queue_message(&fixture.store.writer, session_id, run_id).await;
     fixture
         .stop_intent()
         .write_whole()

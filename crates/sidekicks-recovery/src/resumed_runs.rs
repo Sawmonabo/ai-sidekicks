@@ -298,13 +298,11 @@ mod tests {
     use futures::FutureExt as _;
     use rstest::rstest;
     use serde_json::json;
+    use sidekicks_contracts::approval::ApprovalRequestId;
     use sidekicks_contracts::event::session::SessionEvent;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
     use sidekicks_contracts::session::id::SessionId;
-    use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
-    use sidekicks_contracts::wire::instant::WireInstant;
-    use sidekicks_contracts::wire::text::FreeFormText;
     use sidekicks_provider::driver::contract::MockProviderDriver;
     use sidekicks_provider::driver::contract::error::DriverError;
     use sidekicks_provider::driver::error_causes::session_process_unavailable;
@@ -318,17 +316,19 @@ mod tests {
     };
     use sidekicks_queue::delivery::QueueDelivery;
     use sidekicks_queue::delivery::test_fixture::{hand_waiting_messages, test_delivery};
+    use sidekicks_queue::provider_session::ProviderSessions;
     use sidekicks_queue::provider_session::resumed_runs::ResumedRuns;
+    use sidekicks_queue::provider_session::test_opening::{
+        OrphanedAnswersStandIn, test_provider_sessions,
+    };
     use sidekicks_session::interventions::service::INTERVENTION_SERVICE_STATEMENT_CAPACITY;
     use sidekicks_session::interventions::service::test_fixture::test_intervention_service;
     use sidekicks_session::questions::schema::schema_parts;
-    use sidekicks_session::queue_store::{
-        NewQueueItem, QueueItemBody, QueueItemReader, QueueMessageBody, RecordedQueueItemState,
-        insert_queue_item_statement,
-    };
+    use sidekicks_session::queue_store::{QueueItemReader, RecordedQueueItemState};
     use sidekicks_session::run::engine::test_fixture::{
         append, insert_run, stored_run_state, test_engine,
     };
+    use sidekicks_std::port_registration::PortRegistration;
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::schema::session_directory::insert_session_row;
     use sidekicks_store::database::writer::test_file::{
@@ -337,8 +337,10 @@ mod tests {
     use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
 
     use super::{RESUMED_RUNS_STATEMENT_CAPACITY, ResumedRunsFinalize, ResumedRunsFinalizeDeps};
+    use crate::test_pass::queue_message;
 
-    /// The statements the delivery's read pool prepares: its reads and its recorder's.
+    /// The statements the delivery's read pool prepares: its reads, its recorder's and its provider
+    /// sessions'.
     const DELIVERY_STATEMENT_CAPACITY: usize = 8;
 
     /// A provider that takes a message at once.
@@ -369,6 +371,8 @@ mod tests {
         session_id: SessionId,
         finalize: ResumedRunsFinalize,
         delivery: QueueDelivery,
+        // Held so the delivery opens a paused run's session through them.
+        _provider_sessions: Arc<ProviderSessions>,
         _home: tempfile::TempDir,
     }
 
@@ -380,14 +384,25 @@ mod tests {
         let session_id = test_session_id();
         insert_session_row(&database.reader(), session_id.text().as_str(), None, None);
         let providers = Arc::new(registry_of_first_provider(Arc::new(driver)));
-        let delivery = test_delivery(
-            Arc::new(DatabaseReadPool::new(
-                database.path(),
-                DELIVERY_STATEMENT_CAPACITY,
-            )),
+        let delivery_reads = Arc::new(DatabaseReadPool::new(
+            database.path(),
+            DELIVERY_STATEMENT_CAPACITY,
+        ));
+        // The tests hand each resume's runs to the finalize themselves.
+        let provider_sessions = test_provider_sessions(
+            Arc::clone(&delivery_reads),
             Arc::clone(&log.service),
             Arc::clone(&log.writer),
             Arc::clone(&providers),
+            Arc::new(PortRegistration::new("resumed runs")),
+            Arc::new(OrphanedAnswersStandIn::<ApprovalRequestId>::default()),
+        );
+        let delivery = test_delivery(
+            delivery_reads,
+            Arc::clone(&log.service),
+            Arc::clone(&log.writer),
+            Arc::clone(&providers),
+            &provider_sessions,
         );
         let interventions = test_intervention_service(
             Arc::new(DatabaseReadPool::new(
@@ -414,6 +429,7 @@ mod tests {
             session_id,
             finalize,
             delivery,
+            _provider_sessions: provider_sessions,
             _home: home,
         }
     }
@@ -438,37 +454,6 @@ mod tests {
                 &started,
             )
             .await;
-        }
-
-        /// Queues a message for `run_id` in the session and answers its id.
-        async fn queue_message(&self, run_id: RunId) -> QueueItemId {
-            let item = NewQueueItem {
-                id: QueueItemId::try_from(mint_uuid_v7())
-                    .expect("a minted UUID is a queue item id"),
-                session_id: self.session_id,
-                body: QueueItemBody::Message(QueueMessageBody {
-                    content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
-                    attachments: None,
-                    skills: None,
-                    answers_question_id: None,
-                    output_speed_for_turn: None,
-                    workspace_id: None,
-                }),
-                target_run_id: run_id,
-                device_id: None,
-                client_idempotency_key: Some(
-                    ClientUuid::new(mint_uuid_v7().to_string())
-                        .expect("a minted UUID is a client key"),
-                ),
-                replaces_queue_item_id: None,
-                now: WireInstant::now(),
-            };
-            self.log
-                .writer
-                .write(vec![insert_queue_item_statement(&item)])
-                .await
-                .expect("the test queues its message");
-            item.id
         }
 
         fn item_state(&self, item_id: QueueItemId) -> RecordedQueueItemState {
@@ -637,7 +622,7 @@ mod tests {
         let run_id = test_run_id();
         fixture.insert_running_turn(run_id).await;
         bind_run_to_first_provider(&fixture.database, run_id);
-        let item_id = fixture.queue_message(run_id).await;
+        let item_id = queue_message(&fixture.log.writer, fixture.session_id, run_id).await;
 
         fixture
             .finalize
@@ -700,7 +685,7 @@ mod tests {
             )
             .expect("the test stores the run's state");
         bind_run_to_first_provider(&fixture.database, run_id);
-        let item_id = fixture.queue_message(run_id).await;
+        let item_id = queue_message(&fixture.log.writer, fixture.session_id, run_id).await;
 
         fixture
             .finalize

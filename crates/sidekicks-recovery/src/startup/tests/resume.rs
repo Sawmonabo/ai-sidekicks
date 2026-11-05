@@ -18,8 +18,6 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::turn::ProviderTurnId;
-use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
-use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
@@ -32,16 +30,13 @@ use sidekicks_provider::driver::session_control::{
     ResumedRunAnswer,
 };
 use sidekicks_provider::runtime_binding::test_store::spawned_build;
-use sidekicks_session::queue_store::{
-    NewQueueItem, QueueItemBody, QueueItemReader, QueueMessageBody, RecordedQueueItemState,
-    insert_queue_item_statement,
-};
+use sidekicks_session::queue_store::{QueueItemReader, RecordedQueueItemState};
 use sidekicks_session::run::engine::test_fixture::{insert_run, stored_run_state};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::writer::test_file::test_run_id;
 use tokio_util::sync::CancellationToken;
 
-use crate::test_pass::{PassFixture, insert_runs};
+use crate::test_pass::{PassFixture, insert_runs, queue_message};
 
 /// The words a refused resume's provider gives.
 const REFUSED_DETAIL: &str = "The conversation could not be found";
@@ -223,35 +218,6 @@ impl PassFixture {
             json!({"type": "agent.turn.started", "payload": payload}),
         )
         .await;
-    }
-
-    // Queues a message for `run_id` in `session_id` and answers its id.
-    pub(super) async fn queue_message(&self, session_id: SessionId, run_id: RunId) -> QueueItemId {
-        let item = NewQueueItem {
-            id: QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id"),
-            session_id,
-            body: QueueItemBody::Message(QueueMessageBody {
-                content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
-                attachments: None,
-                skills: None,
-                answers_question_id: None,
-                output_speed_for_turn: None,
-                workspace_id: None,
-            }),
-            target_run_id: run_id,
-            device_id: None,
-            client_idempotency_key: Some(
-                ClientUuid::new(mint_uuid_v7().to_string()).expect("a minted UUID is a client key"),
-            ),
-            replaces_queue_item_id: None,
-            now: WireInstant::now(),
-        };
-        self.store
-            .writer
-            .write(vec![insert_queue_item_statement(&item)])
-            .await
-            .expect("the test queues its message");
-        item.id
     }
 
     // The recorded state of queue item `item_id`.
@@ -515,7 +481,7 @@ async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interru
         .await;
     let gone_helper = fixture.insert_helper(mixed_session, still_running);
     let kept_helper = fixture.insert_helper(mixed_session, still_pausing);
-    let waiting_message = fixture.queue_message(mixed_session, queued_run).await;
+    let waiting_message = queue_message(&fixture.store.writer, mixed_session, queued_run).await;
 
     // Session C: a stopping lead and its helper with no stop of its own.
     let (helper_session, stopping_lead, _) = fixture.running_session(1).await;
