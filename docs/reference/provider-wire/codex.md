@@ -343,7 +343,7 @@ The accepted shape is `thread/fork {threadId, ephemeral: true, excludeTurns: tru
 
 **`thread/read` names a loaded helper.** A `thread/read` without turns of a loaded thread answers from its live state, before its rollout file is written, with `agentNickname`, `agentRole` and `model` (`thread_processor.rs`). The daemon reads each spawned helper this way once, waiting at most 2 seconds, for the name and role its child run shows; a read that fails starts the run unnamed.
 
-**Binary probe, Verified at `0.154.0`**, over 20 recorded v1 spawns: no helper got `thread/started`, and each helper's `thread/status/changed` and `mcpServer/startupStatus/updated` arrived before the item naming it. A helper's frames can therefore arrive before the frame that registers it. Under v2 the helper's first turn is queued before the spawn returns, so its `turn/started` may come before `subAgentActivity` too; no v2 run was recorded.
+**Binary probe, Verified at `0.154.0`**, over 20 recorded v1 spawns: no helper got `thread/started`, and each helper's `thread/status/changed` and `mcpServer/startupStatus/updated` arrived before the item naming it. A helper's frames can therefore arrive before the frame that registers it. Under v2 the spawn hands the helper its first message with `MessageDeliveryMode::TriggerTurn` before the item is sent (`codex-rs/core/src/thread_spawn.rs`), so its `turn/started` may come before `subAgentActivity` too; no v2 run was recorded.
 
 ### Hooks and their trust
 
