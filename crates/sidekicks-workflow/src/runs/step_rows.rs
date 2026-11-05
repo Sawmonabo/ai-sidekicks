@@ -76,7 +76,8 @@ static SUCCEED_STEP_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE workflow_steps
   SET status = '{succeeded}', finished_at = @finished_at, output_ref = @output_ref,
-      output_item_counts_json = @output_item_counts_json, log_ref = @log_ref, cost_usd_micros = @cost_usd_micros, cost_account_id = @cost_account_id,
+      output_item_counts_json = @output_item_counts_json, log_ref = @log_ref,
+      cost_usd_micros = @cost_usd_micros, cost_account_id = @cost_account_id,
       {CLEAR_WAIT_COLUMNS_SQL}
   WHERE {STEP_KEY_SQL}"
     )
