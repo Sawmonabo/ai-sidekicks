@@ -539,7 +539,7 @@ async fn a_retired_shadow_is_deleted_only_while_nothing_uses_it() {
     let reader = fixture.database.reader();
     assert_eq!(
         unused_shadows(&reader, fixture.session_id).expect("the unused shadows read"),
-        [unused.clone()]
+        std::slice::from_ref(&unused)
     );
     for used in [&current, &linked, &versioned] {
         let refusal = fixture
@@ -559,10 +559,9 @@ async fn a_retired_shadow_is_deleted_only_while_nothing_uses_it() {
         .write(vec![delete_unused_shadow_statement(unused.shadow_id)])
         .await
         .expect("the unused shadow is deleted");
-    assert!(
-        unused_shadows(&reader, fixture.session_id)
-            .expect("the unused shadows read")
-            .is_empty()
+    assert_eq!(
+        unused_shadows(&reader, fixture.session_id).expect("the unused shadows read"),
+        Vec::<Shadow>::new()
     );
 
     let refusal = fixture
