@@ -38,7 +38,7 @@ use sidekicks_provider::driver::session_control::{
 };
 use sidekicks_provider::driver::{
     AccountFoldersError, ProviderAccountFolders, ProviderAccountReader, SessionSpawnContext,
-    SessionSpawnContextResolver,
+    SessionSpawnContextResolver, descriptor_of,
 };
 use sidekicks_provider::left_conversations::LeftConversation;
 use sidekicks_provider::run::posture::compose_execution_posture;
@@ -258,9 +258,9 @@ impl SessionDirectoryProviderPort {
     /// lead's provider, the model it runs on now and the effort, output speed, options and larger
     /// window its binding names, at the posture of the level it stands at, in the mode it was last
     /// moved to, with the row values set in the app for that provider, the person's tool servers
-    /// at the session's project root, and each binding's function legs. Fails for a session with
-    /// no lead or no workspace, as the reads, git or the settings file fail, and when its project
-    /// root is no path.
+    /// at the session's project root where its driver takes a set, and each binding's function
+    /// legs. Fails for a session with no lead or no workspace, as the reads, git or the settings
+    /// file fail, when its project root is no path, and as its set cannot be composed.
     pub async fn compose_opening(
         &self,
         session_id: SessionId,
@@ -282,12 +282,19 @@ impl SessionDirectoryProviderPort {
             .project_records
             .read_project_root_of_session(session_id)
             .await?;
-        let tool_servers = self
-            .deps
-            .mcp_tool_servers
-            .compose(&binding.provider_name, root.as_ref())
-            .await
-            .map_err(SessionDirectoryProviderPortError::McpToolServers)?;
+        let takes_tool_servers = descriptor_of(binding.provider_name.as_str())
+            .is_some_and(|descriptor| descriptor.takes_session_tool_servers);
+        let tool_servers = if takes_tool_servers {
+            Some(
+                self.deps
+                    .mcp_tool_servers
+                    .compose(&binding.provider_name, root.as_ref())
+                    .await
+                    .map_err(SessionDirectoryProviderPortError::McpToolServers)?,
+            )
+        } else {
+            None
+        };
         let create_params = CreateSessionParams {
             session_id,
             agent_id,
@@ -306,7 +313,7 @@ impl SessionDirectoryProviderPort {
             // The session's callback tools are bound by their own owner.
             callback_tools: None,
             subagent_policy: None,
-            tool_servers: Some(tool_servers),
+            tool_servers,
             output_schema: None,
             provider_account_id,
             // No agent definition or workflow step names an account of its own yet.

@@ -4,6 +4,7 @@ use std::error::Error;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -39,10 +40,11 @@ use sidekicks_provider::driver::session_control::{DriverResumeResult, SessionToo
 use sidekicks_provider::driver::{PROVIDERS, SessionSpawnContextResolver};
 use sidekicks_provider::left_conversations::read_left_conversations;
 use sidekicks_provider::runtime_binding::store::{
-    CreateRuntimeBindingInput, RuntimeBindingSpawnConfig, mint_runtime_binding_id,
+    CreateRuntimeBindingInput, RUNTIME_BINDING_STORE_STATEMENT_CAPACITY, RuntimeBindingSpawnConfig,
+    RuntimeBindingStore, mint_runtime_binding_id,
 };
 use sidekicks_provider::runtime_binding::test_store::{
-    binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
+    binding_input, spawn_config_on, spawned_build, test_provider_account_id,
 };
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
@@ -109,7 +111,12 @@ async fn port_over_a_leg(
     git: GitRunner,
     spawn_config: RuntimeBindingSpawnConfig,
 ) -> PortOverLeg<impl Feed<Emission = McpServerBindingRef>> {
-    let store = open_store(database).await;
+    // One writer for the file, as the daemon keeps one.
+    let writer = Arc::new(
+        DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
+            .await
+            .expect("the writer opens its database"),
+    );
     let run_id = test_run_id();
     insert_running_run(database, session_id, run_id);
     let pool = Arc::new(DatabaseReadPool::new(
@@ -117,8 +124,10 @@ async fn port_over_a_leg(
         SESSION_DIRECTORY_PROVIDER_PORT_STATEMENT_CAPACITY
             + RUN_BINDING_CURSORS_STATEMENT_CAPACITY
             + PROJECT_RECORDS_STATEMENT_CAPACITY
-            + MCP_BINDING_STORE_STATEMENT_CAPACITY,
+            + MCP_BINDING_STORE_STATEMENT_CAPACITY
+            + RUNTIME_BINDING_STORE_STATEMENT_CAPACITY,
     ));
+    let store = RuntimeBindingStore::new(Arc::clone(&pool), Arc::clone(&writer));
     let epochs = Arc::new(Mutex::new(ExecutionEpochs::new(
         NonZeroUsize::new(8).expect("the cap is not zero"),
     )));
@@ -140,10 +149,7 @@ async fn port_over_a_leg(
     // The session is in no project, so its relaunch's leg attributes at no root.
     let (mcp_status, _subscriber, first_observations) = open_test_tracker().await;
     let mcp_attribution = Arc::new(McpAttributionTable::default());
-    let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
-        .await
-        .expect("the writer opens its database");
-    let mcp_store = McpBindingStore::new(Arc::new(writer), Arc::clone(&pool));
+    let mcp_store = McpBindingStore::new(writer, Arc::clone(&pool));
     let port = SessionDirectoryProviderPort::new(SessionDirectoryProviderPortDeps {
         pool: Arc::clone(&pool),
         read_damaged_from_sequence: Arc::new(|_: &SessionId| None),
@@ -349,12 +355,21 @@ async fn a_relaunch_resolves_the_set_its_binding_stored() {
     drop(producer);
 }
 
-// An opening at `/repos/app` sends the person's `user` binding on, the project's own binding of
-// that root off as the daemon's switch keeps it, and leaves another project's binding out. Killed
-// by an opening that sends no set, by a set that keeps every project's bindings, and by a set that
-// ignores the store's switch.
+// An opening at `/repos/app` of a driver that takes a set waits on the attribution table's first
+// fill, then sends the person's `user` binding on, the project's own binding of that root off as
+// the daemon's switch keeps it, and leaves another project's binding out; a driver that takes no
+// set gets none, with no wait. Killed by an opening that sends no set, by one composed before the
+// fill, by a set that keeps every project's bindings, by a set that ignores the store's switch,
+// and by a set composed for a driver that takes none.
+#[rstest]
+#[case::taking_a_set(true)]
+#[case::taking_none(false)]
 #[tokio::test]
-async fn an_opening_sends_the_persons_servers_at_its_root() {
+async fn an_opening_sends_the_persons_servers_at_its_root(#[case] takes_tool_servers: bool) {
+    let descriptor = PROVIDERS
+        .iter()
+        .find(|descriptor| descriptor.takes_session_tool_servers == takes_tool_servers)
+        .expect("a provider of each kind");
     let database = TestDatabase::new(schema_parts());
     let session_id = test_session_id();
     let PortOverLeg {
@@ -382,9 +397,8 @@ async fn an_opening_sends_the_persons_servers_at_its_root() {
         &json!({}),
         "2026-10-14T09:30:00.000Z",
     );
-    insert_lead(&database, session_id, PROVIDERS[0].id);
-    let provider =
-        ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id is a provider id");
+    insert_lead(&database, session_id, descriptor.id);
+    let provider = ProviderId::new(descriptor.id.to_owned()).expect("a table id is a provider id");
     let project_binding = |root: &str, name: &str| McpServerBindingRef::Project {
         provider: provider.clone(),
         scope_ref: FilesystemPath::new(root.to_owned()).expect("a test path is a path"),
@@ -415,24 +429,6 @@ async fn an_opening_sends_the_persons_servers_at_its_root() {
         tool_defaults: McpServerToolDefaults::with_approval_mode(McpApprovalMode::Auto),
         organization_managed: None,
     };
-    mcp_attribution.replace_with_reading(
-        &provider,
-        &ProviderMcpServersReading {
-            declarations: [
-                &user_docs,
-                &app_tracker,
-                &project_binding("/repos/other", "mail"),
-            ]
-            .into_iter()
-            .map(declaration)
-            .collect(),
-            roots: Vec::new(),
-            is_machine_managed: false,
-            server_policy: McpServerPolicy::default(),
-            account_servers: Vec::new(),
-            probe_readings: Vec::new(),
-        },
-    );
     connection
         .execute(
             "INSERT INTO mcp_server_bindings (provider, scope, scope_ref, scope_place, \
@@ -445,15 +441,41 @@ async fn an_opening_sends_the_persons_servers_at_its_root() {
             ],
         )
         .expect("the daemon's switch of the project's server is stored");
+    let mut opening = std::pin::pin!(port.compose_opening(session_id, test_provider_account_id()));
 
-    let opening = port
-        .compose_opening(session_id, test_provider_account_id())
+    if takes_tool_servers {
+        assert!(
+            tokio::time::timeout(HELD_BOUND, opening.as_mut())
+                .await
+                .is_err(),
+            "the opening waits on the table's first fill"
+        );
+        mcp_attribution.replace_with_reading(
+            &provider,
+            &ProviderMcpServersReading {
+                declarations: [
+                    &user_docs,
+                    &app_tracker,
+                    &project_binding("/repos/other", "mail"),
+                ]
+                .into_iter()
+                .map(declaration)
+                .collect(),
+                roots: Vec::new(),
+                is_machine_managed: false,
+                server_policy: McpServerPolicy::default(),
+                account_servers: Vec::new(),
+                probe_readings: Vec::new(),
+            },
+        );
+    }
+    let opening = tokio::time::timeout(SETTLE_BOUND, opening)
         .await
+        .expect("the opening settles")
         .expect("the session opens");
 
-    assert_eq!(
-        opening.create_params.tool_servers,
-        Some(vec![
+    let expected = takes_tool_servers.then(|| {
+        vec![
             SessionToolServer {
                 binding: user_docs,
                 is_enabled: true,
@@ -462,9 +484,16 @@ async fn an_opening_sends_the_persons_servers_at_its_root() {
                 binding: app_tracker,
                 is_enabled: false,
             },
-        ])
-    );
+        ]
+    });
+    assert_eq!(opening.create_params.tool_servers, expected);
 }
+
+/// How long an opening is watched to stay held before the table's first fill.
+const HELD_BOUND: Duration = Duration::from_millis(200);
+
+/// How long an opening may take once nothing holds it.
+const SETTLE_BOUND: Duration = Duration::from_secs(5);
 
 // The run folder is the session's newest live workspace's prepared root, else the folder it
 // was bound to, else the checkout holding it, an archived workspace passed over. Killed by a
