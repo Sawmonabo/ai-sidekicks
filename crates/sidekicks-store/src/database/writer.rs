@@ -58,7 +58,7 @@ pub(crate) type EndReason = Arc<dyn Error + Send + Sync + 'static>;
 /// Run on the write queue's task right after the write's batch commits, with the sequence of each
 /// of its event rows in order, before the next batch is sent and before any caller hears of it.
 /// It runs only for a write that committed, whether or not its caller still waits.
-pub(crate) type CommitHook = Box<dyn FnOnce(&[SafeInt<0>]) + Send>;
+pub type CommitHook = Box<dyn FnOnce(&[SafeInt<0>]) + Send>;
 
 /// A read run on the writer's thread, on its connection, right after each batch that committed a
 /// write and before any caller of the batch hears, so what it reads follows the commits in their
@@ -432,11 +432,30 @@ impl DatabaseWriter {
         &self,
         statements: Vec<WriteStatement>,
     ) -> Result<Vec<StatementResult>, WriteError> {
+        self.write_statements(statements, None).await
+    }
+
+    /// Runs `statements` as [`DatabaseWriter::write`] does, and runs `hook` once they commit, even
+    /// when the caller stopped waiting. Fails as [`DatabaseWriter::write`] does.
+    pub async fn write_then(
+        &self,
+        statements: Vec<WriteStatement>,
+        hook: CommitHook,
+    ) -> Result<Vec<StatementResult>, WriteError> {
+        self.write_statements(statements, Some(hook)).await
+    }
+
+    // Queues `statements` as one write with no events and awaits what each did.
+    async fn write_statements(
+        &self,
+        statements: Vec<WriteStatement>,
+        on_commit: Option<CommitHook>,
+    ) -> Result<Vec<StatementResult>, WriteError> {
         let job = WriteJob {
             statements,
             events: Vec::new(),
         };
-        Ok(self.enqueue(job, None)?.await?.statement_results)
+        Ok(self.enqueue(job, on_commit)?.await?.statement_results)
     }
 
     /// Appends `events` in order, each at its session's next sequence, after `statements`, all as

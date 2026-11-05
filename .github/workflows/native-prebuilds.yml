@@ -58,13 +58,13 @@ jobs:
             prebuild: win32-x64
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.SWEEP_REF }}
 
       - name: Setup pnpm
         # SHA-pinned; Renovate's pinGitHubActionDigests preset (renovate.json5) keeps it current.
-        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: 10.33.2
           run_install: false
@@ -74,7 +74,7 @@ jobs:
       # 22.13) cannot load the binding at all, seen as a silent SIGSEGV at the first
       # `new Database()` rather than Node's documented load-time throw.
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: "pnpm"

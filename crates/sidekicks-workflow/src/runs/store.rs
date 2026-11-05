@@ -13,6 +13,7 @@ use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::list::{WorkflowRunListCursor, WorkflowRunListRequest};
 use sidekicks_contracts::workflow::run::records::WorkflowChainRoot;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
+use sidekicks_store::database::statement::json_list_value;
 use sidekicks_store::database::stored_column::{
     closed_word, optional_text_column, safe_int_column, text_column,
 };
@@ -240,8 +241,8 @@ impl<'connection> WorkflowRunStore<'connection> {
             Some(StoredInstantBound::At(instant)) => Some(instant),
             Some(StoredInstantBound::BeforeEvery) => return Ok(empty_page()),
         };
-        let statuses_json = request.status.as_ref().map(json_list);
-        let trigger_kinds_json = request.trigger_kind.as_ref().map(json_list);
+        let statuses_json = request.status.as_ref().map(json_list_value);
+        let trigger_kinds_json = request.trigger_kind.as_ref().map(json_list_value);
         let page_size = usize::try_from(i64::from(page_size))
             .expect("a safe integer page size fits the platform's sizes");
         let page_row_limit = i64::from(page_size_plus_one(page_size));
@@ -365,11 +366,6 @@ fn empty_page() -> StoredWorkflowRunListPage {
 // One row past the page says whether another page follows.
 fn page_size_plus_one(page_size: usize) -> u32 {
     u32::try_from(page_size.saturating_add(1)).unwrap_or(u32::MAX)
-}
-
-// A filter's closed set as the JSON array `json_each` reads.
-fn json_list(values: &impl serde::Serialize) -> String {
-    serde_json::to_string(values).expect("a list of closed-set words writes as JSON")
 }
 
 fn list_entry_from_row(row: &Row<'_>) -> rusqlite::Result<StoredWorkflowRunListEntry> {

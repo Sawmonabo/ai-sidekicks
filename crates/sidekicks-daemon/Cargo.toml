@@ -52,6 +52,8 @@ crash-handler.workspace = true
 ed25519-dalek.workspace = true
 ferriki-textmate.workspace = true
 ferroni.workspace = true
+# Inflates the price list seed the build packed.
+flate2.workspace = true
 flexi_logger.workspace = true
 futures.workspace = true
 getrandom.workspace = true
@@ -155,9 +157,11 @@ tokio = { workspace = true, features = ["test-util"] }
 x-wing.workspace = true
 
 [build-dependencies]
-# The SQLite shell, compiled from its vendored source after its hash is checked.
+# The SQLite shell, compiled from its vendored source, and the price list, packed with gzip, each
+# after its hash is checked.
 base16ct.workspace = true
 cc.workspace = true
+flate2.workspace = true
 sha3.workspace = true
 
 [lints]

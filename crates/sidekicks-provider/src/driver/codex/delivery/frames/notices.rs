@@ -12,6 +12,7 @@ use crate::driver::codex::delivery::notices::{
 };
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::InboundDelivery;
 
 /// Frames that draw nothing and go to the daemon's log only.
@@ -52,6 +53,14 @@ impl CodexFrameDelivery {
                 }
             }
             "model/rerouted" => {
+                // The turn runs on the model it moved to, whether or not its row has a run.
+                if let (Some(turn_id), Some(to_model)) = (
+                    read_non_empty_string(members, "turnId"),
+                    read_non_empty_string(members, "toModel"),
+                ) && let Some(input) = record.turn_input_by_turn_id.get_mut(turn_id)
+                {
+                    to_model.clone_into(&mut input.model);
+                }
                 let Some(run) = self.row_run_for(record, members, method) else {
                     return;
                 };

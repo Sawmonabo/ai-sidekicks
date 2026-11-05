@@ -8,6 +8,7 @@ use std::time::Duration;
 use serde_json::json;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::{DaemonRunFolder, Spawner};
 use sidekicks_recovery::database_file::WRITE_AHEAD_LOG_SUFFIX;
@@ -85,6 +86,7 @@ impl Harness {
             shell: &self.shell,
             copier: &self.copier,
             now: jiff::Timestamp::now(),
+            daemon_started_at: WireInstant::now(),
             backup_folder: self.data_folder.join("backups"),
             run_folder: &self.run_folder,
             secure_defaults: &self.secure_defaults,

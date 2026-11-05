@@ -52,7 +52,7 @@ jobs:
       # sweep.
       docs: ${{ steps.filter.outputs.docs || 'true' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - id: filter
         if: github.event_name == 'pull_request'
         uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
@@ -76,7 +76,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # Inline install, pinned to v0.24.2, musl-static, SHA256-verified.
       # `lycheeverse/lychee-action@v2` is broken for v0.24.x: its install script
@@ -123,7 +123,7 @@ jobs:
       issues: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # Inline install, pinned to v0.24.2, musl-static, SHA256-verified.
       # `lycheeverse/lychee-action@v2` is broken for v0.24.x: its install script
