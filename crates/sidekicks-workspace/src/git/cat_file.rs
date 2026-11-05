@@ -100,7 +100,7 @@ pub(crate) fn read_batch_check_answers(
         None if stdout.is_empty() => Vec::new(),
         None => {
             return Err(CatFileAnswerError::Unreadable {
-                position: stdout.iter().filter(|&&byte| byte == b'\n').count(),
+                position: memchr::memchr_iter(b'\n', stdout).count(),
                 reason: "the last line has no line end",
             });
         }
