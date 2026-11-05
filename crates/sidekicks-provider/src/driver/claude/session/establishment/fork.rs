@@ -7,6 +7,7 @@
 use std::error::Error;
 use std::sync::Arc;
 
+use serde_json::Map;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -131,6 +132,7 @@ impl ClaudeSessionEstablishment {
                         session_id,
                         provider_account_id: predecessor.admitted_provider_account_id(),
                         conversation_id: predecessor.provider_session_id.clone(),
+                        runtime_metadata: Map::new(),
                     }],
                 ))
                 .await
@@ -153,6 +155,7 @@ impl ClaudeSessionEstablishment {
                             session_id,
                             provider_account_id: predecessor.admitted_provider_account_id(),
                             conversation_id: forked_provider_session_id.clone(),
+                            runtime_metadata: Map::new(),
                         }],
                     ))
                     .await;
