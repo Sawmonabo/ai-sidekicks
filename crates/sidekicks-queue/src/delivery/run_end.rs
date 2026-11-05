@@ -2,7 +2,8 @@
 //! service or an interrupt's return to the draft takes back ends, how every waiting message of a
 //! run ends not delivered, and the returned messages' words put back into the session's draft.
 
-use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
+use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_session::draft_store::restored_words_statement;
 use sidekicks_session::queue_store::{
@@ -32,8 +33,38 @@ pub fn stop_message_ends(
     items: &[QueueItemRecord],
     now: &WireInstant,
 ) -> Result<RunWriteCompanions, SessionEventDraftError> {
+    ends_at_stop(items, returned_message_outcome, now)
+}
+
+/// The ends of `items`, the messages waiting for `run_id` as the person's stop of the service
+/// settles it, as [`stop_message_ends`] builds them, except that each of `taken`, those the run's
+/// provider took by its own record, is admitted into the run, so none goes back into the draft.
+/// Fails when an item's event cannot be drafted.
+pub fn stop_message_ends_with_taken(
+    items: &[QueueItemRecord],
+    run_id: RunId,
+    taken: &[QueueItemId],
+    now: &WireInstant,
+) -> Result<RunWriteCompanions, SessionEventDraftError> {
+    let outcome_of = |item: &QueueItemRecord| {
+        if taken.contains(&item.id) {
+            QueueItemOutcome::Admitted { run_id }
+        } else {
+            returned_message_outcome(item)
+        }
+    };
+    ends_at_stop(items, outcome_of, now)
+}
+
+// The ends of `items` for one write, each to the outcome `outcome_of` answers, with the words of
+// those canceled put back into the draft.
+fn ends_at_stop(
+    items: &[QueueItemRecord],
+    outcome_of: impl Fn(&QueueItemRecord) -> QueueItemOutcome,
+    now: &WireInstant,
+) -> Result<RunWriteCompanions, SessionEventDraftError> {
     // A run's own opening ends with the rest, since the Stop ends the run it opens.
-    let outcomes: Vec<QueueItemOutcome> = items.iter().map(returned_message_outcome).collect();
+    let outcomes: Vec<QueueItemOutcome> = items.iter().map(outcome_of).collect();
     let returned: Vec<&QueueItemRecord> = items
         .iter()
         .zip(&outcomes)

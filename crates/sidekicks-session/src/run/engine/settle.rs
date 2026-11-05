@@ -21,6 +21,7 @@ use sidekicks_contracts::run::control::{ProcessExit, RunFailureCategory};
 use sidekicks_contracts::run::events::{TurnEndCause, TurnEndOrigin};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -78,9 +79,15 @@ static SELECT_TERMINAL_SINCE_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// Builds the end of each message waiting for a run a Stop settles, for that run's write.
-pub type WaitingMessagesEnd =
-    fn(&[QueueItemRecord], &WireInstant) -> Result<RunWriteCompanions, SessionEventDraftError>;
+/// Builds the end of each message waiting for a run a Stop settles, for that run's write: one the
+/// run's provider took, among the given ids, is admitted into the run, and every other ends as the
+/// Stop ends it.
+pub type WaitingMessagesEnd = fn(
+    &[QueueItemRecord],
+    RunId,
+    &[QueueItemId],
+    &WireInstant,
+) -> Result<RunWriteCompanions, SessionEventDraftError>;
 
 /// Who settles a run a restart or the person's stop of the service left live, and what that caller
 /// adds to each attempt's write.
@@ -97,10 +104,12 @@ pub(super) enum SettleCaller<'detail> {
         companions: RunWriteCompanions,
     },
     /// The person's stop of the service, which ends the run's waiting messages in its write, built
-    /// at each attempt from the messages that attempt read.
+    /// at each attempt from the messages that attempt read and those the run's provider took.
     Stop {
         /// The builder of the messages' ends.
         end_waiting: WaitingMessagesEnd,
+        /// The waiting messages the run's provider took, by its own record.
+        taken: &'detail [QueueItemId],
     },
 }
 
@@ -461,14 +470,16 @@ impl RunEngine {
     /// `decide_stop_settlement` decides, a run it leaves returned as it is, as
     /// [`RunEngine::settle_run_after_restart`] settles a run, except that its open turns end with
     /// `daemonStop`, no run ends failed with words, and the messages waiting for the run end in its
-    /// write as `end_waiting` builds them from those the attempt read, guarded last on no message
-    /// waiting that it did not read. Any refusal of the write, a message queued or one that left
-    /// since the read among them, reads the run, its facts and its messages again once. Fails as
-    /// [`RunEngine::transition`] does, the second refusal returned.
+    /// write as `end_waiting` builds them from those the attempt read and `taken`, the ones the
+    /// run's provider took, guarded last on no message waiting that it did not read. Any refusal
+    /// of the write, a message queued or one that left since the read among them, reads the run,
+    /// its facts and its messages again once. Fails as [`RunEngine::transition`] does, the second
+    /// refusal returned.
     pub async fn settle_run_at_stop(
         &self,
         run: &LiveRun,
         end_waiting: WaitingMessagesEnd,
+        taken: &[QueueItemId],
         hold: Option<&SessionAppendHold>,
     ) -> Result<RunRead, RunEngineError> {
         // The Stop's table reads no lead's stop for a helper, so no stopping read is taken.
@@ -476,7 +487,7 @@ impl RunEngine {
             run,
             decide_stop_settlement,
             false,
-            &SettleCaller::Stop { end_waiting },
+            &SettleCaller::Stop { end_waiting, taken },
             hold,
         )
         .await
@@ -626,10 +637,10 @@ impl RunEngine {
                 add_caller_companions(&mut companions, added.clone());
                 false
             }
-            SettleCaller::Stop { end_waiting } => {
+            SettleCaller::Stop { end_waiting, taken } => {
                 add_caller_companions(
                     &mut companions,
-                    end_waiting(&waiting_items, &WireInstant::now())?,
+                    end_waiting(&waiting_items, run_id, taken, &WireInstant::now())?,
                 );
                 true
             }

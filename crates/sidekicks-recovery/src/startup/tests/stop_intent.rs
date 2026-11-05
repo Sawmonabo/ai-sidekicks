@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
+use futures::FutureExt as _;
 use rstest::rstest;
 use rusqlite::OptionalExtension as _;
 use serde_json::Value;
@@ -8,10 +9,13 @@ use sidekicks_approval::service::test_fixture::SETTLE_WAIT;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
+use sidekicks_provider::driver::run_control::{FindTakenMessagesParams, TakenMessages};
 use sidekicks_session::queue_store::{QueueItemReader, RecordedQueueItemState};
 use sidekicks_session::run::engine::test_fixture::stored_run_state;
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::writer::test_file::test_run_id;
 use tokio_util::sync::CancellationToken;
 
@@ -65,6 +69,21 @@ async fn run_pass(fixture: &PassFixture, stop: &CancellationToken) {
     )
     .await
     .expect("the pass ends");
+}
+
+// The words `session_id`'s draft holds, `None` with no draft row.
+fn draft_text(fixture: &PassFixture, session_id: SessionId) -> Option<String> {
+    fixture
+        .store
+        .database
+        .reader()
+        .query_row(
+            "SELECT text FROM session_drafts WHERE session_id = ?1",
+            [session_id.text().as_str()],
+            |row| row.get(0),
+        )
+        .optional()
+        .expect("the draft reads")
 }
 
 // Asserts `run_id` in `session_id` ended `interrupted` by the person's Stop of the service.
@@ -175,17 +194,7 @@ async fn a_pass_under_the_stop_intent_settles_named_sessions_by_the_stop(#[case]
             let unstarted = QueueItemReader::new(&fixture.store.database.reader())
                 .list_sessions_with_unstarted_waiting()
                 .expect("the queue's recover reads its sessions");
-            let draft: Option<String> = fixture
-                .store
-                .database
-                .reader()
-                .query_row(
-                    "SELECT text FROM session_drafts WHERE session_id = ?1",
-                    [session_id.text().as_str()],
-                    |row| row.get(0),
-                )
-                .optional()
-                .expect("the draft reads");
+            let draft = draft_text(&fixture, session_id);
             if matches!(case, Case::WholeQueuedMessage) {
                 assert_eq!(
                     stored_run_state(&fixture.store.database, &run_id).0,
@@ -416,4 +425,57 @@ async fn a_pass_under_the_stop_intent_settles_named_sessions_by_the_stop(#[case]
             );
         }
     }
+}
+
+// A pass under the stop intent asks a running lead's provider which of its waiting messages its
+// record holds, in queue order: the one it took is admitted into the run, and only the other's
+// words go back into the draft. Killed by the taken set left out of the Stop's write, or the
+// provider not asked (the taken message reads canceled and the draft holds both lines).
+#[tokio::test]
+async fn a_pass_under_the_stop_intent_admits_the_messages_the_provider_took() {
+    let asked: Arc<Mutex<Vec<FindTakenMessagesParams>>> = Arc::default();
+    let mut driver = MockProviderDriver::new();
+    {
+        let asked = Arc::clone(&asked);
+        driver
+            .expect_find_taken_messages()
+            .times(1)
+            .returning(move |params| {
+                let taken = params.message_ids[..1].to_vec();
+                lock(&asked).push(params);
+                async move { Ok(TakenMessages { taken }) }.boxed()
+            });
+    }
+    let fixture =
+        PassFixture::over_drivers(vec![Arc::new(driver) as Arc<dyn ProviderDriver>]).await;
+    fixture.end_seeded_run();
+    let (session_id, run_id, _) = fixture.running_session(0).await;
+    let taken = fixture.queue_message(session_id, run_id).await;
+    let returned = fixture.queue_message(session_id, run_id).await;
+    fixture
+        .stop_intent()
+        .write_whole()
+        .await
+        .expect("the Stop writes");
+
+    run_pass(&fixture, &CancellationToken::new()).await;
+
+    let asked: Vec<(RunId, Vec<QueueItemId>)> = lock(&asked)
+        .iter()
+        .map(|params| (params.run_id, params.message_ids.clone()))
+        .collect();
+    assert_eq!(asked, vec![(run_id, vec![taken, returned])]);
+    assert_ended_by_the_stop(&fixture, session_id, run_id);
+    assert_eq!(
+        fixture.queue_item_state(taken),
+        RecordedQueueItemState::Admitted
+    );
+    assert_eq!(
+        fixture.queue_item_state(returned),
+        RecordedQueueItemState::Canceled
+    );
+    assert_eq!(
+        draft_text(&fixture, session_id).as_deref(),
+        Some("Look again")
+    );
 }

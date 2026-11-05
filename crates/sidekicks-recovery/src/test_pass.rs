@@ -226,6 +226,8 @@ pub(crate) struct PassFixture {
     pub(crate) followers: Arc<SessionEventFollowers>,
     /// The resume of each session's conversation through the fixture's drivers.
     provider_sessions: Arc<ProviderSessions>,
+    /// The fixture's drivers, by the providers the table lists first.
+    providers: Arc<ProviderRegistry>,
     /// The runtime bindings a test records a session's conversation in.
     bindings: Arc<RuntimeBindingStore>,
     _home: TempDir,
@@ -324,12 +326,8 @@ impl PassFixture {
             Arc::clone(&store.reads),
             Arc::clone(&store.writer),
         ));
-        let provider_sessions = resuming_provider_sessions(
-            &store,
-            &engine,
-            &Arc::new(registry_of_first_providers(drivers)),
-            &bindings,
-        );
+        let providers = Arc::new(registry_of_first_providers(drivers));
+        let provider_sessions = resuming_provider_sessions(&store, &engine, &providers, &bindings);
         Self {
             store,
             engine,
@@ -339,6 +337,7 @@ impl PassFixture {
             purges: Arc::new(RecordedPurges::default()),
             followers,
             provider_sessions,
+            providers,
             bindings,
             _home: home,
         }
@@ -440,6 +439,7 @@ impl PassFixture {
             run_engine: Arc::clone(&self.engine),
             approvals,
             plans: Arc::new(self.plans()),
+            providers: Arc::clone(&self.providers),
         }));
         let stop_intent = Arc::new(StopIntentFile::new(&store.database.path()));
         let damaged_history = Arc::new(DamagedHistory::new(DamagedHistoryDeps {

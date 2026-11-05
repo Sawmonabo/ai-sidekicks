@@ -34,10 +34,12 @@ use crate::run::state_change::RunWriteCompanions;
 // The stand-in's table for the one statement it adds with no event, as the composer's draft is.
 const CREATE_STOP_MARKS_SQL: &str = "CREATE TABLE stop_marks (session_id TEXT NOT NULL)";
 
-// The stand-in for the queue's builder: each waiting message `canceled` with its event, then one
-// statement with no event.
+// The stand-in for the queue's builder, which takes no message as taken: each waiting message
+// `canceled` with its event, then one statement with no event.
 fn cancel_waiting(
     items: &[QueueItemRecord],
+    _run_id: RunId,
+    _taken: &[QueueItemId],
     now: &WireInstant,
 ) -> Result<RunWriteCompanions, SessionEventDraftError> {
     let mut companions = RunWriteCompanions::default();
@@ -255,7 +257,7 @@ async fn a_stop_ends_a_run_and_its_waiting_messages_in_one_write(#[case] case: S
     };
 
     let paused = engine.restart_facts_pause().arm();
-    let mut settling = Box::pin(engine.settle_run_at_stop(&run, cancel_waiting, None));
+    let mut settling = Box::pin(engine.settle_run_at_stop(&run, cancel_waiting, &[], None));
     tokio::select! {
         settled = &mut settling => panic!("the settle passed its pause: {settled:?}"),
         reached = paused.reached => reached.expect("the settle holds after its read"),

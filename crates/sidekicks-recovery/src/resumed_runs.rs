@@ -220,8 +220,7 @@ impl ResumedRunsFinalize {
         }
     }
 
-    // The ids of the session's lead messages still waiting, in the queue's order; a review is
-    // never handed, so no provider's record holds one.
+    // The ids of the session's lead messages still waiting, in the queue's order.
     async fn read_waiting_messages(
         &self,
         session_id: SessionId,
@@ -234,16 +233,20 @@ impl ResumedRunsFinalize {
                     None,
                     Some(QueueItemState::Queued),
                 )?;
-                Ok::<_, ResumedRunsFinalizeError>(
-                    waiting
-                        .into_iter()
-                        .filter(|item| item.body.as_message().is_some())
-                        .map(|item| item.id)
-                        .collect(),
-                )
+                Ok::<_, ResumedRunsFinalizeError>(waiting_message_ids(waiting))
             })
             .await
     }
+}
+
+/// The ids of the messages among `waiting`, in its order: the only items a provider's record of a
+/// conversation can hold, since a review is never handed.
+pub(crate) fn waiting_message_ids(waiting: Vec<QueueItemRecord>) -> Vec<QueueItemId> {
+    waiting
+        .into_iter()
+        .filter(|item| item.body.as_message().is_some())
+        .map(|item| item.id)
+        .collect()
 }
 
 impl ResumedRunsIngress for ResumedRunsFinalize {

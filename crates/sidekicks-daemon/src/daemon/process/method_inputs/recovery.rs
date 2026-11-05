@@ -137,6 +137,7 @@ pub(super) fn build_recovery_services(
         run_engine: Arc::clone(&session.engine),
         approvals: Arc::clone(&session.approvals.service),
         plans: Arc::clone(&session.plans),
+        providers: Arc::clone(registry),
     }));
     // A resume settles the runs it named through recovery's finalize, registered before the start
     // serves anything, so no resume finds the port empty.
