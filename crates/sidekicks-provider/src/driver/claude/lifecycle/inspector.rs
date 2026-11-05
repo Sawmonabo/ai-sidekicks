@@ -29,10 +29,7 @@ impl ClaudeDriver {
     /// Fails as the account's folders, a settings file or the config folder's path cannot be read.
     #[cfg_attr(
         not(test),
-        expect(
-            dead_code,
-            reason = "the driver interface's memory and hooks reads call it"
-        )
+        expect(dead_code, reason = "the driver interface's memory read calls it")
     )]
     pub(crate) async fn read_session_memory(
         &self,
@@ -121,10 +118,7 @@ impl ClaudeDriver {
     /// listed nothing the daemon could read.
     #[cfg_attr(
         not(test),
-        expect(
-            dead_code,
-            reason = "the driver interface's memory and hooks reads call it"
-        )
+        expect(dead_code, reason = "the driver interface's hooks read calls it")
     )]
     pub(crate) async fn list_session_hooks(
         &self,
