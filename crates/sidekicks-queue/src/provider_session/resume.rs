@@ -439,6 +439,7 @@ impl ProviderSessions {
                     session_id,
                     provider_account_id: leg.spawn_config.provider_account_id.clone(),
                     conversation_id: handle.clone(),
+                    runtime_metadata: leg.runtime_metadata.clone(),
                 })
                 .into_iter()
                 .collect();
