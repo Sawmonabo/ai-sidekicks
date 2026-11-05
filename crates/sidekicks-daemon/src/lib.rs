@@ -2,8 +2,9 @@
 //! scheduler, every IPC handler on the local socket, the data acts, the service log, code
 //! highlighting, the planning transcript a hand-off writes, observability, orchestration, the
 //! control-plane credential, Remote Control on this machine, the helper modes it starts by name,
-//! and the redial a provider's hook makes to a daemon that is away. It sits over std, store, ipc,
-//! workspace, policy, workflow, provider, shell, session, approval, queue, artifact and recovery.
+//! the redial a provider's hook makes to a daemon that is away, and the price list seed the build
+//! vendored. It sits over std, store, ipc, workspace, policy, workflow, provider, shell, session,
+//! approval, queue, artifact and recovery.
 
 pub(crate) mod bootstrap;
 pub(crate) mod control_plane_credential;
@@ -15,6 +16,14 @@ pub(crate) mod ipc;
 pub(crate) mod observability;
 pub(crate) mod orchestration;
 pub(crate) mod plan_verdict;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the start hands it to the held price list when no copy is on disk"
+    )
+)]
+pub(crate) mod price_list_seed;
 pub mod program;
 #[cfg_attr(
     not(test),

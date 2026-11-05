@@ -33,7 +33,8 @@ use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::database::statement::{
-    StatementBindings, WriteStatement, nullable_text_binding, text_binding,
+    StatementBindings, WriteStatement, json_list_binding, named_bindings, nullable_text_binding,
+    text_binding,
 };
 use sidekicks_store::database::stored_column::{
     StoredJsonFault, parse_stored_json_object, text_column,
@@ -86,12 +87,12 @@ const SELECT_RUN_BINDINGS_SQL: &str = select_bindings!("WHERE run_id = ? ORDER B
 // One statement for any number of runs: the ids arrive as one JSON array, so no list of
 // placeholders is built per count or reaches SQLite's bound on them.
 const SELECT_BINDINGS_OF_RUNS_SQL: &str = select_bindings!(
-    "WHERE run_id IN (SELECT value FROM json_each(?)) ORDER BY run_id, created_at, id"
+    "WHERE run_id IN (SELECT value FROM json_each(@run_ids)) ORDER BY run_id, created_at, id"
 );
 
 // The run index serves each run; only the newest row is read.
 const SELECT_NEWEST_RESUMABLE_BINDING_OF_RUNS_SQL: &str = select_bindings!(
-    "WHERE run_id IN (SELECT value FROM json_each(?)) AND resume_handle IS NOT NULL
+    "WHERE run_id IN (SELECT value FROM json_each(@run_ids)) AND resume_handle IS NOT NULL
      ORDER BY created_at DESC, id DESC
      LIMIT 1"
 );
@@ -382,19 +383,9 @@ pub fn read_bindings_of_runs(
         return Ok(Vec::new());
     }
     let mut statement = reader.prepare_cached(SELECT_BINDINGS_OF_RUNS_SQL)?;
-    let rows = statement.query_map([run_ids_json(run_ids)], binding_from_row)?;
+    let listed = [json_list_binding("@run_ids", &run_ids)];
+    let rows = statement.query_map(named_bindings(&listed).as_slice(), binding_from_row)?;
     rows.collect()
-}
-
-// The run ids as the one JSON array `json_each` reads.
-fn run_ids_json(run_ids: &[RunId]) -> String {
-    Value::Array(
-        run_ids
-            .iter()
-            .map(|run_id| Value::String(run_id.text().as_str().to_owned()))
-            .collect(),
-    )
-    .to_string()
 }
 
 /// The newest binding of `run_ids` with a resume handle, by when each was recorded and then by id,
@@ -407,9 +398,10 @@ pub fn read_newest_resumable_binding_of_runs(
     if run_ids.is_empty() {
         return Ok(None);
     }
+    let listed = [json_list_binding("@run_ids", &run_ids)];
     reader
         .prepare_cached(SELECT_NEWEST_RESUMABLE_BINDING_OF_RUNS_SQL)?
-        .query_row([run_ids_json(run_ids)], binding_from_row)
+        .query_row(named_bindings(&listed).as_slice(), binding_from_row)
         .optional()
 }
 

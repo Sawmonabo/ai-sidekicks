@@ -368,7 +368,7 @@ pub(crate) async fn compose_run_turn(
         service_tier: compose_codex_service_tier(sent_output_speed.as_deref()),
         // Codex applies it to this turn's copy of the settings alone, and reads `default` as
         // standard.
-        service_tier_for_turn: output_speed_for_turn,
+        service_tier_for_turn: output_speed_for_turn.clone(),
         // A resumed or forked conversation carries none until its next turn names it.
         environments: Some(compose_codex_relay_environments(
             &record.thread_settings.working_directory,
@@ -377,13 +377,15 @@ pub(crate) async fn compose_run_turn(
     Ok((
         params,
         CodexAcceptedRunTurn {
-            model,
+            model: model.clone(),
             output_speed_request,
             sent_output_speed,
             input: CodexTurnInput {
                 messages: turn.messages,
                 client_message_ids: turn.client_message_ids,
                 output_speed_for_turn: turn.output_speed_for_turn,
+                sent_output_speed_for_turn: output_speed_for_turn,
+                model,
             },
         },
     ))
