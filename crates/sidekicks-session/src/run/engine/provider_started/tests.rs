@@ -8,6 +8,7 @@ use rstest::rstest;
 use rusqlite::params;
 use serde_json::Value;
 use sidekicks_contracts::agent::definition::AgentId;
+use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::agent::tree::ChildHandle;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::free_form_string::FilesystemPath;
@@ -132,8 +133,15 @@ fn helper(
         name: None,
         role: None,
         provider_path: None,
+        model_id: None,
+        effort: None,
         start_call_id: Some(ToolCallId::new(start_call_id.to_owned()).expect("a call id")),
     }
+}
+
+// `text` as a provider's model or effort word.
+fn token(text: &str) -> ProviderToken {
+    ProviderToken::new(text.to_owned()).expect("a provider token")
 }
 
 // The run a subagent's start left running.
@@ -592,11 +600,13 @@ async fn a_helpers_start_writes_its_node_in_its_runs_own_append() {
     );
 }
 
-// A helper's later start binds its node to the newer run, keeping its handle and its first start; a
-// helper started beneath it hangs under its node; and the fold rebuilds every row as the live
-// writes left it. Killed by an insert per start, which the unique key refuses, a new handle per
-// start, `started_at` rewritten on a bind, the parent link left unresolved, and by a fold that
-// mints a handle, inserts a handle it already wrote or times a row by the clock.
+// A helper's later start binds its node to the newer run, keeping its handle and its first start,
+// the model and effort that start named included; a helper started beneath it hangs under its node;
+// and the fold rebuilds every row as the live writes left it. Killed by an insert per start, which
+// the unique key refuses, a new handle per start, `started_at` rewritten on a bind, the parent link
+// left unresolved, the payload or the node dropping the model or effort, a bind that rewrites them,
+// and by a fold that mints a handle, inserts a handle it already wrote, drops the model or effort,
+// or times a row by the clock.
 #[tokio::test]
 async fn a_helpers_later_start_binds_its_node_and_a_rebuild_writes_the_same_rows() {
     let database = TestDatabase::new(subagent_schema_parts());
@@ -613,7 +623,14 @@ async fn a_helpers_later_start_binds_its_node_and_a_rebuild_writes_the_same_rows
 
     let first = running(
         engine
-            .start_provider_subagent_run(parent, helper("helper-1", None, "call-1"))
+            .start_provider_subagent_run(
+                parent,
+                ChildRunSubagent {
+                    model_id: Some(token("gpt-5.4-mini")),
+                    effort: Some(token("low")),
+                    ..helper("helper-1", None, "call-1")
+                },
+            )
             .await
             .expect("the first start is answered"),
     );
@@ -634,7 +651,11 @@ async fn a_helpers_later_start_binds_its_node_and_a_rebuild_writes_the_same_rows
     let (second_queued, second_at) = queued_event(&database, &second);
     let session_id = SessionId::new(first_queued["sessionId"].as_str().expect("a session id"))
         .expect("the queued run names its session");
+    assert_eq!(first_queued["providerChild"]["modelId"], "gpt-5.4-mini");
+    assert_eq!(first_queued["providerChild"]["effort"], "low");
     let helper_one = stored_node(&database, session_id, "helper-1");
+    assert_eq!(helper_one.model_id, Some(token("gpt-5.4-mini")));
+    assert_eq!(helper_one.effort, Some(token("low")));
     assert_eq!(helper_one.child_handle, queued_child_handle(&first_queued));
     assert_eq!(helper_one.child_handle, queued_child_handle(&second_queued));
     assert_eq!(helper_one.own_run_id, second);
