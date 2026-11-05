@@ -337,9 +337,10 @@ fn queue_over(
     record_first_provider_capabilities(&providers, true);
     let provider_sessions = test_provider_sessions(
         Arc::clone(&pool),
-        log,
+        Arc::clone(&log.service),
+        Arc::clone(&log.writer),
         Arc::clone(&providers),
-        resumed_runs,
+        resumed_runs.registered(),
         Arc::clone(orphaned_approvals) as Arc<_>,
     );
     let memory_gate = Arc::new(MemoryGate::new(

@@ -152,9 +152,10 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
     let providers = Arc::new(registry_of_first_provider(Arc::new(driver)));
     let provider_sessions = test_provider_sessions(
         Arc::clone(&pool),
-        &log,
+        Arc::clone(&log.service),
+        Arc::clone(&log.writer),
         Arc::clone(&providers),
-        &Arc::new(RecordedResumedRuns::default()),
+        Arc::new(RecordedResumedRuns::default()).registered(),
         Arc::new(OrphanedAnswersStandIn::<ApprovalRequestId>::default()),
     );
     provider_sessions.record_test_opening(session_id);
@@ -162,12 +163,12 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
         session_lock: Arc::clone(&session_lock),
         processes: Arc::clone(&process) as Arc<dyn ProviderProcessIds>,
         openings: Arc::clone(&openings) as Arc<dyn OpeningMessages>,
-        provider_sessions: Arc::downgrade(&provider_sessions),
         ..test_delivery_deps(
             pool,
             Arc::clone(&log.service),
             Arc::clone(&log.writer),
             providers,
+            &provider_sessions,
         )
     });
     Fixture {

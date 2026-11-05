@@ -9,7 +9,8 @@
 //! holds is such an answer: its kept messages go into the lead's continue as its words. A held lead
 //! the person continued waits for the answer that frees it, its kept messages going into that
 //! continue as its words. A failed continue moves the helper and the held lead back to `paused`,
-//! their messages left waiting for the person's next continue.
+//! their messages left waiting for the person's next continue; where the held lead could not be
+//! read, the session's lead that reads `running` with no turn open is the one moved back.
 
 use std::error::Error;
 use std::sync::Weak;
@@ -35,6 +36,13 @@ impl HeldLeadContinuation for Weak<RunQueue> {
             queue.continue_after_answer(session_id, helper_run_id, RunStateEntry::Paused);
         }
     }
+}
+
+// The lead a person's continue moved to `running` that a failed continue was to carry: read before
+// the resume, `None` with none, or unread where that read failed.
+enum HeldLead {
+    Read(Option<RunId>),
+    Unread,
 }
 
 /// Where a run whose continue failed is marked as needing the person: the recovery status's
@@ -66,7 +74,9 @@ impl RunQueue {
                 .read_held_continued_lead(session_id)
                 .await
             {
-                Ok(held_lead) => held_lead.filter(|lead_run_id| *lead_run_id != run_id),
+                Ok(held_lead) => {
+                    HeldLead::Read(held_lead.filter(|lead_run_id| *lead_run_id != run_id))
+                }
                 Err(failure) => {
                     tracing::warn!(
                         session_id = %session_id,
@@ -80,7 +90,7 @@ impl RunQueue {
                         RunFailureCategory::LocalPersistenceFailure,
                     );
                     queue
-                        .restore_continue(session_id, run_id, waiting, None)
+                        .restore_continue(session_id, run_id, waiting, HeldLead::Unread)
                         .await;
                     return;
                 }
@@ -177,30 +187,48 @@ impl RunQueue {
 
     // Moves `run_id` back to `waiting`, a continued helper back to `paused`, then `held_lead`, the
     // lead a person's continue moved to `running` that the failed continue was to carry, back to
-    // `paused`; while a process holds the session the lead runs there and is left. A run moved back
-    // to `paused` with no process gives back the messages it kept, so its next continue reads them.
+    // `paused`, or with it unread each lead that reads `running` with no turn open; while a process
+    // holds the session the lead runs there and is left. A run moved back to `paused` with no
+    // process gives back the messages it kept, so its next continue reads them.
     async fn restore_continue(
         &self,
         session_id: SessionId,
         run_id: RunId,
         waiting: RunStateEntry,
-        held_lead: Option<RunId>,
+        held_lead: HeldLead,
     ) {
         let is_paused = matches!(waiting, RunStateEntry::Paused);
         let is_restored = self.restore_wait(run_id, waiting).await;
         if self.delivery.has_live_process(session_id) {
             return;
         }
-        let restored_lead = match held_lead {
-            Some(lead_run_id) => self
+        let restored_leads = match held_lead {
+            HeldLead::Read(Some(lead_run_id)) => self
                 .restore_wait(lead_run_id, RunStateEntry::Paused)
                 .await
-                .then_some(lead_run_id),
-            None => None,
+                .then_some(lead_run_id)
+                .into_iter()
+                .collect(),
+            HeldLead::Read(None) => Vec::new(),
+            // Runs after `run_id`'s own move back, so a lead `run_id` that moved is not listed.
+            HeldLead::Unread => match self.engine.pause_continued_leads(session_id).await {
+                Ok(paused) => paused,
+                Err(error) => {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        error = &error as &(dyn Error + 'static),
+                        "the continued leads of a failed continue were not moved back to paused"
+                    );
+                    Vec::new()
+                }
+            },
         };
-        let paused = [(is_paused && is_restored).then_some(run_id), restored_lead];
+        let paused = (is_paused && is_restored)
+            .then_some(run_id)
+            .into_iter()
+            .chain(restored_leads);
         let _hold = self.session_lock.hold_session(session_id).await;
-        for paused_run_id in paused.into_iter().flatten() {
+        for paused_run_id in paused {
             self.delivery.forget_kept_words(paused_run_id);
         }
     }

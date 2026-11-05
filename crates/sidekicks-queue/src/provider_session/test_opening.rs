@@ -1,12 +1,11 @@
 //! The opening tests open a session's provider session with: the table's first provider at a
 //! read-only posture over the root, an idle sleep standing in that records each opening, a resumed
 //! runs' ingress standing in that records each resume's runs, and orphaned answers standing in that
-//! owe what a test gives them; the queue's own tests also record that provider's contract version
-//! and build their provider sessions on these stand-ins.
+//! owe what a test gives them, and the provider sessions tests build on these stand-ins; the
+//! queue's own tests also record that provider's contract version.
 
 use std::collections::HashSet;
 use std::error::Error;
-#[cfg(test)]
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -17,12 +16,10 @@ use futures::future::BoxFuture;
 use serde_json::Map;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
-#[cfg(test)]
 use sidekicks_contracts::approval::ApprovalRequestId;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::provider::id::ProviderId;
-#[cfg(test)]
 use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
@@ -36,32 +33,23 @@ use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::capabilities::{
     DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
 };
-#[cfg(test)]
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::{CreateSessionParams, SessionAccountPin};
 use sidekicks_provider::run::posture::{ExecutionPostureService, compose_execution_posture};
 use sidekicks_provider::runtime_binding::resume::ResumeFunctionLegs;
-#[cfg(test)]
 use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
 use sidekicks_session::idle_sleep::openings::SessionProcessFollower;
-#[cfg(test)]
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
-#[cfg(test)]
 use sidekicks_session::run::epochs::ExecutionEpochs;
-#[cfg(test)]
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
-#[cfg(test)]
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-#[cfg(test)]
-use sidekicks_store::events::log_service::test_fixture::TestLog;
-#[cfg(test)]
+use sidekicks_store::database::writer::DatabaseWriter;
+use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_store::events::session::appender::SessionEventAppender;
-#[cfg(test)]
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
-#[cfg(test)]
 use crate::provider_session::ProviderSessionsDeps;
 use crate::provider_session::held_run_continue::{
     OrphanedAnswerFuture, OrphanedAnswerSource, OwedAnswer,
@@ -310,24 +298,22 @@ pub(crate) fn record_first_provider_capabilities(providers: &ProviderRegistry, i
         .expect("the first provider is registered");
 }
 
-/// Provider sessions over `pool` and `log` that open on `providers` with the stand-ins above, each
-/// resume's runs settled by `resumed_runs` and the cards' orphaned answers read from
+/// Provider sessions reading through `pool`, appending to `event_log` and recording bindings
+/// through `writer`, that open on `providers` with the stand-ins above, each resume's runs settled
+/// by the ingress `resumed_runs` holds and the cards' orphaned answers read from
 /// `orphaned_approvals`.
-#[cfg(test)]
-pub(crate) fn test_provider_sessions(
+pub fn test_provider_sessions(
     pool: Arc<DatabaseReadPool>,
-    log: &TestLog,
+    event_log: Arc<EventLogService>,
+    writer: Arc<DatabaseWriter>,
     providers: Arc<ProviderRegistry>,
-    resumed_runs: &Arc<RecordedResumedRuns>,
+    resumed_runs: Arc<PortRegistration<Arc<dyn ResumedRunsIngress>>>,
     orphaned_approvals: Arc<dyn OrphanedAnswerSource<ApprovalRequestId>>,
 ) -> Arc<ProviderSessions> {
     let binding_cursors = Arc::new(RunBindingCursors::new(
         Arc::clone(&pool),
         Arc::new(|_: &SessionId| None),
-        Arc::new(RuntimeBindingStore::new(
-            Arc::clone(&pool),
-            Arc::clone(&log.writer),
-        )),
+        Arc::new(RuntimeBindingStore::new(Arc::clone(&pool), writer)),
         Arc::new(Mutex::new(ExecutionEpochs::new(
             NonZeroUsize::new(8).expect("the cap is not zero"),
         ))),
@@ -335,7 +321,7 @@ pub(crate) fn test_provider_sessions(
     Arc::new(ProviderSessions::new(ProviderSessionsDeps {
         pool,
         appender: Arc::new(SessionEventAppender::new(
-            Arc::clone(&log.service),
+            event_log,
             SESSION_EVENT_VERSION.clone(),
         )),
         binding_cursors,
@@ -345,7 +331,7 @@ pub(crate) fn test_provider_sessions(
         transition_lock: Arc::new(KeyedLock::new()),
         process_follower: Arc::new(RecordedProcessFollowing::default()),
         execution_postures: test_execution_postures(),
-        resumed_runs: resumed_runs.registered(),
+        resumed_runs,
         orphaned_approvals,
         orphaned_questions: Arc::new(OrphanedAnswersStandIn::<QuestionId>::default()),
     }))
