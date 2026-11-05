@@ -544,6 +544,7 @@ pub(crate) async fn register_method_inputs(
             run_pauses: Arc::clone(&session.pauses),
             usage: Arc::clone(&session.usage),
             running_commands: Arc::clone(&session.running_commands),
+            command_windows: Arc::clone(&session.command_windows),
             turn_readings: Arc::clone(&session.turn_readings),
             context_readings: Arc::clone(&session.context_readings),
             tool_call_statuses: Arc::clone(&session.tool_call_statuses),
