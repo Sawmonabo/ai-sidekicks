@@ -40,6 +40,7 @@ use crate::engine::tick::{RunGraph, RunScope, test_run_scope};
 use crate::kinds::step_context::StepContext;
 use crate::kinds::{
     NodeExecutor, NodeKindTable, PassThroughExecutor, StepFailure, StepOutcome, test_kind,
+    uncoded_step_error,
 };
 use crate::runs::creation::{
     WorkflowRunCreation, trigger_step_key, workflow_run_creation_statements,
@@ -49,13 +50,20 @@ use crate::schema::schema_parts;
 use crate::test_rows::{TestStep, insert_step, insert_workflow_version_body};
 
 /// How long a test waits for what the loop must write.
-const WAIT: Duration = Duration::from_secs(10);
+pub(super) const WAIT: Duration = Duration::from_secs(10);
 /// How long a test waits to see that the loop writes nothing more.
-const QUIET: Duration = Duration::from_millis(300);
+pub(super) const QUIET: Duration = Duration::from_millis(300);
 
 /// A test executor's behavior, by the node it runs.
 #[derive(Clone, Copy)]
 enum Script {
+    /// Fails its first try uncoded, then outputs one item.
+    Flaky,
+    /// Waits for its cancel, wakes the test, waits for the test's release, then passes its inputs
+    /// on.
+    Linger,
+    /// Passes its inputs on, readied on its first main input with items.
+    First,
     /// Outputs one empty list.
     Empty,
     /// Waits for the test's release, then outputs ten items of 7 KiB, above the inline cap
@@ -75,11 +83,11 @@ struct ScriptedExecutor {
 
 /// What the test and its executors wake each other with.
 #[derive(Default)]
-struct Signals {
+pub(super) struct Signals {
     /// Woken when a step starts waiting for its release or is canceled.
-    reached: Notify,
+    pub(super) reached: Notify,
     /// Woken by the test to release a waiting step.
-    release: Notify,
+    pub(super) release: Notify,
 }
 
 impl NodeExecutor for ScriptedExecutor {
@@ -90,6 +98,21 @@ impl NodeExecutor for ScriptedExecutor {
     ) -> BoxFuture<'step, Result<StepOutcome, StepFailure>> {
         Box::pin(async move {
             Ok(StepOutcome::Outputs(match self.script {
+                Script::Flaky => {
+                    if context.step.attempt.get() == 1 {
+                        return Err(StepFailure::Failed(Box::new(uncoded_step_error(
+                            "the first try fails".to_owned(),
+                        ))));
+                    }
+                    vec![vec![item(json!({ "attempt": context.step.attempt }))]]
+                }
+                Script::Linger => {
+                    context.cancel.cancelled().await;
+                    self.signal.reached.notify_one();
+                    self.signal.release.notified().await;
+                    inputs
+                }
+                Script::First => inputs,
                 Script::Empty => vec![Vec::new()],
                 Script::Large => {
                     self.signal.release.notified().await;
@@ -112,9 +135,13 @@ impl NodeExecutor for ScriptedExecutor {
             }))
         })
     }
+
+    fn readies_on_first_input(&self, _node: &WorkflowNode) -> bool {
+        matches!(self.script, Script::First)
+    }
 }
 
-fn item(json: Value) -> WorkflowItem {
+pub(super) fn item(json: Value) -> WorkflowItem {
     WorkflowItem {
         json: AnyValue(json),
         binary: None,
@@ -174,12 +201,15 @@ fn kinds(signal: &Arc<Signals>) -> Arc<NodeKindTable> {
             scripted("test.large", 1, Script::Large),
             scripted("test.wait", 1, Script::AwaitCancel),
             scripted("test.level", 1, Script::Level),
+            scripted("test.flaky", 1, Script::Flaky),
+            scripted("test.linger", 1, Script::Linger),
+            scripted("test.first", 2, Script::First),
         ])
         .expect("the test's kinds build a table"),
     )
 }
 
-fn node(id: &str, kind: &str, order: i64, on_error: Option<&str>) -> WorkflowNode {
+pub(super) fn node(id: &str, kind: &str, order: i64, on_error: Option<&str>) -> WorkflowNode {
     let mut node = json!({
         "id": id, "kind": kind, "kindVersion": 1, "name": id, "order": order, "params": {},
     });
@@ -189,7 +219,16 @@ fn node(id: &str, kind: &str, order: i64, on_error: Option<&str>) -> WorkflowNod
     serde_json::from_value(node).expect("the test's node reads")
 }
 
-fn edge(source: &str, target: &str, input: usize) -> WorkflowEdge {
+/// `node` retried up to `max_tries` tries, `wait_ms` apart.
+pub(super) fn retried(mut node: WorkflowNode, max_tries: u64, wait_ms: u64) -> WorkflowNode {
+    node.retry = Some(
+        serde_json::from_value(json!({ "maxTries": max_tries, "waitMs": wait_ms }))
+            .expect("the test's retry reads"),
+    );
+    node
+}
+
+pub(super) fn edge(source: &str, target: &str, input: usize) -> WorkflowEdge {
     serde_json::from_value(json!({
         "id": format!("{source}-{target}-{input}"),
         "source": source, "sourceHandle": "outputs/main/0",
@@ -200,22 +239,24 @@ fn edge(source: &str, target: &str, input: usize) -> WorkflowEdge {
 
 /// The loop over a test database, its payload store and record kept for the test, with the
 /// inbox runs start through.
-struct Harness {
+pub(super) struct Harness {
     database: TestDatabase,
-    rows: Connection,
+    pub(super) rows: Connection,
     appender: SessionEventAppender,
     payloads: Arc<KeptPayloads>,
-    records: Arc<KeptEngineRecords>,
+    pub(super) records: Arc<KeptEngineRecords>,
+    /// The loop's recorder, which forgets a run's sequence once the run leaves the live set.
+    pub(super) recorder: Arc<EngineRecorder>,
     kinds: Arc<NodeKindTable>,
-    signal: Arc<Signals>,
+    pub(super) signal: Arc<Signals>,
     changes: watch::Receiver<u64>,
     inbox: mpsc::Sender<EngineTickInput>,
-    scope: RunScope,
+    pub(super) scope: RunScope,
 }
 
 impl Harness {
     /// The loop running, its payload store keeping `write_limit` writes where one is given.
-    async fn new(write_limit: Option<usize>) -> Self {
+    pub(super) async fn new(write_limit: Option<usize>) -> Self {
         let database = TestDatabase::new(schema_parts());
         let TestLog {
             service, followers, ..
@@ -249,7 +290,7 @@ impl Harness {
                 ENGINE_TICK_STATEMENT_CAPACITY,
             )),
             kinds: Arc::clone(&kinds),
-            recorder,
+            recorder: Arc::clone(&recorder),
             payloads: Arc::clone(&payloads) as Arc<dyn StepPayloadArtifacts>,
             admission: gate,
             reports,
@@ -262,6 +303,7 @@ impl Harness {
             appender: SessionEventAppender::new(service, SESSION_EVENT_VERSION.clone()),
             payloads,
             records,
+            recorder,
             kinds,
             signal,
             changes,
@@ -273,7 +315,7 @@ impl Harness {
     /// Stores the workflow of `nodes` and `edges`, the node `trigger` its trigger, and writes its
     /// run as the start does, on `trigger_items`; `before_start` runs once the run is stored and
     /// before the loop takes it. Answers the run's cancel.
-    async fn start(
+    pub(super) async fn start(
         &self,
         nodes: Vec<WorkflowNode>,
         edges: &[WorkflowEdge],
@@ -372,7 +414,7 @@ impl Harness {
     }
 
     /// Waits until `check` holds over the stored rows, read again at each committed write.
-    async fn wait_until(&mut self, check: impl Fn(&Connection) -> bool) {
+    pub(super) async fn wait_until(&mut self, check: impl Fn(&Connection) -> bool) {
         let rows = &self.rows;
         timeout(WAIT, self.changes.wait_for(|_| check(rows)))
             .await
@@ -381,12 +423,12 @@ impl Harness {
     }
 
     /// The status of the step of `node_id`, `None` before its row is written.
-    fn status(&self, node_id: &str) -> Option<String> {
+    pub(super) fn status(&self, node_id: &str) -> Option<String> {
         step_column(&self.rows, node_id, "status")
     }
 
     /// Every stored event's sequence, type, instant and payload, in sequence order.
-    fn events(&self) -> Vec<(i64, String, String, Value)> {
+    pub(super) fn events(&self) -> Vec<(i64, String, String, Value)> {
         let reader = self.database.reader();
         let mut statement = reader
             .prepare(
@@ -410,7 +452,7 @@ impl Harness {
     }
 
     /// The event of `event_type` on the step of `node_id`.
-    fn event(&self, event_type: &str, node_id: &str) -> (i64, String, String, Value) {
+    pub(super) fn event(&self, event_type: &str, node_id: &str) -> (i64, String, String, Value) {
         self.events()
             .into_iter()
             .find(|(_, stored_type, _, payload)| {
@@ -420,7 +462,7 @@ impl Harness {
     }
 
     /// The record lines of the fault `fault`.
-    fn faults(&self, fault: &str) -> Vec<serde_json::Map<String, Value>> {
+    pub(super) fn faults(&self, fault: &str) -> Vec<serde_json::Map<String, Value>> {
         self.records
             .lines()
             .into_iter()
@@ -430,7 +472,7 @@ impl Harness {
 }
 
 /// `column` of the step of `node_id`, `None` before its row is written.
-fn step_column(rows: &Connection, node_id: &str, column: &str) -> Option<String> {
+pub(super) fn step_column(rows: &Connection, node_id: &str, column: &str) -> Option<String> {
     rows.query_row(
         &format!("SELECT {column} FROM workflow_steps WHERE node_id = ?1"),
         params![node_id],

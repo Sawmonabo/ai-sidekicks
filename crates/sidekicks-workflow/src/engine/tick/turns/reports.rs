@@ -410,3 +410,6 @@ async fn stop_agent_run(
             .await;
     }
 }
+
+#[cfg(test)]
+mod tests;
