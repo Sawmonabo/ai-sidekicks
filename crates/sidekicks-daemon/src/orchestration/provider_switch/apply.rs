@@ -574,6 +574,15 @@ mod tests {
             "2026-10-28T09:02:00.000Z",
         );
         let leg_id = bind_run_to_first_provider(&fixture.database, run_id);
+        // A leg with a conversation to resume is the one a session that ran keeps.
+        fixture
+            .database
+            .reader()
+            .execute(
+                "UPDATE runtime_bindings SET resume_handle = 'conversation-1' WHERE id = ?1",
+                [leg_id.as_str()],
+            )
+            .expect("the leg takes its conversation");
         let (switch_id, _) = pending_ids(
             fixture
                 .accept(json!({ "outputSpeed": "fast" }))
