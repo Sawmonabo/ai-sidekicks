@@ -381,9 +381,6 @@ pub(crate) struct ClaudeAgentDefinition {
     /// The helper's effort; absent, the lead's.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) effort: Option<String>,
-    /// The most turns the helper takes.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) max_turns: Option<u64>,
 }
 
 /// A tool server `mcp_set_servers` installs: a server the person declared, sent with its values,

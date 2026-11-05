@@ -43,7 +43,7 @@ use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use crate::driver::contract::params_and_results::{
     DriverCliVersionReport, SpawnedVersionBindingCarriers,
 };
-use crate::driver::session_control::{SessionToolServer, SubagentPolicy};
+use crate::driver::session_control::SessionToolServer;
 use crate::left_conversations::{LeftConversation, compose_left_conversation_insert};
 use crate::output_validation::{
     ProviderOutputValidationError, check_contract_version, check_resume_handle,
@@ -135,16 +135,19 @@ const INSERT_RELAUNCHED_BINDING_SQL: &str = "
     FROM runtime_bindings
    WHERE id = @predecessor_id";
 
-// Only the account member of the spawn record changes, in SQL, so a concurrent patch of another
-// column is kept.
-const MOVE_BINDING_ACCOUNT_SQL: &str = "
+// Only one member of the spawn record changes, in SQL, so a concurrent patch of another column is
+// kept.
+const SET_SPAWN_CONFIG_MEMBER_SQL: &str = "
   UPDATE runtime_bindings
-     SET spawn_config = json_set(spawn_config, @account_member, @provider_account_id),
+     SET spawn_config = json_set(spawn_config, @member, @value),
          updated_at   = @updated_at
    WHERE id = @id";
 
 // The spawn record's member naming the account, as the record is serialized.
 const PROVIDER_ACCOUNT_MEMBER: &str = "providerAccountId";
+
+// The spawn record's member naming the requested output speed, as the record is serialized.
+const OUTPUT_SPEED_MEMBER: &str = "outputSpeed";
 
 const DELETE_BINDING_SQL: &str = "DELETE FROM runtime_bindings WHERE id = ?";
 
@@ -168,13 +171,6 @@ pub struct RuntimeBindingSpawnConfig {
         deserialize_with = "sidekicks_contracts::wire::present"
     )]
     pub callback_tools: Option<Vec<SessionCallbackTool>>,
-    /// The provider-native subagent policy.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "sidekicks_contracts::wire::present"
-    )]
-    pub subagent_policy: Option<SubagentPolicy>,
     /// Every tool server the session can reach, each with the person's switch, so a resume starts
     /// with exactly the servers that were on.
     #[serde(
@@ -635,16 +631,11 @@ impl RuntimeBindingStore {
     ) -> Result<bool, RuntimeBindingStoreError> {
         let results = self
             .writer
-            .write(vec![WriteStatement {
-                sql: Cow::Borrowed(MOVE_BINDING_ACCOUNT_SQL),
-                bindings: StatementBindings::Named(vec![
-                    text_binding("@id", id.as_str()),
-                    text_binding("@account_member", &format!("$.{PROVIDER_ACCOUNT_MEMBER}")),
-                    text_binding("@provider_account_id", provider_account_id.as_str()),
-                    text_binding("@updated_at", WireInstant::now().as_str()),
-                ]),
-                expected_row_count: None,
-            }])
+            .write(vec![set_spawn_config_member(
+                id,
+                PROVIDER_ACCOUNT_MEMBER,
+                provider_account_id.as_str(),
+            )])
             .await?;
         Ok(results.first().is_some_and(|result| result.row_count > 0))
     }
@@ -662,6 +653,26 @@ impl RuntimeBindingStore {
             }])
             .await?;
         Ok(results.first().is_some_and(|result| result.row_count > 0))
+    }
+}
+
+/// The statement that sets binding `id`'s requested output speed to `output_speed`, for a caller
+/// committing it in its own write; it changes no row when the binding has none.
+pub fn write_output_speed(id: &RuntimeBindingId, output_speed: &ProviderToken) -> WriteStatement {
+    set_spawn_config_member(id, OUTPUT_SPEED_MEMBER, output_speed.as_str())
+}
+
+// Sets the spawn record's `member` of binding `id` to `value`.
+fn set_spawn_config_member(id: &RuntimeBindingId, member: &str, value: &str) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(SET_SPAWN_CONFIG_MEMBER_SQL),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@id", id.as_str()),
+            text_binding("@member", &format!("$.{member}")),
+            text_binding("@value", value),
+            text_binding("@updated_at", WireInstant::now().as_str()),
+        ]),
+        expected_row_count: None,
     }
 }
 

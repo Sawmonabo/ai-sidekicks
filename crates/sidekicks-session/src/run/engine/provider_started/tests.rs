@@ -554,7 +554,10 @@ async fn a_helpers_start_writes_its_node_in_its_runs_own_append() {
     let node = stored_node(&database, session_id, "helper-1");
     assert_eq!(node.child_handle, queued_child_handle(&queued));
     assert_eq!(node.own_run_id, child);
-    assert_eq!(node.start_call_id.as_deref(), Some("call-1"));
+    assert_eq!(
+        node.start_call_id.as_ref().map(ToolCallId::as_str),
+        Some("call-1")
+    );
     assert_eq!(node.parent_subagent_id, None);
     assert_eq!(node.parent_child_handle, None);
     assert_eq!(node.started_at.as_str(), occurred_at);
@@ -635,11 +638,20 @@ async fn a_helpers_later_start_binds_its_node_and_a_rebuild_writes_the_same_rows
     assert_eq!(helper_one.child_handle, queued_child_handle(&first_queued));
     assert_eq!(helper_one.child_handle, queued_child_handle(&second_queued));
     assert_eq!(helper_one.own_run_id, second);
-    assert_eq!(helper_one.start_call_id.as_deref(), Some("call-2"));
+    assert_eq!(
+        helper_one.start_call_id.as_ref().map(ToolCallId::as_str),
+        Some("call-2")
+    );
     assert_eq!(helper_one.started_at.as_str(), first_at);
     assert_eq!(helper_one.updated_at.as_str(), second_at);
     let helper_two = stored_node(&database, session_id, "helper-2");
-    assert_eq!(helper_two.parent_subagent_id.as_deref(), Some("helper-1"));
+    assert_eq!(
+        helper_two
+            .parent_subagent_id
+            .as_ref()
+            .map(SubagentId::as_str),
+        Some("helper-1")
+    );
     assert_eq!(
         helper_two.parent_child_handle,
         Some(helper_one.child_handle.clone())

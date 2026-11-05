@@ -88,19 +88,13 @@ enum TurnHolder {
     Command,
 }
 
-/// A session's turn: its holder, and how many times it was released, so a waiter wakes on each
-/// release even when a new hold follows at once.
+/// A session's turn: its holder, and how many times its holder changed or a run's end was written
+/// on it, so a waiter wakes on any of those since its mark, even when a new hold follows a release
+/// at once.
 #[derive(Debug, Default)]
 struct TurnState {
     holder: Option<TurnHolder>,
-    releases: u64,
-}
-
-impl TurnState {
-    fn release(&mut self) {
-        self.holder = None;
-        self.releases += 1;
-    }
+    changes: u64,
 }
 
 #[derive(Default)]
@@ -112,33 +106,45 @@ struct RouteTables {
 }
 
 impl RouteTables {
-    fn turn(&mut self, session_id: SessionId) -> &watch::Sender<TurnState> {
-        self.turns
-            .entry(session_id)
-            .or_insert_with(|| watch::Sender::new(TurnState::default()))
-    }
-
-    // Changes the session's turn where `change` says it did, answering what `change` answers; a
-    // session never held answers as a free turn would.
+    // Changes the session's turn where `change` says it did, counting the change, and answers what
+    // `change` answers; a session whose turn is not kept answers as a free turn would, and its turn
+    // is kept only once something changes it, so a session gets no entry from a change that does
+    // nothing.
     fn change_turn<T>(
         &mut self,
         session_id: SessionId,
         change: impl FnOnce(&mut TurnState) -> (bool, T),
     ) -> T {
-        let mut answer = None;
-        self.turn(session_id).send_if_modified(|state| {
-            let (is_changed, outcome) = change(state);
-            answer = Some(outcome);
-            is_changed
-        });
-        answer.expect("send_if_modified calls its closure once")
+        match self.turns.entry(session_id) {
+            Entry::Occupied(turn) => {
+                let mut answer = None;
+                turn.get().send_if_modified(|state| {
+                    let (is_changed, outcome) = change(state);
+                    answer = Some(outcome);
+                    if is_changed {
+                        state.changes += 1;
+                    }
+                    is_changed
+                });
+                answer.expect("send_if_modified calls its closure once")
+            }
+            Entry::Vacant(turn) => {
+                let mut state = TurnState::default();
+                let (is_changed, outcome) = change(&mut state);
+                if is_changed {
+                    state.changes += 1;
+                    turn.insert(watch::Sender::new(state));
+                }
+                outcome
+            }
+        }
     }
 
     // Releases the session's turn where `run_id` holds it.
     fn release_run(&mut self, session_id: SessionId, run_id: RunId) {
         self.change_turn(session_id, |state| match state.holder {
             Some(TurnHolder::Run { run_id: held, .. }) if held == run_id => {
-                state.release();
+                state.holder = None;
                 (true, ())
             }
             Some(TurnHolder::Run { .. } | TurnHolder::Command) | None => (false, ()),
@@ -154,12 +160,23 @@ pub(crate) struct ClaudeRunRoutes {
 }
 
 impl ClaudeRunRoutes {
-    /// Answers `true` once nothing holds the session's turn or it was released since the call, at
-    /// once when nothing holds it, or `false` when `deadline` passes first. A release followed at
-    /// once by a new hold still answers `true`; the caller's next hold may then be refused.
-    pub(crate) async fn when_turn_released(
+    /// How many times the session's turn has changed hands or seen a run's end written, the mark
+    /// [`Self::when_turn_changed_after`] waits past; 0 for a session whose turn is not kept.
+    pub(crate) fn turn_mark(&self, session_id: SessionId) -> u64 {
+        self.lock()
+            .turns
+            .get(&session_id)
+            .map_or(0, |turn| turn.borrow().changes)
+    }
+
+    /// Answers `true` once the session's turn has changed hands or seen a run's end written since
+    /// `mark` was taken, at once when it already has, when the session's turn is not kept, or once
+    /// it is closed with its session; `false` when `deadline` passes first. A release followed at
+    /// once by a new hold still answers `true`, so the caller's next try may be refused again.
+    pub(crate) async fn when_turn_changed_after(
         &self,
         session_id: SessionId,
+        mark: u64,
         deadline: Duration,
     ) -> bool {
         let Some(mut receiver) = self
@@ -170,12 +187,21 @@ impl ClaudeRunRoutes {
         else {
             return true;
         };
-        let seen = receiver.borrow_and_update().releases;
-        let released = receiver.wait_for(|state| state.holder.is_none() || state.releases > seen);
-        match tokio::time::timeout(deadline, released).await {
+        // Any count but the mark is a change: one past it, or a turn forgotten with its session
+        // and begun again from 0.
+        let changed = receiver.wait_for(|state| state.changes != mark);
+        match tokio::time::timeout(deadline, changed).await {
             // A closed turn is a session gone, which holds nothing.
             Ok(Ok(_) | Err(_)) => true,
             Err(_elapsed) => false,
+        }
+    }
+
+    /// Counts a run's end written on the session, which frees its turn for the run engine though
+    /// the routes' holder does not change; a session whose turn is not kept has no waiter to wake.
+    pub(crate) fn note_run_end_written(&self, session_id: SessionId) {
+        if let Some(turn) = self.lock().turns.get(&session_id) {
+            turn.send_modify(|state| state.changes += 1);
         }
     }
 
@@ -259,7 +285,7 @@ impl ClaudeRunRoutes {
         self.lock()
             .change_turn(session_id, |state| match state.holder {
                 Some(TurnHolder::Command) => {
-                    state.release();
+                    state.holder = None;
                     (true, ())
                 }
                 Some(TurnHolder::Run { .. }) | None => (false, ()),
@@ -356,7 +382,7 @@ impl ClaudeRunRoutes {
                     (false, ())
                 }
                 Some(TurnHolder::Run { .. } | TurnHolder::Command) => {
-                    state.release();
+                    state.holder = None;
                     (true, ())
                 }
                 None => (false, ()),
@@ -368,7 +394,7 @@ impl ClaudeRunRoutes {
         self.lock()
             .change_turn(session_id, |state| match state.holder {
                 Some(_) => {
-                    state.release();
+                    state.holder = None;
                     (true, ())
                 }
                 None => (false, ()),
@@ -523,18 +549,37 @@ mod tests {
         assert_eq!(routes.hold_turn(other, session, binding()), Ok(()));
     }
 
-    // Killed by a waiter that reads only the holder (a release a new hold follows at once would
-    // leave it waiting), and by a waiter that never gives up at its deadline.
+    const DEADLINE: Duration = Duration::from_secs(60);
+
+    // Killed by an end-written note that counts nothing, by a waiter that reads the count when it
+    // starts to wait instead of its mark, by a waiter that reads only the holder (a release a new
+    // hold follows at once would leave it waiting), and by a waiter that never gives up at its
+    // deadline.
     #[tokio::test(start_paused = true)]
-    async fn a_waiter_wakes_on_each_release_and_gives_up_at_its_deadline() {
+    async fn a_change_waiter_wakes_on_a_change_after_its_mark_and_gives_up_at_its_deadline() {
         let routes = ClaudeRunRoutes::default();
         let session = session();
         let (first, second) = (run(), run());
         routes
             .hold_turn(first, session, binding())
             .expect("the turn is free");
+        let before = routes.turn_mark(session);
+        routes.note_run_end_written(session);
+        assert!(
+            routes
+                .when_turn_changed_after(session, before, DEADLINE)
+                .await,
+            "the note is a change after the mark"
+        );
 
-        let released = routes.when_turn_released(session, Duration::from_secs(60));
+        let after = routes.turn_mark(session);
+        assert!(
+            !routes
+                .when_turn_changed_after(session, after, DEADLINE)
+                .await,
+            "nothing changed after the second mark"
+        );
+        let changed = routes.when_turn_changed_after(session, after, DEADLINE);
         let hand_over = async {
             tokio::task::yield_now().await;
             routes.unbind_run(first);
@@ -542,13 +587,41 @@ mod tests {
                 .hold_turn(second, session, binding())
                 .expect("the turn was released");
         };
-        let (is_released, ()) = tokio::join!(released, hand_over);
-        assert!(is_released);
+        let (is_changed, ()) = tokio::join!(changed, hand_over);
+        assert!(is_changed, "a release a new hold follows is a change");
+    }
 
+    // One turn entry per session whose turn was held, and none once the session is forgotten,
+    // whatever reads or releases its turn after. Killed by a mark, a wait or a release that keeps
+    // an entry for a forgotten session, and by a wait on a forgotten session that sleeps to its
+    // deadline instead of answering at once.
+    #[tokio::test(start_paused = true)]
+    async fn a_forgotten_session_keeps_no_turn_entry() {
+        let routes = ClaudeRunRoutes::default();
+        let (session, other) = (session(), session());
+        let lead = run();
+        routes
+            .hold_turn(lead, session, binding())
+            .expect("the turn is free");
+        routes
+            .hold_turn(run(), other, binding())
+            .expect("the other session's turn is free");
+        assert_eq!(routes.lock().turns.len(), 2);
+
+        routes.unbind_run(lead);
+        routes.forget_session_bindings(session);
+        let mark = routes.turn_mark(session);
         assert!(
-            !routes
-                .when_turn_released(session, Duration::from_secs(60))
+            routes
+                .when_turn_changed_after(session, mark, DEADLINE)
                 .await
         );
+        routes.note_run_end_written(session);
+        routes.settle_turn_holds(session);
+        routes.retire_run_routes(session);
+
+        assert_eq!(mark, 0);
+        assert_eq!(routes.lock().turns.len(), 1);
+        assert!(!routes.lock().turns.contains_key(&session));
     }
 }

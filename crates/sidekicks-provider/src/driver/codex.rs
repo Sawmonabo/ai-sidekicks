@@ -10,6 +10,7 @@ use std::time::SystemTime;
 
 use futures::FutureExt;
 use futures::future::{BoxFuture, ready};
+use sidekicks_contracts::agent::provider_binding::AgentBindingSwitchBoundary;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -20,6 +21,7 @@ use sidekicks_contracts::provider::driver::capabilities::{ProviderMode, Provider
 use sidekicks_contracts::provider::driver::commands::ProviderCommandBindingGroup;
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
+use sidekicks_contracts::run::children::ChildStoppedState;
 use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::controls::methods::TerminalProviderSession;
 use sidekicks_contracts::session::id::SessionId;
@@ -61,8 +63,8 @@ use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
     FindTakenMessagesParams, HelperStopOutcome, HelperStopParams, InterruptRunRequest,
-    OverrideDenialParams, PauseRunParams, PickedSkill, ReattachHelpersParams, ResumeRunParams,
-    TakenMessages, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
+    OverrideDenialParams, PauseRunParams, PickedSkill, ReattachHelpersParams, ResumeRunOutcome,
+    ResumeRunParams, TakenMessages, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
@@ -78,6 +80,7 @@ use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::driver::{
     CommandSandboxNeeds, DriverServices, HelperModeServices, InstallFolder, InstallFolderBase,
     ProviderCommand, ProviderCommandLookup, ProviderDescriptor, ProviderMemoryEstimates,
+    ProviderSwitchBoundaries,
 };
 use crate::port::running_command_publisher::{
     RunningCommandParams, WriteCommandInputParams, command_act_unsupported,
@@ -226,8 +229,18 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     },
     // Listed first on every model that publishes a tier, and requested by clearing the thread's.
     standard_output_speed: "default",
+    // Its `turn/interrupt` leaves a helper interrupted, and a send continues it.
+    stop_all_row_word: ChildStoppedState::Interrupted,
     // It lists its service tiers on each model of its catalog.
     output_speed_levels: None,
+    // Each turn carries the model, effort, service tier and window it runs on.
+    switch_boundaries: ProviderSwitchBoundaries {
+        model_id: AgentBindingSwitchBoundary::TurnBoundary,
+        effort: AgentBindingSwitchBoundary::TurnBoundary,
+        output_speed: AgentBindingSwitchBoundary::TurnBoundary,
+        options: AgentBindingSwitchBoundary::TurnBoundary,
+        larger_window: AgentBindingSwitchBoundary::TurnBoundary,
+    },
     // It documents no update switch; the driver runs one exact build path instead.
     process_environment: &[],
     // Carries the app-server binary's path into the launch prelude, which never interpolates it;
@@ -429,7 +442,10 @@ impl ProviderDriver for CodexDriver {
         self.pause_run(params).boxed()
     }
 
-    fn resume_run(&self, params: ResumeRunParams) -> BoxFuture<'_, Result<(), DriverError>> {
+    fn resume_run(
+        &self,
+        params: ResumeRunParams,
+    ) -> BoxFuture<'_, Result<ResumeRunOutcome, DriverError>> {
         self.resume_run(params).boxed()
     }
 

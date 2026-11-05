@@ -5,8 +5,10 @@
 use serde_json::{Map, Value};
 
 use super::{ClaudeDeliveryStream, ClaudeSessionStream};
+use crate::driver::claude::delivery::system::{
+    ClaudeCommandDrop, ClaudeCommandLifecycle, read_claude_command_lifecycle,
+};
 use crate::port::session_message_reading_publisher::SessionMessageReading;
-use crate::record_readers::read_non_empty_string;
 
 impl ClaudeDeliveryStream {
     // A message Claude Code took off its input reports taken under the run it was written for; one
@@ -16,34 +18,30 @@ impl ClaudeDeliveryStream {
         session: &ClaudeSessionStream,
         members: &Map<String, Value>,
     ) {
-        let (Some(uuid), Some(state)) = (
-            read_non_empty_string(members, "command_uuid"),
-            read_non_empty_string(members, "state"),
-        ) else {
-            return;
-        };
-        match state {
-            "started" => self.report_taken(session, uuid),
-            // Claude Code's terminal drops: `discarded` for a message still queued as the
-            // session ends, `refused` on the same drop path's other arm, and `cancelled` for one
-            // an interrupt sent with `cancel_queued` took back.
-            "discarded" | "refused" | "cancelled" => {
-                session.unmark_now_steer(uuid);
+        match read_claude_command_lifecycle(members) {
+            Some(ClaudeCommandLifecycle::Started { command_uuid }) => {
+                self.report_taken(session, command_uuid);
+            }
+            Some(ClaudeCommandLifecycle::Dropped {
+                command_uuid,
+                state,
+            }) => {
+                session.unmark_now_steer(command_uuid);
                 session
                     .lock_prompts()
-                    .record_dropped(session.session_id, uuid);
+                    .record_dropped(session.session_id, command_uuid);
                 // `refused` also names a peer message the receiver's policy declined.
-                if state == "refused"
+                if state == ClaudeCommandDrop::Refused
                     && let Some(publisher) = self.dependencies.session_message_readings.port()
                 {
                     publisher.publish(SessionMessageReading::Refused {
-                        message_id: uuid.to_owned(),
+                        message_id: command_uuid.to_owned(),
                         reason: None,
                         drop_reason: None,
                     });
                 }
             }
-            _ => {}
+            None => {}
         }
     }
 

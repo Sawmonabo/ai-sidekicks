@@ -14,7 +14,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::driver::idle_sleep::KeptSchedule;
 use crate::driver::mcp_server::status::McpServerStatusProducer;
-use crate::driver::session_control::{LiveRunResume, ResumeSessionParams};
+use crate::driver::session_control::{LiveRunResume, ResumeSessionParams, SubagentPolicy};
 use crate::runtime_binding::store::RuntimeBinding;
 
 /// The function legs a relaunch opens fresh for a resumed leg, apart from the stored legs.
@@ -39,8 +39,9 @@ pub struct RuntimeBindingNotResumable {
 
 /// Rebuilds a resumed leg's params from its stored binding, with the provider's recovery data on
 /// it, and the session's lead, model, recorded larger window, mode, permission level's posture,
-/// option values, row values, kept schedules and live runs, as they stand now, the resumed process
-/// to run under `binding_id`, with no function legs, which a relaunch that opens them sets after.
+/// option values, row values, helper policy, kept schedules and live runs, as they stand now, the
+/// resumed process to run under `binding_id`, with no function legs, which a relaunch that opens
+/// them sets after.
 /// Fails with [`RuntimeBindingNotResumable`] when the binding has no resume handle.
 #[expect(
     clippy::too_many_arguments,
@@ -57,6 +58,7 @@ pub fn compose_resume_session_params(
     execution_posture: ExecutionPosture,
     options: Vec<ProviderOptionSetting>,
     row_values: ProviderRowValues,
+    subagent_policy: Option<SubagentPolicy>,
     kept_schedules: Vec<KeptSchedule>,
     live_runs: Vec<LiveRunResume>,
 ) -> Result<ResumeSessionParams, RuntimeBindingNotResumable> {
@@ -82,7 +84,7 @@ pub fn compose_resume_session_params(
         options,
         row_values,
         callback_tools: spawn_config.callback_tools,
-        subagent_policy: spawn_config.subagent_policy,
+        subagent_policy,
         tool_servers: spawn_config.tool_servers,
         output_schema: spawn_config.output_schema,
         // Read back as stored, never resolved again.

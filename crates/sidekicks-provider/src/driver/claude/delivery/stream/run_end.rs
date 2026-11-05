@@ -6,6 +6,7 @@
 //! failed end, so no run is left open.
 
 use serde_json::Value;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
@@ -69,6 +70,7 @@ impl ClaudeDeliveryStream {
                 turn_number: None,
             });
             readings.failed_call_words.clear();
+            readings.helper_resumes.clear_message_calls();
             readings.event_ids_by_message_key.clear();
             readings.counted_step_messages.clear();
             readings.streamed_blocks.open_turn();
@@ -318,7 +320,8 @@ impl ClaudeDeliveryStream {
     }
 
     /// Delivers a turn's end on its run; an end the run engine did not take ends the run failed
-    /// instead, naming why.
+    /// instead, naming why. Either way the routes then note the end, so a write waiting on the
+    /// session's turn tries again.
     pub(super) async fn deliver_turn_end(
         &self,
         session: &ClaudeSessionStream,
@@ -352,9 +355,22 @@ impl ClaudeDeliveryStream {
                 Some("result"),
             )
             .await;
-        if outcome.is_some() {
-            return;
+        if outcome.is_none() {
+            self.deliver_unrecorded_turn_end(session, run_id, binding_id)
+                .await;
         }
+        self.dependencies
+            .routes
+            .note_run_end_written(session.session_id);
+    }
+
+    // Ends the run failed where the run engine did not take its turn's end, naming why.
+    async fn deliver_unrecorded_turn_end(
+        &self,
+        session: &ClaudeSessionStream,
+        run_id: RunId,
+        binding_id: RuntimeBindingId,
+    ) {
         let failed = RunStateReport {
             failure_category: Some(RunFailureCategory::ProviderFailure),
             ..RunStateReport::new(
