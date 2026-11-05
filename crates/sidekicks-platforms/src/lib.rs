@@ -25,7 +25,9 @@
               and file-information calls, the Windows replacing rename's `MoveFileExW`, the \
               opening of an address (macOS's \
               `LSOpenCFURLRef`, Windows' `CoInitializeEx`, `ShellExecuteExW` and \
-              `CoUninitialize`), the caller \
+              `CoUninitialize`), the read of whether a browser reaches its person (macOS's \
+              `SessionGetInfo`, Windows' `GetProcessWindowStation` and \
+              `GetUserObjectInformationW`), the caller \
               reads (Linux's peer process descriptor and `pidfd_open`, macOS's audit token, \
               checked process reads and responsible-process reads), macOS's code-signature checks, \
               the start as its own responsible process (its thread count, its program's path, its \
@@ -156,6 +158,7 @@ mod windowless_app;
 mod windows;
 mod wsl;
 
+pub use address_opening::{NO_BROWSER_OPENER, can_open_browser};
 pub use atomic_write::{
     AtomicWriteError, LeftoverSweep, atomic_write_target_of, create_file_atomically,
     remove_atomic_write_leftovers, replace_file_atomically, replace_file_atomically_while,

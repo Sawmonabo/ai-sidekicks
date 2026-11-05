@@ -11,6 +11,7 @@ use sidekicks_contracts::provider::account::sign_in::{
     PROVIDER_SIGN_IN_CODE_MAX_LEN, ProviderSignInArm,
 };
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_platforms::NO_BROWSER_OPENER;
 use sidekicks_std::file::atomic_write::write_file_atomically;
 
 use crate::account::credential_home::CredentialHome;
@@ -58,8 +59,9 @@ fn login_stand_in(folder: &Path, address: &str, refuses_first: bool) -> String {
 }
 
 // The legs over a `claude` stand-in running `script`, in an environment holding the person's
-// own browser, every variable that signs in ahead of a home, and a refused custom host.
-async fn legs_running(root: &Path, script: String) -> ClaudeAccountLegs {
+// own browser, a display, every variable that signs in ahead of a home, a refused custom host,
+// and `extra`.
+async fn legs_running(root: &Path, script: String, extra: &[(&str, &str)]) -> ClaudeAccountLegs {
     let programs = root.join("programs");
     tokio::fs::create_dir_all(&programs)
         .await
@@ -70,12 +72,13 @@ async fn legs_running(root: &Path, script: String) -> ClaudeAccountLegs {
     let mut services = test_driver_services();
     services.data_folder = root.join("data");
     services.home_folder = root.join("own-home");
-    services.base_environment = Arc::from([
+    let mut base_environment = vec![
         (
             "PATH".to_owned(),
             format!("{}:/usr/bin:/bin", programs.display()),
         ),
         ("BROWSER".to_owned(), OWN_BROWSER.to_owned()),
+        ("DISPLAY".to_owned(), ":0".to_owned()),
         (
             "CLAUDE_CODE_OAUTH_TOKEN".to_owned(),
             "sk-ant-oat01-own".to_owned(),
@@ -92,7 +95,13 @@ async fn legs_running(root: &Path, script: String) -> ClaudeAccountLegs {
             "CLAUDE_CODE_CUSTOM_OAUTH_URL".to_owned(),
             "https://sign-in.example.test".to_owned(),
         ),
-    ]);
+    ];
+    base_environment.extend(
+        extra
+            .iter()
+            .map(|(name, value)| ((*name).to_owned(), (*value).to_owned())),
+    );
+    services.base_environment = Arc::from(base_environment);
     test_account_legs(&services, Weak::new())
 }
 
@@ -105,22 +114,38 @@ fn code() -> FreeFormText<PROVIDER_SIGN_IN_CODE_MAX_LEN> {
 }
 
 // Killed by reading the output as lines (the prompt ends none, so no prompt arrives before the
-// code), by a dropped removal list, by the no-op browser opener tied to anything but the arm, by a
-// provider-opened browser claimed on the device-code arm, and by a logged code.
+// code), by a dropped removal list, by the no-op browser opener tied to the arm alone, by the
+// browser check read from the process's own environment (the test process sets no SSH variable),
+// by a provider-opened browser claimed where the no-op opener is set, and by a logged code. The
+// browser case reads the fixture's display on Linux and, on macOS, the test's own security
+// session, which has graphics in a desktop login, so that case fails in a run over SSH.
 #[rstest]
-#[case::device_code(ProviderSignInArm::DeviceCode, "/usr/bin/true")]
-#[case::browser(ProviderSignInArm::Browser, OWN_BROWSER)]
+#[case::device_code(ProviderSignInArm::DeviceCode, &[], NO_BROWSER_OPENER, false)]
+#[case::browser(ProviderSignInArm::Browser, &[], OWN_BROWSER, true)]
+#[case::browser_over_ssh(
+    ProviderSignInArm::Browser,
+    &[("SSH_CONNECTION", "192.0.2.1 50000 192.0.2.2 22")],
+    NO_BROWSER_OPENER,
+    false
+)]
 #[tokio::test]
 async fn a_sign_in_shows_its_address_waits_for_a_code_and_finishes_on_it(
     #[case] arm: ProviderSignInArm,
+    #[case] extra: &[(&str, &str)],
     #[case] browser: &str,
+    #[case] is_browser_opened_by_provider: bool,
 ) {
     let root = tempfile::tempdir().expect("a scratch folder is made");
     let record = root.path().join("record");
     tokio::fs::create_dir_all(&record)
         .await
         .expect("the record folder is made");
-    let legs = legs_running(root.path(), login_stand_in(&record, SIGN_IN_ADDRESS, false)).await;
+    let legs = legs_running(
+        root.path(),
+        login_stand_in(&record, SIGN_IN_ADDRESS, false),
+        extra,
+    )
+    .await;
     let recorded = RecordedEvents::default();
     let _recording = recorded.record_until_dropped();
 
@@ -131,7 +156,7 @@ async fn a_sign_in_shows_its_address_waits_for_a_code_and_finishes_on_it(
     assert_eq!(handle.verification_uri.as_str(), SIGN_IN_ADDRESS);
     assert_eq!(
         handle.is_browser_opened_by_provider,
-        arm == ProviderSignInArm::Browser
+        is_browser_opened_by_provider
     );
     tokio::time::timeout(WAIT, handle.code_prompts.next())
         .await
@@ -190,7 +215,7 @@ async fn a_failed_sign_in_gives_claude_code_s_last_error_line() {
          printf 'Opening browser to sign in\\n' >&2\n\
          printf '{CLAUDE_FAILURE}\\n\\n' >&2\nexit 1\n"
     );
-    let legs = legs_running(root.path(), script).await;
+    let legs = legs_running(root.path(), script, &[]).await;
 
     let handle = legs
         .start_sign_in(
@@ -221,7 +246,12 @@ async fn a_refused_code_is_a_second_wait_and_an_address_on_another_host_is_refus
     tokio::fs::create_dir_all(&record)
         .await
         .expect("the record folder is made");
-    let legs = legs_running(root.path(), login_stand_in(&record, SIGN_IN_ADDRESS, true)).await;
+    let legs = legs_running(
+        root.path(),
+        login_stand_in(&record, SIGN_IN_ADDRESS, true),
+        &[],
+    )
+    .await;
     let mut handle = legs
         .start_sign_in(
             test_provider_account_id(),
@@ -254,6 +284,7 @@ async fn a_refused_code_is_a_second_wait_and_an_address_on_another_host_is_refus
     let legs = legs_running(
         elsewhere.path(),
         login_stand_in(&record, "https://claude.com.example.test/oauth", false),
+        &[],
     )
     .await;
     legs.start_sign_in(
@@ -314,7 +345,7 @@ async fn the_status_read_names_the_sign_in_as_claude_code_s_own_status_does(
     #[case] is_named: bool,
 ) {
     let root = tempfile::tempdir().expect("a scratch folder is made");
-    let legs = legs_running(root.path(), status_stand_in(account)).await;
+    let legs = legs_running(root.path(), status_stand_in(account), &[]).await;
 
     let observed = legs
         .observe_sign_in(test_provider_account_id(), home(root.path()))
