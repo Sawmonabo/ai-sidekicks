@@ -367,7 +367,9 @@ mod tests {
 
         match HandlerError::from(error) {
             HandlerError::Refused(refusal) => assert_eq!(refusal.code, code),
-            other => panic!("expected a refusal, got {other:?}"),
+            other @ (HandlerError::Internal(_) | HandlerError::Canceled) => {
+                panic!("expected a refusal, got {other:?}")
+            }
         }
         assert_eq!(posted_events(&rows), Vec::new());
     }
