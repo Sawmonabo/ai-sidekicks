@@ -8,6 +8,7 @@ use rstest::rstest;
 use sidekicks_contracts::run::events::TurnEndCause;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::run_control::ResumeRunOutcome;
 use sidekicks_provider::run::turn_end::TurnOutcome;
 
 use super::{WaitingMessages, fixture, waiting_message};
@@ -33,7 +34,12 @@ async fn a_continue_owes_the_continuation_only_after_the_restart_cut_its_pause(
         .times(1)
         .returning(move |params| {
             *recorded.lock().expect("the field reads") = Some(params.is_continuation_owed);
-            async { Ok(()) }.boxed()
+            async {
+                Ok(ResumeRunOutcome {
+                    is_hold_lost: false,
+                })
+            }
+            .boxed()
         });
     let fixture = fixture(driver, "paused").await;
     for &(turn_number, cause) in turn_ends {

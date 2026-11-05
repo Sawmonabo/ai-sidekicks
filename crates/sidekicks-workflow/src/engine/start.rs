@@ -1,8 +1,9 @@
 //! Starting a run: the checks a start passes before anything is written (a trigger's fire under
-//! the workflow start rule, the pinned version, the session and the trigger's declared inputs),
-//! the folder the run works in, the scope its steps share and the input its trigger step starts
-//! on, and the one write of the run's row with its `workflow.run.started`, which holds a run
-//! joining a chain at its limit.
+//! the workflow start rule, the pinned version, the session, the trigger's declared inputs, a
+//! project's repository for the steps that need one and the workflow's provider for the steps that
+//! run in its sandbox), the folder the run works in, the scope its steps share and the input its
+//! trigger step starts on, and the one write of the run's row with its `workflow.run.started`,
+//! which holds a run joining a chain at its limit.
 mod errors;
 #[cfg(test)]
 mod tests;
@@ -27,14 +28,18 @@ use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::list::UniqueList;
+use sidekicks_contracts::wire::list::{BoundedVec, UniqueList};
 use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::workflow::definition::document::{
     WorkflowDefinitionId, WorkflowEdge, WorkflowName, WorkflowNode, WorkflowNodeId,
     WorkflowVersionId,
 };
 use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowPinnedItem};
-use sidekicks_contracts::workflow::run::control::fill_workflow_trigger_inputs;
+use sidekicks_contracts::workflow::definition::refusals::enabled_nodes_needing;
+use sidekicks_contracts::workflow::run::control::{
+    WorkflowRunProviderRequiredDetails, WorkflowRunRepositoryRequiredDetails,
+    fill_workflow_trigger_inputs,
+};
 use sidekicks_contracts::workflow::run::events::WorkflowRunStartedPayload;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
@@ -64,8 +69,9 @@ use crate::definitions::kept_values::{WorkflowKeptValue, WorkflowKeptValueStore}
 use crate::definitions::stored_document::{parse_stored_pin_data, parse_stored_workflow_body};
 use crate::definitions::versions::history::WorkflowVersions;
 use crate::engine::event_record::{EngineFault, EngineRecorder};
-use crate::engine::ports::{ChainAskAfterReader, RunProviderReader, StepPayloadArtifacts};
+use crate::engine::ports::{ChainAskAfterReader, StepPayloadArtifacts};
 use crate::engine::tick::RunScope;
+use crate::kinds::NodeKindTable;
 use crate::runs::creation::{
     CHAIN_COUNT_STATEMENT_INDEX, CHAIN_ROOT_CHECK_STATEMENT_INDEX, WorkflowRunCreation,
     workflow_run_creation_statements,
@@ -77,21 +83,21 @@ use crate::secrets::redaction::RunRedaction;
 pub(crate) use self::errors::WorkflowRunStartError;
 
 /// The statements a start prepares on a read connection: the pinned version by its id, the
-/// session's working folder, the workflow's level and pins, its project's environment rows and
-/// the session's project.
+/// session's working folder, the workflow's level, pins and provider, its project's environment
+/// rows and the session's project.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the engine's run start handlers")
 )]
 pub(crate) const WORKFLOW_RUN_START_STATEMENT_CAPACITY: usize = 5;
 
-// The level every run of the workflow runs at, and its pinned test items.
+// The level every run of the workflow runs at, its pinned test items and its provider.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the engine's run start handlers")
 )]
 const DEFINITION_SCOPE_SQL: &str =
-    "SELECT permission_level, pin_data_json FROM workflow_definitions WHERE id = ?1";
+    "SELECT permission_level, pin_data_json, provider FROM workflow_definitions WHERE id = ?1";
 
 // The project the session works in, NULL for a chat.
 #[cfg_attr(
@@ -188,8 +194,8 @@ pub(crate) enum WorkflowStartOutcome {
     },
 }
 
-/// What a start's checks read: the workflow, its version's body as the run needs it, and the
-/// session's working folder.
+/// What a start's checks read: the workflow with its level, stored pins and provider, its
+/// version's body as the run needs it, and the session's working folder.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the engine's run start handlers")
@@ -202,22 +208,23 @@ struct CheckedStart {
     edges: Arc<[WorkflowEdge]>,
     start_items: Vec<WorkflowItem>,
     session: SessionWorkingFolder,
+    permission_level: PermissionLevel,
+    pin_data_json: Option<String>,
+    provider: Option<ProviderId>,
 }
 
-/// What a run's scope reads beside its version: the workflow's level and, for a manual run, its
-/// pins, the session's project and that project's environment rows, the workflow's kept values
-/// and the provider.
+/// What a run's scope reads beside its version and its workflow's row: for a manual run the
+/// workflow's pins, the session's project and that project's environment rows, and the workflow's
+/// kept values.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the engine's run start handlers")
 )]
 struct ScopeReads {
-    permission_level: PermissionLevel,
     pin_data: Option<Record<String, Vec<WorkflowPinnedItem>>>,
     environment_rows: Vec<EnvironmentRow>,
     project: Option<ProjectId>,
     kept_values: Vec<WorkflowKeptValue>,
-    provider: ProviderId,
 }
 
 /// The folder a run works in: the session's, or its own, which the start made and removes when it
@@ -272,10 +279,10 @@ pub(crate) struct WorkflowRunStarterDependencies {
     pub(crate) payloads: Arc<dyn StepPayloadArtifacts>,
     /// The limit a joining run is counted under.
     pub(crate) chain_ask_after: Arc<dyn ChainAskAfterReader>,
-    /// The provider a run's command steps run under.
-    pub(crate) provider: Arc<dyn RunProviderReader>,
     /// The values each workflow keeps, which its runs read.
     pub(crate) kept_values: Arc<WorkflowKeptValueStore>,
+    /// The kinds a start reads its steps' needs from.
+    pub(crate) kinds: Arc<NodeKindTable>,
     /// The data folder a run's own folder is made in.
     pub(crate) data_folder: PathBuf,
     /// The engine's record, which takes what a held start could not clean up.
@@ -295,8 +302,8 @@ pub(crate) struct WorkflowRunStarter {
     authorizer: Arc<Authorizer>,
     payloads: Arc<dyn StepPayloadArtifacts>,
     chain_ask_after: Arc<dyn ChainAskAfterReader>,
-    provider: Arc<dyn RunProviderReader>,
     kept_values: Arc<WorkflowKeptValueStore>,
+    kinds: Arc<NodeKindTable>,
     data_folder: PathBuf,
     recorder: Arc<EngineRecorder>,
 }
@@ -315,8 +322,8 @@ impl WorkflowRunStarter {
             authorizer,
             payloads,
             chain_ask_after,
-            provider,
             kept_values,
+            kinds,
             data_folder,
             recorder,
         } = dependencies;
@@ -327,8 +334,8 @@ impl WorkflowRunStarter {
             authorizer,
             payloads,
             chain_ask_after,
-            provider,
             kept_values,
+            kinds,
             data_folder,
             recorder,
         }
@@ -338,12 +345,13 @@ impl WorkflowRunStarter {
     /// builds its trigger input, then writes its row and its `workflow.run.started` together, the
     /// event's instant the row's start and the scope's. A run joining a chain at its limit is held,
     /// with nothing written. Fails with [`WorkflowRunStartError::Refused`]
-    /// (`workflow.run.startDenied`, `workflow.run.inputRequired`),
+    /// (`workflow.run.startDenied`, `workflow.run.inputRequired`,
+    /// `workflow.run.repositoryRequired`, `workflow.run.providerRequired`),
     /// [`WorkflowRunStartError::Version`] (`workflow.version.notFound`) or
     /// [`WorkflowRunStartError::Session`] (`session.notFound`) before anything is made, and with
-    /// the other variants when a read, the provider, the folder, the payload store or the write
-    /// fails; the run's own folder, with its workflow's runs folder once that is empty, and its
-    /// stored trigger input go with every outcome but a start. A held start whose folder or stored
+    /// the other variants when a read, the folder, the payload store or the write fails; the run's
+    /// own folder, with its workflow's runs folder once that is empty, and its stored trigger
+    /// input go with every outcome but a start. A held start whose folder or stored
     /// input cannot be removed is still answered held, the removal's failure going to the engine's
     /// record.
     #[cfg_attr(
@@ -416,7 +424,8 @@ impl WorkflowRunStarter {
     }
 
     // The checks, in order, before anything is made: a trigger's fire under the workflow start
-    // rule, the version, the session, the trigger's declared inputs.
+    // rule, the version, the session, the trigger's declared inputs, a project's repository for
+    // the steps that need one, then the workflow's provider for the steps that run in its sandbox.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")
@@ -429,16 +438,24 @@ impl WorkflowRunStarter {
         };
         let workflow_version_id = start.workflow_version_id;
         let session_id = start.session_id;
+        // The workflow's row is read once its version names it.
         let (version, session) = self
             .pool
             .read(ReadLength::Short, move |connection| {
+                let version = WorkflowVersions::new(connection)
+                    .read_version(workflow_version_id)
+                    .map(|version| {
+                        let definition = read_definition_scope(connection, version.definition_id);
+                        (version, definition)
+                    });
                 Ok::<_, WorkflowRunStartError>((
-                    WorkflowVersions::new(connection).read_version(workflow_version_id),
+                    version,
                     read_working_folder(connection, &session_id),
                 ))
             })
             .await?;
-        let version = version?;
+        let (version, definition) = version?;
+        let (permission_level, pin_data_json, provider) = definition?;
         if let Some(owner) = judged_owner {
             let decision = check_workflow_start(
                 &self.authorizer,
@@ -480,8 +497,47 @@ impl WorkflowRunStarter {
                 error: None,
             }]
         };
+        let trigger_node = WorkflowNode::from(&body.trigger);
+        // A step that needs a repository runs only in a project's; a chat's own folder is none.
+        let is_in_project = session
+            .repository
+            .as_ref()
+            .is_some_and(|repository| repository.is_project);
+        if !is_in_project {
+            let needing = enabled_nodes_needing(Some(&trigger_node), &body.nodes, |node| {
+                self.kinds
+                    .kind_of(node)
+                    .is_some_and(|kind| kind.spec.needs_repository())
+            });
+            if let Some(node_ids) = BoundedVec::new(needing) {
+                return Err(DomainError::new(
+                    "The workflow holds a step that needs a project's repository, and this start \
+                     works in none.",
+                    RefusalCode::WorkflowRunRepositoryRequired,
+                )
+                .with_detail(WorkflowRunRepositoryRequiredDetails { node_ids })
+                .into());
+            }
+        }
+        // A step that runs in a sandbox runs in the workflow's provider's; with none it cannot.
+        if provider.is_none() {
+            let needing = enabled_nodes_needing(Some(&trigger_node), &body.nodes, |node| {
+                self.kinds
+                    .kind_of(node)
+                    .is_some_and(|kind| kind.spec.runs_in_sandbox(&node.params))
+            });
+            if let Some(node_ids) = BoundedVec::new(needing) {
+                return Err(DomainError::new(
+                    "The workflow holds a step that runs in a provider's sandbox, and it names no \
+                     provider.",
+                    RefusalCode::WorkflowRunProviderRequired,
+                )
+                .with_detail(WorkflowRunProviderRequiredDetails { node_ids })
+                .into());
+            }
+        }
         // The run's nodes are its trigger's and its version's.
-        let nodes = std::iter::once(WorkflowNode::from(&body.trigger))
+        let nodes = std::iter::once(trigger_node)
             .chain(body.nodes)
             .map(|node| (node.id.clone(), node))
             .collect();
@@ -496,6 +552,9 @@ impl WorkflowRunStarter {
             edges: Arc::from(body.edges),
             start_items,
             session,
+            permission_level,
+            pin_data_json,
+            provider,
         })
     }
 
@@ -528,9 +587,9 @@ impl WorkflowRunStarter {
         })
     }
 
-    // What the run's scope reads beside its version: one pooled read of the workflow's level and
-    // pins, the project's environment rows and the session's project, then the workflow's kept
-    // values and the provider. Pins are taken for a manual run only.
+    // What the run's scope reads beside its version and its workflow's row: the stored pins parsed
+    // for a manual run only, one pooled read of the project's environment rows and the session's
+    // project, then the workflow's kept values.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")
@@ -541,42 +600,27 @@ impl WorkflowRunStarter {
         mode: WorkflowRunMode,
         checked: &CheckedStart,
     ) -> Result<ScopeReads, WorkflowRunStartError> {
-        let definition_id = checked.definition_id;
+        let pin_data = checked
+            .pin_data_json
+            .as_deref()
+            .filter(|_| mode == WorkflowRunMode::Manual)
+            .map(parse_stored_pin_data)
+            .transpose()?;
         let session = checked.session.clone();
-        let is_manual = mode == WorkflowRunMode::Manual;
-        let (permission_level, pin_data, environment_rows, project) = self
+        let (environment_rows, project) = self
             .pool
             .read(ReadLength::Short, move |connection| {
-                let (permission_level, pin_data_json) =
-                    read_definition_scope(connection, definition_id)?;
-                let pin_data = pin_data_json
-                    .filter(|_| is_manual)
-                    .as_deref()
-                    .map(parse_stored_pin_data)
-                    .transpose()?;
                 let environment_rows = read_project_environment_rows(connection, &session)?;
                 let project = read_session_project(connection, &session_id)?;
-                Ok::<_, WorkflowRunStartError>((
-                    permission_level,
-                    pin_data,
-                    environment_rows,
-                    project,
-                ))
+                Ok::<_, WorkflowRunStartError>((environment_rows, project))
             })
             .await?;
-        let kept_values = self.kept_values.read(definition_id).await?;
-        let provider = self
-            .provider
-            .run_provider(&definition_id, &session_id)
-            .await
-            .map_err(WorkflowRunStartError::Provider)?;
+        let kept_values = self.kept_values.read(checked.definition_id).await?;
         Ok(ScopeReads {
-            permission_level,
             pin_data,
             environment_rows,
             project,
             kept_values,
-            provider,
         })
     }
 
@@ -651,6 +695,7 @@ impl WorkflowRunStarter {
             started_by: started_by.clone(),
             chain: chain.clone(),
             execution_context: None,
+            provider: checked.provider.clone(),
             started_at: prepared.started_at.clone(),
         };
         let draft = SessionEventDraft::of_session(
@@ -664,6 +709,7 @@ impl WorkflowRunStarter {
                 started_by,
                 trigger: checked.trigger_node.clone(),
                 chain: chain.clone(),
+                provider: checked.provider.clone(),
                 input_ref: trigger_input.clone(),
             }),
         )?;
@@ -707,8 +753,8 @@ impl WorkflowRunStarter {
                     kept_values: Arc::from(scope_reads.kept_values),
                     project: scope_reads.project,
                     working_folder: prepared.folder.path().to_path_buf(),
-                    permission_level: scope_reads.permission_level,
-                    provider: scope_reads.provider,
+                    permission_level: checked.permission_level,
+                    provider: checked.provider,
                     redaction: Arc::new(RunRedaction::new(&[])),
                     cancel: CancellationToken::new(),
                 };
@@ -739,7 +785,7 @@ impl WorkflowRunStarter {
     }
 }
 
-// The workflow's level and its stored pins.
+// The workflow's level, its stored pins and its provider.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the engine's run start handlers")
@@ -747,12 +793,17 @@ impl WorkflowRunStarter {
 fn read_definition_scope(
     connection: &Connection,
     definition_id: WorkflowDefinitionId,
-) -> rusqlite::Result<(PermissionLevel, Option<String>)> {
-    connection
-        .prepare_cached(DEFINITION_SCOPE_SQL)?
-        .query_row([definition_id.text().as_str()], |row| {
-            Ok((text_column(row, 0, closed_word)?, row.get(1)?))
-        })
+) -> rusqlite::Result<(PermissionLevel, Option<String>, Option<ProviderId>)> {
+    connection.prepare_cached(DEFINITION_SCOPE_SQL)?.query_row(
+        [definition_id.text().as_str()],
+        |row| {
+            Ok((
+                text_column(row, 0, closed_word)?,
+                row.get(1)?,
+                optional_text_column(row, 2, closed_word)?,
+            ))
+        },
+    )
 }
 
 // The project `session_id` works in; `None` for a chat or a session not bound to a project yet.

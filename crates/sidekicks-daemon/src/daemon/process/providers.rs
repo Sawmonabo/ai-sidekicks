@@ -57,6 +57,7 @@ use sidekicks_queue::admission::QueueAdmission;
 use sidekicks_queue::delivery::QueueDelivery;
 use sidekicks_queue::provider_session::ProviderSessions;
 use sidekicks_session::addresses::{ForeignPlaceError, SessionInboxAddresses};
+use sidekicks_session::agent_tree::lookup::StoredAgentTreeLookup;
 use sidekicks_session::console_state::ConsoleStateAdvisors;
 use sidekicks_session::idle_sleep::SessionIdleSleep;
 use sidekicks_session::questions::service::QuestionsService;
@@ -334,6 +335,8 @@ pub(crate) struct DriverPortOwners {
     pub(crate) tool_call_statuses: Arc<ToolCallStatuses>,
     /// The session logs' tool calls held in the background, which a resume rebuilds.
     pub(crate) held_tool_calls: Arc<StoredHeldToolCalls>,
+    /// The session's agent tree, which the drivers' hooks look a named helper up in.
+    pub(crate) agent_tree_lookup: Arc<StoredAgentTreeLookup>,
     /// The idle sleep, which wakes a sleeping session for a message.
     pub(crate) idle_sleep: Arc<SessionIdleSleep>,
     /// The stored resume of a sleeping session a driver holds nothing for.
@@ -400,6 +403,7 @@ pub(crate) fn register_driver_ports(
         .tool_call_statuses
         .register(owners.tool_call_statuses)?;
     ports.held_tool_calls.register(owners.held_tool_calls)?;
+    ports.agent_tree_lookup.register(owners.agent_tree_lookup)?;
     ports.session_wakes.register(owners.idle_sleep)?;
     ports.session_resumes.register(owners.session_resumes)?;
     ports.database_writer.register(Arc::clone(&owners.writer))?;

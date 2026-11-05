@@ -20,7 +20,8 @@ use crate::engine::ports::PortError;
 /// Why a start did not end in an outcome; nothing of the run was written.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WorkflowRunStartError {
-    /// The start was refused: `workflow.run.startDenied` or `workflow.run.inputRequired`.
+    /// The start was refused: `workflow.run.startDenied`, `workflow.run.inputRequired`,
+    /// `workflow.run.repositoryRequired` or `workflow.run.providerRequired`.
     #[error(transparent)]
     Refused(#[from] DomainError),
     /// The version did not read; `workflow.version.notFound` when no saved version has its id.
@@ -39,7 +40,7 @@ pub(crate) enum WorkflowRunStartError {
     /// The read pool is closed, a connection did not open, or the read's task did not finish.
     #[error(transparent)]
     Pool(#[from] DatabaseReadError),
-    /// The workflow's level or pins, or the session's project, did not read.
+    /// The workflow's level, pins or provider, or the session's project, did not read.
     #[error("the run's scope did not read")]
     Scope(#[from] rusqlite::Error),
     /// The environment rows of the session's project did not read, or its project has no row.
@@ -48,13 +49,6 @@ pub(crate) enum WorkflowRunStartError {
     /// The values the workflow keeps did not read.
     #[error(transparent)]
     KeptValues(#[from] WorkflowKeptValueError),
-    /// The provider the run's command steps run under did not read.
-    #[error("the run's provider could not be read")]
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the engine's run start handlers")
-    )]
-    Provider(#[source] PortError),
     /// The run's own folder could not be made.
     #[error("the run's own folder could not be made")]
     #[cfg_attr(
@@ -147,7 +141,6 @@ impl From<WorkflowRunStartError> for HandlerError {
             | WorkflowRunStartError::Pool(_)
             | WorkflowRunStartError::Scope(_)
             | WorkflowRunStartError::ProjectEnvironment(_)
-            | WorkflowRunStartError::Provider(_)
             | WorkflowRunStartError::Folder(_)
             | WorkflowRunStartError::InputJson(_)
             | WorkflowRunStartError::Payload(_)

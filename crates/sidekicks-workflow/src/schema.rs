@@ -182,6 +182,9 @@ CREATE TABLE workflow_runs (
   workflow_version_id       TEXT NOT NULL REFERENCES workflow_versions(id),
   -- The asking chat's session, or the workflow's own for a run no chat asked for.
   session_id                TEXT NOT NULL,
+  -- The workflow's provider as the run started, which a restart reads; NULL when the workflow
+  -- named none.
+  provider                  TEXT,
   status                    TEXT NOT NULL DEFAULT '{new_run}'
                             CHECK(status IN ({run_statuses})),
   mode                      TEXT NOT NULL

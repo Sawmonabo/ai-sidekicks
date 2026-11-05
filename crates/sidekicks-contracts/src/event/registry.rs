@@ -82,6 +82,7 @@ session_event_types! {
     /// The event types of the `runLifecycle` category.
     RUN_LIFECYCLE_EVENT_TYPES = RunLifecycle [
         AgentRunQueued = "agent.run.queued",
+        AgentRunParentCorrected = "agent.run.parentCorrected",
         AgentRunStarting = "agent.run.starting",
         AgentRunRunning = "agent.run.running",
         AgentRunWaitingForApproval = "agent.run.waitingForApproval",
@@ -97,6 +98,7 @@ session_event_types! {
         AgentTurnStarted = "agent.turn.started",
         AgentTurnCompleted = "agent.turn.completed",
         AgentTurnInterrupted = "agent.turn.interrupted",
+        AgentChildrenStopped = "agent.children.stopped",
         AgentTurnFailed = "agent.turn.failed",
         AgentRunWorkerShuttingDown = "agent.run.workerShuttingDown",
         AgentRunStepLimitReached = "agent.run.stepLimit.reached",
@@ -121,6 +123,7 @@ session_event_types! {
         AgentToolCallFailed = "agent.toolCall.failed",
         AgentSubagentStarted = "agent.subagent.started",
         AgentSubagentCompleted = "agent.subagent.completed",
+        AgentSubagentStopped = "agent.subagent.stopped",
         AgentCommandEnded = "agent.command.ended",
     ]
     /// The event types of the `interactiveRequest` category.

@@ -5,11 +5,15 @@ use std::borrow::Cow;
 
 use rusqlite::{Connection, OptionalExtension as _, Row, named_params};
 use sidekicks_contracts::agent::tree::ChildHandle;
+use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
@@ -27,7 +31,8 @@ const BIND_NEWEST_RUN_SQL: &str = "UPDATE agent_tree_nodes
   SET own_run_id = @ownRunId, start_call_id = @startCallId, updated_at = @updatedAt
   WHERE child_handle = @childHandle";
 
-// Every column, in the order `node_of_row` reads them.
+// Every column, in the order `node_of_row` reads them, each stored text checked as its wire type
+// there, so a refused one names its column.
 macro_rules! select_nodes {
     ($filter:literal) => {
         concat!(
@@ -49,7 +54,7 @@ const READ_NODE_SQL: &str = select_nodes!("WHERE child_handle = @childHandle");
 const READ_SESSION_NODES_SQL: &str =
     select_nodes!("WHERE session_id = @sessionId ORDER BY started_at, child_handle");
 
-/// A helper's node as its row holds it.
+/// A helper's node as its row holds it, each provider text read as its wire type.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AgentTreeNode {
     /// The handle the daemon minted for the helper.
@@ -59,9 +64,9 @@ pub struct AgentTreeNode {
     /// The provider that named the helper.
     pub provider_name: ProviderId,
     /// The helper's id in its provider.
-    pub subagent_id: String,
+    pub subagent_id: SubagentId,
     /// Its parent's id in the provider, `None` under the lead.
-    pub parent_subagent_id: Option<String>,
+    pub parent_subagent_id: Option<SubagentId>,
     /// Its parent's node, `None` under the lead.
     pub parent_child_handle: Option<ChildHandle>,
     /// The name its provider gave it, where the provider names helpers.
@@ -69,9 +74,9 @@ pub struct AgentTreeNode {
     /// The role its provider started it in.
     pub role: Option<String>,
     /// Its path in its provider's tree, where the provider keeps one.
-    pub provider_path: Option<String>,
+    pub provider_path: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
     /// The provider's call that started its newest own run, where the provider names one.
-    pub start_call_id: Option<String>,
+    pub start_call_id: Option<ToolCallId>,
     /// Its newest own run, whose state is the node's.
     pub own_run_id: RunId,
     /// When its first own run started.
@@ -194,7 +199,8 @@ pub fn read_node(
 }
 
 /// Every node of `session_id`, oldest first and by handle where two started together. Fails as
-/// SQLite does, or when a stored column does not read as its type.
+/// SQLite does, or when a stored column does not read as its type, a provider text the wire
+/// refuses included.
 pub fn read_session_nodes(
     connection: &Connection,
     session_id: SessionId,
@@ -229,13 +235,13 @@ fn node_of_row(row: &Row<'_>) -> rusqlite::Result<AgentTreeNode> {
         child_handle: text_column(row, 0, read_child_handle)?,
         session_id: text_column(row, 1, |text| SessionId::new(&text))?,
         provider_name: text_column(row, 2, closed_word::<ProviderId>)?,
-        subagent_id: row.get(3)?,
-        parent_subagent_id: row.get(4)?,
+        subagent_id: text_column(row, 3, SubagentId::new)?,
+        parent_subagent_id: optional_text_column(row, 4, SubagentId::new)?,
         parent_child_handle: optional_text_column(row, 5, read_child_handle)?,
         name: row.get(6)?,
         role: row.get(7)?,
-        provider_path: row.get(8)?,
-        start_call_id: row.get(9)?,
+        provider_path: optional_text_column(row, 8, FreeFormText::new)?,
+        start_call_id: optional_text_column(row, 9, ToolCallId::new)?,
         own_run_id: text_column(row, 10, |text| RunId::new(&text))?,
         started_at: text_column(row, 11, WireInstant::try_from)?,
         updated_at: text_column(row, 12, WireInstant::try_from)?,
@@ -246,9 +252,12 @@ fn node_of_row(row: &Row<'_>) -> rusqlite::Result<AgentTreeNode> {
 mod tests {
     use rusqlite::{Connection, ErrorCode, params};
     use sidekicks_contracts::provider::id::ProviderId;
+    use sidekicks_contracts::provider::tool_call::ToolCallId;
     use sidekicks_contracts::run::id::RunId;
+    use sidekicks_contracts::run::subagent::SubagentId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::instant::WireInstant;
+    use sidekicks_contracts::wire::text::FreeFormText;
     use sidekicks_store::database::statement::run_statement;
     use sidekicks_store::database::writer::test_file::{
         TestDatabase, test_run_id, test_session_id,
@@ -338,13 +347,13 @@ mod tests {
             child_handle: node.child_handle.clone(),
             session_id,
             provider_name: provider(),
-            subagent_id: "child".to_owned(),
-            parent_subagent_id: Some("parent".to_owned()),
+            subagent_id: SubagentId::new("child".to_owned()).expect("a helper id"),
+            parent_subagent_id: Some(SubagentId::new("parent".to_owned()).expect("a helper id")),
             parent_child_handle: Some(parent_handle),
             name: Some("scout".to_owned()),
             role: Some("explorer".to_owned()),
-            provider_path: Some("/root/scout".to_owned()),
-            start_call_id: Some("call-1".to_owned()),
+            provider_path: Some(FreeFormText::new("/root/scout".to_owned()).expect("a path")),
+            start_call_id: Some(ToolCallId::new("call-1".to_owned()).expect("a call id")),
             own_run_id: own_run,
             started_at: node.started_at.clone(),
             updated_at: node.started_at,

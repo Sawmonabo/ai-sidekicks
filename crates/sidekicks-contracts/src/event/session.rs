@@ -51,15 +51,15 @@ use crate::run::control::{
     AgentRunRecoveryResolvedPayload, AgentRunRecoveryStepsAddedPayload, AgentRunRolledBackEvent,
 };
 use crate::run::events::{
-    AgentInterventionAcceptedPayload, AgentInterventionAppliedPayload,
+    AgentChildrenStoppedPayload, AgentInterventionAcceptedPayload, AgentInterventionAppliedPayload,
     AgentInterventionDegradedPayload, AgentInterventionExpiredPayload,
     AgentInterventionFailedPayload, AgentInterventionRejectedPayload,
     AgentInterventionRequestedPayload, AgentRunCompletedPayload, AgentRunFailedPayload,
-    AgentRunInterruptedPayload, AgentRunPausedPayload, AgentRunPausingPayload,
-    AgentRunProviderInitializedPayload, AgentRunRunningPayload, AgentRunStartingPayload,
-    AgentRunStoppedPayload, AgentRunWaitingForApprovalPayload, AgentRunWaitingForInputPayload,
-    AgentRunWorkerShuttingDownPayload, AgentTurnCompletedPayload, AgentTurnFailedPayload,
-    AgentTurnInterruptedPayload, AgentTurnStartedPayload,
+    AgentRunInterruptedPayload, AgentRunParentCorrectedPayload, AgentRunPausedPayload,
+    AgentRunPausingPayload, AgentRunProviderInitializedPayload, AgentRunRunningPayload,
+    AgentRunStartingPayload, AgentRunStoppedPayload, AgentRunWaitingForApprovalPayload,
+    AgentRunWaitingForInputPayload, AgentRunWorkerShuttingDownPayload, AgentTurnCompletedPayload,
+    AgentTurnFailedPayload, AgentTurnInterruptedPayload, AgentTurnStartedPayload,
 };
 use crate::run::id::RunId;
 use crate::run::provider_choice::{
@@ -314,6 +314,10 @@ session_events! {
     /// Emitted when a provider's own subagent finishes, paired to its start.
     AgentSubagentCompleted(#[garde(dive)] SubagentLifecyclePayload) = "agent.subagent.completed"
         => required,
+    /// Emitted when a helper already interrupted is stopped for good; its own run keeps its
+    /// `interrupted` record.
+    AgentSubagentStopped(#[garde(dive)] SubagentLifecyclePayload) = "agent.subagent.stopped"
+        => required,
     /// Emitted when the provider process reports its start for a run; it moves no state.
     AgentRunProviderInitialized(AgentRunProviderInitializedPayload)
         = "agent.run.providerInitialized" => versioned,
@@ -323,6 +327,9 @@ session_events! {
     AgentTurnCompleted(AgentTurnCompletedPayload) = "agent.turn.completed" => turn,
     /// Emitted when a turn is cut, its partial output kept; it moves no state.
     AgentTurnInterrupted(AgentTurnInterruptedPayload) = "agent.turn.interrupted" => turn,
+    /// Emitted once a stop of every agent the session dispatched has run, naming the agents it
+    /// reached; it names no run.
+    AgentChildrenStopped(AgentChildrenStoppedPayload) = "agent.children.stopped",
     /// Emitted when a turn fails; it moves no state.
     AgentTurnFailed(AgentTurnFailedPayload) = "agent.turn.failed" => turn,
     /// Emitted when the provider says its worker is shutting down mid-run; never the run's end.
@@ -455,6 +462,9 @@ session_events! {
     /// Emitted when a run is queued.
     AgentRunQueued(#[garde(dive)] AgentRunQueuedPayload) = "agent.run.queued"
         => read(run_queued_run),
+    /// Emitted when a run moves under the run whose call started it.
+    AgentRunParentCorrected(AgentRunParentCorrectedPayload) = "agent.run.parentCorrected"
+        => required,
     /// Emitted when a turn reaches the step bound and ends there.
     AgentRunStepLimitReached(AgentRunStepLimitReachedPayload) = "agent.run.stepLimit.reached"
         => required,

@@ -80,9 +80,13 @@ pub(crate) struct DispatchedStep {
 
 impl StepDispatch {
     /// The dispatch over `ports`, `evaluator`, `reads`, `secrets`, `http` and `kinds`, sending its
-    /// drivers' reports on `reports` and recording the engine's faults to the ports' sink under
-    /// this daemon life.
+    /// drivers' reports on `reports` and recording the engine's faults in `recorder`, the record
+    /// the run start keeps for this daemon life, so a run's lines carry one life and one sequence.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "each is a separate service the dispatch drives steps through"
+    )]
     pub(crate) fn new(
         ports: EnginePorts,
         evaluator: ExpressionEvaluator,
@@ -91,8 +95,8 @@ impl StepDispatch {
         http: reqwest::Client,
         kinds: Arc<NodeKindTable>,
         reports: mpsc::Sender<StepReport>,
+        recorder: Arc<EngineRecorder>,
     ) -> Self {
-        let recorder = Arc::new(EngineRecorder::new(Arc::clone(&ports.records)));
         Self {
             ports,
             recorder,
@@ -571,15 +575,29 @@ fn scrub_step_error(error: &mut WorkflowStepError, redaction: &RunRedaction) {
 }
 
 /// A dispatch for a test over `database`'s reads, a keychain holding nothing, ports refusing every
-/// call and the table of `kinds`, with the receiving end of its report channel.
+/// call and the table of `kinds`, recording in a recorder of its own over the ports' sink, with
+/// the receiving end of its report channel.
 #[cfg(test)]
 fn test_dispatch(
     database: &sidekicks_store::database::writer::test_file::TestDatabase,
     kinds: Vec<crate::kinds::NodeKind>,
 ) -> (StepDispatch, mpsc::Receiver<StepReport>) {
+    let ports = crate::engine::ports::refusing_engine_ports();
+    let recorder = Arc::new(EngineRecorder::new(Arc::clone(&ports.records)));
+    test_dispatch_recording(database, ports, kinds, recorder)
+}
+
+/// A dispatch as [`test_dispatch`] builds one, over `ports`, recording in `recorder`.
+#[cfg(test)]
+fn test_dispatch_recording(
+    database: &sidekicks_store::database::writer::test_file::TestDatabase,
+    ports: EnginePorts,
+    kinds: Vec<crate::kinds::NodeKind>,
+    recorder: Arc<EngineRecorder>,
+) -> (StepDispatch, mpsc::Receiver<StepReport>) {
     let (reports, received) = mpsc::channel(16);
     let dispatch = StepDispatch::new(
-        crate::engine::ports::refusing_engine_ports(),
+        ports,
         ExpressionEvaluator::start().expect("the expression thread starts"),
         Arc::new(DatabaseReadPool::new(
             database.path(),
@@ -591,6 +609,7 @@ fn test_dispatch(
         reqwest::Client::new(),
         Arc::new(NodeKindTable::new(kinds).expect("the test's kinds build a table")),
         reports,
+        recorder,
     );
     (dispatch, received)
 }

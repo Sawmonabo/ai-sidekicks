@@ -371,6 +371,8 @@ impl NodeKindTable {
                 category: spec.category,
                 inputs: spec.inputs.as_slice().to_vec(),
                 outputs,
+                needs_repository: spec.needs_repository(),
+                repository_param: spec.repository_param().cloned(),
             },
             shell_line_param: kind.shell_line_param,
         })
@@ -409,7 +411,8 @@ pub(crate) fn test_kind(
 }
 
 /// The command step `developer.shell` at version 1, with one main input and one main output,
-/// whose shell line is the `command` param it lists, passing its inputs on as its outputs.
+/// whose shell line is the `command` param it lists, which runs in its provider's sandbox, passing
+/// its inputs on as its outputs.
 #[cfg(test)]
 pub(crate) fn command_test_kind() -> NodeKind {
     test_kind(
@@ -421,8 +424,33 @@ pub(crate) fn command_test_kind() -> NodeKind {
             "inputs": [{ "type": "main", "id": "inputs/main/0", "label": "In" }],
             "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
             "outputsDeriveFromParams": false,
+            "capabilities": {
+                "cancelable": true, "resumable": false, "sideEffects": "local", "repository": false,
+                "sandbox": {}
+            },
         }),
         Some(COMMAND_PARAM),
+        Box::new(PassThroughExecutor),
+    )
+}
+
+/// The git step `developer.git` at version 1, with one main input and one main output, which
+/// needs a project's repository, passing its inputs on as its outputs.
+#[cfg(test)]
+pub(crate) fn git_test_kind() -> NodeKind {
+    test_kind(
+        serde_json::json!({
+            "kind": "developer.git", "version": 1, "category": "developer",
+            "displayName": "Git", "description": "A git command in the run's repository.",
+            "icon": "git", "params": [],
+            "inputs": [{ "type": "main", "id": "inputs/main/0", "label": "In" }],
+            "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
+            "outputsDeriveFromParams": false,
+            "capabilities": {
+                "cancelable": true, "resumable": false, "sideEffects": "local", "repository": true
+            },
+        }),
+        None,
         Box::new(PassThroughExecutor),
     )
 }
@@ -438,7 +466,10 @@ mod tests {
         WorkflowDefinitionFinding, check_workflow_graph,
     };
 
-    use super::{NodeKindTable, NodeKindTableError, PassThroughExecutor, test_kind};
+    use super::{
+        NodeKindTable, NodeKindTableError, PassThroughExecutor, command_test_kind, git_test_kind,
+        test_kind,
+    };
 
     /// A kind spec of `kind` at `version` with one main input and `outputs`.
     fn kind_spec(kind: &str, version: u64, outputs: &Value) -> Value {
@@ -519,6 +550,47 @@ mod tests {
             has_error_output
                 .then(|| json!({ "type": "main", "id": "outputs/main/1", "label": "Error" })),
         );
+    }
+
+    /// A trigger's rules name its `project` param as its `Repository`, and a kind's need of a
+    /// repository reaches its rules. Mutation: either member left at its default, which turns off
+    /// the save's repository rule.
+    #[test]
+    fn kind_rules_carry_the_kinds_repository_facts() {
+        let trigger = json!({
+            "kind": "trigger.schedule", "version": 1, "category": "trigger",
+            "displayName": "Schedule", "description": "Runs on a schedule.", "icon": "clock",
+            "params": [
+                { "id": "cron", "label": "Cron", "type": "text" },
+                { "id": "repository", "label": "Repository", "type": "project" },
+            ],
+            "inputs": [],
+            "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
+            "outputsDeriveFromParams": false,
+        });
+        let table = NodeKindTable::new(vec![
+            test_kind(trigger, None, Box::new(PassThroughExecutor)),
+            git_test_kind(),
+            command_test_kind(),
+        ])
+        .expect("the table builds");
+        let rules_of = |kind| {
+            table
+                .kind_rules(&node("step", kind, 1, None))
+                .expect("the kind is listed")
+                .handles
+        };
+
+        let trigger = rules_of("trigger.schedule");
+        assert_eq!(
+            trigger
+                .repository_param
+                .map(|param| param.0.as_str().to_owned()),
+            Some("repository".to_owned())
+        );
+        assert!(!trigger.needs_repository);
+        assert!(rules_of("developer.git").needs_repository);
+        assert!(!rules_of("developer.shell").needs_repository);
     }
 
     /// Each version of a kind answers its own rules, an unlisted version none, a table listing one

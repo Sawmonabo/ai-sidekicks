@@ -136,19 +136,22 @@ impl TranscriptFileWriter {
             planning_session_id,
             fresh_session_id,
             PLANNING_TRANSCRIPT_FILE_NAME,
+            None,
         )
         .await
     }
 
     /// Writes `source_session_id`'s transcript as `file_name` in `storage_session_id`'s storage
-    /// folder and answers the file's path. A file already there is left as it is. Fails when the
-    /// log cannot be read or the file cannot be written or named, leaving no temporary file and
-    /// nothing under the file's name.
+    /// folder and answers the file's path: the whole of it, or with `after_sequence` only the runs
+    /// created after that sequence. A file already there is left as it is. Fails when the log
+    /// cannot be read or the file cannot be written or named, leaving no temporary file and nothing
+    /// under the file's name.
     pub(crate) async fn write_file(
         &self,
         source_session_id: SessionId,
         storage_session_id: SessionId,
         file_name: &str,
+        after_sequence: Option<i64>,
     ) -> Result<PathBuf, TranscriptFileError> {
         let storage_folder = session_storage_folder(&self.data_folder, &storage_session_id);
         let file_path = storage_folder.join(file_name);
@@ -164,6 +167,7 @@ impl TranscriptFileWriter {
                     connection,
                     &*read_damaged_from_sequence,
                     source_session_id,
+                    after_sequence,
                     &read_file_path,
                     &temporary_stem,
                 )
@@ -192,13 +196,14 @@ pub(crate) async fn remove_session_storage_folder(
     sidekicks_platforms::remove_tree_awaited(&folder).await
 }
 
-// Renders `source_session_id`'s transcript into a new file beside `file_path`, named
-// `<temporary_stem>.<this attempt's own>.tmp`, and answers its path, `None` when `file_path` is
-// already there. A failure removes the file it made.
+// Renders `source_session_id`'s transcript, past `after_sequence` where given, into a new file
+// beside `file_path`, named `<temporary_stem>.<this attempt's own>.tmp`, and answers its path,
+// `None` when `file_path` is already there. A failure removes the file it made.
 fn write_temporary_file(
     connection: &Connection,
     read_damaged_from_sequence: &DamagedFromSequenceReader,
     source_session_id: SessionId,
+    after_sequence: Option<i64>,
     file_path: &Path,
     temporary_stem: &str,
 ) -> Result<Option<PathBuf>, Box<CleanupFailures<TranscriptRenderError, io::Error>>> {
@@ -229,6 +234,7 @@ fn write_temporary_file(
         connection,
         read_damaged_from_sequence,
         source_session_id,
+        after_sequence,
         file,
     ) {
         Ok(()) => Ok(Some(temporary_path)),
@@ -246,11 +252,13 @@ fn write_temporary_file(
 // What a rendering failure names as its operation.
 const RENDERING: &str = "writing a transcript file";
 
-// Streams `session_id`'s transcript into `file` and flushes it to disk.
+// Streams `session_id`'s transcript, past `after_sequence` where given, into `file` and flushes
+// it to disk.
 fn render_transcript(
     connection: &Connection,
     read_damaged_from_sequence: &DamagedFromSequenceReader,
     session_id: SessionId,
+    after_sequence: Option<i64>,
     file: File,
 ) -> Result<(), TranscriptRenderError> {
     let mut sink = TranscriptFileSink {
@@ -266,6 +274,7 @@ fn render_transcript(
         connection,
         read_damaged_from_sequence,
         &session_id,
+        after_sequence,
         &mut sink,
     )
     .map_err(|failure| match failure {

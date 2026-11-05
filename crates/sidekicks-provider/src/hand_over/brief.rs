@@ -1,7 +1,9 @@
-//! The hand-over brief: the bounded prose that stands in for a conversation a new provider session
-//! cannot continue, its one send into each target, and the fixed template its summary answers.
+//! The hand-over brief: the one message that stands in for a conversation a new provider session
+//! cannot continue, its frame and word-for-word tail, its one send into each target, and the fixed
+//! template its summary answers.
 
 pub(crate) mod delivery;
+pub mod frame;
 pub(crate) mod projection;
 
 /// The fixed template a throwaway copy answers for the brief's summary where the provider's own

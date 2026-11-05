@@ -95,6 +95,7 @@ fn resume_params(
         ),
         Vec::new(),
         ProviderRowValues::default(),
+        None,
         Vec::new(),
         live_runs,
     )

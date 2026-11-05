@@ -307,7 +307,8 @@ async fn an_interrupt_moves_each_foreground_helper_to_the_background_first() {
 }
 
 // Killed by forgetting a helper's call only at its `task_notification`, so an interrupt after the
-// call's result asks Claude Code to move a helper that already ended.
+// call's result asks Claude Code to move a helper that already ended, and by a foreground start
+// naming a `SendMessage` call already answered waiting on that call, which the interrupt moves.
 #[tokio::test(start_paused = true)]
 async fn an_interrupt_moves_only_the_helpers_whose_calls_are_still_waited_on() {
     let session = ScriptedSession::new().await;
@@ -331,6 +332,27 @@ async fn an_interrupt_moves_only_the_helpers_whose_calls_are_still_waited_on() {
             "content": [{"type": "tool_result", "tool_use_id": "call-1", "content": "done"}],
         },
     }));
+    session.frame(&json!({
+        "type": "assistant",
+        "message": {
+            "id": "message-1",
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": "send-1", "name": "SendMessage", "input": {}}],
+        },
+    }));
+    session.frame(&json!({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "send-1", "content": "sent"}],
+        },
+    }));
+    session.frame(&foreground_task_started(
+        "helper-1",
+        "local_agent",
+        "send-1",
+        None,
+    ));
     settle().await;
     apply(
         &session,

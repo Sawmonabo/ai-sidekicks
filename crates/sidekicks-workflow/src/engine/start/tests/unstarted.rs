@@ -13,8 +13,8 @@ use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunChainPlace;
 
 use super::{
-    Fixture, ROOT_RUN_ID, TestSession, UNKNOWN_VERSION_ID, body, item, joins_root, refusal,
-    runs_folders, start, test_provider,
+    Fixture, ROOT_RUN_ID, TestSession, UNKNOWN_VERSION_ID, body, git_node, item, joins_root,
+    refusal, runs_folders, shell_node, start,
 };
 use crate::engine::ports::REFUSED_PORT_CALL;
 use crate::engine::start::{WorkflowStartArrival, WorkflowStartOutcome};
@@ -25,17 +25,23 @@ enum NothingWritten {
     UnknownSession,
     UnknownVersion,
     InputLeftOut,
+    RepositoryRequired,
+    ProviderRequired,
     HeldOnChain,
 }
 
 /// Mutations: a refusal checked after the write (a run row or an event is kept); a wrong code; the
-/// inputs left unchecked (the run starts); the count's refusal read as an error; a held start's
-/// own folder, or its emptied runs folder, left behind; a held start's stored input, above the
-/// inline cap, left undeleted.
+/// inputs left unchecked (the run starts); a step that needs a repository started in a session
+/// with no project's repository, or refused with a wrong detail; a step that runs in a sandbox
+/// started with no provider, refused with a wrong detail, or a disabled one counted; the count's
+/// refusal read as an error; a held start's own folder, or its emptied runs folder, left behind; a
+/// held start's stored input, above the inline cap, left undeleted.
 #[rstest]
 #[case::unknown_session(NothingWritten::UnknownSession)]
 #[case::unknown_version(NothingWritten::UnknownVersion)]
 #[case::input_left_out(NothingWritten::InputLeftOut)]
+#[case::repository_required(NothingWritten::RepositoryRequired)]
+#[case::provider_required(NothingWritten::ProviderRequired)]
 #[case::held_on_chain(NothingWritten::HeldOnChain)]
 #[tokio::test]
 async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
@@ -44,20 +50,32 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
         NothingWritten::UnknownSession => TestSession::Unknown,
         NothingWritten::UnknownVersion
         | NothingWritten::InputLeftOut
+        | NothingWritten::RepositoryRequired
+        | NothingWritten::ProviderRequired
         | NothingWritten::HeldOnChain => TestSession::WithoutFolder,
     };
+    let nodes = match case {
+        NothingWritten::RepositoryRequired => json!([git_node()]),
+        NothingWritten::ProviderRequired => {
+            json!([shell_node("shell", false), shell_node("shell-off", true)])
+        }
+        NothingWritten::UnknownSession
+        | NothingWritten::UnknownVersion
+        | NothingWritten::InputLeftOut
+        | NothingWritten::HeldOnChain => json!([]),
+    };
     let fixture = Fixture::new(
-        &body(Some(declared)),
+        &body(Some(declared), &nodes),
         session,
         WorkflowChainAskAfterRuns::new(25),
-        Some(test_provider()),
     )
     .await;
     let input = match case {
         NothingWritten::InputLeftOut => Vec::new(),
-        NothingWritten::UnknownSession | NothingWritten::UnknownVersion => {
-            vec![item(json!({ "ticket": "T-1" }))]
-        }
+        NothingWritten::UnknownSession
+        | NothingWritten::UnknownVersion
+        | NothingWritten::RepositoryRequired
+        | NothingWritten::ProviderRequired => vec![item(json!({ "ticket": "T-1" }))],
         NothingWritten::HeldOnChain => vec![item(json!({ "ticket": "x".repeat(70 * 1024) }))],
     };
     let mut request = start(
@@ -110,6 +128,22 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
                 Some(json!(["ticket"]))
             );
         }
+        NothingWritten::RepositoryRequired => {
+            let refusal = refusal(outcome.expect_err("the start is refused"));
+            assert_eq!(refusal.code, RefusalCode::WorkflowRunRepositoryRequired);
+            assert_eq!(
+                refusal.detail.map(|detail| detail["nodeIds"].clone()),
+                Some(json!(["git"]))
+            );
+        }
+        NothingWritten::ProviderRequired => {
+            let refusal = refusal(outcome.expect_err("the start is refused"));
+            assert_eq!(refusal.code, RefusalCode::WorkflowRunProviderRequired);
+            assert_eq!(
+                refusal.detail.map(|detail| detail["nodeIds"].clone()),
+                Some(json!(["shell"]))
+            );
+        }
     }
     assert_eq!(
         fixture.count("SELECT COUNT(*) FROM workflow_runs"),
@@ -136,10 +170,9 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
 async fn a_held_start_that_cannot_clean_up_is_still_held() {
     let declared = json!([{ "type": "string", "name": "ticket", "required": true, "default": "" }]);
     let fixture = Fixture::new(
-        &body(Some(declared)),
+        &body(Some(declared), &json!([])),
         TestSession::WithoutFolder,
         WorkflowChainAskAfterRuns::new(25),
-        Some(test_provider()),
     )
     .await;
     fixture.store_chain_root(25);

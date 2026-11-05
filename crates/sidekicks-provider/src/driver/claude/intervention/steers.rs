@@ -12,7 +12,7 @@ use sidekicks_std::mutex_lock::lock;
 use tokio::sync::oneshot;
 
 use super::held_steers::ClaudeSteer;
-use super::{ClaudeInterventions, ClaudeSteerWriter, applied, no_live_run, turn_in_flight};
+use super::{ClaudeInterventions, ClaudeSteerWriter, applied, no_live_run};
 use crate::driver::attachments::{compose_message_text, resolve_message_attachments};
 use crate::driver::claude::attachments::compose_claude_attachment_blocks;
 use crate::driver::claude::run::controls::{ClaudeChoiceSettling, settle_claude_choice};
@@ -20,7 +20,6 @@ use crate::driver::claude::run::routes::{ClaudeChildRunRoute, ClaudeRunRoute};
 use crate::driver::claude::run::start::ClaudeDaemonTurnOpening;
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::state::LiveClaudeSession;
-use crate::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
 use crate::driver::claude::session::transport::user_message::{
     ClaudeMessagePriority, ClaudeWriteAttempt, ClaudeWriteDelivery, compose_claude_user_frame,
     is_reset_request, reset_refusal,
@@ -247,33 +246,28 @@ impl ClaudeSteerWriter {
         }
     }
 
-    // Sends a steer as the session's next turn, its own run, once the ended run's turn is
-    // released within the request deadline.
+    // Sends a steer as the session's next turn, its own run; a start refused while the ended
+    // run's turn is still held, its end not yet written, tries once more after the turn changes.
     async fn send_as_next_turn(
         &self,
         session_id: SessionId,
         steer: ClaudeSteer,
     ) -> Result<RunId, DriverError> {
-        if !self
-            .start
-            .routes
-            .when_turn_released(session_id, CLAUDE_REQUEST_DEADLINE)
-            .await
-        {
-            return Err(turn_in_flight(session_id).into());
-        }
-        self.start
-            .start_daemon_turn(
-                session_id,
-                ClaudeDaemonTurnOpening::Text {
-                    text: OutboundText {
-                        text: steer.content,
-                        origin: OutboundTextOrigin::HumanText,
+        let start = &self.start;
+        start
+            .retry_after_turn_change(session_id, || {
+                start.start_daemon_turn(
+                    session_id,
+                    ClaudeDaemonTurnOpening::Text {
+                        text: OutboundText {
+                            text: steer.content.clone(),
+                            origin: OutboundTextOrigin::HumanText,
+                        },
+                        message_id: steer.message_id.to_string(),
+                        attachment_blocks: steer.attachment_blocks.clone(),
                     },
-                    message_id: steer.message_id.to_string(),
-                    attachment_blocks: steer.attachment_blocks,
-                },
-            )
+                )
+            })
             .await
     }
 }

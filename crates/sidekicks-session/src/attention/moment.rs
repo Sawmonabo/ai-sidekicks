@@ -310,8 +310,8 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
                 AttentionMomentTrigger::RunFailed,
             ),
         ),
-        // Only a limit the daemon enforced fails the run; the person's own interrupt, a canceled
-        // workflow phase and a restart raise nothing.
+        // Only a limit the daemon enforced fails the run; the person's own interrupt, a stop of
+        // every agent, a canceled workflow phase and a restart raise nothing.
         SessionEvent::AgentRunInterrupted(payload) => {
             let is_limit = match payload.trigger {
                 Some(InterruptReason::StepLimit | InterruptReason::SpendLimit) => true,
@@ -330,7 +330,7 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         SessionEvent::AgentRunStopped(payload) => {
             let is_limit = match payload.trigger {
                 Some(StopTrigger::TokenLimit) => true,
-                None => false,
+                Some(StopTrigger::StopAll) | None => false,
             };
             resolve_run(
                 payload.run_id,
@@ -467,10 +467,12 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         | SessionEvent::AgentToolCallFailed(_)
         | SessionEvent::AgentSubagentStarted(_)
         | SessionEvent::AgentSubagentCompleted(_)
+        | SessionEvent::AgentSubagentStopped(_)
         | SessionEvent::AgentRunProviderInitialized(_)
         | SessionEvent::AgentTurnStarted(_)
         | SessionEvent::AgentTurnCompleted(_)
         | SessionEvent::AgentTurnInterrupted(_)
+        | SessionEvent::AgentChildrenStopped(_)
         | SessionEvent::AgentTurnFailed(_)
         | SessionEvent::AgentRunWorkerShuttingDown(_)
         | SessionEvent::SessionProviderStatusReported(_)
@@ -525,6 +527,7 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         | SessionEvent::AgentRunTokenLimitReached(_)
         | SessionEvent::AgentRunRecoveryResolved(_)
         | SessionEvent::AgentRunRecoveryStepsAdded(_)
+        | SessionEvent::AgentRunParentCorrected(_)
         | SessionEvent::SessionAdvisorChanged(_)
         | SessionEvent::SessionOutputStyleChanged(_)
         | SessionEvent::RepoMountHealthChanged(_)

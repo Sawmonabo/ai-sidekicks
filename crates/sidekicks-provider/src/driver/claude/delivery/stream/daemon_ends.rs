@@ -260,6 +260,12 @@ impl ClaudeDeliveryStream {
                         .settle_daemon_end(&self.dependencies.routes, run_id, settlement);
                 if let Some(delivery) = settled {
                     self.deliver_turn_end(session, run_id, delivery).await;
+                } else if settlement == ClaudeDaemonEndSettlement::Confirmed {
+                    // The daemon's own end is written, and a turn end held for it is dropped
+                    // undelivered, so the end is noted here.
+                    self.dependencies
+                        .routes
+                        .note_run_end_written(session.session_id);
                 }
             }
             ClaudeOwnDelivery::CarriedRelease { run_id } => {

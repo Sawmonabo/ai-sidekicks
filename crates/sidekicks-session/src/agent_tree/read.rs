@@ -1,6 +1,7 @@
 //! The session's agent tree as a client reads it: every child at any depth with its head, the
 //! badge's figures and the refused creates; and a wire handle resolved to its node.
 
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
@@ -33,9 +34,9 @@ use crate::run::agent::{RUN_AGENT_STATEMENT_CAPACITY, RunAgentReadError, RunAgen
 use crate::run::read::RunStateReader;
 use crate::usage_record::reads::TOKEN_COUNT_SUM_SQL;
 
-// Every run of the session with the time its `agent.run.queued` row was written, read as the run's
-// agent is; the unary `+` drops the run id column's affinity, which would keep the log's run index
-// from serving.
+// Every run of the session with the time and the log sequence of its `agent.run.queued` row, read
+// as the run's agent is; the unary `+` drops the run id column's affinity, which would keep the
+// log's run index from serving.
 static SELECT_SESSION_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT run_id, parent_run_id, reached_by, state,
@@ -43,7 +44,12 @@ static SELECT_SESSION_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
        FROM session_events AS queued
       WHERE queued.session_id = runs.session_id
         AND queued.type = '{run_queued}'
-        AND queued.run_id = +runs.run_id) AS queued_at
+        AND queued.run_id = +runs.run_id) AS queued_at,
+    (SELECT queued.sequence
+       FROM session_events AS queued
+      WHERE queued.session_id = runs.session_id
+        AND queued.type = '{run_queued}'
+        AND queued.run_id = +runs.run_id) AS queued_sequence
   FROM runs
   WHERE session_id = @session_id",
         run_queued = SessionEventType::AgentRunQueued.as_str(),
@@ -51,18 +57,21 @@ static SELECT_SESSION_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 // Each readable helper start that names the helper's own run, with the provider and its id for
-// the helper, which pair the run to its node.
+// the helper, which pair the run to its node; and each readable stop of a helper already
+// interrupted, which names its own run. The row's type tells the two apart.
 static SELECT_HELPER_STARTS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT json_extract(started.payload, '$.childRunId'),
        json_extract(started.payload, '$.provider'),
-       json_extract(started.payload, '$.subagentId')
+       json_extract(started.payload, '$.subagentId'),
+       started.type
   FROM session_events AS started
   WHERE started.session_id = @session_id
-    AND started.type = '{started}'
+    AND started.type IN ('{started}', '{stopped}')
     AND json_extract(started.payload, '$.childRunId') IS NOT NULL
     AND {readable}",
         started = SessionEventType::AgentSubagentStarted.as_str(),
+        stopped = SessionEventType::AgentSubagentStopped.as_str(),
         readable = readable_event_sql("started"),
     )
 });
@@ -112,11 +121,40 @@ static SELECT_REJECTED_CREATES_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// A node's newest own run as `resolve_child` reads it: its state and the run it hangs under.
+// Whether a helper stop of the session names its own run, with no read bound.
+static SELECT_HELD_STOP_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT {}",
+        held_stop_exists_sql("@session_id", "@own_run_id")
+    )
+});
+
 /// The statements the tree read and [`resolve_child`] prepare on a read connection: the session's
 /// runs, its nodes, its helper starts, the newest models, the token counts, the refused creates,
-/// one node and one own run, then the run agent reader's.
-pub const AGENT_TREE_READ_STATEMENT_CAPACITY: usize = 8 + RUN_AGENT_STATEMENT_CAPACITY;
+/// one node, one own run and whether a helper stop names it, then the run agent reader's.
+pub const AGENT_TREE_READ_STATEMENT_CAPACITY: usize = 9 + RUN_AGENT_STATEMENT_CAPACITY;
+
+/// The SQL test that a stop of a helper already interrupted, an `agent.subagent.stopped` of the
+/// session `session_sql`, names the run `own_run_sql` as the helper's own; each argument is a
+/// column or a parameter. The stop is found through the log's type index.
+pub(crate) fn held_stop_exists_sql(session_sql: &str, own_run_sql: &str) -> String {
+    format!(
+        "EXISTS (SELECT 1 FROM session_events AS held
+      WHERE held.session_id = {session_sql} AND held.type = '{helper_stopped}'
+        AND json_extract(held.payload, '$.childRunId') = {own_run_sql})",
+        helper_stopped = SessionEventType::AgentSubagentStopped.as_str(),
+    )
+}
+
+/// The state a helper's own run reads as: an interrupted one that a helper stop names
+/// (`is_held_stop`) was stopped with every agent for good, its row keeping `interrupted`.
+pub(crate) fn own_run_state_with_held_stop(state: RunState, is_held_stop: bool) -> RunState {
+    if state == RunState::Interrupted && is_held_stop {
+        RunState::Stopped
+    } else {
+        state
+    }
+}
 
 /// Why the agent tree, or a child handle, could not be read.
 #[derive(Debug, thiserror::Error)]
@@ -142,7 +180,8 @@ pub enum AgentTreeReadError {
 pub struct ResolvedChild {
     /// The node.
     pub node: AgentTreeNode,
-    /// Its newest own run's state, which is the node's.
+    /// Its newest own run's state, which is the node's; `Stopped` for an interrupted own run a
+    /// helper stop names.
     pub state: RunState,
     /// The run its newest own run hangs under: the wire's `run_id` for the helper, and the run an
     /// interrupt or a pause of it names.
@@ -160,9 +199,9 @@ impl ResolvedChild {
 }
 
 /// The node of `session_id` that the wire handle `child_handle` names, with its newest own run's
-/// state and parent; `None` when no node holds it, or its node belongs to another session. Fails
-/// with [`AgentTreeReadError::RunMissing`] when its own run has no row, and as SQLite or a stored
-/// column does.
+/// state, a held stop folded in as the tree folds it, and parent; `None` when no node holds it, or
+/// its node belongs to another session. Fails with [`AgentTreeReadError::RunMissing`] when its own
+/// run has no row, and as SQLite or a stored column does.
 pub fn resolve_child(
     reader: &Connection,
     session_id: &SessionId,
@@ -177,10 +216,18 @@ pub fn resolve_child(
         .ok_or(AgentTreeReadError::RunMissing {
             run_id: node.own_run_id,
         })?;
+    let is_held_stop = own_run.state == RunState::Interrupted
+        && reader.prepare_cached(&SELECT_HELD_STOP_SQL)?.query_row(
+            named_params! {
+                "@session_id": session_id.text().as_str(),
+                "@own_run_id": node.own_run_id.text().as_str(),
+            },
+            |row| row.get::<_, bool>(0),
+        )?;
     Ok(Some(ResolvedChild {
-        node,
-        state: own_run.state,
+        state: own_run_state_with_held_stop(own_run.state, is_held_stop),
         parent_run_id: own_run_parent(own_run.parent_run_id)?,
+        node,
     }))
 }
 
@@ -294,7 +341,9 @@ pub fn read_agent_tree(
         };
         links.push((draft.started_at, draft.order_key, link));
     }
-    links.sort_by(|left, right| (left.0.as_str(), &left.1).cmp(&(right.0.as_str(), &right.1)));
+    links.sort_by(|left, right| {
+        dispatch_order((&left.0, left.1.as_str()), (&right.0, right.1.as_str()))
+    });
     let children: Vec<ChildRunLink> = links.into_iter().map(|(_, _, link)| link).collect();
 
     let state_of = |link: &ChildRunLink| match link {
@@ -322,31 +371,53 @@ pub fn read_agent_tree(
     })
 }
 
-// A run of the session as the tree reads it.
-struct StoredRun {
-    parent_run_id: Option<RunId>,
-    reached_by: Option<ChildRunProvenance>,
-    state: RunState,
-    queued_at: Option<WireInstant>,
+/// Which of two tree entries was dispatched first, each given by its start and its order key (a
+/// run id's text or a handle's): the earlier start, then the smaller key for a shared start.
+pub(crate) fn dispatch_order(left: (&WireInstant, &str), right: (&WireInstant, &str)) -> Ordering {
+    (left.0.as_str(), left.1).cmp(&(right.0.as_str(), right.1))
 }
 
-// The session's runs, its nodes, and which node each own run its helper starts name belongs to.
-struct SessionTree {
-    session_id: SessionId,
-    runs: HashMap<RunId, StoredRun>,
-    nodes: Vec<AgentTreeNode>,
-    node_of_handle: HashMap<ChildHandle, usize>,
-    node_of_run: HashMap<RunId, usize>,
+/// A run of the session as the tree reads it.
+pub(crate) struct StoredRun {
+    /// The run it hangs under, `None` for a lead run.
+    pub(crate) parent_run_id: Option<RunId>,
+    /// How its parent reached it, `None` for a lead run.
+    pub(crate) reached_by: Option<ChildRunProvenance>,
+    /// Where it stands; `Stopped` for an interrupted helper's run a later helper stop names.
+    pub(crate) state: RunState,
+    /// When its `agent.run.queued` row was written, `None` when the log holds none.
+    pub(crate) queued_at: Option<WireInstant>,
+    /// Its `agent.run.queued` row's sequence in the session's log, `None` when the log holds none.
+    pub(crate) queued_sequence: Option<i64>,
+}
+
+/// The session's runs, its nodes, and which node each own run its helper starts name belongs to.
+pub(crate) struct SessionTree {
+    /// The session read.
+    pub(crate) session_id: SessionId,
+    /// Every run of the session by its id.
+    pub(crate) runs: HashMap<RunId, StoredRun>,
+    /// Every node of the session, oldest first.
+    pub(crate) nodes: Vec<AgentTreeNode>,
+    /// Each node's place in `nodes` by its handle.
+    pub(crate) node_of_handle: HashMap<ChildHandle, usize>,
+    /// Each own run's node by its place in `nodes`: every node's newest own run, and each run a
+    /// readable helper start names for it.
+    pub(crate) node_of_run: HashMap<RunId, usize>,
 }
 
 impl SessionTree {
-    fn read(
+    /// `session_id`'s runs and nodes, each own run paired to its node through the helper starts
+    /// readable before `read_bound`, and each interrupted own run that a helper stop readable
+    /// before it names read as `Stopped`, its row keeping `interrupted`. Fails as SQLite or a
+    /// stored column does.
+    pub(crate) fn read(
         reader: &Connection,
         session_id: &SessionId,
         read_bound: i64,
     ) -> Result<Self, AgentTreeReadError> {
         let session = session_id.text();
-        let runs = reader
+        let mut runs = reader
             .prepare_cached(&SELECT_SESSION_RUNS_SQL)?
             .query_map(named_params! { "@session_id": session.as_str() }, |row| {
                 Ok((
@@ -356,6 +427,7 @@ impl SessionTree {
                         reached_by: optional_text_column(row, 2, closed_word)?,
                         state: text_column(row, 3, closed_word)?,
                         queued_at: optional_text_column(row, 4, WireInstant::try_from)?,
+                        queued_sequence: row.get(5)?,
                     },
                 ))
             })?
@@ -389,12 +461,19 @@ impl SessionTree {
                     text_column(row, 0, |text| RunId::new(&text))?,
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
                 ))
             },
         )?;
         for start in starts {
-            let (run_id, provider, subagent_id) = start?;
-            if let Some(&place) = node_of_helper.get(&(provider.as_str(), subagent_id.as_str())) {
+            let (run_id, provider, subagent_id, event_type) = start?;
+            if event_type == SessionEventType::AgentSubagentStopped.as_str() {
+                if let Some(run) = runs.get_mut(&run_id) {
+                    run.state = own_run_state_with_held_stop(run.state, true);
+                }
+            } else if let Some(&place) =
+                node_of_helper.get(&(provider.as_str(), subagent_id.as_str()))
+            {
                 node_of_run.insert(run_id, place);
             }
         }
@@ -407,18 +486,22 @@ impl SessionTree {
         })
     }
 
-    fn run(&self, run_id: RunId) -> Result<&StoredRun, AgentTreeReadError> {
+    /// The run `run_id`; fails with [`AgentTreeReadError::RunMissing`] when the session has none.
+    pub(crate) fn run(&self, run_id: RunId) -> Result<&StoredRun, AgentTreeReadError> {
         self.runs
             .get(&run_id)
             .ok_or(AgentTreeReadError::RunMissing { run_id })
     }
 
-    // The run the node's newest own run hangs under, which the helper runs in.
-    fn carrying_run(&self, place: usize) -> Result<RunId, AgentTreeReadError> {
+    /// The run the node at `place` has its newest own run under, which the helper runs in; fails
+    /// as [`Self::run`] does, and as a stored column when that own run has no parent.
+    pub(crate) fn carrying_run(&self, place: usize) -> Result<RunId, AgentTreeReadError> {
         own_run_parent(self.run(self.nodes[place].own_run_id)?.parent_run_id)
     }
 
-    fn member(&self, place: usize) -> Result<AgentTreeMember, AgentTreeReadError> {
+    /// The helper at `place` as the session's tree names it: the run it runs in and its handle;
+    /// fails as [`Self::carrying_run`] does.
+    pub(crate) fn member(&self, place: usize) -> Result<AgentTreeMember, AgentTreeReadError> {
         Ok(AgentTreeMember::ProviderChild {
             run_id: self.carrying_run(place)?,
             child_handle: self.nodes[place].child_handle.clone(),
@@ -709,9 +792,9 @@ fn count_of(count: usize) -> SafeInt<0> {
         .expect("a count of links held in memory is a safe integer")
 }
 
-// The run a node's own run hangs under. An own run is a provider subagent's, written with its
-// parent, so one with none reads as a column that does not read as its type.
-fn own_run_parent(parent_run_id: Option<RunId>) -> Result<RunId, AgentTreeReadError> {
+/// The run a node's own run hangs under. An own run is a provider subagent's, written with its
+/// parent, so one with none fails as a column that does not read as its type.
+pub(crate) fn own_run_parent(parent_run_id: Option<RunId>) -> Result<RunId, AgentTreeReadError> {
     parent_run_id.ok_or_else(|| {
         AgentTreeReadError::Read(rusqlite::Error::InvalidColumnType(
             1,
@@ -722,4 +805,4 @@ fn own_run_parent(parent_run_id: Option<RunId>) -> Result<RunId, AgentTreeReadEr
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

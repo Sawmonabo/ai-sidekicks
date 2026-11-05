@@ -7,10 +7,12 @@
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 
+use futures::future::BoxFuture;
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_workflow::engine::ports::EngineRecordSink;
 use tokio::sync::watch;
 
 use crate::daemon::configuration::{ConfigurationStore, DaemonConfiguration};
@@ -53,6 +55,14 @@ pub(crate) fn workflow_engine_events_bucket(data_folder: &Path) -> DailyFileBuck
             .join(DIAGNOSTICS_FOLDER_NAME)
             .join(WORKFLOW_ENGINE_EVENTS_FOLDER_NAME),
     )
+}
+
+impl EngineRecordSink for DailyFileBucket {
+    /// Appends the engine's line as one line of today's file; a line that is lost is told in the
+    /// service log.
+    fn record(&self, entry: Map<String, Value>) -> BoxFuture<'_, ()> {
+        Box::pin(async move { self.append(&entry).await })
+    }
 }
 
 /// One tool call as the provider gave it: its own arguments and result body, a superset of what
