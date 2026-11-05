@@ -71,6 +71,10 @@ pub struct CommandCapture {
     pub skipped_embedded_repositories: Vec<String>,
     /// The capture's commit and its base, for packing what the capture borrows.
     pub objects: CapturedCommit,
+    /// The checkout's top level, its links resolved.
+    pub checkout_real_path: PathBuf,
+    /// The repository's common git folder, which its capture folder is named for, as git names it.
+    pub common_folder: PathBuf,
 }
 
 /// The capture taken after a command, with what changed since the one taken before it.
@@ -238,6 +242,8 @@ impl CommandCaptureService {
             ignored_folders: captured.ignored_folders,
             skipped_embedded_repositories: captured.skipped_embedded_repositories,
             objects: CapturedCommit::new(held.capture_folder, captured.commit, captured.head),
+            checkout_real_path: held.root,
+            common_folder: held.common_folder,
         };
         Ok((capture, changes))
     }

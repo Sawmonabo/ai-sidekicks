@@ -5,6 +5,7 @@ use std::sync::Arc;
 use jiff::Timestamp;
 use rstest::rstest;
 use sidekicks_contracts::repo::git_reads::GitObjectId;
+use sidekicks_platforms::{make_folder_link, real_path};
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
@@ -206,6 +207,40 @@ async fn a_before_capture_in_a_sparse_root_keeps_the_paths_outside_its_cone() {
     assert_eq!(
         tree_paths(&git, &repository, &capture_folder, captured.tree.as_str()).await,
         ["a/1", "b/2"]
+    );
+}
+
+// Fails when the execution root, here a link, is named as the checkout, or when the linked
+// worktree's own git folder is named as the repository's.
+#[tokio::test]
+async fn a_capture_names_its_checkouts_real_path_and_its_repository() {
+    let git = test_git_runner();
+    let root = tempfile::tempdir().expect("the temporary folder is made");
+    let repository = make_test_repository(&git, root.path(), "repository").await;
+    write_files(&repository, &[("a.txt", "a\n")]);
+    git_in(&git, &repository, &["add", "a.txt"]).await;
+    commit_empty(&git, &repository, "base").await;
+    let worktree = root.path().join("linked");
+    git_in(
+        &git,
+        &repository,
+        &["worktree", "add", "-q", "-b", "linked", utf8(&worktree)],
+    )
+    .await;
+    let link = root.path().join("link");
+    make_folder_link(&worktree, &link).expect("the link to the worktree is made");
+    let service = CommandCaptureService::new(git.clone(), Arc::new(KeyedLock::new()));
+
+    let captured = service
+        .capture_before(None, &command_in(&link, &root.path().join("owner")))
+        .await
+        .expect("the before-capture is taken");
+
+    let resolved = |path: &Path| real_path(path).expect("the path resolves");
+    assert_eq!(resolved(&captured.checkout_real_path), resolved(&worktree));
+    assert_eq!(
+        resolved(&captured.common_folder),
+        resolved(&repository.join(".git"))
     );
 }
 
