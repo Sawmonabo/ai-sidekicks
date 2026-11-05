@@ -1,10 +1,10 @@
 //! The driver registry other areas' tests build on: the shared services every driver's build takes,
 //! the table's first providers answered by stand-in drivers, a run bound to the first one, every
 //! provider answered by a mock driver, the session inbox addresser the table's own drivers answer,
-//! an accounts reader answering one current account and one answering every account's folders as
-//! one folder, the table with Codex's driver over a scripted
-//! service, and the stand-in Codex service a test program runs as itself; the run, session and
-//! message ids the drivers' tests mint, and the run queue's intake as a driver tells it.
+//! an accounts reader answering the current account and every account's folders it holds, the table
+//! with Codex's driver over a scripted service, and the stand-in Codex service a test program runs
+//! as itself; the run, session and message ids the drivers' tests mint, and the run queue's intake
+//! as a driver tells it.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -131,23 +131,40 @@ impl AttachmentResolver for NothingServed {
     }
 }
 
-/// An accounts reader answering every provider's current account as it holds it, for a test that
-/// admits runs; it resolves no account's folders and reads no credential generation.
-pub struct TestProviderAccounts(pub CurrentProviderAccount);
+/// An accounts reader answering every provider's current account and every account's folders as
+/// it holds them, the one folder it may hold being both an account's configuration and credential
+/// folder; it reads no credential generation, and answers no sign-in mode and no sealed token.
+pub struct TestProviderAccounts {
+    /// Every provider's current account.
+    pub current: CurrentProviderAccount,
+    /// Every account's one folder; `None` answers that no account has folders.
+    pub folder: Option<PathBuf>,
+}
+
+impl TestProviderAccounts {
+    /// The folders it answers for every account, `None` where it holds no folder.
+    pub fn account_folders(&self) -> Option<ProviderAccountFolders> {
+        self.folder.clone().map(|folder| ProviderAccountFolders {
+            configuration_folder: folder.clone(),
+            credential_store_folder: folder,
+        })
+    }
+}
 
 impl ProviderAccountReader for TestProviderAccounts {
     fn resolve_account_folders(
         &self,
         _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<ProviderAccountFolders, AccountFoldersError>> {
-        async { Err(AccountFoldersError::NotFound) }.boxed()
+        let account_folders = self.account_folders().ok_or(AccountFoldersError::NotFound);
+        async move { account_folders }.boxed()
     }
 
     fn current_account(
         &self,
         _provider_id: ProviderId,
     ) -> BoxFuture<'_, Result<CurrentProviderAccount, Box<dyn Error + Send + Sync>>> {
-        let current = self.0.clone();
+        let current = self.current.clone();
         async move { Ok(current) }.boxed()
     }
 
@@ -160,7 +177,6 @@ impl ProviderAccountReader for TestProviderAccounts {
 
     fn read_observed_auth_mode(
         &self,
-
         _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn Error + Send + Sync>>> {
         async { Ok(None) }.boxed()
@@ -174,68 +190,18 @@ impl ProviderAccountReader for TestProviderAccounts {
     }
 }
 
-/// A registration holding [`TestProviderAccounts`] answering `current`.
+/// A registration holding [`TestProviderAccounts`] answering `current` and no account's folders.
 pub fn registered_test_accounts(
     current: CurrentProviderAccount,
 ) -> Arc<PortRegistration<Arc<dyn ProviderAccountReader>>> {
     let provider_accounts = PortRegistration::new("provider accounts");
     provider_accounts
-        .register(Arc::new(TestProviderAccounts(current)) as Arc<dyn ProviderAccountReader>)
+        .register(Arc::new(TestProviderAccounts {
+            current,
+            folder: None,
+        }) as Arc<dyn ProviderAccountReader>)
         .expect("a new registration takes its port");
     Arc::new(provider_accounts)
-}
-
-/// An accounts reader answering the one folder it holds as every account's configuration and
-/// credential folder, and the test account as every provider's current one; it reads no credential
-/// generation, and answers no sign-in mode and no sealed token.
-pub struct OneAccountFolder(pub PathBuf);
-
-impl OneAccountFolder {
-    /// The folders it answers for every account.
-    pub fn account_folders(&self) -> ProviderAccountFolders {
-        ProviderAccountFolders {
-            configuration_folder: self.0.clone(),
-            credential_store_folder: self.0.clone(),
-        }
-    }
-}
-
-impl ProviderAccountReader for OneAccountFolder {
-    fn resolve_account_folders(
-        &self,
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<ProviderAccountFolders, AccountFoldersError>> {
-        let account_folders = self.account_folders();
-        async move { Ok(account_folders) }.boxed()
-    }
-
-    fn current_account(
-        &self,
-        _provider_id: ProviderId,
-    ) -> BoxFuture<'_, Result<CurrentProviderAccount, Box<dyn Error + Send + Sync>>> {
-        async { Ok(CurrentProviderAccount::Current(test_provider_account_id())) }.boxed()
-    }
-
-    fn read_credential_generation(
-        &self,
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn Error + Send + Sync>>> {
-        async { Err(NotServedInTest("credential generation").into()) }.boxed()
-    }
-
-    fn read_observed_auth_mode(
-        &self,
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn Error + Send + Sync>>> {
-        async { Ok(None) }.boxed()
-    }
-
-    fn read_sealed_token(
-        &self,
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn Error + Send + Sync>>> {
-        async { Ok(None) }.boxed()
-    }
 }
 
 /// The shared services every driver's build takes, with every port unregistered, the spawn

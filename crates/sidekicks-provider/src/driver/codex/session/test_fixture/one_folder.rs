@@ -11,8 +11,9 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::port_registration::PortRegistration;
 
 use crate::driver::ports::DriverPorts;
-use crate::driver::test_registry::OneAccountFolder;
-use crate::driver::{SessionSpawnContext, SessionSpawnContextResolver};
+use crate::driver::test_registry::TestProviderAccounts;
+use crate::driver::{CurrentProviderAccount, SessionSpawnContext, SessionSpawnContextResolver};
+use crate::runtime_binding::test_store::test_provider_account_id;
 
 /// The spawn-context port with [`OneFolder`] over `folder` registered on it.
 pub(crate) fn one_folder_spawn_contexts(
@@ -31,8 +32,11 @@ pub(crate) struct OneFolder(pub(crate) PathBuf);
 impl OneFolder {
     /// The accounts reader of the test account, whose folders are both its Codex home beside the
     /// working folder.
-    pub(crate) fn accounts(&self) -> OneAccountFolder {
-        OneAccountFolder(self.0.with_file_name("codex-home"))
+    pub(crate) fn accounts(&self) -> TestProviderAccounts {
+        TestProviderAccounts {
+            current: CurrentProviderAccount::Current(test_provider_account_id()),
+            folder: Some(self.0.with_file_name("codex-home")),
+        }
     }
 }
 
@@ -43,7 +47,10 @@ impl SessionSpawnContextResolver for OneFolder {
         _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<SessionSpawnContext, Box<dyn std::error::Error + Send + Sync>>> {
         let working_directory = self.0.clone();
-        let account_folders = self.accounts().account_folders();
+        let account_folders = self
+            .accounts()
+            .account_folders()
+            .expect("the test account has its home");
         async move {
             Ok(SessionSpawnContext {
                 working_directory,

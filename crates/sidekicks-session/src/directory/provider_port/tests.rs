@@ -23,8 +23,10 @@ use sidekicks_mcp::status::open_test_tracker;
 use sidekicks_platforms::Spawner;
 use sidekicks_provider::driver::ports::SessionRelaunchListener;
 use sidekicks_provider::driver::session_control::DriverResumeResult;
-use sidekicks_provider::driver::test_registry::OneAccountFolder;
-use sidekicks_provider::driver::{ProviderAccountReader, SessionSpawnContextResolver};
+use sidekicks_provider::driver::test_registry::TestProviderAccounts;
+use sidekicks_provider::driver::{
+    CurrentProviderAccount, ProviderAccountReader, SessionSpawnContextResolver,
+};
 use sidekicks_provider::left_conversations::read_left_conversations;
 use sidekicks_provider::runtime_binding::store::{
     CreateRuntimeBindingInput, mint_runtime_binding_id,
@@ -396,8 +398,10 @@ async fn a_spawn_context_carries_the_sessions_memory_switch(#[case] auto_memory:
         &json!({}),
         "2026-10-14T09:30:00.000Z",
     );
-    let accounts: Arc<dyn ProviderAccountReader> =
-        Arc::new(OneAccountFolder(folder.path().to_path_buf()));
+    let accounts: Arc<dyn ProviderAccountReader> = Arc::new(TestProviderAccounts {
+        current: CurrentProviderAccount::Current(test_provider_account_id()),
+        folder: Some(folder.path().to_path_buf()),
+    });
     provider_accounts
         .register(accounts)
         .expect("the accounts reader registers");
