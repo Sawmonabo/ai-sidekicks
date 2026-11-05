@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt::Write as _;
 
 use rstest::rstest;
+use serde_json::Map;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -85,6 +86,7 @@ async fn an_update_records_the_left_conversation_in_its_own_write() {
         session_id: test_session_id(),
         provider_account_id: test_provider_account_id(),
         conversation_id: "conversation-1".to_owned(),
+        runtime_metadata: Map::new(),
     };
 
     let updated = store
