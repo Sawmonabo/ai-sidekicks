@@ -1,16 +1,17 @@
 //! `Erase all data`: the keychain is checked first, so a locked or unusable one refuses the erase
-//! with nothing changed; then every sign-in under way ends, every provider account signs out
-//! through its provider's own sign-out in its home, while the services still serve, and the erase
-//! answers naming each account left signed in. Then, in order, every run and shell stops as Runtime's `Stop` stops
-//! them, every provider service ends, every credential-store item the app made is deleted,
-//! everything that holds a file in the data folder closes, the data folder goes with the account
-//! homes in it, and the process ends so its caller starts it again, empty. The default `backups/`
-//! folder stays, since a backup taken earlier keeps its copy, and no project folder is touched.
-//! An item the store refuses to delete leaves the data folder whole, so the erase can run again.
-//! An account that does not sign out stops nothing. One erase runs at a time: a second sent while
-//! it runs is refused and starts nothing. The program's `data erase` mode, run with the service
-//! stopped, shares the bound on each account's sign-out, the end of each provider's recorded
-//! services and the last steps, the secrets' delete and then the data folder's.
+//! with nothing changed; then every sign-in under way ends, every account home the erase deletes
+//! signs out through its provider's own sign-out, listed, removed and unfinished ones alike, while
+//! the services still serve, and the erase answers naming each account left signed in. Then, in
+//! order, every run and shell stops as Runtime's `Stop` stops them, every provider service ends,
+//! every credential-store item the app made is deleted, everything that holds a file in the data
+//! folder closes, the data folder goes with the account homes in it, and the process ends so its
+//! caller starts it again, empty. The default `backups/` folder stays, since a backup taken
+//! earlier keeps its copy, and no project folder is touched. An item the store refuses to delete
+//! leaves the data folder whole, so the erase can run again. An account that does not sign out
+//! stops nothing. One erase runs at a time: a second sent while it runs is refused and starts
+//! nothing. The program's `data erase` mode, run with the service stopped, shares the bound on
+//! each account's sign-out, the end of each provider's recorded services and the last steps, the
+//! secrets' delete and then the data folder's.
 
 use std::error::Error;
 use std::fs;
@@ -54,8 +55,8 @@ pub(crate) struct DataEraseDeps {
     pub(crate) secret_items: Arc<SecretItems>,
     /// The registered drivers, each of whose services ends.
     pub(crate) providers: Arc<ProviderRegistry>,
-    /// Signs every provider account out before the erase answers, while the services serve, once
-    /// every sign-in under way has ended.
+    /// Signs every account home the erase deletes out before it answers, removed and unfinished
+    /// ones included, while the services serve, once every sign-in under way has ended.
     pub(crate) sign_out_accounts: AccountsSignOut,
     /// Ends every sign-in under way, its new account's home signed out and removed, before the
     /// homes are read, answering whether every one settled.
@@ -88,8 +89,12 @@ pub(crate) enum DataEraseFailure {
     #[error(transparent)]
     Refused(#[from] DataEraseRefusal),
     /// The erase ended before it answered, as when a provider's sign-out panicked: a failure
-    /// inside the service, after which another erase may start.
-    #[error("the erase ended before it answered")]
+    /// inside the service. Sign-ins stay ended until the service restarts, and another erase
+    /// start finishes the job.
+    #[error(
+        "the erase ended before it answered; sign-ins stay ended until the service restarts, and \
+         another erase finishes the job"
+    )]
     Ended,
 }
 
@@ -144,8 +149,9 @@ impl DataErase {
     /// prompt while the person is at the screen. Fails with [`DataEraseRefusal::Running`] while
     /// an erase runs, and with [`DataEraseRefusal::Keychain`] when the store is locked or cannot
     /// be used; this call then starts nothing. Fails with [`DataEraseFailure::Ended`] when the
-    /// erase ends before it answers, and lets the next erase start. An erase once started runs to
-    /// its end even when its caller stops waiting for the answer.
+    /// erase ends before it answers, and lets the next erase start, which finishes the job; the
+    /// sign-ins the erase ended stay ended until the service restarts. An erase once started runs
+    /// to its end even when its caller stops waiting for the answer.
     pub(crate) async fn begin(
         self: &Arc<Self>,
     ) -> Result<DaemonDataEraseResponse, DataEraseFailure> {
