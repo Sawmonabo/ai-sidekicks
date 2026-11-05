@@ -331,6 +331,20 @@ The accepted shape is `thread/fork {threadId, ephemeral: true, excludeTurns: tru
 
 **Why it matters.** It is the Codex leg of composing a hand-over brief on a throwaway copy of a session rather than on the live one ([Spec-004 §The hand-over brief is the floor, and it is visibly a floor](../../specs/004-provider-driver-contract-and-capabilities.md#the-hand-over-brief-is-the-floor-and-it-is-visibly-a-floor)), and of the side question: `thread/fork {ephemeral: true, excludeTurns: true, permissions: ":read-only", approvalPolicy: "never"}` with no goal-continuation flag and no `lastTurnId`, whose reply names `:read-only` in `activePermissionProfile` and whose cost is its own `last` figure. The fork takes `permissions` rather than `sandbox`: `sandbox: "read-only"` also refuses writes, but its reply names no profile (`activePermissionProfile: null`), and the two together are refused with `-32600`; the parent keeps its own profile and approval policy (**Binary probe**, **Verified at `0.156.0`**, above this file's pin).
 
+### A spawned helper's announcement
+
+**Upstream source**, read at `rust-v0.166.0`.
+
+**No spawned helper gets `thread/started`.** Only `thread/start`, and a `thread/fork` not attached to its source, send it (`codex-rs/app-server/src/request_processors/thread_processor.rs`). A helper is announced by an item on its parent's turn instead, and neither item names its nickname or role.
+
+**v2, the tools `features.multi_agent_v2` turns on, which the daemon's sessions run.** A spawn puts a `subAgentActivity` item `{id, kind: "started", agentThreadId, agentPath, model, reasoningEffort}` on the parent's turn, sent as `item/started` and at once as `item/completed` (`emit_sub_agent_activity` in `codex-rs/core/src/tools/handlers/multi_agents_v2.rs`, `codex-rs/core/src/tools/handlers/multi_agents_v2/spawn.rs`; the shape in `codex-rs/app-server-protocol/src/protocol/v2/item.rs`). `id` is the spawn call's id, `agentThreadId` the helper's thread, `agentPath` its path in Codex's tree of helpers and `model` the model it was created on. Later steps of the helper's life send the same item with kind `interacted`, `interrupted` or `completed`; only `started` announces it.
+
+**v1.** A spawn is a `collabAgentToolCall` with `tool: "spawnAgent"`. Its `item/started` names no receiver; its `item/completed` names the helper's thread in `receiverThreadIds`, with the model it runs on in `model` (`codex-rs/core/src/tools/handlers/multi_agents/spawn.rs`).
+
+**`thread/read` names a loaded helper.** A `thread/read` without turns of a loaded thread answers from its live state, before its rollout file is written, with `agentNickname`, `agentRole` and `model` (`thread_processor.rs`). The daemon reads each spawned helper this way once, waiting at most 2 seconds, for the name and role its child run shows; a read that fails starts the run unnamed.
+
+**Binary probe, Verified at `0.154.0`**, over 20 recorded v1 spawns: no helper got `thread/started`, and each helper's `thread/status/changed` and `mcpServer/startupStatus/updated` arrived before the item naming it. A helper's frames can therefore arrive before the frame that registers it. Under v2 the helper's first turn is queued before the spawn returns, so its `turn/started` may come before `subAgentActivity` too; no v2 run was recorded.
+
 ### Hooks and their trust
 
 **Binary probe, Verified at `0.156.0`** (mock model), except where a bullet names another source.
