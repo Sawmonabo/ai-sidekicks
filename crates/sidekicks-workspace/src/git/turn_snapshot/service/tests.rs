@@ -19,7 +19,7 @@ use super::{TurnSnapshotCaptureOutcome, TurnSnapshotPruneOutcome};
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::version::KeptProgramFacts;
 use crate::git::process::{GitCall, GitRunner, in_folder, read_git_common_folder, test_git_runner};
-use crate::git::turn_snapshot::capture::LARGE_FILE_BYTES;
+use crate::git::turn_snapshot::capture::{GitFloorReports, LARGE_FILE_BYTES};
 use crate::git::turn_snapshot::capture_folder::{CaptureFolder, git_folder_argument};
 use crate::git::turn_snapshot::diagnostics::{CaptureStep, TurnSnapshotRetentionSkipReason};
 use crate::git::turn_snapshot::refs::build_run_snapshot_ref_prefix;
@@ -49,7 +49,10 @@ fn service_over(
     database: &TestDatabase,
     checkout_lock: Arc<KeyedLock<std::path::PathBuf>>,
 ) -> super::TurnSnapshotService {
-    let packing = Arc::new(CapturePacking::new(git.clone()));
+    let packing = Arc::new(CapturePacking::new(
+        git.clone(),
+        Arc::new(GitFloorReports::default()),
+    ));
     service_reading(git.clone(), database, checkout_lock, packing)
 }
 

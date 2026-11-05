@@ -159,8 +159,8 @@ pub enum RunContextReadError {
 }
 
 /// Owns the `refs/sidekicks/runs/` namespace of every capture folder and every git call that
-/// writes into it. Keeps nothing between calls but the places and features whose old git it already
-/// reported.
+/// writes into it. Keeps nothing between calls; the old gits it meets go in the daemon run's shared
+/// record.
 pub struct TurnSnapshotService {
     git: GitRunner,
     /// Where the prune reads a run's context row.
@@ -170,26 +170,27 @@ pub struct TurnSnapshotService {
     checkout_lock: Arc<KeyedLock<PathBuf>>,
     /// The packing every capture's borrowed objects go through.
     packing: Arc<CapturePacking>,
-    /// The places and features whose git was reported too old in this daemon run.
-    floor_reports: GitFloorReports,
+    /// The daemon run's record of the old gits already reported.
+    floor_reports: Arc<GitFloorReports>,
 }
 
 impl TurnSnapshotService {
     /// A service running `git`, reading run contexts through `reads`, holding a checkout in
-    /// `checkout_lock`, the run setup gate's, while it captures it, and packing each snapshot
-    /// through `packing`.
+    /// `checkout_lock`, the run setup gate's, while it captures it, packing each snapshot through
+    /// `packing` and reporting an old git once through `floor_reports`, the daemon run's.
     pub fn new(
         git: GitRunner,
         reads: Arc<DatabaseReadPool>,
         checkout_lock: Arc<KeyedLock<PathBuf>>,
         packing: Arc<CapturePacking>,
+        floor_reports: Arc<GitFloorReports>,
     ) -> Self {
         Self {
             git,
             reads,
             checkout_lock,
             packing,
-            floor_reports: GitFloorReports::new(),
+            floor_reports,
         }
     }
 

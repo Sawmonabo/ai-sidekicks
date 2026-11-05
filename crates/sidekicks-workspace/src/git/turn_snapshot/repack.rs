@@ -159,7 +159,7 @@ pub enum PackingError {
 
 /// Packs every capture folder after each capture and at each sweep, one at a time per folder, and
 /// keeps, for this daemon run, how many packs each folder's last fold left and when its last fold
-/// failed.
+/// failed; an old git it meets goes in the daemon run's shared record.
 pub struct CapturePacking {
     /// The daemon's git.
     git: GitRunner,
@@ -169,19 +169,20 @@ pub struct CapturePacking {
     packs_left_by_fold: Mutex<HashMap<PathBuf, u64>>,
     /// When each folder's last fold failed, until a fold there succeeds.
     failed_folds: Mutex<HashMap<PathBuf, Instant>>,
-    /// The places whose git was reported too old to fold.
-    floor_reports: GitFloorReports,
+    /// The daemon run's record of the old gits already reported.
+    floor_reports: Arc<GitFloorReports>,
 }
 
 impl CapturePacking {
-    /// Packing that runs `git`.
-    pub fn new(git: GitRunner) -> Self {
+    /// Packing that runs `git` and reports a git too old to fold once through `floor_reports`, the
+    /// daemon run's.
+    pub fn new(git: GitRunner, floor_reports: Arc<GitFloorReports>) -> Self {
         Self {
             git,
             folder_lock: KeyedLock::new(),
             packs_left_by_fold: Mutex::new(HashMap::new()),
             failed_folds: Mutex::new(HashMap::new()),
-            floor_reports: GitFloorReports::new(),
+            floor_reports,
         }
     }
 

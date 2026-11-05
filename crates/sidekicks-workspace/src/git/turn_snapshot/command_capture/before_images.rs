@@ -251,6 +251,7 @@ mod tests {
     use crate::git::cat_file::ObjectAnswer;
     use crate::git::process::test_git_runner;
     use crate::git::process::test_repository::{commit_empty, git_in, make_test_repository};
+    use crate::git::turn_snapshot::capture::GitFloorReports;
     use crate::git::turn_snapshot::command_capture::tests::{command_in, write_files};
     use crate::git::turn_snapshot::command_capture::{CommandCaptureService, TreeChange};
 
@@ -274,15 +275,15 @@ mod tests {
     // sizes costs itself plus 50. Fails when a group passes the bound, a blob is dropped or
     // repeated at a group's edge, or a missing or over-bound blob counts toward its group.
     #[rstest]
-    #[case::every_blob_in_one_group(&[Some(10), Some(20), Some(30)], 300, &[0..3])]
-    #[case::a_group_closes_at_the_bound(&[Some(10), Some(20), Some(30)], 130, &[0..2, 2..3])]
-    #[case::a_blob_alone_fills_a_group(&[Some(10), Some(10), Some(10)], 60, &[0..1, 1..2, 2..3])]
-    #[case::an_over_bound_blob_between_two(&[Some(10), Some(99), Some(20)], 130, &[0..3])]
-    #[case::missing_blobs(&[Some(10), None, Some(20), None, Some(30)], 130, &[0..4, 4..5])]
+    #[case::every_blob_in_one_group(&[Some(10), Some(20), Some(30)], 300, &[(0, 3)])]
+    #[case::a_group_closes_at_the_bound(&[Some(10), Some(20), Some(30)], 130, &[(0, 2), (2, 3)])]
+    #[case::a_blob_alone_fills_a_group(&[Some(10), Some(10), Some(10)], 60, &[(0, 1), (1, 2), (2, 3)])]
+    #[case::an_over_bound_blob_between_two(&[Some(10), Some(99), Some(20)], 130, &[(0, 3)])]
+    #[case::missing_blobs(&[Some(10), None, Some(20), None, Some(30)], 130, &[(0, 4), (4, 5)])]
     fn blobs_are_planned_in_groups_within_the_bound(
         #[case] sizes: &[Option<u64>],
         #[case] bound: u64,
-        #[case] expected: &[Range<usize>],
+        #[case] expected: &[(usize, usize)],
     ) {
         let answers: Vec<(GitObjectId, ObjectAnswer)> = sizes
             .iter()
@@ -298,6 +299,7 @@ mod tests {
             })
             .collect();
 
+        let expected: Vec<Range<usize>> = expected.iter().map(|&(start, end)| start..end).collect();
         assert_eq!(plan_batches(&answers, bound), expected);
     }
 
@@ -319,7 +321,11 @@ mod tests {
         commit_empty(&git, &repository, "base").await;
         write_files(&repository, &[("untracked.txt", "untracked before\n")]);
         let owner = root.path().join("owner");
-        let service = CommandCaptureService::new(git.clone(), Arc::new(KeyedLock::new()));
+        let service = CommandCaptureService::new(
+            git.clone(),
+            Arc::new(KeyedLock::new()),
+            Arc::new(GitFloorReports::default()),
+        );
         let input = command_in(&repository, &owner);
 
         let before = service
@@ -385,7 +391,11 @@ mod tests {
         let repository = make_test_repository(&git, root.path(), "repository").await;
         write_files(&repository, &[("a.txt", "a\n"), ("b.txt", "b\n")]);
         let owner = root.path().join("owner");
-        let service = CommandCaptureService::new(git.clone(), Arc::new(KeyedLock::new()));
+        let service = CommandCaptureService::new(
+            git.clone(),
+            Arc::new(KeyedLock::new()),
+            Arc::new(GitFloorReports::default()),
+        );
         let before = service
             .capture_before(None, &command_in(&repository, &owner))
             .await

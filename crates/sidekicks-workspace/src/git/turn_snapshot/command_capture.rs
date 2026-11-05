@@ -133,26 +133,30 @@ pub enum TreeChange {
     },
 }
 
-/// Takes a command's two captures. Keeps nothing between calls but the places whose old git it
-/// already reported.
+/// Takes a command's two captures. Keeps nothing between calls; the old gits it meets go in the
+/// daemon run's shared record.
 pub struct CommandCaptureService {
     /// The daemon's git.
     git: GitRunner,
     /// The run setup gate's lock, keyed by each checkout's canonical folder, held while a capture
     /// stages into the checkout's kept index.
     checkout_lock: Arc<KeyedLock<PathBuf>>,
-    /// The places and features whose git was reported too old in this daemon run.
-    floor_reports: GitFloorReports,
+    /// The daemon run's record of the old gits already reported.
+    floor_reports: Arc<GitFloorReports>,
 }
 
 impl CommandCaptureService {
-    /// A service running `git` and holding a checkout in `checkout_lock`, the run setup gate's,
-    /// while it captures it.
-    pub fn new(git: GitRunner, checkout_lock: Arc<KeyedLock<PathBuf>>) -> Self {
+    /// A service running `git`, holding a checkout in `checkout_lock`, the run setup gate's, while
+    /// it captures it, and reporting an old git once through `floor_reports`, the daemon run's.
+    pub fn new(
+        git: GitRunner,
+        checkout_lock: Arc<KeyedLock<PathBuf>>,
+        floor_reports: Arc<GitFloorReports>,
+    ) -> Self {
         Self {
             git,
             checkout_lock,
-            floor_reports: GitFloorReports::new(),
+            floor_reports,
         }
     }
 

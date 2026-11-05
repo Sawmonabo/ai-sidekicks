@@ -15,7 +15,7 @@ use super::{
 };
 use crate::git::process::test_repository::{commit_empty, git_in, make_test_repository};
 use crate::git::process::{GitRunner, test_git_runner};
-use crate::git::turn_snapshot::capture::{LARGE_FILE_BYTES, LargeFile};
+use crate::git::turn_snapshot::capture::{GitFloorReports, LARGE_FILE_BYTES, LargeFile};
 use crate::git::turn_snapshot::capture_folder::CaptureFolder;
 use crate::git::turn_snapshot::capture_steps::DiffTreeReadError;
 use crate::git::turn_snapshot::repack::CapturePacking;
@@ -123,9 +123,16 @@ async fn a_before_capture_stages_ignored_files_outside_ignored_folders_and_leave
     let live_index = repository.join(".git").join("index");
     let index_before = std::fs::read(&live_index).expect("the live index reads");
     let owner = root.path().join("owner");
-    let service = CommandCaptureService::new(git.clone(), Arc::new(KeyedLock::new()));
+    let service = CommandCaptureService::new(
+        git.clone(),
+        Arc::new(KeyedLock::new()),
+        Arc::new(GitFloorReports::default()),
+    );
     let database = TestDatabase::new(schema_parts());
-    let packing = Arc::new(CapturePacking::new(git.clone()));
+    let packing = Arc::new(CapturePacking::new(
+        git.clone(),
+        Arc::new(GitFloorReports::default()),
+    ));
     let turns = service_reading(git.clone(), &database, Arc::new(KeyedLock::new()), packing);
 
     let captured = service
@@ -196,7 +203,11 @@ async fn a_before_capture_in_a_sparse_root_keeps_the_paths_outside_its_cone() {
         "b/2 is outside the cone"
     );
     let owner = root.path().join("owner");
-    let service = CommandCaptureService::new(git.clone(), Arc::new(KeyedLock::new()));
+    let service = CommandCaptureService::new(
+        git.clone(),
+        Arc::new(KeyedLock::new()),
+        Arc::new(GitFloorReports::default()),
+    );
 
     let captured = service
         .capture_before(None, &command_in(&repository, &owner))
@@ -229,7 +240,11 @@ async fn a_capture_names_its_checkouts_real_path_and_its_repository() {
     .await;
     let link = root.path().join("link");
     make_folder_link(&worktree, &link).expect("the link to the worktree is made");
-    let service = CommandCaptureService::new(git.clone(), Arc::new(KeyedLock::new()));
+    let service = CommandCaptureService::new(
+        git.clone(),
+        Arc::new(KeyedLock::new()),
+        Arc::new(GitFloorReports::default()),
+    );
 
     let captured = service
         .capture_before(None, &command_in(&link, &root.path().join("owner")))
@@ -263,7 +278,11 @@ async fn an_after_capture_reads_a_path_past_the_size_bound_as_deleted() {
     let live_index = repository.join(".git").join("index");
     let index_before = std::fs::read(&live_index).expect("the live index reads");
     let owner = root.path().join("owner");
-    let service = CommandCaptureService::new(git.clone(), Arc::new(KeyedLock::new()));
+    let service = CommandCaptureService::new(
+        git.clone(),
+        Arc::new(KeyedLock::new()),
+        Arc::new(GitFloorReports::default()),
+    );
     let input = command_in(&repository, &owner);
 
     let before = service

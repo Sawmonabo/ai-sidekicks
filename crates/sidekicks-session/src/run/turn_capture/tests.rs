@@ -16,6 +16,7 @@ use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
 use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
 use sidekicks_workspace::git::process::test_repository::make_test_repository;
 use sidekicks_workspace::git::process::{GitCall, GitRunner, test_git_runner};
+use sidekicks_workspace::git::turn_snapshot::capture::GitFloorReports;
 use sidekicks_workspace::git::turn_snapshot::repack::CapturePacking;
 use sidekicks_workspace::git::turn_snapshot::service::{
     TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY, TurnSnapshotService,
@@ -74,6 +75,7 @@ impl Fixture {
         }
         .insert(&rows)
         .expect("the test stores the run's context");
+        let floor_reports = Arc::new(GitFloorReports::default());
         let snapshots = Arc::new(TurnSnapshotService::new(
             git.clone(),
             Arc::new(DatabaseReadPool::new(
@@ -81,7 +83,8 @@ impl Fixture {
                 TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY,
             )),
             Arc::new(KeyedLock::new()),
-            Arc::new(CapturePacking::new(git.clone())),
+            Arc::new(CapturePacking::new(git.clone(), Arc::clone(&floor_reports))),
+            floor_reports,
         ));
         Self {
             data_folder: root.path().join("data"),

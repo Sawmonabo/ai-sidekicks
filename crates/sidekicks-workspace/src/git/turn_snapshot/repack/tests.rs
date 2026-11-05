@@ -13,6 +13,7 @@ use super::{
     CaptureFolderSweep, CapturePacking, FOLD_TIMEOUT, is_fold_due, remove_stale_temporary_packs,
 };
 use crate::git::process::{GitCall, GitRunner, in_folder, read_git_common_folder, test_git_runner};
+use crate::git::turn_snapshot::capture::GitFloorReports;
 use crate::git::turn_snapshot::capture_folder::{CaptureFolder, git_folder_argument};
 use crate::git::turn_snapshot::command_capture::{CommandCaptureInput, CommandCaptureService};
 use crate::git::turn_snapshot::service::test_support::{
@@ -63,7 +64,10 @@ fn service_and_packing(
     git: &GitRunner,
     database: &TestDatabase,
 ) -> (TurnSnapshotService, Arc<CapturePacking>) {
-    let packing = Arc::new(CapturePacking::new(git.clone()));
+    let packing = Arc::new(CapturePacking::new(
+        git.clone(),
+        Arc::new(GitFloorReports::default()),
+    ));
     let service = service_reading(
         git.clone(),
         database,
@@ -137,7 +141,11 @@ async fn a_repository_with_no_commit_is_captured_and_packed() {
     let before = files_with_bytes(&git_folder);
     let database = TestDatabase::new(schema_parts());
     let (service, packing) = service_and_packing(&git, &database);
-    let commands = CommandCaptureService::new(git.clone(), Arc::new(KeyedLock::new()));
+    let commands = CommandCaptureService::new(
+        git.clone(),
+        Arc::new(KeyedLock::new()),
+        Arc::new(GitFloorReports::default()),
+    );
     let owner = root.path().join("owner");
 
     let snapshot = service
@@ -243,7 +251,7 @@ async fn a_fold_merges_the_folders_own_packs_and_nothing_it_borrows() {
             .with_input(b"only the repository\n".to_vec()),
     )
     .await;
-    let packing = CapturePacking::new(git.clone());
+    let packing = CapturePacking::new(git.clone(), Arc::new(GitFloorReports::default()));
     let lock = KeyedLock::new();
     let hold = lock.acquire(PathBuf::from("fold")).await;
 
@@ -278,7 +286,7 @@ async fn a_failed_fold_keeps_the_next_fold_waiting() {
     let git = test_git_runner();
     let root = tempfile::tempdir().expect("the temporary folder is made");
     let (_, folder) = folder_with_eleven_packs(&git, root.path()).await;
-    let packing = CapturePacking::new(git.clone());
+    let packing = CapturePacking::new(git.clone(), Arc::new(GitFloorReports::default()));
     let lock = KeyedLock::new();
     let hold = lock.acquire(PathBuf::from("fold")).await;
     let unwritable = make_unwritable(&folder.join("objects").join("pack"))

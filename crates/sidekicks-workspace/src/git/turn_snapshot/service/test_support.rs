@@ -16,6 +16,7 @@ use super::{
     TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY, TurnSnapshotCaptureInput, TurnSnapshotService,
 };
 use crate::git::process::{GitCall, GitRunner, in_folder, read_git_common_folder, strip_line_end};
+use crate::git::turn_snapshot::capture::GitFloorReports;
 use crate::git::turn_snapshot::capture_folder::{CaptureFolder, git_folder_argument};
 use crate::git::turn_snapshot::repack::CapturePacking;
 
@@ -148,7 +149,8 @@ pub(crate) fn service_reading(
     packing: Arc<CapturePacking>,
 ) -> TurnSnapshotService {
     let reads = DatabaseReadPool::new(database.path(), TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY);
-    TurnSnapshotService::new(git, Arc::new(reads), checkout_lock, packing)
+    let floor_reports = Arc::new(GitFloorReports::default());
+    TurnSnapshotService::new(git, Arc::new(reads), checkout_lock, packing, floor_reports)
 }
 
 /// Turn `turn_ordinal` of `run_id` in epoch 0 at the checkout `repository`, owned by `owner`.

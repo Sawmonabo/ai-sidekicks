@@ -120,22 +120,15 @@ pub(crate) struct SizePartition {
     pub(crate) left_out_entries: Vec<Vec<u8>>,
 }
 
-/// The places and features whose git was reported too old in this daemon run, so each is logged
-/// once.
-#[derive(Debug)]
-pub(crate) struct GitFloorReports {
+/// The daemon run's one record of the old gits already reported: the places and features whose git
+/// was reported too old, so each is logged once whichever capture or packing meets it.
+#[derive(Debug, Default)]
+pub struct GitFloorReports {
     /// The place and the feature of each report made.
     reported: Mutex<HashSet<(Option<Place>, GitFeature)>>,
 }
 
 impl GitFloorReports {
-    /// No report made yet.
-    pub(crate) fn new() -> Self {
-        Self {
-            reported: Mutex::new(HashSet::new()),
-        }
-    }
-
     /// Logs that the git at `place`, `git_version`, lacks `feature`, the first time this daemon run
     /// meets that place and feature.
     pub(crate) fn report_once(
