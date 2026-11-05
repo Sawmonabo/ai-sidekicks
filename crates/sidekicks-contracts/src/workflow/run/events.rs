@@ -104,12 +104,26 @@ workflow_run_event! {
     pub struct WorkflowGateReachedPayload {}
 }
 
+/// Whether a failed run is parked, waiting for a person to resume it, or ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum WorkflowRunFailedOutcome {
+    /// A step failed under `onError: stop`, or the crash sweep failed it: the run holds where it
+    /// stopped, with no end instant, until it is resumed, canceled or deleted.
+    Parked,
+    /// The run ended on its failure, with its end instant, and takes no resume.
+    Ended,
+}
+
 workflow_run_event! {
-    /// `workflow.run.failed`: the run ended on a failure, whose cause its failed step's own event
-    /// carries.
+    /// `workflow.run.failed`: the run failed on a step, whose cause that step's own event carries,
+    /// and either parked or ended.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    pub struct WorkflowRunFailedPayload {}
+    pub struct WorkflowRunFailedPayload {
+        /// Whether the run parked or ended.
+        pub outcome: WorkflowRunFailedOutcome,
+    }
 }
 
 workflow_run_event! {
@@ -218,6 +232,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowRunCanceledPayload>().checked(),
         Definition::read::<WorkflowRunDeletedPayload>().checked(),
         Definition::read::<WorkflowGateReachedPayload>().checked(),
+        Definition::read::<WorkflowRunFailedOutcome>(),
         Definition::read::<WorkflowRunFailedPayload>().checked(),
         Definition::read::<WorkflowRunCompletedPayload>().checked(),
         Definition::read::<WorkflowRunWaitingPayload>().checked(),

@@ -82,12 +82,16 @@ fn step_event(event_type: &str, extra: Value) -> Value {
     json!({"type": event_type, "payload": payload})
 }
 
-/// A workflow-run event of the test run.
-fn workflow_run_event(event_type: &str) -> Value {
-    json!({"type": event_type, "payload": {
+/// A workflow-run event of the test run, with `extra` members on its payload.
+fn workflow_run_event(event_type: &str, extra: Value) -> Value {
+    let mut payload = json!({
         "sessionId": SESSION, "workflowRunId": WORKFLOW_RUN,
         "definitionId": DEFINITION, "workflowVersionId": VERSION,
-    }})
+    });
+    if let (Some(payload), Value::Object(extra)) = (payload.as_object_mut(), extra) {
+        payload.extend(extra);
+    }
+    json!({"type": event_type, "payload": payload})
 }
 
 fn plan_proposed(holds_request: bool) -> Value {
@@ -342,7 +346,7 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
     AttentionChange::Nothing
 )]
 #[case::workflow_gate_reached(
-    workflow_run_event("workflow.gate.reached"),
+    workflow_run_event("workflow.gate.reached", json!({})),
     AttentionChange::Nothing
 )]
 #[case::workflow_run_started(
@@ -354,7 +358,7 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
     }}),
     AttentionChange::Nothing
 )]
-#[case::workflow_run_waiting(workflow_run_event("workflow.run.waiting"), AttentionChange::Nothing)]
+#[case::workflow_run_waiting(workflow_run_event("workflow.run.waiting", json!({})), AttentionChange::Nothing)]
 #[case::step_waits_on_an_approval(
     step_event("workflow.phase.suspended", json!({"waitCause": "approval", "waitId": WAIT})),
     raise_wait(AttentionWait::Step(step_key()), PendingInput)
@@ -407,16 +411,23 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
     resolve(AttentionOpenEntries::WorkflowRun(workflow_run_id()))
 )]
 #[case::workflow_run_canceled(
-    workflow_run_event("workflow.run.canceled"),
+    workflow_run_event("workflow.run.canceled", json!({})),
     resolve(AttentionOpenEntries::WorkflowRun(workflow_run_id()))
 )]
 #[case::workflow_run_completed(
-    workflow_run_event("workflow.run.completed"),
+    workflow_run_event("workflow.run.completed", json!({})),
     workflow_run_end(RunCompleted)
 )]
-#[case::workflow_run_failed(workflow_run_event("workflow.run.failed"), workflow_run_end(RunFailed))]
+#[case::workflow_run_failed(
+    workflow_run_event("workflow.run.failed", json!({"outcome": "ended"})),
+    workflow_run_end(RunFailed)
+)]
+#[case::workflow_run_parked(
+    workflow_run_event("workflow.run.failed", json!({"outcome": "parked"})),
+    AttentionChange::Nothing
+)]
 #[case::workflow_run_deleted(
-    workflow_run_event("workflow.run.deleted"),
+    workflow_run_event("workflow.run.deleted", json!({})),
     AttentionChange::DeleteWorkflowRun(workflow_run_id())
 )]
 #[case::workflow_phase_started(
