@@ -11,6 +11,9 @@ use sidekicks_contracts::place::PlacedPath;
 use super::{
     ClaudeMcpConfigSources, ClaudeMcpRoot, ClaudePersonConfigFiles, read_claude_mcp_config,
 };
+use crate::driver::claude::session::rules::{
+    CLAUDE_SHARED_SETTINGS_FILE, CLAUDE_USER_SETTINGS_FILE, local_settings_path, settings_path,
+};
 
 // A root at `folder`, read in place.
 fn attached_root(folder: &Path) -> ClaudeMcpRoot {
@@ -69,16 +72,19 @@ async fn a_kept_out_name_reaches_only_the_roots_its_file_covers(
     let root_a = &roots[0].folder;
     match source {
         KeptOutSource::UserSettings => {
-            write_json(&home.join(".claude").join("settings.json"), &kept_out);
-        }
-        KeptOutSource::ProjectSettings => {
-            write_json(&root_a.join(".claude").join("settings.json"), &kept_out);
-        }
-        KeptOutSource::ProjectLocalSettings => {
             write_json(
-                &root_a.join(".claude").join("settings.local.json"),
+                &settings_path(&home, CLAUDE_SHARED_SETTINGS_FILE),
                 &kept_out,
             );
+        }
+        KeptOutSource::ProjectSettings => {
+            write_json(
+                &settings_path(root_a, CLAUDE_SHARED_SETTINGS_FILE),
+                &kept_out,
+            );
+        }
+        KeptOutSource::ProjectLocalSettings => {
+            write_json(&local_settings_path(root_a), &kept_out);
         }
         KeptOutSource::ManagedSettings => {
             write_json(&managed.join("managed-settings.json"), &kept_out);
@@ -228,7 +234,7 @@ async fn the_person_config_is_read_in_the_folder_claude_config_dir_names() {
         &json!({ "mcpServers": { "moved-server": { "command": "moved" } } }),
     );
     write_json(
-        &config_folder.join("settings.json"),
+        &config_folder.join(CLAUDE_USER_SETTINGS_FILE),
         &json!({ "disabledMcpjsonServers": ["kept"] }),
     );
     let environment = [(
