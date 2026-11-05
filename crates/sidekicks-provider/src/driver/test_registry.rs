@@ -1,7 +1,8 @@
 //! The driver registry other areas' tests build on: the shared services every driver's build takes,
 //! the table's first providers answered by stand-in drivers, a run bound to the first one, every
 //! provider answered by a mock driver, the session inbox addresser the table's own drivers answer,
-//! an accounts reader answering one current account, the table with Codex's driver over a scripted
+//! an accounts reader answering one current account and one answering every account's folders as
+//! one folder, the table with Codex's driver over a scripted
 //! service, and the stand-in Codex service a test program runs as itself; the run, session and
 //! message ids the drivers' tests mint, and the run queue's intake as a driver tells it.
 
@@ -182,6 +183,59 @@ pub fn registered_test_accounts(
         .register(Arc::new(TestProviderAccounts(current)) as Arc<dyn ProviderAccountReader>)
         .expect("a new registration takes its port");
     Arc::new(provider_accounts)
+}
+
+/// An accounts reader answering the one folder it holds as every account's configuration and
+/// credential folder, and the test account as every provider's current one; it reads no credential
+/// generation, and answers no sign-in mode and no sealed token.
+pub struct OneAccountFolder(pub PathBuf);
+
+impl OneAccountFolder {
+    /// The folders it answers for every account.
+    pub fn account_folders(&self) -> ProviderAccountFolders {
+        ProviderAccountFolders {
+            configuration_folder: self.0.clone(),
+            credential_store_folder: self.0.clone(),
+        }
+    }
+}
+
+impl ProviderAccountReader for OneAccountFolder {
+    fn resolve_account_folders(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<ProviderAccountFolders, AccountFoldersError>> {
+        let account_folders = self.account_folders();
+        async move { Ok(account_folders) }.boxed()
+    }
+
+    fn current_account(
+        &self,
+        _provider_id: ProviderId,
+    ) -> BoxFuture<'_, Result<CurrentProviderAccount, Box<dyn Error + Send + Sync>>> {
+        async { Ok(CurrentProviderAccount::Current(test_provider_account_id())) }.boxed()
+    }
+
+    fn read_credential_generation(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn Error + Send + Sync>>> {
+        async { Err(NotServedInTest("credential generation").into()) }.boxed()
+    }
+
+    fn read_observed_auth_mode(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn Error + Send + Sync>>> {
+        async { Ok(None) }.boxed()
+    }
+
+    fn read_sealed_token(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn Error + Send + Sync>>> {
+        async { Ok(None) }.boxed()
+    }
 }
 
 /// The shared services every driver's build takes, with every port unregistered, the spawn

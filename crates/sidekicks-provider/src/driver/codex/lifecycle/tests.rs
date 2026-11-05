@@ -301,7 +301,7 @@ pub(super) fn driver_holding(scripted: &ScriptedCodexService, folder: &Path) -> 
     services
         .ports
         .provider_accounts
-        .register(one_folder)
+        .register(Arc::new(one_folder.accounts()))
         .expect("the provider accounts register once");
     services.execution_postures = Arc::new(ExecutionPostureService::new(
         folder,

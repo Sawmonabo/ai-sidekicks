@@ -9,16 +9,11 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use rstest::rstest;
 use rusqlite::{Connection, params};
-use secrecy::SecretString;
 use serde_json::{Value, json};
 use sidekicks_contracts::machine::settings::MachineSettings;
 use sidekicks_contracts::project::ProjectId;
-use sidekicks_contracts::provider::account::record::{
-    CredentialGeneration, ProviderAccountId, ProviderAuthMode,
-};
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
-use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceState};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -28,10 +23,8 @@ use sidekicks_mcp::status::open_test_tracker;
 use sidekicks_platforms::Spawner;
 use sidekicks_provider::driver::ports::SessionRelaunchListener;
 use sidekicks_provider::driver::session_control::DriverResumeResult;
-use sidekicks_provider::driver::{
-    AccountFoldersError, CurrentProviderAccount, ProviderAccountFolders, ProviderAccountReader,
-    SessionSpawnContextResolver,
-};
+use sidekicks_provider::driver::test_registry::OneAccountFolder;
+use sidekicks_provider::driver::{ProviderAccountReader, SessionSpawnContextResolver};
 use sidekicks_provider::left_conversations::read_left_conversations;
 use sidekicks_provider::runtime_binding::store::{
     CreateRuntimeBindingInput, mint_runtime_binding_id,
@@ -81,51 +74,6 @@ impl MachineSettingsReader for Unread {
         &self,
     ) -> BoxFuture<'_, Result<MachineSettings, Box<dyn Error + Send + Sync>>> {
         async { Ok(MachineSettings::default()) }.boxed()
-    }
-}
-
-// An accounts reader answering every account's folders under one folder; a spawn context reads
-// nothing else of it.
-struct FoldersUnder(PathBuf);
-
-impl ProviderAccountReader for FoldersUnder {
-    fn resolve_account_folders(
-        &self,
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<ProviderAccountFolders, AccountFoldersError>> {
-        let folders = ProviderAccountFolders {
-            configuration_folder: self.0.join("configuration"),
-            credential_store_folder: self.0.join("credentials"),
-        };
-        async move { Ok(folders) }.boxed()
-    }
-
-    fn current_account(
-        &self,
-        _provider_id: ProviderId,
-    ) -> BoxFuture<'_, Result<CurrentProviderAccount, Box<dyn Error + Send + Sync>>> {
-        async { Err("the test reads no current account".into()) }.boxed()
-    }
-
-    fn read_credential_generation(
-        &self,
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn Error + Send + Sync>>> {
-        async { Err("the test reads no credential generation".into()) }.boxed()
-    }
-
-    fn read_observed_auth_mode(
-        &self,
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn Error + Send + Sync>>> {
-        async { Err("the test reads no sign-in mode".into()) }.boxed()
-    }
-
-    fn read_sealed_token(
-        &self,
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn Error + Send + Sync>>> {
-        async { Err("the test reads no sealed token".into()) }.boxed()
     }
 }
 
@@ -449,7 +397,7 @@ async fn a_spawn_context_carries_the_sessions_memory_switch(#[case] auto_memory:
         "2026-10-14T09:30:00.000Z",
     );
     let accounts: Arc<dyn ProviderAccountReader> =
-        Arc::new(FoldersUnder(folder.path().to_path_buf()));
+        Arc::new(OneAccountFolder(folder.path().to_path_buf()));
     provider_accounts
         .register(accounts)
         .expect("the accounts reader registers");

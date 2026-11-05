@@ -6,20 +6,13 @@ use std::sync::Arc;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
-use secrecy::SecretString;
-use sidekicks_contracts::provider::account::record::{
-    CredentialGeneration, ProviderAccountId, ProviderAuthMode,
-};
-use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::port_registration::PortRegistration;
 
 use crate::driver::ports::DriverPorts;
-use crate::driver::{
-    AccountFoldersError, CurrentProviderAccount, ProviderAccountFolders, ProviderAccountReader,
-    SessionSpawnContext, SessionSpawnContextResolver,
-};
-use crate::runtime_binding::test_store::test_provider_account_id;
+use crate::driver::test_registry::OneAccountFolder;
+use crate::driver::{SessionSpawnContext, SessionSpawnContextResolver};
 
 /// The spawn-context port with [`OneFolder`] over `folder` registered on it.
 pub(crate) fn one_folder_spawn_contexts(
@@ -32,18 +25,14 @@ pub(crate) fn one_folder_spawn_contexts(
     spawn_contexts
 }
 
-/// Every session runs in one folder on the test's one account, whose home sits beside the folder
-/// and whose generation is never read.
+/// Every session runs in one folder on the test's one account, whose home sits beside the folder.
 pub(crate) struct OneFolder(pub(crate) PathBuf);
 
 impl OneFolder {
-    // The test account's folders, both its Codex home beside the working folder.
-    fn account_folders(&self) -> ProviderAccountFolders {
-        let codex_home = self.0.with_file_name("codex-home");
-        ProviderAccountFolders {
-            configuration_folder: codex_home.clone(),
-            credential_store_folder: codex_home,
-        }
+    /// The accounts reader of the test account, whose folders are both its Codex home beside the
+    /// working folder.
+    pub(crate) fn accounts(&self) -> OneAccountFolder {
+        OneAccountFolder(self.0.with_file_name("codex-home"))
     }
 }
 
@@ -54,7 +43,7 @@ impl SessionSpawnContextResolver for OneFolder {
         _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<SessionSpawnContext, Box<dyn std::error::Error + Send + Sync>>> {
         let working_directory = self.0.clone();
-        let account_folders = self.account_folders();
+        let account_folders = self.accounts().account_folders();
         async move {
             Ok(SessionSpawnContext {
                 working_directory,
@@ -76,46 +65,5 @@ impl SessionSpawnContextResolver for OneFolder {
     ) -> BoxFuture<'_, Result<PathBuf, Box<dyn std::error::Error + Send + Sync>>> {
         let run_folder = self.0.clone();
         async move { Ok(run_folder) }.boxed()
-    }
-}
-
-impl ProviderAccountReader for OneFolder {
-    fn resolve_account_folders(
-        &self,
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<ProviderAccountFolders, AccountFoldersError>> {
-        let account_folders = self.account_folders();
-        async move { Ok(account_folders) }.boxed()
-    }
-
-    fn current_account(
-        &self,
-        _provider_id: ProviderId,
-    ) -> BoxFuture<'_, Result<CurrentProviderAccount, Box<dyn std::error::Error + Send + Sync>>>
-    {
-        async { Ok(CurrentProviderAccount::Current(test_provider_account_id())) }.boxed()
-    }
-
-    fn read_credential_generation(
-        &self,
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn std::error::Error + Send + Sync>>> {
-        async { Err("the test reads no generation".into()) }.boxed()
-    }
-
-    fn read_observed_auth_mode(
-        &self,
-
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn std::error::Error + Send + Sync>>>
-    {
-        async { Ok(None) }.boxed()
-    }
-
-    fn read_sealed_token(
-        &self,
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn std::error::Error + Send + Sync>>> {
-        async { Ok(None) }.boxed()
     }
 }

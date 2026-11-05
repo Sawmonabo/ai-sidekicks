@@ -50,7 +50,7 @@ async fn a_revoke_reads_the_rules_of_the_sessions_own_account_home() {
         services
             .ports
             .provider_accounts
-            .register(Arc::new(OneFolder(working_folder)) as _)
+            .register(Arc::new(OneFolder(working_folder).accounts()) as _)
             .is_ok()
     );
     let driver = CodexDriver::new(&services);
