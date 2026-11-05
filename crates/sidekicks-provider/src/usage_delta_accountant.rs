@@ -183,6 +183,50 @@ pub struct MeteredUsageDelta {
     pub request: UsageRequestFacts,
 }
 
+impl MeteredUsageDelta {
+    /// The delta's counts as a usage row carries them, each absent where the reading carried none;
+    /// `None` when one passes the wire's integer range.
+    pub fn row_figures(&self) -> Option<UsageRowFigures> {
+        let figure = |figure: Option<u64>| match figure {
+            Some(figure) => SafeInt::new(figure).map(Some),
+            None => Some(None),
+        };
+        let axes = &self.axis_deltas;
+        Some(UsageRowFigures {
+            total: figure(axes.total)?,
+            input: figure(axes.input.map(|_| self.normalized_input_tokens))?,
+            output: figure(axes.output.map(|_| self.normalized_output_tokens))?,
+            cache_read: figure(axes.cached_input)?,
+            cache_write: figure(axes.cache_write_input)?,
+            reasoning: figure(axes.reasoning_output)?,
+            cache_write_extended: figure(self.request.cache_write_extended_tokens)?,
+            web_searches: figure(self.request.web_search_requests)?,
+        })
+    }
+}
+
+/// A delta's counts as the wire's integers, the one reading the stored and the priced row share;
+/// each is absent where the reading carried none.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UsageRowFigures {
+    /// Every token, as the provider totals them.
+    pub total: Option<SafeInt<0>>,
+    /// The normalized input.
+    pub input: Option<SafeInt<0>>,
+    /// The normalized output.
+    pub output: Option<SafeInt<0>>,
+    /// Input read from the cache.
+    pub cache_read: Option<SafeInt<0>>,
+    /// Input written to the cache.
+    pub cache_write: Option<SafeInt<0>>,
+    /// Output spent on reasoning.
+    pub reasoning: Option<SafeInt<0>>,
+    /// The cache write's part at the longer lifetime.
+    pub cache_write_extended: Option<SafeInt<0>>,
+    /// The web searches the change ran.
+    pub web_searches: Option<SafeInt<0>>,
+}
+
 /// How a thread's base registers are established.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ThreadBaseEstablishment {
@@ -407,23 +451,14 @@ pub(crate) fn compose_one_turn_spend(
         declared_per_turn: None,
         request: UsageRequestFacts::default(),
     })?;
-    // An absent axis stays absent; a present one past the range answers `None`.
-    let figure = |figure: Option<u64>| match figure {
-        Some(figure) => SafeInt::new(figure).map(Some),
-        None => Some(None),
-    };
+    let figures = delta.row_figures()?;
     Some(WindowTurnSpend {
         model_id,
-        input_tokens: figure(
-            delta
-                .axis_deltas
-                .input
-                .map(|_| delta.normalized_input_tokens),
-        )?,
-        output_tokens: figure(delta.axis_deltas.output)?,
-        cache_read_tokens: figure(delta.axis_deltas.cached_input)?,
-        cache_write_tokens: figure(delta.axis_deltas.cache_write_input)?,
-        reasoning_tokens: figure(delta.axis_deltas.reasoning_output)?,
+        input_tokens: figures.input,
+        output_tokens: figures.output,
+        cache_read_tokens: figures.cache_read,
+        cache_write_tokens: figures.cache_write,
+        reasoning_tokens: figures.reasoning,
     })
 }
 
