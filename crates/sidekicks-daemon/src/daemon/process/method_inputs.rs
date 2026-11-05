@@ -35,7 +35,7 @@ use sidekicks_platforms::{
 };
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
-use sidekicks_provider::account::credential_home::sign_out_every_home;
+use sidekicks_provider::account::credential_home::{ACCOUNT_SIGN_OUT_BOUND, sign_out_every_home};
 use sidekicks_provider::port::run_pause::ContinuedMessages;
 use sidekicks_provider::port::session_wake::SessionWaker;
 use sidekicks_queue::memory_gate::{
@@ -120,7 +120,7 @@ use crate::daemon::process::workspace_services::{
 };
 use crate::daemon::process_tree_usage::ProcessTreeUsageReader;
 use crate::daemon::status_methods::StatusMethodsDeps;
-use crate::data_acts::erase::{ACCOUNT_SIGN_OUT_BOUND, DataErase, DataEraseDeps, EraseStep};
+use crate::data_acts::erase::{DataErase, DataEraseDeps, EraseStep};
 use crate::data_acts::export::{DataExportDeps, DataExports};
 use crate::ipc::handlers::agent::command::CommandMethodSources;
 use crate::ipc::handlers::approval::ApprovalMethodSources;
@@ -618,9 +618,11 @@ pub(crate) async fn register_method_inputs(
     });
     // The messages waiting for a paused run, which a run's and a child's continue deliver.
     let continued: Arc<dyn ContinuedMessages> = Arc::new(session.queue.delivery());
-    let (erase_accounts, erase_legs) = (
-        Arc::clone(&accounts.methods.accounts),
+    let (erase_reads, erase_data_folder, erase_legs, erase_sign_ins) = (
+        Arc::clone(&reads),
+        data_folder.to_path_buf(),
         accounts.methods.account_legs.clone(),
+        Arc::clone(&accounts.methods.sign_in),
     );
     register_method_tables(
         builder,
@@ -670,11 +672,16 @@ pub(crate) async fn register_method_inputs(
                     providers: Arc::clone(&registry),
                     stop_work,
                     sign_out_accounts: Arc::new(move || {
-                        let (registry, legs) = (Arc::clone(&erase_accounts), erase_legs.clone());
+                        let (pool, legs) = (Arc::clone(&erase_reads), erase_legs.clone());
+                        let folder = erase_data_folder.clone();
                         async move {
-                            sign_out_every_home(&registry, &legs, ACCOUNT_SIGN_OUT_BOUND).await
+                            sign_out_every_home(&pool, &folder, &legs, ACCOUNT_SIGN_OUT_BOUND).await
                         }
                         .boxed()
+                    }),
+                    end_sign_ins: Arc::new(move || {
+                        let sign_ins = Arc::clone(&erase_sign_ins);
+                        async move { sign_ins.stop(ACCOUNT_SIGN_OUT_BOUND).await }.boxed()
                     }),
                     close_data_folder,
                     end_process: Arc::new(move || accept_stop(DaemonStopReason::Erase)),

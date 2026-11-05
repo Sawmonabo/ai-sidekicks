@@ -1,21 +1,26 @@
 //! An account's removal: refused while a session runs on the account or a workflow step waits on
 //! it, naming the sessions or the workflow runs, then its intent marked, its sealed token
-//! destroyed, its row deleted with its quota readings and usage turns, and what each driver keeps
-//! in memory for it dropped. Its home stays on disk as it is. A crash between those writes leaves a
-//! marked row, which the start's sweep finishes.
+//! destroyed, a mark naming its provider written beside the homes, its row deleted with its quota
+//! readings and usage turns, and what each driver keeps in memory for it dropped. Its home stays on
+//! disk as it is. A crash between those writes leaves a marked row, which the start's sweep
+//! finishes.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
+use rusqlite::OptionalExtension;
+
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::methods::ProviderAccountInUseDetails;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_std::file::run_on_blocking_thread;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::database::statement::{
     DATABASE_NOW_SQL, StatementBindings, WriteStatement, text_binding,
@@ -23,6 +28,7 @@ use sidekicks_store::database::statement::{
 use sidekicks_store::database::stored_column::text_column;
 
 use super::{ProviderAccountRegistry, StoredValueRefused, refusal_or_failure};
+use crate::account::credential_home::marks::{clear_minted_mark, mark_removed};
 use crate::account::errors::ProviderAccountRegistryError;
 use crate::account::home_lock::AccountHomeLock;
 use crate::account::observer::AccountLiveTurns;
@@ -32,6 +38,9 @@ use crate::driver::registry::ProviderRegistry;
 // Every row, those whose removal has begun included.
 const SELECT_ACCOUNT_REMOVAL_INTENTS_SQL: &str =
     "SELECT account_id, removal_intent FROM provider_accounts ORDER BY account_id";
+
+const SELECT_MARKED_ACCOUNT_PROVIDER_SQL: &str =
+    "SELECT provider FROM provider_accounts WHERE account_id = @account_id AND removal_intent = 1";
 
 const DELETE_MARKED_ACCOUNT_SQL: &str =
     "DELETE FROM provider_accounts WHERE account_id = @account_id AND removal_intent = 1";
@@ -121,8 +130,9 @@ impl From<ProviderAccountRemovalError> for HandlerError {
 impl ProviderAccountRegistry {
     /// Removes `account_id` holding its home in `home_lock` throughout, so no sign-in or renewal
     /// writes there meanwhile: refused while `live_turns` names a session on it, then its intent
-    /// marked, its token in `token_custody` destroyed, its row deleted with its quota readings and
-    /// usage turns, and every driver in `drivers` told to forget it; its home is left as it is.
+    /// marked, its token in `token_custody` destroyed, a mark naming its provider written beside
+    /// the homes, its row deleted with its quota readings and usage turns, and every driver in
+    /// `drivers` told to forget it; its home is left as it is.
     /// Fails with [`ProviderAccountRemovalError::SessionsRunning`],
     /// [`ProviderAccountRemovalError::StepsWaiting`] or [`ProviderAccountRegistryError::NotFound`]
     /// with nothing written, and when a later write fails, the marked row kept for the sweep.
@@ -203,13 +213,42 @@ impl ProviderAccountRegistry {
             .await
     }
 
-    /// Deletes the row of `account_id`, whose removal has begun, its quota readings and usage
-    /// turns going with it; its home stays on disk. Fails with
-    /// [`ProviderAccountRegistryError::NotFound`] when no marked row of that id is stored.
+    /// Writes a mark naming the provider of `account_id`, whose removal has begun, beside the
+    /// homes and clears any minted mark left beside it, so no start's sweep takes the home, then
+    /// deletes its row, its quota readings and usage turns going with it; its home stays on disk,
+    /// and the mark keeps it known to the erase. A stop between the two leaves both, and the row
+    /// wins. Fails with [`ProviderAccountRegistryError::NotFound`] when no marked row of that id
+    /// is stored, and with [`ProviderAccountRegistryError::RemovedMark`] when the marks cannot be
+    /// written, the row kept.
     pub async fn delete_marked_account(
         &self,
         account_id: &ProviderAccountId,
     ) -> Result<(), ProviderAccountRegistryError> {
+        let marked = account_id.clone();
+        let provider = self
+            .reads
+            .read(ReadLength::Short, move |connection| {
+                connection
+                    .query_row(
+                        SELECT_MARKED_ACCOUNT_PROVIDER_SQL,
+                        rusqlite::named_params! { "@account_id": marked.as_str() },
+                        |row| {
+                            text_column(row, 0, |text| {
+                                ProviderId::new(text).ok_or(StoredValueRefused("provider id"))
+                            })
+                        },
+                    )
+                    .optional()?
+                    .ok_or(ProviderAccountRegistryError::NotFound)
+            })
+            .await?;
+        let (data_folder, marked) = (self.data_folder.clone(), account_id.clone());
+        run_on_blocking_thread(move || {
+            mark_removed(&data_folder, &marked, &provider)?;
+            clear_minted_mark(&data_folder, &marked)
+        })
+        .await
+        .map_err(ProviderAccountRegistryError::RemovedMark)?;
         self.write(vec![WriteStatement {
             sql: Cow::Borrowed(DELETE_MARKED_ACCOUNT_SQL),
             bindings: StatementBindings::Named(vec![text_binding(

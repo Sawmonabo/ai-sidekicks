@@ -6,7 +6,8 @@
 //! descriptor's path, the wakes of a folder's and a file's watch, whether a terminal's program
 //! waits for input, the daemon's process containment and its shell start's writer check, a session
 //! child's start, whether the machine runs on AC power, the machine's wakes from sleep, a
-//! wall-clock timer, an address's opening in the application registered for it, the mark on a
+//! wall-clock timer, an address's opening in the application registered for it and whether a
+//! browser opened from the process reaches its person, whether the kernel is WSL's, the mark on a
 //! running program's path once its file is replaced, the volume holding a path: its top and its id,
 //! and the shells the live test opens on a folder.
 
@@ -56,8 +57,8 @@ const HOST_NAME_SOURCE: &str = "gethostname";
 // The key of the pretty host name in the machine-info file.
 const PRETTY_HOSTNAME_KEY: &str = "PRETTY_HOSTNAME=";
 
-// The kernel's release, which names Microsoft on WSL's own kernels.
-const KERNEL_RELEASE_PATH: &str = "/proc/sys/kernel/osrelease";
+/// The kernel's release, which names Microsoft on WSL's own kernels.
+pub(crate) const KERNEL_RELEASE_PATH: &str = "/proc/sys/kernel/osrelease";
 
 // The mount table, one mount per line.
 const MOUNT_TABLE_PATH: &str = "/proc/self/mounts";
@@ -233,16 +234,20 @@ fn unescape(quoted: &str) -> String {
     unescaped
 }
 
+/// Whether `kernel_release`, as read from [`KERNEL_RELEASE_PATH`], names a WSL kernel:
+/// `5.15.167.4-microsoft-standard-WSL2` on WSL 2, `4.4.0-19041-Microsoft` on WSL 1.
+pub(crate) fn is_wsl_kernel(kernel_release: &[u8]) -> bool {
+    let microsoft = b"microsoft";
+    kernel_release
+        .windows(microsoft.len())
+        .any(|word| word.eq_ignore_ascii_case(microsoft))
+}
+
 // The mount points of the Windows drives in `mount_table`, when `kernel_release` names a WSL
 // kernel: WSL 1 mounts a drive as `drvfs`, WSL 2 over `9p` with `aname=drvfs` among its options,
 // and every `virtiofs` mount is a drive, since WSL mounts nothing else that way.
 fn drive_mounts_in(kernel_release: &[u8], mount_table: &[u8]) -> Vec<PathBuf> {
-    // `5.15.167.4-microsoft-standard-WSL2` on WSL 2, `4.4.0-19041-Microsoft` on WSL 1.
-    let microsoft = b"microsoft";
-    let is_wsl = kernel_release
-        .windows(microsoft.len())
-        .any(|word| word.eq_ignore_ascii_case(microsoft));
-    if !is_wsl {
+    if !is_wsl_kernel(kernel_release) {
         return Vec::new();
     }
     let mut mounts = Vec::new();

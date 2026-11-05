@@ -94,6 +94,7 @@ async fn broker_over(
     let broker = ProviderSignInBroker::new(
         Arc::new(registry),
         HashMap::from([(provider("codex"), legs)]),
+        HashMap::new(),
         Arc::new(RecordingPublisher(published_sender)),
         Arc::new(RecordingWatcher::default()),
         Arc::default(),
