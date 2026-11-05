@@ -33,6 +33,7 @@ use sidekicks_contracts::provider::account::record::{
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::file::run_on_blocking_thread;
 use sidekicks_std::random_hex::random_hex;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use sidekicks_store::database::statement::{
@@ -44,7 +45,6 @@ use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use crate::account::credential_home::marks::{clear_minted_mark, mark_minted};
 use crate::account::credential_home::{
     ACCOUNT_SIGN_OUT_BOUND, CredentialHome, create_credential_home, remove_unadmitted_home,
-    run_on_blocking_thread,
 };
 use crate::account::errors::ProviderAccountRegistryError;
 use crate::driver::contract::account::{ObservedAccountIdentity, ProviderAccountLegs};
@@ -454,7 +454,9 @@ impl ProviderAccountRegistry {
             return Ok(());
         }
         let data_folder = self.data_folder.clone();
-        run_on_blocking_thread(move || clear_minted_mark(&data_folder, &minted.account_id)).await
+        run_on_blocking_thread(move || clear_minted_mark(&data_folder, &minted.account_id))
+            .await
+            .map_err(ProviderAccountRegistryError::CredentialHome)
     }
 
     /// Every registered account, or `provider`'s alone, oldest first. Fails when the accounts

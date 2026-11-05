@@ -31,6 +31,7 @@ use sidekicks_ipc::registry::HandlerError;
 use sidekicks_platforms::{
     create_missing_private_folders, create_new_private_folder, make_folder_link, remove_tree,
 };
+use sidekicks_std::file::run_on_blocking_thread;
 use sidekicks_store::data_folder::agent_memory_folder;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 
@@ -268,7 +269,8 @@ pub async fn reset_credential_home(
             Err(io::ErrorKind::NotADirectory.into())
         }
     })
-    .await?;
+    .await
+    .map_err(ProviderAccountRegistryError::CredentialHome)?;
     legs.sign_out_home(account_id.clone(), folders)
         .await
         .map_err(CredentialHomeResetError::SignOut)?;
@@ -279,7 +281,8 @@ pub async fn reset_credential_home(
         }
         furnish_credential_home(&data_folder, &provider, &home)
     })
-    .await?;
+    .await
+    .map_err(ProviderAccountRegistryError::CredentialHome)?;
     Ok(registry
         .record_home_reset(&account_id, &WireInstant::now())
         .await?)
@@ -423,18 +426,6 @@ pub async fn sign_out_every_home<S: BuildHasher>(
             .map(|legs| legs.sign_out_home(account_id, folders))
     };
     Ok(sign_out_homes(accounts, sign_out, bound).await)
-}
-
-// Runs a file-system step off the runtime's threads, its failure a home or a mark that could not be
-// made, emptied or written.
-pub(super) async fn run_on_blocking_thread(
-    step: impl FnOnce() -> io::Result<()> + Send + 'static,
-) -> Result<(), ProviderAccountRegistryError> {
-    tokio::task::spawn_blocking(step)
-        .await
-        .map_err(io::Error::other)
-        .flatten()
-        .map_err(ProviderAccountRegistryError::CredentialHome)
 }
 
 pub mod marks;

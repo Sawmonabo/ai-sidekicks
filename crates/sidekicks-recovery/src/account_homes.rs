@@ -7,7 +7,6 @@
 
 use std::collections::HashMap;
 use std::hash::BuildHasher;
-use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,6 +18,7 @@ use sidekicks_provider::account::credential_home::marks::{
 use sidekicks_provider::account::credential_home::remove_unadmitted_home;
 use sidekicks_provider::account::registry::ProviderAccountRegistry;
 use sidekicks_provider::driver::contract::account::ProviderAccountLegs;
+use sidekicks_std::file::run_on_blocking_thread;
 
 /// The homes a stop left minted for new accounts, each with whether a row names its account, read
 /// at the start before any sign-in can mint another.
@@ -108,16 +108,6 @@ impl LeftoverMintedHomes {
             });
         futures::future::join_all(sweeps).await;
     }
-}
-
-// Runs a file-system step off the runtime's threads.
-async fn run_on_blocking_thread<T: Send + 'static>(
-    step: impl FnOnce() -> io::Result<T> + Send + 'static,
-) -> io::Result<T> {
-    tokio::task::spawn_blocking(step)
-        .await
-        .map_err(io::Error::other)
-        .flatten()
 }
 
 #[cfg(test)]

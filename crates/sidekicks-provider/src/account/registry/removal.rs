@@ -20,6 +20,7 @@ use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_std::file::run_on_blocking_thread;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::database::statement::{
     DATABASE_NOW_SQL, StatementBindings, WriteStatement, text_binding,
@@ -28,7 +29,6 @@ use sidekicks_store::database::stored_column::text_column;
 
 use super::{ProviderAccountRegistry, StoredValueRefused, refusal_or_failure};
 use crate::account::credential_home::marks::mark_removed;
-use crate::account::credential_home::run_on_blocking_thread;
 use crate::account::errors::ProviderAccountRegistryError;
 use crate::account::home_lock::AccountHomeLock;
 use crate::account::observer::AccountLiveTurns;
@@ -242,7 +242,9 @@ impl ProviderAccountRegistry {
             })
             .await?;
         let (data_folder, marked) = (self.data_folder.clone(), account_id.clone());
-        run_on_blocking_thread(move || mark_removed(&data_folder, &marked, &provider)).await?;
+        run_on_blocking_thread(move || mark_removed(&data_folder, &marked, &provider))
+            .await
+            .map_err(ProviderAccountRegistryError::CredentialHome)?;
         self.write(vec![WriteStatement {
             sql: Cow::Borrowed(DELETE_MARKED_ACCOUNT_SQL),
             bindings: StatementBindings::Named(vec![text_binding(
