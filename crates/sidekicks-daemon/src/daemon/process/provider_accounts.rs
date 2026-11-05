@@ -25,6 +25,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::transcript::run_facts::RunStateEventType;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_platforms::{Spawner, WallClock, wake_helper};
+use sidekicks_provider::account::credential_home::ACCOUNT_SIGN_OUT_BOUND;
 use sidekicks_provider::account::errors::ProviderAccountRegistryError;
 use sidekicks_provider::account::home_lock::AccountHomeLock;
 use sidekicks_provider::account::observer::window_store::read_usage_windows;
@@ -63,7 +64,6 @@ use tokio::task::JoinHandle;
 
 use crate::daemon::process::start_error::DaemonStartError;
 use crate::daemon::process::stop::{DaemonStopFailure, end_start_tasks};
-use crate::data_acts::erase::ACCOUNT_SIGN_OUT_BOUND;
 use crate::ipc::handlers::provider_account::ProviderAccountMethodSources;
 use crate::ipc::handlers::provider_account::notifications::ProviderAccountNotifications;
 use crate::orchestration::account_switch::{

@@ -16,8 +16,8 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_provider::account::credential_home::marks::{
     MarkedHome, clear_minted_mark, read_minted_homes,
 };
+use sidekicks_provider::account::credential_home::remove_unadmitted_home;
 use sidekicks_provider::account::registry::ProviderAccountRegistry;
-use sidekicks_provider::account::resolver::credential_home_folders;
 use sidekicks_provider::driver::contract::account::ProviderAccountLegs;
 
 /// The homes a stop left minted for new accounts, each with whether a row names its account, read
@@ -83,7 +83,16 @@ impl LeftoverMintedHomes {
             .homes
             .into_iter()
             .map(|(home, is_admitted)| async move {
-                if is_admitted || remove_unadmitted_home(&home, legs, bound).await {
+                if is_admitted
+                    || remove_unadmitted_home(
+                        &home.account_id,
+                        &home.provider,
+                        &home.home,
+                        Some(legs),
+                        bound,
+                    )
+                    .await
+                {
                     let data_folder = data_folder.clone();
                     let account_id = home.account_id;
                     if let Err(error) =
@@ -98,65 +107,6 @@ impl LeftoverMintedHomes {
                 }
             });
         futures::future::join_all(sweeps).await;
-    }
-}
-
-// Signs `home` out through its provider, when one is registered and the home was made, then
-// removes it, answering whether it is gone; a home whose sign-out fails or overruns stays, so its
-// sign-in is never left behind a removed folder.
-async fn remove_unadmitted_home<S: BuildHasher>(
-    home: &MarkedHome,
-    legs: &HashMap<ProviderId, Arc<dyn ProviderAccountLegs>, S>,
-    bound: Duration,
-) -> bool {
-    let path = home.home.path().to_path_buf();
-    let is_made = match tokio::fs::try_exists(&path).await {
-        Ok(is_made) => is_made,
-        Err(error) => {
-            tracing::warn!(
-                provider = home.provider.as_str(),
-                error = &error as &(dyn std::error::Error + 'static),
-                "a new account's home was not read; the next start sweeps it"
-            );
-            return false;
-        }
-    };
-    if !is_made {
-        return true;
-    }
-    if let Some(legs) = legs.get(&home.provider) {
-        let folders = credential_home_folders(&home.provider, &home.home);
-        match tokio::time::timeout(bound, legs.sign_out_home(home.account_id.clone(), folders))
-            .await
-        {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => {
-                tracing::warn!(
-                    provider = home.provider.as_str(),
-                    error = &error as &(dyn std::error::Error + 'static),
-                    "a new account's home was not signed out; the next start sweeps it"
-                );
-                return false;
-            }
-            Err(_elapsed) => {
-                tracing::warn!(
-                    provider = home.provider.as_str(),
-                    "a new account's sign-out outlived its bound; the next start sweeps its home"
-                );
-                return false;
-            }
-        }
-    }
-    match run_on_blocking_thread(move || sidekicks_platforms::remove_tree(&path)).await {
-        Ok(()) => true,
-        Err(error) => {
-            tracing::warn!(
-                provider = home.provider.as_str(),
-                error = &error as &(dyn std::error::Error + 'static),
-                "a new account's home was not removed; the next start sweeps it"
-            );
-            false
-        }
     }
 }
 

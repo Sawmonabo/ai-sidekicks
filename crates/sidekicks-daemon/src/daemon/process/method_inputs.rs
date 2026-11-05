@@ -35,7 +35,7 @@ use sidekicks_platforms::{
 };
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
-use sidekicks_provider::account::credential_home::sign_out_every_home;
+use sidekicks_provider::account::credential_home::{ACCOUNT_SIGN_OUT_BOUND, sign_out_every_home};
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_queue::memory_gate::{
     INGEST_WORKER_BYTES, MemoryGate, MemoryGateFigures, QUICK_THREAD_BYTES,
@@ -114,7 +114,7 @@ use crate::daemon::process::workspace_services::{
 use crate::daemon::process::worktree_sources::WorktreeSources;
 use crate::daemon::process_tree_usage::ProcessTreeUsageReader;
 use crate::daemon::status_methods::StatusMethodsDeps;
-use crate::data_acts::erase::{ACCOUNT_SIGN_OUT_BOUND, DataErase, DataEraseDeps, EraseStep};
+use crate::data_acts::erase::{DataErase, DataEraseDeps, EraseStep};
 use crate::data_acts::export::{DataExportDeps, DataExports};
 use crate::ipc::handlers::agent::command::CommandMethodSources;
 use crate::ipc::handlers::approval::ApprovalMethodSources;

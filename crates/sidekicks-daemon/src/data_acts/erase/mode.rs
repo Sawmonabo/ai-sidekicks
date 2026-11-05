@@ -20,7 +20,9 @@ use sidekicks_contracts::daemon::data::DataEraseAccountListing;
 use sidekicks_contracts::daemon::mode_outcome::DaemonModeOutcome;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_provider::account::credential_home::{HomeSignOut, HomeSignOutError, sign_out_homes};
+use sidekicks_provider::account::credential_home::{
+    ACCOUNT_SIGN_OUT_BOUND, HomeSignOut, HomeSignOutError, sign_out_homes,
+};
 use sidekicks_provider::account::homes::HomeToErase;
 use sidekicks_provider::driver::contract::account::HelperModeAccountLegs;
 use sidekicks_provider::driver::{HelperModeServices, PROVIDER_REGISTRATIONS};
@@ -30,9 +32,7 @@ use sidekicks_std::error_description::describe_error;
 use sidekicks_store::credential_store::items::SecretItems;
 use sidekicks_store::data_folder::lock::DataFolderLock;
 
-use crate::data_acts::erase::{
-    ACCOUNT_SIGN_OUT_BOUND, DataEraseOutcome, erase_data, stop_every_recorded_service,
-};
+use crate::data_acts::erase::{DataEraseOutcome, erase_data, stop_every_recorded_service};
 use crate::data_acts::mode_outcome::{
     ModeFolders, hold_data_folder, login_session_secret_items, run_data_folder_mode,
     store_unavailable,

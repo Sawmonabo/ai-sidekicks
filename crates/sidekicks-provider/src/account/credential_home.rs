@@ -2,8 +2,9 @@
 //! folder, readable by its owner alone, where the provider's own tooling keeps that account's
 //! sign-in; whether a registered account's home is there to run in; its reset, the provider's
 //! own sign-out followed by the home emptied in place; the sign-out of every home before
-//! `Erase all data` deletes them; and the two marks kept beside the homes, outside each: the one a
-//! new account carries until a row takes it, and the one a removed account's kept home carries.
+//! `Erase all data` deletes them; the sign-out and removal of a home minted for a new account no
+//! row took; and the two marks kept beside the homes, outside each: the one a new account carries
+//! until a row takes it, and the one a removed account's kept home carries.
 //!
 //! Where the provider keeps its agents' memory in its home, that folder is a link to the daemon's
 //! own agent-memory folder, made with the home and again after each reset, so every account's
@@ -46,6 +47,10 @@ use crate::driver::{ProviderAccountFolders, descriptor_of};
 
 // The data folder's folder of account homes, one folder per account named by its id.
 const ACCOUNT_HOMES_FOLDER_NAME: &str = "accounts";
+
+/// How long a provider's own sign-out of one account's home may take before the erase, the start's
+/// sweep of new accounts' homes or a new account's removal goes on without it.
+pub const ACCOUNT_SIGN_OUT_BOUND: Duration = Duration::from_secs(30);
 
 /// One account's credential home, always the folder minted for it under the daemon's data folder,
 /// an absolute path. Its `Debug` names no path, so a log line that prints it carries none.
@@ -128,7 +133,7 @@ pub(super) fn create_credential_home(
     let home = CredentialHome(homes.join(account_id.as_str()));
     create_new_private_folder(home.path())?;
     if let Err(error) = furnish_credential_home(data_folder, provider, &home) {
-        remove_credential_home(&home)?;
+        remove_tree(home.path())?;
         return Err(error);
     }
     Ok(home)
@@ -166,10 +171,63 @@ fn link_agent_memory(
     make_folder_link(&shared, &link)
 }
 
-/// Removes a home minted for an account no sign-in admitted, with whatever its sign-in attempt
-/// left in it. Fails with the system's error.
-pub(super) fn remove_credential_home(home: &CredentialHome) -> io::Result<()> {
-    fs::remove_dir_all(home.path())
+/// Signs `home` out through its provider's legs among `legs`, where they are given and the home
+/// was made, within `bound`, then removes it, answering whether it is gone; a home whose sign-out
+/// fails or overruns stays.
+pub async fn remove_unadmitted_home<S: BuildHasher>(
+    account_id: &ProviderAccountId,
+    provider: &ProviderId,
+    home: &CredentialHome,
+    legs: Option<&HashMap<ProviderId, Arc<dyn ProviderAccountLegs>, S>>,
+    bound: Duration,
+) -> bool {
+    let path = home.path().to_path_buf();
+    let is_made = match tokio::fs::try_exists(&path).await {
+        Ok(is_made) => is_made,
+        Err(error) => {
+            tracing::warn!(
+                provider = provider.as_str(),
+                error = &error as &(dyn std::error::Error + 'static),
+                "a new account's home was not read; the next start sweeps it"
+            );
+            return false;
+        }
+    };
+    if !is_made {
+        return true;
+    }
+    if let Some(legs) = legs.and_then(|legs| legs.get(provider)) {
+        let folders = credential_home_folders(provider, home);
+        match tokio::time::timeout(bound, legs.sign_out_home(account_id.clone(), folders)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                tracing::warn!(
+                    provider = provider.as_str(),
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "a new account's home was not signed out; the next start sweeps it"
+                );
+                return false;
+            }
+            Err(_elapsed) => {
+                tracing::warn!(
+                    provider = provider.as_str(),
+                    "a new account's sign-out outlived its bound; the next start sweeps its home"
+                );
+                return false;
+            }
+        }
+    }
+    match run_on_blocking_thread(move || remove_tree(&path)).await {
+        Ok(()) => true,
+        Err(error) => {
+            tracing::warn!(
+                provider = provider.as_str(),
+                error = &error as &(dyn std::error::Error + 'static),
+                "a new account's home was not removed; the next start sweeps it"
+            );
+            false
+        }
+    }
 }
 
 /// Why a credential home could not be reset.

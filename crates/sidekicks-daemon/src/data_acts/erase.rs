@@ -18,7 +18,6 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::daemon::backup::BACKUP_DEFAULT_FOLDER_NAME;
@@ -46,10 +45,6 @@ pub(crate) type AccountsSignOut = Arc<
         + Send
         + Sync,
 >;
-
-/// How long a provider's own sign-out of one account may take before the erase, or the start's
-/// sweep of new accounts' homes, goes on without it.
-pub(crate) const ACCOUNT_SIGN_OUT_BOUND: Duration = Duration::from_secs(30);
 
 /// What the erase acts on.
 pub(crate) struct DataEraseDeps {
