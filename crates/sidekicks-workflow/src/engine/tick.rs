@@ -11,6 +11,7 @@ mod step_failure;
 mod walk;
 
 pub(crate) use self::branch_cancellation::BranchCancelReason;
+pub(crate) use self::walk::{RunGraph, RunGraphError};
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;

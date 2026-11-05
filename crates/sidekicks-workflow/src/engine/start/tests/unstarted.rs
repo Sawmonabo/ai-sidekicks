@@ -27,13 +27,17 @@ enum NothingWritten {
     InputLeftOut,
     RepositoryRequired,
     ProviderRequired,
+    NodeKindUnavailable,
+    HandleUndeclared,
     HeldOnChain,
 }
 
 /// Mutations: a refusal checked after the write (a run row or an event is kept); a wrong code; the
 /// inputs left unchecked (the run starts); a step that needs a repository started in a session
 /// with no project's repository, or refused with a wrong detail; a step that runs in a sandbox
-/// started with no provider, refused with a wrong detail, or a disabled one counted; the count's
+/// started with no provider, refused with a wrong detail, or a disabled one counted; a version
+/// whose graph does not build started; one code answered for both errors; an unlisted kind or an
+/// undeclared handle refused with only the first node, or with a wrong node or handle; the count's
 /// refusal read as an error; a held start's own folder, or its emptied runs folder, left behind; a
 /// held start's stored input, above the inline cap, left undeleted.
 #[rstest]
@@ -42,6 +46,8 @@ enum NothingWritten {
 #[case::input_left_out(NothingWritten::InputLeftOut)]
 #[case::repository_required(NothingWritten::RepositoryRequired)]
 #[case::provider_required(NothingWritten::ProviderRequired)]
+#[case::node_kind_unavailable(NothingWritten::NodeKindUnavailable)]
+#[case::handle_undeclared(NothingWritten::HandleUndeclared)]
 #[case::held_on_chain(NothingWritten::HeldOnChain)]
 #[tokio::test]
 async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
@@ -52,6 +58,8 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
         | NothingWritten::InputLeftOut
         | NothingWritten::RepositoryRequired
         | NothingWritten::ProviderRequired
+        | NothingWritten::NodeKindUnavailable
+        | NothingWritten::HandleUndeclared
         | NothingWritten::HeldOnChain => TestSession::WithoutFolder,
     };
     let nodes = match case {
@@ -59,23 +67,50 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
         NothingWritten::ProviderRequired => {
             json!([shell_node("shell", false), shell_node("shell-off", true)])
         }
+        // A kind the table does not list, and a listed kind at a version it does not, disabled.
+        NothingWritten::NodeKindUnavailable => json!([
+            {
+                "id": "gone", "kind": "test.gone", "kindVersion": 1, "name": "Gone", "order": 0,
+                "params": {}
+            },
+            {
+                "id": "shell-later", "kind": "developer.shell", "kindVersion": 2,
+                "name": "Later", "order": 0, "disabled": true, "params": {}
+            },
+        ]),
+        // Disabled, so neither needs a provider, though both stay in the graph.
+        NothingWritten::HandleUndeclared => {
+            json!([shell_node("shell-a", true), shell_node("shell-b", true)])
+        }
         NothingWritten::UnknownSession
         | NothingWritten::UnknownVersion
         | NothingWritten::InputLeftOut
         | NothingWritten::HeldOnChain => json!([]),
     };
-    let fixture = Fixture::new(
-        &body(Some(declared), &nodes),
-        session,
-        WorkflowChainAskAfterRuns::new(25),
-    )
-    .await;
+    let mut version_body = body(Some(declared), &nodes);
+    // One edge leaves an output the command kind does not declare, the other enters an input it
+    // does not declare.
+    if let NothingWritten::HandleUndeclared = case {
+        version_body["edges"] = json!([
+            {
+                "id": "from-undeclared", "source": "shell-a", "sourceHandle": "outputs/main/4",
+                "target": "shell-b", "targetHandle": "inputs/main/0"
+            },
+            {
+                "id": "into-undeclared", "source": "shell-a", "sourceHandle": "outputs/main/0",
+                "target": "shell-b", "targetHandle": "inputs/main/1"
+            },
+        ]);
+    }
+    let fixture = Fixture::new(&version_body, session, WorkflowChainAskAfterRuns::new(25)).await;
     let input = match case {
         NothingWritten::InputLeftOut => Vec::new(),
         NothingWritten::UnknownSession
         | NothingWritten::UnknownVersion
         | NothingWritten::RepositoryRequired
-        | NothingWritten::ProviderRequired => vec![item(json!({ "ticket": "T-1" }))],
+        | NothingWritten::ProviderRequired
+        | NothingWritten::NodeKindUnavailable
+        | NothingWritten::HandleUndeclared => vec![item(json!({ "ticket": "T-1" }))],
         NothingWritten::HeldOnChain => vec![item(json!({ "ticket": "x".repeat(70 * 1024) }))],
     };
     let mut request = start(
@@ -142,6 +177,25 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
             assert_eq!(
                 refusal.detail.map(|detail| detail["nodeIds"].clone()),
                 Some(json!(["shell"]))
+            );
+        }
+        NothingWritten::NodeKindUnavailable => {
+            let refusal = refusal(outcome.expect_err("the start is refused"));
+            assert_eq!(refusal.code, RefusalCode::WorkflowRunNodeKindUnavailable);
+            assert_eq!(
+                refusal.detail.map(|detail| Value::Object(*detail)),
+                Some(json!({ "nodeIds": ["gone", "shell-later"] }))
+            );
+        }
+        NothingWritten::HandleUndeclared => {
+            let refusal = refusal(outcome.expect_err("the start is refused"));
+            assert_eq!(refusal.code, RefusalCode::WorkflowRunHandleUndeclared);
+            assert_eq!(
+                refusal.detail.map(|detail| Value::Object(*detail)),
+                Some(json!({
+                    "nodeIds": ["shell-a", "shell-b"],
+                    "handles": ["outputs/main/4", "inputs/main/1"]
+                }))
             );
         }
     }

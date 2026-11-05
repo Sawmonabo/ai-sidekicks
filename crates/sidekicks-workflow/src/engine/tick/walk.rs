@@ -27,8 +27,8 @@ use sidekicks_contracts::workflow::run::step::events::WorkflowStepSkipReason;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowStepKey, WorkflowStepSource};
 
 use self::first_to_arrive::FirstToArriveWin;
-pub(crate) use self::graph::RunGraph;
 use self::graph::SlotTarget;
+pub(crate) use self::graph::{RunGraph, RunGraphError};
 use self::lineage::StepLineage;
 use self::round::{NodeRounds, Round, RoundSlot, SlotOpenings};
 use crate::expressions::lineage::{StepKey, StepOutputs};

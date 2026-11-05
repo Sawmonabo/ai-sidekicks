@@ -29,8 +29,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::workflow::definition::document::{
-    WorkflowDefinitionId, WorkflowEdge, WorkflowName, WorkflowNode, WorkflowNodeId,
-    WorkflowVersionId,
+    WorkflowDefinitionId, WorkflowName, WorkflowNode, WorkflowNodeId, WorkflowVersionId,
 };
 use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowPinnedItem};
 use sidekicks_contracts::workflow::run::events::WorkflowRunStartedPayload;
@@ -58,7 +57,7 @@ use crate::definitions::kept_values::{WorkflowKeptValue, WorkflowKeptValueStore}
 use crate::definitions::stored_document::parse_stored_pin_data;
 use crate::engine::event_record::{EngineFault, EngineRecorder};
 use crate::engine::ports::{ChainAskAfterReader, StepPayloadArtifacts};
-use crate::engine::tick::RunScope;
+use crate::engine::tick::{RunGraph, RunScope};
 use crate::kinds::NodeKindTable;
 use crate::runs::creation::{
     CHAIN_COUNT_STATEMENT_INDEX, CHAIN_ROOT_CHECK_STATEMENT_INDEX, WorkflowRunCreation,
@@ -128,7 +127,7 @@ pub(crate) struct WorkflowRunStart {
     pub(crate) input: Vec<WorkflowItem>,
 }
 
-/// A run the start wrote: the scope its steps share, which holds the folder it works in, the edges
+/// A run the start wrote: the scope its steps share, which holds the folder it works in, the graph
 /// of its pinned version and the input its trigger step starts on.
 #[derive(Clone)]
 #[cfg_attr(
@@ -138,8 +137,9 @@ pub(crate) struct WorkflowRunStart {
 pub(crate) struct StartedRun {
     /// What the run's steps share, built once here.
     pub(crate) scope: Arc<RunScope>,
-    /// The edges of its pinned version.
-    pub(crate) edges: Arc<[WorkflowEdge]>,
+    /// The graph of its pinned version, built once by the start's checks.
+    #[cfg_attr(test, expect(dead_code, reason = "the tick's loop, which walks it"))]
+    pub(crate) graph: Arc<RunGraph>,
     /// The input its trigger step starts on.
     pub(crate) trigger_input: WorkflowPayloadRef,
 }
@@ -151,7 +151,6 @@ impl fmt::Debug for StartedRun {
             .debug_struct("StartedRun")
             .field("workflow_run_id", &self.scope.run_id)
             .field("working_folder", &self.scope.working_folder)
-            .field("edges", &self.edges)
             .field("trigger_input", &self.trigger_input)
             .finish_non_exhaustive()
     }
@@ -185,7 +184,8 @@ struct CheckedStart {
     workflow_name: WorkflowName,
     trigger_node: WorkflowRunTrigger,
     nodes: HashMap<WorkflowNodeId, WorkflowNode>,
-    edges: Arc<[WorkflowEdge]>,
+    /// The graph of the pinned version, built once here.
+    graph: Arc<RunGraph>,
     start_items: Vec<WorkflowItem>,
     session: SessionWorkingFolder,
     permission_level: PermissionLevel,
@@ -326,7 +326,8 @@ impl WorkflowRunStarter {
     /// event's instant the row's start and the scope's. A run joining a chain at its limit is held,
     /// with nothing written. Fails with [`WorkflowRunStartError::Refused`]
     /// (`workflow.run.startDenied`, `workflow.run.inputRequired`,
-    /// `workflow.run.repositoryRequired`, `workflow.run.providerRequired`),
+    /// `workflow.run.repositoryRequired`, `workflow.run.providerRequired`,
+    /// `workflow.run.nodeKindUnavailable`, `workflow.run.handleUndeclared`),
     /// [`WorkflowRunStartError::Version`] (`workflow.version.notFound`) or
     /// [`WorkflowRunStartError::Session`] (`session.notFound`) before anything is made, and with
     /// the other variants when a read, the folder, the payload store or the write fails; the run's
@@ -605,7 +606,7 @@ impl WorkflowRunStarter {
                 };
                 Ok(WorkflowStartOutcome::Started(StartedRun {
                     scope: Arc::new(scope),
-                    edges: checked.edges,
+                    graph: checked.graph,
                     trigger_input,
                 }))
             }

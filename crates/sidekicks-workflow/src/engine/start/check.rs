@@ -1,5 +1,6 @@
 //! The checks a start passes before anything is made, and the reads only they need.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use rusqlite::Connection;
@@ -8,10 +9,19 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::list::{BoundedVec, UniqueList};
-use sidekicks_contracts::workflow::definition::document::{WorkflowDefinitionId, WorkflowNode};
+use sidekicks_contracts::wire::text::NonEmptyText;
+use sidekicks_contracts::workflow::definition::document::{
+    WorkflowDefinitionId, WorkflowEdge, WorkflowNode, WorkflowNodeId,
+};
+use sidekicks_contracts::workflow::definition::handle::{
+    WorkflowHandleMode, WorkflowHandleType, parse_workflow_handle,
+};
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
-use sidekicks_contracts::workflow::definition::refusals::enabled_nodes_needing;
+use sidekicks_contracts::workflow::definition::refusals::{
+    WorkflowNodeHandles, enabled_nodes_needing,
+};
 use sidekicks_contracts::workflow::run::control::{
+    WorkflowRunHandleUndeclaredDetails, WorkflowRunNodeKindUnavailableDetails,
     WorkflowRunProviderRequiredDetails, WorkflowRunRepositoryRequiredDetails,
     fill_workflow_trigger_inputs,
 };
@@ -28,6 +38,8 @@ use super::{
 };
 use crate::definitions::stored_document::parse_stored_workflow_body;
 use crate::definitions::versions::history::WorkflowVersions;
+use crate::engine::tick::{RunGraph, RunGraphError};
+use crate::kinds::NodeKindTable;
 
 // The level every run of the workflow runs at, its pinned test items and its provider.
 #[cfg_attr(
@@ -40,7 +52,8 @@ const DEFINITION_SCOPE_SQL: &str =
 impl WorkflowRunStarter {
     // The checks, in order, before anything is made: a trigger's fire under the workflow start
     // rule, the version, the session, the trigger's declared inputs, a project's repository for
-    // the steps that need one, then the workflow's provider for the steps that run in its sandbox.
+    // the steps that need one, the workflow's provider for the steps that run in its sandbox, then
+    // the run's graph.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")
@@ -154,11 +167,34 @@ impl WorkflowRunStarter {
                 .into());
             }
         }
+        // The graph holds every node, disabled ones too, so each node's kind must be listed at its
+        // version; every node that is not is named at once, in document order.
+        let unavailable: Vec<WorkflowNodeId> = std::iter::once(&trigger_node)
+            .chain(&body.nodes)
+            .filter(|node| self.kinds.kind_of(node).is_none())
+            .map(|node| node.id.clone())
+            .collect();
+        if !unavailable.is_empty() {
+            return Err(node_kind_unavailable(unavailable).into());
+        }
         // The run's nodes are its trigger's and its version's.
-        let nodes = std::iter::once(trigger_node)
+        let nodes: HashMap<WorkflowNodeId, WorkflowNode> = std::iter::once(trigger_node)
             .chain(body.nodes)
             .map(|node| (node.id.clone(), node))
             .collect();
+        let undeclared = undeclared_handles(&nodes, &body.edges, &self.kinds);
+        if !undeclared.is_empty() {
+            return Err(handle_undeclared(undeclared).into());
+        }
+        let graph =
+            RunGraph::new(&nodes, &body.trigger.id, &body.edges, &self.kinds).map_err(|error| {
+                match error {
+                    RunGraphError::UnknownKind { node_id } => node_kind_unavailable(vec![node_id]),
+                    RunGraphError::UndeclaredHandle { node_id, handle } => {
+                        handle_undeclared(vec![(node_id, handle)])
+                    }
+                }
+            })?;
         Ok(CheckedStart {
             definition_id: version.definition_id,
             workflow_name: body.name,
@@ -167,7 +203,7 @@ impl WorkflowRunStarter {
                 node_id: body.trigger.id,
             },
             nodes,
-            edges: Arc::from(body.edges),
+            graph: Arc::new(graph),
             start_items,
             session,
             permission_level,
@@ -214,4 +250,85 @@ fn start_denied(errors: &[String]) -> DomainError {
     } else {
         refusal.with_detail(serde_json::json!({ "errors": errors }))
     }
+}
+
+// The refusal naming `node_ids`, whose kinds the table does not list at their versions; at least
+// one.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
+fn node_kind_unavailable(node_ids: Vec<WorkflowNodeId>) -> DomainError {
+    DomainError::new(
+        "The workflow holds a step whose kind this daemon no longer offers at its version.",
+        RefusalCode::WorkflowRunNodeKindUnavailable,
+    )
+    .with_detail(WorkflowRunNodeKindUnavailableDetails {
+        node_ids: BoundedVec::new(node_ids).expect("a refused kind names a node"),
+    })
+}
+
+// The refusal naming each edge end in `ends` whose handle its node's kind does not declare; at
+// least one.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
+fn handle_undeclared(ends: Vec<(WorkflowNodeId, NonEmptyText)>) -> DomainError {
+    let (node_ids, handles) = ends.into_iter().unzip();
+    DomainError::new(
+        "The workflow joins a step at a connection its kind no longer has.",
+        RefusalCode::WorkflowRunHandleUndeclared,
+    )
+    .with_detail(WorkflowRunHandleUndeclaredDetails {
+        node_ids: BoundedVec::new(node_ids).expect("a refused handle names its node"),
+        handles: BoundedVec::new(handles).expect("a refused handle is named"),
+    })
+}
+
+// Each main edge end in `edges` whose handle its node's kind does not declare on that side, in edge
+// order, each once; an edge with a tool end is left out, as the graph leaves it out.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
+fn undeclared_handles(
+    nodes: &HashMap<WorkflowNodeId, WorkflowNode>,
+    edges: &[WorkflowEdge],
+    kinds: &NodeKindTable,
+) -> Vec<(WorkflowNodeId, NonEmptyText)> {
+    let handles: HashMap<&WorkflowNodeId, WorkflowNodeHandles> = nodes
+        .iter()
+        .filter_map(|(node_id, node)| Some((node_id, kinds.kind_rules(node)?.handles)))
+        .collect();
+    let is_tool = |handle: &NonEmptyText| {
+        parse_workflow_handle(handle.as_str()).handle_type == WorkflowHandleType::Tool
+    };
+    let mut undeclared = Vec::new();
+    for edge in edges {
+        if is_tool(&edge.source_handle) || is_tool(&edge.target_handle) {
+            continue;
+        }
+        for (node_id, handle, mode) in [
+            (
+                &edge.source,
+                &edge.source_handle,
+                WorkflowHandleMode::Outputs,
+            ),
+            (
+                &edge.target,
+                &edge.target_handle,
+                WorkflowHandleMode::Inputs,
+            ),
+        ] {
+            let is_declared = handles.get(node_id).is_some_and(|declared| {
+                declared.declared_position(handle.as_str(), mode).is_some()
+            });
+            let end = (node_id.clone(), handle.clone());
+            if !is_declared && !undeclared.contains(&end) {
+                undeclared.push(end);
+            }
+        }
+    }
+    undeclared
 }
