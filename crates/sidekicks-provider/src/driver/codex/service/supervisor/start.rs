@@ -26,7 +26,9 @@ use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::account::api_key::{log_in_with_api_key, read_codex_api_key};
 use crate::driver::codex::app_server_protocol::ThreadLoadedListParams;
 use crate::driver::codex::exec_relay::{CODEX_EXECUTOR_ARGUMENTS, CodexExecRelay, RelayedThread};
-use crate::driver::codex::native_program::resolve_codex_native_program;
+use crate::driver::codex::native_program::{
+    CodexNativeCommand, CodexNativeProgram, resolve_codex_native_program,
+};
 use crate::driver::codex::privacy::read_codex_privacy;
 use crate::driver::codex::service::command_line::{
     CodexServiceCommandLineInput, compose_codex_service_arguments,
@@ -163,7 +165,8 @@ struct LoadedThreadsPage {
 
 /// Starts or joins `service` under the start ticket `launch`; `cancel` stands the start down.
 /// `start_lock` is Codex's start lock, held from the stop of the managed daemon this start takes
-/// the place of, so no terminal starts another in between.
+/// the place of, so no terminal starts another in between. The service keeps the native program
+/// its launch ran, or for a service only joined the one resolved once here.
 pub(super) async fn start_codex_service(
     service: Arc<CodexService>,
     launch: u64,
@@ -179,7 +182,8 @@ pub(super) async fn start_codex_service(
             detail: "The Codex command could not be resolved.".to_owned(),
             cause: Some(Box::new(error)),
         })?;
-    match service.home().kind {
+    service.set_native_command(None);
+    let started = match service.home().kind {
         CodexHomeKind::Account(_) | CodexHomeKind::ApiKeyAccount(_) | CodexHomeKind::Switching => {
             start_relayed_service(&service, launch, &cancel, &executable).await
         }
@@ -195,6 +199,28 @@ pub(super) async fn start_codex_service(
         }
         CodexHomeKind::PersonalFolder => {
             start_terminal_service(&service, launch, &cancel, &executable, start_lock).await
+        }
+    }?;
+    if started.process.is_none() {
+        service.set_native_command(resolve_joined_native_command(&executable).await);
+    }
+    Ok(started)
+}
+
+// The native command of a service the daemon only joined, which launched none, so its stdio
+// servers can run in the sandbox; `None`, logged, where it cannot be found, which fails only a
+// sandboxed call's table.
+async fn resolve_joined_native_command(
+    executable: &ResolvedProviderExecutable,
+) -> Option<CodexNativeCommand> {
+    match resolve_native_program_off_thread(executable).await {
+        Ok(native) => Some(CodexNativeCommand::of(native.program, &executable.start)),
+        Err(error) => {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "the joined Codex service's native program was not found"
+            );
+            None
         }
     }
 }
@@ -221,7 +247,8 @@ async fn start_relayed_service(
             .map(|argument| (*argument).to_owned())
             .collect(),
     )
-    .await?;
+    .await?
+    .launch;
     let environment_add = relay.start(executor_launch.into_command()).await?;
     let started = start_account_home_service(service, launch, cancel, executable).await?;
     let readied = async {
@@ -607,42 +634,39 @@ async fn compose_launch(
         listen_address: service.listen_address(launch_socket),
         additional_config_overrides,
     });
-    Ok(
+    let CodexNativeLaunch { launch, command } =
         compose_codex_native_launch(&service.dependencies().data_folder, executable, arguments)
-            .await?,
-    )
+            .await?;
+    service.set_native_command(Some(command));
+    Ok(launch)
+}
+
+/// A launch of the native Codex program, with the command it runs, which a command run beside a
+/// service takes too.
+pub(crate) struct CodexNativeLaunch {
+    /// The launch.
+    pub(crate) launch: CodexProcessLaunch,
+    /// The native program and the arguments its start puts before the caller's.
+    pub(crate) command: CodexNativeCommand,
 }
 
 /// The launch of `executable`'s native Codex program, never the npm launcher, with `arguments`
 /// after the leading arguments the build's own start carries, the launcher's variables set, in the
-/// dedicated empty working folder under `data_folder`. Fails with `CodexError::Transport` when the
-/// program cannot be found or the folder made.
+/// dedicated empty working folder under `data_folder`, with the native command it runs. Fails with
+/// `CodexError::Transport` when the program cannot be found or the folder made.
 pub(crate) async fn compose_codex_native_launch(
     data_folder: &Path,
     executable: &ResolvedProviderExecutable,
     arguments: Vec<String>,
-) -> Result<CodexProcessLaunch, CodexError> {
-    let not_found = |error: Box<dyn std::error::Error + Send + Sync>| CodexError::Transport {
-        detail: "Codex's program could not be found.".to_owned(),
-        cause: Some(error),
-    };
-    let start = executable.start.clone();
-    let environment = executable.environment.clone();
-    let native =
-        tokio::task::spawn_blocking(move || resolve_codex_native_program(&start, &environment))
-            .await
-            .map_err(|error| not_found(Box::new(error)))?
-            .map_err(|error| not_found(Box::new(error)))?;
-    let mut launch_arguments: Vec<String> = if native.program == executable.start.program {
-        executable
-            .start
-            .leading_arguments
-            .iter()
-            .map(|argument| argument.to_string_lossy().into_owned())
-            .collect()
-    } else {
-        Vec::new()
-    };
+) -> Result<CodexNativeLaunch, CodexError> {
+    let native = resolve_native_program_off_thread(executable)
+        .await
+        .map_err(|error| CodexError::Transport {
+            detail: "Codex's program could not be found.".to_owned(),
+            cause: Some(Box::new(error)),
+        })?;
+    let command = CodexNativeCommand::of(native.program.clone(), &executable.start);
+    let mut launch_arguments = command.leading_arguments.clone();
     launch_arguments.extend(arguments);
     let mut environment = executable.environment.clone();
     native.set_launcher_environment(&mut environment);
@@ -651,12 +675,27 @@ pub(crate) async fn compose_codex_native_launch(
         detail: "The Codex service's folder could not be made.".to_owned(),
         cause: Some(Box::new(error)),
     })?;
-    Ok(CodexProcessLaunch {
-        program: native.program,
-        arguments: launch_arguments,
-        environment,
-        working_folder,
+    Ok(CodexNativeLaunch {
+        launch: CodexProcessLaunch {
+            program: native.program,
+            arguments: launch_arguments,
+            environment,
+            working_folder,
+        },
+        command,
     })
+}
+
+// The native program `executable` runs, resolved off the async threads since it reads the file
+// system. Fails as the resolve or its blocking task does.
+async fn resolve_native_program_off_thread(
+    executable: &ResolvedProviderExecutable,
+) -> io::Result<CodexNativeProgram> {
+    let start = executable.start.clone();
+    let environment = executable.environment.clone();
+    tokio::task::spawn_blocking(move || resolve_codex_native_program(&start, &environment))
+        .await
+        .map_err(io::Error::other)?
 }
 
 async fn take_start_lock(

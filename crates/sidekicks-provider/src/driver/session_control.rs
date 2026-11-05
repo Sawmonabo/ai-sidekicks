@@ -16,7 +16,7 @@ use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
-use sidekicks_contracts::mcp::server::McpServerName;
+use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::ProviderOptionSetting;
@@ -873,12 +873,12 @@ pub(crate) fn build_auth_probe_result(
     DriverAuthProbeResult { status, detail }
 }
 
-/// One tool server a session can reach, by its name, and whether the person switched it on.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// One tool server a session can reach, by its binding, and whether the person switched it on.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionToolServer {
-    /// The server's name.
-    pub(crate) server_name: McpServerName,
+    /// The server's scope-qualified binding.
+    pub binding: McpServerBindingRef,
     /// Whether the person switched it on.
-    pub(crate) is_enabled: bool,
+    pub is_enabled: bool,
 }

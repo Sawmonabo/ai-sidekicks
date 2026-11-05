@@ -18,6 +18,7 @@
 //! - An account's one memory import is kept on its row once it has run.
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
@@ -32,6 +33,7 @@ use sidekicks_contracts::provider::account::record::{
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::file::run_on_blocking_thread;
 use sidekicks_std::random_hex::random_hex;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use sidekicks_store::database::statement::{
@@ -40,13 +42,13 @@ use sidekicks_store::database::statement::{
 };
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
-use crate::account::credential_home::minted::{clear_minted_mark, mark_minted};
+use crate::account::credential_home::marks::{clear_minted_mark, mark_minted};
 use crate::account::credential_home::{
-    CredentialHome, create_credential_home, remove_credential_home,
+    ACCOUNT_SIGN_OUT_BOUND, CredentialHome, create_credential_home, remove_unadmitted_home,
 };
 use crate::account::errors::ProviderAccountRegistryError;
 use crate::account::observed_auth_modes::ObservedAuthModes;
-use crate::driver::contract::account::ObservedAccountIdentity;
+use crate::driver::contract::account::{ObservedAccountIdentity, ProviderAccountLegs};
 
 mod health;
 pub(crate) mod read_hold;
@@ -154,7 +156,7 @@ static CHANGE_SETTINGS_SQL: LazyLock<String> = LazyLock::new(|| {
 
 /// A new account's id and credential home, minted at its sign-in's start and held in memory until
 /// [`ProviderAccountRegistry::admit`] writes its row or [`ProviderAccountRegistry::abandon`]
-/// removes its home.
+/// removes its home, signed out first where a provider ran there.
 #[derive(Debug)]
 pub struct MintedAccount {
     account_id: ProviderAccountId,
@@ -413,15 +415,22 @@ impl ProviderAccountRegistry {
         &self.data_folder
     }
 
-    /// Removes the home of `minted`, an account no sign-in admitted, then its mark. Fails when
-    /// either cannot be removed; a mark left makes the next start remove the home again.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "abandoning consumes the minted account, so it cannot be admitted after"
-    )]
-    pub fn abandon(&self, minted: MintedAccount) -> Result<(), ProviderAccountRegistryError> {
-        remove_credential_home(&minted.home)
-            .and_then(|()| clear_minted_mark(&self.data_folder, &minted.account_id))
+    /// Signs out the home of `minted`, an account no sign-in admitted, through its provider's
+    /// entry in `legs`, where its provider ran there, and removes it, then its mark. A home whose
+    /// sign-out or removal fails stays with its mark, logged, for the next start to sweep. Fails
+    /// when a removed home's mark cannot be cleared, which the next start then clears.
+    pub async fn abandon(
+        &self,
+        minted: MintedAccount,
+        legs: Option<&HashMap<ProviderId, Arc<dyn ProviderAccountLegs>>>,
+    ) -> Result<(), ProviderAccountRegistryError> {
+        let (bound, provider, home) = (ACCOUNT_SIGN_OUT_BOUND, &minted.provider, &minted.home);
+        if !remove_unadmitted_home(&minted.account_id, provider, home, legs, bound).await {
+            return Ok(());
+        }
+        let data_folder = self.data_folder.clone();
+        run_on_blocking_thread(move || clear_minted_mark(&data_folder, &minted.account_id))
+            .await
             .map_err(ProviderAccountRegistryError::CredentialHome)
     }
 

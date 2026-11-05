@@ -1,5 +1,6 @@
 //! Codex's `mcpServerStatus/list` on one conversation, read page by page into bounded readings
-//! that carry each server's tools: the one read the machine probe and a live session's leg share.
+//! that carry each server's tools: the one read the machine probe and a live session's leg share,
+//! and the paged read beneath it, at whichever detail a caller asks for.
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -18,14 +19,41 @@ const MAX_LIST_PAGES: usize = 64;
 
 /// Each server Codex lists for the conversation `thread_id` on `connection`, or `server_name`
 /// alone where given, with its status and tools, every page read; a row the reader refuses is
-/// logged and skipped. Fails as a request fails, and with `CodexError::Transport` for a page
-/// that cannot be read.
+/// logged and skipped. Fails as [`list_codex_mcp_server_status_pages`] does.
 pub(crate) async fn list_codex_mcp_server_statuses(
     connection: &CodexAppServerConnection,
     thread_id: &str,
     server_name: Option<&str>,
 ) -> Result<Vec<McpServerStatusEmission>, CodexError> {
     let mut emissions = Vec::new();
+    list_codex_mcp_server_status_pages(
+        connection,
+        thread_id,
+        server_name,
+        McpServerStatusDetail::ToolsAndAuthOnly,
+        |rows| {
+            let listed = normalize_codex_mcp_server_status_list(rows);
+            for rejection in &listed.rejections {
+                tracing::warn!(reason = %rejection.reason, "a codex mcp server status was refused");
+            }
+            emissions.extend(listed.emissions);
+        },
+    )
+    .await?;
+    Ok(emissions)
+}
+
+/// Reads each page Codex lists for the conversation `thread_id` on `connection` at `detail`, or
+/// `server_name` alone where given, handing `read_rows` each page's rows in order; answers
+/// whether every page was read, `false` where the page cap stopped the read. Fails as a request
+/// fails, and with `CodexError::Transport` for a page that cannot be read.
+pub(crate) async fn list_codex_mcp_server_status_pages(
+    connection: &CodexAppServerConnection,
+    thread_id: &str,
+    server_name: Option<&str>,
+    detail: McpServerStatusDetail,
+    mut read_rows: impl FnMut(&Value),
+) -> Result<bool, CodexError> {
     let mut cursor = None;
     for _page in 0..MAX_LIST_PAGES {
         let reply = connection
@@ -35,7 +63,7 @@ pub(crate) async fn list_codex_mcp_server_statuses(
                     cursor: cursor.take(),
                     thread_id: Some(thread_id.to_owned()),
                     server_name: server_name.map(str::to_owned),
-                    detail: Some(McpServerStatusDetail::ToolsAndAuthOnly),
+                    detail: Some(detail),
                     ..ListMcpServerStatusParams::default()
                 },
             )
@@ -48,21 +76,17 @@ pub(crate) async fn list_codex_mcp_server_statuses(
                 cause: None,
             }
         })?;
-        let listed = normalize_codex_mcp_server_status_list(&page.data);
-        for rejection in &listed.rejections {
-            tracing::warn!(reason = %rejection.reason, "a codex mcp server status was refused");
-        }
-        emissions.extend(listed.emissions);
+        read_rows(&page.data);
         match page.next_cursor {
             Some(next) => cursor = Some(next),
-            None => return Ok(emissions),
+            None => return Ok(true),
         }
     }
     tracing::warn!(
         pages = MAX_LIST_PAGES,
         "codex's mcp server status list did not end; the servers read so far are kept"
     );
-    Ok(emissions)
+    Ok(false)
 }
 
 // One page of the list's reply: its rows and the cursor of the next page, where there is one.

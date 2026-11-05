@@ -41,7 +41,7 @@ use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::error_causes::ExecutableUnresolvable;
 use sidekicks_provider::driver::session_control::{
     DriverResumeResult, ProviderTurnAnswer, ResumeSessionParams, ResumedRunAnswer,
-    answer_every_run_gone,
+    SessionToolServer, answer_every_run_gone,
 };
 use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_provider};
 use sidekicks_provider::run::posture::ExecutionPostureService;
@@ -51,6 +51,7 @@ use sidekicks_provider::runtime_binding::test_store::{
     binding_input, spawn_config_on, spawned_build, test_provider_account_id,
 };
 use sidekicks_session::changes::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
+use sidekicks_session::directory::provider_port::OpeningToolServers;
 use sidekicks_session::directory::row::{DirectoryEvent, directory_statements_for};
 use sidekicks_session::idle_sleep::openings::SessionProcessFollower;
 use sidekicks_session::questions::schema::schema_parts;
@@ -118,6 +119,7 @@ struct Opening {
     predecessor_id: RuntimeBindingId,
     epochs: Arc<Mutex<ExecutionEpochs>>,
     handed_ids: Arc<Mutex<Vec<RuntimeBindingId>>>,
+    stored_sets: Arc<Mutex<Vec<StoredSet>>>,
     came_up_on: Arc<Mutex<Option<RuntimeBindingId>>>,
     is_row_taken: Arc<AtomicBool>,
     is_deferred: Arc<AtomicBool>,
@@ -217,6 +219,7 @@ impl Opening {
             .expect("the earlier daemon's binding is recorded")
             .id;
         let handed_ids = Arc::new(Mutex::new(Vec::new()));
+        let stored_sets = Arc::new(Mutex::new(Vec::new()));
         let came_up_on = Arc::new(Mutex::new(None::<RuntimeBindingId>));
         let is_row_taken = Arc::new(AtomicBool::new(false));
         let is_deferred = Arc::new(AtomicBool::new(false));
@@ -363,7 +366,7 @@ impl Opening {
             )),
             binding_cursors,
             providers,
-            compose_opening: recording_composer(&handed_ids, &git_folder, &provider),
+            compose_opening: recording_composer(&handed_ids, &stored_sets, &git_folder, &provider),
             read_git_folder: recording_git_folder(&git_folder),
             transition_lock: Arc::clone(changes.transition_lock()),
             process_follower: Arc::clone(&following) as Arc<dyn SessionProcessFollower>,
@@ -383,6 +386,7 @@ impl Opening {
             predecessor_id,
             epochs,
             handed_ids,
+            stored_sets,
             came_up_on,
             is_row_taken,
             is_deferred,
@@ -476,21 +480,30 @@ struct OpeningWatch {
     store: Arc<RuntimeBindingStore>,
 }
 
-// The test composer's opening, its callbacks recording each binding they are bound to, on
-// `git_folder` and `provider` once each is set.
+// What one composition's opening was handed: the set a resume's leg stored, `None` where the
+// opening composed its own.
+type StoredSet = Option<Option<Vec<SessionToolServer>>>;
+
+// The test composer's opening, its callbacks recording each binding they are bound to and each
+// composition's stored set, on `git_folder` and `provider` once each is set.
 fn recording_composer(
     handed_ids: &Arc<Mutex<Vec<RuntimeBindingId>>>,
+    stored_sets: &Arc<Mutex<Vec<StoredSet>>>,
     git_folder: &Arc<Mutex<Option<FilesystemPath>>>,
     provider: &Arc<Mutex<Option<ProviderId>>>,
 ) -> ProviderSessionOpeningComposer {
     let composer = test_opening_composer();
     let (handed_ids, git_folder) = (Arc::clone(handed_ids), Arc::clone(git_folder));
-    let provider = Arc::clone(provider);
-    Arc::new(move |session_id, provider_account_id| {
+    let (provider, stored_sets) = (Arc::clone(provider), Arc::clone(stored_sets));
+    Arc::new(move |session_id, provider_account_id, tool_servers| {
         let (composer, handed_ids) = (Arc::clone(&composer), Arc::clone(&handed_ids));
+        lock(&stored_sets).push(match &tool_servers {
+            OpeningToolServers::Stored(stored) => Some(stored.clone()),
+            OpeningToolServers::Composed => None,
+        });
         let (git_folder, provider) = (lock(&git_folder).clone(), lock(&provider).clone());
         async move {
-            let mut opening = composer(session_id, provider_account_id).await?;
+            let mut opening = composer(session_id, provider_account_id, tool_servers).await?;
             if let Some(git_folder) = git_folder {
                 opening.git_folder = git_folder;
             }

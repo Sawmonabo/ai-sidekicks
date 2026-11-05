@@ -10,6 +10,7 @@ use sidekicks_platforms::{PathRules, Spawner};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 
 use crate::background_work::BackgroundWorkForms;
+use crate::command_search::ProviderCommandSearch;
 use crate::driver::ProviderAccountFolders;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::commands::ClaudeCommandChannels;
@@ -45,6 +46,8 @@ pub(crate) struct ClaudeSpawnSources {
     pub(crate) execution_postures: Arc<ExecutionPostureService>,
     /// The login shell's environment, every process's base.
     pub(crate) base_environment: Arc<[(String, String)]>,
+    /// Finds the Claude Code build a command the driver runs once names.
+    pub(crate) command_search: Arc<ProviderCommandSearch>,
     /// The names no environment row may set.
     pub(crate) reserved_names: Arc<ReservedEnvironmentNames>,
     /// Every provider's background work, which a process's settings deny.

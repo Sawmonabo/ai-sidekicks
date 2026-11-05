@@ -2,8 +2,9 @@
 //! folder, readable by its owner alone, where the provider's own tooling keeps that account's
 //! sign-in; whether a registered account's home is there to run in; its reset, the provider's
 //! own sign-out followed by the home emptied in place; the sign-out of every home before
-//! `Erase all data` deletes them; and the mark a new account carries, outside its home, until a
-//! row takes it.
+//! `Erase all data` deletes them; the sign-out and removal of a home minted for a new account no
+//! row took; and the two marks kept beside the homes, outside each: the one a new account carries
+//! until a row takes it, and the one a removed account's kept home carries.
 //!
 //! Where the provider keeps its agents' memory in its home, that folder is a link to the daemon's
 //! own agent-memory folder, made with the home and again after each reset, so every account's
@@ -20,6 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::future::BoxFuture;
+use sidekicks_contracts::daemon::data::DataEraseAccountListing;
 use sidekicks_contracts::provider::account::record::{
     CredentialGeneration, ProviderAccountHealthState, ProviderAccountId,
 };
@@ -29,10 +31,13 @@ use sidekicks_ipc::registry::HandlerError;
 use sidekicks_platforms::{
     create_missing_private_folders, create_new_private_folder, make_folder_link, remove_tree,
 };
+use sidekicks_std::file::run_on_blocking_thread;
 use sidekicks_store::data_folder::agent_memory_folder;
+use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 
 use crate::account::errors::ProviderAccountRegistryError;
 use crate::account::home_lock::AccountHomeLock;
+use crate::account::homes::{AccountHomesReadError, homes_to_erase, query_account_homes};
 use crate::account::registry::ProviderAccountRegistry;
 use crate::account::resolver::credential_home_folders;
 use crate::driver::contract::account::ProviderAccountLegs;
@@ -41,6 +46,10 @@ use crate::driver::{ProviderAccountFolders, descriptor_of};
 
 // The data folder's folder of account homes, one folder per account named by its id.
 const ACCOUNT_HOMES_FOLDER_NAME: &str = "accounts";
+
+/// How long a provider's own sign-out of one account's home may take before the erase, the start's
+/// sweep of new accounts' homes or a new account's removal goes on without it.
+pub const ACCOUNT_SIGN_OUT_BOUND: Duration = Duration::from_secs(30);
 
 /// One account's credential home, always the folder minted for it under the daemon's data folder,
 /// an absolute path. Its `Debug` names no path, so a log line that prints it carries none.
@@ -123,7 +132,7 @@ pub(super) fn create_credential_home(
     let home = CredentialHome(homes.join(account_id.as_str()));
     create_new_private_folder(home.path())?;
     if let Err(error) = furnish_credential_home(data_folder, provider, &home) {
-        remove_credential_home(&home)?;
+        remove_tree(home.path())?;
         return Err(error);
     }
     Ok(home)
@@ -161,10 +170,63 @@ fn link_agent_memory(
     make_folder_link(&shared, &link)
 }
 
-/// Removes a home minted for an account no sign-in admitted, with whatever its sign-in attempt
-/// left in it. Fails with the system's error.
-pub(super) fn remove_credential_home(home: &CredentialHome) -> io::Result<()> {
-    fs::remove_dir_all(home.path())
+/// Signs `home` out through its provider's legs among `legs`, where they are given and the home
+/// was made, within `bound`, then removes it, answering whether it is gone; a home whose sign-out
+/// fails or overruns stays.
+pub async fn remove_unadmitted_home<S: BuildHasher>(
+    account_id: &ProviderAccountId,
+    provider: &ProviderId,
+    home: &CredentialHome,
+    legs: Option<&HashMap<ProviderId, Arc<dyn ProviderAccountLegs>, S>>,
+    bound: Duration,
+) -> bool {
+    let path = home.path().to_path_buf();
+    let is_made = match tokio::fs::try_exists(&path).await {
+        Ok(is_made) => is_made,
+        Err(error) => {
+            tracing::warn!(
+                provider = provider.as_str(),
+                error = &error as &(dyn std::error::Error + 'static),
+                "a new account's home was not read; the next start sweeps it"
+            );
+            return false;
+        }
+    };
+    if !is_made {
+        return true;
+    }
+    if let Some(legs) = legs.and_then(|legs| legs.get(provider)) {
+        let folders = credential_home_folders(provider, home);
+        match tokio::time::timeout(bound, legs.sign_out_home(account_id.clone(), folders)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                tracing::warn!(
+                    provider = provider.as_str(),
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "a new account's home was not signed out; the next start sweeps it"
+                );
+                return false;
+            }
+            Err(_elapsed) => {
+                tracing::warn!(
+                    provider = provider.as_str(),
+                    "a new account's sign-out outlived its bound; the next start sweeps its home"
+                );
+                return false;
+            }
+        }
+    }
+    match run_on_blocking_thread(move || remove_tree(&path)).await {
+        Ok(()) => true,
+        Err(error) => {
+            tracing::warn!(
+                provider = provider.as_str(),
+                error = &error as &(dyn std::error::Error + 'static),
+                "a new account's home was not removed; the next start sweeps it"
+            );
+            false
+        }
+    }
 }
 
 /// Why a credential home could not be reset.
@@ -205,7 +267,8 @@ pub async fn reset_credential_home(
             Err(io::ErrorKind::NotADirectory.into())
         }
     })
-    .await?;
+    .await
+    .map_err(ProviderAccountRegistryError::CredentialHome)?;
     legs.sign_out_home(account_id.clone(), folders)
         .await
         .map_err(CredentialHomeResetError::SignOut)?;
@@ -216,7 +279,8 @@ pub async fn reset_credential_home(
         }
         furnish_credential_home(&data_folder, &provider, &home)
     })
-    .await?;
+    .await
+    .map_err(ProviderAccountRegistryError::CredentialHome)?;
     Ok(registry
         .record_home_reset(&account_id, &WireInstant::now())
         .await?)
@@ -247,14 +311,31 @@ pub enum HomeSignOutError {
     Overran,
 }
 
-/// One account [`sign_out_homes`] signs out: its id, its provider and its home's folders.
+/// One account [`sign_out_homes`] signs out: its id, its provider, how it stood on the list and its
+/// home's folders.
 pub struct HomeSignOut {
     /// The account's id.
     pub account_id: ProviderAccountId,
     /// The account's provider.
     pub provider: ProviderId,
+    /// How the account stood on the list.
+    pub listing: DataEraseAccountListing,
     /// The account's home's folders, which the sign-out runs in.
     pub folders: ProviderAccountFolders,
+}
+
+/// An account [`sign_out_homes`] left signed in: its id, its provider, how it stood on the list,
+/// and why.
+#[derive(Debug)]
+pub struct HomeLeftSignedIn {
+    /// The account's id.
+    pub account_id: ProviderAccountId,
+    /// The account's provider.
+    pub provider: ProviderId,
+    /// How the account stood on the list.
+    pub listing: DataEraseAccountListing,
+    /// Why it was not signed out.
+    pub cause: HomeSignOutError,
 }
 
 /// Signs every account of `accounts` out in its home through the provider's own sign-out that
@@ -268,7 +349,7 @@ pub async fn sign_out_homes<'legs>(
         ProviderAccountFolders,
     ) -> Option<BoxFuture<'legs, Result<(), DriverError>>>,
     bound: Duration,
-) -> Vec<(ProviderAccountId, HomeSignOutError)> {
+) -> Vec<HomeLeftSignedIn> {
     let sign_outs = accounts.into_iter().map(|account| {
         let signing_out = sign_out(
             &account.provider,
@@ -276,14 +357,20 @@ pub async fn sign_out_homes<'legs>(
             account.folders,
         );
         async move {
-            let Some(signing_out) = signing_out else {
-                return Some((account.account_id, HomeSignOutError::NoProvider));
+            let cause = match signing_out {
+                None => HomeSignOutError::NoProvider,
+                Some(signing_out) => match tokio::time::timeout(bound, signing_out).await {
+                    Ok(Ok(())) => return None,
+                    Ok(Err(error)) => HomeSignOutError::SignOut(error),
+                    Err(_elapsed) => HomeSignOutError::Overran,
+                },
             };
-            match tokio::time::timeout(bound, signing_out).await {
-                Ok(Ok(())) => None,
-                Ok(Err(error)) => Some((account.account_id, HomeSignOutError::SignOut(error))),
-                Err(_elapsed) => Some((account.account_id, HomeSignOutError::Overran)),
-            }
+            Some(HomeLeftSignedIn {
+                account_id: account.account_id,
+                provider: account.provider,
+                listing: account.listing,
+                cause,
+            })
         }
     });
     futures::future::join_all(sign_outs)
@@ -293,42 +380,61 @@ pub async fn sign_out_homes<'legs>(
         .collect()
 }
 
-/// Signs every account `registry` lists out through its provider's legs among `legs`, as
-/// [`sign_out_homes`] does, before `Erase all data` deletes the homes. Answers each account it
-/// could not sign out, with why. Fails when the accounts cannot be read.
+/// What [`sign_out_every_home`] did: each account it left signed in, with why, and whether a row
+/// named no valid account or provider id, so the account list could not all be read.
+#[derive(Debug)]
+pub struct HomesSignOut {
+    /// Each account left signed in, with why.
+    pub left_signed_in: Vec<HomeLeftSignedIn>,
+    /// Whether a row named no valid account or provider id, so its home was left signed in.
+    pub has_unnamed_home: bool,
+}
+
+/// Signs every home `Erase all data` deletes out through its provider's legs among `legs`, as
+/// [`sign_out_homes`] does: each listed account's, each whose removal has begun, each removed
+/// account's kept home and each home minted for a sign-in that did not finish, read from the
+/// accounts table on `reads` and the marks under the daemon's `data_folder`. Answers each account
+/// it could not sign out, with why. A row that names no valid account or provider id is left
+/// signed in, told in the service log and answered as [`HomesSignOut::has_unnamed_home`], and the
+/// rest sign out. Fails when the rows or the marks cannot be read at all, with nothing signed out.
 pub async fn sign_out_every_home<S: BuildHasher>(
-    registry: &ProviderAccountRegistry,
+    reads: &DatabaseReadPool,
+    data_folder: &Path,
     legs: &HashMap<ProviderId, Arc<dyn ProviderAccountLegs>, S>,
     bound: Duration,
-) -> Result<Vec<(ProviderAccountId, HomeSignOutError)>, ProviderAccountRegistryError> {
-    let accounts = registry.list(None).await?.into_iter().map(|account| {
-        let folders = credential_home_folders(&account.provider, &account.credential_home);
-        HomeSignOut {
-            account_id: account.account_id,
-            provider: account.provider,
-            folders,
+) -> Result<HomesSignOut, AccountHomesReadError> {
+    let data_folder = data_folder.to_path_buf();
+    let homes = reads
+        .read(ReadLength::Short, move |connection| {
+            let rows = query_account_homes(connection)?;
+            homes_to_erase(rows, &data_folder).map_err(AccountHomesReadError::Marks)
+        })
+        .await?;
+    let mut has_unnamed_home = false;
+    let mut accounts = Vec::new();
+    for home in homes {
+        match home.sign_out() {
+            Ok(account) => accounts.push(account),
+            Err(unnamed) => {
+                tracing::warn!(
+                    error = &unnamed as &(dyn std::error::Error + 'static),
+                    "an account home names no valid id, so it was left signed in"
+                );
+                has_unnamed_home = true;
+            }
         }
-    });
+    }
     let sign_out = |provider: &ProviderId, account_id, folders| {
         legs.get(provider)
             .map(|legs| legs.sign_out_home(account_id, folders))
     };
-    Ok(sign_out_homes(accounts, sign_out, bound).await)
+    Ok(HomesSignOut {
+        left_signed_in: sign_out_homes(accounts, sign_out, bound).await,
+        has_unnamed_home,
+    })
 }
 
-// Runs a file-system step off the runtime's threads, its failure a home that could not be made or
-// emptied.
-async fn run_on_blocking_thread(
-    step: impl FnOnce() -> io::Result<()> + Send + 'static,
-) -> Result<(), ProviderAccountRegistryError> {
-    tokio::task::spawn_blocking(step)
-        .await
-        .map_err(io::Error::other)
-        .flatten()
-        .map_err(ProviderAccountRegistryError::CredentialHome)
-}
-
-pub mod minted;
+pub mod marks;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_legs;
 #[cfg(test)]

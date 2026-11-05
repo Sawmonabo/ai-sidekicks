@@ -21,6 +21,7 @@ use sidekicks_contracts::wire::integer::{SafeInt, SafeSignedInt};
 use sidekicks_contracts::wire::number::{NonNegativeNumber, Number};
 use sidekicks_contracts::wire::text::BoundedText;
 use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, create_missing_private_folders};
+use sidekicks_provider::account::credential_home::ACCOUNT_SIGN_OUT_BOUND;
 use sidekicks_provider::account::credential_home::test_legs::RecordedSignOuts;
 use sidekicks_provider::account::observer::AccountTurnObserver;
 use sidekicks_provider::account::registry::{
@@ -48,7 +49,6 @@ use crate::daemon::process::provider_accounts::{
 };
 use crate::daemon::process::stop::{DaemonStopFailure, DaemonStopReason, end_start_tasks};
 use crate::daemon::schema::schema_parts;
-use crate::data_acts::erase::ACCOUNT_SIGN_OUT_BOUND;
 
 // The stored account's id.
 const ACCOUNT_ID: &str = "0123456789abcdef0123456789abcdef";

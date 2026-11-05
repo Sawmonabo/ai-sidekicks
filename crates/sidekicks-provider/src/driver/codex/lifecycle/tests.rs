@@ -17,12 +17,15 @@ mod status_legs;
 mod terminal_reach;
 mod usage;
 
+use std::error::Error;
 use std::path::Path;
 use std::sync::Arc;
 
+use futures::future::BoxFuture;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::value::RawValue;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
@@ -51,15 +54,20 @@ use crate::driver::codex::session::test_fixture::{
 };
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::driver::schema::schema_parts;
+use crate::driver::session_control::SessionToolServer;
 use crate::driver::test_registry::{
     RecordedQueue, new_agent_id, new_run_id, new_session_id, test_driver_services,
 };
 use crate::port::question::QuestionPort;
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::run::posture::ExecutionPostureService;
+use crate::runtime_binding::store::{
+    CreateRuntimeBindingInput, RuntimeBindingRebind, RuntimeBindingStore,
+};
 use crate::runtime_binding::test_store::{
     binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
 };
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 /// The live turn the session's run is on.
 pub(super) const TEST_TURN: &str = "turn-1";
@@ -77,8 +85,49 @@ pub(super) struct LiveCodexSession {
     pub(super) questions: Arc<PortRegistration<Arc<dyn QuestionPort>>>,
     /// The run engine and its dispatch, which record each call the driver makes.
     pub(super) engine: Arc<RecordingRunEngine>,
-    /// The database the binding store writes.
-    pub(super) database: TestDatabase,
+    /// The database the binding store writes, which the driver's binding writer holds too, so no
+    /// test that leaves this field unbound drops the file under the driver.
+    pub(super) database: Arc<TestDatabase>,
+}
+
+/// The binding store the driver writes, holding the database its file is in for as long as the
+/// driver holds the store.
+struct DatabaseHeldBindings {
+    store: Arc<RuntimeBindingStore>,
+    _database: Arc<TestDatabase>,
+}
+
+impl RuntimeBindingWriter for DatabaseHeldBindings {
+    fn rebind(
+        &self,
+        rebind: RuntimeBindingRebind,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        self.store.rebind(rebind)
+    }
+
+    fn keep_recovery_data(
+        &self,
+        binding_id: RuntimeBindingId,
+        runtime_metadata: Map<String, Value>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        self.store.keep_recovery_data(binding_id, runtime_metadata)
+    }
+
+    fn move_account(
+        &self,
+        binding_id: RuntimeBindingId,
+        provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        RuntimeBindingWriter::move_account(&*self.store, binding_id, provider_account_id)
+    }
+
+    fn replace_tool_servers(
+        &self,
+        run_id: RunId,
+        tool_servers: Vec<SessionToolServer>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        RuntimeBindingWriter::replace_tool_servers(&*self.store, run_id, tool_servers)
+    }
 }
 
 impl LiveCodexSession {
@@ -123,14 +172,17 @@ impl LiveCodexSession {
     ) -> Self {
         let is_held = held.is_some();
         let scripted = held.unwrap_or_else(start_scripted_codex_service);
-        let database = TestDatabase::new(schema_parts());
+        let database = Arc::new(TestDatabase::new(schema_parts()));
         let engine = Arc::new(RecordingRunEngine::default());
         let session_id = new_session_id();
         let agent_id = new_agent_id();
         let mut services = test_driver_services();
         // The retry's fork points the run's binding at the conversation it moves onto.
         let bindings = Arc::new(open_store(&database).await);
-        services.runtime_bindings = Arc::clone(&bindings) as _;
+        services.runtime_bindings = Arc::new(DatabaseHeldBindings {
+            store: Arc::clone(&bindings),
+            _database: Arc::clone(&database),
+        });
         let queue = Arc::new(RecordedQueue::default());
         let ports = &services.ports;
         assert!(ports.run_engine.register(Arc::clone(&engine) as _).is_ok());
@@ -159,11 +211,15 @@ impl LiveCodexSession {
         let parts = Arc::clone(driver.parts().expect("the driver composes"));
 
         let run_id = new_run_id();
+        // The run's own binding, whose stored set a switch of its tool servers writes.
         let binding_id = bindings
-            .create(binding_input(
-                spawn_config_on(test_provider_account_id()),
-                spawned_build("0.130.0", "/opt/codex/bin"),
-            ))
+            .create(CreateRuntimeBindingInput {
+                run_id,
+                ..binding_input(
+                    spawn_config_on(test_provider_account_id()),
+                    spawned_build("0.130.0", "/opt/codex/bin"),
+                )
+            })
             .await
             .expect("the binding is recorded")
             .id;

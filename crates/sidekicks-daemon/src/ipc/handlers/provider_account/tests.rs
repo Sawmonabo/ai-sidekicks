@@ -398,9 +398,10 @@ impl ProviderSignInInput for EndlessSignIn {
 struct MethodInputs {
     _database: TestDatabase,
     _log: TestLog,
-    _data_folder: TempDir,
+    data_folder: TempDir,
     accounts: Arc<ProviderAccountRegistry>,
     keychain: Arc<HeldTokens>,
+    sign_in: Arc<ProviderSignInBroker>,
     registry: MethodRegistry,
 }
 
@@ -479,23 +480,25 @@ impl MethodInputs {
             reads: Arc::clone(&reads),
             read_damaged_from_sequence: Arc::new(|_: &SessionId| None::<i64>),
         }));
+        let sign_in = Arc::new(ProviderSignInBroker::new(
+            Arc::clone(&accounts),
+            HashMap::from([(
+                first_provider(),
+                Arc::new(EndlessSignIn) as Arc<dyn ProviderSignInLegs>,
+            )]),
+            HashMap::new(),
+            Arc::clone(&publisher) as _,
+            Arc::clone(&observer) as Arc<dyn SignedInAccountWatcher>,
+            Arc::clone(&home_lock),
+            Arc::clone(&accounts_in_flight),
+        ));
         let mut builder = MethodRegistryBuilder::new();
         register_provider_account_methods(
             &mut builder,
             ProviderAccountMethodSources {
                 accounts: Arc::clone(&accounts),
                 providers,
-                sign_in: Arc::new(ProviderSignInBroker::new(
-                    Arc::clone(&accounts),
-                    HashMap::from([(
-                        first_provider(),
-                        Arc::new(EndlessSignIn) as Arc<dyn ProviderSignInLegs>,
-                    )]),
-                    Arc::clone(&publisher) as _,
-                    Arc::clone(&observer) as Arc<dyn SignedInAccountWatcher>,
-                    Arc::clone(&home_lock),
-                    Arc::clone(&accounts_in_flight),
-                )),
+                sign_in: Arc::clone(&sign_in),
                 accounts_in_flight,
                 token_custody,
                 observer,
@@ -516,9 +519,10 @@ impl MethodInputs {
         Self {
             _database: database,
             _log: log,
-            _data_folder: data_folder,
+            data_folder,
             accounts,
             keychain: held_tokens,
+            sign_in,
             registry: builder.freeze(),
         }
     }
@@ -640,6 +644,41 @@ async fn an_account_registered_as_default_is_made_current_through_the_switch() {
             account: made.account
         }
     );
+}
+
+// A pasted-token registration sent after the daemon's stop is refused before anything is minted,
+// so the data folder an erase reads stays empty. Killed by a registration that mints without
+// asking whether the sign-in broker has stopped.
+#[tokio::test]
+async fn a_token_registration_after_the_stop_mints_nothing() {
+    let inputs =
+        MethodInputs::new(Arc::new(ScriptedWakeHelper::new(WakeHelperStatus::Missing))).await;
+    assert!(inputs.sign_in.stop(WAIT).await, "the broker stops");
+
+    let answer = inputs
+        .registry
+        .dispatch(
+            request(
+                ProviderAccountRegister::DESCRIPTOR.method,
+                Some(&json!({
+                    "provider": first_provider().as_str(),
+                    "displayLabel": "Work",
+                    "billingMode": "subscription",
+                    "nonInteractiveToken": "a-pasted-token",
+                })),
+            ),
+            context(1),
+        )
+        .await;
+
+    assert!(
+        answer.is_err(),
+        "the registration after the stop was accepted"
+    );
+    let left = std::fs::read_dir(inputs.data_folder.path())
+        .expect("the data folder reads")
+        .count();
+    assert_eq!(left, 0, "nothing is minted into the data folder");
 }
 
 // A re-supplied token the keychain refuses leaves the account as it was, its name included.

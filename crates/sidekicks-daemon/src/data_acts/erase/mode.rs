@@ -1,13 +1,13 @@
 //! The `data erase` mode: everything the app keeps on this computer erased with the service
 //! stopped. It makes the data folder when it is missing and takes its lock, so it is refused while
 //! a service runs, and checks that the keychain can be emptied, refused with nothing changed when
-//! it cannot. It then signs every registered provider account out in its home through the
-//! provider's own sign-out, as the running erase does, so no erase leaves an account signed in at
-//! its provider; an account that does not sign out is named with why, and the erase goes on. It
-//! then ends what a stopped or crashed service left running, the children the orphan registry
-//! names and each provider's recorded services, deletes every credential-store item the app made,
-//! and then the data folder but its backups. The mode installs no log, so its answer, one JSON
-//! object on its standard output, names every failure.
+//! it cannot. It then signs every account home it deletes out through the provider's own
+//! sign-out, as the running erase does, so no erase leaves an account signed in at its provider;
+//! an account that does not sign out is named with why, and the erase goes on. It then ends what
+//! a stopped or crashed service left running, the children the orphan registry names and each
+//! provider's recorded services, deletes every credential-store item the app made, and then the
+//! data folder but its backups. The mode installs no log, so its answer, one JSON object on its
+//! standard output, names every failure.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -16,27 +16,25 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use futures::FutureExt as _;
+use sidekicks_contracts::daemon::data::DataEraseAccountListing;
 use sidekicks_contracts::daemon::mode_outcome::DaemonModeOutcome;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_provider::account::credential_home::{HomeSignOut, HomeSignOutError, sign_out_homes};
+use sidekicks_provider::account::credential_home::{ACCOUNT_SIGN_OUT_BOUND, sign_out_homes};
 use sidekicks_provider::driver::contract::account::HelperModeAccountLegs;
-use sidekicks_provider::driver::{HelperModeServices, PROVIDER_REGISTRATIONS};
+use sidekicks_provider::driver::{HelperModeServices, PROVIDER_REGISTRATIONS, descriptor_of};
 use sidekicks_shell::orphan::guard::sweep_left_orphans;
 use sidekicks_shell::orphan::sweep::OrphanSweepResult;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_store::credential_store::items::SecretItems;
 use sidekicks_store::data_folder::lock::DataFolderLock;
 
-use crate::data_acts::erase::{
-    ACCOUNT_SIGN_OUT_BOUND, DataEraseOutcome, erase_data, stop_every_recorded_service,
-};
+use crate::data_acts::erase::{DataEraseOutcome, erase_data, stop_every_recorded_service};
 use crate::data_acts::mode_outcome::{
     ModeFolders, hold_data_folder, login_session_secret_items, run_data_folder_mode,
     store_unavailable,
 };
 use crate::data_acts::provider_accounts::{
-    ModeAccountsError, helper_mode_services, read_account_homes,
+    ModeAccountsError, helper_mode_services, read_homes_to_erase,
 };
 
 /// Runs the `data erase` mode. Writes its outcome on standard output and exits 0 once every account
@@ -129,10 +127,11 @@ async fn erase_held_data_folder(
     DaemonModeOutcome::failed(failures.join("; "))
 }
 
-// Signs every account the accounts table in `data_folder` lists out in its home through its
-// provider's helper-mode legs over the bundle `account_services` gives, all at once and each
-// within its bound, and answers each account left signed in, naming its provider and why, or why
-// the accounts could not be reached. Starts nothing when no account is registered.
+// Signs every account home an erase of `data_folder` deletes out through its provider's helper-mode
+// legs over the bundle `account_services` gives, all at once and each within its bound, and
+// answers each account left signed in, naming its provider, how it stood on the list and why, or
+// why the homes could not be reached at all. A row that names no valid account or provider id is
+// named left signed in, and the rest sign out. Starts nothing when there is no home to sign out.
 async fn sign_out_account_homes(
     data_folder: &Path,
     account_services: impl Future<Output = Result<HelperModeServices, ModeAccountsError>>,
@@ -143,7 +142,7 @@ async fn sign_out_account_homes(
             describe_error(failure)
         )]
     };
-    let homes = match read_account_homes(data_folder).await {
+    let homes = match read_homes_to_erase(data_folder).await {
         Ok(homes) if homes.is_empty() => return Vec::new(),
         Ok(homes) => homes,
         Err(failure) => return unreached(&failure),
@@ -163,61 +162,61 @@ async fn sign_out_account_homes(
         .collect();
     let mut failures = Vec::new();
     let mut accounts = Vec::new();
-    let mut provider_names = HashMap::new();
     for home in homes {
-        let provider_name = PROVIDER_REGISTRATIONS
-            .iter()
-            .find(|registration| registration.descriptor.id == home.provider)
-            .map_or(home.provider.as_str(), |registration| {
-                registration.descriptor.name()
-            })
-            .to_owned();
-        let (Some(provider), Ok(folders)) =
-            (ProviderId::new(home.provider.clone()), home.folders())
-        else {
-            failures.push(left_signed_in(
-                &provider_name,
-                &home.account_id,
-                &HomeSignOutError::NoProvider,
-            ));
-            continue;
-        };
-        let Some(account_id) = ProviderAccountId::new(home.account_id.clone()) else {
-            failures.push(format!(
-                "the {provider_name} account stored as {} was left signed in: its id is no account \
-                 id",
-                home.account_id
-            ));
-            continue;
-        };
-        provider_names.insert(home.account_id, provider_name);
-        accounts.push(HomeSignOut {
-            account_id,
-            provider,
-            folders,
-        });
+        let (provider, account_id, listing) = (
+            home.home.provider.clone(),
+            home.home.account_id.clone(),
+            home.listing,
+        );
+        match home.sign_out() {
+            Ok(account) => accounts.push(account),
+            Err(unnamed) => failures.push(left_signed_in(
+                provider_name(&provider),
+                &account_id,
+                listing,
+                &unnamed,
+            )),
+        }
     }
     let sign_out = |provider: &ProviderId, account_id, folders| {
         legs.get(provider.as_str())
             .map(|legs| legs.sign_out_home(account_id, folders))
     };
-    for (account_id, cause) in sign_out_homes(accounts, sign_out, ACCOUNT_SIGN_OUT_BOUND).await {
-        let account_id = account_id.as_str();
+    for left in sign_out_homes(accounts, sign_out, ACCOUNT_SIGN_OUT_BOUND).await {
         failures.push(left_signed_in(
-            &provider_names[account_id],
-            account_id,
-            &cause,
+            provider_name(left.provider.as_str()),
+            left.account_id.as_str(),
+            left.listing,
+            &left.cause,
         ));
     }
     failures
 }
 
-// The line naming `provider`'s account `account_id` as left signed in, and why.
-fn left_signed_in(provider: &str, account_id: &str, cause: &HomeSignOutError) -> String {
-    format!(
-        "the {provider} account {account_id} was left signed in: {}",
-        describe_error(cause)
-    )
+// The name a person reads for the provider `provider` names, the id itself where no driver
+// answers to it.
+fn provider_name(provider: &str) -> &str {
+    descriptor_of(provider).map_or(provider, |descriptor| descriptor.name())
+}
+
+// The line naming `provider`'s account `account_id`, which stood on the list as `listing`, as left
+// signed in, and why.
+fn left_signed_in(
+    provider: &str,
+    account_id: &str,
+    listing: DataEraseAccountListing,
+    cause: &(dyn Error + 'static),
+) -> String {
+    let account = match listing {
+        DataEraseAccountListing::Listed => format!("the {provider} account {account_id}"),
+        DataEraseAccountListing::Removed => {
+            format!("the {provider} account {account_id}, removed from the list,")
+        }
+        DataEraseAccountListing::SignInUnfinished => {
+            format!("the {provider} account {account_id} from a sign-in that did not finish")
+        }
+    };
+    format!("{account} was left signed in: {}", describe_error(cause))
 }
 
 // What the sweep of the orphan registry could not do, each as one of the erase's failures: the
@@ -246,8 +245,11 @@ mod tests {
 
     use rusqlite::params;
     use sidekicks_contracts::daemon::mode_outcome::DaemonModeOutcome;
+    use sidekicks_contracts::provider::account::record::ProviderAccountId;
+    use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::wire::instant::WireInstant;
     use sidekicks_platforms::{CredentialStore, Spawner, UnendedProcess};
+    use sidekicks_provider::account::credential_home::marks::{mark_minted, mark_removed};
     use sidekicks_provider::command_search::ProviderCommandSearch;
     use sidekicks_provider::driver::{HelperModeServices, PROVIDERS};
     use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
@@ -264,16 +266,20 @@ mod tests {
     use crate::daemon::schema::schema_parts;
     use crate::data_acts::mode_outcome::hold_data_folder;
 
-    // With two Claude Code accounts registered, the erase runs `claude auth logout` in each
-    // account's home while that home still holds its files, and only then deletes the data folder
-    // with the homes in it; the second's sign-out exits 1, so the erase deletes both homes and
-    // fails naming that account as left signed in. Killed by the sign-out skipped, by the sign-out
-    // run after the delete, and by an early return on a failed sign-out.
+    // With two Claude Code accounts registered, a third removed from the list with its home kept
+    // and a fourth minted by a sign-in that did not finish, the erase runs `claude auth logout` in
+    // each home while it still holds its files, and only then deletes the data folder with the
+    // homes in it; the second's, third's and fourth's sign-outs exit 1, so the erase deletes every
+    // home and fails naming each as left signed in, the third as removed from the list and the
+    // fourth as from a sign-in that did not finish. Killed by the sign-out skipped, by the sign-out
+    // run after the delete, by an early return on a failed sign-out, by only the rows read, and by
+    // the removed or the unfinished account's line written as a listed one.
     #[tokio::test]
     async fn the_offline_erase_signs_every_account_out_before_it_deletes() {
         let root = tempfile::tempdir().expect("a scratch folder is made");
         let data = root.path().join("data");
-        let homes = ["account-1", "account-2"].map(|account| data.join("accounts").join(account));
+        let homes = ["account-1", "account-2", "account-3", "account-4"]
+            .map(|account| data.join("accounts").join(account));
         tokio::fs::create_dir_all(&data)
             .await
             .expect("the data folder is made");
@@ -283,13 +289,20 @@ mod tests {
         )
         .expect("the store opens");
         let now = WireInstant::now();
-        for (home, is_default) in homes.iter().zip([1, 0]) {
+        for home in &homes {
             tokio::fs::create_dir_all(home)
                 .await
                 .expect("the account's home is made");
             tokio::fs::write(home.join("settings.json"), "kept")
                 .await
                 .expect("the home holds a file");
+        }
+        let claude = ProviderId::new("claude".to_owned()).expect("the Claude Code provider id");
+        let marked = ["account-3", "account-4"]
+            .map(|account| ProviderAccountId::new(account.to_owned()).expect("a test account id"));
+        mark_removed(&data, &marked[0], &claude).expect("the removed account is marked");
+        mark_minted(&data, &marked[1], &claude).expect("the unfinished sign-in is marked");
+        for (home, is_default) in homes.iter().zip([1, 0]) {
             connection
                 .execute(
                     "INSERT INTO provider_accounts (account_id, provider, credential_home_path,
@@ -318,7 +331,9 @@ mod tests {
             format!(
                 "#!/bin/sh\nif [ -e \"$CLAUDE_CONFIG_DIR/settings.json\" ]; then held=whole; \
                  else held=gone; fi\nprintf '%s|%s|%s\\n' \"$CLAUDE_CONFIG_DIR\" \"$*\" \
-                 \"$held\" >> '{}'\ncase \"$CLAUDE_CONFIG_DIR\" in */account-2) exit 1;; esac\n",
+                 \"$held\" >> '{}'\n\
+                 case \"$CLAUDE_CONFIG_DIR\" in */account-2|*/account-3|*/account-4) exit 1;; \
+                 esac\n",
                 record.display()
             ),
             0o755,
@@ -367,13 +382,14 @@ mod tests {
         let DaemonModeOutcome::Error(failure) = outcome else {
             panic!("an erase that left an account signed in answered success");
         };
-        assert!(
-            failure
-                .message
-                .contains("account account-2 was left signed in"),
-            "{}",
-            failure.message
-        );
+        for left in [
+            "the Claude Code account account-2 was left signed in",
+            "the Claude Code account account-3, removed from the list, was left signed in",
+            "the Claude Code account account-4 from a sign-in that did not finish was left \
+             signed in",
+        ] {
+            assert!(failure.message.contains(left), "{}", failure.message);
+        }
     }
 
     // Fails when the erase drops the orphan registry's unread cause or a process the sweep could

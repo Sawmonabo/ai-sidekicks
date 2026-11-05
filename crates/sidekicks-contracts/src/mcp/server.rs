@@ -43,6 +43,24 @@ pub enum McpServerStatus {
     Connected,
 }
 
+impl McpServerStatus {
+    /// This status's place in [`MCP_SERVER_STATUS_SEVERITY_ORDER`], `0` the most severe, which
+    /// a fold of several readings compares.
+    pub fn severity_rank(self) -> usize {
+        MCP_SERVER_STATUS_SEVERITY_ORDER
+            .iter()
+            .position(|ranked| *ranked == self)
+            .expect("the severity order lists every status")
+    }
+
+    /// The most severe of `statuses`; `None` when there are none.
+    pub fn most_severe(statuses: impl IntoIterator<Item = Self>) -> Option<Self> {
+        statuses
+            .into_iter()
+            .min_by_key(|status| status.severity_rank())
+    }
+}
+
 ts_constants! {
     /// The five statuses, most severe first: the daemon's order for folding a server's sessions
     /// into one status, so lost observability (`unknown`) outranks a known-healthy state. A client
@@ -181,14 +199,41 @@ pub enum McpBindingScope {
 /// a person writes; `in every scope` adds `plugin`, `connector` and `managed`, whose declarations
 /// the daemon never writes. An `in every scope` union may end with
 /// `on connector and managed { … } elsewhere { … }`: members only the two read-only arms take,
-/// and their form on the other four arms.
+/// and their form on the other four arms. Each union gets `binding()`, the binding it addresses as
+/// an [`McpServerBindingRef`], and a writable one also `writable_binding()`, as an
+/// [`McpWritableBindingRef`]; neither identity union gets the accessor that would copy itself.
 macro_rules! binding_addressed {
+    (
+        $(#[$meta:meta])+
+        pub enum McpWritableBindingRef in writable scopes {}
+    ) => {
+        $crate::mcp::server::binding_addressed! {
+            @union [$(#[$meta])+] McpWritableBindingRef [] {}
+        }
+        $crate::mcp::server::binding_addressed! {
+            @writable_accessor McpWritableBindingRef binding McpServerBindingRef
+        }
+    };
     (
         $(#[$meta:meta])+
         pub enum $name:ident in writable scopes { $($extra:tt)* }
     ) => {
         $crate::mcp::server::binding_addressed! {
             @union [$(#[$meta])+] $name [$($extra)*] {}
+        }
+        $crate::mcp::server::binding_addressed! {
+            @writable_accessor $name binding McpServerBindingRef
+        }
+        $crate::mcp::server::binding_addressed! {
+            @writable_accessor $name writable_binding McpWritableBindingRef
+        }
+    };
+    (
+        $(#[$meta:meta])+
+        pub enum McpServerBindingRef in every scope {}
+    ) => {
+        $crate::mcp::server::binding_addressed! {
+            @every_union [$(#[$meta])+] McpServerBindingRef [] [] []
         }
     };
     (
@@ -197,7 +242,17 @@ macro_rules! binding_addressed {
         $(on connector and managed { $($read_only:tt)* } elsewhere { $($elsewhere:tt)* })?
     ) => {
         $crate::mcp::server::binding_addressed! {
-            @union [$(#[$meta])+] $name [$($extra)* $($($elsewhere)*)?] {
+            @every_union [$(#[$meta])+] $name [$($extra)*] [$($($read_only)*)?]
+                [$($($elsewhere)*)?]
+        }
+        $crate::mcp::server::binding_addressed! { @every_accessor $name }
+    };
+    (
+        @every_union [$(#[$meta:meta])+] $name:ident [$($extra:tt)*] [$($read_only:tt)*]
+            [$($elsewhere:tt)*]
+    ) => {
+        $crate::mcp::server::binding_addressed! {
+            @union [$(#[$meta])+] $name [$($extra)* $($elsewhere)*] {
                 /// A server an installed plugin carries: switched on and off and given tool
                 /// overrides, its declaration changing only with the plugin.
                 Plugin {
@@ -208,7 +263,7 @@ macro_rules! binding_addressed {
                     /// The server's name.
                     server_name: $crate::mcp::server::McpServerName,
                     $($extra)*
-                    $($($elsewhere)*)?
+                    $($elsewhere)*
                 },
                 /// A connector of a provider account, the account's own: read-only, switched off
                 /// per project only by the daemon's own switch, and given tool overrides.
@@ -220,7 +275,7 @@ macro_rules! binding_addressed {
                     /// The name the provider reports for it.
                     server_name: $crate::mcp::server::McpServerName,
                     $($extra)*
-                    $($($read_only)*)?
+                    $($read_only)*
                 },
                 /// An organization's server, from its managed settings: read-only, served with its
                 /// address's host only, switched off per project only by the daemon's own switch,
@@ -231,8 +286,119 @@ macro_rules! binding_addressed {
                     /// The server's name.
                     server_name: $crate::mcp::server::McpServerName,
                     $($extra)*
-                    $($($read_only)*)?
+                    $($read_only)*
                 },
+            }
+        }
+    };
+    (@writable_accessor $name:ident $accessor:ident $target:ident) => {
+        impl $name {
+            /// The binding the value addresses, its identity alone.
+            pub fn $accessor(&self) -> $crate::mcp::server::$target {
+                match self {
+                    Self::User {
+                        provider,
+                        server_name,
+                        ..
+                    } => $crate::mcp::server::$target::User {
+                        provider: provider.clone(),
+                        server_name: server_name.clone(),
+                    },
+                    Self::Project {
+                        provider,
+                        scope_ref,
+                        place,
+                        server_name,
+                        ..
+                    } => $crate::mcp::server::$target::Project {
+                        provider: provider.clone(),
+                        scope_ref: scope_ref.clone(),
+                        place: place.clone(),
+                        server_name: server_name.clone(),
+                    },
+                    Self::Local {
+                        provider,
+                        scope_ref,
+                        place,
+                        server_name,
+                        ..
+                    } => $crate::mcp::server::$target::Local {
+                        provider: provider.clone(),
+                        scope_ref: scope_ref.clone(),
+                        place: place.clone(),
+                        server_name: server_name.clone(),
+                    },
+                }
+            }
+        }
+    };
+    (@every_accessor $name:ident) => {
+        impl $name {
+            /// The binding the value addresses, its identity alone.
+            pub fn binding(&self) -> $crate::mcp::server::McpServerBindingRef {
+                use $crate::mcp::server::McpServerBindingRef as Binding;
+                match self {
+                    Self::User {
+                        provider,
+                        server_name,
+                        ..
+                    } => Binding::User {
+                        provider: provider.clone(),
+                        server_name: server_name.clone(),
+                    },
+                    Self::Project {
+                        provider,
+                        scope_ref,
+                        place,
+                        server_name,
+                        ..
+                    } => Binding::Project {
+                        provider: provider.clone(),
+                        scope_ref: scope_ref.clone(),
+                        place: place.clone(),
+                        server_name: server_name.clone(),
+                    },
+                    Self::Local {
+                        provider,
+                        scope_ref,
+                        place,
+                        server_name,
+                        ..
+                    } => Binding::Local {
+                        provider: provider.clone(),
+                        scope_ref: scope_ref.clone(),
+                        place: place.clone(),
+                        server_name: server_name.clone(),
+                    },
+                    Self::Plugin {
+                        provider,
+                        scope_ref,
+                        server_name,
+                        ..
+                    } => Binding::Plugin {
+                        provider: provider.clone(),
+                        scope_ref: scope_ref.clone(),
+                        server_name: server_name.clone(),
+                    },
+                    Self::Connector {
+                        provider,
+                        scope_ref,
+                        server_name,
+                        ..
+                    } => Binding::Connector {
+                        provider: provider.clone(),
+                        scope_ref: scope_ref.clone(),
+                        server_name: server_name.clone(),
+                    },
+                    Self::Managed {
+                        provider,
+                        server_name,
+                        ..
+                    } => Binding::Managed {
+                        provider: provider.clone(),
+                        server_name: server_name.clone(),
+                    },
+                }
             }
         }
     };
@@ -315,44 +481,6 @@ binding_addressed! {
     pub enum McpServerBindingRef in every scope {}
 }
 
-impl From<&McpWritableBindingRef> for McpServerBindingRef {
-    /// The same binding in the union of every scope, so a writable binding compares against the
-    /// bindings a provider declares.
-    fn from(binding: &McpWritableBindingRef) -> Self {
-        match binding.clone() {
-            McpWritableBindingRef::User {
-                provider,
-                server_name,
-            } => Self::User {
-                provider,
-                server_name,
-            },
-            McpWritableBindingRef::Project {
-                provider,
-                scope_ref,
-                place,
-                server_name,
-            } => Self::Project {
-                provider,
-                scope_ref,
-                place,
-                server_name,
-            },
-            McpWritableBindingRef::Local {
-                provider,
-                scope_ref,
-                place,
-                server_name,
-            } => Self::Local {
-                provider,
-                scope_ref,
-                place,
-                server_name,
-            },
-        }
-    }
-}
-
 impl McpServerBindingRef {
     /// The provider whose config declares the binding, which every scope carries.
     pub fn provider(&self) -> &ProviderId {
@@ -433,7 +561,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<requests::McpServerListResponse>().checked(),
         Definition::read::<requests::McpServerReadResponse>().checked(),
         Definition::read::<requests::McpRegistrySearchRequest>().checked(),
-        Definition::read::<requests::McpRegistryEnvironmentVariable>(),
+        Definition::read::<requests::McpRegistryInput>(),
         Definition::read::<requests::McpRegistryPackage>(),
         Definition::read::<requests::McpRegistryRemote>(),
         Definition::read::<requests::McpRegistryServer>(),

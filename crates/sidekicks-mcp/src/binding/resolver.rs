@@ -2,7 +2,7 @@
 //! keeps for them, the attached project roots as a driver's read takes them, and the attribution
 //! table that says which binding a server name a session reports resolves to.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, Weak};
@@ -18,6 +18,7 @@ use sidekicks_provider::driver::mcp_server::read::{
 };
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_workspace::project::records::AttachedProjectRoot;
+use tokio::sync::Notify;
 
 use crate::binding::store::{McpBindingKey, McpStoredBinding, McpStoredBindings};
 
@@ -33,6 +34,21 @@ pub(crate) struct McpBindingRow {
     pub(crate) stored: Option<McpStoredBinding>,
 }
 
+impl McpBindingRow {
+    /// Whether the binding's own switch leaves it on: the daemon's switch where it keeps the
+    /// binding's, else the declaration's own `enabled`, on where it sets none; `None` where the
+    /// daemon keeps the switch and the store did not answer.
+    pub(crate) fn own_switch(&self) -> Option<bool> {
+        let is_declared_on = !is_off_by_default(&self.declaration.config);
+        if !self.declaration.is_switch_kept_by_daemon {
+            return Some(is_declared_on);
+        }
+        self.stored
+            .as_ref()
+            .map(|stored| stored.enabled_override.unwrap_or(is_declared_on))
+    }
+}
+
 /// Folds one provider's reading into its binding rows, the account servers' among them, one row
 /// per binding and none merged across scopes. A `local` row of the store that the reading does not
 /// declare, matching a user entry of the same name that is off by default, is the emulated
@@ -42,16 +58,20 @@ pub(crate) fn resolve_binding_rows(
     reading: &ProviderMcpServersReading,
     stored: Option<&McpStoredBindings>,
 ) -> Vec<McpBindingRow> {
-    let declarations: Vec<&McpServerDeclaration> = reading
-        .declarations
-        .iter()
-        .chain(
-            reading
-                .account_servers
-                .iter()
-                .flat_map(|account| &account.declarations),
-        )
-        .collect();
+    let declarations = reading.declarations.iter().chain(
+        reading
+            .account_servers
+            .iter()
+            .flat_map(|account| &account.declarations),
+    );
+    resolve_declared_rows(declarations.collect(), stored)
+}
+
+/// Folds `declarations` into their binding rows as [`resolve_binding_rows`] folds a reading's.
+pub(crate) fn resolve_declared_rows(
+    declarations: Vec<&McpServerDeclaration>,
+    stored: Option<&McpStoredBindings>,
+) -> Vec<McpBindingRow> {
     let emulated_locals: Vec<&McpServerBindingRef> = stored
         .map(|stored| {
             stored
@@ -104,8 +124,10 @@ pub(crate) fn resolve_binding_rows(
         }
         for local in locals {
             rows.push(McpBindingRow {
+                // The user entry stays off; the daemon keeps the `local` binding's own switch.
                 declaration: McpServerDeclaration {
                     binding: local.clone(),
+                    is_switch_kept_by_daemon: true,
                     ..declaration.clone()
                 },
                 stored: stored_binding(local),
@@ -161,18 +183,30 @@ const ROOT_FREE_SCOPES: [McpBindingScope; 4] = [
 ];
 
 /// Which binding each server name a session reports resolves to, per provider and project root:
-/// the set the daemon sent there, then what the provider loads there by its own config; and for
-/// a session in no root, the provider's root-free bindings. It sits behind a lock taken only for
-/// a lookup or a replacement, never across an await, so a status producer reads it without
-/// waiting. Each read that replaces it is stamped before its driver read, so an older read that
-/// finishes later replaces nothing but, where it asked the accounts and no later read that asked
-/// them has replaced their bindings, those; a leg holding a report no name resolved waits on it
-/// and is handed each replacement.
+/// what the provider loads there by its own config, and for a session in no root, the provider's
+/// root-free bindings; a session's own set of tool servers is read by its status producer first.
+/// It also keeps the declarations each provider's own config made, which a session's set is
+/// composed from. It sits behind a lock taken only for a lookup or a replacement, never across an
+/// await, so a status producer reads it without waiting. Each read that replaces it is stamped
+/// before its driver read, so an older read that finishes later replaces nothing but, where it
+/// asked the accounts and no later read that asked them has replaced their bindings, those; a leg
+/// holding a report no name resolved waits on it and is handed each replacement; an opening waits
+/// on a provider's first fill before it composes a session's set from it.
 #[derive(Debug, Default)]
 pub struct McpAttributionTable {
     roots: Mutex<McpAttributionRoots>,
     next_read_stamp: AtomicU64,
     waiting_legs: McpWaitingLegs,
+    fills: Notify,
+}
+
+/// How a provider's first fill of the table ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum McpFirstFill {
+    /// A read replaced the provider's declarations.
+    Filled,
+    /// The fill's read of the provider failed and no read has replaced its declarations since.
+    Failed,
 }
 
 /// A leg holding reports whose names resolved to no binding, handed each replacement of the table
@@ -198,16 +232,14 @@ impl fmt::Debug for McpWaitingLegs {
 /// The table's bindings, per provider, root and server name.
 #[derive(Debug, Default)]
 struct McpAttributionRoots {
-    /// The set the daemon sent each root's sessions; nothing sends one yet.
-    sent: HashMap<ProviderId, HashMap<PlacedPath, HashMap<McpServerName, McpServerBindingRef>>>,
     /// What the provider loads at each root by its own config, as its last inventory read said.
     provider_loaded:
         HashMap<ProviderId, HashMap<PlacedPath, HashMap<McpServerName, McpServerBindingRef>>>,
     /// The provider's bindings in no project root (managed, user, plugin and connector), from its
     /// own and its accounts' declared bindings, which a session in no root loads.
     root_free: HashMap<ProviderId, HashMap<McpServerName, McpServerBindingRef>>,
-    /// The bindings each provider's own config declared at the newest read that replaced them.
-    config_declared: HashMap<ProviderId, Vec<McpServerBindingRef>>,
+    /// The declarations each provider's own config made at the newest read that replaced them.
+    config_declarations: HashMap<ProviderId, Vec<McpServerDeclaration>>,
     /// The bindings each provider's accounts declared at the newest read that asked them.
     account_declared: HashMap<ProviderId, Vec<McpServerBindingRef>>,
     /// The stamp of the newest read that replaced each provider's bindings.
@@ -215,6 +247,8 @@ struct McpAttributionRoots {
     /// The stamp of the newest read that asked each provider's accounts and replaced their
     /// bindings.
     applied_account_stamps: HashMap<ProviderId, u64>,
+    /// The providers whose fill's read failed before any read replaced their declarations.
+    failed_first_fills: HashSet<ProviderId>,
 }
 
 /// Whether a reading asked the provider's accounts, which decides where the table takes the
@@ -258,11 +292,6 @@ impl McpAttributionTable {
         stamp: u64,
     ) -> bool {
         let loaded = read_provider_loaded(reading);
-        let config_declared: Vec<McpServerBindingRef> = reading
-            .declarations
-            .iter()
-            .map(|declaration| declaration.binding.clone())
-            .collect();
         let is_later = |applied: Option<&u64>| applied.is_some_and(|applied| *applied > stamp);
         let is_newest = {
             let mut roots = lock(&self.roots);
@@ -286,16 +315,18 @@ impl McpAttributionTable {
             }
             if is_newest {
                 roots
-                    .config_declared
-                    .insert(provider.clone(), config_declared);
+                    .config_declarations
+                    .insert(provider.clone(), reading.declarations.clone());
                 roots.provider_loaded.insert(provider.clone(), loaded);
                 roots.applied_stamps.insert(provider.clone(), stamp);
+                roots.failed_first_fills.remove(provider);
             }
             let declared: Vec<&McpServerBindingRef> = roots
-                .config_declared
+                .config_declarations
                 .get(provider)
                 .into_iter()
                 .flatten()
+                .map(|declaration| &declaration.binding)
                 .chain(roots.account_declared.get(provider).into_iter().flatten())
                 .collect();
             let root_free = find_root_free(&declared);
@@ -303,7 +334,61 @@ impl McpAttributionTable {
             is_newest
         };
         self.resolve_waiting_legs();
+        if is_newest {
+            self.fills.notify_waiters();
+        }
         is_newest
+    }
+
+    /// Records that the fill's read of `provider` failed, which ends the first fill's wait for a
+    /// provider no read has replaced yet.
+    pub(crate) fn record_failed_fill(&self, provider: &ProviderId) {
+        {
+            let mut roots = lock(&self.roots);
+            if roots.applied_stamps.contains_key(provider) {
+                return;
+            }
+            roots.failed_first_fills.insert(provider.clone());
+        }
+        self.fills.notify_waiters();
+    }
+
+    /// Waits until `provider`'s first fill of the table ended, answering at once where it has.
+    pub async fn wait_for_first_fill(&self, provider: &ProviderId) -> McpFirstFill {
+        loop {
+            let filled = self.fills.notified();
+            tokio::pin!(filled);
+            // Registered before the check, so a fill landing between the two still wakes it.
+            filled.as_mut().enable();
+            {
+                let roots = lock(&self.roots);
+                if roots.applied_stamps.contains_key(provider) {
+                    return McpFirstFill::Filled;
+                }
+                if roots.failed_first_fills.contains(provider) {
+                    return McpFirstFill::Failed;
+                }
+            }
+            filled.await;
+        }
+    }
+
+    /// The declarations `provider`'s own config made at the newest read that replaced them, none
+    /// before a read did.
+    pub(crate) fn config_declarations(&self, provider: &ProviderId) -> Vec<McpServerDeclaration> {
+        lock(&self.roots)
+            .config_declarations
+            .get(provider)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Replaces what the table holds of `provider` with `reading`, as an inventory read that
+    /// asked the accounts does, for another crate's tests.
+    #[cfg(feature = "test-support")]
+    pub fn replace_with_reading(&self, provider: &ProviderId, reading: &ProviderMcpServersReading) {
+        let stamp = self.stamp_read();
+        self.replace_provider_loaded(provider, reading, McpAccountsAsked::Asked, stamp);
     }
 
     // Hands every leg waiting on the table the replacement, each resolving its held reports again.
@@ -314,10 +399,10 @@ impl McpAttributionTable {
         }
     }
 
-    /// The binding `server_name` resolves to in a session of `provider` at `root`: the daemon's
-    /// sent set first, then what the provider loads there; in a session with no root, the
-    /// provider's root-free binding of that name. `None` for a name none of them holds, which
-    /// never falls back to another root's or scope's binding.
+    /// The binding `server_name` resolves to in a session of `provider` at `root`: what the
+    /// provider loads there; in a session with no root, the provider's root-free binding of that
+    /// name. `None` for a name neither holds, which never falls back to another root's or scope's
+    /// binding; the session's own set is read by its status producer before this.
     pub fn resolve(
         &self,
         provider: &ProviderId,
@@ -326,9 +411,11 @@ impl McpAttributionTable {
     ) -> Option<McpServerBindingRef> {
         let roots = lock(&self.roots);
         match root {
-            Some(root) => [&roots.sent, &roots.provider_loaded]
-                .into_iter()
-                .find_map(|bindings| bindings.get(provider)?.get(root)?.get(server_name)),
+            Some(root) => roots
+                .provider_loaded
+                .get(provider)?
+                .get(root)?
+                .get(server_name),
             None => roots.root_free.get(provider)?.get(server_name),
         }
         .cloned()

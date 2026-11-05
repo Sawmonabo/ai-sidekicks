@@ -553,6 +553,9 @@ async fn a_conversation_not_resumed_in_place_tells_the_queue(#[case] failure: Re
                     Some("account/rateLimits/read") => {
                         scripted.script.answer(&sent, &json!({"rateLimits": null}));
                     }
+                    Some("config/read") => {
+                        scripted.script.answer(&sent, &json!({"config": {}, "origins": {}}));
+                    }
                     _ => scripted.script.answer(&sent, &json!({})),
                 },
             }

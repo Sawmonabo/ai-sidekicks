@@ -34,24 +34,16 @@ use crate::driver::codex::service::supervisor::test_service::{
 use crate::driver::codex::service::supervisor::{
     CodexProgramResolver, CodexService, CodexServiceSocket,
 };
-use crate::driver::codex::session::detached_conversation::{
-    CODEX_DETACHED_INTERRUPT_DEADLINE, CodexDetachedFrames,
-};
+use crate::driver::codex::session::detached_conversation::CODEX_DETACHED_INTERRUPT_DEADLINE;
 use crate::driver::codex::session::errors::{CodexError, CodexUnansweredCause};
 use crate::driver::codex::transport::connection::scripted_service::{
-    ScriptedService, connect_scripted_service,
-};
-use crate::driver::codex::transport::connection::{
-    CodexAppServerConnection, CodexConnectionHandlers,
+    ScriptedService, scripted_connection,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::{EndKeptTurnsParams, KeptRunTurns};
 use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::runtime_binding::test_store::test_provider_account_id;
 use crate::spawned_version::ResolvedProviderExecutable;
-
-/// The largest message the scripted connection takes, far above any a test sends.
-const MESSAGE_LIMIT: usize = 1 << 20;
 
 /// The conversation the kept turn runs on.
 const THREAD: &str = "conversation-1";
@@ -65,19 +57,6 @@ const CONTINUED_TURN: &str = "turn-continued";
 // The bound of one kept turn's end, from now.
 fn kept_turn_deadline() -> tokio::time::Instant {
     tokio::time::Instant::now() + CODEX_DETACHED_INTERRUPT_DEADLINE
-}
-
-// A connection whose service the test scripts.
-fn scripted_connection() -> (CodexAppServerConnection, ScriptedService) {
-    let (events, _frames) = CodexDetachedFrames::new();
-    connect_scripted_service(
-        MESSAGE_LIMIT,
-        CodexConnectionHandlers {
-            events,
-            responder: None,
-            token_refresher: None,
-        },
-    )
 }
 
 // Answers the request `sent` with `answer`, a JSON-RPC `result` or `error` member.
@@ -191,7 +170,7 @@ async fn a_kept_turn_is_ended_by_codexs_answer_and_followed_once_for_a_stop(
     #[case] follow: Option<Follow>,
     #[case] expected: KeptTurnInterrupt,
 ) {
-    let (connection, mut script) = scripted_connection();
+    let (connection, mut script, _frames) = scripted_connection();
     let ending = tokio::spawn(async move {
         let ended = end_kept_turn(
             &connection,
@@ -231,7 +210,7 @@ async fn a_kept_turn_is_ended_by_codexs_answer_and_followed_once_for_a_stop(
 // answers, naming its longer wait).
 #[tokio::test(start_paused = true)]
 async fn an_unanswered_interrupt_fails_at_its_bound() {
-    let (connection, mut script) = scripted_connection();
+    let (connection, mut script, _frames) = scripted_connection();
     let ending = tokio::spawn(async move {
         let ended = end_kept_turn(&connection, THREAD, KEPT_TURN, true, kept_turn_deadline()).await;
         (connection, ended)

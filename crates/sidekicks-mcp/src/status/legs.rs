@@ -8,8 +8,7 @@ use std::mem;
 
 use sidekicks_contracts::mcp::server::inventory::McpServerLegStatus;
 use sidekicks_contracts::mcp::server::{
-    MCP_SERVER_STATUS_SEVERITY_ORDER, McpServerBindingRef, McpServerName, McpServerStatus,
-    McpToolName,
+    McpServerBindingRef, McpServerName, McpServerStatus, McpToolName,
 };
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
@@ -411,13 +410,7 @@ impl McpLegs {
             .max_by(|one, other| one.observed_at.as_str().cmp(other.observed_at.as_str()))
             .map(|reading| reading.names.clone());
         let legs: Vec<McpServerLegStatus> = live_servers(&self.legs, key, binding_status)
-            .map(|(leg_id, server, status)| McpServerLegStatus {
-                session_id: leg_id.session_id,
-                binding_id: leg_id.binding_id.clone(),
-                status,
-                observed_at: Some(server.observed_at.clone()),
-                failed_reason: None,
-            })
+            .map(|(leg_id, server, status)| leg_status(leg_id, server, status))
             .collect();
         // With no live leg in the aggregate the probe's reading is the one that decides.
         let probe_failure_reason = (legs.is_empty() && fold.status == McpServerStatus::Failed)
@@ -437,6 +430,24 @@ impl McpLegs {
                 })
                 .unwrap_or_default(),
         }
+    }
+
+    /// What each live leg of `session_id` last saw of each server, by name: a retired leg, a
+    /// server switched off for a leg and one with no status yet are left out.
+    pub(super) fn session_server_statuses(
+        &self,
+        session_id: SessionId,
+    ) -> Vec<(McpServerName, McpServerLegStatus)> {
+        self.legs
+            .iter()
+            .filter(|(leg_id, leg)| leg_id.session_id == session_id && !leg.is_retired)
+            .flat_map(|(leg_id, leg)| {
+                leg.servers.iter().filter_map(move |(name, server)| {
+                    let status = server.status.filter(|_| !server.is_switched_off)?;
+                    Some((name.clone(), leg_status(leg_id, server, status)))
+                })
+            })
+            .collect()
     }
 
     /// How many legs are remembered, retired ones included.
@@ -529,6 +540,17 @@ fn leg_server(
     }
 }
 
+// One leg's reading of a server whose status is `status`, as the wire lists it.
+fn leg_status(leg_id: &LegId, server: &LegServer, status: McpServerStatus) -> McpServerLegStatus {
+    McpServerLegStatus {
+        session_id: leg_id.session_id,
+        binding_id: leg_id.binding_id.clone(),
+        status,
+        observed_at: Some(server.observed_at.clone()),
+        failed_reason: None,
+    }
+}
+
 /// The entries of `key`'s legs that are in its aggregate, not switched off and holding a status,
 /// each with that status.
 fn live_servers<'a>(
@@ -552,7 +574,7 @@ fn fold(legs: &HashMap<LegId, Leg>, key: &McpBindingKey, binding_status: &Bindin
     let mut deciding: Option<(usize, McpServerStatus, &LegServer)> = None;
     let mut newest: Option<&WireInstant> = None;
     for (_, server, status) in live_servers(legs, key, binding_status) {
-        let rank = severity_rank(status);
+        let rank = status.severity_rank();
         // The stored instant is fixed-width UTC text, so its text order is its time order.
         let is_newer = |held: &WireInstant| server.observed_at.as_str() > held.as_str();
         if newest.is_none_or(is_newer) {
@@ -583,12 +605,4 @@ fn fold(legs: &HashMap<LegId, Leg>, key: &McpBindingKey, binding_status: &Bindin
             observed_at: None,
         },
     }
-}
-
-/// `status`'s place in the severity order, `0` the most severe.
-fn severity_rank(status: McpServerStatus) -> usize {
-    MCP_SERVER_STATUS_SEVERITY_ORDER
-        .iter()
-        .position(|ranked| *ranked == status)
-        .expect("the severity order lists every status")
 }

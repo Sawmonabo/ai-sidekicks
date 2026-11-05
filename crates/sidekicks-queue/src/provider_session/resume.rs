@@ -36,6 +36,7 @@ use sidekicks_provider::runtime_binding::store::{
 };
 use sidekicks_session::agent_tree::reattach::read_helpers_to_reattach;
 use sidekicks_session::console_state::read_session_mode;
+use sidekicks_session::directory::provider_port::OpeningToolServers;
 use sidekicks_session::idle_sleep::kept_schedules::read_session_schedules;
 use sidekicks_session::idle_sleep::openings::SessionProcessWaker;
 use sidekicks_session::run::read::RunStateReader;
@@ -94,8 +95,10 @@ impl ProviderSessions {
     /// composed from the session's lead as it stands now on the account the leg ran on, at the
     /// level it stands at, in the mode it was last moved to, with the timed fires the idle sleep
     /// stored for it and its live runs as its log names them, under `binding_id`, with no function
-    /// legs. Fails as the composition, the posture or the read of the mode, the timed fires or the
-    /// live runs fails, and with
+    /// legs. Its opening takes the tool servers the leg stored, the set the resume sends, so no set
+    /// is composed afresh, nothing waits on the tool-server table's first fill, and the legs it
+    /// opens later report status for that stored set. Fails as the composition, the posture or the
+    /// read of the mode, the timed fires or the live runs fails, and with
     /// [`ProviderSessionError::NotResumable`] for a leg with no conversation.
     pub async fn compose_resume(
         &self,
@@ -103,9 +106,14 @@ impl ProviderSessions {
         leg: &RuntimeBinding,
         binding_id: RuntimeBindingId,
     ) -> Result<ComposedResume, ProviderSessionError> {
-        // The resume runs on the account the leg ran on, read back from its spawn record.
+        // The resume runs on the account the leg ran on, with the tool servers it stored, both read
+        // back from its spawn record; a switch keeps that set current, so none is composed afresh.
         let opening = self
-            .compose(session_id, leg.spawn_config.provider_account_id.clone())
+            .compose(
+                session_id,
+                leg.spawn_config.provider_account_id.clone(),
+                OpeningToolServers::Stored(leg.spawn_config.tool_servers.clone()),
+            )
             .await?;
         let execution_posture = posture_of(session_id, &opening)?;
         let (mode, kept_schedules, live_runs) = self

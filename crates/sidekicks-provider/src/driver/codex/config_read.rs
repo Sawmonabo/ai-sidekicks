@@ -114,6 +114,8 @@ pub(crate) struct CodexConfigLayer {
     pub(crate) name: CodexConfigLayerSource,
     /// The layer's own config, before any merge.
     pub(crate) config: Value,
+    /// The layer's version, which a write to it expects.
+    pub(crate) version: String,
     /// Why Codex ignores the layer when it merges; `None` for a layer it merges.
     #[serde(default)]
     pub(crate) disabled_reason: Option<String>,
@@ -142,6 +144,14 @@ pub(crate) struct CodexConfigLayerSource {
     /// A project layer's `.codex` folder.
     #[serde(default)]
     pub(crate) dot_codex_folder: Option<String>,
+}
+
+impl CodexConfigLayerSource {
+    /// The kind of the layer that holds the person's own Codex config.
+    pub(crate) const USER_KIND: &'static str = "user";
+
+    /// The kind of a layer that holds a project's own Codex config.
+    pub(crate) const PROJECT_KIND: &'static str = "project";
 }
 
 /// Codex's settings for `cwd` as `connection`'s service resolves them, each layer listed in the

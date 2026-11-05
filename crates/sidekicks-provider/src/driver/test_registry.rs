@@ -68,6 +68,7 @@ use crate::driver::ports::{
     MessageTakenListener,
 };
 use crate::driver::registry::ProviderRegistry;
+use crate::driver::session_control::SessionToolServer;
 use crate::driver::{
     AccountFoldersError, CurrentProviderAccount, DriverServices, PROVIDER_REGISTRATIONS, PROVIDERS,
     ProviderAccountFolders, ProviderAccountReader, ProviderRegistration, codex,
@@ -115,6 +116,14 @@ impl RuntimeBindingWriter for NothingServed {
         &self,
         _binding_id: RuntimeBindingId,
         _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async { Err(NotServedInTest("runtime binding").into()) }.boxed()
+    }
+
+    fn replace_tool_servers(
+        &self,
+        _run_id: RunId,
+        _tool_servers: Vec<SessionToolServer>,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         async { Err(NotServedInTest("runtime binding").into()) }.boxed()
     }

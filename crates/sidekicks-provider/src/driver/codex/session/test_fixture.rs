@@ -225,6 +225,7 @@ impl TestCodexSession {
                 delivery,
                 release: Arc::clone(&scripted.dependencies.release),
                 bindings: Arc::clone(&bindings) as Arc<dyn RuntimeBindingWriter>,
+                services: CodexServiceRegistry::holding(&scripted),
                 tool_server_route: Arc::new(PortRegistration::new("tool server route")),
                 reviewer_denials: Arc::new(PortRegistration::new("reviewer denial")),
                 pending_compactions,
@@ -362,7 +363,7 @@ impl TestCodexSession {
 
 impl TestCodexTask {
     /// What the session's task holds, beside what its calls act through.
-    pub(super) fn split(&mut self) -> (CodexSessionTask<'_>, &CodexSessionCallDependencies) {
+    pub(crate) fn split(&mut self) -> (CodexSessionTask<'_>, &CodexSessionCallDependencies) {
         (
             CodexSessionTask {
                 record: &mut self.record,
@@ -602,6 +603,9 @@ pub(crate) async fn answer_fork(
     fork_thread_id: &str,
     settings: &CodexThreadSettings,
 ) -> Value {
+    let read = script.next_sent().await;
+    assert_eq!(read["method"], "config/read");
+    script.answer(&read, &json!({"config": {}, "origins": {}}));
     let forked = script.next_sent().await;
     assert_eq!(forked["method"], "thread/fork");
     assert_eq!(forked["params"]["threadId"], TEST_THREAD);

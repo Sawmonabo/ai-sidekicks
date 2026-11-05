@@ -238,6 +238,9 @@ pub(super) async fn adopt_continuing(
                 (Some("thread/loaded/list"), _) => {
                     script.answer(&sent, &json!({"data": loaded, "nextCursor": null}));
                 }
+                (Some("config/read"), _) => {
+                    script.answer(&sent, &json!({"config": {}, "origins": {}}));
+                }
                 (Some("thread/resume"), Some(helper)) => {
                     resumes.push(sent.clone());
                     answer_helper_resume(script, &sent, helper);

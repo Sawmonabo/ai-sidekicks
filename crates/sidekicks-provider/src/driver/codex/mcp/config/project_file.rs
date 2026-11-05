@@ -2,10 +2,6 @@
 //! in place: every comment and every byte outside that table stays as the person wrote it, and the
 //! edit lands only while the file still holds what was read, so another program's write between
 //! the read and the rename is never lost.
-#![cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the Codex driver's write of a project server")
-)]
 
 use std::fs;
 use std::io;
@@ -103,10 +99,13 @@ pub(super) enum CodexProjectFileError {
         #[source]
         failure: toml_edit::ser::Error,
     },
-    /// Making the `.codex` folder failed, or flushing it after the file was made, or flushing the
-    /// project's folder after a new `.codex` was made in it.
-    #[error("the project's `.codex` folder could not be made or flushed")]
+    /// Making the `.codex` folder failed; no file was made.
+    #[error("the project's `.codex` folder could not be made")]
     Folder(#[source] io::Error),
+    /// The file was made, but flushing the `.codex` folder, or the project's folder after a new
+    /// `.codex` was made in it, failed, so a power loss could still take the file.
+    #[error("the project's Codex config was made, but flushing its folder to disk failed")]
+    FolderFlush(#[source] io::Error),
     /// Replacing the file that stood failed; it keeps its old contents.
     #[error("the project's Codex config could not be written")]
     Write(#[source] AtomicWriteError),
@@ -259,12 +258,12 @@ fn create_project_file(
         }
         Err(failure) => return Err(CodexProjectFileError::Create(failure)),
     }
-    flush_folder(folder).map_err(CodexProjectFileError::Folder)?;
+    flush_folder(folder).map_err(CodexProjectFileError::FolderFlush)?;
     if is_folder_made {
         let project_root = folder
             .parent()
             .expect("the `.codex` folder sits in the project's folder");
-        flush_folder(project_root).map_err(CodexProjectFileError::Folder)?;
+        flush_folder(project_root).map_err(CodexProjectFileError::FolderFlush)?;
     }
     Ok(CodexProjectFileEdit::Written)
 }

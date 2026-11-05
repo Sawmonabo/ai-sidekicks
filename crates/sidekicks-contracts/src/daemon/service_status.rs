@@ -82,6 +82,9 @@ pub enum DaemonStopStep {
     FolderWatch,
     /// The session search index closing.
     SearchIndex,
+    /// The MCP binding edits' settle pass ending, dropped past the bound and run again at the next
+    /// start.
+    McpSettle,
     /// The providers' services ending, each told why the service stops.
     Providers,
     /// The person's Stop ending the runs still live.
@@ -115,6 +118,7 @@ impl DaemonStopStep {
             Self::Scheduler => "stopping the background jobs",
             Self::FolderWatch => "stopping the watch on the repositories' folders",
             Self::SearchIndex => "closing the search index",
+            Self::McpSettle => "finishing the MCP server changes",
             Self::Providers => "stopping the sidekicks",
             Self::LiveRunsDrain => "ending the turns still running",
             Self::TurnCaptures => "saving the file changes of the last turns",

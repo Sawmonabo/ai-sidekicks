@@ -329,7 +329,7 @@ impl WebAddressSender {
             if !self.is_switched_on().await? {
                 self.drop_pending(follow).await?;
                 ArmedInstant::arm(self, None);
-                self.poster.release();
+                self.poster.client.release();
                 return Ok(());
             }
             self.pick_up(follow).await?;

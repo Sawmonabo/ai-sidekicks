@@ -21,11 +21,14 @@ use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::mcp_server::read::{McpRootReading, McpServerDeclaration, McpServerPolicy};
 
 pub(super) mod attribution;
+pub(super) mod compose;
+pub(super) mod observe;
 pub(super) mod plugins;
 mod project_file;
 pub(super) mod server_entry;
 #[cfg(test)]
 mod tests;
+mod write;
 
 /// One attached project root and the folder Codex reads it at on this computer.
 #[derive(Clone, Debug)]

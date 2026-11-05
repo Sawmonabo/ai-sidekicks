@@ -569,6 +569,7 @@ pub(crate) async fn stop_work(
             Err(failure) => failures.push(failure),
         }
     }
+    failures.extend(stop_mcp_settle(process, remaining()).await);
     if let Some(drivers) = drivers {
         process
             .stop_record
@@ -636,6 +637,25 @@ pub(crate) async fn stop_work(
     drop(process.orphan_guard.take());
     process.has_stop_failed |= !failures.is_empty();
     failures
+}
+
+// Before the drivers, whose config reads the pass observes through: waits within `bound` for the
+// MCP binding edits' settle pass, which is dropped past it and runs again at the next start.
+async fn stop_mcp_settle(
+    process: &mut DaemonProcess,
+    bound: Duration,
+) -> Option<DaemonStopFailure> {
+    let mutations = process.mcp_mutations.take()?;
+    process
+        .stop_record
+        .write_step(DaemonStopStep::McpSettle)
+        .await;
+    tokio::time::timeout(bound, mutations.stop())
+        .await
+        .is_err()
+        .then_some(DaemonStopFailure::StartTaskRunning(
+            "MCP binding edits' settle pass",
+        ))
 }
 
 /// Closes everything that holds a file in the data folder, as `close_data_folder_contents` does,

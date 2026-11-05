@@ -269,7 +269,14 @@ pub(crate) async fn probe_claude_mcp_servers(
                         None => None,
                     };
                     Some((
-                        compose_sent_entry(declared, &sources.environment, batch.root.as_ref()),
+                        compose_sent_entry(
+                            declared,
+                            &sources.environment,
+                            batch
+                                .root
+                                .as_ref()
+                                .map(|root| root.path.as_str().to_owned()),
+                        ),
                         plugin,
                     ))
                 }

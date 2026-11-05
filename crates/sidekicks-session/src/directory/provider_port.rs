@@ -29,14 +29,17 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::TextError;
 use sidekicks_mcp::binding::resolver::McpAttributionTable;
+use sidekicks_mcp::binding::session_tool_servers::{
+    McpSessionToolServers, McpSessionToolServersError,
+};
 use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_provider::driver::ports::SessionRelaunchListener;
 use sidekicks_provider::driver::session_control::{
-    CreateSessionParams, DriverResumeResult, SessionAccountPin, SubagentPolicy,
+    CreateSessionParams, DriverResumeResult, SessionAccountPin, SessionToolServer, SubagentPolicy,
 };
 use sidekicks_provider::driver::{
     AccountFoldersError, ProviderAccountFolders, ProviderAccountReader, SessionSpawnContext,
-    SessionSpawnContextResolver,
+    SessionSpawnContextResolver, descriptor_of,
 };
 use sidekicks_provider::left_conversations::LeftConversation;
 use sidekicks_provider::run::posture::compose_execution_posture;
@@ -166,6 +169,9 @@ pub enum SessionDirectoryProviderPortError {
     /// The session's project root is no path its MCP servers can be attributed at.
     #[error("the session's project root is no path its MCP servers can be attributed at")]
     McpRootPath(#[source] TextError),
+    /// The set of tool servers the session opens with could not be composed.
+    #[error("the session's tool servers could not be read")]
+    McpToolServers(#[source] McpSessionToolServersError),
 }
 
 /// Why a session's git folder is unavailable, each answered as a refusal rather than a fault.
@@ -188,6 +194,16 @@ pub enum SessionGitFolder {
     Available(FilesystemPath),
     /// The session has no git folder to build on now.
     Unavailable(GitFolderUnavailable),
+}
+
+/// Where an opening's tool servers come from.
+#[derive(Debug)]
+pub enum OpeningToolServers {
+    /// The person's set at the session's project root, composed once the table's first fill of
+    /// the provider ended, where the provider's driver takes a set.
+    Composed,
+    /// The set a resumed leg stored, sent as stored, with no wait on the table's first fill.
+    Stored(Option<Vec<SessionToolServer>>),
 }
 
 /// What a session's provider session opens with, composed from its lead as the session's log and
@@ -225,6 +241,8 @@ pub struct SessionDirectoryProviderPortDeps {
     pub mcp_status: Arc<McpServerStatusTracker>,
     /// Which binding each server name a session reports resolves to at its root.
     pub mcp_attribution: Arc<McpAttributionTable>,
+    /// The set of tool servers each opening sends.
+    pub mcp_tool_servers: Arc<McpSessionToolServers>,
 }
 
 /// The session directory's reads and records that the provider side calls: the spawn context of
@@ -253,13 +271,15 @@ impl SessionDirectoryProviderPort {
     /// lead's provider, the model it runs on now and the effort, output speed, options and larger
     /// window its binding names, at the posture of the level it stands at, in the mode it was last
     /// moved to, with the row values set in the app for that provider, the helper policy of the
-    /// person's `Helpers at once` for it, and each binding's function legs. Fails for a session
-    /// with no lead or no workspace, as the reads, git or the settings file fail, and when its
-    /// project root is no path.
+    /// person's `Helpers at once` for it, the tool servers `tool_servers` names, and each binding's
+    /// function legs over them. Fails for a session with no lead or no workspace, as the reads, git
+    /// or the settings file fail, when its project root is no path, and, for a composed set, as it
+    /// cannot be composed.
     pub async fn compose_opening(
         &self,
         session_id: SessionId,
         provider_account_id: ProviderAccountId,
+        tool_servers: OpeningToolServers,
     ) -> Result<SessionProviderOpening, SessionDirectoryProviderPortError> {
         let lead = self
             .read_lead(session_id)
@@ -273,40 +293,62 @@ impl SessionDirectoryProviderPort {
         } = lead;
         let row_values = row_values_of(&standing.provider_settings, &binding.provider_name);
         let helpers_at_once = helpers_at_once_of(&standing.provider_knobs, &binding.provider_name);
-        let function_legs_for = self
-            .compose_function_legs(session_id, binding.provider_name.clone())
+        let root = self
+            .deps
+            .project_records
+            .read_project_root_of_session(session_id)
             .await?;
+        let takes_tool_servers = descriptor_of(binding.provider_name.as_str())
+            .is_some_and(|descriptor| descriptor.takes_session_tool_servers);
+        let tool_servers = match tool_servers {
+            OpeningToolServers::Stored(stored) => stored,
+            OpeningToolServers::Composed if takes_tool_servers => Some(
+                self.deps
+                    .mcp_tool_servers
+                    .compose(&binding.provider_name, root.as_ref())
+                    .await
+                    .map_err(SessionDirectoryProviderPortError::McpToolServers)?,
+            ),
+            OpeningToolServers::Composed => None,
+        };
+        let create_params = CreateSessionParams {
+            session_id,
+            agent_id,
+            config: Map::new(),
+            model: running_model,
+            effort: binding.effort,
+            larger_window: binding.larger_window,
+            execution_posture: Some(standing.execution_posture),
+            mode: standing.mode,
+            output_speed: binding.output_speed,
+            options: binding
+                .options
+                .map(|options| options.as_slice().to_vec())
+                .unwrap_or_default(),
+            row_values,
+            // No saved agent definition reaches a spawn yet.
+            subagent_policy: Some(SubagentPolicy::from_helper_limit(
+                helpers_at_once,
+                Vec::new(),
+            )),
+            // The session's callback tools are bound by their own owner.
+            callback_tools: None,
+            tool_servers,
+            output_schema: None,
+            provider_account_id,
+            // No agent definition or workflow step names an account of its own yet.
+            account_pin: SessionAccountPin::FollowsCurrent,
+            on_mcp_server_status: None,
+        };
+        let function_legs_for = self.compose_function_legs(
+            session_id,
+            binding.provider_name.clone(),
+            root.as_ref(),
+            create_params.tool_servers.as_deref().unwrap_or_default(),
+        )?;
         Ok(SessionProviderOpening {
             git_folder: standing.git_folder,
-            create_params: CreateSessionParams {
-                session_id,
-                agent_id,
-                config: Map::new(),
-                model: running_model,
-                effort: binding.effort,
-                larger_window: binding.larger_window,
-                execution_posture: Some(standing.execution_posture),
-                mode: standing.mode,
-                output_speed: binding.output_speed,
-                options: binding
-                    .options
-                    .map(|options| options.as_slice().to_vec())
-                    .unwrap_or_default(),
-                row_values,
-                // No saved agent definition reaches a spawn yet.
-                subagent_policy: Some(SubagentPolicy::from_helper_limit(
-                    helpers_at_once,
-                    Vec::new(),
-                )),
-                // The session's tool servers and callback tools are bound by their own owners.
-                callback_tools: None,
-                tool_servers: None,
-                output_schema: None,
-                provider_account_id,
-                // No agent definition or workflow step names an account of its own yet.
-                account_pin: SessionAccountPin::FollowsCurrent,
-                on_mcp_server_status: None,
-            },
+            create_params,
             provider: binding.provider_name,
             function_legs_for,
         })

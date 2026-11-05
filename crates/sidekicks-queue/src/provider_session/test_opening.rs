@@ -38,6 +38,7 @@ use sidekicks_provider::driver::session_control::{CreateSessionParams, SessionAc
 use sidekicks_provider::run::posture::{ExecutionPostureService, compose_execution_posture};
 use sidekicks_provider::runtime_binding::resume::ResumeFunctionLegs;
 use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
+use sidekicks_session::directory::provider_port::OpeningToolServers;
 use sidekicks_session::idle_sleep::openings::SessionProcessFollower;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::run::epochs::ExecutionEpochs;
@@ -109,9 +110,9 @@ pub(crate) fn first_provider() -> ProviderId {
 }
 
 /// Composes every session's opening on the table's first provider, read-only over the root, on
-/// the account it is given.
+/// the account it is given, with the stored tool servers it is handed and none composed.
 pub fn test_opening_composer() -> ProviderSessionOpeningComposer {
-    Arc::new(|session_id, provider_account_id| {
+    Arc::new(|session_id, provider_account_id, tool_servers| {
         async move {
             let root = FilesystemPath::new("/".to_owned()).expect("the root is a path");
             Ok(ProviderSessionOpening {
@@ -135,7 +136,10 @@ pub fn test_opening_composer() -> ProviderSessionOpeningComposer {
                     row_values: ProviderRowValues::default(),
                     callback_tools: None,
                     subagent_policy: None,
-                    tool_servers: None,
+                    tool_servers: match tool_servers {
+                        OpeningToolServers::Stored(stored) => stored,
+                        OpeningToolServers::Composed => None,
+                    },
                     output_schema: None,
                     provider_account_id,
                     account_pin: SessionAccountPin::Pinned,

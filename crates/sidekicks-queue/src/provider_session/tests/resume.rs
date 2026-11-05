@@ -15,6 +15,7 @@ use rstest::rstest;
 use rusqlite::params;
 use serde_json::{Value, json};
 use sidekicks_contracts::event::registry::SessionEventType;
+use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::run::subagent::SubagentId;
@@ -27,7 +28,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::idle_sleep::{KeptSchedule, SessionSleepState};
 use sidekicks_provider::driver::session_control::{
-    LiveRunResume, OpenTurnResume, ProviderTurnAnswer, ResumedRunAnswer,
+    LiveRunResume, OpenTurnResume, ProviderTurnAnswer, ResumedRunAnswer, SessionToolServer,
 };
 use sidekicks_provider::driver::test_registry::new_run_id;
 use sidekicks_provider::runtime_binding::store::mint_runtime_binding_id;
@@ -411,21 +412,36 @@ async fn a_wake_resumes_a_sleeping_session_once_with_its_kept_schedules() {
 // the copy runs under no binding of the session's; only the queue's own relaunch opens the legs of
 // the binding it hands its process. A leg opened by the compose would be retired by its drop,
 // taking the woken process's leg on the same binding with it. Killed by the compose opening the
-// legs of the binding it composes for.
+// legs of the binding it composes for. The stored resume's opening takes the set its leg stored, so
+// it waits on no first fill of the tool-server table; killed by a resume that composes its own.
 #[tokio::test]
 async fn only_a_relaunch_opens_status_legs_and_a_composed_resume_opens_none() {
     let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |_, _| {}).await;
     let pool = DatabaseReadPool::new(opening.database.path(), READ_STATEMENT_CAPACITY);
-    let leg = read_session_leg(&pool, opening.session_id)
+    let mut leg = read_session_leg(&pool, opening.session_id)
         .await
         .expect("the leg reads")
         .expect("the session ran");
+    // One stored server, so a resume that sends an empty set or none fails too.
+    let stored_set = vec![SessionToolServer {
+        binding: McpServerBindingRef::User {
+            provider: first_provider(),
+            server_name: McpServerName::new("tracker".to_owned()).expect("a server name"),
+        },
+        is_enabled: true,
+    }];
+    leg.spawn_config.tool_servers = Some(stored_set.clone());
 
     let stored = opening
         .sessions
         .compose_resume(opening.session_id, &leg, mint_runtime_binding_id())
         .await
         .expect("the stored resume composes");
+    assert_eq!(
+        lock(&opening.stored_sets).last(),
+        Some(&Some(Some(stored_set))),
+        "the stored resume's opening takes its leg's set"
+    );
     let side_question = opening
         .sessions
         .side_question_source(opening.session_id)

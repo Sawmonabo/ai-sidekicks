@@ -6,6 +6,8 @@ use std::fmt::Write as _;
 use rstest::rstest;
 use serde_json::Map;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
+use sidekicks_contracts::mcp::server::McpServerBindingRef;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 
@@ -13,12 +15,14 @@ use super::{
     RuntimeBinding, RuntimeBindingPatch, RuntimeBindingRelaunch, RuntimeBindingSpawnConfig,
     RuntimeBindingStore, mint_runtime_binding_id, read_binding,
 };
+use crate::driver::PROVIDERS;
 use crate::driver::schema::schema_parts;
 use crate::driver::session_control::SessionToolServer;
 use crate::left_conversations::LeftConversation;
 use crate::runtime_binding::test_store::{
     binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
 };
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 fn token(text: &str) -> ProviderToken {
     FreeFormText::new(text.to_owned()).expect("the test's token is valid text")
@@ -171,7 +175,11 @@ async fn a_binding_with_tool_servers_reads_back_as_recorded() {
         &store,
         RuntimeBindingSpawnConfig {
             tool_servers: Some(vec![SessionToolServer {
-                server_name: FreeFormText::new("docs".to_owned()).expect("a server name"),
+                binding: McpServerBindingRef::User {
+                    provider: ProviderId::new(PROVIDERS[0].id.to_owned())
+                        .expect("a table id is a provider id"),
+                    server_name: FreeFormText::new("docs".to_owned()).expect("a server name"),
+                },
                 is_enabled: true,
             }]),
             ..spawn_config_on(test_provider_account_id())
@@ -183,4 +191,85 @@ async fn a_binding_with_tool_servers_reads_back_as_recorded() {
         .expect("the binding reads")
         .expect("the binding has a row");
     assert_eq!(read, created);
+}
+
+// Fails when the set is stored as a quoted string, when the run's oldest resumable row is written,
+// or when the write replaces the whole spawn record or touches another row.
+#[tokio::test]
+async fn a_tool_server_set_lands_as_a_list_on_the_runs_newest_resumable_row() {
+    let database = TestDatabase::new(schema_parts());
+    let store = open_store(&database).await;
+    let older = create(
+        &store,
+        RuntimeBindingSpawnConfig {
+            output_speed: Some(token("fast")),
+            ..spawn_config_on(test_provider_account_id())
+        },
+    )
+    .await;
+    let newer_id = mint_runtime_binding_id();
+    store
+        .record_relaunch(RuntimeBindingRelaunch {
+            predecessor_id: older.id.clone(),
+            binding_id: newer_id.clone(),
+            resume_handle: "conversation-2".to_owned(),
+            spawned_version: spawned_build("2.1.0", "/opt/provider/2.1.0/bin"),
+            left_conversations: Vec::new(),
+        })
+        .await
+        .expect("the relaunch is recorded");
+    let connection = database.reader();
+    // Both rows can share one millisecond, so the older one is put plainly first.
+    connection
+        .execute(
+            "UPDATE runtime_bindings SET created_at = '2000-01-01T00:00:00.000Z' WHERE id = ?",
+            [older.id.as_str()],
+        )
+        .expect("the test orders the rows");
+    let read_row = |id: &str| -> (String, String) {
+        connection
+            .query_row(
+                "SELECT spawn_config, updated_at FROM runtime_bindings WHERE id = ?",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("the row reads")
+    };
+    let older_before = read_row(older.id.as_str());
+    let tool_servers = vec![
+        SessionToolServer {
+            binding: McpServerBindingRef::User {
+                provider: older.provider_name.clone(),
+                server_name: FreeFormText::new("docs".to_owned()).expect("a server name"),
+            },
+            is_enabled: true,
+        },
+        SessionToolServer {
+            binding: McpServerBindingRef::User {
+                provider: older.provider_name.clone(),
+                server_name: FreeFormText::new("tickets".to_owned()).expect("a server name"),
+            },
+            is_enabled: false,
+        },
+    ];
+
+    RuntimeBindingWriter::replace_tool_servers(&store, older.run_id, tool_servers.clone())
+        .await
+        .expect("the set is written");
+
+    let stored_type: String = connection
+        .query_row(
+            "SELECT json_type(spawn_config, '$.toolServers') FROM runtime_bindings WHERE id = ?",
+            [newer_id.as_str()],
+            |row| row.get(0),
+        )
+        .expect("the newer row reads");
+    assert_eq!(stored_type, "array");
+    let newer = read_binding(&connection, &newer_id)
+        .expect("the newer binding reads")
+        .expect("the newer binding has a row");
+    assert_eq!(newer.spawn_config.tool_servers, Some(tool_servers));
+    assert_eq!(newer.spawn_config.output_speed, Some(token("fast")));
+    assert_eq!(newer.resolved_executable_path, "/opt/provider/2.1.0/bin");
+    assert_eq!(read_row(older.id.as_str()), older_before);
 }

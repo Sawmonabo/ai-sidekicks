@@ -12,7 +12,10 @@ use futures::FutureExt;
 use futures::future::{BoxFuture, ready};
 use sidekicks_contracts::agent::provider_binding::AgentBindingSwitchBoundary;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
-use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
+use sidekicks_contracts::mcp::server::config::{
+    McpDeclaredConfigMember, McpServerConfigInput, McpTransport,
+};
+use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpWritableBindingRef};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{
     ObservedProviderOptions, ProviderRow, ProviderSessionOption,
@@ -22,6 +25,7 @@ use sidekicks_contracts::provider::driver::commands::ProviderCommandBindingGroup
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::run::children::ChildStoppedState;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::controls::methods::TerminalProviderSession;
 use sidekicks_contracts::session::id::SessionId;
@@ -34,6 +38,7 @@ use sidekicks_platforms::{
 use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::codex::lifecycle::CodexDriver;
+use crate::driver::codex::mcp::compose_codex_mcp_entry;
 use crate::driver::codex::permission_level::list_codex_modes;
 use crate::driver::codex::service::registry::CODEX_SWITCHING_HOME_FOLDER;
 #[cfg(any(test, feature = "test-support"))]
@@ -57,6 +62,11 @@ use crate::driver::daemon_stop::{DaemonStopIntent, RecordedServicesStopError};
 use crate::driver::error_causes::ProviderAxisInvalid;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
 use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
+use crate::driver::mcp_server::resources::McpResourceSource;
+use crate::driver::mcp_server::session_switch::McpSessionSwitch;
+use crate::driver::mcp_server::write::{
+    McpServerEntry, McpServerObserved, McpServerWrite, McpServerWriteOutcome, McpServerWriteRefusal,
+};
 use crate::driver::message_handing::{HandMoment, MessageHanding};
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{
@@ -72,9 +82,9 @@ use crate::driver::session_control::{
     DriverResumeResult, EndKeptTurnsParams, ExportHandoverBriefParams, MoveSessionToForkParams,
     MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderCommandsListener,
     ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
-    SessionCommandAnswer, SetSessionGoalParams, SettleHeldToolCallsParams, StartingLevel,
-    StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
-    UpdateSessionModeParams,
+    SessionCommandAnswer, SessionToolServer, SetSessionGoalParams, SettleHeldToolCallsParams,
+    StartingLevel, StartingLevelParams, SubscribeProviderCommandsParams,
+    UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::driver::{
@@ -271,6 +281,8 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     // It has no `local` scope: a project's `local` server is a user entry, off, switched on in the
     // sessions of that project alone.
     is_mcp_local_scope_emulated: true,
+    // Each call's `mcp_servers` table carries the session's set.
+    takes_session_tool_servers: true,
     // Codex's own limit on a skill's name.
     skill_name_max_length: Some(64),
     written_name_forms: &written_names::CODEX_WRITTEN_NAME_FORMS,
@@ -624,6 +636,53 @@ impl ProviderDriver for CodexDriver {
         request: McpServersReadRequest,
     ) -> BoxFuture<'_, Result<ProviderMcpServersReading, DriverError>> {
         self.read_mcp_servers(request).boxed()
+    }
+
+    fn observe_mcp_server(
+        &self,
+        binding: McpServerBindingRef,
+    ) -> BoxFuture<'_, Result<McpServerObserved, DriverError>> {
+        async move {
+            self.observe_mcp_server(&binding)
+                .await
+                .map_err(DriverError::from)
+        }
+        .boxed()
+    }
+
+    fn compose_mcp_server(
+        &self,
+        binding: &McpWritableBindingRef,
+        config: &McpServerConfigInput,
+        before: &McpServerObserved,
+    ) -> Result<McpServerEntry, McpServerWriteRefusal> {
+        compose_codex_mcp_entry(binding, config, &before.entry)
+    }
+
+    fn write_mcp_server(
+        &self,
+        write: McpServerWrite,
+        before: McpServerObserved,
+    ) -> BoxFuture<'_, McpServerWriteOutcome> {
+        async move { self.write_mcp_server(&write, &before).await }.boxed()
+    }
+
+    fn list_mcp_resources(
+        &self,
+        session_id: SessionId,
+        server_name: McpServerName,
+    ) -> BoxFuture<'_, Result<McpResourceSource, DriverError>> {
+        self.list_mcp_resources(session_id, server_name).boxed()
+    }
+
+    fn switch_session_mcp_servers(
+        &self,
+        session_id: SessionId,
+        run_id: RunId,
+        tool_servers: Vec<SessionToolServer>,
+    ) -> BoxFuture<'_, Result<McpSessionSwitch, DriverError>> {
+        self.switch_session_mcp_servers(session_id, run_id, tool_servers)
+            .boxed()
     }
 
     fn compact_context(

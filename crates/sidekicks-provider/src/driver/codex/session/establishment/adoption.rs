@@ -273,7 +273,8 @@ impl CodexSessionEstablishment {
                 // Codex applies no setting to a loaded conversation, so none is sent.
                 request_bare_thread_resume(connection, &record.thread_id, None).await
             } else {
-                self.request_resume_with_settings(record, connection).await
+                self.request_resume_with_settings(record, service, connection)
+                    .await
             };
             match reply {
                 Err(error)

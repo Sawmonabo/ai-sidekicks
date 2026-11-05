@@ -39,6 +39,7 @@ use crate::driver::codex::event_normalizer::{
 };
 use crate::driver::codex::lifecycle::CodexDriverParts;
 use crate::driver::codex::lifecycle::account_move::CodexBindingMove;
+use crate::driver::codex::mcp::live_switch::switch_codex_session_servers;
 use crate::driver::codex::notification_routing::{
     CodexContextWindowReading, CodexRoutedFrames, CodexSessionRouting,
 };
@@ -66,7 +67,7 @@ use crate::driver::codex::session::inbound::{
     drain_codex_session_inbound,
 };
 use crate::driver::codex::session::lifecycle_call::{
-    CodexCompactionReading, CodexLifecycleCall, CodexRunningCommandReading,
+    CodexConversationReading, CodexLifecycleCall, CodexRunningCommandReading,
 };
 use crate::driver::codex::session::slots::{CodexSessionLetGo, let_go_codex_session};
 use crate::driver::codex::session::state::CodexSessionRecord;
@@ -339,6 +340,14 @@ impl CodexSessionIntake {
                 let moved = move_codex_permission_level(record, &parts.config_forks, &params).await;
                 let _unheard = reply.send(moved);
             }
+            CodexLifecycleCall::SwitchToolServers {
+                tool_servers,
+                reply,
+            } => {
+                let switched =
+                    switch_codex_session_servers(record, &parts.config_forks, tool_servers);
+                let _unheard = reply.send(switched);
+            }
             CodexLifecycleCall::MoveMode { mode, reply } => {
                 // A service on its way back resumes the conversation in the mode the record holds.
                 let moved = if record.service.is_coming_back() {
@@ -372,8 +381,8 @@ impl CodexSessionIntake {
                 let asked = parts.side_questions.ask(record, &params).await;
                 let _unheard = reply.send(asked);
             }
-            CodexLifecycleCall::ReadCompaction { reply } => {
-                let _unheard = reply.send(CodexCompactionReading {
+            CodexLifecycleCall::ReadConversation { reply } => {
+                let _unheard = reply.send(CodexConversationReading {
                     connection: record.service.connection(),
                     provider_account_id: record.provider_account_id.clone(),
                     thread_id: record.thread_id.clone(),

@@ -350,17 +350,30 @@ refusal_codes! {
     /// does not own the machine the request's `machineId` names, by the account the machine is
     /// registered to.
     MachinePermissionDenied = "machine.permissionDenied" (PermissionDenied, 403);
-    /// The MCP binding store cannot be read, so every MCP change fails closed until it can.
+    /// The daemon's stores of a server's bindings and receipts, or its receipt key, cannot be used,
+    /// so every MCP change fails closed; `data.fields.cause` names why where it is known: the
+    /// keychain's `locked` or `unavailable`, or `receiptKeyLost`, which a retry under the same
+    /// idempotency key answers again.
     McpBindingStoreUnavailable = "mcp.bindingStoreUnavailable" (Unavailable, 503);
-    /// The submitted server configuration failed validation.
+    /// The provider's own config does not load, so nothing was written and only an edit of the file
+    /// fixes it; the message is the provider's words, with no config value (`data.fields`:
+    /// `McpServerConfigFileInvalidDetails`).
+    McpServerConfigFileInvalid = "mcp.server.configFileInvalid" (FailedPrecondition, 409);
+    /// The submitted server configuration failed validation, or the provider refused the entry
+    /// when the write reached it.
     McpServerConfigInvalid = "mcp.server.configInvalid" (InvalidArgument, 400);
-    /// A write to a provider's own configuration lost to a concurrent edit, on either arm: a
-    /// `user`-scope write's expected version was refused as stale, returned at once with no retry
-    /// and carrying both version tokens so the caller can re-inspect, or the `project` file no
-    /// longer hashes to what the daemon last read, so the edit is not written (`data.fields`:
-    /// `provider`, `scope`, `serverName`, `reason` `staleVersion` or `projectFileChanged`, and on
-    /// `staleVersion` `expectedVersion` and `currentVersion`).
+    /// A write to a provider's own configuration lost to a concurrent edit: a `user`-scope write's
+    /// expected version was refused as stale, returned at once with no retry and carrying both
+    /// version tokens so the caller can re-inspect; the provider's config file no longer holds
+    /// what the daemon last read, so the edit is not written; or another writer changed the
+    /// binding's entry since the daemon read it (`data.fields`: `provider`, `scope`, `serverName`,
+    /// `reason` `staleVersion`, `configFileChanged` or `entryChanged`, and on `staleVersion`
+    /// `expectedVersion` and `currentVersion`).
     McpServerConfigWriteConflict = "mcp.server.configWriteConflict" (Aborted, 409);
+    /// An `mcp.server.*` change reused a `clientIdempotencyKey` with a request the daemon cannot
+    /// match to the key's first one; what the key first answered is untouched, and the client sends
+    /// the change again under a new key (`data.fields`: `provider`, `scope` and `serverName`).
+    McpServerIdempotencyConflict = "mcp.server.idempotencyConflict" (InvalidArgument, 422);
     /// No server with the requested `(provider, scope, scopeRef, serverName)` binding exists in the
     /// unified inventory.
     McpServerNotFound = "mcp.server.notFound" (NotFound, 404);

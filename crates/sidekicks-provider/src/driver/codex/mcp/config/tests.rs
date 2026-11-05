@@ -16,15 +16,10 @@ use sidekicks_contracts::wire::record::Record;
 
 use super::{CodexLoadedServer, CodexMcpConfigReading, CodexMcpRoot, read_codex_mcp_config};
 use crate::driver::codex::DESCRIPTOR;
-use crate::driver::codex::session::detached_conversation::CodexDetachedFrames;
-use crate::driver::codex::transport::connection::CodexConnectionHandlers;
-use crate::driver::codex::transport::connection::scripted_service::connect_scripted_service;
+use crate::driver::codex::transport::connection::scripted_service::scripted_connection;
 use crate::driver::mcp_server::read::{
     McpRootReading, McpServerDeclaration, McpServerSignInClient,
 };
-
-/// The largest message the scripted connection takes, far above any a test sends.
-const MESSAGE_LIMIT: usize = 1 << 20;
 
 /// The person's home folder, read when no root is attached.
 const HOME: &str = "/home/person";
@@ -42,15 +37,7 @@ async fn read_scripted(
     plugin_home: &Path,
     replies: &[Value],
 ) -> CodexMcpConfigReading {
-    let (events, _frames) = CodexDetachedFrames::new();
-    let (connection, mut script) = connect_scripted_service(
-        MESSAGE_LIMIT,
-        CodexConnectionHandlers {
-            events,
-            responder: None,
-            token_refresher: None,
-        },
-    );
+    let (connection, mut script, _frames) = scripted_connection();
     let folders: Vec<PathBuf> = if roots.is_empty() {
         vec![PathBuf::from(HOME)]
     } else {

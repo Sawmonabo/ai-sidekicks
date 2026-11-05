@@ -1,8 +1,10 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs;
 use std::sync::Arc;
 use std::time::Duration;
 
+use sidekicks_contracts::daemon::data::DataEraseAccountListing;
 use sidekicks_contracts::provider::account::record::{
     BillingMode, ProviderAccountHealthState, ProviderAccountId,
 };
@@ -10,8 +12,11 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::{has_file_mode, real_path};
 use sidekicks_store::data_folder::agent_memory_folder;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
+use super::marks::mark_removed;
 use super::test_legs::RecordedSignOuts;
 use super::{
     CredentialHomeCondition, classify_credential_home, create_credential_home,
@@ -19,8 +24,8 @@ use super::{
 };
 use crate::account::home_lock::AccountHomeLock;
 use crate::account::registry::{
-    AccountAdmission, HealthObservation, ProviderAccountRegistry, RegisteredAccount,
-    open_test_registry,
+    AccountAdmission, HealthObservation, PROVIDER_ACCOUNT_REGISTRY_STATEMENT_CAPACITY,
+    ProviderAccountRegistry, RegisteredAccount, open_test_registry,
 };
 use crate::account::resolver::credential_home_folders;
 use crate::driver::ProviderAccountFolders;
@@ -134,40 +139,112 @@ fn a_claude_code_home_s_agent_memory_resolves_to_the_all_projects_folder() {
     assert!(has_file_mode(&store, 0o700).expect("the store folder's mode reads"));
 }
 
-// Every registered account is signed out in its own home before the erase deletes the homes, and
-// one whose provider refuses is answered while the others still sign out. Killed by an account
-// skipped, by a sign-out run in another account's folders, and by a refused sign-out answered as
-// done.
+// Every home the erase deletes is signed out in its own folders before the homes go: a listed
+// account's, one whose removal has begun, a removed account's kept home and one minted for a
+// sign-in that did not finish, while a removed mark whose home is gone signs nothing out; each
+// refused one is answered with its provider and how it stood on the list; a row whose provider is
+// no provider id is answered as unnamed while the rest still sign out. Killed by a row
+// mid-removal skipped, by the removed or the minted marks unread, by a gone home signed out, by
+// the listing or the provider wrong, by a sign-out run in another account's folders, by the
+// unnamed row not answered, and by an unnamed row failing the whole read.
 #[tokio::test]
-async fn every_home_is_signed_out_and_a_refused_one_is_answered() {
+async fn every_home_the_erase_deletes_is_signed_out_and_a_refused_one_is_answered() {
     let database = TestDatabase::new(schema_parts());
     let data_folder = tempfile::tempdir().expect("a data folder");
-    let (registry, _writer) = open_test_registry(&database, data_folder.path()).await;
-    let first = admit_signed_in(&registry).await;
-    let second = admit_signed_in(&registry).await;
-    let legs = Arc::new(RecordedSignOuts::refusing(second.account_id.clone()));
+    let (registry, writer) = open_test_registry(&database, data_folder.path()).await;
+    // The workflow crate's table, cut to the columns the removal's guard reads.
+    writer
+        .write(vec![WriteStatement {
+            sql: Cow::Borrowed(
+                "CREATE TABLE workflow_steps (
+                   workflow_run_id TEXT, wait_account_id TEXT, status TEXT, wait_cause TEXT
+                 )",
+            ),
+            bindings: StatementBindings::None,
+            expected_row_count: None,
+        }])
+        .await
+        .expect("the table is made");
+    let listed = admit_signed_in(&registry).await;
+    let removing = admit_signed_in(&registry).await;
+    registry
+        .mark_removal_intent(&removing.account_id)
+        .await
+        .expect("the removal begins");
+    let removed = admit_signed_in(&registry).await;
+    registry
+        .mark_removal_intent(&removed.account_id)
+        .await
+        .expect("the removal begins");
+    registry
+        .delete_marked_account(&removed.account_id)
+        .await
+        .expect("the row goes");
+    let unfinished = registry.mint(claude()).expect("an account is minted");
+    let gone = ProviderAccountId::new("account-gone".to_owned()).expect("a test account id");
+    mark_removed(data_folder.path(), &gone, &claude()).expect("a home with no folder is marked");
+    writer
+        .write(vec![WriteStatement {
+            sql: Cow::Borrowed(
+                "INSERT INTO provider_accounts (account_id, provider, credential_home_path,
+                   billing_mode, created_at, updated_at)
+                 VALUES ('account-unnamed', 'Not A Provider', '/nowhere', 'unknown',
+                   '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')",
+            ),
+            bindings: StatementBindings::None,
+            expected_row_count: Some(1),
+        }])
+        .await
+        .expect("a damaged row is stored");
+    let reads = DatabaseReadPool::new(
+        database.path(),
+        PROVIDER_ACCOUNT_REGISTRY_STATEMENT_CAPACITY,
+    );
+    let legs = Arc::new(RecordedSignOuts::refusing([
+        removing.account_id.clone(),
+        removed.account_id.clone(),
+        unfinished.account_id().clone(),
+    ]));
 
-    let failed = sign_out_every_home(
-        &registry,
+    let answered = sign_out_every_home(
+        &reads,
+        data_folder.path(),
         &HashMap::from([(claude(), Arc::clone(&legs) as Arc<dyn ProviderAccountLegs>)]),
         Duration::from_secs(5),
     )
     .await
-    .expect("the accounts read");
+    .expect("the homes read");
 
-    assert_eq!(
-        failed
-            .iter()
-            .map(|(account_id, _)| account_id)
-            .collect::<Vec<_>>(),
-        [&second.account_id]
-    );
+    assert!(answered.has_unnamed_home, "the damaged row is answered");
+    let mut failed: Vec<_> = answered
+        .left_signed_in
+        .into_iter()
+        .map(|left| (left.account_id, left.provider, left.listing))
+        .collect();
+    failed.sort_by(|left, right| left.0.as_str().cmp(right.0.as_str()));
+    let mut expected_failed = [
+        (
+            removing.account_id.clone(),
+            DataEraseAccountListing::Removed,
+        ),
+        (removed.account_id.clone(), DataEraseAccountListing::Removed),
+        (
+            unfinished.account_id().clone(),
+            DataEraseAccountListing::SignInUnfinished,
+        ),
+    ]
+    .map(|(account_id, listing)| (account_id, claude(), listing));
+    expected_failed.sort_by(|left, right| left.0.as_str().cmp(right.0.as_str()));
+    assert_eq!(failed, expected_failed);
     let mut signed_out = legs.signed_out();
     signed_out.sort_by(|left, right| left.0.as_str().cmp(right.0.as_str()));
-    let mut expected = [first, second].map(|account| {
-        let folders = credential_home_folders(&claude(), &account.credential_home);
-        (account.account_id, folders)
-    });
+    let mut expected = [
+        (listed.account_id, listed.credential_home),
+        (removing.account_id, removing.credential_home),
+        (removed.account_id, removed.credential_home),
+        (unfinished.account_id().clone(), unfinished.home().clone()),
+    ]
+    .map(|(account_id, home)| (account_id, credential_home_folders(&claude(), &home)));
     expected.sort_by(|left, right| left.0.as_str().cmp(right.0.as_str()));
     assert_eq!(signed_out, expected);
 }

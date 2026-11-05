@@ -20,11 +20,13 @@ use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::codex::capabilities::read_codex_service_model_catalog;
 use crate::driver::codex::delivery::frames::CodexFrameDelivery;
 use crate::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
+use crate::driver::codex::mcp::live_switch::report_codex_servers_switched_off;
 use crate::driver::codex::notification_routing::CodexRoutedFrames;
 use crate::driver::codex::output_speed::{
     compose_codex_service_tier, read_codex_declared_tier, resolve_codex_output_speed_level,
 };
 use crate::driver::codex::service::home::CodexConversationHome;
+use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::calls::CodexSessionTask;
 use crate::driver::codex::session::context_reading::{
@@ -33,6 +35,9 @@ use crate::driver::codex::session::context_reading::{
 use crate::driver::codex::session::controls::update_codex_session_mode;
 use crate::driver::codex::session::conversation_release::CodexConversationRelease;
 use crate::driver::codex::session::errors::{CodexError, classify_rewind_fork_failure};
+use crate::driver::codex::session::establishment::mcp_read::{
+    compose_codex_call_table, send_with_stale_name_resend,
+};
 use crate::driver::codex::session::history::read_codex_turns;
 use crate::driver::codex::session::slots::let_go_codex_thread;
 use crate::driver::codex::session::state::CodexSessionRecord;
@@ -73,6 +78,9 @@ pub(crate) struct CodexForkDependencies {
     pub(crate) release: Arc<CodexConversationRelease>,
     /// The runtime bindings, each pointed at the conversation its session moved onto.
     pub(crate) bindings: Arc<dyn RuntimeBindingWriter>,
+    /// The services, whose one on the person's own Codex folder reads the entries of the
+    /// session's servers a fork's own read does not load.
+    pub(crate) services: Arc<CodexServiceRegistry>,
     /// The route to the daemon's tool servers, once its owner registered it.
     pub(crate) tool_server_route: Arc<PortRegistration<Arc<dyn ToolServerRoute>>>,
     /// The reviewer's denials, whose held presses on a binding the fork retires are released.
@@ -147,7 +155,8 @@ async fn fork_onto_settings(
     let boundary = before_turn_id.map_or(CodexForkBoundary::Whole, CodexForkBoundary::BeforeTurn);
     let forked = request_codex_fork(
         record_fork_source(task.record),
-        &dependencies.tool_server_route,
+        dependencies,
+        &service,
         &connection,
         boundary,
     )
@@ -203,7 +212,8 @@ pub(crate) async fn move_codex_session_to_fork(
     let _claim = service.begin_thread_claim();
     let forked = request_codex_fork(
         record_fork_source(task.record),
-        &dependencies.tool_server_route,
+        dependencies,
+        &service,
         &connection,
         CodexForkBoundary::AfterTurn(&boundary_turn_id),
     )
@@ -289,12 +299,15 @@ pub(crate) async fn bind_codex_first_run(
 }
 
 /// Sends `thread/fork` of `source`'s conversation up to `boundary` with every setting it carries,
-/// its output speed resolved afresh against the model's tier list, which can change, and the tool
-/// servers on `tool_server_route` once its owner registered it. Fails as the catalog read or the
-/// request does, and with `CodexError::Transport` for a reply that names no conversation.
+/// its output speed resolved afresh against the model's tier list, which can change, and its tool
+/// servers against the fork's own read, read through `dependencies`' services, with the daemon's
+/// on its route once its owner registered it and each stdio server in `service`'s sandbox where the
+/// session runs sandboxed. Fails as the catalog read, the tool servers' reads, the sandbox's wrap
+/// or the request does, and with `CodexError::Transport` for a reply that names no conversation.
 pub(crate) async fn request_codex_fork(
     source: CodexForkSource<'_>,
-    tool_server_route: &PortRegistration<Arc<dyn ToolServerRoute>>,
+    dependencies: &CodexForkDependencies,
+    service: &CodexService,
     connection: &CodexAppServerConnection,
     boundary: CodexForkBoundary<'_>,
 ) -> Result<CodexForkReply, CodexError> {
@@ -306,19 +319,37 @@ pub(crate) async fn request_codex_fork(
     )
     .await
     .map_err(CodexError::Driver)?;
-    let route = tool_server_route
+    let service_tier =
+        compose_codex_service_tier(output_speed.as_deref()).map(CodexServiceTierChange);
+    let services = &*dependencies.services;
+    let route = dependencies
+        .tool_server_route
         .port()
         .map(|route| &**route as &dyn ToolServerRoute);
-    let mut fork = compose_codex_thread_fork_params(settings, route, source.thread_id);
-    fork.exclude_turns = Some(true);
-    fork.service_tier =
-        compose_codex_service_tier(output_speed.as_deref()).map(CodexServiceTierChange);
-    match boundary {
-        CodexForkBoundary::Whole => {}
-        CodexForkBoundary::BeforeTurn(turn_id) => fork.before_turn_id = Some(turn_id.to_owned()),
-        CodexForkBoundary::AfterTurn(turn_id) => fork.last_turn_id = Some(turn_id.to_owned()),
-    }
-    let reply = connection.request(THREAD_FORK_METHOD, &fork).await?;
+    let thread_id = source.thread_id.as_str();
+    let reply =
+        send_with_stale_name_resend(connection, &settings.working_directory, move |loaded| {
+            let service_tier = service_tier.clone();
+            async move {
+                let table =
+                    compose_codex_call_table(services, service, settings, route, &loaded).await?;
+                let mut fork =
+                    compose_codex_thread_fork_params(settings, table, thread_id.to_owned());
+                fork.exclude_turns = Some(true);
+                fork.service_tier = service_tier;
+                match boundary {
+                    CodexForkBoundary::Whole => {}
+                    CodexForkBoundary::BeforeTurn(turn_id) => {
+                        fork.before_turn_id = Some(turn_id.to_owned());
+                    }
+                    CodexForkBoundary::AfterTurn(turn_id) => {
+                        fork.last_turn_id = Some(turn_id.to_owned());
+                    }
+                }
+                connection.request(THREAD_FORK_METHOD, &fork).await
+            }
+        })
+        .await?;
     let thread_id = read_thread(&reply, THREAD_FORK_METHOD)?.id;
     Ok(CodexForkReply { reply, thread_id })
 }
@@ -418,6 +449,10 @@ async fn move_record_to_fork(
     if is_rebound {
         record.end_mcp_server_status_leg();
         record.on_mcp_server_status = legs.and_then(|legs| legs.on_mcp_server_status);
+    } else {
+        // The fork stays on the leg, and its conversation sends no startup for a server it
+        // does not run.
+        report_codex_servers_switched_off(record);
     }
     let routed = task
         .routing

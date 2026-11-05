@@ -15,7 +15,10 @@ use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::inbound::{CodexSessionInbound, CodexSessionInboundSender};
 use crate::driver::codex::session::side_questions::CodexSideQuestionAnswer;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
-use crate::driver::session_control::{AskSideQuestionParams, UpdatePermissionLevelParams};
+use crate::driver::mcp_server::session_switch::McpSessionSwitch;
+use crate::driver::session_control::{
+    AskSideQuestionParams, SessionToolServer, UpdatePermissionLevelParams,
+};
 
 /// A call of the driver's own on a session's record, each answering on its own `reply`; a dropped
 /// `reply` means the session's task let the record go first.
@@ -40,6 +43,13 @@ pub(crate) enum CodexLifecycleCall {
         /// Where the move's failure goes.
         reply: oneshot::Sender<Result<(), CodexError>>,
     },
+    /// Switches the session's tool servers to the whole set given, onto a fork of the conversation.
+    SwitchToolServers {
+        /// The session's tool servers, each with its switch.
+        tool_servers: Vec<SessionToolServer>,
+        /// Where when the conversation takes the set goes; `Applied` once its fork runs.
+        reply: oneshot::Sender<McpSessionSwitch>,
+    },
     /// Moves the conversation between Build and Plan from its next turn.
     MoveMode {
         /// The mode.
@@ -55,10 +65,10 @@ pub(crate) enum CodexLifecycleCall {
         /// failure.
         reply: oneshot::Sender<Result<CodexSideQuestionAnswer, CodexError>>,
     },
-    /// Reads the conversation a compaction runs on.
-    ReadCompaction {
+    /// Reads the session's live conversation, which a compaction and a resource list run on.
+    ReadConversation {
         /// Where the reading goes.
-        reply: oneshot::Sender<CodexCompactionReading>,
+        reply: oneshot::Sender<CodexConversationReading>,
     },
     /// Reads where the command item `item_id` runs, while its row is open.
     ReadRunningCommand {
@@ -80,8 +90,8 @@ pub(crate) struct CodexRunningCommandReading {
     pub(crate) terminal_process_id: Option<String>,
 }
 
-/// The conversation a compaction runs on, as the session's task read it.
-pub(crate) struct CodexCompactionReading {
+/// The session's live conversation, as the session's task read it.
+pub(crate) struct CodexConversationReading {
     /// The connection, or why the service has none.
     pub(crate) connection: Result<Arc<CodexAppServerConnection>, CodexError>,
     /// The account the conversation runs on.

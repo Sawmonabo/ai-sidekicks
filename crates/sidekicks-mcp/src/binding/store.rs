@@ -6,12 +6,15 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock};
 
 use rusqlite::named_params;
+use rusqlite::types::Value as SqliteValue;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::mcp::server::inventory::McpToolOverride;
 use sidekicks_contracts::mcp::server::{
     McpBindingScope, McpServerBindingId, McpServerBindingRef, McpServerName, McpToolName,
 };
 use sidekicks_contracts::place::{DistroName, PlacedPath, WslPlace};
+use sidekicks_contracts::plugin::PluginToken;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_ipc::stream::latest_value::{KeyedLatestValueFeed, KeyedLatestValueOutlet};
 use sidekicks_store::database::connection::read_pool::{
@@ -132,6 +135,47 @@ impl McpBindingKey {
         }
     }
 
+    /// The binding the key names, rebuilt from its parts; `None` where a stored part is no longer a
+    /// valid path, distribution, plugin name or account id.
+    pub(crate) fn binding_ref(&self) -> Option<McpServerBindingRef> {
+        let provider = self.provider.clone();
+        let server_name = self.server_name.clone();
+        let root = || FilesystemPath::new(self.scope_ref.clone()).ok();
+        let place = || read_place(self.scope_place.clone()).ok();
+        Some(match self.scope {
+            McpBindingScope::User => McpServerBindingRef::User {
+                provider,
+                server_name,
+            },
+            McpBindingScope::Project => McpServerBindingRef::Project {
+                provider,
+                scope_ref: root()?,
+                place: place()?,
+                server_name,
+            },
+            McpBindingScope::Local => McpServerBindingRef::Local {
+                provider,
+                scope_ref: root()?,
+                place: place()?,
+                server_name,
+            },
+            McpBindingScope::Plugin => McpServerBindingRef::Plugin {
+                provider,
+                scope_ref: PluginToken::new(self.scope_ref.clone()).ok()?,
+                server_name,
+            },
+            McpBindingScope::Connector => McpServerBindingRef::Connector {
+                provider,
+                scope_ref: ProviderAccountId::new(self.scope_ref.clone())?,
+                server_name,
+            },
+            McpBindingScope::Managed => McpServerBindingRef::Managed {
+                provider,
+                server_name,
+            },
+        })
+    }
+
     /// The binding's id on the wire: the lowercase hex of a `blake3` hash over the key's parts,
     /// each after its length so no two keys share one, holding no path and the same in every run.
     pub(crate) fn server_binding_id(&self) -> McpServerBindingId {
@@ -153,7 +197,7 @@ impl McpBindingKey {
 
 /// Why the binding store did not record a binding's first observation or answer a read.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum McpBindingStoreError {
+pub enum McpBindingStoreError {
     /// The row's write failed.
     #[error("the MCP binding's first observation could not be recorded")]
     Write(#[source] WriteError),
@@ -186,6 +230,35 @@ pub(crate) struct McpStoredBindings {
     pub(crate) local_bindings: Vec<McpServerBindingRef>,
 }
 
+impl McpStoredBindings {
+    /// Lays `landing`'s row over what the store keeps, as [`record_binding_statement`] writes it,
+    /// so a read made before that statement commits reads the binding as it will stand.
+    pub(crate) fn record(&mut self, landing: &McpBindingLanding<'_>) {
+        let stored = self
+            .bindings
+            .entry(McpBindingKey::of(landing.binding))
+            .or_insert_with(|| {
+                if matches!(landing.binding, McpServerBindingRef::Local { .. }) {
+                    self.local_bindings.push(landing.binding.clone());
+                }
+                McpStoredBinding::default()
+            });
+        if landing.enabled_override.is_some() {
+            stored.enabled_override = landing.enabled_override;
+        }
+    }
+}
+
+/// A binding row a landed change records when it commits: the binding, and the daemon's switch
+/// [`record_binding_statement`] writes for it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct McpBindingLanding<'a> {
+    /// The binding the row is for.
+    pub(crate) binding: &'a McpServerBindingRef,
+    /// The switch the row takes; `None` keeps a row's switch as it stands.
+    pub(crate) enabled_override: Option<bool>,
+}
+
 static PROVIDER_BINDINGS_SQL: &str =
     "SELECT scope, scope_ref, scope_place, server_name, enabled_override
   FROM mcp_server_bindings
@@ -206,15 +279,51 @@ static PROVIDER_PROJECT_SWITCHES_SQL: &str =
   ORDER BY scope, scope_ref, scope_place, server_name, project_root, project_place";
 
 // A row already present is left as it is, its switch and baseline kept.
-static RECORD_FIRST_OBSERVATION_SQL: LazyLock<String> = LazyLock::new(|| {
+static RECORD_BINDING_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO mcp_server_bindings
-  (provider, scope, scope_ref, scope_place, server_name, first_observed_at, updated_at)
-  VALUES (@provider, @scope, @scope_ref, @scope_place, @server_name, {DATABASE_NOW_SQL},
-    {DATABASE_NOW_SQL})
+  (provider, scope, scope_ref, scope_place, server_name, enabled_override, first_observed_at,
+    updated_at)
+  VALUES (@provider, @scope, @scope_ref, @scope_place, @server_name, @enabled,
+    {DATABASE_NOW_SQL}, {DATABASE_NOW_SQL})
+  ON CONFLICT (provider, scope, scope_ref, scope_place, server_name) DO UPDATE
+    SET enabled_override = excluded.enabled_override, updated_at = excluded.updated_at
+    WHERE excluded.enabled_override IS NOT NULL"
+    )
+});
+
+// The binding's tool overrides and per-project switches go with it, by their foreign keys.
+static REMOVE_BINDING_SQL: &str = "DELETE FROM mcp_server_bindings
+  WHERE provider = @provider AND scope = @scope AND scope_ref = @scope_ref
+    AND scope_place = @scope_place AND server_name = @server_name";
+
+static ENABLED_OVERRIDE_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "INSERT INTO mcp_server_bindings
+  (provider, scope, scope_ref, scope_place, server_name, enabled_override, first_observed_at,
+    updated_at)
+  VALUES (@provider, @scope, @scope_ref, @scope_place, @server_name, @enabled,
+    {DATABASE_NOW_SQL}, {DATABASE_NOW_SQL})
+  ON CONFLICT (provider, scope, scope_ref, scope_place, server_name) DO UPDATE
+    SET enabled_override = excluded.enabled_override, updated_at = excluded.updated_at"
+    )
+});
+
+// A server already switched off for the project keeps its row.
+static SWITCH_OFF_IN_PROJECT_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "INSERT INTO mcp_project_server_switches
+  (provider, scope, scope_ref, scope_place, server_name, project_root, project_place, updated_at)
+  VALUES (@provider, @scope, @scope_ref, @scope_place, @server_name, @project_root,
+    @project_place, {DATABASE_NOW_SQL})
   ON CONFLICT DO NOTHING"
     )
 });
+
+static SWITCH_ON_IN_PROJECT_SQL: &str = "DELETE FROM mcp_project_server_switches
+  WHERE provider = @provider AND scope = @scope AND scope_ref = @scope_ref
+    AND scope_place = @scope_place AND server_name = @server_name
+    AND project_root = @project_root AND project_place = @project_place";
 
 /// Writes the bindings' governance rows and reads them back.
 #[derive(Clone)]
@@ -303,23 +412,102 @@ impl McpBindingStore {
         &self,
         binding: &McpServerBindingRef,
     ) -> Result<(), McpBindingStoreError> {
-        let key = McpBindingKey::of(binding);
         self.writer
-            .write(vec![WriteStatement {
-                sql: Cow::Borrowed(RECORD_FIRST_OBSERVATION_SQL.as_str()),
-                bindings: StatementBindings::Named(vec![
-                    text_binding("@provider", key.provider.as_str()),
-                    text_binding("@scope", <&'static str>::from(key.scope)),
-                    text_binding("@scope_ref", &key.scope_ref),
-                    text_binding("@scope_place", &key.scope_place),
-                    text_binding("@server_name", key.server_name.as_str()),
-                ]),
-                expected_row_count: None,
-            }])
+            .write(vec![record_binding_statement(
+                &McpBindingKey::of(binding),
+                None,
+            )])
             .await
             .map_err(McpBindingStoreError::Write)?;
         Ok(())
     }
+}
+
+/// The statement that writes `key`'s binding row where it has none, with the daemon's switch set
+/// to `enabled_override`; a row already there takes `enabled_override` where it is set and keeps
+/// its switch where it is `None`.
+pub(crate) fn record_binding_statement(
+    key: &McpBindingKey,
+    enabled_override: Option<bool>,
+) -> WriteStatement {
+    let mut bindings = key_bindings(key);
+    bindings.push((
+        Cow::Borrowed("@enabled"),
+        SqliteValue::from(enabled_override),
+    ));
+    WriteStatement {
+        sql: Cow::Borrowed(RECORD_BINDING_SQL.as_str()),
+        bindings: StatementBindings::Named(bindings),
+        expected_row_count: None,
+    }
+}
+
+/// The statement that deletes `key`'s binding row, its tool overrides and per-project switches
+/// with it; a binding with no row deletes nothing and is not refused.
+pub(crate) fn remove_binding_statement(key: &McpBindingKey) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(REMOVE_BINDING_SQL),
+        bindings: StatementBindings::Named(key_bindings(key)),
+        expected_row_count: None,
+    }
+}
+
+/// The statement that sets the daemon's switch over `key`'s binding to `is_enabled`, writing the
+/// binding's row where it has none.
+pub(crate) fn enabled_override_statement(key: &McpBindingKey, is_enabled: bool) -> WriteStatement {
+    let mut bindings = key_bindings(key);
+    bindings.push((Cow::Borrowed("@enabled"), SqliteValue::from(is_enabled)));
+    WriteStatement {
+        sql: Cow::Borrowed(ENABLED_OVERRIDE_SQL.as_str()),
+        bindings: StatementBindings::Named(bindings),
+        expected_row_count: Some(1),
+    }
+}
+
+/// The statements that switch `key`'s binding on or off for `project_root`: switched off, the
+/// binding's row where it has none and the project's switch row; switched on, that switch row
+/// deleted.
+pub(crate) fn project_switch_statements(
+    key: &McpBindingKey,
+    project_root: &PlacedPath,
+    is_enabled: bool,
+) -> Vec<WriteStatement> {
+    let mut bindings = key_bindings(key);
+    bindings.push(text_binding("@project_root", project_root.path.as_str()));
+    bindings.push(text_binding(
+        "@project_place",
+        project_root
+            .place
+            .as_ref()
+            .map_or("", |place| place.distro.as_str()),
+    ));
+    let bindings = StatementBindings::Named(bindings);
+    if is_enabled {
+        return vec![WriteStatement {
+            sql: Cow::Borrowed(SWITCH_ON_IN_PROJECT_SQL),
+            bindings,
+            expected_row_count: None,
+        }];
+    }
+    vec![
+        record_binding_statement(key, None),
+        WriteStatement {
+            sql: Cow::Borrowed(SWITCH_OFF_IN_PROJECT_SQL.as_str()),
+            bindings,
+            expected_row_count: None,
+        },
+    ]
+}
+
+// The five named values of `key`'s binding row.
+fn key_bindings(key: &McpBindingKey) -> Vec<(Cow<'static, str>, SqliteValue)> {
+    vec![
+        text_binding("@provider", key.provider.as_str()),
+        text_binding("@scope", <&'static str>::from(key.scope)),
+        text_binding("@scope_ref", &key.scope_ref),
+        text_binding("@scope_place", &key.scope_place),
+        text_binding("@server_name", key.server_name.as_str()),
+    ]
 }
 
 /// The key the first four columns of a binding's, an override's or a mutation receipt's row name,
