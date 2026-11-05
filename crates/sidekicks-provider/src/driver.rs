@@ -671,7 +671,8 @@ pub trait ProviderAccountReader: Send + Sync {
 
     /// The current credential generation of `provider_account_id`'s account, from the accounts
     /// store, which a reading of the account carries so one from before a sign-in again reads as
-    /// stale. Fails when the account cannot be read.
+    /// stale. Fails with the boxed `ProviderAccountRegistryError::NotFound` when the account is not
+    /// registered, and otherwise when it cannot be read.
     fn read_credential_generation(
         &self,
         provider_account_id: ProviderAccountId,

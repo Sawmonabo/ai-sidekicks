@@ -198,7 +198,7 @@ impl ProviderAccountReader for ProviderAccounts {
                 .read(ReadLength::Short, move |connection| {
                     query_registered_account(connection, &provider_account_id)?
                         .map(|account| account.credential_generation)
-                        .ok_or_else(|| "the account is not registered".into())
+                        .ok_or_else(|| ProviderAccountRegistryError::NotFound.into())
                 })
                 .await
         }
@@ -272,7 +272,8 @@ mod tests {
     use sidekicks_store::database::writer::test_file::TestDatabase;
 
     use super::{PROVIDER_ACCOUNTS_STATEMENT_CAPACITY, ProviderAccounts, select_current_account};
-    use crate::account::registry::tests::register;
+    use crate::account::errors::ProviderAccountRegistryError;
+    use crate::account::registry::tests::{create_workflow_steps_table, register};
     use crate::account::registry::{
         HealthObservation, HealthObserver, ProviderAccountRegistry, open_test_registry,
     };
@@ -482,16 +483,8 @@ mod tests {
             .expect("the kind is read");
         assert_eq!(first, None);
 
+        create_workflow_steps_table(&database);
         let connection = Connection::open(database.path()).expect("the test opens the database");
-        // The workflow crate's table, cut to the columns the removal mark's guard reads.
-        connection
-            .execute(
-                "CREATE TABLE workflow_steps (
-                   workflow_run_id TEXT, wait_account_id TEXT, status TEXT, wait_cause TEXT
-                 )",
-                [],
-            )
-            .expect("the test makes the workflow steps' table");
         connection
             .execute(
                 "UPDATE provider_accounts SET observed_auth_mode = ?1 WHERE account_id = ?2",
@@ -540,7 +533,16 @@ mod tests {
             KindWrite::TokenReplacement | KindWrite::SignIn => {
                 assert_eq!(after.expect("the kind is read"), Some(written));
             }
-            KindWrite::RemovalMark => assert!(after.is_err(), "a marked account is not registered"),
+            KindWrite::RemovalMark => {
+                let error = after.expect_err("a marked account is not registered");
+                assert!(
+                    matches!(
+                        error.downcast_ref::<ProviderAccountRegistryError>(),
+                        Some(ProviderAccountRegistryError::NotFound)
+                    ),
+                    "a marked account reads as not registered: {error}"
+                );
+            }
         }
     }
 }
