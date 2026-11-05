@@ -64,16 +64,18 @@ pub fn nullable_text_binding(name: &'static str, text: Option<&str>) -> (Cow<'st
     )
 }
 
-/// A named binding of `values` as the one JSON array `json_each` reads, its `name` written with its
-/// `@`, so one statement takes any number of values without a placeholder per value.
+/// `values` as the one JSON array `json_each` reads, so one statement takes any number of values
+/// without a placeholder per value.
+pub fn json_list_value(values: &impl Serialize) -> Value {
+    Value::Text(serde_json::to_string(values).expect("a list of ids or words writes as JSON"))
+}
+
+/// A named binding of `values` as [`json_list_value`] writes them, its `name` written with its `@`.
 pub fn json_list_binding(
     name: &'static str,
     values: &impl Serialize,
 ) -> (Cow<'static, str>, Value) {
-    (
-        Cow::Borrowed(name),
-        Value::Text(serde_json::to_string(values).expect("a list of ids or words writes as JSON")),
-    )
+    (Cow::Borrowed(name), json_list_value(values))
 }
 
 /// A `place` column's value: the place as its wire JSON (`"windows"` or `{"distro":…}`), `NULL`
