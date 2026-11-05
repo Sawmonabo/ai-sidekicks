@@ -1,7 +1,8 @@
 //! The run routes of the Codex driver: which session each run's live turns are on, the runtime
 //! binding, agent and step bound each run's deliveries are attributed with, the level a run
-//! alone was asked to run at, until the run ends, and the conversation each helper's child run
-//! runs on, until the helper ends.
+//! alone was asked to run at, until the run ends, the conversation each helper's child run
+//! runs on, until the helper ends, and the run each session's next turn Codex starts by itself is
+//! claimed for, until that turn starts or the claim is taken back.
 
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard};
@@ -54,6 +55,8 @@ struct Routes {
     bindings: HashMap<RunId, CodexRunBinding>,
     output_speeds_for_turn: HashMap<RunId, String>,
     helpers: HashMap<RunId, CodexHelperRoute>,
+    // By session.
+    goal_turn_claims: HashMap<SessionId, RunId>,
 }
 
 impl CodexRunRoutes {
@@ -150,8 +153,21 @@ impl CodexRunRoutes {
         self.lock().helpers.remove(&run_id)
     }
 
-    /// Drops every run route, helper route and binding of a session, scanning by value: the
-    /// record that could enumerate them is gone or replaced by the time a sweep is owed.
+    /// Claims the next turn Codex starts by itself on `session_id` for `run_id`, a goal's run
+    /// whose turn Codex starts on its own once it took the goal.
+    pub(crate) fn claim_goal_turn(&self, session_id: SessionId, run_id: RunId) {
+        self.lock().goal_turn_claims.insert(session_id, run_id);
+    }
+
+    /// Removes and answers the run `session_id`'s next turn Codex starts by itself is claimed
+    /// for: the turn's start takes it, and the goal's run takes it back once no turn came.
+    pub(crate) fn take_goal_turn_claim(&self, session_id: SessionId) -> Option<RunId> {
+        self.lock().goal_turn_claims.remove(&session_id)
+    }
+
+    /// Drops every run route, helper route, binding and turn claim of a session, scanning by
+    /// value: the record that could enumerate them is gone or replaced by the time a sweep is
+    /// owed.
     pub(crate) fn forget_run_routes(&self, session_id: SessionId) {
         let mut routes = self.lock();
         let Routes {
@@ -159,7 +175,9 @@ impl CodexRunRoutes {
             bindings,
             output_speeds_for_turn,
             helpers,
+            goal_turn_claims,
         } = &mut *routes;
+        goal_turn_claims.remove(&session_id);
         sessions.retain(|_, bound_session_id| *bound_session_id != session_id);
         helpers.retain(|_, helper| helper.session_id != session_id);
         bindings.retain(|run_id, binding| {

@@ -13,7 +13,6 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::cost::{AgentSpend, UsdMicros};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::PROVIDERS;
@@ -25,17 +24,19 @@ use crate::agent_tree::store::{NewAgentTreeNode, bind_newest_run, insert_node, m
 use crate::agents::projection::test_fixture::{
     binding, project, resolved_run_queued, run_statements, session_created, write_log_row,
 };
+use crate::instant;
 
-// The provider that names every helper of these tests, in its started rows and its nodes alike.
-const HELPER_PROVIDER: &str = "test-provider";
+/// The provider that names every helper of these tests, in its started rows and its nodes alike.
+pub(crate) const HELPER_PROVIDER: &str = "test-provider";
 
-// The instant `second` seconds into the tests' minute, so rows written in order also start in
-// order.
-fn at(second: u32) -> String {
+/// The instant `second` seconds into the tests' minute, so rows written in order also start in
+/// order.
+pub(crate) fn at(second: u32) -> String {
     format!("2026-10-28T09:00:{second:02}.000Z")
 }
 
-fn agent_id() -> AgentId {
+/// A fresh agent id.
+pub(crate) fn agent_id() -> AgentId {
     AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id")
 }
 
@@ -50,18 +51,24 @@ fn helper_member(run_id: RunId, handle: &ChildHandle) -> AgentTreeMember {
     }
 }
 
-// One session's runs, nodes and log, on a database holding the agent tree's and the agents'
-// tables, with a lead agent whose `agents` row runs on `model-lead`.
-struct SessionLog {
-    _database: TestDatabase,
-    connection: Connection,
-    session_id: SessionId,
-    sequence: i64,
-    lead: AgentId,
+/// One session's runs, nodes and log, on a database holding the agent tree's and the agents'
+/// tables, with a lead agent whose `agents` row runs on `model-lead`.
+pub(crate) struct SessionLog {
+    /// The database, which a test may open the event log on.
+    pub(crate) database: TestDatabase,
+    /// The connection every row is written and read through.
+    pub(crate) connection: Connection,
+    /// The session.
+    pub(crate) session_id: SessionId,
+    /// The sequence the next row of the log takes.
+    pub(crate) sequence: i64,
+    /// The session's lead agent.
+    pub(crate) lead: AgentId,
 }
 
 impl SessionLog {
-    fn new() -> Self {
+    /// A fresh session with its lead.
+    pub(crate) fn new() -> Self {
         let database = TestDatabase::new(
             crate::agent_tree::schema::schema_parts()
                 .with_parts(crate::agents::schema::schema_parts()),
@@ -79,7 +86,7 @@ impl SessionLog {
             ),
         );
         Self {
-            _database: database,
+            database,
             connection,
             session_id,
             sequence: 0,
@@ -87,9 +94,9 @@ impl SessionLog {
         }
     }
 
-    // Writes one row of the log at `occurred_at`, filed under `run_id` where it names one, and
-    // answers its sequence.
-    fn event(
+    /// Writes one row of the log at `occurred_at`, filed under `run_id` where it names one, and
+    /// answers its sequence.
+    pub(crate) fn event(
         &mut self,
         event_type: SessionEventType,
         payload: &Value,
@@ -109,8 +116,8 @@ impl SessionLog {
         sequence
     }
 
-    // A run in `state` for `agent_id`, under `parent` reached as it names, queued at `queued_at`.
-    fn run(
+    /// A run in `state` for `agent_id`, under `parent` reached as it names, queued at `queued_at`.
+    pub(crate) fn run(
         &mut self,
         parent: Option<(RunId, ChildRunProvenance)>,
         state: RunState,
@@ -141,9 +148,9 @@ impl SessionLog {
         run_id
     }
 
-    // A helper's own run under `parent_run_id`, for the lead's agent as a provider subagent's is,
-    // with the helper start that names it.
-    fn own_run(
+    /// A helper's own run under `parent_run_id`, for the lead's agent as a provider subagent's is,
+    /// with the helper start that names it.
+    pub(crate) fn own_run(
         &mut self,
         parent_run_id: RunId,
         subagent_id: &str,
@@ -171,8 +178,8 @@ impl SessionLog {
         run_id
     }
 
-    // The one place a test builds and writes a node.
-    fn node(
+    /// The one place a test builds and writes a node.
+    pub(crate) fn node(
         &self,
         own_run_id: RunId,
         subagent_id: &str,
@@ -192,14 +199,15 @@ impl SessionLog {
             provider_path: None,
             start_call_id: None,
             own_run_id,
-            started_at: WireInstant::try_from(started_at.to_owned()).expect("an instant"),
+            started_at: instant(started_at),
         });
         run_statements(&self.connection, &[statement]);
         handle
     }
 
-    fn bind(&self, handle: &ChildHandle, own_run_id: RunId, updated_at: &str) {
-        let updated_at = WireInstant::try_from(updated_at.to_owned()).expect("an instant");
+    /// Binds the node `handle` to its newest own run `own_run_id`.
+    pub(crate) fn bind(&self, handle: &ChildHandle, own_run_id: RunId, updated_at: &str) {
+        let updated_at = instant(updated_at);
         run_statements(
             &self.connection,
             &[bind_newest_run(handle, own_run_id, None, &updated_at)],
@@ -233,7 +241,8 @@ impl SessionLog {
             .expect("the tree reads")
     }
 
-    fn read(&self) -> AgentChildRunLinkListResponse {
+    /// The whole tree, every row of the log read.
+    pub(crate) fn read(&self) -> AgentChildRunLinkListResponse {
         self.read_before(None, &[])
     }
 }
@@ -600,8 +609,10 @@ fn the_badge_counts_and_the_refused_creates_read_from_the_tree_and_the_log() {
     assert_eq!(rejected, [(lead_run, at(6))]);
 }
 
-// Killed by the session check dropped, by the node's first own run read instead of its newest,
-// and by a missing own run read as no child.
+// Killed by the session check dropped, by the node's first own run read instead of its newest, by
+// a missing own run read as no child, by a held stop left unfolded (the held node reading
+// `interrupted`), and by the fold taken where no helper stop names the own run (the unheld node
+// reading `stopped`).
 #[test]
 fn a_handle_resolves_to_its_node_in_its_session_only() {
     let mut session = SessionLog::new();
@@ -612,6 +623,23 @@ fn a_handle_resolves_to_its_node_in_its_session_only() {
     let handle = session.node(first_run, "h", None, &at(2));
     let newest_run = session.own_run(other_lead_run, "h", RunState::WaitingForInput, &at(3));
     session.bind(&handle, newest_run, &at(3));
+    let held_run = session.own_run(lead_run, "held", RunState::Interrupted, &at(4));
+    let held = session.node(held_run, "held", None, &at(4));
+    let unheld_run = session.own_run(lead_run, "unheld", RunState::Interrupted, &at(5));
+    let unheld = session.node(unheld_run, "unheld", None, &at(5));
+    let session_id = session.session_id;
+    session.event(
+        SessionEventType::AgentSubagentStopped,
+        &json!({
+            "sessionId": session_id,
+            "runId": lead_run,
+            "provider": HELPER_PROVIDER,
+            "subagentId": "held",
+            "childRunId": held_run,
+        }),
+        Some(lead_run),
+        &at(6),
+    );
 
     let resolve = |session_id: &SessionId, child_handle: &ChildHandle| {
         resolve_child(&session.connection, session_id, child_handle)
@@ -629,6 +657,14 @@ fn a_handle_resolves_to_its_node_in_its_session_only() {
     assert_eq!(resolved.state, RunState::WaitingForInput);
     assert_eq!(resolved.parent_run_id, other_lead_run);
     assert_eq!(resolved.member(), helper_member(other_lead_run, &handle));
+    let state_of = |child_handle: &ChildHandle| {
+        resolve(&session_id, child_handle)
+            .expect("the handle resolves")
+            .expect("the node is the session's")
+            .state
+    };
+    assert_eq!(state_of(&held), RunState::Stopped);
+    assert_eq!(state_of(&unheld), RunState::Interrupted);
 
     session
         .connection

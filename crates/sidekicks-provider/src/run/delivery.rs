@@ -129,6 +129,16 @@ pub enum InboundDelivery<'key> {
         /// The subagent, as its provider names it.
         subagent: ChildRunSubagent,
     },
+    /// The provider's call that started the child run `child_run_id` reached the daemon after the
+    /// run did; the run moves under `parent_run_id`.
+    ChildRunParentCorrected {
+        /// Where it arrived.
+        binding: DeliveryBinding<'key>,
+        /// The child run that moves.
+        child_run_id: RunId,
+        /// The run whose call started it.
+        parent_run_id: RunId,
+    },
     /// A marker the provider reported on a live run.
     RunMarker {
         /// Where it arrived.
@@ -211,6 +221,7 @@ impl InboundDelivery<'_> {
             Self::RunLifecycle { .. } => "runLifecycle",
             Self::RunContinued { .. } => "runContinued",
             Self::ChildRun { .. } => "childRun",
+            Self::ChildRunParentCorrected { .. } => "childRunParentCorrected",
             Self::RunMarker { .. } => "runMarker",
             Self::LiveRunState { .. } => "liveRunState",
             Self::ThinkingUpdate { .. } => "thinkingUpdate",

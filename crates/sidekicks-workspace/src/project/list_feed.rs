@@ -397,10 +397,12 @@ fn sessions_named(event: &CommittedEvent) -> Result<Vec<SessionId>, serde_json::
         | SessionEventType::AgentRunStopped
         | SessionEventType::AgentRunFailed
         | SessionEventType::AgentRunRolledBack
+        | SessionEventType::AgentRunParentCorrected
         | SessionEventType::AgentRunProviderInitialized
         | SessionEventType::AgentTurnStarted
         | SessionEventType::AgentTurnCompleted
         | SessionEventType::AgentTurnInterrupted
+        | SessionEventType::AgentChildrenStopped
         | SessionEventType::AgentTurnFailed
         | SessionEventType::AgentRunWorkerShuttingDown
         | SessionEventType::AgentRunStepLimitReached
@@ -437,6 +439,7 @@ fn sessions_named(event: &CommittedEvent) -> Result<Vec<SessionId>, serde_json::
         | SessionEventType::AgentToolCallFailed
         | SessionEventType::AgentSubagentStarted
         | SessionEventType::AgentSubagentCompleted
+        | SessionEventType::AgentSubagentStopped
         | SessionEventType::AgentCommandEnded
         | SessionEventType::AgentQueueItemCreated
         | SessionEventType::AgentQueueItemAdmitted

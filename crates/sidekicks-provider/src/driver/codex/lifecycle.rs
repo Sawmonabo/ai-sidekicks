@@ -474,6 +474,9 @@ impl CodexDriver {
                 Arc::clone(&self.slots),
                 Arc::clone(&self.config_forks),
                 Arc::clone(&run_start),
+                Arc::clone(&self.run_routes),
+                Arc::clone(&engine),
+                Arc::clone(&daemon_turn_bindings),
             ),
             controls: CodexSessionControls::new(Arc::clone(&self.slots)),
             rewind: CodexConversationRewind::new(

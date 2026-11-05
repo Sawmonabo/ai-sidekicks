@@ -59,7 +59,6 @@ pub fn spawn_config_on(provider_account_id: ProviderAccountId) -> RuntimeBinding
     RuntimeBindingSpawnConfig {
         execution_posture: None,
         callback_tools: None,
-        subagent_policy: None,
         tool_servers: None,
         output_schema: None,
         provider_account_id,

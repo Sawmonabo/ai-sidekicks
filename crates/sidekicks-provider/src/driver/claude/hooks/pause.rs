@@ -1,6 +1,8 @@
 //! Pause and continue on Claude Code, by the two hooks the daemon registers. A paused lead's batch
 //! hook ends its turn after the step in flight and its tool hook denies; a paused helper's next
-//! tool hook is held unanswered until it continues. Each pause reports when it took effect.
+//! tool hook is held unanswered until it continues. Each pause reports when it took effect. A
+//! message aimed at a helper a pause or an interrupt holds, or one stopped with every other agent,
+//! is denied, so no agent wakes it around the hold.
 
 use std::collections::HashMap;
 
@@ -11,7 +13,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::scheduler::ScheduledJobHandle;
 
 use crate::driver::claude::hooks::stopped_helpers::ClaudeStoppedHelpers;
-use crate::driver::hook_pauses::{HookPauses, PAUSED_REASON, PausedRole};
+use crate::driver::hook_pauses::{HELD_TARGET_REASON, HookPauses, PAUSED_REASON, PausedRole};
 use crate::driver::run_control::HelperStopReason;
 
 /// The reason a held helper's call is denied with before Claude Code's own bound would end the
@@ -133,6 +135,16 @@ pub(crate) struct ClaudeReleasedCallback {
     pub(crate) answer: ClaudeHookAnswer,
 }
 
+/// What a helper's continue answers: the held callbacks it releases, and whether its pause lost a
+/// held callback Claude Code withdrew, which no answer reaches.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct ClaudeResumedHelper {
+    /// The callbacks to answer.
+    pub(crate) released: Vec<ClaudeReleasedCallback>,
+    /// Whether the pause lost a held callback.
+    pub(crate) had_lost_hold: bool,
+}
+
 /// The renewal job standing for one held helper, with the id that tells it from a later one.
 struct HoldRenewal {
     id: u64,
@@ -215,6 +227,37 @@ impl ClaudeRunPauses {
             .is_some()
     }
 
+    /// Answers a message call by the helper `agent_id` or the lead aimed at the helper `to`, from
+    /// what memory holds: a stopped caller is denied with its own stop's sentence, a call aimed at
+    /// a helper stopped with every other agent with that stop's, and one aimed at a helper a pause
+    /// or an interrupt holds with [`HELD_TARGET_REASON`]. `None` leaves the call to the stored
+    /// stop and then the pause; a target stopped any other way stays wakeable by its parent.
+    pub(crate) fn answer_aimed_call(
+        &self,
+        session_id: &SessionId,
+        agent_id: Option<&str>,
+        to: &str,
+    ) -> Option<ClaudeHookAnswer> {
+        if let Some(denial) = self
+            .stopped_helpers
+            .answer_before_tool(*session_id, agent_id)
+        {
+            return Some(denial);
+        }
+        match self.stopped_helpers.stop_reason_of(*session_id, to) {
+            Some(stop @ HelperStopReason::StopAll) => {
+                return Some(ClaudeHookAnswer::Deny {
+                    reason: stop.sentence(),
+                });
+            }
+            Some(HelperStopReason::TokenLimit | HelperStopReason::SetupRefused { .. }) | None => {}
+        }
+        self.is_helper_held(session_id, to)
+            .then(|| ClaudeHookAnswer::Deny {
+                reason: HELD_TARGET_REASON.to_owned(),
+            })
+    }
+
     /// Answers a pre-tool callback: a stopped helper is denied, a paused lead's is denied, a
     /// paused helper's is held, any other passes with no decision. `agent_id` is the helper's,
     /// `None` on the lead.
@@ -274,19 +317,23 @@ impl ClaudeRunPauses {
         self.lead_pauses.reported(session_id)
     }
 
-    /// Continues the lead; a pause that had not yet stopped a turn is dropped.
-    pub(crate) fn resume_lead(&mut self, session_id: &SessionId) {
-        self.lead_pauses.resume(session_id);
+    /// Continues the lead, answering whether its pause lost a held call; a pause that had not yet
+    /// stopped a turn is dropped.
+    pub(crate) fn resume_lead(&mut self, session_id: &SessionId) -> bool {
+        self.lead_pauses
+            .resume(session_id)
+            .is_some_and(|ended| ended.had_lost_hold)
     }
 
     /// Continues one helper and answers the callbacks it was held on: with no decision, or denied
-    /// with `steer` as the reason, which the helper reads as the person's words.
+    /// with `steer` as the reason, which the helper reads as the person's words. Also answers
+    /// whether its pause lost a callback Claude Code withdrew while it held.
     pub(crate) fn resume_helper(
         &mut self,
         session_id: &SessionId,
         agent_id: &str,
         steer: Option<&str>,
-    ) -> Vec<ClaudeReleasedCallback> {
+    ) -> ClaudeResumedHelper {
         if let Some(renewal) = self.renewals.remove(&(*session_id, agent_id.to_owned())) {
             renewal.job.cancel();
         }
@@ -294,7 +341,7 @@ impl ClaudeRunPauses {
             .helper_pauses
             .resume(&(*session_id, agent_id.to_owned()))
         else {
-            return Vec::new();
+            return ClaudeResumedHelper::default();
         };
         let answer = match steer {
             Some(steer) => ClaudeHookAnswer::Deny {
@@ -302,14 +349,17 @@ impl ClaudeRunPauses {
             },
             None => ClaudeHookAnswer::Pass,
         };
-        ended
-            .held
-            .into_iter()
-            .map(|request_id| ClaudeReleasedCallback {
-                request_id,
-                answer: answer.clone(),
-            })
-            .collect()
+        ClaudeResumedHelper {
+            released: ended
+                .held
+                .into_iter()
+                .map(|request_id| ClaudeReleasedCallback {
+                    request_id,
+                    answer: answer.clone(),
+                })
+                .collect(),
+            had_lost_hold: ended.had_lost_hold,
+        }
     }
 
     /// Whether a renewal stands for the helper `agent_id`'s held calls.
@@ -416,8 +466,8 @@ mod tests {
     use tokio::sync::watch;
 
     use super::{
-        ClaudeHookAnswer, ClaudePauseAnswer, ClaudeReleasedCallback, ClaudeRunPauses,
-        HELD_HELPER_RENEWAL_REASON,
+        ClaudeHookAnswer, ClaudePauseAnswer, ClaudeReleasedCallback, ClaudeResumedHelper,
+        ClaudeRunPauses, HELD_HELPER_RENEWAL_REASON,
     };
     use crate::driver::test_registry::fixed_session_id;
 
@@ -480,7 +530,9 @@ mod tests {
             reason: "check the tests first".to_owned(),
         };
         assert_eq!(
-            pauses.resume_helper(&session_id, "helper-a", Some("check the tests first")),
+            pauses
+                .resume_helper(&session_id, "helper-a", Some("check the tests first"))
+                .released,
             [
                 ClaudeReleasedCallback {
                     request_id: "r1".to_owned(),
@@ -501,11 +553,36 @@ mod tests {
             }
         );
         assert_eq!(
-            pauses.resume_helper(&session_id, "helper-a", None),
+            pauses.resume_helper(&session_id, "helper-a", None).released,
             [ClaudeReleasedCallback {
                 request_id: "r4".to_owned(),
                 answer: ClaudeHookAnswer::Pass,
             }]
+        );
+    }
+
+    // A callback Claude Code withdrew from a held helper is lost, not released: the continue
+    // answers the rest and reports the lost hold. Killed by the mark dropped between the store and
+    // the continue.
+    #[test]
+    fn a_continue_after_a_withdrawn_callback_answers_the_lost_hold() {
+        let session_id = fixed_session_id();
+        let mut pauses = ClaudeRunPauses::default();
+        pauses.pause_helper(&session_id, "helper");
+        pauses.answer_before_tool(&session_id, Some("helper"), "r1");
+        pauses.answer_before_tool(&session_id, Some("helper"), "r2");
+
+        pauses.withdraw_callback(&session_id, "r1");
+
+        assert_eq!(
+            pauses.resume_helper(&session_id, "helper", None),
+            ClaudeResumedHelper {
+                released: vec![ClaudeReleasedCallback {
+                    request_id: "r2".to_owned(),
+                    answer: ClaudeHookAnswer::Pass,
+                }],
+                had_lost_hold: true,
+            }
         );
     }
 

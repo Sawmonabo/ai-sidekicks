@@ -1,7 +1,8 @@
 //! The errors the Codex driver raises: transport, size, unanswered, provider, rewind-boundary,
 //! slot, turn-in-flight, withdrawn-turn, larger-window, port, driver-shaped and configuration
-//! failures, and how each reaches the daemon as a driver error; and the readers of Codex's
-//! active-writer, closing and restart refusals.
+//! failures, and how each reaches the daemon as a driver error, a daemon turn's refused admission
+//! and held start among them; and the readers of Codex's active-writer, closing and restart
+//! refusals.
 
 use std::error::Error;
 use std::time::Duration;
@@ -24,6 +25,8 @@ use crate::driver::error_causes::{
     RequestUnanswered, UNSPECIFIED_PROVIDER_FAILURE_DETAIL, provider_failure_refusal,
 };
 use crate::driver::registry::provider_capability_refused;
+use crate::driver::run_control::DaemonTurnBindingError;
+use crate::port::run_host::DaemonTurnHeld;
 
 /// The request that forks a conversation, the one whose boundary member a build may refuse.
 const THREAD_FORK_METHOD: &str = "thread/fork";
@@ -263,6 +266,38 @@ impl std::fmt::Display for CodexUnansweredCause {
 }
 
 impl CodexError {
+    /// A daemon turn's admission or binding that failed: its refusal as the refusal a client
+    /// reads, and any other failure the binding port's.
+    pub(crate) fn from_daemon_turn_binding(error: DaemonTurnBindingError) -> Self {
+        match error {
+            DaemonTurnBindingError::Refused { refusal, .. } => {
+                Self::Driver(DriverError::Refused(refusal))
+            }
+            failure @ (DaemonTurnBindingError::NoProviderSession { .. }
+            | DaemonTurnBindingError::NotAdmitted { .. }
+            | DaemonTurnBindingError::BindingNotRecorded { .. }) => Self::PortFailed {
+                port: "daemon turn bindings",
+                cause: Box::new(failure),
+            },
+        }
+    }
+
+    /// A daemon turn on `session_id` the run engine did not start: held for another run's turn
+    /// as `SessionTurnInFlight`, its binding's failure as [`Self::from_daemon_turn_binding`]
+    /// answers it, and any other failure as the engine's.
+    pub(crate) fn from_daemon_turn_start(
+        session_id: SessionId,
+        error: Box<dyn Error + Send + Sync>,
+    ) -> Self {
+        if error.downcast_ref::<DaemonTurnHeld>().is_some() {
+            return Self::SessionTurnInFlight { session_id };
+        }
+        match error.downcast::<DaemonTurnBindingError>() {
+            Ok(binding) => Self::from_daemon_turn_binding(*binding),
+            Err(error) => Self::Driver(DriverError::Internal(error)),
+        }
+    }
+
     /// Whether this is Codex's refusal to resume a conversation another runtime still writes.
     pub(crate) fn is_active_writer_refusal(&self) -> bool {
         self.is_invalid_request_saying(CODEX_ACTIVE_WRITER_MESSAGE)

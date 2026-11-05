@@ -114,7 +114,7 @@ fn read_reply(reply: Option<&RawValue>) -> InitializeReply {
         .unwrap_or_default()
 }
 
-/// What `reply` declares about the process's models, styles, fast mode and memory stores.
+/// What `reply` declares about the process's models, styles, fast mode, commands and memory stores.
 pub(crate) fn read_claude_initialize_declaration(
     reply: Option<&RawValue>,
 ) -> ClaudeInitializeDeclaration {
@@ -149,6 +149,10 @@ pub(crate) fn read_claude_initialize_declaration(
             .map(|styles| styles.0)
             .unwrap_or_default(),
         output_style: filter_non_empty(reply.output_style),
+        commands: listed_command_rows(reply.commands)
+            .into_iter()
+            .map(|command| command.name)
+            .collect(),
         memory_stores: read_memory_stores(reply.memory_paths),
     }
 }
@@ -169,8 +173,12 @@ fn read_memory_stores(memory_paths: Option<MemoryPaths>) -> Vec<FilesystemPath> 
 pub(crate) fn read_claude_listed_command_rows(
     reply: Option<&RawValue>,
 ) -> Vec<ClaudeListedCommand> {
-    read_reply(reply)
-        .commands
+    listed_command_rows(read_reply(reply).commands)
+}
+
+// The commands a reply's `commands` member lists, in its order, a row naming no command skipped.
+fn listed_command_rows(commands: Option<LenientList<CommandRow>>) -> Vec<ClaudeListedCommand> {
+    commands
         .map(|commands| commands.0)
         .unwrap_or_default()
         .into_iter()

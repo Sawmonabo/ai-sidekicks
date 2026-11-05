@@ -43,6 +43,7 @@ fn label(delivery: &InboundDelivery<'static>) -> String {
         InboundDelivery::TurnBoundary { .. }
         | InboundDelivery::RunContinued { .. }
         | InboundDelivery::ChildRun { .. }
+        | InboundDelivery::ChildRunParentCorrected { .. }
         | InboundDelivery::RunMarker { .. }
         | InboundDelivery::LiveRunState { .. }
         | InboundDelivery::ThinkingUpdate { .. }

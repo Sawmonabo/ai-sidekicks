@@ -43,8 +43,8 @@ use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
     FindTakenMessagesParams, HelperStopOutcome, HelperStopParams, InterruptRunRequest,
-    OverrideDenialParams, PauseRunParams, PickedSkill, ReattachHelpersParams, ResumeRunParams,
-    TakenMessages, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
+    OverrideDenialParams, PauseRunParams, PickedSkill, ReattachHelpersParams, ResumeRunOutcome,
+    ResumeRunParams, TakenMessages, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
@@ -153,8 +153,12 @@ pub trait ProviderDriver: Send + Sync {
     fn pause_run(&self, params: PauseRunParams) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// Continues a paused or pausing run from where it stopped, with nothing repeated, delivering
-    /// the waiting messages; resolves once the provider has the request.
-    fn resume_run(&self, params: ResumeRunParams) -> BoxFuture<'_, Result<(), DriverError>>;
+    /// the waiting messages; resolves once the provider has the request. The outcome marks the
+    /// hold lost where a call the pause held was withdrawn while it held, its hook connection gone.
+    fn resume_run(
+        &self,
+        params: ResumeRunParams,
+    ) -> BoxFuture<'_, Result<ResumeRunOutcome, DriverError>>;
 
     /// Looks messages a resume sent with no answer back up in the provider's own record of the
     /// conversation by their ids, answering the ones it holds; called only once no live provider

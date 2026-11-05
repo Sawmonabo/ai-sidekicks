@@ -14,6 +14,7 @@ use futures::future::BoxFuture;
 use futures::future::ready;
 use serde_json::{Map, Value};
 use sidekicks_contracts::artifacts::id::ArtifactId;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
@@ -23,9 +24,11 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::tool_call_status::TOOL_CALL_STATUS_MAX_LEN;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_std::mutex_lock::lock;
 
 use super::binding_id;
+use super::driver::create_params;
 use crate::callback_tools::host::{
     CallbackToolActivityRecord, CallbackToolActivitySink, CallbackToolExecutor, CallbackToolHost,
     CallbackToolPortError, CallbackToolSpawnRequest,
@@ -41,7 +44,8 @@ use crate::driver::callback_tool::{CallbackToolInvocation, CallbackToolResult};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::ports::{DriverPorts, MessageTakenListener, ProcessGoneListener};
 use crate::driver::run_control::{
-    DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver,
+    DaemonTurnAdmission, DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver,
+    DaemonTurnProcess,
 };
 use crate::driver::test_registry::new_agent_id;
 use crate::port::permission_ask::{
@@ -82,13 +86,22 @@ pub(crate) enum PortCall {
     },
 }
 
+/// What brings a session's process up for a daemon turn's binding, as the queue's open does.
+pub(crate) type ScriptedProcessOpener =
+    Arc<dyn Fn(SessionId) -> BoxFuture<'static, ()> + Send + Sync>;
+
 /// Approval ports, the queue's intake of taken messages, the status line intake and the session
-/// message readings, each recording what reaches it.
+/// message readings, each recording what reaches it, and the queue's opening of a daemon turn's
+/// process once a test sets one, its refusal of every daemon turn's binding, or a live-only
+/// binding answered as one whose process was let go.
 #[derive(Default)]
 pub(crate) struct RecordingPorts {
     calls: Mutex<Vec<PortCall>>,
     taken: Mutex<Vec<(String, RunId)>>,
     message_readings: Mutex<Vec<SessionMessageReading>>,
+    process_opener: Mutex<Option<ScriptedProcessOpener>>,
+    refuses_daemon_turn_bindings: AtomicBool,
+    has_let_processes_go: AtomicBool,
 }
 
 impl RecordingPorts {
@@ -105,6 +118,24 @@ impl RecordingPorts {
     /// The session message readings published so far, in order.
     pub(crate) fn message_readings(&self) -> Vec<SessionMessageReading> {
         lock(&self.message_readings).clone()
+    }
+
+    /// Brings each daemon turn's session process up through `opener` before its binding opens.
+    pub(crate) fn open_processes_for_daemon_turns(&self, opener: ScriptedProcessOpener) {
+        *lock(&self.process_opener) = Some(opener);
+    }
+
+    /// Answers every live-only daemon turn's binding from now on as the queue does once the
+    /// session's process was let go: `NoProviderSession`, nothing opened.
+    pub(crate) fn let_processes_go(&self) {
+        self.has_let_processes_go.store(true, Ordering::SeqCst);
+    }
+
+    /// Refuses every daemon turn's binding from now on, as the queue refuses one on a session
+    /// closed meanwhile.
+    pub(crate) fn refuse_daemon_turn_bindings(&self) {
+        self.refuses_daemon_turn_bindings
+            .store(true, Ordering::SeqCst);
     }
 
     fn record(&self, call: PortCall) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
@@ -187,7 +218,7 @@ impl SessionMessageReadingPublisher for RecordingPorts {
 pub(super) fn register_scripted_ports(ports: &DriverPorts, recording: &Arc<RecordingPorts>) {
     ports
         .daemon_turn_bindings
-        .register(Arc::new(ScriptedBindings))
+        .register(Arc::new(ScriptedBindings(Arc::clone(recording))))
         .expect("the turn bindings register once");
     ports
         .repositories
@@ -347,20 +378,61 @@ impl AttachmentResolver for ScriptedAttachments {
     }
 }
 
-/// Opens every daemon turn on one binding.
-struct ScriptedBindings;
+/// Opens every daemon turn on one binding, after the process opener the recording ports hold
+/// where a test set one, and admits each on the account and at the posture a scripted session is
+/// created with.
+struct ScriptedBindings(Arc<RecordingPorts>);
 
 impl DaemonTurnBindingResolver for ScriptedBindings {
     fn open_daemon_turn_binding(
         &self,
         _run_id: RunId,
-        _session_id: SessionId,
+        session_id: SessionId,
+        process: DaemonTurnProcess,
     ) -> BoxFuture<'_, Result<DaemonTurnBinding, DaemonTurnBindingError>> {
-        async {
+        if self.0.refuses_daemon_turn_bindings.load(Ordering::SeqCst) {
+            let refusal =
+                DomainError::new("the session is closed", RefusalCode::SessionAlreadyClosed);
+            return ready(Err(DaemonTurnBindingError::Refused {
+                session_id,
+                refusal: Box::new(refusal),
+            }))
+            .boxed();
+        }
+        let is_live_only = process == DaemonTurnProcess::LiveOnly;
+        if is_live_only && self.0.has_let_processes_go.load(Ordering::SeqCst) {
+            return ready(Err(DaemonTurnBindingError::NoProviderSession {
+                session_id,
+            }))
+            .boxed();
+        }
+        let opener = lock(&self.0.process_opener)
+            .clone()
+            .filter(|_| !is_live_only);
+        async move {
+            if let Some(opener) = opener {
+                opener(session_id).await;
+            }
             Ok(DaemonTurnBinding {
                 binding_id: binding_id("daemon-turn"),
                 agent_id: new_agent_id(),
                 step_bound: None,
+            })
+        }
+        .boxed()
+    }
+
+    fn admit_daemon_turn(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<DaemonTurnAdmission, DaemonTurnBindingError>> {
+        let created = create_params(session_id);
+        async move {
+            Ok(DaemonTurnAdmission {
+                admitted_provider_account_id: created.provider_account_id,
+                execution_posture: created
+                    .execution_posture
+                    .expect("a scripted session is created with a posture"),
             })
         }
         .boxed()

@@ -39,8 +39,8 @@ use sidekicks_store::events::projection::{
 };
 use sidekicks_store::events::session::appender::UnsequencedEventEnvelope;
 
-#[cfg(test)]
-pub(crate) mod test_fixture;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_fixture;
 
 // Every type the fold reads: the lead's birth, a minted agent's, and a switch's two settlements.
 const AGENTS_EVENT_TYPES: [SessionEventType; 4] = [
