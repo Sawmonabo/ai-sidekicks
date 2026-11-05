@@ -496,7 +496,7 @@ impl Fixture {
 
     /// Queues an item carrying `body` for `run_id`, after every one before it, and answers its id.
     async fn queue_body(&self, run_id: RunId, body: QueueItemBody) -> QueueItemId {
-        insert_item(&self.log, self.session_id, run_id, body).await
+        insert_item(&self.log.writer, self.session_id, run_id, body).await
     }
 
     /// Queues an item of `form` for `run_id`, after every one before it, and answers its id.

@@ -239,8 +239,13 @@ fn count_withdraws(driver: &mut MockProviderDriver) -> Arc<AtomicUsize> {
 /// Queues a message for the fixture's run, after every one before it, and reads it back.
 async fn insert_item(fixture: &Fixture) -> QueueItemRecord {
     let body = QueueItemBody::Message(words("Look again"));
-    let item_id =
-        test_items::insert_item(&fixture.log, fixture.session_id, fixture.run_id, body).await;
+    let item_id = test_items::insert_item(
+        &fixture.log.writer,
+        fixture.session_id,
+        fixture.run_id,
+        body,
+    )
+    .await;
     stored_item(fixture, item_id)
 }
 

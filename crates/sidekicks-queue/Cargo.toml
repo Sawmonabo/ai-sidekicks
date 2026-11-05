@@ -46,8 +46,8 @@ tokio = { workspace = true, features = ["test-util"] }
 
 [features]
 # Helpers other crates' tests use: a provider session opened for a test, the provider sessions
-# tests build, and a delivery over a test store.
-test-support = ["sidekicks-provider/test-support"]
+# tests build, a delivery over a test store, and the queue items tests queue.
+test-support = ["sidekicks-provider/test-support", "sidekicks-store/test-support"]
 
 [lints]
 workspace = true
