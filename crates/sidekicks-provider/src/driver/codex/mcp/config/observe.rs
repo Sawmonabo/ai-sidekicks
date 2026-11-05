@@ -40,7 +40,7 @@ pub(crate) async fn read_codex_config_layers(
     connection: &CodexAppServerConnection,
     cwd: &Path,
 ) -> Result<Vec<CodexConfigLayer>, CodexError> {
-    let read = read_codex_config::<Value>(connection, cwd, true).await?;
+    let read = read_codex_config::<Value>(connection, Some(cwd), true).await?;
     Ok(read.layers.unwrap_or_default())
 }
 

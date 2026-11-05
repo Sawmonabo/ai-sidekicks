@@ -76,12 +76,13 @@ mod tests {
             ..test_thread_settings(new_session_id())
         };
         let config = match request {
-            MemoryRequest::Start => compose_codex_thread_start_params(&settings, None).config,
+            MemoryRequest::Start => compose_codex_thread_start_params(&settings, Map::new()).config,
             MemoryRequest::Resume => {
-                compose_codex_thread_resume_params(&settings, None, "thread".to_owned()).config
+                compose_codex_thread_resume_params(&settings, Map::new(), "thread".to_owned())
+                    .config
             }
             MemoryRequest::Fork => {
-                compose_codex_thread_fork_params(&settings, None, "thread".to_owned()).config
+                compose_codex_thread_fork_params(&settings, Map::new(), "thread".to_owned()).config
             }
             MemoryRequest::BareResume => {
                 compose_codex_bare_thread_resume_with_memory_switch(

@@ -363,7 +363,7 @@ impl TestCodexSession {
 
 impl TestCodexTask {
     /// What the session's task holds, beside what its calls act through.
-    pub(super) fn split(&mut self) -> (CodexSessionTask<'_>, &CodexSessionCallDependencies) {
+    pub(crate) fn split(&mut self) -> (CodexSessionTask<'_>, &CodexSessionCallDependencies) {
         (
             CodexSessionTask {
                 record: &mut self.record,

@@ -454,6 +454,7 @@ mod tests {
                 switched(user("docs"), true),
             ],
             base_instructions: None,
+            auto_memory: None,
         };
         let wrap = compose_codex_sandbox_wrap(
             &settings,

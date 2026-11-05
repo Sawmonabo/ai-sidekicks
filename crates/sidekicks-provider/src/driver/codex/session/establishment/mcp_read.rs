@@ -47,7 +47,7 @@ pub(crate) async fn read_codex_loaded_servers(
     connection: &CodexAppServerConnection,
     worktree: &Path,
 ) -> Result<CodexLoadedServers, CodexError> {
-    let read = read_codex_config::<Value>(connection, worktree, false).await?;
+    let read = read_codex_config::<Value>(connection, Some(worktree), false).await?;
     Ok(CodexLoadedServers::of_config(read.config))
 }
 
@@ -212,6 +212,7 @@ mod tests {
             helper_roles: Vec::new(),
             tool_servers: Vec::new(),
             base_instructions: None,
+            auto_memory: None,
         }
     }
 

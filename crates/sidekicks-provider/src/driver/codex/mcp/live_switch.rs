@@ -71,7 +71,6 @@ mod tests {
 
     use super::switch_codex_session_servers;
     use crate::driver::codex::DESCRIPTOR;
-    use crate::driver::codex::session::calls::CodexSessionTask;
     use crate::driver::codex::session::fork::config_change::run_codex_config_fork;
     use crate::driver::codex::session::test_fixture::status_sink::{
         CountingStatusSink, mcp_server_startup,
@@ -124,24 +123,16 @@ mod tests {
         assert_eq!(switched, McpSessionSwitch::AtNextTurn);
         assert!(record.is_config_fork_owed, "the fork is owed");
         assert_eq!(record.thread_settings.tool_servers, vec![tracker(false)]);
-        let mut task = CodexSessionTask {
-            record: &mut session.task.record,
-            routing: &mut session.task.routing,
-            waiters: &mut session.task.waiters,
-        };
-        let (forked, _) = run_codex_config_fork(&mut task, &session.task.calls.forks)
+        let (mut task, calls) = session.task.split();
+        let (forked, _) = run_codex_config_fork(&mut task, &calls.forks)
             .await
             .expect("a fork under a running turn waits");
         assert!(!forked, "no fork runs under the lead's turn");
 
         session.task.record.active_turns.clear();
         let settings = session.task.record.thread_settings.clone();
-        let mut task = CodexSessionTask {
-            record: &mut session.task.record,
-            routing: &mut session.task.routing,
-            waiters: &mut session.task.waiters,
-        };
-        let fork = run_codex_config_fork(&mut task, &session.task.calls.forks);
+        let (mut task, calls) = session.task.split();
+        let fork = run_codex_config_fork(&mut task, &calls.forks);
         let script = &mut session.scripted.script;
         let answer = async {
             let read = script.next_sent().await;
