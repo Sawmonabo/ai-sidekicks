@@ -400,7 +400,8 @@ pub enum WorkflowNodeSideEffects {
     External,
 }
 
-/// What a kind's run can do: be canceled, resume after a restart, and what it can change.
+/// What a kind's run can do: be canceled, resume after a restart, what it can change, and whether
+/// it needs a project's repository.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkflowNodeCapabilities {
@@ -410,6 +411,8 @@ pub struct WorkflowNodeCapabilities {
     pub resumable: bool,
     /// What a run of the kind can change.
     pub side_effects: WorkflowNodeSideEffects,
+    /// Whether a run of the kind needs the run to work in a project's repository.
+    pub repository: bool,
 }
 
 /// One kind as the catalog serializes it. `version` is the implementation a newly placed node
@@ -465,6 +468,25 @@ pub struct WorkflowNodeKindSpec {
     )]
     #[schemars(with = "WorkflowNodeCapabilities")]
     pub capabilities: Option<WorkflowNodeCapabilities>,
+}
+
+impl WorkflowNodeKindSpec {
+    /// Whether a run of the kind needs a project's repository; false for a kind with no capabilities.
+    pub fn needs_repository(&self) -> bool {
+        self.capabilities
+            .is_some_and(|capabilities| capabilities.repository)
+    }
+
+    /// The id of the kind's first top-level `project` leaf, which on a trigger kind is its
+    /// `Repository`.
+    pub fn repository_param(&self) -> Option<&WorkflowParamId> {
+        self.params.iter().find_map(|param| match param {
+            WorkflowParamSpec::Leaf(leaf) if leaf.param_type == WorkflowParamType::Project => {
+                Some(&leaf.id)
+            }
+            WorkflowParamSpec::Leaf(_) | WorkflowParamSpec::Collection(_) => None,
+        })
+    }
 }
 
 /// The `workflow.kind.list` result: every kind the daemon runs.
