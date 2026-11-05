@@ -166,8 +166,8 @@ mod tests {
     use crate::run::refusals::RunRefusal;
 
     // Killed by handing the held refusal, the binding's, or its missing process over as the
-    // engine's own error, which the driver can only read as a failure, by typing any other error as held, and by handing a
-    // binding's fault over bare.
+    // engine's own error, which the driver can only read as a failure, by typing any other error
+    // as held, and by handing a binding's fault over bare.
     #[test]
     fn a_daemon_turn_refused_for_a_held_turn_or_by_its_binding_reaches_the_driver_typed() {
         let session_id =
