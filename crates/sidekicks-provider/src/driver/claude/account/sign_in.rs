@@ -7,6 +7,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -21,7 +22,7 @@ use sidekicks_contracts::provider::account::sign_in::{
     PROVIDER_SIGN_IN_CODE_MAX_LEN, ProviderSignInArm, ProviderSignInCancelStatus,
 };
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_platforms::{ChildEnd, wrap_child_command};
+use sidekicks_platforms::{ChildEnd, NO_BROWSER_OPENER, can_open_browser, wrap_child_command};
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, BufReader, Take};
 use tokio::process::{ChildStderr, ChildStdin, ChildStdout, Command};
 use tokio::sync::{mpsc, oneshot};
@@ -75,10 +76,6 @@ const STOP_GRACE: Duration = Duration::from_secs(5);
 
 /// The variable naming the program Claude Code opens its sign-in page with.
 const BROWSER_VARIABLE: &str = "BROWSER";
-
-/// A program that opens nothing and succeeds, so a device-code sign-in opens no browser on this
-/// machine.
-const NO_BROWSER: &str = "/usr/bin/true";
 
 /// The most of one error output line held, far above the refusal line's length; a longer line is
 /// read in pieces of this length.
@@ -170,7 +167,10 @@ fn claude_home_folders(home: &CredentialHome) -> ClaudeAccountFolders {
 
 /// Starts `claude auth login --claudeai` on `home`'s folders and answers once it wrote its sign-in
 /// address; on the device-code arm its browser opener is a program that opens nothing, so the
-/// person reaches the address and pastes the code back from any device. Fails with the
+/// person reaches the address and pastes the code back from any device. On the browser arm the
+/// person's own opener stays only where a browser opened from the daemon reaches the person (no
+/// SSH login, and a display or a graphical session); elsewhere the opener opens nothing too and
+/// the handle says the provider opened no browser, so the client opens the address. Fails with the
 /// resolve's error as the environment cannot be composed, and with `DriverError::Internal` where
 /// the command cannot start or writes no address on Claude Code's own host within the wait, the
 /// command then stopped.
@@ -257,18 +257,28 @@ async fn start_flow(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if arm == ProviderSignInArm::DeviceCode {
-        command.env(BROWSER_VARIABLE, NO_BROWSER);
-    }
+    let base_environment = Arc::clone(&legs.sources.0.base_environment);
     let daemon_pid = std::process::id();
-    let mut child = legs
+    // The browser check reads files and makes a system call, so it runs on the spawner's thread,
+    // just before the start.
+    let (spawned, is_browser_opened_by_provider) = legs
         .sources
         .0
         .spawner
-        .run(move || wrap_child_command(command, daemon_pid).spawn())
+        .run(move || {
+            let is_browser_opened_by_provider =
+                arm == ProviderSignInArm::Browser && can_open_browser(&base_environment);
+            if !is_browser_opened_by_provider {
+                command.env(BROWSER_VARIABLE, NO_BROWSER_OPENER);
+            }
+            (
+                wrap_child_command(command, daemon_pid).spawn(),
+                is_browser_opened_by_provider,
+            )
+        })
         .await
-        .and_then(|spawned| spawned)
         .map_err(ClaudeSignInError::Start)?;
+    let mut child = spawned.map_err(ClaudeSignInError::Start)?;
     let input = child.stdin().take().expect("the sign-in's input is piped");
     let mut output = child
         .stdout()
@@ -314,7 +324,7 @@ async fn start_flow(
         verification_uri,
         user_code: None,
         expires_at: None,
-        is_browser_opened_by_provider: arm == ProviderSignInArm::Browser,
+        is_browser_opened_by_provider,
         code_prompts: Box::pin(code_prompts),
         input: Box::new(ClaudeSignInInput { inputs }),
         completion: async move {
