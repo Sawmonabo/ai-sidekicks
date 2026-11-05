@@ -56,7 +56,7 @@ use crate::agent_tree::read::AGENT_TREE_READ_STATEMENT_CAPACITY;
 use crate::agent_tree::read::tests::{HELPER_PROVIDER, SessionLog, at};
 use crate::agent_tree::store::{NewAgentTreeNode, insert_node, mint_child_handle};
 use crate::agents::projection::test_fixture::{binding, run_statements, session_created};
-use crate::interventions::limit_stop::tests::NoWaitingMessages;
+use crate::interventions::limit_stop::tests::owed_limit::NoWaitingMessages;
 use crate::interventions::service::tests::{Harness, applied, harness};
 use crate::run::engine::test_fixture::insert_run;
 use crate::run::pause::{RUN_PAUSE_STATEMENT_CAPACITY, RunPauseControl};

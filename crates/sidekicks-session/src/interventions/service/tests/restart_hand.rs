@@ -21,7 +21,8 @@ use tokio::sync::oneshot;
 
 use super::{Harness, applied, harness};
 use crate::interventions::limit_stop::HandCanceled;
-use crate::interventions::limit_stop::tests::{hand_service_to_engine, owe_token_limit};
+use crate::interventions::limit_stop::tests::hand_service_to_engine;
+use crate::interventions::limit_stop::tests::owed_limit::owe_token_limit;
 use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::test_fixture::stored_run_state;
 use crate::run::engine::tests::{DRIVER_HOLD, SETTLE_WAIT};
