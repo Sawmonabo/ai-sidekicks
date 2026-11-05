@@ -188,7 +188,7 @@ static CHANGE_SETTINGS_SQL: LazyLock<String> = LazyLock::new(|| {
 
 /// A new account's id and credential home, minted at its sign-in's start and held in memory until
 /// [`ProviderAccountRegistry::admit`] writes its row or [`ProviderAccountRegistry::abandon`]
-/// removes its home.
+/// removes its home, signed out first where a provider ran there.
 #[derive(Debug)]
 pub struct MintedAccount {
     account_id: ProviderAccountId,
