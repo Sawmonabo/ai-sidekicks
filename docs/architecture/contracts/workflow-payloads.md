@@ -531,6 +531,7 @@ type WorkflowRunChainPlace =
 interface WorkflowResultsPostedPayload {
   sessionId: SessionId;
   workflowRunId: WorkflowRunId;
+  summary?: string; // the run's summary line as the post found it; absent where the run wrote none
 }
 // workflow.version.created names a definition rather than a run — no run exists when a version is
 // written — so it carries the definition and the version alone (Spec-005 §Workflow Lifecycle).
