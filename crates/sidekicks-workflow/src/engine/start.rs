@@ -17,7 +17,6 @@ use jiff::tz::TimeZone;
 use rusqlite::Connection;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::project::ProjectId;
@@ -38,9 +37,7 @@ use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowPinn
 use sidekicks_contracts::workflow::run::control::fill_workflow_trigger_inputs;
 use sidekicks_contracts::workflow::run::events::WorkflowRunStartedPayload;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-use sidekicks_contracts::workflow::run::step::record::{
-    WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP, WorkflowPayloadRef, WorkflowStepKey,
-};
+use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 use sidekicks_contracts::workflow::run::trigger::{
     WorkflowRunChainPlace, WorkflowRunMode, WorkflowRunTrigger, WorkflowStartedBy,
     WorkflowTriggerKind,
@@ -74,6 +71,7 @@ use crate::runs::creation::{
     workflow_run_creation_statements,
 };
 use crate::runs::deletion::remove_run_folder;
+use crate::runs::step_payload::{StepPayloadWriteError, write_step_payload};
 use crate::secrets::redaction::RunRedaction;
 
 pub(crate) use self::errors::WorkflowRunStartError;
@@ -594,27 +592,12 @@ impl WorkflowRunStarter {
         trigger_step: &WorkflowStepKey,
         items: &[WorkflowItem],
     ) -> Result<WorkflowPayloadRef, WorkflowRunStartError> {
-        let measured_bytes =
-            json_utf8_byte_length(&items).map_err(WorkflowRunStartError::InputJson)?;
-        if measured_bytes <= WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP {
-            return Ok(WorkflowPayloadRef::Inline {
-                items: items.to_vec(),
-            });
-        }
-        let bytes = serde_json::to_vec(items).map_err(WorkflowRunStartError::InputJson)?;
-        let size_bytes = SafeInt::new(SafeInt::from_usize(bytes.len()).get())
-            .expect("a payload above the inline cap holds bytes");
-        let item_count = SafeInt::from_usize(items.len());
-        let artifact_id = self
-            .payloads
-            .write(session_id, trigger_step, bytes, item_count.get())
+        write_step_payload(&*self.payloads, session_id, trigger_step, items)
             .await
-            .map_err(WorkflowRunStartError::Payload)?;
-        Ok(WorkflowPayloadRef::Artifact {
-            artifact_id,
-            size_bytes,
-            item_count,
-        })
+            .map_err(|error| match error {
+                StepPayloadWriteError::Json(error) => WorkflowRunStartError::InputJson(error),
+                StepPayloadWriteError::Artifact(error) => WorkflowRunStartError::Payload(error),
+            })
     }
 
     // Reads the run's scope and builds the trigger step's input, then commits the run's row, with

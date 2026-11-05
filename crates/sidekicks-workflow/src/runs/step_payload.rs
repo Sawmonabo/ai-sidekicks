@@ -1,15 +1,22 @@
-//! Reading one step's input, output or log by the payload reference its row stores: an inline
-//! payload is read here and paged by item; a payload kept as an artifact is answered as its
-//! reference, which the artifact read follows.
+//! One step's input, output or log by the payload reference its row stores: written here as
+//! inline items within the cap, else as one artifact; read here and paged by item when inline, and
+//! answered as its reference when kept as an artifact, which the artifact read follows.
 
 use rusqlite::{Connection, named_params};
+use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
+use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::step::methods::{
     WorkflowStepPayloadKind, WorkflowStepReadCursor, WorkflowStepReadRequest,
     WorkflowStepReadResponse,
 };
-use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
+use sidekicks_contracts::workflow::run::step::record::{
+    WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP, WorkflowPayloadRef, WorkflowStepKey,
+};
 use sidekicks_store::database::stored_column::text_column;
 
+use crate::engine::ports::{PortError, StepPayloadArtifacts};
 use crate::not_found::WorkflowNotFound;
 use crate::runs::invalid_cursor::{UnresolvableCursorReason, WorkflowCursorUnresolvable};
 
@@ -33,6 +40,47 @@ macro_rules! read_payload_sql {
 const READ_INPUT_SQL: &str = read_payload_sql!("input_ref");
 const READ_OUTPUT_SQL: &str = read_payload_sql!("output_ref");
 const READ_LOG_SQL: &str = read_payload_sql!("log_ref");
+
+/// Why a step payload could not be written.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum StepPayloadWriteError {
+    /// The items do not write as JSON.
+    #[error("the step's payload does not write as JSON")]
+    Json(#[source] serde_json::Error),
+    /// The payload store did not keep the items as an artifact.
+    #[error("the step's payload could not be stored")]
+    Artifact(#[source] PortError),
+}
+
+/// `items`, a payload of `step` in `session_id`, as the reference its row stores: inline at or
+/// under [`WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP`] JSON bytes, else stored through `payloads` as one
+/// artifact. Fails as [`StepPayloadWriteError`] says, with nothing stored.
+pub(crate) async fn write_step_payload(
+    payloads: &dyn StepPayloadArtifacts,
+    session_id: SessionId,
+    step: &WorkflowStepKey,
+    items: &[WorkflowItem],
+) -> Result<WorkflowPayloadRef, StepPayloadWriteError> {
+    let measured_bytes = json_utf8_byte_length(&items).map_err(StepPayloadWriteError::Json)?;
+    if measured_bytes <= WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP {
+        return Ok(WorkflowPayloadRef::Inline {
+            items: items.to_vec(),
+        });
+    }
+    let bytes = serde_json::to_vec(items).map_err(StepPayloadWriteError::Json)?;
+    let size_bytes = SafeInt::new(SafeInt::from_usize(bytes.len()).get())
+        .expect("a payload above the inline cap holds bytes");
+    let item_count = SafeInt::from_usize(items.len());
+    let artifact_id = payloads
+        .write(session_id, step, bytes, item_count.get())
+        .await
+        .map_err(StepPayloadWriteError::Artifact)?;
+    Ok(WorkflowPayloadRef::Artifact {
+        artifact_id,
+        size_bytes,
+        item_count,
+    })
+}
 
 /// Why a step payload read failed.
 #[derive(Debug, thiserror::Error)]
