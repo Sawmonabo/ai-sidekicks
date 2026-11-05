@@ -16,6 +16,8 @@ pub(crate) enum McpIntentSettlement {
     BindingGone,
     /// The config could not be read, so nothing is known yet.
     Unsettled,
+    /// No registered driver reads the provider's config, so no later pass can settle it either.
+    NoDriver,
 }
 
 /// What the provider's config is observed to hold for a binding's declaration.

@@ -150,7 +150,7 @@ impl McpMutationParts {
         daemon_switch: McpDaemonSwitch,
     ) -> Result<Value, DomainError> {
         let mut server = self
-            .read_row(binding, ROW_UNREAD_BEFORE_WRITE_WORDS)
+            .read_row(binding, None, ROW_UNREAD_BEFORE_WRITE_WORDS)
             .await?;
         let rows = match &daemon_switch {
             McpDaemonSwitch::Binding => {

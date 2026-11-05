@@ -481,8 +481,10 @@ async fn a_binding_gone_from_the_config_loses_its_probe_reading_and_a_live_leg_s
 
 /// A `local` row the store keeps for the person's `docs` entry, which is off by default, reaches
 /// the driver's read as an emulated binding, and a refresh's probe reading of that binding is
-/// what the `local` row the inventory lists in the entry's place reads. Killed by the request
-/// leaving the store's `local` bindings out, which leaves the row `unknown`.
+/// what the `local` row the inventory lists in the entry's place reads; the row is on as the
+/// daemon's switch keeps it, though the entry is off. Killed by the request leaving the store's
+/// `local` bindings out, which leaves the row `unknown`, and by the row read by the entry's own
+/// switch, which reads it off.
 #[tokio::test]
 async fn a_refresh_reads_an_emulated_local_rows_status_from_its_probe() {
     let docs_local = |provider: &ProviderId| McpServerBindingRef::Local {
@@ -518,8 +520,9 @@ async fn a_refresh_reads_an_emulated_local_rows_status_from_its_probe() {
         .reader()
         .execute(
             "INSERT INTO mcp_server_bindings
-               (provider, scope, scope_ref, server_name, first_observed_at, updated_at)
-             VALUES (?1, 'local', '/work/app', 'docs', 't', 't')",
+               (provider, scope, scope_ref, server_name, enabled_override, first_observed_at,
+                updated_at)
+             VALUES (?1, 'local', '/work/app', 'docs', 1, 't', 't')",
             params![inventory.provider.as_str()],
         )
         .expect("the local binding's row is stored");
@@ -535,6 +538,7 @@ async fn a_refresh_reads_an_emulated_local_rows_status_from_its_probe() {
     let McpServerInventoryEntry::Answered(McpAnsweredInventoryEntry::Local {
         scope_ref,
         status,
+        enabled,
         ..
     }) = entry
     else {
@@ -542,6 +546,7 @@ async fn a_refresh_reads_an_emulated_local_rows_status_from_its_probe() {
     };
     assert_eq!(scope_ref.as_str(), "/work/app");
     assert_eq!(status, McpServerStatus::Connected);
+    assert!(enabled, "the daemon's switch keeps the emulated row on");
 }
 
 /// A session in no project reports `docs` before anything filled the attribution table; its report

@@ -230,6 +230,35 @@ pub(crate) struct McpStoredBindings {
     pub(crate) local_bindings: Vec<McpServerBindingRef>,
 }
 
+impl McpStoredBindings {
+    /// Lays `landing`'s row over what the store keeps, as [`record_binding_statement`] writes it,
+    /// so a read made before that statement commits reads the binding as it will stand.
+    pub(crate) fn record(&mut self, landing: &McpBindingLanding<'_>) {
+        let stored = self
+            .bindings
+            .entry(McpBindingKey::of(landing.binding))
+            .or_insert_with(|| {
+                if matches!(landing.binding, McpServerBindingRef::Local { .. }) {
+                    self.local_bindings.push(landing.binding.clone());
+                }
+                McpStoredBinding::default()
+            });
+        if landing.enabled_override.is_some() {
+            stored.enabled_override = landing.enabled_override;
+        }
+    }
+}
+
+/// A binding row a landed change records when it commits: the binding, and the daemon's switch
+/// [`record_binding_statement`] writes for it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct McpBindingLanding<'a> {
+    /// The binding the row is for.
+    pub(crate) binding: &'a McpServerBindingRef,
+    /// The switch the row takes; `None` keeps a row's switch as it stands.
+    pub(crate) enabled_override: Option<bool>,
+}
+
 static PROVIDER_BINDINGS_SQL: &str =
     "SELECT scope, scope_ref, scope_place, server_name, enabled_override
   FROM mcp_server_bindings
@@ -253,10 +282,13 @@ static PROVIDER_PROJECT_SWITCHES_SQL: &str =
 static RECORD_BINDING_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO mcp_server_bindings
-  (provider, scope, scope_ref, scope_place, server_name, first_observed_at, updated_at)
-  VALUES (@provider, @scope, @scope_ref, @scope_place, @server_name, {DATABASE_NOW_SQL},
-    {DATABASE_NOW_SQL})
-  ON CONFLICT DO NOTHING"
+  (provider, scope, scope_ref, scope_place, server_name, enabled_override, first_observed_at,
+    updated_at)
+  VALUES (@provider, @scope, @scope_ref, @scope_place, @server_name, @enabled,
+    {DATABASE_NOW_SQL}, {DATABASE_NOW_SQL})
+  ON CONFLICT (provider, scope, scope_ref, scope_place, server_name) DO UPDATE
+    SET enabled_override = excluded.enabled_override, updated_at = excluded.updated_at
+    WHERE excluded.enabled_override IS NOT NULL"
     )
 });
 
@@ -381,19 +413,31 @@ impl McpBindingStore {
         binding: &McpServerBindingRef,
     ) -> Result<(), McpBindingStoreError> {
         self.writer
-            .write(vec![record_binding_statement(&McpBindingKey::of(binding))])
+            .write(vec![record_binding_statement(
+                &McpBindingKey::of(binding),
+                None,
+            )])
             .await
             .map_err(McpBindingStoreError::Write)?;
         Ok(())
     }
 }
 
-/// The statement that writes `key`'s binding row where it has none, leaving a row already there
-/// untouched.
-pub(crate) fn record_binding_statement(key: &McpBindingKey) -> WriteStatement {
+/// The statement that writes `key`'s binding row where it has none, with the daemon's switch set
+/// to `enabled_override`; a row already there takes `enabled_override` where it is set and keeps
+/// its switch where it is `None`.
+pub(crate) fn record_binding_statement(
+    key: &McpBindingKey,
+    enabled_override: Option<bool>,
+) -> WriteStatement {
+    let mut bindings = key_bindings(key);
+    bindings.push((
+        Cow::Borrowed("@enabled"),
+        SqliteValue::from(enabled_override),
+    ));
     WriteStatement {
         sql: Cow::Borrowed(RECORD_BINDING_SQL.as_str()),
-        bindings: StatementBindings::Named(key_bindings(key)),
+        bindings: StatementBindings::Named(bindings),
         expected_row_count: None,
     }
 }
@@ -446,7 +490,7 @@ pub(crate) fn project_switch_statements(
         }];
     }
     vec![
-        record_binding_statement(key),
+        record_binding_statement(key, None),
         WriteStatement {
             sql: Cow::Borrowed(SWITCH_OFF_IN_PROJECT_SQL.as_str()),
             bindings,

@@ -2,7 +2,7 @@
 //! keeps for them, the attached project roots as a driver's read takes them, and the attribution
 //! table that says which binding a server name a session reports resolves to.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, Weak};
@@ -18,6 +18,7 @@ use sidekicks_provider::driver::mcp_server::read::{
 };
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_workspace::project::records::AttachedProjectRoot;
+use tokio::sync::Notify;
 
 use crate::binding::store::{McpBindingKey, McpStoredBinding, McpStoredBindings};
 
@@ -123,8 +124,10 @@ pub(crate) fn resolve_declared_rows(
         }
         for local in locals {
             rows.push(McpBindingRow {
+                // The user entry stays off; the daemon keeps the `local` binding's own switch.
                 declaration: McpServerDeclaration {
                     binding: local.clone(),
+                    is_switch_kept_by_daemon: true,
                     ..declaration.clone()
                 },
                 stored: stored_binding(local),
@@ -187,12 +190,23 @@ const ROOT_FREE_SCOPES: [McpBindingScope; 4] = [
 /// await, so a status producer reads it without waiting. Each read that replaces it is stamped
 /// before its driver read, so an older read that finishes later replaces nothing but, where it
 /// asked the accounts and no later read that asked them has replaced their bindings, those; a leg
-/// holding a report no name resolved waits on it and is handed each replacement.
+/// holding a report no name resolved waits on it and is handed each replacement; an opening waits
+/// on a provider's first fill before it composes a session's set from it.
 #[derive(Debug, Default)]
 pub struct McpAttributionTable {
     roots: Mutex<McpAttributionRoots>,
     next_read_stamp: AtomicU64,
     waiting_legs: McpWaitingLegs,
+    fills: Notify,
+}
+
+/// How a provider's first fill of the table ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum McpFirstFill {
+    /// A read replaced the provider's declarations.
+    Filled,
+    /// The fill's read of the provider failed and no read has replaced its declarations since.
+    Failed,
 }
 
 /// A leg holding reports whose names resolved to no binding, handed each replacement of the table
@@ -233,6 +247,8 @@ struct McpAttributionRoots {
     /// The stamp of the newest read that asked each provider's accounts and replaced their
     /// bindings.
     applied_account_stamps: HashMap<ProviderId, u64>,
+    /// The providers whose fill's read failed before any read replaced their declarations.
+    failed_first_fills: HashSet<ProviderId>,
 }
 
 /// Whether a reading asked the provider's accounts, which decides where the table takes the
@@ -303,6 +319,7 @@ impl McpAttributionTable {
                     .insert(provider.clone(), reading.declarations.clone());
                 roots.provider_loaded.insert(provider.clone(), loaded);
                 roots.applied_stamps.insert(provider.clone(), stamp);
+                roots.failed_first_fills.remove(provider);
             }
             let declared: Vec<&McpServerBindingRef> = roots
                 .config_declarations
@@ -317,7 +334,43 @@ impl McpAttributionTable {
             is_newest
         };
         self.resolve_waiting_legs();
+        if is_newest {
+            self.fills.notify_waiters();
+        }
         is_newest
+    }
+
+    /// Records that the fill's read of `provider` failed, which ends the first fill's wait for a
+    /// provider no read has replaced yet.
+    pub(crate) fn record_failed_fill(&self, provider: &ProviderId) {
+        {
+            let mut roots = lock(&self.roots);
+            if roots.applied_stamps.contains_key(provider) {
+                return;
+            }
+            roots.failed_first_fills.insert(provider.clone());
+        }
+        self.fills.notify_waiters();
+    }
+
+    /// Waits until `provider`'s first fill of the table ended, answering at once where it has.
+    pub async fn wait_for_first_fill(&self, provider: &ProviderId) -> McpFirstFill {
+        loop {
+            let filled = self.fills.notified();
+            tokio::pin!(filled);
+            // Registered before the check, so a fill landing between the two still wakes it.
+            filled.as_mut().enable();
+            {
+                let roots = lock(&self.roots);
+                if roots.applied_stamps.contains_key(provider) {
+                    return McpFirstFill::Filled;
+                }
+                if roots.failed_first_fills.contains(provider) {
+                    return McpFirstFill::Failed;
+                }
+            }
+            filled.await;
+        }
     }
 
     /// The declarations `provider`'s own config made at the newest read that replaced them, none

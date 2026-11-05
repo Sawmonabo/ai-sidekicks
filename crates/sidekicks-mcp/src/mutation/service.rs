@@ -7,6 +7,7 @@
 
 use std::error::Error;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures::future::BoxFuture;
 use serde::Serialize;
@@ -15,6 +16,7 @@ use serde_json::Value;
 use sidekicks_contracts::mcp::governance::{
     McpServerDelete, McpServerEnabledUpdate, McpServerUpsert,
 };
+use sidekicks_contracts::mcp::server::config::McpServerConfigInput;
 use sidekicks_contracts::mcp::server::inventory::McpServerInventoryEntry;
 use sidekicks_contracts::mcp::server::requests::{
     McpServerDeleteRequest, McpServerDeleteResponse, McpServerMutationResponse,
@@ -25,6 +27,7 @@ use sidekicks_contracts::method::Method;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::contract::ProviderDriver;
+use sidekicks_provider::driver::descriptor_of;
 use sidekicks_provider::driver::mcp_server::read::McpServerDeclaration;
 use sidekicks_provider::driver::mcp_server::write::{
     McpServerObserved, McpServerObservedEntry, McpServerWrite, McpServerWriteOutcome,
@@ -36,7 +39,9 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::database::writer::DatabaseWriter;
 
-use crate::binding::store::{McpBindingKey, record_binding_statement, remove_binding_statement};
+use crate::binding::store::{
+    McpBindingKey, McpBindingLanding, record_binding_statement, remove_binding_statement,
+};
 use crate::errors::McpRefusal;
 use crate::inventory_service::{McpInventoryService, failure_reason_text};
 use crate::mutation::preflight::{McpMutationCheck, check_mutation};
@@ -125,6 +130,8 @@ struct McpMutationParts {
     removal_rows: Option<McpRemovalRows>,
     /// The board each committed change's notice is sent on.
     board: Arc<McpNoticeBoard>,
+    /// Whether an unfinished change whose provider is not registered was logged, once a daemon.
+    is_unregistered_provider_logged: AtomicBool,
 }
 
 /// A governance mutation's operation, as its receipt names it.
@@ -184,6 +191,7 @@ impl McpMutationService {
             receipts: receipts.clone(),
             removal_rows: sources.removal_rows,
             board: sources.board,
+            is_unregistered_provider_logged: AtomicBool::new(false),
         });
         let settlers = McpIntentSettlers::new(
             [
@@ -285,7 +293,7 @@ impl McpMutationService {
             binding: key,
             request_digest,
             after_digest: Some(after_digest),
-            wanted_enabled: None,
+            wanted_enabled: emulated_local_switch(&binding, config, &before),
         };
         let write = McpServerWrite::Upsert {
             binding: writable,
@@ -463,14 +471,20 @@ impl McpMutationParts {
             })
     }
 
-    // `binding`'s inventory row as it now stands; refused as the provider's with `words`, which
-    // say whether the change was written, where it cannot be read.
+    // `binding`'s inventory row as it now stands, or as `landing`'s row will leave it; refused as
+    // the provider's with `words`, which say whether the change was written, where it cannot be
+    // read.
     async fn read_row(
         &self,
         binding: &McpServerBindingRef,
+        landing: Option<McpBindingLanding<'_>>,
         words: &str,
     ) -> Result<McpServerInventoryEntry, McpRefusal> {
-        self.inventory.read(binding).await.map_err(|error| {
+        let read = match landing {
+            Some(landing) => self.inventory.read_landed(landing).await,
+            None => self.inventory.read(binding).await,
+        };
+        read.map_err(|error| {
             tracing::warn!(
                 error = &error as &(dyn Error + 'static),
                 provider = binding.provider().as_str(),
@@ -523,7 +537,7 @@ impl McpMutationParts {
         receipt_key: &McpReceiptKey,
     ) -> McpIntentSettlement {
         match self.driver_of_intent(intent) {
-            None => McpIntentSettlement::Unsettled,
+            None => McpIntentSettlement::NoDriver,
             Some(driver) if operation == McpOperation::SetEnabled => {
                 match self.is_switch_kept_by_daemon(intent).await {
                     Some(true) => McpIntentSettlement::Unlanded,
@@ -555,14 +569,18 @@ impl McpMutationParts {
         Ok(response)
     }
 
-    // The driver of `intent`'s provider; `None`, logged, where it is not registered.
+    // The driver of `intent`'s provider; `None` where it is not registered, logged the first time.
     fn driver_of_intent(&self, intent: &McpIntentReceipt) -> Option<&dyn ProviderDriver> {
         let driver = self
             .providers
             .drivers()
             .find(|(provider, _driver)| **provider == intent.binding.provider)
             .map(|(_provider, driver)| driver.as_ref());
-        if driver.is_none() {
+        if driver.is_none()
+            && !self
+                .is_unregistered_provider_logged
+                .swap(true, Ordering::AcqRel)
+        {
             tracing::warn!(
                 provider = intent.binding.provider.as_str(),
                 "an unfinished MCP change's provider is not registered, so it stays unsettled"
@@ -583,15 +601,26 @@ impl McpMutationParts {
         let reload_failure = reload_failure.and_then(|text| failure_reason_text(&text));
         let key = &intent.binding;
         let commit = match operation {
-            McpOperation::Upsert | McpOperation::SetEnabled => McpLandedCommit {
-                response: response_value(&McpServerMutationResponse {
-                    server: self.read_row(binding, ROW_UNREAD_WORDS).await?,
-                    applied: McpApplicationGrade::UserConfigWrite,
-                    live_results: None,
-                    reload_failure,
-                }),
-                rows: vec![record_binding_statement(key)],
-            },
+            McpOperation::Upsert | McpOperation::SetEnabled => {
+                // A switch the provider keeps leaves the daemon's as it stands.
+                let landing = McpBindingLanding {
+                    binding,
+                    enabled_override: intent.wanted_enabled.filter(|_| !intent.is_switch()),
+                };
+                // Read with the row laid over, since it commits only with the answer.
+                let server = self
+                    .read_row(binding, Some(landing), ROW_UNREAD_WORDS)
+                    .await?;
+                McpLandedCommit {
+                    response: response_value(&McpServerMutationResponse {
+                        server,
+                        applied: McpApplicationGrade::UserConfigWrite,
+                        live_results: None,
+                        reload_failure,
+                    }),
+                    rows: vec![record_binding_statement(key, landing.enabled_override)],
+                }
+            }
             McpOperation::Delete => {
                 let mut rows = vec![remove_binding_statement(key)];
                 if let Some(removal_rows) = &self.removal_rows {
@@ -663,6 +692,25 @@ async fn observe_before(
                 words: CONFIG_UNREAD_WORDS.to_owned(),
             }
         })
+}
+
+// The daemon's switch an upsert of `binding` sets where its provider keeps a `local` server as
+// an off user entry: the switch `config` asks for, on for a server not there `before`, else the
+// one kept; `None` for every other binding, whose switch the provider keeps.
+fn emulated_local_switch(
+    binding: &McpServerBindingRef,
+    config: &McpServerConfigInput,
+    before: &McpServerObserved,
+) -> Option<bool> {
+    let is_emulated = matches!(binding, McpServerBindingRef::Local { .. })
+        && descriptor_of(binding.provider().as_str())
+            .is_some_and(|descriptor| descriptor.is_mcp_local_scope_emulated);
+    if !is_emulated {
+        return None;
+    }
+    config
+        .enabled()
+        .or_else(|| matches!(before.entry, McpServerObservedEntry::Absent).then_some(true))
 }
 
 // The digest of the declaration `before` holds for `key`, `None` where it holds none; refused as

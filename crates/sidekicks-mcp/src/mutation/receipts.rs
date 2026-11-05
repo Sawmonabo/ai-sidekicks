@@ -10,6 +10,8 @@ use rusqlite::named_params;
 use rusqlite::types::Value as SqliteValue;
 use secrecy::{ExposeSecret as _, SecretBox};
 use serde_json::{Map, Value, json};
+use sidekicks_contracts::mcp::governance::McpServerEnabledUpdate;
+use sidekicks_contracts::method::Method as _;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_store::database::connection::read_pool::{
@@ -117,8 +119,16 @@ pub(crate) struct McpIntentReceipt {
     pub(crate) before_digest: Option<McpReceiptDigest>,
     /// The digest of the declaration the write leaves; `None` for a remove.
     pub(crate) after_digest: Option<McpReceiptDigest>,
-    /// A switch's wanted state; `None` for every other mutation.
+    /// A switch's wanted state, or the daemon's switch an upsert of an emulated `local` server
+    /// sets; `None` for every other mutation.
     pub(crate) wanted_enabled: Option<bool>,
+}
+
+impl McpIntentReceipt {
+    /// Whether the receipt is a switch's, which settles by its wanted state.
+    pub(crate) fn is_switch(&self) -> bool {
+        self.operation == McpServerEnabledUpdate::DESCRIPTOR.method
+    }
 }
 
 /// What an idempotency key's receipt says about a request made under it.

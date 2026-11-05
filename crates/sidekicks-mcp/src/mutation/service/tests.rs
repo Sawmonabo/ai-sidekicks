@@ -22,7 +22,7 @@ use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::stream::feed::{CreditGate, Feed};
 use sidekicks_platforms::CredentialStore as PlatformCredentialStore;
 use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
-use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
 use sidekicks_provider::driver::mcp_server::read::{
     McpServerDeclaration, McpServerPolicy, McpServerToolDefaults, ProviderMcpServersReading,
 };
@@ -30,7 +30,7 @@ use sidekicks_provider::driver::mcp_server::write::{
     McpServerEntry, McpServerObserved, McpServerObservedEntry, McpServerWrite,
     McpServerWriteOutcome, McpServerWriteRefusal,
 };
-use sidekicks_provider::driver::test_registry::registry_of_first_provider;
+use sidekicks_provider::driver::test_registry::registry_of_first_providers;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::credential_store::service::KeychainService;
 use sidekicks_store::credential_store::test_keychain::{CountingKeychain, test_keychain};
@@ -64,8 +64,9 @@ fn entry() -> McpServerEntry {
 
 /// A driver over a config holding the `user` servers `declared`, each write of which is answered
 /// `outcome` and is expected `writes` times; a write that is not refused adds or removes its
-/// server, which the next observe and read then see. Each declaration says the daemon keeps its
-/// switch where `is_switch_kept_by_daemon` is set.
+/// server, which the next observe and read then see, an added `local` server as the off user entry
+/// a provider that emulates `local` writes. Each declaration says the daemon keeps its switch where
+/// `is_switch_kept_by_daemon` is set.
 fn scripted_driver(
     provider: &ProviderId,
     declared: &[&str],
@@ -73,10 +74,11 @@ fn scripted_driver(
     writes: usize,
     is_switch_kept_by_daemon: bool,
 ) -> MockProviderDriver {
-    let config: Arc<Mutex<HashMap<String, bool>>> = Arc::new(Mutex::new(
+    // Each declared server by name, with its entry's own switch.
+    let config: Arc<Mutex<HashMap<String, Option<bool>>>> = Arc::new(Mutex::new(
         declared
             .iter()
-            .map(|name| ((*name).to_owned(), true))
+            .map(|name| ((*name).to_owned(), None))
             .collect(),
     ));
     let mut driver = MockProviderDriver::new();
@@ -84,8 +86,9 @@ fn scripted_driver(
     driver.expect_read_mcp_servers().returning(move |_request| {
         let declarations = lock(&read_config)
             .iter()
-            .filter(|(_name, is_present)| **is_present)
-            .map(|(name, _is_present)| declaration(&read_provider, name, is_switch_kept_by_daemon))
+            .map(|(name, enabled)| {
+                declaration(&read_provider, name, *enabled, is_switch_kept_by_daemon)
+            })
             .collect();
         Box::pin(ready(Ok(ProviderMcpServersReading {
             declarations,
@@ -100,10 +103,7 @@ fn scripted_driver(
     driver
         .expect_observe_mcp_server()
         .returning(move |binding| {
-            let is_present = lock(&observe_config)
-                .get(binding.server_name().as_str())
-                .copied()
-                .unwrap_or(false);
+            let is_present = lock(&observe_config).contains_key(binding.server_name().as_str());
             Box::pin(ready(Ok(McpServerObserved {
                 entry: if is_present {
                     McpServerObservedEntry::Present(entry())
@@ -122,23 +122,35 @@ fn scripted_driver(
         .times(writes)
         .returning(move |write, _before| {
             if !matches!(outcome, McpServerWriteOutcome::Refused(_)) {
-                let (binding, is_present) = match &write {
-                    McpServerWrite::Upsert { binding, .. } => (binding.binding(), true),
-                    McpServerWrite::Remove { binding } => (binding.binding(), false),
-                    McpServerWrite::SetEnabled { binding, .. } => (binding.clone(), true),
-                };
-                lock(&config).insert(binding.server_name().as_str().to_owned(), is_present);
+                let mut config = lock(&config);
+                match &write {
+                    McpServerWrite::Upsert { binding, .. } => {
+                        let binding = binding.binding();
+                        let enabled =
+                            matches!(binding, McpServerBindingRef::Local { .. }).then_some(false);
+                        config.insert(binding.server_name().as_str().to_owned(), enabled);
+                    }
+                    McpServerWrite::Remove { binding } => {
+                        config.remove(binding.binding().server_name().as_str());
+                    }
+                    McpServerWrite::SetEnabled { binding, .. } => {
+                        config
+                            .entry(binding.server_name().as_str().to_owned())
+                            .or_insert(None);
+                    }
+                }
             }
             Box::pin(ready(outcome.clone()))
         });
     driver
 }
 
-/// The `user` server `name`'s declaration, with the entry's command, its switch kept by the
-/// daemon where `is_switch_kept_by_daemon` is set.
+/// The `user` server `name`'s declaration, with the entry's command and its own switch `enabled`,
+/// its switch kept by the daemon where `is_switch_kept_by_daemon` is set.
 fn declaration(
     provider: &ProviderId,
     name: &str,
+    enabled: Option<bool>,
     is_switch_kept_by_daemon: bool,
 ) -> McpServerDeclaration {
     McpServerDeclaration {
@@ -147,7 +159,7 @@ fn declaration(
             command: "npx".to_owned(),
             args: None,
             env_var_names: None,
-            enabled: None,
+            enabled,
             required: None,
             startup_timeout_sec: None,
             tool_timeout_sec: None,
@@ -203,9 +215,9 @@ fn code<Response>(answer: &Result<Response, DomainError>) -> Option<RefusalCode>
     answer.as_ref().err().map(|refusal| refusal.code)
 }
 
-/// A mutation service over a fresh database and keychain, its one provider answered by a test's
-/// driver, with the real inventory, binding store and receipts under it, and a feed reading the
-/// board its tracker and the service send on.
+/// A mutation service over a fresh database and keychain, the table's first providers answered by
+/// a test's drivers in order, with the real inventory, binding store and receipts under it, and a
+/// feed reading the board its tracker and the service send on.
 struct Fixture {
     database: TestDatabase,
     keychain: Arc<CountingKeychain>,
@@ -216,11 +228,14 @@ struct Fixture {
 }
 
 impl Fixture {
-    async fn new(driver: MockProviderDriver, removal_rows: Option<McpRemovalRows>) -> Self {
+    async fn new(
+        drivers: Vec<Arc<dyn ProviderDriver>>,
+        removal_rows: Option<McpRemovalRows>,
+    ) -> Self {
         let (database, _receipts, writer, reads) = receipts_over_a_database().await;
         let (data_folder, platform_store, keychain) = test_keychain(KeychainService::McpReceiptKey);
         let keychain = Arc::new(CountingKeychain::new(keychain));
-        let providers = Arc::new(registry_of_first_provider(Arc::new(driver)));
+        let providers = Arc::new(registry_of_first_providers(drivers));
         let board = Arc::new(McpNoticeBoard::default());
         let notices = board.follow().await.expect("the board's follow succeeds");
         let inventory = open_test_inventory(
@@ -332,7 +347,7 @@ async fn the_config_notice_follows_the_commit(
         writes,
         is_switch_kept_by_daemon,
     );
-    let mut fixture = Fixture::new(driver, None).await;
+    let mut fixture = Fixture::new(vec![Arc::new(driver)], None).await;
     let key = idempotency_key();
 
     let answered = match edit {
@@ -374,7 +389,7 @@ async fn a_same_key_retry_with_another_request_conflicts_after_one_write() {
         1,
         false,
     );
-    let fixture = Fixture::new(driver, None).await;
+    let fixture = Fixture::new(vec![Arc::new(driver)], None).await;
     let key = idempotency_key();
 
     let (first, second) = tokio::join!(
@@ -412,7 +427,7 @@ async fn a_landed_write_whose_commit_failed_is_committed_by_the_start() {
         1,
         false,
     );
-    let mut fixture = Fixture::new(driver, None).await;
+    let mut fixture = Fixture::new(vec![Arc::new(driver)], None).await;
     let key = idempotency_key();
     fixture.run(FAIL_COMMITS_SQL);
 
@@ -453,7 +468,7 @@ async fn a_landed_write_whose_commit_failed_is_committed_by_the_start() {
 #[tokio::test]
 async fn every_mutation_reads_the_receipt_key_first() {
     let provider = first_provider();
-    let fixture = Fixture::new(MockProviderDriver::new(), None).await;
+    let fixture = Fixture::new(vec![Arc::new(MockProviderDriver::new())], None).await;
     fixture
         .keychain
         .set_read_refusal(Some(KeychainRefusalCause::Locked));
@@ -497,7 +512,7 @@ async fn a_definite_refusal_is_saved_and_replayed() {
         1,
         false,
     );
-    let mut fixture = Fixture::new(driver, None).await;
+    let mut fixture = Fixture::new(vec![Arc::new(driver)], None).await;
     let key = idempotency_key();
 
     let first = fixture
@@ -547,7 +562,7 @@ async fn a_removal_settled_at_the_start_commits_the_ports_rows() {
             expected_row_count: Some(1),
         }]
     });
-    let fixture = Fixture::new(driver, Some(marker)).await;
+    let fixture = Fixture::new(vec![Arc::new(driver)], Some(marker)).await;
     let key = idempotency_key();
     let markers = "SELECT count(*) FROM mcp_server_bindings WHERE server_name = 'marker'";
     fixture.run(FAIL_COMMITS_SQL);
@@ -581,7 +596,7 @@ async fn two_first_mutations_both_land() {
         2,
         false,
     );
-    let fixture = Fixture::new(driver, None).await;
+    let fixture = Fixture::new(vec![Arc::new(driver)], None).await;
     let (docs_key, mail_key) = (idempotency_key(), idempotency_key());
 
     let (docs, mail) = tokio::join!(
@@ -602,4 +617,60 @@ async fn two_first_mutations_both_land() {
         fixture.receipt_status(&mail_key).as_deref(),
         Some("committed")
     );
+}
+
+/// An add of a `local` server its provider keeps as an off user entry stores the daemon's switch
+/// it asks for, on for a new server that asks nothing, so the row reads as the person set it.
+/// Killed by the add storing no switch, which leaves the row off.
+#[rstest]
+#[case::asking_nothing(None, Some(1))]
+#[case::asking_off(Some(false), Some(0))]
+#[tokio::test]
+async fn an_emulated_local_add_stores_the_switch_it_asks_for(
+    #[case] asked: Option<bool>,
+    #[case] stored: Option<i64>,
+) {
+    let emulating = PROVIDER_REGISTRATIONS
+        .iter()
+        .position(|registration| registration.descriptor.is_mcp_local_scope_emulated)
+        .expect("a provider emulates `local` servers");
+    let provider = ProviderId::new(PROVIDER_REGISTRATIONS[emulating].descriptor.id.to_owned())
+        .expect("a provider id");
+    let mut drivers: Vec<Arc<dyn ProviderDriver>> = (0..emulating)
+        .map(|_| Arc::new(MockProviderDriver::new()) as Arc<dyn ProviderDriver>)
+        .collect();
+    let applied = McpServerWriteOutcome::Applied {
+        reload_failure: None,
+    };
+    drivers.push(Arc::new(scripted_driver(&provider, &[], applied, 1, false)));
+    let fixture = Fixture::new(drivers, None).await;
+    let key = idempotency_key();
+    let mut request = json!({
+        "scope": "local",
+        "provider": provider.as_str(),
+        "scopeRef": "/repos/app",
+        "serverName": "docs",
+        "clientIdempotencyKey": key.as_str(),
+        "config": { "transport": "stdio", "command": "npx" },
+    });
+    if let Some(asked) = asked {
+        request["config"]["enabled"] = json!(asked);
+    }
+
+    let answered = fixture
+        .service
+        .upsert(serde_json::from_value(request).expect("an upsert request"))
+        .await;
+
+    assert_eq!(code(&answered), None);
+    let switch: Option<i64> = fixture
+        .database
+        .reader()
+        .query_row(
+            "SELECT enabled_override FROM mcp_server_bindings WHERE scope = 'local'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("the add stores its row");
+    assert_eq!(switch, stored);
 }

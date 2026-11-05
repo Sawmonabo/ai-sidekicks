@@ -41,7 +41,9 @@ use crate::binding::binding_arm;
 use crate::binding::resolver::{
     McpAccountsAsked, McpAttributionTable, McpBindingRow, attached_root_path, resolve_binding_rows,
 };
-use crate::binding::store::{McpBindingKey, McpBindingStore, PROJECT_SWITCH_SCOPES};
+use crate::binding::store::{
+    McpBindingKey, McpBindingLanding, McpBindingStore, PROJECT_SWITCH_SCOPES,
+};
 use crate::errors::McpRefusal;
 use crate::status::McpServerStatusTracker;
 use crate::status::machine_probe::{
@@ -169,6 +171,24 @@ impl McpInventoryService {
         &self,
         binding: &McpServerBindingRef,
     ) -> Result<McpServerInventoryEntry, McpInventoryError> {
+        self.read_binding(binding, None).await
+    }
+
+    /// The binding `landing` names, read as [`Self::read`] reads it with `landing`'s row laid over
+    /// what the store keeps, for a change's answer read before that row commits.
+    pub(crate) async fn read_landed(
+        &self,
+        landing: McpBindingLanding<'_>,
+    ) -> Result<McpServerInventoryEntry, McpInventoryError> {
+        self.read_binding(landing.binding, Some(landing)).await
+    }
+
+    // The binding `binding` names, with `landing`'s row laid over what the store keeps.
+    async fn read_binding(
+        &self,
+        binding: &McpServerBindingRef,
+        landing: Option<McpBindingLanding<'_>>,
+    ) -> Result<McpServerInventoryEntry, McpInventoryError> {
         let key = McpBindingKey::of(binding);
         let not_found = || McpRefusal::ServerNotFound {
             binding: Box::new(binding.clone()),
@@ -187,6 +207,7 @@ impl McpInventoryService {
                 &context,
                 false,
                 McpProbeScope::None,
+                landing,
             )
             .await?;
         entries
@@ -219,6 +240,7 @@ impl McpInventoryService {
                 &context,
                 false,
                 McpProbeScope::None,
+                None,
             )
             .await?;
         Ok(rows
@@ -230,8 +252,8 @@ impl McpInventoryService {
     /// Fills the attribution table from one read per provider of what it loads at each attached
     /// root, with no account, no probe and no refresh, so a leg that reports before any list
     /// resolves its servers; the status tracker's readings stay as they are. A provider whose read
-    /// fails keeps the table as it was and is logged; a failed read of the attached roots fills
-    /// nothing and is logged.
+    /// fails keeps the table as it was, is logged and is recorded as a failed fill; a failed read
+    /// of the attached roots fills nothing, is logged and records every provider's fill as failed.
     pub async fn fill_attribution(&self) {
         let attached_roots = match self.read_attached_roots().await {
             Ok(roots) => roots,
@@ -240,6 +262,9 @@ impl McpInventoryService {
                     error = &error as &(dyn std::error::Error + 'static),
                     "the attached roots could not be read, so no MCP server name was attributed"
                 );
+                for (provider, _driver) in self.sources.providers.drivers() {
+                    self.sources.attribution.record_failed_fill(provider);
+                }
                 return;
             }
         };
@@ -262,12 +287,15 @@ impl McpInventoryService {
                             stamp,
                         );
                     }
-                    Err(error) => tracing::warn!(
-                        error = &error as &(dyn std::error::Error + 'static),
-                        provider = provider.as_str(),
-                        "the provider's MCP servers could not be read, so their names resolve \
-                         as the last read left them"
-                    ),
+                    Err(error) => {
+                        tracing::warn!(
+                            error = &error as &(dyn std::error::Error + 'static),
+                            provider = provider.as_str(),
+                            "the provider's MCP servers could not be read, so their names resolve \
+                             as the last read left them"
+                        );
+                        self.sources.attribution.record_failed_fill(provider);
+                    }
                 }
             }
         }))
@@ -286,7 +314,7 @@ impl McpInventoryService {
     ) -> Result<Vec<(McpBindingKey, McpServerInventoryEntry)>, McpInventoryError> {
         if !is_refresh {
             return self
-                .read_provider_rows(provider, driver, context, false, McpProbeScope::None)
+                .read_provider_rows(provider, driver, context, false, McpProbeScope::None, None)
                 .await;
         }
         match self.sources.probe_gate.enter(provider) {
@@ -297,12 +325,13 @@ impl McpInventoryService {
                     context,
                     true,
                     McpProbeScope::EveryBinding,
+                    None,
                 )
                 .await
             }
             McpMachineProbeTurn::Wait(running) => {
                 wait_for_machine_probe(running).await;
-                self.read_provider_rows(provider, driver, context, false, McpProbeScope::None)
+                self.read_provider_rows(provider, driver, context, false, McpProbeScope::None, None)
                     .await
             }
         }
@@ -335,8 +364,8 @@ impl McpInventoryService {
 
     /// Reads `provider`'s bindings through `driver`, asking it to probe the bindings `probe`
     /// names, the store's `local` bindings among them, and, on `is_refresh`, to read again what it
-    /// keeps, for each of the provider's stored accounts; this is the one read a probe trigger
-    /// calls. Each row is keyed by its binding. The attribution table takes the provider's reading
+    /// keeps, for each of the provider's stored accounts, with `landing`'s row, where given, laid
+    /// over what the store keeps; this is the one read a probe trigger calls. Each row is keyed by its binding. The attribution table takes the provider's reading
     /// unless a later read already replaced it, a refresh then has the driver ask its live
     /// sessions again, each probe reading the driver answers lands in
     /// [`Self::keep_probe_readings`], and, where this read is the newest, the tracker forgets the
@@ -352,9 +381,10 @@ impl McpInventoryService {
         context: &McpInventoryContext,
         is_refresh: bool,
         probe: McpProbeScope,
+        landing: Option<McpBindingLanding<'_>>,
     ) -> Result<Vec<(McpBindingKey, McpServerInventoryEntry)>, McpInventoryError> {
         Ok(self
-            .read_resolved_rows(provider, driver, context, is_refresh, probe)
+            .read_resolved_rows(provider, driver, context, is_refresh, probe, landing)
             .await?
             .into_iter()
             .map(|(key, row)| {
@@ -373,6 +403,7 @@ impl McpInventoryService {
         context: &McpInventoryContext,
         is_refresh: bool,
         probe: McpProbeScope,
+        landing: Option<McpBindingLanding<'_>>,
     ) -> Result<Vec<(McpBindingKey, McpBindingRow)>, McpInventoryError> {
         let provider_account_ids = context
             .accounts
@@ -400,7 +431,13 @@ impl McpInventoryService {
                      what the store keeps"
                 );
             })
-            .ok();
+            .ok()
+            .map(|mut stored| {
+                if let Some(landing) = &landing {
+                    stored.record(landing);
+                }
+                stored
+            });
         let request = McpServersReadRequest {
             attached_roots: context.attached_roots.clone(),
             provider_account_ids,
