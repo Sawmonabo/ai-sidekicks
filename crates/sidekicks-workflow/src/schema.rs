@@ -3,12 +3,12 @@
 //!
 //! The versions and the gate answers never change once written. A definition's row is current
 //! state that changes in place: its settings outside the hash, and its current body on a save. The
-//! runs and the steps are projections the event log can rebuild, except a waiting step's
-//! `wait_deadline_at`. The triggers, webhook tokens, node state and secrets are truth that changes:
-//! no event history can say what this machine is armed to do next or which secrets it holds, so
-//! the row is the truth and any in-process timer is a cache over it, re-armed from the row at
-//! start. The form drafts and the builder drafts are durable state with no timer: what the person
-//! has typed but not saved is in no event, so the row holds it.
+//! runs and the steps are projections the event log can rebuild. The triggers, webhook tokens,
+//! node state and secrets are truth that changes: no event history can say what this machine is
+//! armed to do next or which secrets it holds, so the row is the truth and any in-process timer is
+//! a cache over it, re-armed from the row at start. The form drafts and the builder drafts are
+//! durable state with no timer: what the person has typed but not saved is in no event, so the row
+//! holds it.
 
 use std::sync::LazyLock;
 
@@ -49,6 +49,7 @@ fn workflow_schema_sql() -> String {
     let webhook_fire_outcomes = sql_list_of_every::<WorkflowWebhookFireOutcome>();
     let run_statuses = sql_list_of_every::<WorkflowRunStatus>();
     let new_run = <&'static str>::from(WorkflowRunStatus::New);
+    let waiting_run = <&'static str>::from(WorkflowRunStatus::Waiting);
     let going_run_statuses = &*GOING_RUN_STATUSES_SQL;
     let run_modes = sql_list_of_every::<WorkflowRunMode>();
     let gate_kinds = sql_list_of_every::<WorkflowGateKind>();
@@ -199,6 +200,9 @@ CREATE TABLE workflow_runs (
   -- JSON: the run's typed error; NULL unless it failed, was canceled or crashed.
   error_json                TEXT
                             CHECK(error_json IS NULL OR json_valid(error_json)),
+  -- The run's one summary line, which a Write a summary step writes on the run;
+  -- NULL until one does.
+  summary                   TEXT,
   chain_root_run_id         TEXT NOT NULL,           -- the run's own id on a first run
   chain_from_error          INTEGER NOT NULL DEFAULT 0 -- 1 when an error trigger joined
                             CHECK(chain_from_error IN (0, 1)),
@@ -211,8 +215,16 @@ CREATE TABLE workflow_runs (
   -- The run's Keep mark: deleting old runs leaves a kept run.
   kept                      INTEGER NOT NULL DEFAULT 0
                             CHECK(kept IN (0, 1)),
+  -- Set while the run waits only on people, from its workflow.run.waiting; the
+  -- statement that moves the run off '{waiting_run}' clears it.
+  person_wait_since         TEXT,
+  -- The milliseconds the run has waited on people, added to as each such wait
+  -- ends; the run cap does not count them.
+  person_wait_ms            INTEGER NOT NULL DEFAULT 0
+                            CHECK(person_wait_ms >= 0),
   CHECK((chain_root_run_id = id) = (chain_run_count IS NOT NULL)),
-  CHECK((chain_run_count IS NULL) = (chain_kept_going IS NULL))
+  CHECK((chain_run_count IS NULL) = (chain_kept_going IS NULL)),
+  CHECK(person_wait_since IS NULL OR status = '{waiting_run}')
 ) STRICT;
 
 -- Deleting old runs pages in session order, each page seeking past the last one's final run.
@@ -348,6 +360,9 @@ CREATE TABLE workflow_steps (
   -- failed it, from its workflow.step.failed. NULL on every other step and on a
   -- bare decline.
   decline_reason    TEXT,
+  -- The milliseconds the memory gate held the step, summed over its holds.
+  total_pool_wait_ms INTEGER NOT NULL DEFAULT 0
+                    CHECK(total_pool_wait_ms >= 0),
   -- The whole step key; it also serves a lookup by run and node.
   PRIMARY KEY (workflow_run_id, node_id, attempt, execution_index),
   UNIQUE(workflow_run_id, execution_index),

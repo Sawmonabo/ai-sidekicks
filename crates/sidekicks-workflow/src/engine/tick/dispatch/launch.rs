@@ -132,9 +132,13 @@ mod tests {
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 
     use super::super::tests::WAIT;
-    use super::super::{test_dispatch, test_ready_step, test_run_snapshot};
-    use crate::engine::event_record::EngineRecorder;
-    use crate::engine::ports::{EngineRecordSink, KeptEngineRecords, WorkflowNodeKey};
+    use super::super::{
+        test_dispatch, test_dispatch_recording, test_ready_step, test_run_snapshot,
+    };
+    use crate::engine::event_record::{EngineFault, EngineRecorder};
+    use crate::engine::ports::{
+        EngineRecordSink, KeptEngineRecords, WorkflowNodeKey, refusing_engine_ports,
+    };
     use crate::engine::tick::{RunScope, test_run_scope};
     use crate::kinds::step_context::StepContext;
     use crate::kinds::{NodeKind, PassThroughExecutor, StepFailure, test_kind};
@@ -268,8 +272,9 @@ mod tests {
     }
 
     /// A secret whose record cannot be read fails the step, and the failure goes to the engine's
-    /// record with its causes, not its top message alone. Mutations: skip the record; record only
-    /// the top message.
+    /// record with its causes, not its top message alone, in the record the run start wrote the
+    /// run's earlier line in: the same life, the run's next sequence. Mutations: skip the record;
+    /// record only the top message; build the dispatch a recorder of its own.
     #[tokio::test]
     async fn a_failed_secret_read_goes_to_the_record_with_its_causes() {
         const OPEN_FAILED: &str = "a read-only connection to the database could not be opened: ";
@@ -277,11 +282,20 @@ mod tests {
         let node = greet_node(&json!({ "token": "secret://shared/deploy-key" }));
         let scope = test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]);
         let ready = test_ready_step(&scope, &node, vec![Vec::new()]);
-        let (mut dispatch, _reports) = test_dispatch(&database, Vec::new());
         let sink = Arc::new(KeptEngineRecords::default());
-        dispatch.recorder = Arc::new(EngineRecorder::new(
+        let recorder = Arc::new(EngineRecorder::new(
             Arc::clone(&sink) as Arc<dyn EngineRecordSink>
         ));
+        recorder
+            .for_run(scope.run_id, Arc::clone(&scope.redaction))
+            .fault(
+                None,
+                EngineFault::HeldStartLeftBehind,
+                &std::io::Error::other("the start's line"),
+            )
+            .await;
+        let (mut dispatch, _reports) =
+            test_dispatch_recording(&database, refusing_engine_ports(), Vec::new(), recorder);
         dispatch.reads = Arc::new(DatabaseReadPool::new(
             database.path().with_file_name("missing.sqlite3"),
             STEP_SECRET_STATEMENT_CAPACITY,
@@ -302,10 +316,12 @@ mod tests {
 
         assert!(matches!(launched, Err(StepFailure::Failed(_))));
         let lines = sink.lines();
-        let [fault] = lines.as_slice() else {
-            panic!("one fault is recorded: {lines:?}");
+        let [start_line, fault] = lines.as_slice() else {
+            panic!("the start's line and one fault are recorded: {lines:?}");
         };
         assert_eq!(fault["record"], json!("secretReadFailed"));
+        assert_eq!(fault["lifeId"], start_line["lifeId"]);
+        assert_eq!(fault["sequence"], json!(2));
         let error = fault["error"].as_str().expect("the error is text");
         assert!(
             error.starts_with(OPEN_FAILED) && error.len() > OPEN_FAILED.len(),
