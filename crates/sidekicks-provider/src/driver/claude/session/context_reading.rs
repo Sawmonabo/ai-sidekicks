@@ -7,6 +7,7 @@
 //! turn too long for the window files a row marked exceeded with no counts. A helper gets no row.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -30,6 +31,7 @@ use crate::driver::claude::delivery::stream::ClaudeSessionStreams;
 use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::driver::claude::session::arrivals::deliver_in_session_order;
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
+use crate::driver::claude::session::inspector_reads::ClaudeInspectorReads;
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::control::{
     ClaudeContextUsageDetail, ClaudeControlRequest,
@@ -134,6 +136,8 @@ pub(crate) struct ClaudeContextRead {
     pub(crate) reading: SessionContextReading,
     /// The model Claude Code read it on.
     pub(crate) model: Option<String>,
+    /// The memory files the read named.
+    pub(crate) memory_files: Vec<PathBuf>,
 }
 
 // What one session's reads hold: the last read; the read task under way, by its number, with
@@ -164,22 +168,26 @@ pub(crate) struct ClaudeContextReadings {
     publisher: Arc<PortRegistration<Arc<dyn ContextReadingPublisher>>>,
     dispatch: Arc<dyn InboundDispatch>,
     streams: Arc<ClaudeSessionStreams>,
+    inspector_reads: Arc<ClaudeInspectorReads>,
     sessions: Mutex<HashMap<SessionId, ClaudeSessionReads>>,
     next_reading_task: AtomicU64,
 }
 
 impl ClaudeContextReadings {
     /// Readings published through `publisher` once registered, their rows filed through
-    /// `dispatch` in each session's order on `streams`.
+    /// `dispatch` in each session's order on `streams`, and the memory files each names kept in
+    /// `inspector_reads`.
     pub(crate) fn new(
         publisher: Arc<PortRegistration<Arc<dyn ContextReadingPublisher>>>,
         dispatch: Arc<dyn InboundDispatch>,
         streams: Arc<ClaudeSessionStreams>,
+        inspector_reads: Arc<ClaudeInspectorReads>,
     ) -> Self {
         Self {
             publisher,
             dispatch,
             streams,
+            inspector_reads,
             sessions: Mutex::default(),
             next_reading_task: AtomicU64::new(0),
         }
@@ -279,6 +287,7 @@ impl ClaudeContextReadings {
             &ClaudeContextRead {
                 reading,
                 model: last.model,
+                memory_files: last.memory_files,
             },
             Some(run_id),
         ))
@@ -330,6 +339,8 @@ impl ClaudeContextReadings {
         if !self.hold_read(live.session_id, task, read.clone()) {
             return;
         }
+        self.inspector_reads
+            .keep_memory_files(live.session_id, read.memory_files.clone());
         for run in runs {
             let delivery = InboundDelivery::SessionRow {
                 binding: DeliveryBinding {
@@ -421,6 +432,13 @@ pub(crate) fn compose_claude_context_read(
             },
         })
     });
+    let memory_files = reply.memory_files.as_ref().map_or_else(Vec::new, |files| {
+        files
+            .0
+            .iter()
+            .filter_map(|file| file.path.clone().map(PathBuf::from))
+            .collect()
+    });
     Some(ClaudeContextRead {
         reading: SessionContextReading {
             session_id,
@@ -434,6 +452,7 @@ pub(crate) fn compose_claude_context_read(
             usage,
         },
         model: reply.model.filter(|model| !model.is_empty()),
+        memory_files,
     })
 }
 
