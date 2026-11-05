@@ -1,5 +1,6 @@
 //! Opening an address on Windows through the shell's `ShellExecuteExW`, which hands it to the
-//! application registered for its scheme.
+//! application registered for its scheme, and whether a browser opened from this process reaches
+//! its person, read from the process's window station.
 
 use std::ffi::OsStr;
 use std::io;
@@ -8,10 +9,13 @@ use windows_sys::Win32::Foundation::{ERROR_NO_ASSOCIATION, RPC_E_CHANGED_MODE};
 use windows_sys::Win32::System::Com::{
     COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoInitializeEx, CoUninitialize,
 };
+use windows_sys::Win32::System::StationsAndDesktops::{
+    GetProcessWindowStation, GetUserObjectInformationW, UOI_FLAGS, USEROBJECTFLAGS,
+};
 use windows_sys::Win32::UI::Shell::{
     SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC, SHELLEXECUTEINFOW, ShellExecuteExW,
 };
-use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+use windows_sys::Win32::UI::WindowsAndMessaging::{SW_SHOWNORMAL, WSF_VISIBLE};
 
 use crate::address_opening::no_handler_error;
 use crate::windows::wide_text::wide_text;
@@ -60,4 +64,37 @@ pub fn open_address(address: &str) -> io::Result<()> {
         }
         Some(error) => Err(error),
     }
+}
+
+/// Whether a browser opened from this process reaches its person on Windows: its window station
+/// has visible display surfaces, which a service's noninteractive one has not. A failed read
+/// answers no. The environment holds nothing Windows reads for it.
+pub(crate) fn can_reach_display(_environment: &[(String, String)]) -> bool {
+    // SAFETY: the call takes no argument and answers the process's own station, which is not
+    // closed.
+    let station = unsafe { GetProcessWindowStation() };
+    if station.is_null() {
+        return false;
+    }
+    // SAFETY: the structure is plain data, for which all zeros is a valid value.
+    let mut flags: USEROBJECTFLAGS = unsafe { std::mem::zeroed() };
+    let length = u32::try_from(size_of::<USEROBJECTFLAGS>())
+        .expect("the flags' size fits the length the call reads");
+    // SAFETY: `station` is the live station handle, and `flags` is a live structure of `length`
+    // bytes the call writes; a null needed-length pointer asks for none back.
+    let is_read = unsafe {
+        GetUserObjectInformationW(
+            station,
+            UOI_FLAGS,
+            (&raw mut flags).cast(),
+            length,
+            std::ptr::null_mut(),
+        )
+    } != 0;
+    is_read && has_visible_display(flags.dwFlags)
+}
+
+// Whether a window station with `flags` shows its windows on a display.
+fn has_visible_display(flags: u32) -> bool {
+    flags & WSF_VISIBLE.cast_unsigned() != 0
 }
