@@ -260,8 +260,18 @@ pub(crate) fn compose_thread_unload_override(delay: Duration) -> String {
     format!("thread_unload_delay_secs={}", delay.as_secs())
 }
 
-/// One hook event's switch, its value written by TOML's own writer so any command text, quotes,
-/// reverse solidi and control characters included, reads back unchanged.
+/// The `key=value` text of one `-c` switch, `value` written by TOML's own writer so any string,
+/// quotes, reverse solidi and control characters included, reads back unchanged. Panics on a value
+/// TOML cannot write, such as a JSON null.
+pub(crate) fn write_config_override(key: &str, value: &impl Serialize) -> String {
+    let mut written = String::new();
+    value
+        .serialize(toml::ser::ValueSerializer::new(&mut written))
+        .expect("a config override's value is a TOML value");
+    format!("{key}={written}")
+}
+
+/// One hook event's switch, its value written by [`write_config_override`].
 fn compose_hook_override(event_name: &str, command: &str) -> String {
     let hook = [CodexHookMatcher {
         matcher: "*",
@@ -272,10 +282,7 @@ fn compose_hook_override(event_name: &str, command: &str) -> String {
                 .expect("10^12 seconds is a 64-bit integer"),
         }],
     }];
-    let mut value = String::new();
-    hook.serialize(toml::ser::ValueSerializer::new(&mut value))
-        .expect("a hook's strings and integer are TOML values");
-    format!("hooks.{event_name}={value}")
+    write_config_override(&format!("hooks.{event_name}"), &hook)
 }
 
 #[cfg(test)]
