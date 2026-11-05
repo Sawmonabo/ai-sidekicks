@@ -44,6 +44,7 @@ use self::session::CLAUDE_LOGIN_REFUSAL;
 pub(crate) use self::session::{ClaudeFirstRequest, ClaudeSessionStream, ClaudeSessionStreams};
 use crate::command::running_set::RunningCommandSets;
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::capabilities::without_larger_window_mark;
 use crate::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
 use crate::driver::claude::delivery::mcp_tasks::ClaudeHeldCall;
 use crate::driver::claude::delivery::messages::{
@@ -612,6 +613,8 @@ impl ClaudeDeliveryStream {
             read_claude_model_reroute(frame_kind, members, session.session_id, lead.run_id)?;
         let running_model = (reroute.scope == ModelRerouteScope::Session)
             .then(|| reroute.to_model.as_str().to_owned());
+        let to_model = without_larger_window_mark(reroute.to_model.as_str());
+        self.dependencies.pricing.mark_in_use(&[to_model]).await;
         self.send_row(
             session,
             lead,

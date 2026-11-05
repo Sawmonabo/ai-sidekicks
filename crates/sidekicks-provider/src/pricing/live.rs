@@ -96,10 +96,6 @@ impl LivePricing {
     }
 
     /// Adds `model_ids` to the price list's models in use; nothing while no list is registered.
-    #[expect(
-        dead_code,
-        reason = "a driver marks a rerouted model in use before any request on it"
-    )]
     pub(crate) async fn mark_in_use(&self, model_ids: &[&str]) {
         if let Some(price_list) = self.price_list.port() {
             price_list.mark_in_use(model_ids).await;

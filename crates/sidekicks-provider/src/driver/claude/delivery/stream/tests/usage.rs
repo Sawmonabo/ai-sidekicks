@@ -404,3 +404,31 @@ async fn a_process_that_ends_before_its_result_prices_its_rows_from_the_list() {
         )]
     );
 }
+
+// Killed by a reroute that marks no model in use, which leaves the list's fetch for the model to
+// the first request's miss: a reroute to a model the held copy lacks fetches the list at once.
+#[tokio::test]
+async fn a_reroute_to_a_model_the_list_lacks_fetches_the_list_at_once() {
+    let scratch = tempfile::tempdir().expect("a scratch folder is made");
+    let stop = CancellationToken::new();
+    let session = ScriptedSession::new().await;
+    let server = register_price_list(&session, &scratch, &stop).await;
+    server.script(StatusCode::NOT_MODIFIED, Some(r#"W/"opus""#), b"");
+
+    session.hold_lead_turn("lead");
+    session.frame(&init());
+    session.frame(&json!({
+        "type": "system",
+        "subtype": "model_fallback",
+        "original_model": "claude-opus-5-5",
+        "fallback_model": "claude-haiku-5-5[1m]",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+    }));
+    ScriptedDriver::wait_for(|| server.if_none_match().len() == 2).await;
+    stop.cancel();
+
+    assert_eq!(
+        server.if_none_match(),
+        [None, Some(r#"W/"opus""#.to_owned())]
+    );
+}
