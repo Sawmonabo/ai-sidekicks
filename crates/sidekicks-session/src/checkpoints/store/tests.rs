@@ -5,6 +5,7 @@
 //! outcome saved once under its key.
 
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::time::Duration;
 
 use rusqlite::ffi;
@@ -45,19 +46,25 @@ use crate::checkpoints::schema::{
 
 /// A database on the checkpoint schema, the writer every write of the test goes through, which
 /// holds the schema's references, and the session and run its checkpoints name.
-struct Fixture {
-    database: TestDatabase,
-    writer: DatabaseWriter,
-    session_id: SessionId,
+pub(crate) struct Fixture {
+    /// The database file.
+    pub(crate) database: TestDatabase,
+    /// The writer of every write.
+    pub(crate) writer: Arc<DatabaseWriter>,
+    /// The session the checkpoints name.
+    pub(crate) session_id: SessionId,
     run_id: RunId,
 }
 
 impl Fixture {
-    async fn new() -> Self {
+    /// A fresh database with its writer open, and a session and run of its own.
+    pub(crate) async fn new() -> Self {
         let database = TestDatabase::new(schema_parts());
-        let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
-            .await
-            .expect("the writer opens its database");
+        let writer = Arc::new(
+            DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
+                .await
+                .expect("the writer opens its database"),
+        );
         let session_id = test_session_id();
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
         Self {
@@ -84,7 +91,11 @@ impl Fixture {
 
     /// Writes a checkpoint before the prompt at `message_sequence` holding `versions`, in order,
     /// and returns its id.
-    async fn record(&self, message_sequence: u64, versions: &[CheckpointVersion]) -> SnapshotId {
+    pub(crate) async fn record(
+        &self,
+        message_sequence: u64,
+        versions: &[CheckpointVersion],
+    ) -> SnapshotId {
         self.record_after(Vec::new(), message_sequence, versions)
             .await
     }
