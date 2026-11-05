@@ -114,11 +114,11 @@ pub(crate) fn build_provider_port(
 
 // A session's opening as `port` composes it, each binding's function legs among it.
 fn compose_opening(port: Arc<SessionDirectoryProviderPort>) -> ProviderSessionOpeningComposer {
-    Arc::new(move |session_id, provider_account_id| {
+    Arc::new(move |session_id, provider_account_id, tool_servers| {
         let port = Arc::clone(&port);
         async move {
             let opening = port
-                .compose_opening(session_id, provider_account_id)
+                .compose_opening(session_id, provider_account_id, tool_servers)
                 .await?;
             Ok::<_, Box<dyn Error + Send + Sync>>(ProviderSessionOpening {
                 provider: opening.provider,

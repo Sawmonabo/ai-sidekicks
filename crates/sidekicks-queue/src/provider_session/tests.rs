@@ -486,11 +486,11 @@ fn recording_composer(
     let composer = test_opening_composer();
     let (handed_ids, git_folder) = (Arc::clone(handed_ids), Arc::clone(git_folder));
     let provider = Arc::clone(provider);
-    Arc::new(move |session_id, provider_account_id| {
+    Arc::new(move |session_id, provider_account_id, tool_servers| {
         let (composer, handed_ids) = (Arc::clone(&composer), Arc::clone(&handed_ids));
         let (git_folder, provider) = (lock(&git_folder).clone(), lock(&provider).clone());
         async move {
-            let mut opening = composer(session_id, provider_account_id).await?;
+            let mut opening = composer(session_id, provider_account_id, tool_servers).await?;
             if let Some(git_folder) = git_folder {
                 opening.git_folder = git_folder;
             }

@@ -74,7 +74,7 @@ use sidekicks_workspace::project::records::{
 use sidekicks_workspace::test_rows::project_and_mount_rows;
 
 use super::{
-    GitFolderUnavailable, SESSION_DIRECTORY_PROVIDER_PORT_STATEMENT_CAPACITY,
+    GitFolderUnavailable, OpeningToolServers, SESSION_DIRECTORY_PROVIDER_PORT_STATEMENT_CAPACITY,
     SessionDirectoryProviderPort, SessionDirectoryProviderPortDeps, SessionGitFolder,
 };
 use crate::agents::projection::test_fixture::{binding, write_log_row};
@@ -401,12 +401,14 @@ async fn a_relaunch_resolves_the_set_its_binding_stored() {
     drop(producer);
 }
 
-// An opening at `/repos/app` of a driver that takes a set waits on the attribution table's first
-// fill, then sends the person's `user` binding on, the project's own binding of that root off as
-// the daemon's switch keeps it, and leaves another project's binding out; a driver that takes no
-// set gets none, with no wait. Killed by an opening that sends no set, by one composed before the
+// A resume's opening sends the set its leg stored, with no wait. An opening at `/repos/app` of a
+// driver that takes a set waits on the attribution table's first fill, then sends the person's
+// `user` binding on, the project's own binding of that root off as the daemon's switch keeps it,
+// and leaves another project's binding out; a driver that takes no set gets none, with no wait.
+// Killed by an opening that sends no set, by one composed before the
 // fill, by a set that keeps every project's bindings, by a set that ignores the store's switch,
-// and by a set composed for a driver that takes none.
+// by a set composed for a driver that takes none, and by a resume's opening that composes a set
+// or waits on the fill in place of sending the set its leg stored.
 #[rstest]
 #[case::taking_a_set(true)]
 #[case::taking_none(false)]
@@ -488,7 +490,28 @@ async fn an_opening_sends_the_persons_servers_at_its_root(#[case] takes_tool_ser
             ],
         )
         .expect("the daemon's switch of the project's server is stored");
-    let mut opening = std::pin::pin!(port.compose_opening(session_id, test_provider_account_id()));
+    // A resume's opening, before any fill, sends the set its leg stored as stored, at once.
+    let stored = vec![SessionToolServer {
+        binding: project_binding("/repos/other", "mail"),
+        is_enabled: true,
+    }];
+    let resumed = tokio::time::timeout(
+        HELD_BOUND,
+        port.compose_opening(
+            session_id,
+            test_provider_account_id(),
+            OpeningToolServers::Stored(Some(stored.clone())),
+        ),
+    )
+    .await
+    .expect("a stored set waits on no fill")
+    .expect("the session resumes");
+    assert_eq!(resumed.create_params.tool_servers, Some(stored));
+    let mut opening = std::pin::pin!(port.compose_opening(
+        session_id,
+        test_provider_account_id(),
+        OpeningToolServers::Composed,
+    ));
 
     if takes_tool_servers {
         assert!(
@@ -799,7 +822,11 @@ async fn compose_opening_carries_the_leads_providers_helpers_at_once(
     );
 
     let opening = port
-        .compose_opening(session_id, test_provider_account_id())
+        .compose_opening(
+            session_id,
+            test_provider_account_id(),
+            OpeningToolServers::Composed,
+        )
         .await
         .expect("the opening composes");
 

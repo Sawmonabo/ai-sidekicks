@@ -35,7 +35,7 @@ use sidekicks_mcp::binding::session_tool_servers::{
 use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_provider::driver::ports::SessionRelaunchListener;
 use sidekicks_provider::driver::session_control::{
-    CreateSessionParams, DriverResumeResult, SessionAccountPin, SubagentPolicy,
+    CreateSessionParams, DriverResumeResult, SessionAccountPin, SessionToolServer, SubagentPolicy,
 };
 use sidekicks_provider::driver::{
     AccountFoldersError, ProviderAccountFolders, ProviderAccountReader, SessionSpawnContext,
@@ -196,6 +196,16 @@ pub enum SessionGitFolder {
     Unavailable(GitFolderUnavailable),
 }
 
+/// Where an opening's tool servers come from.
+#[derive(Clone, Debug, PartialEq)]
+pub enum OpeningToolServers {
+    /// The person's set at the session's project root, composed once the table's first fill of
+    /// the provider ended, where the provider's driver takes a set.
+    Composed,
+    /// The set a resumed leg stored, sent as stored, with no wait on the table's first fill.
+    Stored(Option<Vec<SessionToolServer>>),
+}
+
 /// What a session's provider session opens with, composed from its lead as the session's log and
 /// records stand now, and the function legs of each binding the caller mints for it.
 pub struct SessionProviderOpening {
@@ -261,14 +271,15 @@ impl SessionDirectoryProviderPort {
     /// lead's provider, the model it runs on now and the effort, output speed, options and larger
     /// window its binding names, at the posture of the level it stands at, in the mode it was last
     /// moved to, with the row values set in the app for that provider, the helper policy of the
-    /// person's `Helpers at once` for it, the person's tool servers at the session's project root
-    /// where its driver takes a set, and each binding's function legs. Fails for a session with no
+    /// person's `Helpers at once` for it, the tool servers `tool_servers` names, and each binding's
+    /// function legs over them. Fails for a session with no
     /// lead or no workspace, as the reads, git or the settings file fail, when its project root is
     /// no path, and as its set cannot be composed.
     pub async fn compose_opening(
         &self,
         session_id: SessionId,
         provider_account_id: ProviderAccountId,
+        tool_servers: OpeningToolServers,
     ) -> Result<SessionProviderOpening, SessionDirectoryProviderPortError> {
         let lead = self
             .read_lead(session_id)
@@ -289,16 +300,16 @@ impl SessionDirectoryProviderPort {
             .await?;
         let takes_tool_servers = descriptor_of(binding.provider_name.as_str())
             .is_some_and(|descriptor| descriptor.takes_session_tool_servers);
-        let tool_servers = if takes_tool_servers {
-            Some(
+        let tool_servers = match tool_servers {
+            OpeningToolServers::Stored(stored) => stored,
+            OpeningToolServers::Composed if takes_tool_servers => Some(
                 self.deps
                     .mcp_tool_servers
                     .compose(&binding.provider_name, root.as_ref())
                     .await
                     .map_err(SessionDirectoryProviderPortError::McpToolServers)?,
-            )
-        } else {
-            None
+            ),
+            OpeningToolServers::Composed => None,
         };
         let create_params = CreateSessionParams {
             session_id,
