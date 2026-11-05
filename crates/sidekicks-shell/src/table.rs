@@ -38,10 +38,11 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::list::UniqueList;
 use sidekicks_contracts::wire::text::BoundedText;
-use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::{HandlerError, TransportId};
 use sidekicks_ipc::stream::latest_value::LatestValueOutlet;
+use sidekicks_provider::port::command_capture::CommandCapture;
 use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_terminal::{CommandLine, TerminalHandle, Terminals};
 use sidekicks_workspace::working_folder::SessionWorkingFolder;
 use tokio::runtime::Handle;
@@ -61,6 +62,7 @@ use crate::record::{ShellRecord, ShellRecordDeps};
 use crate::refusals::terminal_not_found;
 use crate::resize::{ShellResizeError, ShellSize};
 use crate::start::SHELL_TERMINAL_PROGRAM;
+use crate::write::run_command::{CommandShell, ShellRunRequest, ShellRunStart, start_run_command};
 
 /// Reads a session's shape and working folder; refuses a session this daemon does not hold
 /// `session.notFound`.
@@ -107,6 +109,8 @@ pub struct ShellTableDeps {
     pub screen_reader_environment_names: Vec<&'static str>,
     /// The folders every shell's start writes its scripts and nonce file in.
     pub startup_folders: ShellStartupFolders,
+    /// The capture each agent's command in a shell opens its window on, once registered.
+    pub command_capture: Arc<PortRegistration<Arc<dyn CommandCapture>>>,
     /// The daemon's `shell` mode with its arguments.
     pub shell_mode: CommandLine,
     /// The registry of terminal children a crash could leave behind.
@@ -246,38 +250,32 @@ impl ShellTable {
         Ok(())
     }
 
-    /// Whether the shell reports its prompt and command marks: false until its first prompt mark
-    /// carrying its nonce arrives. Refuses a shell the session does not have `terminal.notFound`.
-    #[expect(
-        dead_code,
-        reason = "a run's take of a shell reads whether it reports its marks"
-    )]
-    pub(crate) fn is_reporting_marks(
+    /// Runs an agent's command in one of the session's shells: takes the shell for the run, opens
+    /// the command's capture window before writing the command, and at the command's end closes the
+    /// window and hands the shell back. Refuses a session this daemon does not hold
+    /// `session.notFound` and a shell the session does not have `terminal.notFound`; answers a
+    /// shell that marks no prompts or is not idle at its prompt as such, and fails with the take's
+    /// broadcast failure.
+    pub async fn run_command(
         &self,
-        session_id: &SessionId,
-        terminal_id: &TerminalId,
-    ) -> Result<bool, DomainError> {
-        Ok(self
+        request: ShellRunRequest,
+    ) -> Result<ShellRunStart, HandlerError> {
+        let shell = self
             .shared
-            .find_shell(session_id, terminal_id)?
-            .is_reporting_marks())
-    }
-
-    /// Whether a device typed into the shell since its last prompt mark, so a run takes only a
-    /// shell sitting idle at its prompt. Refuses as [`Self::is_reporting_marks`] does.
-    #[expect(
-        dead_code,
-        reason = "a run's take of a shell reads whether it sits idle"
-    )]
-    pub(crate) fn has_input_since_prompt(
-        &self,
-        session_id: &SessionId,
-        terminal_id: &TerminalId,
-    ) -> Result<bool, DomainError> {
-        Ok(self
-            .shared
-            .find_shell(session_id, terminal_id)?
-            .has_input_since_prompt())
+            .requested_shell(&request.session_id, &request.terminal_id)
+            .await?;
+        start_run_command(
+            CommandShell {
+                lease: Arc::clone(&shell.lease),
+                input: Arc::clone(&shell.input),
+                marks: Arc::clone(&shell.marks),
+                progress: shell.progress.subscribe(),
+            },
+            Arc::clone(&self.shared.deps.command_capture),
+            &self.shared.deps.runtime,
+            request,
+        )
+        .await
     }
 
     /// The lease of the shell the caller's output subscription streams, for a take through that
@@ -539,23 +537,6 @@ impl TableShared {
         }) {
             sessions.remove(session_id);
         }
-    }
-
-    // The held shell, refused `terminal.notFound` when the table does not hold it.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "a run's take of a shell reads whether it reports its marks and sits idle"
-        )
-    )]
-    fn find_shell(
-        &self,
-        session_id: &SessionId,
-        terminal_id: &TerminalId,
-    ) -> Result<Arc<ShellRecord>, DomainError> {
-        self.held_shell(session_id, terminal_id)
-            .ok_or_else(|| terminal_not_found(terminal_id))
     }
 
     fn held_shell(

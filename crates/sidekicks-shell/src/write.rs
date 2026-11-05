@@ -2,7 +2,9 @@
 //! lease in the order the calls came and handed to its terminal at once, the screen copy's answers
 //! held behind an open marked paste, and each connection's writes counted while they wait for the
 //! terminal's write queue, so a connection's write past [`TERMINAL_WRITES_WAITING_LIMIT`] of them
-//! is refused.
+//! is refused. An agent's run writes its command through the same line.
+
+pub mod run_command;
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -14,6 +16,7 @@ use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::jsonrpc::streaming::SubscriptionId;
 use sidekicks_contracts::method_descriptor::NullPayload;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::terminal::{TERMINAL_WRITES_WAITING_LIMIT, TerminalId};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::{HandlerError, TransportId};
@@ -102,7 +105,25 @@ impl ShellInput {
         Ok(AdmittedShellWrite {
             terminal_id: self.terminal_id.clone(),
             admission,
-            _waiting: waiting,
+            _waiting: Some(waiting),
+        })
+    }
+
+    /// Admits typed `text` from the run `run_id` without waiting, in line with every other write;
+    /// refuses a run not holding the shell `terminal.control.notHeld`, at once or once in line.
+    pub(crate) fn admit_run_write(
+        self: &Arc<Self>,
+        run_id: RunId,
+        text: String,
+    ) -> Result<AdmittedShellWrite, DomainError> {
+        let shell = Arc::clone(self);
+        let admission = self.lease.admit_write(&ShellWriter::Run(run_id), move || {
+            shell.hand_over(ShellWriteInput::Keys(text))
+        })?;
+        Ok(AdmittedShellWrite {
+            terminal_id: self.terminal_id.clone(),
+            admission,
+            _waiting: None,
         })
     }
 
@@ -243,11 +264,12 @@ impl Drop for WaitingWrite {
     }
 }
 
-/// A write past its admission step, counted as waiting until it is answered.
+/// A write past its admission step, a connection's counted as waiting until it is answered.
 pub struct AdmittedShellWrite {
     terminal_id: TerminalId,
     admission: WriteAdmission<BoxFuture<'static, Result<(), TerminalWriteError>>>,
-    _waiting: WaitingWrite,
+    /// The count of a connection's write; a run is no connection, so its write has none.
+    _waiting: Option<WaitingWrite>,
 }
 
 impl AdmittedShellWrite {
