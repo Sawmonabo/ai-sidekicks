@@ -614,6 +614,10 @@ refusal_codes! {
     /// An `EventCursor` a session event or transcript read names cannot be decoded to a log
     /// position.
     SessionEventCursorUnresolvable = "session.event.cursorUnresolvable" (InvalidArgument, 400);
+    /// The session's provider did not take a `session.goal.update` or `session.goal.clear`, so the
+    /// goal stands as it was (`data.fields`: `fallbackAction`, the provider's words where it gave
+    /// any).
+    SessionGoalNotApplied = "session.goal.notApplied" (FailedPrecondition, 409);
     /// `session.group.create` or `session.group.rename` named a group another group of the
     /// session's project already holds, ignoring case.
     SessionGroupNameTaken = "session.group.nameTaken" (AlreadyExists, 409);

@@ -1,7 +1,8 @@
 //! The helpers stopped at their token limit, refused by the daemon after they started, or stopped
 //! from the console with every other agent: each one's next tool use is denied with the sentence
 //! its reason carries, so it reports what it did and finishes. A stop that is not final clears as
-//! the helper's new own run starts.
+//! the helper's new own run starts; a message aimed at a helper whose stop is final is denied with
+//! the same sentence, so it is never woken again.
 
 use std::collections::HashMap;
 

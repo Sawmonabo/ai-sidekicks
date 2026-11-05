@@ -17,6 +17,8 @@ use sidekicks_recovery::projection_rebuild::PROJECTION_REBUILD_STATEMENT_CAPACIT
 use sidekicks_recovery::restart_settle::RESTART_SETTLE_STATEMENT_CAPACITY;
 use sidekicks_recovery::startup::STARTUP_RECOVERY_STATEMENT_CAPACITY;
 use sidekicks_recovery::status::RECOVERY_STATUS_STATEMENT_CAPACITY;
+use sidekicks_session::agent_tree::lookup::AGENT_TREE_LOOKUP_STATEMENT_CAPACITY;
+use sidekicks_session::agent_tree::read::AGENT_TREE_READ_STATEMENT_CAPACITY;
 use sidekicks_session::attention::{
     delivery::web_address::sender::WEB_ADDRESS_SENDER_STATEMENT_CAPACITY,
     service::ATTENTION_SERVICE_STATEMENT_CAPACITY,
@@ -41,6 +43,7 @@ use sidekicks_session::run::agent::RUN_AGENT_STATEMENT_CAPACITY;
 use sidekicks_session::run::binding_cursors::RUN_BINDING_CURSORS_STATEMENT_CAPACITY;
 use sidekicks_session::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
 use sidekicks_session::run::folders::SESSION_LIVE_RUN_FOLDERS_STATEMENT_CAPACITY;
+use sidekicks_session::run::held_tool_calls::HELD_TOOL_CALLS_STATEMENT_CAPACITY;
 use sidekicks_session::run::live_bindings::LIVE_RUN_BINDINGS_STATEMENT_CAPACITY;
 use sidekicks_session::run::pause::RUN_PAUSE_STATEMENT_CAPACITY;
 use sidekicks_session::run::provider_choice::PROVIDER_CHOICE_STATEMENT_CAPACITY;
@@ -93,7 +96,10 @@ use crate::ipc::handlers::session::snapshots::SESSION_SNAPSHOTS_STATEMENT_CAPACI
 /// The statements each read connection keeps prepared: every reading service's set, summed, so a
 /// statement stays prepared on whichever connection a read borrows. A statement another set in the
 /// sum already counts is not counted twice: each set counts only the statements no other one holds.
-pub(super) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMENT_CAPACITY
+pub(super) const READ_POOL_STATEMENT_CAPACITY: usize = AGENT_TREE_LOOKUP_STATEMENT_CAPACITY
+    // The agent tree read's set holds the sweep's, which reads through the same statements.
+    + AGENT_TREE_READ_STATEMENT_CAPACITY
+    + APPROVAL_METHODS_STATEMENT_CAPACITY
     + APPROVAL_REQUEST_READER_STATEMENT_CAPACITY
     + APPROVAL_RULES_STATEMENT_CAPACITY
     + ARTIFACT_STATEMENT_CAPACITY
@@ -111,6 +117,7 @@ pub(super) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + EXECUTION_ROOT_SERVICE_STATEMENT_CAPACITY
     + EXECUTION_ROOT_SETUP_GATE_STATEMENT_CAPACITY
     + FILE_SEARCH_STATEMENT_CAPACITY
+    + HELD_TOOL_CALLS_STATEMENT_CAPACITY
     + IDLE_SLEEP_STATEMENT_CAPACITY
     + INTERVENTION_SERVICE_STATEMENT_CAPACITY
     + LIVE_RUN_BINDINGS_STATEMENT_CAPACITY
@@ -176,9 +183,9 @@ pub(super) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + WORKTREE_CREATOR_STATEMENT_CAPACITY
     + WORKTREE_SERVICE_STATEMENT_CAPACITY
     + WORKTREE_STATUS_READER_STATEMENT_CAPACITY
-    // The reviewer denials', the run engine's and the live run folders' sets each hold the run
-    // agent reader's, which is counted once.
-    - 2 * RUN_AGENT_STATEMENT_CAPACITY
+    // The reviewer denials', the run engine's, the live run folders' and the agent tree read's
+    // sets each hold the run agent reader's, which is counted once.
+    - 3 * RUN_AGENT_STATEMENT_CAPACITY
     // The session service's, the run engine's, the binding cursors', the turn capture's, the event
     // log's and the usage record's sets each hold the read of where a run stands, which is counted
     // once.

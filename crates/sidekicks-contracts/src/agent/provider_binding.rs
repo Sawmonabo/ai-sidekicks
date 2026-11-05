@@ -311,10 +311,11 @@ macro_rules! switch_disposition {
         }
 
         /// What `agent.config.update` answers with, told apart by `status`. `pending` is the
-        /// ordinary answer; the other three come only when the caller asked to interrupt and
-        /// switch, settled on the held-open request as a result, not an error. `applied` is
-        /// exactly a conversation that arrived whole and `degraded` exactly one that did not, so no
-        /// client re-derives that rule.
+        /// ordinary answer, and `unchanged` the answer to a pick back to the binding the agent is
+        /// on; the other three come only when the caller asked to interrupt and switch, settled
+        /// on the held-open request as a result, not an error. `applied` is exactly a conversation
+        /// that arrived whole and `degraded` exactly one that did not, so no client re-derives
+        /// that rule.
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
         #[serde(
             tag = "status",
@@ -355,6 +356,18 @@ switch_disposition! {
         #[schemars(with = "SwitchId")]
         replaced_switch_id: Option<SwitchId>,
     }
+    /// A pick back to the binding the agent is on: nothing moves, and the switch it had pending,
+    /// if any, is canceled with no settlement.
+    Unchanged {
+        /// The pending switch the pick back canceled.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "SwitchId")]
+        replaced_switch_id: Option<SwitchId>,
+    },
     /// Applied with its conversation whole: it declares no loss.
     Applied {
         /// The switch.
@@ -412,6 +425,7 @@ fn settled_switch_states_its_rules(
             ..
         } => account_state_matches_reason(*reason, *account_state),
         AgentBindingSwitchDisposition::Pending { .. }
+        | AgentBindingSwitchDisposition::Unchanged { .. }
         | AgentBindingSwitchDisposition::Applied { .. } => Ok(()),
     }
 }

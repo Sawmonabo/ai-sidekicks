@@ -145,7 +145,9 @@ impl Opening {
         on_closed_append: ClosedAppendHook,
         expect: impl FnOnce(&mut MockProviderDriver, &OpeningWatch),
     ) -> Self {
-        let database = TestDatabase::new(schema_parts());
+        let database = TestDatabase::new(
+            schema_parts().with_parts(sidekicks_session::agent_tree::schema::schema_parts()),
+        );
         let writer = Arc::new(
             DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
                 .await

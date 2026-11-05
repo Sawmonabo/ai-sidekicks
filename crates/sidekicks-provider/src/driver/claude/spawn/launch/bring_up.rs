@@ -147,7 +147,7 @@ pub(crate) async fn bring_up_claude_process(
         ),
         settings: &settings,
         output_schema: legs.output_schema.as_ref(),
-        is_helper_tool_withheld: matches!(legs.subagent_policy, Some(SubagentPolicy::Disabled {})),
+        subagent_policy: legs.subagent_policy.as_ref(),
         step_bound: spawn.step_bound,
         has_managed_mcp_file,
         conversation: request.conversation,

@@ -32,7 +32,9 @@ use crate::driver::codex::session::inbound::CodexSessionCall;
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{RunOpening, RunOpeningItem, StartRunParams};
-use crate::driver::run_control::{DaemonTurnBindingResolver, SteerTurnEndedError};
+use crate::driver::run_control::{
+    DaemonTurnBindingResolver, DaemonTurnProcess, SteerTurnEndedError,
+};
 use crate::port::run_host::RunHost;
 use crate::run::start_request::DaemonTurnStartRequest;
 
@@ -100,8 +102,9 @@ impl CodexPeerDelivery {
     /// Opens a new turn of the session's own with `message`, as a run the engine starts at the
     /// session's posture on the account its process was admitted against, and answers the run's
     /// id. Fails with `CodexError::SessionTurnInFlight`, before any run exists, while a turn of
-    /// the session runs, starts or still ends; as the session's slot and reading fail; and as the
-    /// engine's start fails, the run then ended `failed` by the engine.
+    /// the session runs, starts or still ends, or the engine holds the session's turn for another
+    /// run; as the session's slot and reading fail; and as the engine's start fails, the run then
+    /// ended `failed` by the engine.
     pub(crate) async fn deliver_to_idle(
         &self,
         session_id: SessionId,
@@ -140,7 +143,11 @@ impl CodexPeerDelivery {
                         return Ok(());
                     };
                     let binding = bindings
-                        .open_daemon_turn_binding(run_id, session_id)
+                        .open_daemon_turn_binding(
+                            run_id,
+                            session_id,
+                            DaemonTurnProcess::OpenWhenAbsent,
+                        )
                         .await?;
                     let kept =
                         keep_reply_chain(&reply_chains, session_id, run_id, message.reply_chain);
@@ -186,7 +193,7 @@ impl CodexPeerDelivery {
             .engine
             .start_daemon_turn(request)
             .await
-            .map_err(DriverError::Internal)
+            .map_err(|error| CodexError::from_daemon_turn_start(session_id, error).into())
     }
 
     /// Steers `message` into `run_id`'s running turn as soon as the steer before it was answered,

@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::{BoxFuture, ready};
+use sidekicks_contracts::agent::provider_binding::AgentBindingSwitchBoundary;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::mcp::server::config::McpTransport;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -14,6 +15,7 @@ use sidekicks_contracts::provider::driver::capabilities::{ProviderMode, Provider
 use sidekicks_contracts::provider::driver::commands::ProviderCommandBindingGroup;
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
+use sidekicks_contracts::run::children::ChildStoppedState;
 use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::voice::VoiceKind;
@@ -58,8 +60,8 @@ use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
     FindTakenMessagesParams, HelperStopOutcome, HelperStopParams, InterruptRunRequest,
-    OverrideDenialParams, PauseRunParams, PickedSkill, ResumeRunParams, TakenMessages,
-    WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
+    OverrideDenialParams, PauseRunParams, PickedSkill, ResumeRunOutcome, ResumeRunParams,
+    TakenMessages, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
@@ -75,7 +77,7 @@ use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::driver::{
     BackgroundWork, CommandSandboxNeeds, DriverServices, HelperModeServices, InstallFolder,
     InstallFolderBase, ProviderCommand, ProviderCommandLookup, ProviderDescriptor,
-    ProviderMemoryEstimates,
+    ProviderMemoryEstimates, ProviderSwitchBoundaries,
 };
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 use crate::port::session_inbox_address::SessionInboxAddresser;
@@ -182,9 +184,19 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         conversation_bytes: None,
     },
     standard_output_speed: "off",
+    // Its `stop_task` ends a child for good; it refuses every later message to that child.
+    stop_all_row_word: ChildStoppedState::Stopped,
     // Its declared state has a third value, which the provider enters after a rate limit and no
     // request asks for.
     output_speed_levels: Some(&["off", "on"]),
+    // Claude Code takes each in its running process between turns.
+    switch_boundaries: ProviderSwitchBoundaries {
+        model_id: AgentBindingSwitchBoundary::TurnBoundary,
+        effort: AgentBindingSwitchBoundary::TurnBoundary,
+        output_speed: AgentBindingSwitchBoundary::TurnBoundary,
+        options: AgentBindingSwitchBoundary::TurnBoundary,
+        larger_window: AgentBindingSwitchBoundary::TurnBoundary,
+    },
     process_environment: &[
         // Its two update switches, so the build recorded at start is the one that runs.
         ("DISABLE_AUTOUPDATER", "1"),
@@ -199,6 +211,16 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         // asks text and number questions under a title; unset, a process asks neither.
         ("CLAUDE_CODE_QUESTION_PREVIEW_FORMAT", "markdown"),
         ("CLAUDE_CODE_QUESTION_EXTENDED", "1"),
+        // Claude Code's own helper caps are lifted: the daemon applies the person's limit itself,
+        // and nothing bounds how deep helpers nest.
+        (
+            "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
+            "9223372036854775807",
+        ),
+        (
+            "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
+            "9223372036854775807",
+        ),
     ],
     launch_environment_names: &[],
     // The account's configuration home, its credential store, and the scratch folder the daemon
@@ -408,7 +430,10 @@ impl ProviderDriver for ClaudeDriver {
         ready(self.pause_run(&params)).boxed()
     }
 
-    fn resume_run(&self, params: ResumeRunParams) -> BoxFuture<'_, Result<(), DriverError>> {
+    fn resume_run(
+        &self,
+        params: ResumeRunParams,
+    ) -> BoxFuture<'_, Result<ResumeRunOutcome, DriverError>> {
         self.resume_run(params).boxed()
     }
 

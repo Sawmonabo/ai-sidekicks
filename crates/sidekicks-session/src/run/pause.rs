@@ -198,6 +198,16 @@ impl From<RunPauseError> for HandlerError {
 /// it runs on and the run's newest turn end.
 pub const RUN_PAUSE_STATEMENT_CAPACITY: usize = 3;
 
+/// A resume the driver took: the run's answer, and whether the driver reported the pause's hold
+/// lost, a call it held withdrawn while it held, rather than released by this resume.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RunResumed {
+    /// The run as it now stands.
+    pub response: AgentRunControlResponse,
+    /// Whether the pause's hold was lost.
+    pub is_hold_lost: bool,
+}
+
 /// Pauses and resumes runs. Calls on one run take turns, so a resume never reaches the driver
 /// before the pause it follows.
 pub struct RunPauseControl {
@@ -281,17 +291,20 @@ impl RunPauseControl {
     /// messages back and fails with [`RunPauseError::Driver`], as does one whose answer never
     /// came, which keeps the messages for the provider's own word to settle. A move refused once
     /// the driver took the resume (a process exit ended or interrupted the run meanwhile) refuses
-    /// from where the run went and never gives the messages back, the provider holding them.
+    /// from where the run went and never gives the messages back, the provider holding them. The
+    /// answer carries whether the driver reported the pause's hold lost.
     pub async fn resume(
         &self,
         request: &AgentRunResumeRequest,
         continued: &dyn ContinuedMessages,
-    ) -> Result<AgentRunControlResponse, RunPauseError> {
+    ) -> Result<RunResumed, RunPauseError> {
         let run_id = request.target_run_id;
         let expected_run_version = request.expected_run_version;
         let _run_hold = self.run_lock.acquire(run_id).await;
         let session = OnceLock::new();
         let session = &session;
+        let is_hold_lost = OnceLock::new();
+        let is_hold_lost = &is_hold_lost;
         let resumed = self
             .engine
             .resume_run(
@@ -326,7 +339,10 @@ impl RunPauseControl {
                     let resumed = driver.resume_run(params).await;
                     let hold = continued.hold_session(session_id).await;
                     match resumed {
-                        Ok(()) => Ok(()),
+                        Ok(outcome) => {
+                            is_hold_lost.get_or_init(|| outcome.is_hold_lost);
+                            Ok(())
+                        }
                         Err(unanswered @ DriverError::Unanswered(_)) => {
                             // The provider may have taken the messages; its own word settles
                             // them.
@@ -369,7 +385,12 @@ impl RunPauseControl {
         };
         self.engine.hand_owed_limit_interrupts(run_id);
         admitted.map_err(RunPauseError::MessagesNotAdmitted)?;
-        Ok(run_control_response(run_id, &running))
+        Ok(RunResumed {
+            response: run_control_response(run_id, &running),
+            is_hold_lost: *is_hold_lost
+                .get()
+                .expect("the driver took the resume the run moved on"),
+        })
     }
 
     // Settles the messages a resume the driver took read, its move refused or failed, answering
