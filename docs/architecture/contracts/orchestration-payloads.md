@@ -604,7 +604,7 @@ type AgentRunQueuedPayload = {
 );
 
 // A provider's own helper as the run it starts names it: the handle the daemon minted for it at its
-// first start and the ids its provider gave it and its parent.
+// first start, the ids its provider gave it and its parent, and the model and effort the start names.
 interface ProviderChildStart {
   childHandle: string; // UUID
   provider: ProviderId;
@@ -614,6 +614,8 @@ interface ProviderChildStart {
   name?: string;
   role?: string;
   providerPath?: string;
+  modelId?: string; // the model its provider started it on, where the start names one
+  effort?: string; // the effort it was started at, in the provider's word
   startCallId?: ToolCallId; // the provider's call that started this run of the helper
 }
 

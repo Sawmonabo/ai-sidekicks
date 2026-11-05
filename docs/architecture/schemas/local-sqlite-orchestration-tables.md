@@ -121,6 +121,9 @@ CREATE TABLE agent_tree_nodes (
   name                 TEXT,                            -- Codex's nickname; NULL on Claude Code
   role                 TEXT,                            -- Claude Code's subagent type or Codex's agent role
   provider_path        TEXT,                            -- the helper's path in Codex's tree; NULL on Claude Code
+  model_id             TEXT,                            -- the model its first start named, which the tree's head shows before
+                                                        -- the parent's binding
+  effort               TEXT,                            -- the effort its first start named, likewise
   start_call_id        TEXT,                            -- the Claude Code call that started the newest own run, which an
                                                         -- automatic resume names again; NULL on Codex
   own_run_id           TEXT NOT NULL,                   -- the newest own run, whose state is the helper's
