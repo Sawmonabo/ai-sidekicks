@@ -393,6 +393,7 @@ async fn one_sign_in_attempt_settles_as_its_end_says(
             provider("claude"),
             Arc::clone(&legs) as Arc<dyn ProviderSignInLegs>,
         )]),
+        HashMap::new(),
         Arc::new(RecordingPublisher(published_sender)),
         Arc::clone(&watcher) as Arc<dyn SignedInAccountWatcher>,
         Arc::clone(&home_lock),
@@ -642,6 +643,7 @@ async fn a_sign_in_whose_home_changed_under_it_writes_nothing() {
     let broker = ProviderSignInBroker::new(
         Arc::clone(&registry),
         HashMap::from([(provider("claude"), legs as Arc<dyn ProviderSignInLegs>)]),
+        HashMap::new(),
         Arc::new(RecordingPublisher(published_sender)),
         Arc::clone(&watcher) as Arc<dyn SignedInAccountWatcher>,
         Arc::clone(&home_lock),
@@ -736,6 +738,7 @@ async fn a_cancel_while_the_flow_starts_cancels_it_once_started() {
     let broker = ProviderSignInBroker::new(
         registry,
         HashMap::from([(provider("claude"), legs as Arc<dyn ProviderSignInLegs>)]),
+        HashMap::new(),
         Arc::new(RecordingPublisher(published_sender)),
         Arc::new(RecordingWatcher::default()),
         Arc::clone(&home_lock),
@@ -803,6 +806,7 @@ async fn a_sign_in_waits_out_a_renewal_and_marks_its_home_while_the_flow_runs() 
     let broker = ProviderSignInBroker::new(
         registry,
         HashMap::from([(provider("claude"), legs as Arc<dyn ProviderSignInLegs>)]),
+        HashMap::new(),
         Arc::new(RecordingPublisher(published_sender)),
         Arc::new(RecordingWatcher::default()),
         Arc::clone(&home_lock),

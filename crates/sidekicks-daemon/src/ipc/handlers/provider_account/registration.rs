@@ -2,7 +2,7 @@
 //! account added, its token re-supplied, its settings changed, and its removal.
 //!
 //! - A new account's id and home are minted here; a registration that does not end in a row
-//!   removes the home it minted.
+//!   has the home it minted signed out, where its provider ran there, and removed.
 //! - A re-supply replaces the account's token before its name and billing, so a token its
 //!   provider or the keychain refuses leaves the account as it was.
 //! - An account made current here goes through the same switch as the switch method, which moves
@@ -11,6 +11,7 @@
 //!   not install leaving the switch off and its reason in the reply, and the last one turned off
 //!   removes it.
 
+use std::collections::HashMap;
 use std::error::Error;
 use std::sync::Arc;
 
@@ -39,8 +40,9 @@ use sidekicks_provider::account::registry::{
     AccountAdmission, AccountSettingsChange, MintedAccount, RegisteredAccount,
 };
 use sidekicks_provider::account::resolver::credential_home_folders;
-use sidekicks_provider::account::token_custody::TokenAccountRegistration;
+use sidekicks_provider::account::token_custody::{TokenAccountRegistration, TokenCustodyError};
 use sidekicks_provider::account::wake_helper::{MachineWakeHelper, wake_helper_not_installed};
+use sidekicks_provider::driver::contract::account::ProviderAccountLegs;
 use sidekicks_provider::driver::contract::error::DriverError;
 
 use super::ProviderAccountMethodSources;
@@ -144,7 +146,7 @@ async fn register_account(
                 observed_auth_mode: None,
             };
             let admitted = sources.accounts.admit(&minted, &admission).await;
-            let account = keep_or_abandon(sources, minted, admitted)?;
+            let account = keep_or_abandon(sources, minted, admitted, None).await?;
             (account, registration.make_default, true)
         }
         ProviderAccountRegisterRequest::Token(registration) => {
@@ -163,7 +165,12 @@ async fn register_account(
                     &token,
                 )
                 .await;
-            let account = keep_or_abandon(sources, minted, admitted)?;
+            // A refusal before the status read ran no provider in the home.
+            let legs = match &admitted {
+                Err(TokenCustodyError::NoStatusRead | TokenCustodyError::Sealing(_)) => None,
+                Ok(_) | Err(_) => Some(&sources.account_legs),
+            };
+            let account = keep_or_abandon(sources, minted, admitted, legs).await?;
             (account, registration.make_default, true)
         }
         ProviderAccountRegisterRequest::Resupply(resupply) => {
@@ -205,24 +212,29 @@ fn mint(
     Ok(sources.accounts.mint(provider.clone())?)
 }
 
-// The admitted account, or the admission's refusal with the minted home removed; a home that
-// cannot be removed is logged, since the refusal is what the caller must know.
-fn keep_or_abandon<Failure: Into<HandlerError>>(
+// The admitted account, or the admission's refusal with the minted home signed out through its
+// provider's entry in `legs`, where its provider ran there, and removed; a home or mark that
+// stays is logged, since the refusal is what the caller must know.
+async fn keep_or_abandon<Failure: Into<HandlerError>>(
     sources: &ProviderAccountMethodSources,
     minted: MintedAccount,
     admitted: Result<RegisteredAccount, Failure>,
+    legs: Option<&HashMap<ProviderId, Arc<dyn ProviderAccountLegs>>>,
 ) -> Result<RegisteredAccount, HandlerError> {
-    admitted.map_err(|failure| {
-        let account_id = minted.account_id().clone();
-        if let Err(error) = sources.accounts.abandon(minted) {
-            tracing::warn!(
-                account_id = account_id.as_str(),
-                error = &error as &(dyn Error + 'static),
-                "the home of a provider account that was not registered could not be removed"
-            );
-        }
-        failure.into()
-    })
+    let failure = match admitted {
+        Ok(account) => return Ok(account),
+        Err(failure) => failure,
+    };
+    let account_id = minted.account_id().clone();
+    if let Err(error) = sources.accounts.abandon(minted, legs).await {
+        tracing::warn!(
+            account_id = account_id.as_str(),
+            error = &error as &(dyn Error + 'static),
+            "the home of a provider account that was not registered kept its mark; the next start \
+             clears it"
+        );
+    }
+    Err(failure.into())
 }
 
 // Replaces the sealed token of the account `resupply` names, then writes any new name and billing;

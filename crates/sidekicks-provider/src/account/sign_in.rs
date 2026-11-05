@@ -10,7 +10,7 @@
 //!   stored, never across the person's round trip. A new account's id and home are minted at the
 //!   start and held in memory; its row is written only once the status read after the flow names
 //!   who signed in, with billing `unknown` and the kind of sign-in the read reports. Any other end
-//!   removes the minted home and writes no row. A sign-in on a registered account keeps its row
+//!   has the minted home signed out, where its provider ran there, and removed, and writes no row. A sign-in on a registered account keeps its row
 //!   whatever the end, storing the status read it took and its kind of sign-in, unless the home's
 //!   sign-in changed since the flow started (a reset or another credential), which fails the
 //!   attempt with nothing written. A row written goes out as `accountChanged` before the attempt's
@@ -52,7 +52,9 @@ use crate::account::credential_home::CredentialHome;
 use crate::account::errors::ProviderAccountRegistryError;
 use crate::account::home_lock::AccountHomeLock;
 use crate::account::registry::{MintedAccount, ProviderAccountRegistry, RegisteredAccount};
-use crate::driver::contract::account::{ProviderSignInInput, ProviderSignInLegs};
+use crate::driver::contract::account::{
+    ProviderAccountLegs, ProviderSignInInput, ProviderSignInLegs,
+};
 use crate::driver::contract::error::DriverError;
 
 /// One sign-in attempt's daemon-minted id.
@@ -225,12 +227,15 @@ pub struct ProviderSignInBroker {
 
 impl ProviderSignInBroker {
     /// A broker writing through `registry`, starting each provider's flow through its entry in
-    /// `legs` and storing its end under the account's hold on `home_lock`, holding each account in
-    /// `accounts_in_flight` while its attempt runs, sending its notifications to `publisher` and
-    /// each account it signs in to `watcher`.
+    /// `legs` and storing its end under the account's hold on `home_lock`, a new account's home
+    /// that no row took signed out through its provider's entry in `account_legs`, where its
+    /// provider ran there, and removed, holding each account in `accounts_in_flight` while its
+    /// attempt runs, sending its notifications to `publisher` and each account it signs in to
+    /// `watcher`.
     pub fn new(
         registry: Arc<ProviderAccountRegistry>,
         legs: HashMap<ProviderId, Arc<dyn ProviderSignInLegs>>,
+        account_legs: HashMap<ProviderId, Arc<dyn ProviderAccountLegs>>,
         publisher: Arc<dyn ProviderAccountNotificationPublisher>,
         watcher: Arc<dyn SignedInAccountWatcher>,
         home_lock: Arc<AccountHomeLock>,
@@ -239,6 +244,7 @@ impl ProviderSignInBroker {
         Self {
             attempt: AttemptServices {
                 registry,
+                account_legs: Arc::new(account_legs),
                 publisher,
                 watcher,
                 home_lock,
@@ -394,7 +400,8 @@ impl ProviderSignInBroker {
 
     /// Ends every attempt, as the daemon's stop does: one still waiting for its account's home
     /// starts nothing, and an open flow is canceled through its provider's own cancel and settles
-    /// as canceled, a new account's minted home removed; then waits up to `bound` for every
+    /// as canceled, a new account's minted home signed out, where its provider ran there, and
+    /// removed; then waits up to `bound` for every
     /// attempt to settle, answering whether all did.
     pub async fn stop(&self, bound: Duration) -> bool {
         self.attempt.stopping.cancel();
@@ -415,12 +422,14 @@ impl ProviderSignInBroker {
     }
 }
 
-/// What an attempt reaches beyond its own flow: the registry, the notification publisher, the
-/// watcher of a signed-in account, the lock on account homes, the accounts in flight, the
-/// broker's live attempts, the tasks they run on and the broker's stop.
+/// What an attempt reaches beyond its own flow: the registry, each provider's account legs that
+/// sign a new account's home out, the notification publisher, the watcher of a signed-in account,
+/// the lock on account homes, the accounts in flight, the broker's live attempts, the tasks they
+/// run on and the broker's stop.
 #[derive(Clone)]
 struct AttemptServices {
     registry: Arc<ProviderAccountRegistry>,
+    account_legs: Arc<HashMap<ProviderId, Arc<dyn ProviderAccountLegs>>>,
     publisher: Arc<dyn ProviderAccountNotificationPublisher>,
     watcher: Arc<dyn SignedInAccountWatcher>,
     home_lock: Arc<AccountHomeLock>,
@@ -472,7 +481,7 @@ impl AttemptServices {
             Ok(in_flight_guard) => in_flight_guard,
             Err(refusal) => {
                 if let Some(minted) = minted {
-                    abandon(Arc::clone(&self.registry), minted).await;
+                    abandon(&self.registry, minted, None).await;
                 }
                 return Err(refusal);
             }

@@ -51,6 +51,7 @@ async fn a_stop_cancels_a_new_accounts_open_flow_and_removes_its_home() {
     let broker = ProviderSignInBroker::new(
         Arc::clone(&registry),
         HashMap::from([(provider("claude"), legs as Arc<dyn ProviderSignInLegs>)]),
+        HashMap::new(),
         Arc::new(RecordingPublisher(published_sender)),
         Arc::new(RecordingWatcher::default()),
         Arc::new(AccountHomeLock::default()),

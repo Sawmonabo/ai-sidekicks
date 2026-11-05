@@ -221,6 +221,7 @@ pub(crate) async fn build_provider_account_plane(
     let sign_in = Arc::new(ProviderSignInBroker::new(
         Arc::clone(&registry),
         sign_in_legs,
+        account_legs.clone(),
         Arc::clone(&publisher) as _,
         Arc::clone(&observer) as Arc<dyn SignedInAccountWatcher>,
         Arc::clone(&home_lock),
@@ -422,7 +423,8 @@ impl ProviderAccountObservation {
     }
 
     /// Cancels every sign-in under way and waits up to `bound` for each to settle, a new
-    /// account's minted home removed, answering whether all did.
+    /// account's minted home signed out, where its provider ran there, and removed, answering
+    /// whether all did.
     pub(crate) async fn end_sign_ins(&self, bound: Duration) -> bool {
         self.sign_in.stop(bound).await
     }

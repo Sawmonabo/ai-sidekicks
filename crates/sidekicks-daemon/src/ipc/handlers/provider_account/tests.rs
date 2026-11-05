@@ -486,6 +486,7 @@ impl MethodInputs {
                         first_provider(),
                         Arc::new(EndlessSignIn) as Arc<dyn ProviderSignInLegs>,
                     )]),
+                    HashMap::new(),
                     Arc::clone(&publisher) as _,
                     Arc::clone(&observer) as Arc<dyn SignedInAccountWatcher>,
                     Arc::clone(&home_lock),

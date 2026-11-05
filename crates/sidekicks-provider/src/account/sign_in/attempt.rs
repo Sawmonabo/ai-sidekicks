@@ -1,6 +1,7 @@
 //! One sign-in attempt from its reservation to its end: the account's slot and home held while
 //! its flow starts, the flow run to its one end, and the end settled into the registry.
 
+use std::collections::HashMap;
 use std::error::Error;
 use std::sync::Arc;
 
@@ -14,6 +15,7 @@ use sidekicks_contracts::provider::account::record::{
 use sidekicks_contracts::provider::account::sign_in::{
     ProviderAccountSignInResponse, ProviderSignInArm,
 };
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_ipc::redaction::sanitize_sign_in_failure_reason;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::oneshot;
@@ -26,14 +28,15 @@ use crate::account::credential_home::CredentialHome;
 use crate::account::home_lock::SigningInMark;
 use crate::account::registry::{AccountAdmission, MintedAccount, ProviderAccountRegistry};
 use crate::driver::contract::account::{
-    ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInLegs,
+    ProviderAccountLegs, ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput,
+    ProviderSignInLegs,
 };
 use crate::driver::contract::error::bound_provider_words;
 
 /// An account's sign-in slot and its listed attempt, held from the start until the attempt
-/// settles. Every path that ends it before a row took its minted home removes that home first,
-/// and dropped, it unlists the attempt and frees the slot, so a failed or abandoned start leaves
-/// none of them.
+/// settles. Every path that ends it before a row took its minted home has that home signed out,
+/// where its provider ran there, and removed first, and dropped, it unlists the attempt and frees
+/// the slot, so a failed or abandoned start leaves none of them.
 pub(super) struct Reservation {
     /// The account held in flight until the attempt settles.
     pub(super) _in_flight_guard: InFlightGuard,
@@ -71,11 +74,11 @@ impl Reservation {
         let hold = tokio::select! {
             hold = home_lock.hold(self.account_id.clone()) => hold,
             () = answer.closed() => {
-                self.release().await;
+                self.release(false).await;
                 return;
             }
             () = stopping.cancelled() => {
-                self.release().await;
+                self.release(false).await;
                 return;
             }
         };
@@ -85,7 +88,7 @@ impl Reservation {
             match read {
                 Ok(account) => self.started_generation = Some(account.credential_generation),
                 Err(error) => {
-                    self.release().await;
+                    self.release(false).await;
                     drop(hold);
                     let _unheard = answer.send(Err(error.into()));
                     return;
@@ -108,7 +111,7 @@ impl Reservation {
             Ok(handle) => handle,
             Err(error) => {
                 // Freed first, so the caller finds no slot and no minted home left.
-                self.release().await;
+                self.release(true).await;
                 let _unheard = answer.send(Err(error.into()));
                 return;
             }
@@ -133,10 +136,12 @@ impl Reservation {
         publisher.publish(ended);
     }
 
-    // Removes the minted home no row took, then unlists the attempt and frees the slot.
-    pub(super) async fn release(mut self) {
+    // Has the minted home no row took signed out, where `is_flow_begun` and so its provider ran
+    // there, and removed, then unlists the attempt and frees the slot.
+    pub(super) async fn release(mut self, is_flow_begun: bool) {
         if let Some(minted) = self.minted.take() {
-            abandon(Arc::clone(&self.services.registry), minted).await;
+            let legs = is_flow_begun.then_some(&*self.services.account_legs);
+            abandon(&self.services.registry, minted, legs).await;
         }
     }
 
@@ -260,7 +265,8 @@ impl Attempt {
     }
 
     // Takes the status read after a finished flow and writes what it found; a new account that
-    // ends any other way loses its minted home. A failed flow's reason is the provider's own words
+    // ends any other way has its minted home signed out, where its provider ran there, and
+    // removed. A failed flow's reason is the provider's own words
     // where it gave any, every address, code and credential in them replaced first.
     async fn settle(
         &mut self,
@@ -289,7 +295,8 @@ impl Attempt {
             ProviderSignInEnd::Canceled => (ProviderSignInOutcome::Canceled, None),
         };
         if let Some(minted) = self.reservation.minted.take() {
-            abandon(Arc::clone(&self.reservation.services.registry), minted).await;
+            let services = &self.reservation.services;
+            abandon(&services.registry, minted, Some(&*services.account_legs)).await;
         }
         settled
     }
@@ -424,17 +431,17 @@ impl Attempt {
     }
 }
 
-/// Removes, on a blocking thread, the home of an account no sign-in admitted, keeping the failure
-/// in the service log.
-pub(super) async fn abandon(registry: Arc<ProviderAccountRegistry>, minted: MintedAccount) {
-    let removed = tokio::task::spawn_blocking(move || registry.abandon(minted)).await;
-    let error: Box<dyn Error + Send + Sync> = match removed {
-        Ok(Ok(())) => return,
-        Ok(Err(error)) => Box::new(error),
-        Err(error) => Box::new(error),
-    };
-    tracing::warn!(
-        error = &*error as &(dyn Error + 'static),
-        "a sign-in's minted home was not removed"
-    );
+/// Has the home of an account no sign-in admitted signed out through its provider's entry in
+/// `legs`, where its provider ran there, and removed, keeping a failure in the service log.
+pub(super) async fn abandon(
+    registry: &ProviderAccountRegistry,
+    minted: MintedAccount,
+    legs: Option<&HashMap<ProviderId, Arc<dyn ProviderAccountLegs>>>,
+) {
+    if let Err(error) = registry.abandon(minted, legs).await {
+        tracing::warn!(
+            error = &error as &(dyn Error + 'static),
+            "a sign-in's minted home kept its mark; the next start clears it"
+        );
+    }
 }
