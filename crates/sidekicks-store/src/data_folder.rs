@@ -31,6 +31,9 @@ const WORKFLOWS_FOLDER_NAME: &str = "workflows";
 // The folder in a workflow's folder that holds its runs' own folders.
 const WORKFLOW_RUNS_FOLDER_NAME: &str = "runs";
 
+// The folder in the data folder that holds the programs the daemon fetches for itself.
+const TOOLS_FOLDER_NAME: &str = "tools";
+
 /// The service's data folder under `home`, which holds its store, its logs and its lock.
 pub fn data_folder(home: &Path) -> PathBuf {
     home.join(DAEMON_DATA_FOLDER_NAME)
@@ -45,6 +48,12 @@ pub fn agent_memory_folder(data_folder: &Path) -> PathBuf {
 /// The folder in `data_folder` that holds the service log files.
 pub fn service_log_folder(data_folder: &Path) -> PathBuf {
     data_folder.join(SERVICE_LOG_FOLDER_NAME)
+}
+
+/// The folder in `data_folder` that holds the programs the daemon fetches for itself, one folder
+/// per program and, in it, one per version.
+pub fn tools_folder(data_folder: &Path) -> PathBuf {
+    data_folder.join(TOOLS_FOLDER_NAME)
 }
 
 /// The daemon's plugin home for `provider_id` under `home`: the one folder per provider where the
