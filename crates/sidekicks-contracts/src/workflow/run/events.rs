@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
+use crate::wire::text::NonEmptyText;
 use crate::workflow::definition::document::{WorkflowNodeId, WorkflowVersionId};
 use crate::workflow::run::control::{WorkflowCancelReason, names_whole_repin};
 use crate::workflow::run::id::WorkflowRunId;
@@ -182,6 +183,14 @@ pub struct WorkflowResultsPostedPayload {
     pub session_id: SessionId,
     /// The run.
     pub workflow_run_id: WorkflowRunId,
+    /// The run's summary line as the post found it; absent where the run wrote none.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "NonEmptyText")]
+    pub summary: Option<NonEmptyText>,
 }
 
 /// The TypeScript module of the run events.
