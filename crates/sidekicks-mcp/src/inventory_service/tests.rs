@@ -800,3 +800,55 @@ async fn an_opening_after_a_failed_fill_reads_the_provider_once(#[case] does_rea
         ));
     }
 }
+
+/// The openings that meet one failed fill share one read of the provider: the first to hold the
+/// provider's refill reads, and each after it finds the table filled and opens without a read.
+/// Killed by the hold removed, where every opening reads.
+#[tokio::test]
+async fn openings_after_a_failed_fill_share_one_read() {
+    const OPENINGS: usize = 4;
+    let reads = Arc::new(AtomicUsize::new(0));
+    let driver_reads = Arc::clone(&reads);
+    let answer: DriverAnswer = Box::new(move |provider, request| {
+        if driver_reads.fetch_add(1, Ordering::SeqCst) == 0 {
+            return ready(Err(DriverError::Internal(
+                "the config could not be read".into(),
+            )))
+            .boxed();
+        }
+        // Slow enough that every opening meets the failed fill while this read runs.
+        async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            Ok(reading_of(&provider, &request))
+        }
+        .boxed()
+    });
+    let inventory = open_inventory(answer).await;
+    inventory.service.fill_attribution().await;
+    let composer = McpSessionToolServers::new(
+        Arc::clone(&inventory.attribution),
+        inventory.service.sources.store.clone(),
+    );
+    composer
+        .register_inventory(Arc::clone(&inventory.service))
+        .expect("the inventory registers once");
+
+    let opened = tokio::time::timeout(
+        WAIT_BOUND,
+        futures::future::join_all(
+            (0..OPENINGS).map(|_| composer.compose(&inventory.provider, None)),
+        ),
+    )
+    .await
+    .expect("the openings answer");
+
+    assert_eq!(reads.load(Ordering::SeqCst), 2);
+    for composed in opened {
+        let bindings: Vec<_> = composed
+            .expect("the opening composes")
+            .into_iter()
+            .map(|server| server.binding)
+            .collect();
+        assert_eq!(bindings, vec![docs_binding(&inventory.provider)]);
+    }
+}

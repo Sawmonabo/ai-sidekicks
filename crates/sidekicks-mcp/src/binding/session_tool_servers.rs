@@ -3,7 +3,7 @@
 //! switch and its project's switch read, composed from what the attribution table last read of the
 //! provider's own config and what the binding store keeps. An opening waits on the table's first
 //! fill of the provider, so no set is composed from a table not yet read; where that fill failed,
-//! the opening reads the provider once itself.
+//! the openings that meet it share one read of the provider.
 
 use std::sync::Arc;
 
@@ -13,6 +13,7 @@ use sidekicks_contracts::place::PlacedPath;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::text::TextError;
 use sidekicks_provider::driver::session_control::SessionToolServer;
+use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::port_registration::{PortRegistration, PortRegistrationError};
 use sidekicks_workspace::project::records::AttachedProjectRoot;
 
@@ -47,6 +48,8 @@ pub struct McpSessionToolServers {
     table: Arc<McpAttributionTable>,
     store: McpBindingStore,
     inventory: PortRegistration<Arc<McpInventoryService>>,
+    // Each provider's hold over the one read that refills the table after its failed fill.
+    refills: KeyedLock<ProviderId>,
 }
 
 impl McpSessionToolServers {
@@ -56,6 +59,7 @@ impl McpSessionToolServers {
             table,
             store,
             inventory: PortRegistration::new("MCP inventory"),
+            refills: KeyedLock::new(),
         }
     }
 
@@ -73,8 +77,8 @@ impl McpSessionToolServers {
     /// scope of `root`, switched on where its own switch is on and neither the provider nor the
     /// daemon switches it off in `root`, once the table's first fill of the provider ended; where
     /// that fill failed, after one read of the provider through the inventory, which refills the
-    /// table. Fails where that read fails too, and as the root's path or the store's one short
-    /// read fails.
+    /// table for every opening waiting on it. Fails where that read fails too, and as the root's
+    /// path or the store's one short read fails.
     pub async fn compose(
         &self,
         provider: &ProviderId,
@@ -82,13 +86,7 @@ impl McpSessionToolServers {
     ) -> Result<Vec<SessionToolServer>, McpSessionToolServersError> {
         match self.table.wait_for_first_fill(provider).await {
             McpFirstFill::Filled => {}
-            McpFirstFill::Failed => {
-                self.inventory
-                    .require_port()?
-                    .read_declarations(provider)
-                    .await
-                    .map_err(McpSessionToolServersError::ProviderUnread)?;
-            }
+            McpFirstFill::Failed => self.refill(provider).await?,
         }
         let root = root
             .map(attached_root_path)
@@ -106,6 +104,21 @@ impl McpSessionToolServers {
                 })
                 .collect(),
         )
+    }
+
+    // Reads `provider` through the inventory under its hold, unless an opening that held it first
+    // already refilled the table, so the openings that meet one failed fill share one read.
+    async fn refill(&self, provider: &ProviderId) -> Result<(), McpSessionToolServersError> {
+        let _hold = self.refills.acquire(provider.clone()).await;
+        if self.table.wait_for_first_fill(provider).await == McpFirstFill::Filled {
+            return Ok(());
+        }
+        self.inventory
+            .require_port()?
+            .read_declarations(provider)
+            .await
+            .map_err(McpSessionToolServersError::ProviderUnread)?;
+        Ok(())
     }
 }
 
