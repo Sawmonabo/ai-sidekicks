@@ -4,12 +4,13 @@
 //! workspace services, the recovery services and the stored data's methods, then every method
 //! table registered over them; it hands back the parts the start runs next and the stop ends.
 
+pub(crate) mod error;
 mod mcp;
 mod recovery;
 mod worktree;
 
 use std::error::Error;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
 use futures::FutureExt as _;
@@ -20,12 +21,12 @@ use sidekicks_contracts::process_identity::ProcessIdentity;
 use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::wire::text::{BoundedText, TextError};
+use sidekicks_contracts::wire::text::BoundedText;
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
 use sidekicks_ipc::presence::PresenceRegister;
-use sidekicks_ipc::registry::{HandlerError, MethodRegistryBuilder, RegistrationError};
+use sidekicks_ipc::registry::{HandlerError, MethodRegistryBuilder};
+use sidekicks_mcp::client::McpClient;
 use sidekicks_mcp::client::dispatch::McpToolDispatch;
-use sidekicks_mcp::client::{McpClient, McpClientError};
 use sidekicks_mcp::inventory_service::McpInventoryService;
 use sidekicks_mcp::mutation::service::McpMutationService;
 use sidekicks_platforms::{
@@ -61,7 +62,7 @@ use sidekicks_session::run::held_tool_calls::StoredHeldToolCalls;
 use sidekicks_session::search::index::live::LiveIndex;
 use sidekicks_shell::orphan::guard::OrphanGuard;
 use sidekicks_std::error_description::describe_error;
-use sidekicks_std::port_registration::{PortRegistration, PortRegistrationError};
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::credential_store::items::SecretItems;
 use sidekicks_store::credential_store::service::KeychainService;
@@ -88,6 +89,7 @@ use crate::daemon::machine_settings::methods::{
     FindBranchPatternRefusal, MachineSettingsMethodsDeps,
 };
 use crate::daemon::process::database::DatabaseFile;
+use crate::daemon::process::method_inputs::error::MethodInputsError;
 use crate::daemon::process::method_inputs::mcp::{McpGovernanceStart, open_mcp_status};
 use crate::daemon::process::method_inputs::recovery::{
     RecoveryServiceStart, RecoveryServices, build_recovery_services,
@@ -107,11 +109,9 @@ use crate::daemon::process::repo_services::{
     ManagedWritesWatermarkFile, RepoServices, managed_writes_watermark_path,
 };
 use crate::daemon::process::session_services::{
-    SessionServiceStart, SessionServiceStartError, SessionServices, build_session_services,
+    SessionServiceStart, SessionServices, build_session_services,
 };
-use crate::daemon::process::shell_table::{
-    ShellTableStart, ShellTableStartError, build_shell_table,
-};
+use crate::daemon::process::shell_table::{ShellTableStart, build_shell_table};
 use crate::daemon::process::stop::DaemonStopReason;
 use crate::daemon::process::supervision::ProcessStateTracker;
 use crate::daemon::process::workspace_services::{
@@ -249,48 +249,6 @@ pub(crate) struct MethodInputs {
     pub(crate) provider_accounts: ProviderAccountObservation,
     /// The daemon's one client of the sessions' tool servers, which the stop stops.
     pub(crate) mcp_client: Arc<McpClient>,
-}
-
-/// Why the method tables' services could not be built.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum MethodInputsError {
-    /// A driver port was registered already.
-    #[error(transparent)]
-    PortRegistration(#[from] PortRegistrationError),
-    /// The session services could not be built.
-    #[error(transparent)]
-    SessionServices(#[from] SessionServiceStartError),
-    /// The terminals' table could not be built.
-    #[error(transparent)]
-    ShellTable(#[from] ShellTableStartError),
-    /// The tool servers' client could not be built.
-    #[error(transparent)]
-    McpClient(#[from] McpClientError),
-    /// A method was registered twice.
-    #[error(transparent)]
-    Registration(#[from] RegistrationError),
-    /// This machine's stored id is no device id, so neither the served socket nor a run's hold
-    /// can name it.
-    #[error("this computer's id {} is not a device id", machine_id.as_str())]
-    MachineDeviceId {
-        /// The stored id.
-        machine_id: MachineId,
-    },
-    /// The socket's path is too long for the status read to report.
-    #[error("the socket path {} cannot be reported", path.display())]
-    SocketPathText {
-        /// The socket's path.
-        path: PathBuf,
-    },
-    /// A folder's path cannot be reported on the wire.
-    #[error("the folder path {} cannot be reported", path.display())]
-    FolderPathText {
-        /// The folder's path.
-        path: PathBuf,
-        /// Why its text was refused.
-        #[source]
-        source: TextError,
-    },
 }
 
 /// Builds every service the method tables take from `start` and registers the tables on

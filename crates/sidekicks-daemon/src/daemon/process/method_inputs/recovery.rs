@@ -27,7 +27,7 @@ use crate::daemon::artifact_methods::ArtifactMethods;
 use crate::daemon::backup::run::Backups;
 use crate::daemon::configuration::ConfigurationStore;
 use crate::daemon::process::database::DatabaseFile;
-use crate::daemon::process::method_inputs::MethodInputsError;
+use crate::daemon::process::method_inputs::error::MethodInputsError;
 use crate::daemon::process::projections::rebuild_projections;
 use crate::daemon::process::providers::Providers;
 use crate::daemon::process::repo_services::RepoServices;
