@@ -393,10 +393,10 @@ impl ServiceRunner {
         }
         log_version(service, &started.version);
         *service.lock_physical_socket() = Some(started.physical_socket);
-        *service.lock_process_record_file() = match &started.process {
+        service.set_process_record_file(match &started.process {
             Some(CodexServiceProcess::Lasting { record_file, .. }) => Some(record_file.clone()),
             Some(CodexServiceProcess::Managed(_)) | None => None,
-        };
+        });
         *service.lock_live() = super::LiveService {
             connection: Some(started.connection),
             process: started

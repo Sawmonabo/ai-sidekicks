@@ -198,7 +198,7 @@ pub(crate) struct CodexService {
     // is cleared against once that process ends.
     physical_socket: Mutex<Option<PathBuf>>,
     // The record file of the lasting process the last start brought up, which a former daemon's
-    // service joined keeps under its own socket's name.
+    // service joined keeps under its own socket's name; a launch publishes it before writing it.
     process_record_file: Mutex<Option<LastingServiceRecordFile>>,
     // The log of the lasting process a start named, which the diagnostic-log expiry leaves alone
     // while the service runs.
@@ -281,10 +281,17 @@ impl CodexService {
         self.lock_physical_socket().clone()
     }
 
-    /// The record file of the lasting process the last start brought up; `None` before any start
-    /// and for a service with no lasting process.
+    /// The record file of the lasting process the last start brought up, or the one a launch under
+    /// way writes; `None` before any start and for a service with no lasting process.
     pub(crate) fn process_record_file(&self) -> Option<LastingServiceRecordFile> {
-        self.lock_process_record_file().clone()
+        lock(&self.process_record_file).clone()
+    }
+
+    /// Publishes `record_file` as the record of the service's lasting process: a launch publishes
+    /// it before it writes the record, so a daemon stop leaves that record to this service, and an
+    /// adopted start publishes what it brought up.
+    pub(crate) fn set_process_record_file(&self, record_file: Option<LastingServiceRecordFile>) {
+        *lock(&self.process_record_file) = record_file;
     }
 
     /// The log of the lasting process a start named; `None` before any such start.
@@ -859,10 +866,6 @@ impl CodexService {
 
     fn lock_physical_socket(&self) -> MutexGuard<'_, Option<PathBuf>> {
         lock(&self.physical_socket)
-    }
-
-    fn lock_process_record_file(&self) -> MutexGuard<'_, Option<LastingServiceRecordFile>> {
-        lock(&self.process_record_file)
     }
 
     fn lock_lasting_log_file(&self) -> MutexGuard<'_, Option<PathBuf>> {

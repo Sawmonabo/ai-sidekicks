@@ -338,7 +338,7 @@ pub(crate) enum KeptServicesStop {
 
 /// Stops every lasting service a record under `data_folder` still keeps: for the daemon's stop,
 /// beside its own services' stops, and for the erase, with no daemon running. A record in
-/// `live_records`, which a live service's supervisor stops, is left to it. One a former daemon
+/// `live_records`, a live service's, is left to that service's supervisor. One a former daemon
 /// kept is stopped and its record removed, what an ended one left is ended, and one draining is
 /// left to its drain under [`KeptServicesStop::DaemonStop`] and stopped under
 /// [`KeptServicesStop::Erase`]. All are stopped together, so the stop takes one grace whatever the
@@ -429,7 +429,7 @@ async fn stop_folder_kept_services(
         Ok(records) => records,
         Err(failure) => return vec![failure.error],
     };
-    // A live service's record is its supervisor's to stop, so no second stopper signals it.
+    // A live service's record is left to its supervisor, so no second stopper signals it.
     join_all(
         records
             .iter()

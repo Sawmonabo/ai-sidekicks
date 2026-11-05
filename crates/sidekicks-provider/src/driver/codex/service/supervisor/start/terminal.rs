@@ -33,7 +33,8 @@ use crate::driver::codex::service::socket_link::{
 use crate::driver::codex::service::start_lock::CodexStartLock;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::start::kept_records::{
-    KeptRecordsOutcome, lock_record, reconcile_kept_records, retire_kept_record, settle_own_records,
+    KeptRecordsOutcome, lock_record, reconcile_kept_records, retire_kept_record,
+    settle_own_records, socket_record_file,
 };
 use crate::driver::codex::service::supervisor::start::{
     CodexServiceProcess, LaunchedLastingService, StartFailure, StartedService, compose_launch,
@@ -60,11 +61,8 @@ pub(super) async fn start_terminal_service(
     let dependencies = service.dependencies();
     let codex_home = service.home().codex_home.clone();
     let socket = service.socket_path().to_owned();
-    let record_file =
-        LastingServiceRecordFile::of_socket(&dependencies.data_folder, &codex_home, &socket)
-            .map_err(|error| {
-                start_failed("The Codex service's record could not be named.", error)
-            })?;
+    let record_file = socket_record_file(service)
+        .map_err(|error| start_failed("The Codex service's record could not be named.", error))?;
     let locked = lock_record(record_file).await?;
     let deadline = tokio::time::Instant::now() + dependencies.startup_timeout;
     // A planned restart's second service, on a socket of its own and a record of its own: the

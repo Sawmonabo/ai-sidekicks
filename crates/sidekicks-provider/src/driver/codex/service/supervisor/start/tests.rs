@@ -21,14 +21,20 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::{HeaderValue, header};
 use tokio_util::sync::CancellationToken;
 
-use super::kept_records::{KeptServicesStop, retire_former_service, stop_kept_services};
-use super::{StartFailure, StartedService, compose_launch, start_codex_service};
+use super::kept_records::{
+    KeptServicesStop, lock_record, retire_former_service, stop_kept_services,
+};
+use super::{
+    StartFailure, StartedService, compose_launch, launch_lasting_service, name_lasting_log_file,
+    start_codex_service,
+};
 use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::service::process::{
     CodexProcessLaunch, repin_lasting_codex_service, start_lasting_codex_service,
 };
 use crate::driver::codex::service::record::{LastingServiceRecord, LastingServiceRecordFile};
+use crate::driver::codex::service::registry::live_record_files;
 use crate::driver::codex::service::supervisor::test_service::{
     STAND_IN_CODEX, StandInReplies, TestCodexProgram, UnheardEvents, answer_as_codex_service,
     bind_test_listener, next_socket_request, send_on_socket, test_codex_service_dependencies,
@@ -522,6 +528,145 @@ async fn a_daemon_stop_of_kept_records_leaves_a_live_service_s_record_to_its_sup
         read_record(&live_record).is_some(),
         "the kept stop removed a live service's record"
     );
+}
+
+// Fails when a launch on a socket of its own beside the home's, as a terminal service launches
+// beside a draining one, is in flight at a daemon stop and the kept stop ends it and removes its
+// record beside the start's own teardown. Killed by dropping the launch's publish of its record
+// file before it writes the record.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_daemon_stop_leaves_a_launch_beside_under_way_to_its_supervisor() {
+    if !CAN_SIGNAL_A_STOP {
+        return;
+    }
+    let folder = tempfile::tempdir().expect("a scratch folder is made");
+    let home_socket = folder.path().join("home.sock");
+    let own_socket = folder.path().join("own.sock");
+    // Held unanswered, so the launch is under way once its dial is accepted.
+    let Some(listener) = bind_test_listener(&own_socket) else {
+        return;
+    };
+    let program = folder.path().join("codex");
+    create_file_atomically(
+        &program,
+        STAND_IN_CODEX.as_bytes(),
+        0o755,
+        LeftoverSweep::Unswept,
+    )
+    .expect("the stand-in is written");
+    let dependencies = test_codex_service_dependencies(
+        folder.path(),
+        Arc::new(TestCodexProgram {
+            program,
+            environment: vec![("PATH".to_owned(), "/usr/bin:/bin".to_owned())],
+        }),
+        Arc::new(UnheardEvents),
+        Arc::new(UnrecordedChildren),
+    );
+    let data_folder = dependencies.data_folder.clone();
+    let codex_home = dependencies.personal_home.clone();
+    std::fs::create_dir(&codex_home).expect("the person's folder is made");
+    let service = CodexService::new(
+        CodexServiceHome {
+            codex_home: codex_home.clone(),
+            kind: CodexHomeKind::PersonalFolder,
+        },
+        CodexServiceSocket {
+            path: home_socket.clone(),
+            home_socket,
+        },
+        CodexServiceKind::Terminal,
+        Arc::clone(&dependencies),
+        Vec::new(),
+    );
+    let executable = dependencies
+        .program
+        .resolve(service.home())
+        .await
+        .expect("the test program resolves");
+    let Ok(process_launch) = compose_launch(
+        &service,
+        &executable,
+        service.launch_config_overrides(),
+        &own_socket,
+    )
+    .await
+    else {
+        panic!("the launch was not composed");
+    };
+    let log_file = name_lasting_log_file(&service)
+        .unwrap_or_else(|failure| panic!("the log is named: {:?}", failure.error));
+    let beside_record = LastingServiceRecordFile::of_socket(&data_folder, &codex_home, &own_socket)
+        .expect("the record file is named");
+    let locked = lock_record(beside_record.clone())
+        .await
+        .unwrap_or_else(|failure| panic!("the record locks: {:?}", failure.error));
+    let cancel = CancellationToken::new();
+    let launching = tokio::spawn({
+        let (service, locked, cancel) = (Arc::clone(&service), Arc::clone(&locked), cancel.clone());
+        async move {
+            launch_lasting_service(
+                &service,
+                1,
+                &cancel,
+                process_launch,
+                &log_file,
+                &locked,
+                &own_socket,
+            )
+            .await
+        }
+    });
+    let held = timeout(Duration::from_secs(10), listener.accept())
+        .await
+        .expect("the launch dials within its wait")
+        .expect("the dial is accepted");
+
+    let live_records = live_record_files(&[Arc::clone(&service)]);
+    drop((held, listener));
+    cancel.cancel();
+    let launched = timeout(Duration::from_secs(10), launching)
+        .await
+        .expect("the stood-down launch ends")
+        .expect("the launch's task ends");
+    // The failure hands back the launched process for a teardown this test leaves undone.
+    let Err(_failure) = launched else {
+        panic!("the launch answered on a socket held unanswered");
+    };
+    drop(locked);
+    let failures = stop_kept_services(
+        data_folder.clone(),
+        KeptServicesStop::DaemonStop {
+            deadline: Instant::now() + Duration::from_secs(5),
+        },
+        live_records,
+    )
+    .await;
+    let kept = beside_record
+        .lock()
+        .and_then(|locked| locked.read())
+        .expect("the record reads");
+    let is_running = kept.as_ref().is_some_and(|record| {
+        repin_lasting_codex_service(record.process.clone())
+            .expect("the process table reads")
+            .is_some()
+    });
+    // Ends the stand-in, which outlives this test otherwise, before any assertion can fail.
+    stop_kept_services(
+        data_folder,
+        KeptServicesStop::DaemonStop {
+            deadline: Instant::now() + Duration::from_secs(5),
+        },
+        HashSet::new(),
+    )
+    .await;
+
+    assert!(failures.is_empty(), "{failures:?}");
+    assert!(
+        kept.is_some(),
+        "the kept stop removed a launch's record under way"
+    );
+    assert!(is_running, "the kept stop ended a launch under way");
 }
 
 // A shell stand-in running `script`, which writes one byte once it is ready, recorded as the

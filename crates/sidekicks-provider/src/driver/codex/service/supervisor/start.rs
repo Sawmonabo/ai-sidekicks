@@ -358,10 +358,10 @@ pub(super) fn name_lasting_log_file(service: &CodexService) -> Result<PathBuf, S
 }
 
 /// Launches `process_launch` as a lasting service writing `log_file`, keeps its record under
-/// `locked` as launched and, once it answers on `launch_socket` under the ticket `launch`, with
-/// where its socket really is; `cancel` stands the wait down. Fails as the launch, the connect,
-/// the socket's read or a record's write does, a launched process handed back with the failure
-/// for the start's teardown.
+/// `locked`, published on `service` first, as launched and, once it answers on `launch_socket`
+/// under the ticket `launch`, with where its socket really is; `cancel` stands the wait down.
+/// Fails as the launch, the connect, the socket's read or a record's write does, a launched
+/// process handed back with the failure for the start's teardown.
 pub(super) async fn launch_lasting_service(
     service: &Arc<CodexService>,
     launch: u64,
@@ -376,6 +376,8 @@ pub(super) async fn launch_lasting_service(
             .await
             .map_err(|error| start_failed("The Codex service could not be started.", error))?;
     let record_file = locked.file().clone();
+    // Published before the write, so a daemon stop under way leaves the record to this service.
+    service.set_process_record_file(Some(record_file.clone()));
     let launched = LastingServiceRecord::launched(
         lasting.record().clone(),
         service.socket.home_socket.clone(),
