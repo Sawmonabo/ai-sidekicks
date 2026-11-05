@@ -31,9 +31,7 @@ use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
-use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_mcp::client::McpClient;
 use sidekicks_mcp::client::dispatch::McpToolDispatch;
 use sidekicks_mcp::client::dispatch::restart_sweep::McpRestartSweep;
@@ -52,11 +50,10 @@ use sidekicks_queue::provider_session::resumed_runs::ResumedRunsIngress;
 use sidekicks_queue::provider_session::test_opening::{
     OrphanedAnswersStandIn, test_provider_sessions,
 };
+use sidekicks_queue::test_items::{insert_item, words};
 use sidekicks_session::interventions::service::test_fixture::test_intervention_service;
 use sidekicks_session::questions::service::QuestionsService;
-use sidekicks_session::queue_store::{
-    NewQueueItem, QueueItemBody, QueueMessageBody, insert_queue_item_statement,
-};
+use sidekicks_session::queue_store::QueueItemBody;
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::engine::test_fixture::{insert_run, test_engine_with};
 use sidekicks_session::run::live_count::count_live_runs_after_commits;
@@ -681,30 +678,8 @@ pub(crate) async fn queue_message(
     session_id: SessionId,
     run_id: RunId,
 ) -> QueueItemId {
-    let item = NewQueueItem {
-        id: QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id"),
-        session_id,
-        body: QueueItemBody::Message(QueueMessageBody {
-            content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
-            attachments: None,
-            skills: None,
-            answers_question_id: None,
-            output_speed_for_turn: None,
-            workspace_id: None,
-        }),
-        target_run_id: run_id,
-        device_id: None,
-        client_idempotency_key: Some(
-            ClientUuid::new(mint_uuid_v7().to_string()).expect("a minted UUID is a client key"),
-        ),
-        replaces_queue_item_id: None,
-        now: WireInstant::now(),
-    };
-    writer
-        .write(vec![insert_queue_item_statement(&item)])
-        .await
-        .expect("the test queues its message");
-    item.id
+    let body = QueueItemBody::Message(words("Look again"));
+    insert_item(writer, session_id, run_id, body).await
 }
 
 /// Writes one run of `session` per entry of `runs` into `database`, each in its state's stored
