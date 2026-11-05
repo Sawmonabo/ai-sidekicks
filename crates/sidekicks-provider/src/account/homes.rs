@@ -10,14 +10,15 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 use sidekicks_contracts::daemon::data::DataEraseAccountListing;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 
-use crate::account::credential_home::CredentialHome;
 use crate::account::credential_home::marks::{MarkedHome, read_minted_homes, read_removed_homes};
+use crate::account::credential_home::{CredentialHome, HomeSignOut};
 use crate::account::resolver::credential_home_folders;
 use crate::driver::registry::ProviderRegistry;
 use crate::driver::{ProviderAccountFolders, ProviderDescriptor};
@@ -36,21 +37,14 @@ pub enum AccountHomesReadError {
     Query(#[from] rusqlite::Error),
     /// The marks kept beside the homes could not be read.
     #[error("the marks beside the account homes could not be read")]
-    Marks(#[from] io::Error),
-    /// A row's account id or provider is no valid id, so its home cannot be signed out.
+    Marks(#[source] io::Error),
+    /// A row's account id or provider is no valid id, so the folders in its home are not known and
+    /// it cannot be signed out.
     #[error("the home of provider account {account_id} names no valid account or provider id")]
     UnnamedHome {
         /// The row's account id.
         account_id: String,
     },
-}
-
-/// An account home whose row names no provider id, so the folders in it are not known.
-#[derive(Debug, thiserror::Error)]
-#[error("the home of provider account {account_id} names no provider id")]
-pub struct UnknownAccountHomeProvider {
-    /// The row's account id.
-    pub account_id: String,
 }
 
 /// One account's home and the provider whose account it is.
@@ -66,16 +60,24 @@ pub struct AccountHome {
 }
 
 impl AccountHome {
-    /// The account's folders, by the path rule every provider's account runs on. Fails naming the
-    /// account when the row's provider is no provider id.
-    pub fn folders(&self) -> Result<ProviderAccountFolders, UnknownAccountHomeProvider> {
-        let provider =
-            ProviderId::new(self.provider.clone()).ok_or_else(|| UnknownAccountHomeProvider {
-                account_id: self.account_id.clone(),
-            })?;
+    /// The account's folders, by the path rule every provider's account runs on. Fails with
+    /// [`AccountHomesReadError::UnnamedHome`] when the row's provider is no provider id.
+    pub fn folders(&self) -> Result<ProviderAccountFolders, AccountHomesReadError> {
+        let provider = ProviderId::new(self.provider.clone()).ok_or_else(|| self.unnamed())?;
+        Ok(self.folders_of(&provider))
+    }
+
+    // The account's folders as `provider`'s account.
+    fn folders_of(&self, provider: &ProviderId) -> ProviderAccountFolders {
         // The home was read as text, so the round trip back to text loses nothing.
         let home = CredentialHome::from_stored(self.home.to_string_lossy().into_owned());
-        Ok(credential_home_folders(&provider, &home))
+        credential_home_folders(provider, &home)
+    }
+
+    fn unnamed(&self) -> AccountHomesReadError {
+        AccountHomesReadError::UnnamedHome {
+            account_id: self.account_id.clone(),
+        }
     }
 }
 
@@ -142,6 +144,26 @@ pub struct HomeToErase {
     pub home: AccountHome,
     /// How the account stood on the list.
     pub listing: DataEraseAccountListing,
+}
+
+impl HomeToErase {
+    /// The home's sign-out, its account and provider read as ids. Fails with
+    /// [`AccountHomesReadError::UnnamedHome`] when the row's account id or provider is no valid id.
+    pub fn sign_out(self) -> Result<HomeSignOut, AccountHomesReadError> {
+        let home = &self.home;
+        let (Some(account_id), Some(provider)) = (
+            ProviderAccountId::new(home.account_id.clone()),
+            ProviderId::new(home.provider.clone()),
+        ) else {
+            return Err(home.unnamed());
+        };
+        Ok(HomeSignOut {
+            folders: home.folders_of(&provider),
+            account_id,
+            provider,
+            listing: self.listing,
+        })
+    }
 }
 
 /// Every home an erase deletes, from the accounts table's `rows` and the marks under the daemon's

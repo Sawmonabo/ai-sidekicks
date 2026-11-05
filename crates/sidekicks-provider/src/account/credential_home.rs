@@ -37,9 +37,7 @@ use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLen
 
 use crate::account::errors::ProviderAccountRegistryError;
 use crate::account::home_lock::AccountHomeLock;
-use crate::account::homes::{
-    AccountHomesReadError, HomeToErase, homes_to_erase, query_account_homes,
-};
+use crate::account::homes::{AccountHomesReadError, homes_to_erase, query_account_homes};
 use crate::account::registry::ProviderAccountRegistry;
 use crate::account::resolver::credential_home_folders;
 use crate::driver::contract::account::ProviderAccountLegs;
@@ -386,8 +384,9 @@ pub async fn sign_out_homes<'legs>(
 /// [`sign_out_homes`] does: each listed account's, each whose removal has begun, each removed
 /// account's kept home and each home minted for a sign-in that did not finish, read from the
 /// accounts table on `reads` and the marks under the daemon's `data_folder`. Answers each account
-/// it could not sign out, with why. Fails when the rows or the marks cannot be read, or a row names
-/// no valid account or provider id, with nothing signed out.
+/// it could not sign out, with why. A row that names no valid account or provider id is left
+/// signed in and told in the service log, since no answer can name it, and the rest sign out.
+/// Fails when the rows or the marks cannot be read at all, with nothing signed out.
 pub async fn sign_out_every_home<S: BuildHasher>(
     reads: &DatabaseReadPool,
     data_folder: &Path,
@@ -401,26 +400,16 @@ pub async fn sign_out_every_home<S: BuildHasher>(
             homes_to_erase(rows, &data_folder).map_err(AccountHomesReadError::Marks)
         })
         .await?;
-    let accounts = homes
-        .into_iter()
-        .map(|HomeToErase { home, listing }| {
-            let (Some(account_id), Some(provider), Ok(folders)) = (
-                ProviderAccountId::new(home.account_id.clone()),
-                ProviderId::new(home.provider.clone()),
-                home.folders(),
-            ) else {
-                return Err(AccountHomesReadError::UnnamedHome {
-                    account_id: home.account_id,
-                });
-            };
-            Ok(HomeSignOut {
-                account_id,
-                provider,
-                listing,
-                folders,
+    let accounts = homes.into_iter().filter_map(|home| {
+        home.sign_out()
+            .inspect_err(|unnamed| {
+                tracing::warn!(
+                    error = unnamed as &(dyn std::error::Error + 'static),
+                    "an account home names no valid id, so it was left signed in"
+                );
             })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+            .ok()
+    });
     let sign_out = |provider: &ProviderId, account_id, folders| {
         legs.get(provider)
             .map(|legs| legs.sign_out_home(account_id, folders))

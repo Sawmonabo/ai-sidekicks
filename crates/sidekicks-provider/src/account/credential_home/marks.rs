@@ -66,8 +66,8 @@ pub fn clear_minted_mark(data_folder: &Path, account_id: &ProviderAccountId) -> 
 }
 
 /// Every account marked minted under `data_folder`, a mark whose name is no account id or whose
-/// contents name no provider id left out, as no mint wrote it. Reads on the calling thread. Fails
-/// with the system's error, none where the folder of marks is missing.
+/// contents are not UTF-8 or name no provider id left out, as no mint wrote it. Reads on the
+/// calling thread. Fails with the system's error, none where the folder of marks is missing.
 pub fn read_minted_homes(data_folder: &Path) -> io::Result<Vec<MarkedHome>> {
     read_marks(MINTED_MARKS_FOLDER_NAME, data_folder)
 }
@@ -92,7 +92,7 @@ fn write_mark(
 }
 
 // Every account marked in the folder `marks_folder_name` names under `data_folder`, a mark that
-// names no account id or no provider id left out.
+// names no account id, or whose contents are not UTF-8 or name no provider id, left out.
 fn read_marks(marks_folder_name: &str, data_folder: &Path) -> io::Result<Vec<MarkedHome>> {
     let marks = match fs::read_dir(data_folder.join(marks_folder_name)) {
         Ok(marks) => marks,
@@ -111,7 +111,10 @@ fn read_marks(marks_folder_name: &str, data_folder: &Path) -> io::Result<Vec<Mar
         else {
             continue;
         };
-        let Some(provider) = ProviderId::new(fs::read_to_string(entry.path())?) else {
+        let Some(provider) = String::from_utf8(fs::read(entry.path())?)
+            .ok()
+            .and_then(ProviderId::new)
+        else {
             continue;
         };
         marked.push(MarkedHome {
