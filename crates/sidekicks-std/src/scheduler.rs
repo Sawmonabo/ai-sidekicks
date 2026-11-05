@@ -81,6 +81,17 @@ pub enum ScheduleError {
     },
 }
 
+/// Why the scheduler's stop did not end its task cleanly.
+#[derive(Debug, thiserror::Error)]
+pub enum SchedulerStopError {
+    /// The scheduler's task ended abnormally.
+    #[error("the scheduler's task ended abnormally")]
+    Panicked(#[source] JoinError),
+    /// A job still ran at the stop's deadline, so the task was aborted.
+    #[error("the scheduler's task still ran at the stop's deadline and was aborted")]
+    Overran,
+}
+
 /// What a caller holds for a scheduled job.
 pub struct ScheduledJobHandle {
     scheduler: Weak<SchedulerShared>,
@@ -280,8 +291,10 @@ impl Scheduler {
     }
 
     /// Runs nothing more: drops every pending run, closes the wake receivers, cancels the token
-    /// the running job was given, then waits for it. Fails only when the task panicked.
-    pub async fn stop(&self) -> Result<(), JoinError> {
+    /// the running job was given, then waits for it up to `deadline`. Fails when the task panicked,
+    /// or when it still ran at `deadline` and was aborted; a job's work it had handed to
+    /// `spawn_blocking` runs on past the abort.
+    pub async fn stop(&self, deadline: Instant) -> Result<(), SchedulerStopError> {
         let (pending_by_deadline, pending_by_instant, parked, wake_sender) = {
             let mut state = self.shared.lock_state();
             state.is_stopped = true;
@@ -298,10 +311,16 @@ impl Scheduler {
         drop(pending_by_instant);
         drop(parked);
         drop(wake_sender);
-        let task = lock(&self.task).take();
-        match task {
-            Some(task) => task.await,
-            None => Ok(()),
+        let Some(mut task) = lock(&self.task).take() else {
+            return Ok(());
+        };
+        match tokio::time::timeout_at(deadline, &mut task).await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(error)) => Err(SchedulerStopError::Panicked(error)),
+            Err(_elapsed) => {
+                task.abort();
+                Err(SchedulerStopError::Overran)
+            }
         }
     }
 

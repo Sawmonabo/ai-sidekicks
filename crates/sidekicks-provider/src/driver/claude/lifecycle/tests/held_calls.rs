@@ -30,7 +30,7 @@ use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, binding_id, hand_scripted_frame, settle,
 };
 use crate::driver::claude::spawn::environment::claude_config_folder;
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::driver::session_control::{
     CloseSessionParams, MoveSessionToForkParams, SessionCloseCause, SettleHeldToolCallsParams,
 };
@@ -42,10 +42,10 @@ const STORED_CONVERSATION: &str = "0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d";
 /// How a call ends with its process.
 const ENDED_WITH_THE_PROCESS: Ending = Ending::Failed(Some(ToolCallEndCause::ProcessExit));
 
-// A live session of `fixture`'s driver on `channel` whose process holds each of `calls`, a call
-// and its task, in the background, all opened by one lead run on `lead`; the log answers each
-// open. Answers the session, the run and the process's start.
-async fn holding_session(
+/// A live session of `fixture`'s driver on `channel` whose process holds each of `calls`, a call
+/// and its task, in the background, all opened by one lead run on `lead`; the log answers each
+/// open. Answers the session, the run and the process's start.
+pub(super) async fn holding_session(
     fixture: &ScriptedDriver,
     channel: &Arc<ScriptedChannel>,
     calls: &[(&str, &str)],
@@ -91,9 +91,14 @@ async fn holding_session(
     (session_id, run_id, start)
 }
 
-// Writes the record of `call_id`, of the task `task_id`, beside the conversation `session_id`'s
-// live process runs.
-fn keep_record(fixture: &ScriptedDriver, session_id: SessionId, call_id: &str, task_id: &str) {
+/// Writes the record of `call_id`, of the task `task_id`, beside the conversation `session_id`'s
+/// live process runs.
+pub(super) fn keep_record(
+    fixture: &ScriptedDriver,
+    session_id: SessionId,
+    call_id: &str,
+    task_id: &str,
+) {
     let live = fixture
         .driver
         .composed_parts()
@@ -367,9 +372,8 @@ async fn a_restart_of_the_daemon_writes_no_held_call_close() {
 
     fixture
         .driver
-        .shutdown(DaemonStopIntent::Restart)
-        .await
-        .expect("the sessions close");
+        .shutdown(DaemonStopIntent::Restart, daemon_stop_deadline())
+        .await;
     settle().await;
 
     assert_eq!(closes(fixture.engine.deliveries()), []);
@@ -436,8 +440,8 @@ async fn a_forks_predecessor_exit_settles_none_of_its_held_calls() {
     assert_eq!(closed, [("call-A".to_owned(), ENDED_WITH_THE_PROCESS)]);
 }
 
-// The `stop_task` requests written to `channel`, each by the task it names.
-fn stopped_tasks(channel: &ScriptedChannel) -> Vec<String> {
+/// The `stop_task` requests written to `channel`, each by the task it names.
+pub(super) fn stopped_tasks(channel: &ScriptedChannel) -> Vec<String> {
     channel
         .control_requests()
         .into_iter()

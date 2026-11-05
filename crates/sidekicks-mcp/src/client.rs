@@ -75,7 +75,7 @@ pub struct McpClient {
     /// Set once the client stops, before any connection closes, so an end the stop caused is
     /// read as the stop.
     stopping: CancellationToken,
-    /// The session closes under way, which the stop waits for.
+    /// The session closes under way and the restart sweep's resumes, which the stop waits for.
     closings: TaskTracker,
     /// One connection pool for every HTTP tool server of the daemon: at most two idle sockets per
     /// host, each closed by reqwest's 90 s idle timeout.

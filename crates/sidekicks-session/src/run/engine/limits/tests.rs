@@ -18,7 +18,7 @@ use crate::questions::schema::schema_parts;
 use crate::run::engine::RunEngine;
 use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::live::ContinuingRun;
-use crate::run::engine::test_fixture::{append, insert_running_run, stored_run_state, test_engine};
+use crate::run::engine::test_fixture::{append, insert_run, stored_run_state, test_engine};
 use crate::run::engine::tests::{
     DRIVER_HOLD, SETTLE_WAIT, continue_request, events, hand_limit_interrupter, held_driver,
     started_turn, step_stop, stored_events, token_limit, turn, turn_started_at,
@@ -55,7 +55,7 @@ async fn a_cut_turn_keeps_its_limit_past_the_runs_end_and_a_stop_that_found_it_e
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     let engine = test_engine(&database, log.service, home.path());
     let _interventions = hand_limit_interrupter(&engine, 0);
     append(
@@ -120,7 +120,7 @@ async fn a_later_turns_cut_keeps_the_limit_of_an_earlier_cut_turn() {
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     let engine = test_engine(&database, log.service, home.path());
     let _interventions = hand_limit_interrupter(&engine, 0);
     append(
@@ -193,7 +193,7 @@ async fn a_token_stop_retried_after_a_failed_interrupt_sends_the_interrupt_alone
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     let engine = test_engine(&database, log.service, home.path());
     let interventions = hand_limit_interrupter(&engine, 1);
     append(
@@ -252,7 +252,7 @@ async fn a_token_stop_after_an_overtaken_limit_and_a_continue_stops_the_run() {
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     let engine = test_engine(&database, log.service, home.path());
     let interventions = hand_limit_interrupter(&engine, 0);
     append(
@@ -339,7 +339,7 @@ async fn a_spend_stop_retried_during_a_continue_interrupts_the_continued_run() {
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     let engine = test_engine(&database, log.service, home.path());
     let interventions = hand_limit_interrupter(&engine, 1);
     append(
@@ -409,7 +409,7 @@ async fn a_token_stop_past_its_reached_event_waits_only_on_its_own_pending_inter
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     let engine = test_engine(&database, log.service, home.path());
     let interventions = hand_limit_interrupter(&engine, refusals);
     append(
@@ -460,7 +460,7 @@ async fn a_spend_stop_waits_on_the_spend_limits_pending_interrupt(
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     let engine = test_engine(&database, log.service, home.path());
     let interventions = hand_limit_interrupter(&engine, 0);
     database
@@ -500,7 +500,7 @@ async fn a_turn_two_limits_cut_ends_with_the_higher_ranked_limit(
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     let engine = test_engine(&database, log.service, home.path());
     let _interventions = hand_limit_interrupter(&engine, 0);
     append(
@@ -601,7 +601,7 @@ async fn a_failed_stop_keeps_its_cut_only_while_its_row_is_pending(
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     let engine = test_engine(&database, log.service, home.path());
     let refusals = usize::from(matches!(
         failure,

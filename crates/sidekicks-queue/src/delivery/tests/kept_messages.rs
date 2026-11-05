@@ -189,3 +189,41 @@ async fn a_resume_kept_message_a_live_process_holds_waits_for_the_process_end() 
         RecordedQueueItemState::Queued
     );
 }
+
+// Only a message a continue kept while no provider process held the session goes into a held
+// lead's continue as its run's words, since one an unanswered resume kept while a process ran may
+// be taken already; a failed continue's restore forgets only those, leaving the other kept for its
+// record. Killed by the words taking every kept hand, or by the restore forgetting the other too.
+#[tokio::test]
+async fn only_a_message_kept_with_no_process_is_carried_as_words() {
+    let fixture = fixture(driver_handing(HANDS_AT_ONCE)).await;
+    set_run_state(&fixture, RunState::Paused);
+    let keep_read = async || {
+        let read = continued_ids(&fixture).await;
+        let hold = fixture.session_lock.hold_session(fixture.session_id).await;
+        ContinuedMessages::keep(&fixture.delivery, &hold, fixture.run_id);
+        read
+    };
+    let unheld = insert_item(&fixture).await;
+    fixture.process.set(None);
+    let unheld_read = keep_read().await;
+    let held = insert_item(&fixture).await;
+    fixture.process.set(Some(TEST_PROVIDER_PROCESS));
+    let held_read = keep_read().await;
+
+    let kept = fixture
+        .delivery
+        .kept_words(fixture.session_id)
+        .await
+        .expect("the kept words read");
+    fixture.delivery.forget_kept_words(fixture.run_id);
+
+    assert_eq!((unheld_read, held_read), (vec![unheld.id], vec![held.id]));
+    assert_eq!(
+        kept.get(&fixture.run_id)
+            .map(|words| words.message_ids.clone()),
+        Some(vec![unheld.id])
+    );
+    assert!(!fixture.delivery.is_handed(&unheld.id));
+    assert!(fixture.delivery.is_handed(&held.id));
+}

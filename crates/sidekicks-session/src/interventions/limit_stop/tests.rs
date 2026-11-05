@@ -38,7 +38,9 @@ use sidekicks_provider::driver::message_handing::MessageHanding;
 use sidekicks_provider::driver::run_control::{
     AnswerProviderChoiceResult, ResumeRunOutcome, WaitingMessage,
 };
-use sidekicks_provider::port::run_pause::{ContinuedMessages, ContinuedMessagesError};
+use sidekicks_provider::port::run_pause::{
+    ContinuedMessages, ContinuedMessagesError, SessionOpening,
+};
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
@@ -635,6 +637,15 @@ pub(crate) struct NoWaitingMessages(
 );
 
 impl ContinuedMessages for NoWaitingMessages {
+    fn open_session(
+        &self,
+        _session_id: SessionId,
+    ) -> BoxFuture<'_, Result<SessionOpening, ContinuedMessagesError>> {
+        async { Ok(SessionOpening::Opened) }.boxed()
+    }
+
+    fn continue_held_lead(&self, _session_id: SessionId, _helper_run_id: RunId) {}
+
     fn hold_session(&self, session_id: SessionId) -> BoxFuture<'_, KeyHold<'_, SessionId>> {
         self.0.acquire(session_id).boxed()
     }

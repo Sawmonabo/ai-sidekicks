@@ -38,7 +38,7 @@ use crate::attention::banner_launcher::{BannerLauncher, WindowlessAppStarter};
 use crate::attention::projection::notify_entry_statements;
 use crate::attention::read::read_attention_projection;
 use crate::attention::test_log::AttentionTestLog;
-use crate::run::engine::test_fixture::insert_running_run;
+use crate::run::engine::test_fixture::insert_run;
 
 const MACHINE_DEVICE: &str = "device-machine";
 const WORKFLOW_RUN: &str = "018f0000-0000-7000-8000-000000000004";
@@ -170,7 +170,7 @@ async fn two_moments_of_one_session_raise_one_banner_and_two_sessions_raise_two(
     let other_session = test_session_id();
     let [first, second] = [(); 2].map(|()| log.run(None));
     let other = test_run_id();
-    insert_running_run(&log.database, other_session, other);
+    insert_run(&log.database, other_session, other, "running");
     let mut task = fixture.task();
 
     log.append(log.run_state(first, "completed", 2, json!({})))

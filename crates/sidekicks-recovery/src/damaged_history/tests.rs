@@ -1,5 +1,6 @@
 //! A damaged session's two recovery actions, over the pass fixture after a pass left it damaged.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use rstest::rstest;
@@ -24,6 +25,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::RecoveryActionError;
 use crate::session_write_refusal::refuse_call_naming_session;
+use crate::stop_intent::{StopIntent, StopIntentFile};
 use crate::test_pass::PassFixture;
 
 // A pass leaves a session damaged mid-log beside a healthy one, a row of its run in the range
@@ -184,6 +186,52 @@ async fn continuing_a_damaged_session_skips_its_damage_and_settles_its_runs() {
         "{sequences:?}"
     );
     assert_eq!(*fixture.live_runs.borrow(), 0);
+}
+
+// `Continue from here` on a damaged session the stop intent names ends its running run
+// `interrupted` with `daemonStop`, as the person's Stop does, and drops the session's name while
+// the other name stays. Killed by the restart's settle used (the run then ends `failed`), and by
+// the name left or the whole file removed.
+#[tokio::test]
+async fn continue_from_here_under_the_stop_intent_ends_runs_by_the_stop() {
+    let fixture = PassFixture::new().await;
+    let (damaged, damaged_run) = fixture.stale_session(3, Some(1)).await;
+    fixture
+        .pass(Arc::clone(&fixture.status))
+        .run(&CancellationToken::new())
+        .await;
+    let stop_intent = StopIntentFile::new(&fixture.store.database.path());
+    stop_intent
+        .write_whole()
+        .await
+        .expect("the Stop writes the intent");
+    let healthy = fixture.store.session_id;
+    stop_intent
+        .name_sessions(&StopIntent::Whole, BTreeSet::from([damaged, healthy]))
+        .await
+        .expect("the intent names both sessions");
+
+    tokio::time::timeout(
+        SETTLE_WAIT,
+        fixture
+            .damaged_history()
+            .continue_from_last_good_point(damaged),
+    )
+    .await
+    .expect("the continue ends")
+    .expect("the session continues");
+
+    assert_eq!(
+        stored_run_state(&fixture.store.database, &damaged_run).0,
+        "interrupted"
+    );
+    let interrupted = fixture.payloads(&damaged, SessionEventType::AgentRunInterrupted);
+    assert_eq!(interrupted.len(), 1);
+    assert_eq!(interrupted[0]["trigger"], json!("daemonStop"));
+    assert_eq!(
+        stop_intent.read().await,
+        Some(StopIntent::Sessions(BTreeSet::from([healthy])))
+    );
 }
 
 // How a recovery action ends.

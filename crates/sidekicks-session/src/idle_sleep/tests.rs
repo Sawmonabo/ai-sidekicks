@@ -35,7 +35,7 @@ use tokio::sync::{oneshot, watch};
 use super::kept_schedules::next_wake_at;
 use super::openings::{SessionProcessFollower as _, SessionProcessWaker};
 use super::{SessionIdleSleep, SessionIdleSleepDeps};
-use crate::run::engine::test_fixture::insert_running_run;
+use crate::run::engine::test_fixture::insert_run;
 
 const READ_STATEMENT_CAPACITY: usize = 16;
 
@@ -253,7 +253,7 @@ async fn each_hold_keeps_an_idle_session_awake(#[case] hold: Hold, #[case] sleep
     let session_id = fixture.add_session();
     let _voice_call = match hold {
         Hold::Turn => {
-            insert_running_run(&fixture.database, session_id, test_run_id());
+            insert_run(&fixture.database, session_id, test_run_id(), "running");
             None
         }
         Hold::QueuedMessage => {
@@ -388,6 +388,53 @@ async fn a_recurring_job_sleeps_and_wakes_the_session_before_its_run() {
     fixture.idle_sleep.fire_scheduled_wake(session_id);
     fixture.idle_sleep.settle_transitions().await;
     assert_eq!(calls.wakes.load(Ordering::SeqCst), 1);
+}
+
+// A scheduled wake the provider answers with the session still asleep arms the job's next run,
+// never the run it served, whose wake instant is already past and would fire again at once.
+// Killed by arming again from the clock's now (the same run's wake).
+#[tokio::test(start_paused = true)]
+async fn a_failed_wake_is_not_armed_again_for_the_same_fire() {
+    let next_run = Timestamp::now() + SignedDuration::from_hours(3);
+    let holds = IdleSleepHolds {
+        schedules: vec![KeptSchedule::Recurring {
+            cron: "0 * * * *".to_owned(),
+            next_fire_at: Some(next_run),
+            expires_at: next_run + SignedDuration::from_hours(24),
+        }],
+        ..IdleSleepHolds::default()
+    };
+    let mut driver = MockProviderDriver::new();
+    driver.expect_idle_sleep_holds().returning(move |_| {
+        let holds = holds.clone();
+        async move { Ok(holds) }.boxed()
+    });
+    driver
+        .expect_sleep_session()
+        .returning(|_| async { Ok(SessionSleepState::Asleep) }.boxed());
+    driver
+        .expect_wake_session()
+        .times(1)
+        .returning(|_| async { Ok(SessionSleepState::Asleep) }.boxed());
+    let fixture = fixture(driver).await;
+    let session_id = fixture.add_session();
+    fixture.idle_past_the_limit(session_id).await;
+    assert_eq!(
+        fixture.idle_sleep.armed_wake_at(session_id),
+        Some(next_run - SignedDuration::from_mins(2))
+    );
+
+    fixture.idle_sleep.fire_scheduled_wake(session_id);
+    fixture.idle_sleep.settle_transitions().await;
+
+    let armed = fixture
+        .idle_sleep
+        .armed_wake_at(session_id)
+        .expect("the failed wake arms the next run");
+    assert!(
+        armed > next_run,
+        "{armed} is past the served run {next_run}"
+    );
 }
 
 // A session whose recurring job could not be stored stays awake past the limit, so a restart never

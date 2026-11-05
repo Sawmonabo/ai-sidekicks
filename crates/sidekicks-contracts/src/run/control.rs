@@ -166,8 +166,9 @@ pub enum ProcessExit {
     Silent(ProcessExitAfterSilence),
 }
 
-/// Why the daemon itself ended a run `stopped`: the run passed the token limit the person set, or
-/// the person stopped it with every other agent, which ends it `stopped` as the token limit does.
+/// Why the daemon itself ended a run `stopped`: the run passed the token limit the person set, the
+/// person stopped it with every other agent, the person stopped the service before the run started,
+/// or the person removed every message the run was queued for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum StopTrigger {
@@ -175,6 +176,10 @@ pub enum StopTrigger {
     TokenLimit,
     /// The person stopped every agent at once; its end is final, as the token limit's is.
     StopAll,
+    /// The person stopped the service before the run started.
+    DaemonStop,
+    /// Every message the run was queued for was removed before it started.
+    MessagesRemoved,
 }
 
 /// Declares the four bodies of a state change: each carries the members every transition has and
@@ -564,7 +569,7 @@ methods! {
             result: AgentQueueItemListResponse,
             refusals: [SessionNotFound, AgentChildRunNotFound, AgentChildRunControlRefused],
         },
-        /// Removes a waiting message.
+        /// Removes a waiting message, or a lead item that reads not delivered.
         AgentQueueItemCancel = mutation "agent.queueItem.cancel" {
             mutating: true,
             params: AgentQueueItemCancelRequest,

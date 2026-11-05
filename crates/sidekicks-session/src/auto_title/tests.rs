@@ -34,7 +34,7 @@ use super::{SESSION_AUTO_TITLE_STATEMENT_CAPACITY, SessionAutoTitle, session_tit
 use crate::changes::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
 use crate::directory::row::{DirectoryEvent, directory_statements_for};
 use crate::questions::schema::schema_parts;
-use crate::run::engine::test_fixture::insert_running_run;
+use crate::run::engine::test_fixture::insert_run;
 
 /// Bounds every wait a test expects to end, so one that never does fails the test.
 const WAIT: Duration = Duration::from_secs(10);
@@ -117,8 +117,8 @@ fn insert_completed_session(database: &TestDatabase, session_id: SessionId, firs
     let run = run_id.text();
     let subagent_run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
     let subagent_run = subagent_run_id.text();
-    insert_running_run(database, session_id, run_id);
-    insert_running_run(database, session_id, subagent_run_id);
+    insert_run(database, session_id, run_id, "running");
+    insert_run(database, session_id, subagent_run_id, "running");
     connection
         .execute(
             "UPDATE runs SET parent_run_id = ?1 WHERE run_id = ?2",

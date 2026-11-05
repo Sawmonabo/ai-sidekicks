@@ -10,6 +10,7 @@ use futures::future::BoxFuture;
 use serde_json::Map;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use tokio::sync::Notify;
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use super::CLAUDE_NAMING_DEADLINE;
@@ -135,7 +136,7 @@ impl ClaudeProcessStarts for UnansweredOneTurn {
         unreachable!("{ONLY_THE_ONE_TURN}")
     }
 
-    fn stop_every_process(&self) -> BoxFuture<'_, ()> {
+    fn stop_every_process(&self, _deadline: Instant) -> BoxFuture<'_, ()> {
         async {}.boxed()
     }
 }

@@ -22,6 +22,7 @@ sidekicks-approval.workspace = true
 sidekicks-artifact.workspace = true
 sidekicks-contracts.workspace = true
 sidekicks-ipc.workspace = true
+sidekicks-mcp.workspace = true
 sidekicks-platforms.workspace = true
 sidekicks-provider.workspace = true
 sidekicks-queue.workspace = true

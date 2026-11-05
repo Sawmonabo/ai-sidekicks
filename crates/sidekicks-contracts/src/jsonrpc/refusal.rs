@@ -149,8 +149,9 @@ refusal_codes! {
     /// A change to a waiting message refused: a removal (`agent.queueItem.cancel`) or an edit
     /// (`agent.queueItem.create` with `replacesQueueItemId`) of a message the agent has already
     /// taken, a removal or an edit of one the provider did not give back, its withdraw failing or
-    /// passing the daemon's ten-second withdraw deadline, which then reads not delivered, or an
-    /// `agent.queueItem.reorder` whose list is not exactly the waiting items.
+    /// passing the daemon's ten-second withdraw deadline, which then reads not delivered, a removal
+    /// of a helper's message that reads not delivered (a lead item that reads not delivered is
+    /// removed), or an `agent.queueItem.reorder` whose list is not exactly the waiting items.
     AgentQueueItemChangeRefused = "agent.queueItem.changeRefused" (FailedPrecondition, 409);
     /// A change (`agent.queueItem.cancel`, an edit through `agent.queueItem.create` with
     /// `replacesQueueItemId`, or `agent.queueItem.reorder`) named a queue item the queue does not

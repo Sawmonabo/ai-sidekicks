@@ -13,6 +13,7 @@ pub mod resumed_runs;
 pub mod session_write_refusal;
 pub mod startup;
 pub mod status;
+pub mod stop_intent;
 #[cfg(test)]
 pub(crate) mod test_pass;
 pub mod write_gate;

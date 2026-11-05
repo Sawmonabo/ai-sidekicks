@@ -4,11 +4,13 @@
 //! reads the backup's manifest; reads the backup's database header, refusing a copy another
 //! build's schema wrote and naming both schemas and both service versions; and reads the mirror's
 //! list and checks that each place it keeps, under this computer's home folder, can be written,
-//! all before it replaces anything. It then replaces the store, its log, its shared memory and its
-//! search index removed, brings each place the mirror keeps level with its copy, and records
-//! `daemon.backup.restored` in the restored store through the one writer before any service opens
-//! it. A restore that fails names its step and leaves what it had not reached as it was. The mode
-//! answers the command line with one JSON object on its standard output.
+//! all before it replaces anything. It then writes the stop intent whole, so the next start ends
+//! the restored store's runs as a Stop ends them and resumes none, replaces the store, its log,
+//! its shared memory and its search index removed, brings each place the mirror keeps level with
+//! its copy, and records `daemon.backup.restored` in the restored store through the one writer
+//! before any service opens it. A restore that fails names its step and leaves what it had not
+//! reached as it was. The mode answers the command line with one JSON object on its standard
+//! output.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -55,6 +57,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::database_file::copy::copy_file_replacing;
 use crate::database_file::{SHARED_MEMORY_SUFFIX, WRITE_AHEAD_LOG_SUFFIX};
+use crate::stop_intent::{StopIntentError, StopIntentFile};
 
 // The SQLite file header's first bytes, and where in the header its `user_version` sits.
 const SQLITE_HEADER_MAGIC: &[u8; 16] = b"SQLite format 3\0";
@@ -125,6 +128,10 @@ pub(crate) enum RestoreError {
         /// This build's service version.
         build_service_version: String,
     },
+    /// The stop intent could not be written, so the restored store's runs could not be ended as a
+    /// Stop ends them; nothing was replaced.
+    #[error("the stop intent could not be written before the store was replaced")]
+    StopIntent(#[source] StopIntentError),
     /// The store could not be replaced.
     #[error("the service's store could not be replaced at {}", path.display())]
     Replace {
@@ -228,8 +235,10 @@ fn restore_from_home(
 /// Restores the backup in `backup_folder` into the service of the home folder `home`, as the
 /// mode's doc says, `schema` the daemon's and `service_version` this build's. Fails with the step
 /// that failed; before anything is replaced with [`RestoreError::Held`] while a service holds the
-/// data folder, [`RestoreError::OtherBuild`] naming both schemas and both service versions, and
-/// [`RestoreError::Place`] for a kept place that cannot be written.
+/// data folder, [`RestoreError::OtherBuild`] naming both schemas and both service versions,
+/// [`RestoreError::Place`] for a kept place that cannot be written, and
+/// [`RestoreError::StopIntent`] when the stop intent, written whole so the next start resumes none
+/// of the restored store's runs, cannot be written.
 pub(crate) async fn restore_backup(
     home: &Path,
     backup_folder: &Path,
@@ -281,6 +290,12 @@ pub(crate) async fn restore_backup(
         None => Vec::new(),
     };
     let store = data_folder.join(DAEMON_DATABASE_FILE_NAME);
+    // The restored store's live runs end as a Stop ends them; the data folder's lock keeps the
+    // service from writing the intent beside this one.
+    StopIntentFile::new(&store)
+        .write_whole()
+        .await
+        .map_err(RestoreError::StopIntent)?;
     replace_store(
         &backup_database,
         &store,
@@ -499,8 +514,10 @@ mod tests {
         DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME, open_database,
     };
     use sidekicks_store::database::schema::{DatabaseSchema, schema_parts};
+    use sidekicks_store::database::sibling_path;
 
     use super::{BACKUP_DATABASE_FILE_NAME, RestoreError, restore_backup};
+    use crate::stop_intent::{STOP_INTENT_SUFFIX, StopIntent, StopIntentFile};
 
     // A backup folder holding a store opened with `schema`, its `user_version` set to `version`,
     // its manifest naming `service_version`.
@@ -629,6 +646,50 @@ mod tests {
         assert_eq!(
             fs::read(home.join(".agent/agent-memory/notes.md")).expect("the kept file is back"),
             b"learned"
+        );
+    }
+
+    // A restore writes the stop intent whole before it replaces the store, so the next start ends
+    // the restored runs as a Stop does; where the intent cannot be written, here a folder standing
+    // at its path, the restore refuses and the store is left as it was. Killed by the intent
+    // written after the store is replaced, and by the write's failure dropped.
+    #[tokio::test]
+    async fn a_restore_writes_the_stop_intent_before_it_replaces_the_store() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let home = scratch.path().join("home");
+        let data_folder = data_folder(&home);
+        fs::create_dir_all(&data_folder).expect("the data folder is made");
+        let backup = scratch.path().join("backups/this-build");
+        let schema = schema_parts().into_schema();
+        write_backup(&backup, &schema, schema.fingerprint(), "1.2.3");
+        let service_version = ReleaseVersion::new("1.2.3".to_owned()).expect("a version");
+        let store = data_folder.join(DAEMON_DATABASE_FILE_NAME);
+        fs::write(&store, b"the store before the restore").expect("written");
+        let intent_path = sibling_path(&store, STOP_INTENT_SUFFIX);
+        fs::create_dir_all(&intent_path).expect("a folder stands at the intent's path");
+        fs::write(intent_path.join("held"), b"a file in the way").expect("written");
+
+        let refused = restore_backup(&home, &backup, &schema, &service_version).await;
+        assert!(
+            matches!(refused, Err(RestoreError::StopIntent(_))),
+            "{refused:?}"
+        );
+        assert_eq!(
+            fs::read(&store).expect("the store reads"),
+            b"the store before the restore"
+        );
+
+        fs::remove_dir_all(&intent_path).expect("the folder in the way is removed");
+        restore_backup(&home, &backup, &schema, &service_version)
+            .await
+            .expect("the restore runs");
+        assert_eq!(
+            StopIntentFile::new(&store).read().await,
+            Some(StopIntent::Whole)
+        );
+        assert_ne!(
+            fs::read(&store).expect("the store reads"),
+            b"the store before the restore"
         );
     }
 }

@@ -20,7 +20,7 @@ use super::{CodexService, CodexServiceSocket};
 use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::session::inbound::codex_session_inbound;
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::driver::test_registry::new_session_id;
 
 /// How long the test watches for a free check that must not come.
@@ -163,7 +163,9 @@ async fn a_joined_service_checks_it_is_free_once_the_daemon_holds_no_session_on_
     let is_checked_once_none_left = is_checked(&mut loaded_reads, CHECK_WAIT).await;
     notices.send(closed).expect("the listener runs");
     let is_checked_on_a_close_with_none_left = is_checked(&mut loaded_reads, CHECK_WAIT).await;
-    service.shutdown(DaemonStopIntent::Stop).await;
+    service
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
 
     assert!(is_joined);
     assert!(!is_checked_with_one_left);

@@ -9014,6 +9014,7 @@ dependencies = [
  "sidekicks-artifact",
  "sidekicks-contracts",
  "sidekicks-ipc",
+ "sidekicks-mcp",
  "sidekicks-platforms",
  "sidekicks-provider",
  "sidekicks-queue",

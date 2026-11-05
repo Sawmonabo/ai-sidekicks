@@ -18,8 +18,6 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::turn::ProviderTurnId;
-use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
-use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
@@ -32,16 +30,13 @@ use sidekicks_provider::driver::session_control::{
     ResumedRunAnswer,
 };
 use sidekicks_provider::runtime_binding::test_store::spawned_build;
-use sidekicks_session::queue_store::{
-    NewQueueItem, QueueItemBody, QueueItemReader, QueueMessageBody, RecordedQueueItemState,
-    insert_queue_item_statement,
-};
-use sidekicks_session::run::engine::test_fixture::{insert_running_run, stored_run_state};
+use sidekicks_session::queue_store::{QueueItemReader, RecordedQueueItemState};
+use sidekicks_session::run::engine::test_fixture::{insert_run, stored_run_state};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::writer::test_file::test_run_id;
 use tokio_util::sync::CancellationToken;
 
-use crate::test_pass::{PassFixture, insert_runs};
+use crate::test_pass::{PassFixture, insert_runs, queue_message};
 
 /// The words a refused resume's provider gives.
 const REFUSED_DETAIL: &str = "The conversation could not be found";
@@ -83,7 +78,7 @@ pub(super) fn still_running(_run_id: RunId) -> ProviderTurnAnswer {
 }
 
 // A driver that resumes `resumes` sessions, answering from each resume's params through `answer`.
-fn resuming_driver(
+pub(super) fn resuming_driver(
     resumes: usize,
     answer: impl Fn(&ResumeSessionParams) -> DriverResumeResult + Send + Sync + 'static,
 ) -> MockProviderDriver {
@@ -100,7 +95,9 @@ fn resuming_driver(
 
 // Has `driver` expect one end of the turns a restart kept, answered at once, and answers where
 // the params it is handed are recorded.
-fn expect_kept_turns_ended(driver: &mut MockProviderDriver) -> Arc<Mutex<Vec<EndKeptTurnsParams>>> {
+pub(super) fn expect_kept_turns_ended(
+    driver: &mut MockProviderDriver,
+) -> Arc<Mutex<Vec<EndKeptTurnsParams>>> {
     let ended: Arc<Mutex<Vec<EndKeptTurnsParams>>> = Arc::default();
     let recorded = Arc::clone(&ended);
     driver
@@ -114,7 +111,9 @@ fn expect_kept_turns_ended(driver: &mut MockProviderDriver) -> Arc<Mutex<Vec<End
 }
 
 // The one end of kept turns recorded in `ended`: its conversation, and its runs in id order.
-fn ended_kept_turns(ended: &Mutex<Vec<EndKeptTurnsParams>>) -> (String, Vec<KeptRunTurns>) {
+pub(super) fn ended_kept_turns(
+    ended: &Mutex<Vec<EndKeptTurnsParams>>,
+) -> (String, Vec<KeptRunTurns>) {
     let ended = lock(ended);
     let [params] = ended.as_slice() else {
         panic!("the kept turns were ended once: {ended:?}");
@@ -125,7 +124,7 @@ fn ended_kept_turns(ended: &Mutex<Vec<EndKeptTurnsParams>>) -> (String, Vec<Kept
 }
 
 // A run's one kept turn, `turn_id`, ended for its own stop where `is_for_stop`.
-fn kept_turn(run_id: RunId, turn_id: &str, is_for_stop: bool) -> KeptRunTurns {
+pub(super) fn kept_turn(run_id: RunId, turn_id: &str, is_for_stop: bool) -> KeptRunTurns {
     KeptRunTurns {
         run_id,
         subagent_id: None,
@@ -155,7 +154,7 @@ impl PassFixture {
     ) -> (SessionId, RunId, RuntimeBindingId) {
         let session_id = self.new_session();
         let run_id = test_run_id();
-        insert_running_run(&self.store.database, session_id, run_id);
+        insert_run(&self.store.database, session_id, run_id, "running");
         let binding_id = self.bind_resumable(run_id, provider_index).await;
         (session_id, run_id, binding_id)
     }
@@ -180,7 +179,7 @@ impl PassFixture {
     // Writes a running helper the provider of `lead` dispatched beneath it in `session_id`.
     fn insert_helper(&self, session_id: SessionId, lead: RunId) -> RunId {
         let helper = test_run_id();
-        insert_running_run(&self.store.database, session_id, helper);
+        insert_run(&self.store.database, session_id, helper, "running");
         self.make_helper_of(helper, lead);
         helper
     }
@@ -203,7 +202,7 @@ impl PassFixture {
 
     // Opens `run_id`'s first turn in `session_id`, under the provider's id `provider_turn_id`
     // where it reported one.
-    async fn open_turn(
+    pub(super) async fn open_turn(
         &self,
         session_id: SessionId,
         run_id: RunId,
@@ -221,37 +220,8 @@ impl PassFixture {
         .await;
     }
 
-    // Queues a message for `run_id` in `session_id` and answers its id.
-    async fn queue_message(&self, session_id: SessionId, run_id: RunId) -> QueueItemId {
-        let item = NewQueueItem {
-            id: QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id"),
-            session_id,
-            body: QueueItemBody::Message(QueueMessageBody {
-                content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
-                attachments: None,
-                skills: None,
-                answers_question_id: None,
-                output_speed_for_turn: None,
-                workspace_id: None,
-            }),
-            target_run_id: run_id,
-            device_id: None,
-            client_idempotency_key: Some(
-                ClientUuid::new(mint_uuid_v7().to_string()).expect("a minted UUID is a client key"),
-            ),
-            replaces_queue_item_id: None,
-            now: WireInstant::now(),
-        };
-        self.store
-            .writer
-            .write(vec![insert_queue_item_statement(&item)])
-            .await
-            .expect("the test queues its message");
-        item.id
-    }
-
     // The recorded state of queue item `item_id`.
-    fn queue_item_state(&self, item_id: QueueItemId) -> RecordedQueueItemState {
+    pub(super) fn queue_item_state(&self, item_id: QueueItemId) -> RecordedQueueItemState {
         QueueItemReader::new(&self.store.database.reader())
             .get(&item_id)
             .expect("the test reads its message")
@@ -260,7 +230,7 @@ impl PassFixture {
     }
 
     // The payloads of `run_id`'s `event_type` events in `session_id`, in log order.
-    fn run_payloads(
+    pub(super) fn run_payloads(
         &self,
         session_id: SessionId,
         event_type: SessionEventType,
@@ -273,7 +243,7 @@ impl PassFixture {
     }
 
     // The trigger of `run_id`'s one interrupted end in `session_id`, `None` when it carries none.
-    fn run_trigger(&self, session_id: SessionId, run_id: RunId) -> Option<String> {
+    pub(super) fn run_trigger(&self, session_id: SessionId, run_id: RunId) -> Option<String> {
         let ends = self.run_payloads(session_id, SessionEventType::AgentRunInterrupted, run_id);
         let [end] = ends.as_slice() else {
             panic!("run {run_id} ended interrupted once: {ends:?}");
@@ -444,7 +414,12 @@ async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interru
         .open_turn(stopped_session, stopped_lead, Some("turn-lead"))
         .await;
     let token_run = test_run_id();
-    insert_running_run(&fixture.store.database, stopped_session, token_run);
+    insert_run(
+        &fixture.store.database,
+        stopped_session,
+        token_run,
+        "running",
+    );
     fixture
         .open_turn(stopped_session, token_run, Some("turn-token"))
         .await;
@@ -506,7 +481,7 @@ async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interru
         .await;
     let gone_helper = fixture.insert_helper(mixed_session, still_running);
     let kept_helper = fixture.insert_helper(mixed_session, still_pausing);
-    let waiting_message = fixture.queue_message(mixed_session, queued_run).await;
+    let waiting_message = queue_message(&fixture.store.writer, mixed_session, queued_run).await;
 
     // Session C: a stopping lead and its helper with no stop of its own.
     let (helper_session, stopping_lead, _) = fixture.running_session(1).await;
@@ -708,14 +683,14 @@ async fn a_refused_resume_fails_its_run_and_lists_it_until_the_sessions_next_run
     fixture.end_seeded_run();
     let (session_id, run_id, _) = fixture.running_session(0).await;
     let stopping_run = test_run_id();
-    insert_running_run(&fixture.store.database, session_id, stopping_run);
+    insert_run(&fixture.store.database, session_id, stopping_run, "running");
     fixture.record_person_interrupt(stopping_run);
     let cut_helper = fixture.insert_helper(session_id, stopping_run);
     // A second stopping lead whose helper was written before it.
     let early_helper = test_run_id();
-    insert_running_run(&fixture.store.database, session_id, early_helper);
+    insert_run(&fixture.store.database, session_id, early_helper, "running");
     let later_lead = test_run_id();
-    insert_running_run(&fixture.store.database, session_id, later_lead);
+    insert_run(&fixture.store.database, session_id, later_lead, "running");
     fixture.record_person_interrupt(later_lead);
     fixture.make_helper_of(early_helper, later_lead);
     fixture

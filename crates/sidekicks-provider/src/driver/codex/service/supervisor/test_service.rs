@@ -40,7 +40,8 @@ use tokio_util::task::TaskTracker;
 #[cfg(test)]
 pub(crate) use self::stand_in::{
     CODEX_HOME_NAME, CONFIG_READ_REPLY_NAME, HANG_UP_IGNORED_NAME, LAUNCH_ARGUMENTS_FILE,
-    ProgramPerHome, REQUEST_RECORD_NAME, StandInLaunches, read_tree, request_record,
+    ProgramPerHome, REQUEST_RECORD_NAME, STOP_IGNORED_NAME, StandInLaunches, read_tree,
+    request_record,
 };
 pub use self::stand_in::{
     CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, RESUMED_TURN_NAME,

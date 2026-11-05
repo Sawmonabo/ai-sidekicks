@@ -17,7 +17,7 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use super::test_log::counted_log;
 use crate::questions::schema::schema_parts;
 use crate::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
-use crate::run::engine::test_fixture::insert_running_run;
+use crate::run::engine::test_fixture::insert_run;
 use crate::run::state_change::{RunStateChange, RunWriteCompanions, RunWriter};
 
 // Commits run `run_id` of a fresh session in `state` through `writer`, as a run state change's
@@ -67,7 +67,7 @@ async fn committed_changes_move_the_count_by_the_states_they_leave_and_enter() {
     let (log, count) = counted_log(&database).await;
     let session_id = test_session_id();
     let run_id = test_run_id();
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     // Written past the writer, so no commit has counted it yet.
     assert_eq!(*count.borrow(), 0);
 

@@ -3,19 +3,21 @@
 //! a run ended under the driver call, and the provider's reports held while a resume runs.
 
 mod owed_continuation;
+mod unopened;
+mod waiting_messages;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::FutureExt as _;
-use futures::future::BoxFuture;
 use rstest::rstest;
 use rusqlite::params;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::control::{AgentRunPauseRequest, AgentRunResumeRequest};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -28,19 +30,19 @@ use sidekicks_provider::driver::run_control::{ResumeRunOutcome, TakenMessages, W
 use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
 };
-use sidekicks_provider::port::run_pause::{ContinuedMessages, ContinuedMessagesError};
+use sidekicks_provider::port::run_pause::ContinuedMessages;
 use sidekicks_provider::run::state_entry::RunStateEntry;
-use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
 use tempfile::TempDir;
 use tokio::sync::oneshot;
 
+use self::waiting_messages::WaitingMessages;
 use super::{RUN_PAUSE_STATEMENT_CAPACITY, RunPauseControl, RunPauseError};
 use crate::driver_resolution::LiveRunDriverError;
 use crate::questions::schema::schema_parts;
-use crate::run::engine::test_fixture::{insert_running_run, test_engine};
+use crate::run::engine::test_fixture::{insert_run, test_engine};
 use crate::run::engine::tests::SETTLE_WAIT;
 use crate::run::engine::{InterruptRoute, RunEngine};
 use crate::run::refusals::RunRefusal;
@@ -89,10 +91,13 @@ impl Fixture {
             .map(drop)
     }
 
-    /// Reports the provider moved the run to `entry`, as its event delivery does.
-    fn report(&self, entry: RunStateEntry) -> tokio::task::JoinHandle<bool> {
+    /// Reports the provider paused the run, as its event delivery does: only from `pausing`.
+    fn report_paused(&self) -> tokio::task::JoinHandle<bool> {
         let engine = Arc::clone(&self.engine);
-        let change = RunStateChange::new(self.run_id, entry);
+        let change = RunStateChange {
+            expected_state: Some(RunState::Pausing),
+            ..RunStateChange::new(self.run_id, RunStateEntry::Paused)
+        };
         tokio::spawn(async move {
             engine
                 .apply_provider_state_change(change, None)
@@ -116,7 +121,7 @@ async fn fixture(mut driver: MockProviderDriver, state: &str) -> Fixture {
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id: SessionId = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     bind_run_to_first_provider(&database, run_id);
     set_run(&database, run_id, state, 1);
     let engine = test_engine(&database, Arc::clone(&log.service), home.path());
@@ -171,154 +176,6 @@ fn waiting_message() -> WaitingMessage {
         content: MessageContent::new("carry on".to_owned()).expect("the words are a message"),
         attachments: Vec::new(),
         skills: Vec::new(),
-    }
-}
-
-/// The waiting messages as the queue keeps them: read until taken, given back or kept, and a
-/// kept one read by no later resume.
-struct WaitingMessages {
-    waiting: Mutex<Vec<WaitingMessage>>,
-    kept: Mutex<Vec<WaitingMessage>>,
-    releases: AtomicUsize,
-    admissions: AtomicUsize,
-    // The kept messages a settle delivered with the run, those it gave back, and those it ended
-    // not delivered.
-    settled_taken: Mutex<Vec<QueueItemId>>,
-    settled_given_back: Mutex<Vec<QueueItemId>>,
-    failed: Mutex<Vec<QueueItemId>>,
-    session_lock: KeyedLock<SessionId>,
-}
-
-impl Default for WaitingMessages {
-    fn default() -> Self {
-        Self {
-            waiting: Mutex::default(),
-            kept: Mutex::default(),
-            releases: AtomicUsize::default(),
-            admissions: AtomicUsize::default(),
-            settled_taken: Mutex::default(),
-            settled_given_back: Mutex::default(),
-            failed: Mutex::default(),
-            session_lock: KeyedLock::new(),
-        }
-    }
-}
-
-impl WaitingMessages {
-    fn holding(message: WaitingMessage) -> Self {
-        Self {
-            waiting: Mutex::new(vec![message]),
-            ..Self::default()
-        }
-    }
-
-    fn kept_messages(&self) -> Vec<WaitingMessage> {
-        self.kept.lock().expect("the kept messages read").clone()
-    }
-}
-
-impl ContinuedMessages for WaitingMessages {
-    fn hold_session(&self, session_id: SessionId) -> BoxFuture<'_, KeyHold<'_, SessionId>> {
-        self.session_lock.acquire(session_id).boxed()
-    }
-
-    fn read(
-        &self,
-        _hold: &KeyHold<'_, SessionId>,
-        _run_id: RunId,
-        _handing: MessageHanding,
-    ) -> BoxFuture<'_, Result<Vec<WaitingMessage>, ContinuedMessagesError>> {
-        let waiting = self.waiting.lock().expect("the messages read").clone();
-        async move { Ok(waiting) }.boxed()
-    }
-
-    fn admit(
-        &self,
-        _hold: &KeyHold<'_, SessionId>,
-        _run_id: RunId,
-    ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
-        self.waiting.lock().expect("the messages read").clear();
-        self.admissions.fetch_add(1, Ordering::SeqCst);
-        async { Ok(()) }.boxed()
-    }
-
-    fn release(
-        &self,
-        _hold: &KeyHold<'_, SessionId>,
-        _run_id: RunId,
-    ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
-        self.releases.fetch_add(1, Ordering::SeqCst);
-        async { Ok(()) }.boxed()
-    }
-
-    fn keep(&self, _hold: &KeyHold<'_, SessionId>, _run_id: RunId) {
-        let mut waiting = self.waiting.lock().expect("the messages read");
-        self.kept
-            .lock()
-            .expect("the kept messages read")
-            .append(&mut waiting);
-    }
-
-    fn kept(&self, _hold: &KeyHold<'_, SessionId>, _run_id: RunId) -> Vec<QueueItemId> {
-        self.kept_messages()
-            .iter()
-            .map(|message| message.id)
-            .collect()
-    }
-
-    // The test's provider process keeps nothing past a run's end.
-    fn kept_unheld(&self, hold: &KeyHold<'_, SessionId>, run_id: RunId) -> Vec<QueueItemId> {
-        self.kept(hold, run_id)
-    }
-
-    fn settle_kept(
-        &self,
-        _hold: &KeyHold<'_, SessionId>,
-        _run_id: RunId,
-        settled: &[QueueItemId],
-        taken: &[QueueItemId],
-    ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
-        let mut kept = self.kept.lock().expect("the kept messages read");
-        let (settling, left): (Vec<_>, Vec<_>) = kept
-            .drain(..)
-            .partition(|message| settled.contains(&message.id));
-        *kept = left;
-        drop(kept);
-        for message in settling {
-            if taken.contains(&message.id) {
-                self.settled_taken
-                    .lock()
-                    .expect("the settled messages read")
-                    .push(message.id);
-            } else {
-                self.settled_given_back
-                    .lock()
-                    .expect("the settled messages read")
-                    .push(message.id);
-                self.waiting
-                    .lock()
-                    .expect("the messages read")
-                    .push(message);
-            }
-        }
-        async { Ok(()) }.boxed()
-    }
-
-    fn fail_kept(
-        &self,
-        _hold: &KeyHold<'_, SessionId>,
-        _run_id: RunId,
-        message_ids: &[QueueItemId],
-    ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
-        self.kept
-            .lock()
-            .expect("the kept messages read")
-            .retain(|message| !message_ids.contains(&message.id));
-        self.failed
-            .lock()
-            .expect("the failed messages read")
-            .extend_from_slice(message_ids);
-        async { Ok(()) }.boxed()
     }
 }
 
@@ -609,7 +466,7 @@ async fn reports_and_interrupts_wait_for_a_resume_and_the_run_stays_running() {
         .await
         .expect("the driver is asked to resume")
         .expect("the driver signals its call");
-    let mut report = fixture.report(RunStateEntry::Paused);
+    let mut report = fixture.report_paused();
     let mut interrupt = {
         let engine = Arc::clone(&fixture.engine);
         let run_id = fixture.run_id;
@@ -656,10 +513,7 @@ async fn a_pause_whose_answer_never_came_stays_pausing_for_the_providers_report(
         })
         .await;
     let after_pause = fixture.run();
-    let is_report_applied = fixture
-        .report(RunStateEntry::Paused)
-        .await
-        .expect("the report ends");
+    let is_report_applied = fixture.report_paused().await.expect("the report ends");
 
     assert!(
         matches!(
@@ -701,7 +555,7 @@ async fn a_report_during_the_resumes_run_read_waits_and_the_resume_takes_the_run
         .await
         .expect("the resume reads its run")
         .expect("the read signals its start");
-    let mut report = fixture.report(RunStateEntry::Paused);
+    let mut report = fixture.report_paused();
     let is_report_held = tokio::time::timeout(HELD_WATCH, &mut report).await.is_err();
     held_read
         .release

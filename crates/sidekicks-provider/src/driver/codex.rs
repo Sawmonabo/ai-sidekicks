@@ -324,7 +324,8 @@ pub(super) fn stop_recorded_services(
 ) -> BoxFuture<'static, Result<(), RecordedServicesStopError>> {
     let data_folder = data_folder.to_owned();
     async move {
-        let failures = stop_kept_services(data_folder, KeptServicesStop::Erase).await;
+        // No daemon runs, so no live service holds a record.
+        let failures = stop_kept_services(data_folder, KeptServicesStop::Erase, &[]).await;
         if failures.is_empty() {
             return Ok(());
         }
@@ -842,8 +843,12 @@ impl ProviderDriver for CodexDriver {
         self.subscribe_provider_commands(&params, listener)
     }
 
-    fn shutdown(&self, intent: DaemonStopIntent) -> BoxFuture<'_, Result<(), DriverError>> {
-        self.shutdown(intent).map(Ok).boxed()
+    fn shutdown(
+        &self,
+        intent: DaemonStopIntent,
+        deadline: tokio::time::Instant,
+    ) -> BoxFuture<'_, ()> {
+        self.shutdown(intent, deadline).boxed()
     }
 
     // A Codex session takes a message through the daemon's own steer and turn start, never

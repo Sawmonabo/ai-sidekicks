@@ -404,20 +404,24 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
     }
 
     /// Settles the run's choice for an interrupt or an undo and answers whether the choice took
-    /// the interrupt's place: a refusal is answered `cancelled` and ends refused, so no interrupt
-    /// is sent; a usage-credits choice is recorded `interrupted` and the turn's own interrupt still
-    /// goes. Fails as the cancel's write fails, the choice held again.
+    /// the interrupt's place: a refusal is answered `cancelled`, so no interrupt is sent, and its
+    /// end, failed as refused, is recorded here when `is_refusal_end_recorded`, else left to the
+    /// run engine, which writes it with a person's interrupt's own end; a usage-credits choice is
+    /// recorded `interrupted` and the turn's own interrupt still goes. Fails as the cancel's write
+    /// fails, the choice held again.
     pub(crate) async fn settle_for_interrupt(
         &self,
         session: &ClaudeDialogSession<'_>,
         run_id: RunId,
+        is_refusal_end_recorded: bool,
     ) -> Result<bool, DriverError> {
         let Some(held) = self.lock().remove(&run_id) else {
             return Ok(false);
         };
         match held.kind {
             ClaudeDialogKind::Refusal => {
-                self.cancel_refusal(session, held).await?;
+                self.cancel_refusal(session, held, is_refusal_end_recorded)
+                    .await?;
                 Ok(true)
             }
             ClaudeDialogKind::UsageCredits => {
@@ -452,7 +456,7 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
         let Some(held) = held else {
             return Ok(false);
         };
-        self.cancel_refusal(session, held).await?;
+        self.cancel_refusal(session, held, true).await?;
         Ok(true)
     }
 
@@ -578,18 +582,21 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
         }
     }
 
-    // A cancel that cannot be written leaves the choice held at Claude Code, so it is held here
-    // too.
+    // Answers the refusal `cancelled`, then records its end where `is_end_recorded`. A cancel that
+    // cannot be written leaves the choice held at Claude Code, so it is held here too.
     async fn cancel_refusal(
         &self,
         session: &ClaudeDialogSession<'_>,
         held: HeldDialog,
+        is_end_recorded: bool,
     ) -> Result<(), DriverError> {
         let cancel = serde_json::value::to_raw_value(&json!({"behavior": "cancelled"}))
             .expect("a dialog answer always serializes");
         match self.write_answer(session, &held, cancel).await {
             Ok(()) => {
-                self.record_refusal_end(&held, true).await;
+                if is_end_recorded {
+                    self.record_refusal_end(&held, true).await;
+                }
                 Ok(())
             }
             Err(DialogWriteFailure::Unsent(cause)) => {

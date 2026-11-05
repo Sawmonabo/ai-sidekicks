@@ -306,5 +306,8 @@ async fn a_deadline_that_passed_fails_its_step_once_the_clock_reaches_it() {
         received.try_recv().is_err(),
         "the account wait has no deadline"
     );
-    scheduler.stop().await.expect("the scheduler stops");
+    scheduler
+        .stop(tokio::time::Instant::now() + Duration::from_secs(60))
+        .await
+        .expect("the scheduler stops");
 }

@@ -17,6 +17,7 @@ use std::time::Duration;
 use sidekicks_platforms::ProcessRecord;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::watch;
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::codex::service::process::{
@@ -25,6 +26,7 @@ use crate::driver::codex::service::process::{
 use crate::driver::codex::service::record::{LastingServiceRecordFile, LockedServiceRecord};
 use crate::driver::codex::service::supervisor::runner::{SERVICE_STOP_GRACE, report_stop_failed};
 use crate::driver::codex::service::supervisor::start::kept_records::on_record;
+use crate::driver::daemon_stop::run_until;
 
 /// How a drain ended, as its one waiting task tells it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -113,13 +115,16 @@ impl LastingServiceDrains {
 }
 
 /// Drains `lasting`, whose record `record_file` keeps, as a replaced service's stop, its control
-/// socket at `control_socket`: the drain begun under the folder's lock, then its end awaited with
-/// the lock let go of. Answers whether the service ended; a failure is reported.
+/// socket at `control_socket`: the drain begun under the folder's lock, by `deadline` where the
+/// daemon's stop gives one, then its end awaited with the lock let go of. Answers whether the
+/// service ended; a failure is reported, and a begin the deadline cut leaves the service
+/// draining in its record for the next start.
 pub(super) async fn drain_lasting_service(
     drains: &LastingServiceDrains,
     lasting: LastingCodexService,
     record_file: LastingServiceRecordFile,
     control_socket: &Path,
+    deadline: Option<Instant>,
 ) -> bool {
     let begun = async {
         let locked = tokio::task::spawn_blocking(move || record_file.lock())
@@ -129,7 +134,10 @@ pub(super) async fn drain_lasting_service(
             .drain(&Arc::new(locked), lasting, control_socket)
             .await
     };
-    match begun.await {
+    let begun = run_until(deadline, begun)
+        .await
+        .unwrap_or_else(|cut| Err(io::Error::new(io::ErrorKind::TimedOut, cut)));
+    match begun {
         Ok(end) => matches!(
             read_drain_end(end).await,
             Some(LastingServiceDrainEnd::Ended | LastingServiceDrainEnd::Killed)

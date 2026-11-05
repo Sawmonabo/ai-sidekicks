@@ -96,7 +96,7 @@ mod tests {
     use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 
     use super::read_session_conversations;
-    use crate::run::engine::test_fixture::insert_running_run;
+    use crate::run::engine::test_fixture::insert_run;
     use crate::run::schema::schema_parts;
 
     // Killed by a left row's insert that takes the binding row's data, and by a read that hands a
@@ -107,7 +107,7 @@ mod tests {
         let store = open_store(&database).await;
         let session_id = test_session_id();
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-        insert_running_run(&database, session_id, run_id);
+        insert_run(&database, session_id, run_id, "running");
         let home = json!({"home": "shared"})
             .as_object()
             .cloned()

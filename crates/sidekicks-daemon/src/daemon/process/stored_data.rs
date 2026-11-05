@@ -11,7 +11,6 @@ use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
 use sidekicks_mcp::client::McpClient;
 use sidekicks_platforms::volume_free_bytes;
-use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_recovery::damaged_history::{
@@ -19,6 +18,7 @@ use sidekicks_recovery::damaged_history::{
 };
 use sidekicks_recovery::projection_rebuild::ProjectionRebuildService;
 use sidekicks_recovery::restart_settle::RestartSettle;
+use sidekicks_recovery::stop_intent::StopIntentFile;
 use sidekicks_session::conversations::purge::ConversationPurge;
 use sidekicks_shell::table::ShellTable;
 use sidekicks_std::scheduler::Scheduler;
@@ -31,6 +31,7 @@ use crate::daemon::lifecycle_methods::{LifecycleMethodsDeps, flush_writes};
 use crate::daemon::process::database::DatabaseFile;
 use crate::daemon::process::repo_services::RepoServices;
 use crate::daemon::process::session_services::SessionServices;
+use crate::daemon::process::stop::DaemonStopReason;
 use crate::daemon::retention_methods::RetentionMethodsDeps;
 use crate::data_acts::purge::{SessionPurge, SessionPurgeDeps};
 
@@ -70,10 +71,12 @@ pub(crate) struct StoredDataMethodsStart<'start> {
     pub(crate) projection_rebuild: Arc<ProjectionRebuildService>,
     /// What a restart left in a session, settled; shared with the start's recovery pass.
     pub(crate) restart_settle: Arc<RestartSettle>,
+    /// The intent the person's Stop left; shared with the start's recovery pass.
+    pub(crate) stop_intent: Arc<StopIntentFile>,
     /// The serving socket's record of mutating calls, set once its gate chain is built.
     pub(crate) in_flight: Arc<OnceLock<Arc<InFlightMutations>>>,
-    /// Starts the daemon's stop for the intent given.
-    pub(crate) accept_stop: Arc<dyn Fn(DaemonStopIntent) + Send + Sync>,
+    /// Starts the daemon's stop for the reason given.
+    pub(crate) accept_stop: Arc<dyn Fn(DaemonStopReason) + Send + Sync>,
 }
 
 /// The inputs of the retention, lifecycle and damaged-history methods.
@@ -106,6 +109,7 @@ pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> St
         backups,
         projection_rebuild,
         restart_settle,
+        stop_intent,
         in_flight,
         accept_stop,
     } = start;
@@ -115,6 +119,7 @@ pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> St
         event_log: Arc::clone(&database.event_log),
         machine_id,
         transition_lock: Arc::clone(session_services.changes.transition_lock()),
+        changes: Arc::clone(&session_services.changes),
         shells,
         mcp_client,
         conversations: Arc::new(ConversationPurge::new(
@@ -137,6 +142,7 @@ pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> St
         tool_call_statuses: Arc::clone(&session_services.tool_call_statuses),
         execution_postures,
         questions: Arc::clone(&session_services.questions),
+        stop_intent: Arc::clone(&stop_intent),
     }));
     let damaged_history = Arc::new(DamagedHistory::new(DamagedHistoryDeps {
         reads: Arc::clone(&database.pool),
@@ -147,6 +153,7 @@ pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> St
         restart_settle,
         purge: Arc::clone(&purge) as Arc<dyn DamagedSessionPurge>,
         status: Arc::clone(&database.status),
+        stop_intent,
     }));
     StoredDataMethods {
         retention: RetentionMethodsDeps {
