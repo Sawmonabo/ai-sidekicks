@@ -184,7 +184,7 @@ mod tests {
 
     /// A program server that writes `start` to the log its first argument names when it starts
     /// and `end` once it answers its resource list, after a 0.2 s pause another copy could start
-    /// in; any other request is answered as a method it does not have.
+    /// in; it lists no tools, and any other request is answered as a method it does not have.
     const LOGGING_SERVER: &str = r#"echo start >> "$1"
 while IFS= read -r line; do
   id=$(printf '%s' "$line" | sed 's/.*"id":\([0-9]*\).*/\1/')
@@ -193,6 +193,8 @@ while IFS= read -r line; do
       printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"protocolVersion\":"\
 "\"2025-11-25\",\"capabilities\":{\"resources\":{}},"\
 "\"serverInfo\":{\"name\":\"tracker\",\"version\":\"1.0.0\"}}}" ;;
+    *'"method":"tools/list"'*)
+      printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"tools\":[]}}" ;;
     *'"method":"resources/list"'*)
       sleep 0.2
       echo end >> "$1"
@@ -264,6 +266,7 @@ done"#;
             client.connection_scope(session_id, name),
             Box::new(|method, params| match method {
                 "initialize" => Reply::Answer(json!({ "result": v1_initialize_result() })),
+                "tools/list" => Reply::Answer(json!({ "result": { "tools": [] } })),
                 "resources/list" if params.get("cursor").is_none() => {
                     Reply::Answer(json!({ "result": {
                         "resources": [{ "uri": "tracker://one", "name": "one" }],
