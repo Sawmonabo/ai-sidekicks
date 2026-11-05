@@ -38,10 +38,11 @@ use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use tempfile::TempDir;
 
-use super::{McpMutationService, McpMutationSources, McpRemovalRows};
+use super::{McpMutationService, McpMutationSources, McpOperation, McpRemovalRows};
 use crate::binding::store::McpBindingKey;
 use crate::mutation::receipts::tests::{idempotency_key, receipts_over_a_database};
-use crate::mutation::settle::tests::settled;
+use crate::mutation::receipts::{McpIntentReceipt, McpReceiptDigest};
+use crate::mutation::settle::tests::{is_owed, settled};
 use crate::status::notices::McpNoticeBoard;
 use crate::test_inventory::open_test_inventory;
 
@@ -620,14 +621,17 @@ async fn two_first_mutations_both_land() {
 }
 
 /// An add of a `local` server its provider keeps as an off user entry stores the daemon's switch
-/// it asks for, on for a new server that asks nothing, so the row reads as the person set it.
-/// Killed by the add storing no switch, which leaves the row off.
+/// it asks for, on for a new server that asks nothing, so the row reads as the person set it, and
+/// a later edit asking nothing keeps the stored switch. Killed by the add storing no switch, which
+/// leaves the row off, and by an edit that asks nothing clearing the stored one.
 #[rstest]
-#[case::asking_nothing(None, Some(1))]
-#[case::asking_off(Some(false), Some(0))]
+#[case::asking_nothing(None, false, Some(1))]
+#[case::asking_off(Some(false), false, Some(0))]
+#[case::editing_asking_nothing(None, true, Some(1))]
 #[tokio::test]
 async fn an_emulated_local_add_stores_the_switch_it_asks_for(
     #[case] asked: Option<bool>,
+    #[case] is_edited: bool,
     #[case] stored: Option<i64>,
 ) {
     let emulating = PROVIDER_REGISTRATIONS
@@ -642,27 +646,40 @@ async fn an_emulated_local_add_stores_the_switch_it_asks_for(
     let applied = McpServerWriteOutcome::Applied {
         reload_failure: None,
     };
-    drivers.push(Arc::new(scripted_driver(&provider, &[], applied, 1, false)));
+    let writes = 1 + usize::from(is_edited);
+    drivers.push(Arc::new(scripted_driver(
+        &provider,
+        &[],
+        applied,
+        writes,
+        false,
+    )));
     let fixture = Fixture::new(drivers, None).await;
-    let key = idempotency_key();
-    let mut request = json!({
-        "scope": "local",
-        "provider": provider.as_str(),
-        "scopeRef": "/repos/app",
-        "serverName": "docs",
-        "clientIdempotencyKey": key.as_str(),
-        "config": { "transport": "stdio", "command": "npx" },
-    });
-    if let Some(asked) = asked {
-        request["config"]["enabled"] = json!(asked);
+    let upsert_asking = |asked: Option<bool>| {
+        let key = idempotency_key();
+        let mut request = json!({
+            "scope": "local",
+            "provider": provider.as_str(),
+            "scopeRef": "/repos/app",
+            "serverName": "docs",
+            "clientIdempotencyKey": key.as_str(),
+            "config": { "transport": "stdio", "command": "npx" },
+        });
+        if let Some(asked) = asked {
+            request["config"]["enabled"] = json!(asked);
+        }
+        fixture
+            .service
+            .upsert(serde_json::from_value(request).expect("an upsert request"))
+    };
+
+    let answered = upsert_asking(asked).await;
+    assert_eq!(code(&answered), None);
+    if is_edited {
+        let edited = upsert_asking(None).await;
+        assert_eq!(code(&edited), None);
     }
 
-    let answered = fixture
-        .service
-        .upsert(serde_json::from_value(request).expect("an upsert request"))
-        .await;
-
-    assert_eq!(code(&answered), None);
     let switch: Option<i64> = fixture
         .database
         .reader()
@@ -673,4 +690,35 @@ async fn an_emulated_local_add_stores_the_switch_it_asks_for(
         )
         .expect("the add stores its row");
     assert_eq!(switch, stored);
+}
+
+/// A `pending` receipt whose provider no driver is registered for is settled once by the
+/// service's own settler and stays `pending`, owing no pass, so no later mutation starts one for
+/// it. Killed by a missing driver answering `Unsettled`, which owes the next pass.
+#[tokio::test]
+async fn a_receipt_no_driver_is_registered_for_owes_no_pass() {
+    let fixture = Fixture::new(Vec::new(), None).await;
+    let key = idempotency_key();
+    let intent = McpIntentReceipt {
+        idempotency_key: key.clone(),
+        operation: McpOperation::Upsert.method().to_owned(),
+        binding: McpBindingKey::of(&user_binding_ref(&first_provider(), "docs")),
+        request_digest: McpReceiptDigest::from_bytes([1; 32]),
+        before_digest: None,
+        after_digest: None,
+        wanted_enabled: None,
+    };
+    fixture
+        .service
+        .parts
+        .receipts
+        .begin(&intent)
+        .await
+        .expect("the intent begins");
+
+    fixture.service.settle_pending();
+    settled(&fixture.service.pending).await;
+
+    assert_eq!(fixture.receipt_status(&key).as_deref(), Some("pending"));
+    assert!(!is_owed(&fixture.service.pending));
 }

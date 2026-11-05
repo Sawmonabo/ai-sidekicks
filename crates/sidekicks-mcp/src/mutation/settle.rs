@@ -516,19 +516,18 @@ pub(super) mod tests {
 
         /// The pass over the fixture's receipts, settling switches through `driver`.
         fn pass(&self, driver: MockProviderDriver) -> McpPendingSettle {
-            self.pass_settling(Box::new(SwitchSettler {
+            let settler = SwitchSettler {
                 driver,
                 receipts: self.receipts.clone(),
-            }))
-        }
-
-        /// The pass over the fixture's receipts, settling switches by `settler`.
-        fn pass_settling(&self, settler: Box<dyn McpIntentSettler>) -> McpPendingSettle {
+            };
             McpPendingSettle::new(
                 self.receipts.clone(),
                 Arc::clone(&self.receipt_keys),
                 Arc::clone(&self.key_locks),
-                McpIntentSettlers::new([(OPERATION, settler)]),
+                McpIntentSettlers::new([(
+                    OPERATION,
+                    Box::new(settler) as Box<dyn McpIntentSettler>,
+                )]),
             )
         }
 
@@ -625,6 +624,11 @@ pub(super) mod tests {
     pub(in crate::mutation) async fn settled(pass: &McpPendingSettle) {
         pass.stop().await;
         pass.tracker.reopen();
+    }
+
+    /// Whether `pass` owes the next mutation a pass.
+    pub(in crate::mutation) fn is_owed(pass: &McpPendingSettle) -> bool {
+        pass.pass.is_owed.load(Ordering::Acquire)
     }
 
     /// Where a receipt is once its settlement is applied.
@@ -816,41 +820,6 @@ pub(super) mod tests {
             McpSavedCheck::Saved(_)
         ));
         assert_eq!(fixture.count_bindings(), 1);
-    }
-
-    /// A settler whose provider has no registered driver, counting the receipts it is handed.
-    struct DriverlessSettler(Arc<AtomicUsize>);
-
-    impl McpIntentSettler for DriverlessSettler {
-        fn settle(
-            &self,
-            _intent: McpIntentReceipt,
-            _key: Arc<McpReceiptKey>,
-        ) -> BoxFuture<'_, McpIntentSettlement> {
-            self.0.fetch_add(1, Ordering::SeqCst);
-            Box::pin(async { McpIntentSettlement::NoDriver })
-        }
-    }
-
-    /// A receipt no registered driver can settle stays `pending` and owes no pass, so a later
-    /// mutation starts none for it. Killed by such a receipt owing the next pass.
-    #[tokio::test]
-    async fn a_receipt_no_driver_settles_owes_no_pass() {
-        let fixture = Fixture::new().await;
-        let intent = fixture.begin().await;
-        let settles = Arc::new(AtomicUsize::new(0));
-        let pass = fixture.pass_settling(Box::new(DriverlessSettler(Arc::clone(&settles))));
-
-        pass.request();
-        settled(&pass).await;
-        pass.request_if_owed();
-        settled(&pass).await;
-
-        assert_eq!(settles.load(Ordering::SeqCst), 1);
-        assert!(matches!(
-            fixture.check(&intent).await,
-            McpSavedCheck::Pending(_)
-        ));
     }
 
     /// A stopped pass waits for its running task and starts no other. Killed by a request after

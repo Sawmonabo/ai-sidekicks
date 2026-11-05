@@ -365,15 +365,15 @@ impl McpInventoryService {
     /// Reads `provider`'s bindings through `driver`, asking it to probe the bindings `probe`
     /// names, the store's `local` bindings among them, and, on `is_refresh`, to read again what it
     /// keeps, for each of the provider's stored accounts, with `landing`'s row, where given, laid
-    /// over what the store keeps; this is the one read a probe trigger calls. Each row is keyed by its binding. The attribution table takes the provider's reading
-    /// unless a later read already replaced it, a refresh then has the driver ask its live
-    /// sessions again, each probe reading the driver answers lands in
-    /// [`Self::keep_probe_readings`], and, where this read is the newest, the tracker forgets the
-    /// probe reading of every binding of the provider the rows no longer hold. Fails with
-    /// [`McpInventoryError::AccountId`] where a stored account of the provider has an id that is
-    /// not one, and as the driver's read fails; a store that does not answer gives each row the
-    /// store-unavailable arm and forgets no probe reading, since without it the emulated `local`
-    /// rows are not listed.
+    /// over what the store keeps; this is the one read a probe trigger calls. Each row is keyed by
+    /// its binding. The attribution table takes the provider's reading unless a later read already
+    /// replaced it, a refresh then has the driver ask its live sessions again, each probe reading
+    /// the driver answers lands in [`Self::keep_probe_readings`], and, where this read is the
+    /// newest, the tracker forgets the probe reading of every binding of the provider the rows no
+    /// longer hold. Fails with [`McpInventoryError::AccountId`] where a stored account of the
+    /// provider has an id that is not one, and as the driver's read fails; a store that does not
+    /// answer gives each row the store-unavailable arm and forgets no probe reading, since without
+    /// it the emulated `local` rows are not listed.
     async fn read_provider_rows(
         &self,
         provider: &ProviderId,

@@ -1,11 +1,11 @@
 //! The set of tool servers a session opens with: every binding the person has at user scope and
 //! at the project scope of the session's root, `local` ones included, each switched as its own
 //! switch and its project's switch read, composed from what the attribution table last read of the
-//! provider's own config and what the binding store keeps, with no driver read. An opening waits
-//! on the table's first fill of the provider, so no set is composed from a table not yet read.
+//! provider's own config and what the binding store keeps. An opening waits on the table's first
+//! fill of the provider, so no set is composed from a table not yet read; where that fill failed,
+//! the opening reads the provider once itself.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::mcp::server::inventory::McpOverrideOrigin;
@@ -13,27 +13,25 @@ use sidekicks_contracts::place::PlacedPath;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::text::TextError;
 use sidekicks_provider::driver::session_control::SessionToolServer;
+use sidekicks_std::port_registration::{PortRegistration, PortRegistrationError};
 use sidekicks_workspace::project::records::AttachedProjectRoot;
 
 use crate::binding::resolver::{
     McpAttributionTable, McpBindingRow, McpFirstFill, attached_root_path, resolve_declared_rows,
 };
 use crate::binding::store::{McpBindingStore, McpBindingStoreError};
-
-/// The longest an opening waits on the table's first fill of its provider: the bound the fill's
-/// read itself runs under, a provider's service start included.
-const FIRST_FILL_BOUND: Duration = Duration::from_secs(30);
+use crate::inventory_service::{McpInventoryError, McpInventoryService};
 
 /// Why a session's set of tool servers could not be composed.
 #[derive(Debug, thiserror::Error)]
 pub enum McpSessionToolServersError {
-    /// The daemon's first read of the provider's tool servers failed, so which of them the session
-    /// runs is not known.
+    /// The daemon's first read of the provider's tool servers failed and the opening's own read
+    /// failed too, so which of them the session runs is not known.
     #[error("the provider's tool servers could not be read, so the session's set is not known")]
-    ProviderUnread,
-    /// The daemon's first read of the provider's tool servers did not end within its bound.
-    #[error("the provider's tool servers were not read in time, so the session's set is not known")]
-    ProviderReadPending,
+    ProviderUnread(#[source] McpInventoryError),
+    /// The inventory the opening reads the provider through is not registered yet.
+    #[error(transparent)]
+    Inventory(#[from] PortRegistrationError),
     /// The session's project root is no path the wire carries.
     #[error("the session's project root is no path its tool servers can be read at")]
     RootPath(#[source] TextError),
@@ -43,34 +41,54 @@ pub enum McpSessionToolServersError {
 }
 
 /// Composes the set of tool servers a session opens with, from the attribution table and the
-/// binding store.
+/// binding store, reading a provider through the inventory where the table's first fill of it
+/// failed.
 pub struct McpSessionToolServers {
     table: Arc<McpAttributionTable>,
     store: McpBindingStore,
+    inventory: PortRegistration<Arc<McpInventoryService>>,
 }
 
 impl McpSessionToolServers {
-    /// A composer reading `table` and `store`.
+    /// A composer reading `table` and `store`, its inventory registered once it is built.
     pub fn new(table: Arc<McpAttributionTable>, store: McpBindingStore) -> Self {
-        Self { table, store }
+        Self {
+            table,
+            store,
+            inventory: PortRegistration::new("MCP inventory"),
+        }
+    }
+
+    /// Registers the inventory over the same table, which an opening reads a provider through
+    /// where the first fill of it failed. Fails where one is registered already.
+    pub fn register_inventory(
+        &self,
+        inventory: Arc<McpInventoryService>,
+    ) -> Result<(), PortRegistrationError> {
+        self.inventory.register(inventory)
     }
 
     /// The set a session of `provider` at `root`, none for a chat, opens with: each binding of
     /// the provider's own config the table last read at user scope, and at project or `local`
     /// scope of `root`, switched on where its own switch is on and neither the provider nor the
-    /// daemon switches it off in `root`, once the table's first fill of the provider ended. Fails
-    /// where that fill's read failed or did not end within its bound, and as the root's path or
-    /// the store's one short read fails.
+    /// daemon switches it off in `root`, once the table's first fill of the provider ended; where
+    /// that fill failed, after one read of the provider through the inventory, which refills the
+    /// table. Fails where that read fails too, and as the root's path or the store's one short
+    /// read fails.
     pub async fn compose(
         &self,
         provider: &ProviderId,
         root: Option<&AttachedProjectRoot>,
     ) -> Result<Vec<SessionToolServer>, McpSessionToolServersError> {
-        match tokio::time::timeout(FIRST_FILL_BOUND, self.table.wait_for_first_fill(provider)).await
-        {
-            Ok(McpFirstFill::Filled) => {}
-            Ok(McpFirstFill::Failed) => return Err(McpSessionToolServersError::ProviderUnread),
-            Err(_elapsed) => return Err(McpSessionToolServersError::ProviderReadPending),
+        match self.table.wait_for_first_fill(provider).await {
+            McpFirstFill::Filled => {}
+            McpFirstFill::Failed => {
+                self.inventory
+                    .require_port()?
+                    .read_declarations(provider)
+                    .await
+                    .map_err(McpSessionToolServersError::ProviderUnread)?;
+            }
         }
         let root = root
             .map(attached_root_path)
