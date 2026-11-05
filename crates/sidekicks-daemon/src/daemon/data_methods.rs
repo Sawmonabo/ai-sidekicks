@@ -254,7 +254,11 @@ mod tests {
         })
         .expect("the system gives random bytes");
         let has_erase_acted = Arc::new(AtomicBool::new(false));
-        let (stopped, signed_out) = (Arc::clone(&has_erase_acted), Arc::clone(&has_erase_acted));
+        let (stopped, signed_out, sign_ins_ended) = (
+            Arc::clone(&has_erase_acted),
+            Arc::clone(&has_erase_acted),
+            Arc::clone(&has_erase_acted),
+        );
         let erase = Arc::new(DataErase::new(DataEraseDeps {
             data_folder: data,
             secret_items,
@@ -268,6 +272,10 @@ mod tests {
             sign_out_accounts: Arc::new(move || {
                 signed_out.store(true, Ordering::SeqCst);
                 async { Ok(Vec::new()) }.boxed()
+            }),
+            end_sign_ins: Arc::new(move || {
+                sign_ins_ended.store(true, Ordering::SeqCst);
+                async { true }.boxed()
             }),
             close_data_folder: Arc::new(|| async {}.boxed()),
             end_process: Arc::new(|| {}),
@@ -291,9 +299,9 @@ mod tests {
     }
 
     // An erase the keychain cannot carry out is refused with `daemon.data.storeUnavailable`,
-    // naming its cause, before any account signs out and before anything stops or goes. Killed by
-    // an erase or a sign-out that starts before the keychain check, and by the refusal answered
-    // under another code.
+    // naming its cause, before any sign-in ends, any account signs out and anything stops or goes.
+    // Killed by an erase, a sign-in's end or a sign-out that starts before the keychain check, and
+    // by the refusal answered under another code.
     #[tokio::test]
     async fn an_erase_the_keychain_refuses_answers_store_unavailable_and_erases_nothing() {
         let verbs = data_verbs().await;

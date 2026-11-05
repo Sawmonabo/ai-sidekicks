@@ -214,6 +214,7 @@ async fn an_erase_over_a_started_daemon_closes_it_and_the_stop_after_fails_nothi
         )),
         stop_work: process.stop_work_step(),
         sign_out_accounts: Arc::new(|| async { Ok(Vec::new()) }.boxed()),
+        end_sign_ins: Arc::new(|| async { true }.boxed()),
         close_data_folder: process.close_data_folder_step(),
         end_process: Arc::new(move || end_process(DaemonStopIntent::Stop)),
     }));

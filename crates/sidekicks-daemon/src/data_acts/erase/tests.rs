@@ -52,17 +52,18 @@ fn write_file(path: &Path) {
     fs::write(path, "kept").expect("the file is written");
 }
 
-// The erase runs in its order: the provider accounts sign out in their homes while the folder
-// and the keychain are whole, and only then does the erase answer, naming the account left
-// signed in; then the work stops while the data folder is whole, each provider's services end,
-// the keychain's items go before the data folder closes, and the process ends last; the data
-// folder goes but for an earlier backup, and a project folder is untouched. An account that does
-// not sign out stops nothing. A second erase sent while the accounts sign out is refused and
-// starts nothing. Killed by the sign-out moved after the answer or after the work stops, by the
-// account left signed in missing from the answer or answered without its provider or listing, by
-// an erase that stops on that account, by a delete before the stop, by items deleted after the
-// folder, by a provider service ended as for a restart, by a project folder or a backup deleted,
-// by a second erase let run beside the first, and by a second erase answered as the first.
+// The erase runs in its order: the sign-ins under way end, then the provider accounts sign out in
+// their homes while the folder and the keychain are whole, and only then does the erase answer,
+// naming the account left signed in; then the work stops while the data folder is whole, each
+// provider's services end, the keychain's items go before the data folder closes, and the process
+// ends last; the data folder goes but for an earlier backup, and a project folder is untouched. An
+// account that does not sign out stops nothing. A second erase sent while the accounts sign out is
+// refused and starts nothing. Killed by the sign-ins' end run after the sign-outs, after the answer
+// or not at all, by the sign-out moved after the answer or after the work stops, by the account
+// left signed in missing from the answer or answered without its provider or listing, by an erase
+// that stops on that account, by a delete before the stop, by items deleted after the folder, by a
+// provider service ended as for a restart, by a project folder or a backup deleted, by a second
+// erase let run beside the first, and by a second erase answered as the first.
 #[tokio::test]
 async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
     let data_folder = tempfile::tempdir().expect("the data folder is made");
@@ -107,13 +108,15 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
     });
     let providers = Arc::new(registry_of_first_provider(Arc::new(driver)));
     let ended = Arc::new(Notify::new());
-    let (stop_calls, sign_out_calls, close_calls, end_calls) = (
+    let (stop_calls, sign_in_calls, sign_out_calls, close_calls, end_calls) = (
+        Arc::clone(&calls),
         Arc::clone(&calls),
         Arc::clone(&calls),
         Arc::clone(&calls),
         Arc::clone(&calls),
     );
-    let (stop_data, sign_out_data, end_signal) = (data.clone(), data.clone(), Arc::clone(&ended));
+    let (stop_data, sign_in_data, sign_out_data) = (data.clone(), data.clone(), data.clone());
+    let end_signal = Arc::clone(&ended);
     let sign_out_credentials = credentials.clone();
     let sign_out_signal = Arc::new(Notify::new());
     let sign_out_started = Arc::clone(&sign_out_signal);
@@ -127,6 +130,14 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
             let whole = stop_data.join("daemon.db").exists();
             record(&stop_calls, format!("work stops (folder whole: {whole})"));
             async {}.boxed()
+        }),
+        end_sign_ins: Arc::new(move || {
+            let whole = sign_in_data.join("accounts").exists();
+            record(
+                &sign_in_calls,
+                format!("sign-ins end (folder whole: {whole})"),
+            );
+            async { true }.boxed()
         }),
         sign_out_accounts: Arc::new(move || {
             let whole = sign_out_data.join("accounts").exists();
@@ -183,8 +194,8 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
     );
     assert_eq!(
         lock(&calls).len(),
-        1,
-        "nothing but the sign-outs runs before the answer"
+        2,
+        "nothing but the sign-ins' end and the sign-outs runs before the answer"
     );
     gate.send_replace(true);
     let answer = first
@@ -210,6 +221,7 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
     assert_eq!(
         *lock(&calls),
         [
+            "sign-ins end (folder whole: true)".to_owned(),
             "accounts sign out (folder whole: true, item held: true)".to_owned(),
             "work stops (folder whole: true)".to_owned(),
             format!("provider services end ({:?})", DaemonStopIntent::Stop),
@@ -296,6 +308,7 @@ async fn an_erase_that_ends_before_it_answers_fails_and_admits_the_next() {
             *lock(&sign_out_count) += 1;
             panic!("a provider's sign-out panics")
         }),
+        end_sign_ins: Arc::new(|| async { true }.boxed()),
         stop_work: Arc::new(|| -> BoxFuture<'static, ()> {
             unreachable!("an erase that did not answer stops no work")
         }),

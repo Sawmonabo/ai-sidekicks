@@ -1,7 +1,7 @@
 //! `Erase all data`: the keychain is checked first, so a locked or unusable one refuses the erase
-//! with nothing changed; then every provider account signs out through its provider's own
-//! sign-out in its home, while the services still serve, and the erase answers naming each
-//! account left signed in. Then, in order, every run and shell stops as Runtime's `Stop` stops
+//! with nothing changed; then every sign-in under way ends, every provider account signs out
+//! through its provider's own sign-out in its home, while the services still serve, and the erase
+//! answers naming each account left signed in. Then, in order, every run and shell stops as Runtime's `Stop` stops
 //! them, every provider service ends, every credential-store item the app made is deleted,
 //! everything that holds a file in the data folder closes, the data folder goes with the account
 //! homes in it, and the process ends so its caller starts it again, empty. The default `backups/`
@@ -54,8 +54,12 @@ pub(crate) struct DataEraseDeps {
     pub(crate) secret_items: Arc<SecretItems>,
     /// The registered drivers, each of whose services ends.
     pub(crate) providers: Arc<ProviderRegistry>,
-    /// Signs every provider account out before the erase answers, while the services serve.
+    /// Signs every provider account out before the erase answers, while the services serve, once
+    /// every sign-in under way has ended.
     pub(crate) sign_out_accounts: AccountsSignOut,
+    /// Ends every sign-in under way, its new account's home signed out and removed, before the
+    /// homes are read, answering whether every one settled.
+    pub(crate) end_sign_ins: Arc<dyn Fn() -> BoxFuture<'static, bool> + Send + Sync>,
     /// Stops every run and shell as Runtime's `Stop` does, once the erase's reply is written.
     pub(crate) stop_work: EraseStep,
     /// Closes everything that holds a file in the data folder: the read pool and the writer, the
@@ -168,11 +172,15 @@ impl DataErase {
         })
     }
 
-    // Signs every account out and answers `answer` with the accounts left signed in, then erases
-    // everything and ends the process. Never fails: an account that does not sign out, a provider
-    // service that does not end and a data-folder entry that cannot be deleted are told in the
-    // service log, and a store that refuses an item keeps the data folder whole.
+    // Ends every sign-in under way, signs every account out and answers `answer` with the accounts
+    // left signed in, then erases everything and ends the process. Never fails: a sign-in that
+    // does not settle, an account that does not sign out, a provider service that does not end
+    // and a data-folder entry that cannot be deleted are told in the service log, and a store that
+    // refuses an item keeps the data folder whole.
     async fn erase(&self, answer: oneshot::Sender<DaemonDataEraseResponse>) {
+        if !(self.deps.end_sign_ins)().await {
+            tracing::warn!("a sign-in under way did not settle before the erase");
+        }
         let signed_out = self.sign_out_accounts().await;
         if answer.send(signed_out).is_err() {
             tracing::info!("the erase's caller left before its answer; the erase goes on");
