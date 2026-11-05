@@ -1,15 +1,12 @@
 mod unstarted;
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use futures::future::BoxFuture;
 use rstest::rstest;
 use rusqlite::{Connection, params};
 use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
-use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::daemon::config::WorkflowChainAskAfterRuns;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::id::MachineId;
@@ -53,9 +50,9 @@ use crate::definitions::kept_values::{
     WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY, WorkflowKeptValueStore,
 };
 use crate::engine::event_record::EngineRecorder;
+use crate::engine::ports::kept_payloads::KeptPayloads;
 use crate::engine::ports::{
-    ChainAskAfterReader, EngineRecordSink, KeptEngineRecords, PortError, REFUSED_PORT_CALL,
-    StepPayloadArtifacts,
+    ChainAskAfterReader, EngineRecordSink, KeptEngineRecords, StepPayloadArtifacts,
 };
 use crate::kinds::{NodeKindTable, command_test_kind, git_test_kind};
 use crate::schema::schema_parts;
@@ -68,90 +65,6 @@ const ROOT_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e73";
 const ROOT_STARTED_AT: &str = "2026-10-02T00:00:00.000Z";
 const ROWS_AT: &str = "2026-10-14T09:30:00.000Z";
 const MOUNT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e74";
-
-/// A payload the test's store kept, with the artifact it answered.
-#[derive(Clone, Debug, PartialEq)]
-struct KeptPayload {
-    session_id: SessionId,
-    step: WorkflowStepKey,
-    byte_count: usize,
-    item_count: u64,
-    artifact_id: ArtifactId,
-}
-
-/// A payload store that keeps what each write was given and answers a fresh artifact, and keeps
-/// each artifact deleted, or refuses every delete once told to.
-#[derive(Default)]
-struct KeptPayloads {
-    writes: Mutex<Vec<KeptPayload>>,
-    deletes: Mutex<Vec<ArtifactId>>,
-    is_refusing_deletes: AtomicBool,
-}
-
-impl KeptPayloads {
-    fn writes(&self) -> Vec<KeptPayload> {
-        self.writes
-            .lock()
-            .expect("the test's payloads lock")
-            .clone()
-    }
-
-    fn deletes(&self) -> Vec<ArtifactId> {
-        self.deletes
-            .lock()
-            .expect("the test's payloads lock")
-            .clone()
-    }
-
-    fn refuse_deletes(&self) {
-        self.is_refusing_deletes.store(true, Ordering::SeqCst);
-    }
-}
-
-impl StepPayloadArtifacts for KeptPayloads {
-    fn write<'call>(
-        &'call self,
-        session_id: SessionId,
-        step: &'call WorkflowStepKey,
-        bytes: Vec<u8>,
-        item_count: u64,
-    ) -> BoxFuture<'call, Result<ArtifactId, PortError>> {
-        let artifact_id =
-            ArtifactId::try_from(mint_uuid_v7()).expect("a minted UUID is an artifact id");
-        self.writes
-            .lock()
-            .expect("the test's payloads lock")
-            .push(KeptPayload {
-                session_id,
-                step: step.clone(),
-                byte_count: bytes.len(),
-                item_count,
-                artifact_id,
-            });
-        Box::pin(async move { Ok(artifact_id) })
-    }
-
-    fn read<'call>(
-        &'call self,
-        _artifact_id: &'call ArtifactId,
-    ) -> BoxFuture<'call, Result<Vec<u8>, PortError>> {
-        Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
-    }
-
-    fn delete<'call>(
-        &'call self,
-        artifact_id: &'call ArtifactId,
-    ) -> BoxFuture<'call, Result<(), PortError>> {
-        if self.is_refusing_deletes.load(Ordering::SeqCst) {
-            return Box::pin(async { Err(REFUSED_PORT_CALL.into()) });
-        }
-        self.deletes
-            .lock()
-            .expect("the test's payloads lock")
-            .push(*artifact_id);
-        Box::pin(async { Ok(()) })
-    }
-}
 
 /// The chain's limit, fixed for the test.
 struct AskAfter(Option<WorkflowChainAskAfterRuns>);
@@ -215,9 +128,11 @@ impl Fixture {
             read_damaged_from_sequence: None,
         }));
         let machine_id = MachineId::new(mint_uuid_v7().to_string()).expect("a machine id");
+        let payloads = Arc::new(KeptPayloads::default());
         let kept_values = Arc::new(WorkflowKeptValueStore::new(
             Arc::clone(&pool),
             Arc::clone(&writer),
+            Arc::clone(&payloads) as Arc<dyn StepPayloadArtifacts>,
         ));
         let machines = Arc::new(MachineRegistry::new(
             Arc::clone(&pool),
@@ -228,7 +143,6 @@ impl Fixture {
                 name: "desk".to_owned(),
             },
         ));
-        let payloads = Arc::new(KeptPayloads::default());
         let records = Arc::new(KeptEngineRecords::default());
         let starter = WorkflowRunStarter::new(WorkflowRunStarterDependencies {
             pool,
@@ -641,7 +555,7 @@ async fn a_started_run_records_its_trigger_chain_and_input_and_works_in_its_fold
             let artifact = WorkflowPayloadRef::Artifact {
                 artifact_id: kept[0].artifact_id,
                 size_bytes: SafeInt::new(
-                    u64::try_from(kept[0].byte_count).expect("a length fits in 64 bits"),
+                    u64::try_from(kept[0].bytes.len()).expect("a length fits in 64 bits"),
                 )
                 .expect("the payload holds bytes"),
                 item_count: SafeInt::new(1).expect("one item"),
