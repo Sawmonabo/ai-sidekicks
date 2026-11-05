@@ -15,6 +15,7 @@ use sidekicks_contracts::wire::record::Record;
 
 use crate::driver::mcp_server::address::read_server_address;
 use crate::driver::mcp_server::read::{McpServerSignInClient, McpServerToolDefaults};
+use crate::driver::mcp_server::write::ENTRY_SWITCH_MEMBER;
 
 /// The member of a server entry that names the program a stdio server runs.
 pub(crate) const COMMAND_MEMBER: &str = "command";
@@ -47,8 +48,6 @@ pub(crate) const OAUTH_MEMBER: &str = "oauth";
 pub(crate) const OAUTH_RESOURCE_MEMBER: &str = "oauth_resource";
 /// The member of a server entry that names how an HTTP server is signed in to.
 pub(crate) const AUTH_MEMBER: &str = "auth";
-/// The member of a server entry that switches the server on or off.
-pub(crate) const ENABLED_MEMBER: &str = "enabled";
 /// The member of a server entry that makes a session refuse to start without the server.
 pub(crate) const REQUIRED_MEMBER: &str = "required";
 /// The member of a server entry that bounds the server's start, in seconds.
@@ -131,7 +130,7 @@ pub(crate) fn has_transport(entry: &Value) -> bool {
 
 /// The switch `entry` sets for its server; `None` where it sets none.
 pub(crate) fn read_switch(entry: &Value) -> Option<bool> {
-    entry.get(ENABLED_MEMBER)?.as_bool()
+    entry.get(ENTRY_SWITCH_MEMBER)?.as_bool()
 }
 
 /// Whether `entry` switches its server off.
@@ -143,7 +142,7 @@ pub(crate) fn is_switched_off(entry: &Value) -> bool {
 pub(crate) fn sets_other_members(entry: &Value) -> bool {
     entry
         .as_object()
-        .is_some_and(|members| members.keys().any(|member| member != ENABLED_MEMBER))
+        .is_some_and(|members| members.keys().any(|member| member != ENTRY_SWITCH_MEMBER))
 }
 
 /// The redacted declaration of `entry`; `None` for an entry that names no transport or does not

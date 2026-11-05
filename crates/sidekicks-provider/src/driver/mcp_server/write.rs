@@ -21,7 +21,7 @@ const ELIDED_SPAN: &str = "…";
 
 /// The member of an entry that switches its server, where a provider keeps the switch in the
 /// entry; an entry that sets none runs its server.
-const ENTRY_SWITCH_MEMBER: &str = "enabled";
+pub(crate) const ENTRY_SWITCH_MEMBER: &str = "enabled";
 
 /// One submitted member of a declaration: its name in the provider's entry, and the value it is
 /// set to, `None` removing it.

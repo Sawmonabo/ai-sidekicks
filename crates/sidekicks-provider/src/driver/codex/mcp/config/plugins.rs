@@ -17,10 +17,11 @@ use sidekicks_platforms::PathRules;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::mcp::config::server_entry::{
-    CWD_MEMBER, CodexServerTransport, ENABLED_MEMBER, OAUTH_MEMBER, read_codex_server_entry,
+    CWD_MEMBER, CodexServerTransport, OAUTH_MEMBER, read_codex_server_entry,
     read_codex_server_transport,
 };
 use crate::driver::mcp_server::read::McpServerDeclaration;
+use crate::driver::mcp_server::write::ENTRY_SWITCH_MEMBER;
 use crate::inbound_json::decode_inbound_json;
 
 mod agent_format;
@@ -95,7 +96,7 @@ impl CodexPluginServer {
             let folder = self.plugin_root.join(folder).display().to_string();
             entry.insert(CWD_MEMBER.to_owned(), Value::String(folder));
         }
-        entry.insert(ENABLED_MEMBER.to_owned(), Value::Bool(true));
+        entry.insert(ENTRY_SWITCH_MEMBER.to_owned(), Value::Bool(true));
         entry
     }
 }

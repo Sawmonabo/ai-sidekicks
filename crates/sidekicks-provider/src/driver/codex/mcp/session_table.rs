@@ -14,13 +14,13 @@ use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::driver::codex::mcp::config::server_entry::{
-    ARGS_MEMBER, COMMAND_MEMBER, DEFAULT_TOOLS_APPROVAL_MODE_MEMBER, ENABLED_MEMBER, ENV_MEMBER,
+    ARGS_MEMBER, COMMAND_MEMBER, DEFAULT_TOOLS_APPROVAL_MODE_MEMBER, ENV_MEMBER,
     TOOL_TIMEOUT_SEC_MEMBER, URL_MEMBER,
 };
 use crate::driver::codex::mcp::sandbox_wrap::{CodexSandboxWrap, wrap_codex_stdio_server};
 use crate::driver::codex::mcp::server_name::CODEX_MCP_SERVER_NAMES;
 use crate::driver::codex::thread::settings::MCP_SERVERS_KEY;
-use crate::driver::mcp_server::write::McpServerEntry;
+use crate::driver::mcp_server::write::{ENTRY_SWITCH_MEMBER, McpServerEntry};
 use crate::driver::session_control::SessionToolServer;
 use crate::port::tool_server_route::ToolServerRoute;
 use crate::tool_server_name::{DAEMON_TOOL_SERVER_NAME, McpServerNameRefusal};
@@ -117,7 +117,7 @@ pub(crate) fn compose_codex_session_table(table: CodexSessionTableInput<'_>) -> 
     let mut servers = Map::new();
     for name in table.loaded.names() {
         if !is_kept_by_codex(name) {
-            servers.insert(name.to_owned(), json!({ ENABLED_MEMBER: false }));
+            servers.insert(name.to_owned(), json!({ ENTRY_SWITCH_MEMBER: false }));
         }
     }
     if table.is_copy_fork {
@@ -141,7 +141,7 @@ pub(crate) fn compose_codex_session_table(table: CodexSessionTableInput<'_>) -> 
                     }
                 }
             }
-            members.insert(ENABLED_MEMBER.to_owned(), Value::Bool(true));
+            members.insert(ENTRY_SWITCH_MEMBER.to_owned(), Value::Bool(true));
             servers.insert(name.to_owned(), Value::Object(members));
             continue;
         }
@@ -155,7 +155,7 @@ pub(crate) fn compose_codex_session_table(table: CodexSessionTableInput<'_>) -> 
                 Some(wrap) => wrap_codex_stdio_server(wrap, entry.members()),
                 None => entry.members().clone(),
             };
-            members.insert(ENABLED_MEMBER.to_owned(), Value::Bool(true));
+            members.insert(ENTRY_SWITCH_MEMBER.to_owned(), Value::Bool(true));
             servers.insert(name.to_owned(), Value::Object(members));
         }
     }
@@ -164,7 +164,7 @@ pub(crate) fn compose_codex_session_table(table: CodexSessionTableInput<'_>) -> 
             DAEMON_TOOL_SERVER_NAME.to_owned(),
             json!({
                 URL_MEMBER: route.url_for(&table.session_id, DAEMON_TOOL_SERVER_NAME),
-                ENABLED_MEMBER: true,
+                ENTRY_SWITCH_MEMBER: true,
                 // The daemon judges each of its own calls itself, so Codex asks nothing first.
                 DEFAULT_TOOLS_APPROVAL_MODE_MEMBER: "approve",
                 TOOL_TIMEOUT_SEC_MEMBER: CODEX_DAEMON_TOOL_TIMEOUT_SECONDS,

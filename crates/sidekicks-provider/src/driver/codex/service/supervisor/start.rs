@@ -236,7 +236,8 @@ async fn start_relayed_service(
             .map(|argument| (*argument).to_owned())
             .collect(),
     )
-    .await?;
+    .await?
+    .launch;
     let environment_add = relay.start(executor_launch.into_command()).await?;
     let started = start_account_home_service(service, launch, cancel, executable).await?;
     let readied = async {
@@ -611,33 +612,39 @@ async fn compose_launch(
         listen_address: service.listen_address(launch_socket),
         additional_config_overrides,
     });
-    let launch =
+    let CodexNativeLaunch { launch, command } =
         compose_codex_native_launch(&service.dependencies().data_folder, executable, arguments)
             .await?;
-    service.set_native_command(Some(CodexNativeCommand::of(
-        launch.program.clone(),
-        &executable.start,
-    )));
+    service.set_native_command(Some(command));
     Ok(launch)
+}
+
+/// A launch of the native Codex program, with the command it runs, which a command run beside a
+/// service takes too.
+pub(crate) struct CodexNativeLaunch {
+    /// The launch.
+    pub(crate) launch: CodexProcessLaunch,
+    /// The native program and the arguments its start puts before the caller's.
+    pub(crate) command: CodexNativeCommand,
 }
 
 /// The launch of `executable`'s native Codex program, never the npm launcher, with `arguments`
 /// after the leading arguments the build's own start carries, the launcher's variables set, in the
-/// dedicated empty working folder under `data_folder`. Fails with `CodexError::Transport` when the
-/// program cannot be found or the folder made.
+/// dedicated empty working folder under `data_folder`, with the native command it runs. Fails with
+/// `CodexError::Transport` when the program cannot be found or the folder made.
 pub(crate) async fn compose_codex_native_launch(
     data_folder: &Path,
     executable: &ResolvedProviderExecutable,
     arguments: Vec<String>,
-) -> Result<CodexProcessLaunch, CodexError> {
+) -> Result<CodexNativeLaunch, CodexError> {
     let native = resolve_native_program_off_thread(executable)
         .await
         .map_err(|error| CodexError::Transport {
             detail: "Codex's program could not be found.".to_owned(),
             cause: Some(Box::new(error)),
         })?;
-    let mut launch_arguments =
-        CodexNativeCommand::of(native.program.clone(), &executable.start).leading_arguments;
+    let command = CodexNativeCommand::of(native.program.clone(), &executable.start);
+    let mut launch_arguments = command.leading_arguments.clone();
     launch_arguments.extend(arguments);
     let mut environment = executable.environment.clone();
     native.set_launcher_environment(&mut environment);
@@ -646,11 +653,14 @@ pub(crate) async fn compose_codex_native_launch(
         detail: "The Codex service's folder could not be made.".to_owned(),
         cause: Some(Box::new(error)),
     })?;
-    Ok(CodexProcessLaunch {
-        program: native.program,
-        arguments: launch_arguments,
-        environment,
-        working_folder,
+    Ok(CodexNativeLaunch {
+        launch: CodexProcessLaunch {
+            program: native.program,
+            arguments: launch_arguments,
+            environment,
+            working_folder,
+        },
+        command,
     })
 }
 

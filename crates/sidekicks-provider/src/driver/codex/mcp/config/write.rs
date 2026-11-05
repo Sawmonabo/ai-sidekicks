@@ -20,11 +20,11 @@ use crate::driver::codex::mcp::config::observe::{codex_binding_folder, observe_c
 use crate::driver::codex::mcp::config::project_file::{
     CodexProjectFile, CodexProjectFileEdit, CodexProjectFileError, CodexProjectServerEdit,
 };
-use crate::driver::codex::mcp::config::server_entry::ENABLED_MEMBER;
 use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
 use crate::driver::codex::session::errors::{CODEX_INVALID_REQUEST_CODE, CodexError};
 use crate::driver::codex::thread::settings::MCP_SERVERS_KEY;
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
+use crate::driver::mcp_server::write::ENTRY_SWITCH_MEMBER;
 use crate::driver::mcp_server::write::{
     McpServerObserved, McpServerWrite, McpServerWriteOutcome, McpServerWriteRefusal,
     provider_words_without_values,
@@ -157,12 +157,15 @@ pub(super) async fn write_codex_mcp_server(
             is_enabled,
         } => match binding {
             McpServerBindingRef::Project { server_name, .. } => {
-                let edit = vec![(ENABLED_MEMBER.to_owned(), Some(Value::Bool(*is_enabled)))];
+                let edit = vec![(
+                    ENTRY_SWITCH_MEMBER.to_owned(),
+                    Some(Value::Bool(*is_enabled)),
+                )];
                 write_project_file(cwd, server_name, CodexProjectServerEdit::Set(edit)).await
             }
             McpServerBindingRef::User { server_name, .. } => {
                 let edits = vec![(
-                    member_key_path(server_name, ENABLED_MEMBER),
+                    member_key_path(server_name, ENTRY_SWITCH_MEMBER),
                     Value::Bool(*is_enabled),
                 )];
                 write_user_file(connection, edits, binding, before, cwd).await
@@ -553,7 +556,7 @@ mod tests {
         json!({ "transport": "stdio", "command": "npx" }),
         &[
             "url", "bearer_token_env_var", "bearer_token", "http_headers", "http_headers_helper",
-            "env_http_headers", "oauth", "oauth_resource", "auth",
+            "env_http_headers", "oauth", "oauth_resource", "auth", "scopes",
         ],
     )]
     #[case::cleared_member(

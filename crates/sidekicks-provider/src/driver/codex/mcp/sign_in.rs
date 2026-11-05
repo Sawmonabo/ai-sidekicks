@@ -31,7 +31,7 @@ use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::app_server_protocol::McpServerOauthLoginParams;
 use crate::driver::codex::config_read::read_codex_config;
 use crate::driver::codex::mcp::config::plugins::read_plugin_server_entries;
-use crate::driver::codex::mcp::config::server_entry::{ENABLED_MEMBER, OAUTH_MEMBER, URL_MEMBER};
+use crate::driver::codex::mcp::config::server_entry::{OAUTH_MEMBER, URL_MEMBER};
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
 use crate::driver::codex::service::supervisor::CodexService;
@@ -46,6 +46,7 @@ use crate::driver::contract::sign_in::{
 use crate::driver::error_causes::provider_failure_refusal;
 use crate::driver::mcp_server::address::names_server_at;
 use crate::driver::mcp_server::sign_in_folder::SignInFolder;
+use crate::driver::mcp_server::write::ENTRY_SWITCH_MEMBER;
 
 /// The request that starts a login to one of the home's MCP servers.
 const OAUTH_LOGIN_METHOD: &str = "mcpServer/oauth/login";
@@ -252,7 +253,7 @@ async fn read_sign_in_entry(
                 .is_some_and(|url| names_server_at(url, address))
         })
         .ok_or_else(no_entry)?;
-    entry.remove(ENABLED_MEMBER);
+    entry.remove(ENTRY_SWITCH_MEMBER);
     Ok(entry)
 }
 

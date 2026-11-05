@@ -268,6 +268,8 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     // It has no `local` scope: a project's `local` server is a user entry, off, switched on in the
     // sessions of that project alone.
     is_mcp_local_scope_emulated: true,
+    // Each call's `mcp_servers` table carries the session's set.
+    takes_session_tool_servers: true,
     // Codex's own limit on a skill's name.
     skill_name_max_length: Some(64),
     written_name_forms: &written_names::CODEX_WRITTEN_NAME_FORMS,

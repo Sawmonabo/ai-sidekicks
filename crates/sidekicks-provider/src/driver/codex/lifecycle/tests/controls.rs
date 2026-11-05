@@ -121,8 +121,6 @@ async fn an_idle_switch_answers_as_its_fork_ends(
         session_id,
         run_id,
         mut scripted,
-        // Kept open, since the fork points the run's binding at the conversation it moves onto.
-        database: _database,
         ..
     } = LiveCodexSession::idle().await;
     let tracker_off = SessionToolServer {

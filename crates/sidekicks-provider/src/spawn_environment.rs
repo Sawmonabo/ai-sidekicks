@@ -384,6 +384,7 @@ mod tests {
         mcp_config_members: &[],
         mcp_server_names: McpServerNameRule::new(|_| true, "any character", |_| None, &[], &[]),
         is_mcp_local_scope_emulated: false,
+        takes_session_tool_servers: false,
         skill_name_max_length: None,
         written_name_forms: &[],
         permission_identifiers: &[],

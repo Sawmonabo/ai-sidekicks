@@ -156,10 +156,9 @@ fn is_stale_configuration_refusal(error: &CodexError) -> bool {
 mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::Ordering;
     use std::time::Duration;
 
-    use futures::future::BoxFuture;
     use rstest::rstest;
     use serde_json::{Map, Value, json};
     use sidekicks_contracts::mcp::server::McpServerBindingRef;
@@ -176,7 +175,8 @@ mod tests {
     use crate::driver::codex::service::registry::{CodexServiceRegistry, OneHome};
     use crate::driver::codex::service::supervisor::CodexProgramResolver;
     use crate::driver::codex::service::supervisor::test_service::{
-        UnheardEvents, start_scripted_joined_service, test_codex_service_dependencies,
+        UnheardEvents, UnstartedProgram, start_scripted_joined_service,
+        test_codex_service_dependencies,
     };
     use crate::driver::codex::session::errors::CodexError;
     use crate::driver::codex::thread::settings::{
@@ -185,31 +185,13 @@ mod tests {
     use crate::driver::codex::transport::connection::scripted_service::{
         ScriptedService, scripted_connection,
     };
-    use crate::driver::contract::error::DriverError;
     use crate::driver::session_control::SessionToolServer;
-    use crate::spawned_version::ResolvedProviderExecutable;
 
     /// The folder the test conversation runs in.
     const WORKTREE: &str = "/work/app";
 
     /// How long a call the test answers runs before the test fails instead of hanging.
     const SCRIPT_WAIT: Duration = Duration::from_secs(10);
-
-    /// A program whose every start fails at its resolve, counting the starts.
-    #[derive(Default)]
-    struct CountedUnstartedProgram {
-        starts: AtomicUsize,
-    }
-
-    impl CodexProgramResolver for CountedUnstartedProgram {
-        fn resolve<'call>(
-            &'call self,
-            _home: &'call CodexServiceHome,
-        ) -> BoxFuture<'call, Result<ResolvedProviderExecutable, DriverError>> {
-            self.starts.fetch_add(1, Ordering::SeqCst);
-            Box::pin(async { Err(DriverError::Internal("the test runs no program".into())) })
-        }
-    }
 
     fn settings() -> CodexThreadSettings {
         CodexThreadSettings {
@@ -341,7 +323,7 @@ mod tests {
         }
 
         let folder = tempfile::tempdir().expect("a scratch folder is made");
-        let program = Arc::new(CountedUnstartedProgram::default());
+        let program = Arc::new(UnstartedProgram::default());
         let unserved = CodexServiceRegistry::new(
             Arc::new(OneHome(CodexServiceHome {
                 codex_home: folder.path().join("home"),

@@ -8,14 +8,13 @@ use sidekicks_contracts::mcp::server::config::McpServerConfigInput;
 
 use crate::driver::codex::mcp::config::server_entry::{
     ARGS_MEMBER, AUTH_MEMBER, BEARER_TOKEN_ENV_VAR_MEMBER, BEARER_TOKEN_MEMBER, COMMAND_MEMBER,
-    CWD_MEMBER, ENABLED_MEMBER, ENV_HTTP_HEADERS_MEMBER, ENV_MEMBER, ENV_VARS_MEMBER,
-    HTTP_HEADERS_HELPER_MEMBER, HTTP_HEADERS_MEMBER, OAUTH_MEMBER, OAUTH_RESOURCE_MEMBER,
-    REQUIRED_MEMBER, SCOPES_MEMBER, STARTUP_TIMEOUT_MS_MEMBER, STARTUP_TIMEOUT_SEC_MEMBER,
-    TOOL_TIMEOUT_SEC_MEMBER, URL_MEMBER,
+    CWD_MEMBER, ENV_HTTP_HEADERS_MEMBER, ENV_MEMBER, ENV_VARS_MEMBER, HTTP_HEADERS_HELPER_MEMBER,
+    HTTP_HEADERS_MEMBER, OAUTH_MEMBER, OAUTH_RESOURCE_MEMBER, REQUIRED_MEMBER, SCOPES_MEMBER,
+    STARTUP_TIMEOUT_MS_MEMBER, STARTUP_TIMEOUT_SEC_MEMBER, TOOL_TIMEOUT_SEC_MEMBER, URL_MEMBER,
 };
 use crate::driver::mcp_server::write::{
-    McpServerEntry, McpServerObservedEntry, McpServerWriteRefusal, SubmittedMember,
-    apply_submitted_member, set_member,
+    ENTRY_SWITCH_MEMBER, McpServerEntry, McpServerObservedEntry, McpServerWriteRefusal,
+    SubmittedMember, apply_submitted_member, set_member,
 };
 
 /// The members only an entry that starts a program holds, removed when an address is submitted.
@@ -29,7 +28,7 @@ const PROGRAM_MEMBERS: [&str; 6] = [
 ];
 
 /// The members only an entry that reaches an address holds, removed when a program is submitted.
-const ADDRESS_MEMBERS: [&str; 9] = [
+const ADDRESS_MEMBERS: [&str; 10] = [
     URL_MEMBER,
     BEARER_TOKEN_ENV_VAR_MEMBER,
     BEARER_TOKEN_MEMBER,
@@ -39,6 +38,7 @@ const ADDRESS_MEMBERS: [&str; 9] = [
     OAUTH_MEMBER,
     OAUTH_RESOURCE_MEMBER,
     AUTH_MEMBER,
+    SCOPES_MEMBER,
 ];
 
 /// The entry Codex holds for `binding` once `config` is written over `before`. Fails with
@@ -65,7 +65,7 @@ pub(crate) fn compose_codex_mcp_entry(
     match binding {
         // Codex keeps a `local` binding in the user file, switched off.
         McpWritableBindingRef::Local { .. } => {
-            members.insert(ENABLED_MEMBER.to_owned(), Value::Bool(false));
+            members.insert(ENTRY_SWITCH_MEMBER.to_owned(), Value::Bool(false));
         }
         McpWritableBindingRef::User { .. } | McpWritableBindingRef::Project { .. } => {}
     }
@@ -78,7 +78,7 @@ pub(super) fn before_members(before: &McpServerObservedEntry) -> Map<String, Val
     match before {
         McpServerObservedEntry::Present(entry) => entry.members().clone(),
         McpServerObservedEntry::Switch(is_enabled) => {
-            [(ENABLED_MEMBER.to_owned(), Value::Bool(*is_enabled))]
+            [(ENTRY_SWITCH_MEMBER.to_owned(), Value::Bool(*is_enabled))]
                 .into_iter()
                 .collect()
         }
@@ -109,7 +109,7 @@ fn read_submitted_members(
                 set_member(ARGS_MEMBER, args.as_ref().map(Option::as_ref))?,
                 set_member(ENV_MEMBER, env.as_ref().map(Option::as_ref))?,
                 set_member(ENV_VARS_MEMBER, env_vars.as_ref().map(Option::as_ref))?,
-                set_member(ENABLED_MEMBER, enabled.as_ref().map(Some))?,
+                set_member(ENTRY_SWITCH_MEMBER, enabled.as_ref().map(Some))?,
                 set_member(REQUIRED_MEMBER, required.as_ref().map(Some))?,
                 set_member(
                     STARTUP_TIMEOUT_SEC_MEMBER,
@@ -150,7 +150,7 @@ fn read_submitted_members(
                     OAUTH_RESOURCE_MEMBER,
                     oauth_resource.as_ref().map(Option::as_ref),
                 )?,
-                set_member(ENABLED_MEMBER, enabled.as_ref().map(Some))?,
+                set_member(ENTRY_SWITCH_MEMBER, enabled.as_ref().map(Some))?,
                 set_member(REQUIRED_MEMBER, required.as_ref().map(Some))?,
                 set_member(
                     STARTUP_TIMEOUT_SEC_MEMBER,
@@ -191,9 +191,9 @@ mod tests {
     // Compose's entry is what Codex's config reads back after the write, in Codex's own form, or
     // every landed write would read as a changed entry. Codex's `config/read` lists each layer as
     // its file holds it, before any merge and with no default added, so the read-back layer is the
-    // written file's own table. Killed by keeping `startup_timeout_ms` beside `startup_timeout_sec`,
-    // by keeping the program's members on a switch to an address, and by dropping the switch-off
-    // of an emulated `local` binding.
+    // written file's own table. Killed by keeping `startup_timeout_ms` beside
+    // `startup_timeout_sec`, by keeping the program's members on a switch to an address, and by
+    // dropping the switch-off of an emulated `local` binding.
     #[rstest]
     #[case::local_add(
         json!({

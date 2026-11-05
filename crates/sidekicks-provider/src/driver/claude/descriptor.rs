@@ -146,6 +146,8 @@ pub(crate) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     mcp_server_names: CLAUDE_MCP_SERVER_NAMES,
     // It keeps a project's `local` servers in its own config.
     is_mcp_local_scope_emulated: false,
+    // Its start sends no `--mcp-config` of the person's servers yet.
+    takes_session_tool_servers: false,
     skill_name_max_length: None,
     written_name_forms: &CLAUDE_WRITTEN_NAME_FORMS,
     permission_identifiers: &[

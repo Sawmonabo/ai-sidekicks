@@ -8,7 +8,7 @@ mod stand_in;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use futures::future::BoxFuture;
 use futures::{SinkExt as _, StreamExt as _};
@@ -306,7 +306,7 @@ pub(crate) fn start_scripted_account_service_reporting_to(
     start_scripted_codex_service_on(
         CodexHomeKind::Account(test_provider_account_id()),
         CodexServiceKind::Account,
-        Arc::new(UnstartedProgram),
+        Arc::new(UnstartedProgram::default()),
         events,
     )
 }
@@ -320,7 +320,7 @@ pub(crate) fn start_scripted_account_service_for(
     start_scripted_codex_service_on(
         CodexHomeKind::Account(provider_account_id),
         CodexServiceKind::Account,
-        Arc::new(UnstartedProgram),
+        Arc::new(UnstartedProgram::default()),
         Arc::new(UnheardEvents),
     )
 }
@@ -334,7 +334,7 @@ pub(crate) fn start_scripted_api_key_service_for(
     start_scripted_codex_service_on(
         CodexHomeKind::ApiKeyAccount(provider_account_id),
         CodexServiceKind::Account,
-        Arc::new(UnstartedProgram),
+        Arc::new(UnstartedProgram::default()),
         Arc::new(UnheardEvents),
     )
 }
@@ -359,7 +359,7 @@ pub(crate) fn start_scripted_terminal_service() -> ScriptedCodexService {
     start_scripted_codex_service_on(
         CodexHomeKind::PersonalFolder,
         CodexServiceKind::Terminal,
-        Arc::new(UnstartedProgram),
+        Arc::new(UnstartedProgram::default()),
         Arc::new(UnheardEvents),
     )
 }
@@ -371,7 +371,7 @@ pub(crate) fn start_scripted_joined_service() -> ScriptedCodexService {
     start_scripted_codex_service_on(
         CodexHomeKind::PersonalFolder,
         CodexServiceKind::Joined,
-        Arc::new(UnstartedProgram),
+        Arc::new(UnstartedProgram::default()),
         Arc::new(UnheardEvents),
     )
 }
@@ -383,7 +383,7 @@ pub(crate) fn start_scripted_switching_service() -> ScriptedCodexService {
     start_scripted_codex_service_on(
         CodexHomeKind::Switching,
         CodexServiceKind::Account,
-        Arc::new(UnstartedProgram),
+        Arc::new(UnstartedProgram::default()),
         Arc::new(UnheardEvents),
     )
 }
@@ -456,14 +456,20 @@ pub(crate) fn script_codex_service(
     (service, script)
 }
 
-// A scripted service runs no program, so a start on its dependencies fails at the resolve.
-struct UnstartedProgram;
+/// A program a scripted service never runs, so a start on its dependencies fails at the resolve;
+/// it counts the starts that reached it.
+#[derive(Default)]
+pub(crate) struct UnstartedProgram {
+    /// The starts that reached the resolve.
+    pub(crate) starts: AtomicUsize,
+}
 
 impl CodexProgramResolver for UnstartedProgram {
     fn resolve<'call>(
         &'call self,
         _home: &'call CodexServiceHome,
     ) -> BoxFuture<'call, Result<ResolvedProviderExecutable, DriverError>> {
+        self.starts.fetch_add(1, Ordering::SeqCst);
         Box::pin(async {
             Err(DriverError::Internal(
                 "a scripted service runs no program".into(),

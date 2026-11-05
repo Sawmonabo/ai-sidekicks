@@ -162,8 +162,9 @@ pub(crate) async fn read_codex_model_catalog_dump(
         .map_err(CodexError::Driver)?;
     let mut arguments = home_exec_switches(&service.home().kind);
     arguments.extend(["debug".to_owned(), "models".to_owned()]);
-    let launch =
-        compose_codex_native_launch(&dependencies.data_folder, &executable, arguments).await?;
+    let launch = compose_codex_native_launch(&dependencies.data_folder, &executable, arguments)
+        .await?
+        .launch;
     run_codex_command(&dependencies.spawner, launch, CODEX_CATALOG_READ_DEADLINE)
         .await
         .map_err(|error| CodexError::Transport {
