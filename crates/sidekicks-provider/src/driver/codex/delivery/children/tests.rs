@@ -1,24 +1,26 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use rstest::rstest;
-use serde_json::json;
 use serde_json::value::RawValue;
+use serde_json::{Value, json};
 use sidekicks_contracts::run::control::StopTrigger;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio_util::sync::CancellationToken;
 
-use super::ChildRunLookup;
-use crate::driver::codex::delivery::rows::test_row_run;
+use super::{ChildRunLookup, CodexHelperNames};
+use crate::driver::codex::delivery::rows::{CodexRowRun, test_row_run};
 use crate::driver::codex::hooks::server::{
     CodexHookAnswer, CodexHookAnswerer, CodexHookEvent, CodexHookInput,
 };
-use crate::driver::codex::service::supervisor::routing::CodexHelperNames;
+use crate::driver::codex::run::routes::CodexRunBinding;
 use crate::driver::codex::session::inbound::CodexSessionInbound;
 use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestCodexSession, turn_completed};
 use crate::driver::run_control::HelperStopReason;
-use crate::run::delivery::{ChildRunSubagent, RunSetupRefusal};
+use crate::port::run_host::test_host::RecordedDelivery;
+use crate::run::delivery::{ChildRunSubagent, LateAppendableRow, RunSetupRefusal};
 use crate::run::state_entry::RunStateEntry;
 
 /// A helper's own conversation, which is its id.
@@ -53,6 +55,7 @@ async fn a_refused_helpers_running_turn_is_interrupted() {
             HELPER_THREAD,
             TEST_THREAD,
             HELPER_THREAD,
+            Some("call-1"),
             CodexHelperNames {
                 name: None,
                 role: None,
@@ -105,65 +108,174 @@ async fn a_refused_helpers_running_turn_is_interrupted() {
     );
 }
 
-// A spawned helper's `thread/started` starts its child run beneath the run whose spawn call
-// started it, with the name, role and path Codex gives it, while a compaction conversation
-// announced first starts none and leaves the spawn call to the helper. Killed by a helper kind
-// read from a member the thread does not carry (no child run), by every `subAgent` arm counted a
-// helper (the compaction's child run takes the spawn call), by names dropped or swapped, and by a
-// path read from any member but the spawn's `agent_path`.
-#[tokio::test]
-async fn a_spawned_helper_starts_its_child_run_as_codex_names_it() {
-    let mut session = TestCodexSession::start().await;
-    let mut lead = test_row_run();
-    lead.session_id = session.task.record.session_id;
+/// A turn of the lead's live while its helpers are spawned.
+const LEAD_TURN: &str = "lead-turn";
+
+/// The model a spawn names for its helper, which the lead does not run on.
+const HELPER_MODEL: &str = "gpt-5.4-mini";
+
+/// Opens the live turn `turn_id` on [`TEST_THREAD`] under a run of its own, delivered on.
+fn open_live_turn(session: &mut TestCodexSession, turn_id: &str) -> CodexRowRun {
+    let mut run = test_row_run();
+    run.session_id = session.task.record.session_id;
+    session.task.run_routes.bind_run_delivery(
+        run.run_id,
+        CodexRunBinding {
+            session_id: run.session_id,
+            binding_id: run.binding_id.clone(),
+            agent_id: run.agent_id,
+            step_bound: None,
+        },
+    );
     session
         .task
         .record
-        .note_spawn_call(TEST_THREAD, "call-1", &lead);
-    let spawned = json!({"thread": {
-        "id": HELPER_THREAD,
-        "parentThreadId": TEST_THREAD,
-        "source": {"subAgent": {"thread_spawn": {
-            "parent_thread_id": TEST_THREAD,
-            "depth": 1,
-            "agent_path": "/root/scout",
-            "agent_nickname": "Scout",
-            "agent_role": "explorer",
-        }}},
-        "agentNickname": "Scout",
-        "agentRole": "explorer",
-    }});
-    let compaction = json!({"thread": {
-        "id": "compact-thread",
-        "parentThreadId": TEST_THREAD,
-        "source": {"subAgent": "compact"},
-    }});
+        .add_active_turn(turn_id.to_owned(), run.run_id);
+    run
+}
 
-    for params in [compaction, spawned] {
-        session
-            .task
-            .handle(CodexSessionInbound::Frame {
-                method: "thread/started".to_owned(),
-                params: RawValue::from_string(params.to_string()).expect("the params are JSON"),
-            })
-            .await;
+/// A notification of `method` with `params`, as the session's queue carries it.
+fn notification(method: &str, params: &Value) -> CodexSessionInbound {
+    CodexSessionInbound::Frame {
+        method: method.to_owned(),
+        params: RawValue::from_string(params.to_string()).expect("the params are JSON"),
     }
+}
 
-    let child_runs: Vec<_> = session
+/// An item frame of `method` carrying `item` on `turn_id` of [`TEST_THREAD`].
+fn item_frame(method: &str, turn_id: &str, item: &Value) -> CodexSessionInbound {
+    notification(
+        method,
+        &json!({"threadId": TEST_THREAD, "turnId": turn_id, "item": item}),
+    )
+}
+
+/// Handles `frame` while answering the one `thread/read` of `helper_thread` it sends with `answer`,
+/// a whole JSON-RPC answer but for its id.
+async fn handle_answering_read(
+    session: &mut TestCodexSession,
+    frame: CodexSessionInbound,
+    helper_thread: &str,
+    mut answer: Value,
+) {
+    let script = &mut session.scripted.script;
+    let answer_read = async {
+        let read = script.next_sent().await;
+        assert_eq!(read["method"], "thread/read", "{read}");
+        assert_eq!(read["params"]["threadId"], helper_thread, "{read}");
+        answer["jsonrpc"] = json!("2.0");
+        answer["id"] = read["id"].clone();
+        script.send(&answer);
+    };
+    tokio::join!(session.task.handle(frame), answer_read);
+}
+
+/// The child runs started so far, by their helper's id.
+fn child_runs(session: &TestCodexSession) -> HashMap<String, RecordedDelivery> {
+    session
         .engine
         .deliveries()
         .into_iter()
         .filter(|delivery| delivery.kind == "childRun")
-        .collect();
-    assert_eq!(
-        child_runs.len(),
-        1,
-        "only the spawned helper starts a child run"
-    );
-    assert_eq!(child_runs[0].parent_run_id, Some(lead.run_id));
+        .map(|delivery| {
+            let subagent = delivery
+                .subagent
+                .as_ref()
+                .expect("a child run names its helper");
+            (subagent.subagent_id.as_str().to_owned(), delivery)
+        })
+        .collect()
+}
+
+/// The call each `subagent.started` row names, by its helper's id.
+fn started_row_calls(session: &TestCodexSession) -> HashMap<String, Option<String>> {
+    session
+        .engine
+        .deliveries()
+        .into_iter()
+        .filter_map(|delivery| {
+            let Some(LateAppendableRow::AgentSubagentStarted(row)) = delivery.row else {
+                return None;
+            };
+            Some((
+                row.subagent_id.as_str().to_owned(),
+                row.parent_tool_call_id.map(|call| call.as_str().to_owned()),
+            ))
+        })
+        .collect()
+}
+
+// A v2 spawn's `subAgentActivity` pair starts one child run beneath the run whose call the started
+// item noted, named as the helper's `thread/read` names it, with the item's path; its usage names
+// the item's model; and a later `interacted` item naming it starts nothing. Another live run makes
+// the noted call the only way to the parent. Kills: registration left on `thread/started` (no
+// child run), the v2 call never noted (no parent run, so no child run), names never read, the path
+// from another member, no model or the lead's on the usage, and the kind not checked (a second
+// child run on the `interacted` item).
+#[tokio::test]
+async fn a_v2_spawn_starts_its_helpers_child_run_as_codex_names_it() {
+    let mut session = TestCodexSession::start().await;
+    let lead = open_live_turn(&mut session, LEAD_TURN);
+    open_live_turn(&mut session, "other-turn");
+    let spawned = json!({
+        "type": "subAgentActivity", "id": "call-1", "kind": "started",
+        "agentThreadId": HELPER_THREAD, "agentPath": "/root/scout", "model": HELPER_MODEL,
+        "reasoningEffort": "low",
+    });
+
+    session
+        .task
+        .handle(item_frame("item/started", LEAD_TURN, &spawned))
+        .await;
+    handle_answering_read(
+        &mut session,
+        item_frame("item/completed", LEAD_TURN, &spawned),
+        HELPER_THREAD,
+        json!({"result": {"thread": {
+            "id": HELPER_THREAD, "agentNickname": "Scout", "agentRole": "explorer",
+        }}}),
+    )
+    .await;
+    let delivery = Arc::clone(&session.task.calls.forks.delivery);
+    let usage = json!({
+        "threadId": HELPER_THREAD, "turnId": HELPER_TURN,
+        "tokenUsage": {"total": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15}},
+    });
+    let routed = session
+        .task
+        .routing
+        .route_notification(
+            &delivery,
+            &mut session.task.record,
+            "thread/tokenUsage/updated".to_owned(),
+            RawValue::from_string(usage.to_string()).expect("the params are JSON"),
+        )
+        .await;
+    session
+        .task
+        .handle(notification(
+            "turn/completed",
+            &turn_completed(HELPER_THREAD, HELPER_TURN, "completed")["params"],
+        ))
+        .await;
+    let interacted = json!({
+        "type": "subAgentActivity", "id": "call-2", "kind": "interacted",
+        "agentThreadId": HELPER_THREAD, "agentPath": "/root/scout",
+    });
+    for method in ["item/started", "item/completed"] {
+        session
+            .task
+            .handle(item_frame(method, LEAD_TURN, &interacted))
+            .await;
+    }
+
+    let child_runs = child_runs(&session);
+    assert_eq!(child_runs.len(), 1, "one child run for the one spawn");
+    let child_run = &child_runs[HELPER_THREAD];
+    assert_eq!(child_run.parent_run_id, Some(lead.run_id));
     let handle = |text: &str| Some(FreeFormText::new(text.to_owned()).expect("a test name fits"));
     assert_eq!(
-        child_runs[0].subagent,
+        child_run.subagent,
         Some(ChildRunSubagent {
             subagent_id: SubagentId::new(HELPER_THREAD.to_owned()).expect("a helper id"),
             parent_subagent_id: None,
@@ -172,6 +284,86 @@ async fn a_spawned_helper_starts_its_child_run_as_codex_names_it() {
             provider_path: handle("/root/scout"),
             start_call_id: None,
         })
+    );
+    assert_eq!(
+        started_row_calls(&session),
+        HashMap::from([(HELPER_THREAD.to_owned(), Some("call-1".to_owned()))])
+    );
+    let metered = routed
+        .metered_usage
+        .last()
+        .expect("the helper's usage metered");
+    assert_eq!(
+        metered.request.model_id.as_ref().map(FreeFormText::as_str),
+        Some(HELPER_MODEL)
+    );
+}
+
+// Each v1 spawn's helper starts beneath the run of its own call and its row names that call, though
+// the later call completes first, and a helper whose `thread/read` fails starts all the same, with
+// no name or role. Kills: the oldest noted call taken (`helper-b` beneath the first call's run),
+// and a failed read starting no run.
+#[tokio::test]
+async fn each_v1_spawn_starts_its_helper_beneath_its_own_call() {
+    let mut session = TestCodexSession::start().await;
+    let first = open_live_turn(&mut session, LEAD_TURN);
+    let second = open_live_turn(&mut session, "second-turn");
+    let spawn_call = |call_id: &str, receivers: &[&str]| {
+        json!({
+            "type": "collabAgentToolCall", "id": call_id, "tool": "spawnAgent",
+            "status": if receivers.is_empty() { "inProgress" } else { "completed" },
+            "senderThreadId": TEST_THREAD, "receiverThreadIds": receivers,
+            "agentsStates": {},
+        })
+    };
+
+    for (call_id, turn_id) in [("call-1", LEAD_TURN), ("call-2", "second-turn")] {
+        session
+            .task
+            .handle(item_frame(
+                "item/started",
+                turn_id,
+                &spawn_call(call_id, &[]),
+            ))
+            .await;
+    }
+    handle_answering_read(
+        &mut session,
+        item_frame(
+            "item/completed",
+            "second-turn",
+            &spawn_call("call-2", &["helper-b"]),
+        ),
+        "helper-b",
+        json!({"result": {"thread": {"id": "helper-b", "agentNickname": "Bee"}}}),
+    )
+    .await;
+    handle_answering_read(
+        &mut session,
+        item_frame(
+            "item/completed",
+            LEAD_TURN,
+            &spawn_call("call-1", &["helper-a"]),
+        ),
+        "helper-a",
+        json!({"error": {"code": -32600, "message": "thread not loaded"}}),
+    )
+    .await;
+
+    let child_runs = child_runs(&session);
+    assert_eq!(child_runs["helper-b"].parent_run_id, Some(second.run_id));
+    assert_eq!(child_runs["helper-a"].parent_run_id, Some(first.run_id));
+    let helper_a = child_runs["helper-a"]
+        .subagent
+        .as_ref()
+        .expect("a child run names its helper");
+    assert_eq!((&helper_a.name, &helper_a.role), (&None, &None));
+    assert_eq!(
+        started_row_calls(&session),
+        HashMap::from([
+            ("helper-a".to_owned(), Some("call-1".to_owned())),
+            ("helper-b".to_owned(), Some("call-2".to_owned())),
+        ])
     );
 }
 
@@ -192,6 +384,7 @@ async fn start_helper(session: &mut TestCodexSession, helper_thread: &str) -> Ru
             helper_thread,
             TEST_THREAD,
             helper_thread,
+            Some(&spawn_call),
             CodexHelperNames {
                 name: None,
                 role: None,

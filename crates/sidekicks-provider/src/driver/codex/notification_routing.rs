@@ -18,17 +18,17 @@ use tokio::time::Instant;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::compaction::read_codex_compaction_boundary_position;
+use crate::driver::codex::delivery::children::{CodexHelperNames, read_codex_helper_thread};
 use crate::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
 use crate::driver::codex::delivery::frames::{CodexFrameDelivery, CodexFrameDispatch};
 use crate::driver::codex::event_normalizer::{
-    CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD, CODEX_THREAD_COMPACTED_METHOD,
-    CODEX_THREAD_STARTED_METHOD, CODEX_THREAD_TOKEN_USAGE_METHOD, CODEX_TURN_COMPLETED_METHOD,
+    CODEX_ITEM_COMPLETED_METHOD, CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD,
+    CODEX_THREAD_COMPACTED_METHOD, CODEX_THREAD_TOKEN_USAGE_METHOD, CODEX_TURN_COMPLETED_METHOD,
     classify_codex_frame_family_for_routing,
 };
 use crate::driver::codex::mcp::status_list::list_codex_mcp_server_statuses;
 use crate::driver::codex::service::supervisor::routing::{
-    CodexHelperNames, read_codex_child_thread_announcement, read_codex_frame_thread_id,
-    read_codex_helper_names,
+    CodexFrameThreads, CodexSpawnedHelper, read_codex_frame_threads,
 };
 use crate::driver::codex::session::state::{CODEX_THREAD_FRAME_ROUTER_CONFIG, CodexSessionRecord};
 use crate::driver::codex::token_usage::read_codex_token_usage;
@@ -84,13 +84,19 @@ pub(crate) struct CodexRoutableFrame {
 }
 
 impl CodexRoutableFrame {
-    fn read(method: String, params: Box<RawValue>) -> Self {
-        Self {
+    // The frame, with the helpers its spawn item names, read in one parse.
+    fn read(method: String, params: Box<RawValue>) -> (Self, Vec<CodexSpawnedHelper>) {
+        let CodexFrameThreads {
+            thread_id,
+            spawned_helpers,
+        } = read_codex_frame_threads(&method, &params);
+        let frame = Self {
             family_class: classify_codex_frame_family_for_routing(&method),
-            thread_id: read_codex_frame_thread_id(&method, &params),
+            thread_id,
             method,
             params,
-        }
+        };
+        (frame, spawned_helpers)
     }
 }
 
@@ -146,12 +152,15 @@ impl CodexRoutedFrames {
 }
 
 /// One session's frame router, usage accountant and terminal gate, kept on its task beside its
-/// record; the gate outlives each record, since a close covers whichever run is in flight.
+/// record, with the model each spawned helper runs on; the gate outlives each record, since a
+/// close covers whichever run is in flight.
 pub(crate) struct CodexSessionRouting {
     router: ThreadFrameRouter<CodexRoutableFrame>,
     accountant: UsageDeltaAccountant,
     gate: TerminalEmissionGate,
     pending_compactions: PendingCompactionRegistry,
+    // Each live spawned helper's model by its conversation, which its usage readings name.
+    helper_models: HashMap<String, String>,
 }
 
 impl CodexSessionRouting {
@@ -165,6 +174,7 @@ impl CodexSessionRouting {
             accountant: UsageDeltaAccountant::new(DESCRIPTOR.provider_id()),
             gate: TerminalEmissionGate::new(),
             pending_compactions,
+            helper_models: HashMap::new(),
         }
     }
 
@@ -268,13 +278,9 @@ impl CodexSessionRouting {
             },
         );
         let mut routed = CodexRoutedFrames::default();
-        let registered = self.router.register_child_thread(ChildThreadAnnouncement {
-            child_thread_id: helper_thread_id.clone(),
-            declared_parent_thread_id: Some(record.thread_id.clone()),
-            // A helper's own id is its conversation's.
-            subagent_id: Some(helper_thread_id),
-            waiting_call_id: None,
-        });
+        let registered = self
+            .router
+            .register_child_thread(helper_announcement(helper_thread_id, &record.thread_id));
         if let ChildRegistrationResult::Registered {
             released_frames, ..
         } = registered
@@ -308,9 +314,9 @@ impl CodexSessionRouting {
         }
     }
 
-    /// Routes one notification of the session and delivers what it releases, a helper's
-    /// announcement registering the helper before the announcement itself is routed. Never fails:
-    /// each delivery reports its own failure.
+    /// Routes one notification of the session and delivers what it releases, each helper an
+    /// `item/completed` spawn item names registering beneath the frame's conversation before the
+    /// frame itself is routed. Never fails: each delivery reports its own failure.
     pub(crate) async fn route_notification(
         &mut self,
         delivery: &CodexFrameDelivery,
@@ -319,57 +325,64 @@ impl CodexSessionRouting {
         params: Box<RawValue>,
     ) -> CodexRoutedFrames {
         let mut routed = CodexRoutedFrames::default();
-        if method == CODEX_THREAD_STARTED_METHOD
-            && let Some(announcement) = read_codex_child_thread_announcement(&params)
+        let (frame, spawned_helpers) = CodexRoutableFrame::read(method, params);
+        // A spawn item rides its parent's turn, so the frame's own conversation is the parent.
+        // `item/started` registers nothing: the router holds the helper's frames until the item
+        // completes.
+        if frame.method == CODEX_ITEM_COMPLETED_METHOD
+            && let Some(parent_thread_id) = &frame.thread_id
         {
-            let parent_thread_id = announcement.declared_parent_thread_id.clone();
-            if let ChildRegistrationResult::Registered {
-                child_thread_id,
-                attribution,
-                released_frames,
-            } = self.router.register_child_thread(announcement)
-            {
-                let names = read_codex_helper_names(&params);
-                self.start_registered_child(
-                    delivery,
-                    record,
-                    &child_thread_id,
-                    parent_thread_id.as_deref(),
-                    &attribution,
-                    names,
-                )
-                .await;
-                for frame in released_frames {
-                    self.route_frame(delivery, record, &frame, &mut routed)
-                        .await;
+            for helper in spawned_helpers {
+                let registered = self.router.register_child_thread(helper_announcement(
+                    helper.thread_id.clone(),
+                    parent_thread_id,
+                ));
+                if let ChildRegistrationResult::Registered {
+                    child_thread_id,
+                    attribution,
+                    released_frames,
+                } = registered
+                {
+                    self.start_registered_child(
+                        delivery,
+                        record,
+                        &child_thread_id,
+                        parent_thread_id,
+                        &attribution,
+                        helper,
+                    )
+                    .await;
+                    for released in released_frames {
+                        self.route_frame(delivery, record, &released, &mut routed)
+                            .await;
+                    }
                 }
             }
         }
-        let frame = CodexRoutableFrame::read(method, params);
         report_mcp_server_startup(record, &frame).await;
         self.route_frame(delivery, record, &frame, &mut routed)
             .await;
         routed
     }
 
-    // A helper registered once: its usage based at zero and, for a subagent, its child run
-    // started under the names Codex gave it. A repeated announcement keeps the base, since
-    // re-basing would meter reported spend again, and starts nothing, since a second start would
-    // show the helper twice.
+    // A helper registered once: its usage based at zero and, for a subagent, its model kept and its
+    // child run started under the names its conversation's `thread/read` gives and the path its
+    // spawn item gives. A repeated announcement keeps the base, since re-basing would meter
+    // reported spend again, and starts nothing, since a second start would show the helper twice.
     async fn start_registered_child(
         &mut self,
         delivery: &CodexFrameDelivery,
         record: &mut CodexSessionRecord,
         child_thread_id: &str,
-        parent_thread_id: Option<&str>,
+        parent_thread_id: &str,
         attribution: &ChildSpendAttribution,
-        names: CodexHelperNames,
+        helper: CodexSpawnedHelper,
     ) {
         if self.accountant.has_thread(child_thread_id) {
             report(
                 record,
                 DriverDiagnosticKind::ThreadDuplicateChildAnnouncement,
-                Some(CODEX_THREAD_STARTED_METHOD),
+                Some(CODEX_ITEM_COMPLETED_METHOD),
                 "duplicate child-thread announcement for an already-registered child; usage base \
                  retained and no second started emission",
                 [("childThreadId", Value::from(child_thread_id))],
@@ -378,20 +391,32 @@ impl CodexSessionRouting {
         }
         self.accountant
             .establish_thread(child_thread_id.to_owned(), ThreadBaseEstablishment::Fresh);
-        // An internal helper, a compaction conversation, has no subagent of its own.
-        if let (ChildSpendAttribution::Subagent { subagent_id }, Some(parent_thread_id)) =
-            (attribution, parent_thread_id)
+        let ChildSpendAttribution::Subagent { subagent_id } = attribution else {
+            return;
+        };
+        let reading = read_codex_helper_thread(record, child_thread_id).await;
+        let reading = reading.as_ref();
+        if let Some(model) = helper
+            .model
+            .or_else(|| reading.and_then(|reading| reading.model.clone()))
         {
-            delivery
-                .start_child(
-                    record,
-                    child_thread_id,
-                    parent_thread_id,
-                    subagent_id,
-                    names,
-                )
-                .await;
+            self.helper_models.insert(child_thread_id.to_owned(), model);
         }
+        let names = CodexHelperNames::new(
+            reading.and_then(|reading| reading.agent_nickname.clone()),
+            reading.and_then(|reading| reading.agent_role.clone()),
+            helper.provider_path,
+        );
+        delivery
+            .start_child(
+                record,
+                child_thread_id,
+                parent_thread_id,
+                subagent_id,
+                helper.call_id.as_deref(),
+                names,
+            )
+            .await;
     }
 
     // Applies the router's decision to one frame: the session's own and connection-wide frames
@@ -442,8 +467,9 @@ impl CodexSessionRouting {
 
     // Meters a usage frame and answers its reading; `None` for any other frame or no reading. A
     // reading that cannot be read is reported, since a silent drop is spend no receipt shows. A
-    // helper's reading runs at the thread's tier and names no model; any other runs at its turn's
-    // sent tier and model, else the thread's, as for a turn the daemon started, which keeps none.
+    // helper's reading runs at the thread's tier and names the model its spawn named, none for a
+    // restored helper; any other runs at its turn's sent tier and model, else the thread's, as for
+    // a turn the daemon started, which keeps none.
     fn meter_usage_frame(
         &mut self,
         record: &CodexSessionRecord,
@@ -481,9 +507,12 @@ impl CodexSessionRouting {
         reading.request.speed = speed.and_then(|speed| BoundedText::new(speed.to_owned()));
         reading.request.thread_speed =
             thread_speed.and_then(|speed| BoundedText::new(speed.to_owned()));
-        reading.request.model_id = (!is_helper)
-            .then(|| input.map_or(&record.thread_settings.model, |input| &input.model))
-            .and_then(|model| FreeFormText::new(model.clone()).ok());
+        let model = if is_helper {
+            self.helper_models.get(&reading.thread_id)
+        } else {
+            Some(input.map_or(&record.thread_settings.model, |input| &input.model))
+        };
+        reading.request.model_id = model.and_then(|model| FreeFormText::new(model.clone()).ok());
         routed
             .metered_usage
             .extend(self.accountant.meter_reading(reading.clone()));
@@ -537,6 +566,7 @@ impl CodexSessionRouting {
             return;
         }
         self.accountant.release_thread(thread_id);
+        self.helper_models.remove(thread_id);
         if is_subagent {
             delivery
                 .complete_child(record, thread_id, &frame.params, &turn_members)
@@ -639,6 +669,20 @@ async fn list_settled_mcp_servers(record: &CodexSessionRecord, producer: &McpSer
             error = &error as &(dyn std::error::Error + 'static),
             "codex's mcp server list failed; the session's servers keep their startups, no tools"
         ),
+    }
+}
+
+// The router's announcement of a helper beneath `parent_thread_id`; a helper's own id is its
+// conversation's.
+fn helper_announcement(
+    helper_thread_id: String,
+    parent_thread_id: &str,
+) -> ChildThreadAnnouncement {
+    ChildThreadAnnouncement {
+        subagent_id: Some(helper_thread_id.clone()),
+        child_thread_id: helper_thread_id,
+        declared_parent_thread_id: Some(parent_thread_id.to_owned()),
+        waiting_call_id: None,
     }
 }
 

@@ -3,8 +3,11 @@
 //! which name that tool call where Codex gave one, and its own rows, which arrive on its own
 //! thread, are delivered on the child run between the two, in frame order.
 
+use std::time::Duration;
+
 use serde_json::value::RawValue;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
+use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::control::StopTrigger;
 use sidekicks_contracts::run::id::RunId;
@@ -16,9 +19,10 @@ use crate::driver::codex::delivery::frames::CodexFrameDelivery;
 use crate::driver::codex::delivery::memory::{CodexBoundChildRun, CodexChildRun, CodexSpawnCall};
 use crate::driver::codex::delivery::reviewer::end_codex_review_turn;
 use crate::driver::codex::delivery::rows::CodexRowRun;
-use crate::driver::codex::service::supervisor::routing::CodexHelperNames;
+use crate::driver::codex::event_normalizer::CODEX_ITEM_COMPLETED_METHOD;
 use crate::driver::codex::session::establishment::helpers::bind_codex_helper_run;
 use crate::driver::codex::session::state::CodexSessionRecord;
+use crate::driver::codex::thread::view::{CodexThreadReading, request_thread_reading};
 use crate::driver::codex::turn_evidence::{CodexTurnStatus, compose_codex_child_terminal};
 use crate::driver::run_control::HelperStopReason;
 use crate::record_readers::read_non_empty_string;
@@ -26,6 +30,65 @@ use crate::run::delivery::DeliveryOperation;
 use crate::run::delivery::LateAppendableRow;
 use crate::run::delivery::{ChildRunSubagent, DeliveryBinding, InboundDelivery, InboundOutcome};
 use crate::run::state_entry::RunStateEntry;
+
+/// The names a helper's child run carries, each `None` where Codex gives none or one the contract
+/// refuses.
+pub(crate) struct CodexHelperNames {
+    /// Its nickname, `agentNickname` on the `thread/read` of its conversation.
+    pub(crate) name: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    /// The role it was started in, `agentRole` on the same read.
+    pub(crate) role: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    /// Its path in Codex's tree of helpers, `agentPath` on the spawn item; a v1 spawn names none.
+    pub(crate) provider_path: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+}
+
+impl CodexHelperNames {
+    /// The names as the contract holds them; a value it refuses, one holding NUL or one over the
+    /// cap, reads as none, never cut.
+    pub(crate) fn new(
+        name: Option<String>,
+        role: Option<String>,
+        provider_path: Option<String>,
+    ) -> Self {
+        let handle = |text: Option<String>| text.and_then(|text| FreeFormText::new(text).ok());
+        Self {
+            name: handle(name),
+            role: handle(role),
+            provider_path: handle(provider_path),
+        }
+    }
+}
+
+/// How long the `thread/read` of a spawned helper's names waits before its child run starts
+/// without them.
+const CODEX_HELPER_READ_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Reads a spawned helper's conversation for its names and model, waiting at most
+/// [`CODEX_HELPER_READ_TIMEOUT`]; a read that fails or finds no thread is logged and answers `None`,
+/// and the helper starts unnamed.
+pub(crate) async fn read_codex_helper_thread(
+    record: &CodexSessionRecord,
+    helper_thread_id: &str,
+) -> Option<CodexThreadReading> {
+    let read = match record.service.connection() {
+        Ok(connection) => {
+            request_thread_reading(&connection, helper_thread_id, CODEX_HELPER_READ_TIMEOUT).await
+        }
+        Err(error) => Err(error),
+    };
+    let error = match read {
+        Ok(Some(reading)) => return Some(reading),
+        Ok(None) => None,
+        Err(error) => Some(error),
+    };
+    tracing::warn!(
+        session_id = %record.session_id,
+        helper_thread_id,
+        error = error.as_ref().map(|error| error as &(dyn std::error::Error + 'static)),
+        "codex's helper thread read failed; the helper starts with no name or role"
+    );
+    None
+}
 
 /// What a thread is to the session's helpers.
 pub(crate) enum ChildRunLookup {
@@ -92,30 +155,35 @@ impl CodexSessionRecord {
 }
 
 impl CodexFrameDelivery {
-    /// Starts the child run of a helper Codex announced on `child_thread_id`: beneath the run
-    /// whose oldest unclaimed spawn call on the parent thread started it, else the parent helper's
-    /// own child run, else the session's one live run, under the `names` Codex gave it, and routes
-    /// its run to its conversation, which an interrupt of the run reaches. A helper whose parent
-    /// run cannot be told, or beneath a helper that never started, is left unstarted, since no run
-    /// can own it.
+    /// Starts the child run of a helper Codex spawned on `child_thread_id` by the call
+    /// `spawn_call_id`: beneath the run whose noted spawn call on the parent thread has that id,
+    /// else the parent helper's own child run, else the session's one live run, under the `names`
+    /// Codex gave it, and routes its run to its conversation, which an interrupt of the run
+    /// reaches. Its rows name `spawn_call_id` as their call whichever run it starts beneath. A
+    /// helper whose parent run cannot be told, or beneath a helper that never started, is left
+    /// unstarted, since no run can own it.
     pub(crate) async fn start_child(
         &self,
         record: &mut CodexSessionRecord,
         child_thread_id: &str,
         parent_thread_id: &str,
         subagent_id: &str,
+        spawn_call_id: Option<&str>,
         names: CodexHelperNames,
     ) {
         // A helper id the transcript cannot hold names no helper a row could show.
         let Ok(subagent_id) = SubagentId::new(subagent_id.to_owned()) else {
             return;
         };
-        let spawn_call = record
-            .delivery
-            .spawn_calls_by_thread_id
-            .get(parent_thread_id)
-            .and_then(|calls| calls.first())
-            .cloned();
+        let spawn_call = spawn_call_id.and_then(|spawn_call_id| {
+            record
+                .delivery
+                .spawn_calls_by_thread_id
+                .get(parent_thread_id)?
+                .iter()
+                .find(|call| call.tool_call_id == spawn_call_id)
+                .cloned()
+        });
         if let Some(spawn_call) = &spawn_call {
             record.settle_spawn_call(parent_thread_id, &spawn_call.tool_call_id);
         }
@@ -151,7 +219,7 @@ impl CodexFrameDelivery {
             agent_id,
             binding_id,
             subagent_id,
-            parent_tool_call_id: spawn_call.map(|call| call.tool_call_id),
+            parent_tool_call_id: spawn_call_id.map(str::to_owned),
         };
         if let Some(parent_run_id) = parent_run_id {
             child.bound = self
@@ -322,7 +390,7 @@ impl CodexFrameDelivery {
                 start_call_id: None,
             },
         };
-        let child_run_id = match self.send(record, start, "thread/started").await {
+        let child_run_id = match self.send(record, start, CODEX_ITEM_COMPLETED_METHOD).await {
             Some(InboundOutcome::ChildRunStarted { run_id }) => Some(run_id),
             Some(InboundOutcome::ChildRunRefused { run_id, reason }) => {
                 self.dependencies.stopped_helpers.stop_running(
@@ -357,7 +425,7 @@ impl CodexFrameDelivery {
             content: None,
         };
         let start_row_event_id = self
-            .send(record, started_row, "thread/started")
+            .send(record, started_row, CODEX_ITEM_COMPLETED_METHOD)
             .await
             .and_then(|outcome| outcome.event_id().cloned());
         Some(CodexBoundChildRun {

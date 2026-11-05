@@ -1,6 +1,7 @@
 //! Readers of a Codex thread's replies: the thread and where it stands, the reasoning effort and
 //! the permission profile a start, resume or fork runs under, the turn a turn request names, and
-//! the `thread/read` of a thread's name, preview, source and status.
+//! the `thread/read` of a thread's name, preview, source, status and, for a helper, its nickname,
+//! role and model.
 
 use std::time::Duration;
 
@@ -80,12 +81,16 @@ struct ThreadMembers {
 // The members a `thread/read` reply's thread is read for, each on its own: `source` is a string or
 // an object, so no one type reads it.
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ThreadReadingMembers {
     name: Option<Box<RawValue>>,
     preview: Option<Box<RawValue>>,
     source: Option<Box<RawValue>>,
     ephemeral: Option<Box<RawValue>>,
     status: Option<Box<RawValue>>,
+    agent_nickname: Option<Box<RawValue>>,
+    agent_role: Option<Box<RawValue>>,
+    model: Option<Box<RawValue>>,
 }
 
 /// A thread as `thread/read` names it, without its turns.
@@ -100,6 +105,12 @@ pub(crate) struct CodexThreadReading {
     pub(crate) is_typed_in_terminal: bool,
     /// Where the thread stands on the service, `None` where the reply names no status it reads.
     pub(crate) status: Option<CodexThreadStatus>,
+    /// A helper's nickname, `agentNickname`, `None` where it has none or a blank one.
+    pub(crate) agent_nickname: Option<String>,
+    /// The role a helper was started in, `agentRole`, `None` where it has none or a blank one.
+    pub(crate) agent_role: Option<String>,
+    /// The model the thread runs on, `None` where it names none or a blank one.
+    pub(crate) model: Option<String>,
 }
 
 /// The thread the `thread/read` reply `reply` names, or `None` when it carries no readable thread.
@@ -122,6 +133,11 @@ pub(crate) fn read_thread_reading(reply: &RawValue) -> Option<CodexThreadReading
         status: thread
             .status
             .and_then(|status| read_codex_object::<CodexThreadStatus>(status.get())),
+        agent_nickname: thread
+            .agent_nickname
+            .and_then(|nickname| read_given_text(&nickname)),
+        agent_role: thread.agent_role.and_then(|role| read_given_text(&role)),
+        model: thread.model.and_then(|model| read_given_text(&model)),
     })
 }
 
