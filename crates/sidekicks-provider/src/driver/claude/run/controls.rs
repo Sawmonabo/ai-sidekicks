@@ -722,7 +722,7 @@ mod tests {
             session.channel.writes().contains(&ScriptedWrite::Terminate),
             "a cut stop stops the process"
         );
-        let requests = session.channel.control_requests();
+        let requests = session.control_requests_after_start();
         assert_eq!(requests.len(), 3);
         assert!(
             requests
@@ -790,7 +790,7 @@ mod tests {
 
         assert!(!unnamed, "a command Claude Code never named does not move");
         assert!(moved, "the named command moves");
-        let requests = session.channel.control_requests();
+        let requests = session.control_requests_after_start();
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0]["subtype"], "background_tasks");
         assert_eq!(requests[0]["tool_use_id"], "call-b");

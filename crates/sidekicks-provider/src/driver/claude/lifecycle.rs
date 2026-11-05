@@ -68,6 +68,7 @@ use crate::driver::claude::session::establishment::ClaudeSessionEstablishment;
 use crate::driver::claude::session::establishment::figures::ClaudeHeldFigures;
 use crate::driver::claude::session::establishment::spawn_sources::ClaudeSpawnSources;
 use crate::driver::claude::session::idle_sleep::ClaudeIdleSleep;
+use crate::driver::claude::session::inspector_reads::ClaudeInspectorReads;
 use crate::driver::claude::session::permission_level::ClaudeCommandSandboxCheck;
 use crate::driver::claude::session::permission_level::check_claude_command_sandbox;
 use crate::driver::claude::session::restart::ClaudeSessionRestarts;
@@ -342,10 +343,12 @@ impl ClaudeDriver {
             },
         ));
         let message_taken = Arc::clone(&ports.message_taken);
+        let inspector_reads = Arc::new(ClaudeInspectorReads::default());
         let context_readings = Arc::new(ClaudeContextReadings::new(
             Arc::clone(&ports.context_readings),
             Arc::clone(dispatch),
             Arc::clone(&streams),
+            Arc::clone(&inspector_reads),
         ));
         let goal_endings = Arc::new(ClaudeGoalEndings::default());
         let delivery = Arc::new(ClaudeDeliveryStream::new(ClaudeStreamDependencies {
@@ -494,6 +497,7 @@ impl ClaudeDriver {
                 task_services,
                 sources: Arc::clone(&self.sources),
                 account_servers: Arc::clone(&self.account_servers),
+                inspector_reads,
             }
         });
         let (restarts, run_start, run_controls, interventions, session_controls) =

@@ -14,6 +14,7 @@ mod account_switch;
 mod bring_up;
 mod hand_over;
 mod held_calls;
+mod inspector_reads;
 mod level_moves;
 mod naming;
 mod restarts;

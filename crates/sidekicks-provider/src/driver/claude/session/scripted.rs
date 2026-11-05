@@ -194,6 +194,8 @@ pub(crate) struct ScriptedSession {
     pub(crate) wall_clock: Arc<TestWallClock>,
     listener: Arc<dyn ClaudeProcessListener>,
     control_frames: Mutex<ClaudeControlFrameReader>,
+    // How many control requests the session's start wrote.
+    start_requests: usize,
     // The home, working folder and database the session's start read from.
     _folder: TempDir,
     _database: TestDatabase,
@@ -240,6 +242,8 @@ impl ScriptedSession {
             .create_session(params(session_id))
             .await
             .expect("the session opens");
+        ScriptedDriver::wait_for_hooks_listing(&channel).await;
+        let start_requests = channel.control_requests().len();
         let started = starts.take_started().pop().expect("a start was recorded");
         let parts = Arc::clone(driver.composed_parts().expect("the pieces are composed"));
         let establishment = &parts.establishment;
@@ -273,9 +277,17 @@ impl ScriptedSession {
             parts,
             listener: started.listener,
             control_frames: Mutex::new(control_frames),
+            start_requests,
             _folder: folder,
             _database: database,
         }
+    }
+
+    /// The control requests written since the session's start wrote its own.
+    pub(crate) fn control_requests_after_start(&self) -> Vec<Value> {
+        self.channel
+            .control_requests()
+            .split_off(self.start_requests)
     }
 
     /// Hands the reader's next stream frame over, as the process wrote it.
