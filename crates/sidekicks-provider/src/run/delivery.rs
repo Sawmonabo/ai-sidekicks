@@ -6,6 +6,7 @@
 //! conversion that makes its event. A run's row that lands after its run, on that run's own
 //! binding, is its own delivery.
 
+use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::command::AgentCommandEndedPayload;
 use sidekicks_contracts::event::declared_variants::{
     AgentOutputPayload, RunAgentOutputPayload, ToolActivityPayload, ToolCallBackgroundedPayload,
@@ -63,7 +64,7 @@ pub struct DeliveryOperation<'key> {
     pub is_opening: bool,
 }
 
-/// The helper a child run is for, as its provider names it.
+/// The helper a child run is for, as its provider names it at its start.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChildRunSubagent {
     /// The provider's own id for the helper.
@@ -77,6 +78,11 @@ pub struct ChildRunSubagent {
     pub role: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
     /// Its path in its provider's tree, where the provider keeps one.
     pub provider_path: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    /// The model its provider started it on, where the start names one.
+    pub model_id: Option<ProviderToken>,
+    /// The reasoning effort its provider started it at, in the provider's own word, where the start
+    /// names one.
+    pub effort: Option<ProviderToken>,
     /// The provider's call that started this run of the helper, where the provider names one.
     pub start_call_id: Option<ToolCallId>,
 }
