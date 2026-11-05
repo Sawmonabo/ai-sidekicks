@@ -180,10 +180,6 @@ impl ClaudeDriver {
         task_services.inboxes.release(session_id);
         parts.session_controls.forget_session(session_id).await;
         parts.reviewer.forget_session(session_id);
-        parts
-            .establishment
-            .inspector_reads
-            .forget_session(session_id);
         loop {
             match parts.slots().begin_close(session_id) {
                 ClaudeCloseStart::Empty => break,
@@ -247,6 +243,11 @@ impl ClaudeDriver {
                 }
             }
         }
+        // Once no process can be adopted, so a spawn the close waited for leaves no rows behind.
+        parts
+            .establishment
+            .inspector_reads
+            .forget_session(session_id);
         // Once the process's own exit settled what it held, so only what that left open is read.
         if !parts.restarts.is_stopped() {
             self.settle_held_calls_at_rest(

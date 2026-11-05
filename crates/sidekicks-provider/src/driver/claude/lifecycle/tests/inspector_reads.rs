@@ -20,7 +20,9 @@ use crate::driver::claude::session::inspector_reads::{
 };
 use crate::driver::claude::session::rules::CLAUDE_USER_SETTINGS_FILE;
 use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
-use crate::driver::claude::session::scripted::driver::{ScriptedDriver, sandbox_cannot_run};
+use crate::driver::claude::session::scripted::driver::{
+    ScriptedDriver, create_params, sandbox_cannot_run,
+};
 use crate::driver::claude::session::scripted::settle;
 use crate::driver::claude::session::scripted::starts::ScriptedStartRecord;
 use crate::driver::claude::session::transport::declarations::ClaudeInitializeDeclaration;
@@ -255,6 +257,48 @@ async fn a_sessions_rows_outlive_its_process_and_go_at_close_or_purge() {
     assert_eq!(reads.kept_memory(purged), None);
     assert_eq!(
         reads.kept_hook_listing(purged).await,
+        ClaudeKeptHookListing::NoProcess
+    );
+}
+
+// Killed by the forget placed before the close waits for the spawn under way, whose adoption then
+// keeps its rows and listing for a closed session.
+#[tokio::test(start_paused = true)]
+async fn a_close_during_a_spawn_leaves_no_rows() {
+    let fixture = ScriptedDriver::new();
+    let session_id = new_session_id();
+    let channel = Arc::new(ScriptedChannel::default());
+    fixture.starts.script_session(Arc::clone(&channel));
+    let release = fixture.starts.hold_next_session_start();
+    let driver = Arc::clone(&fixture.driver);
+    let create =
+        tokio::spawn(async move { driver.create_session(create_params(session_id)).await });
+    fixture.starts.wait_for_starts(1).await;
+    let driver = Arc::clone(&fixture.driver);
+    let close = tokio::spawn(async move {
+        driver
+            .close_session(CloseSessionParams {
+                session_id,
+                cause: SessionCloseCause::Person,
+            })
+            .await
+    });
+    settle().await;
+
+    drop(release);
+    create
+        .await
+        .expect("the create runs")
+        .expect("the create succeeds");
+    close
+        .await
+        .expect("the close runs")
+        .expect("the close succeeds");
+
+    let reads = inspector_reads(&fixture);
+    assert_eq!(reads.kept_memory(session_id), None);
+    assert_eq!(
+        reads.kept_hook_listing(session_id).await,
         ClaudeKeptHookListing::NoProcess
     );
 }
