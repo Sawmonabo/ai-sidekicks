@@ -201,8 +201,9 @@ async fn register_account(
     Ok((made.account, made.left))
 }
 
-// A new account's id and home, for a provider the daemon runs; refused as an ended sign-in start
-// once the sign-in broker has stopped, so nothing is minted into a data folder an erase reads.
+// A new account's id and home, for a provider the daemon runs. Once the sign-in broker has stopped
+// it answers the sign-in's ended error (`StartEnded`), borrowed since no refusal names a stopping
+// service, so nothing is minted into a data folder an erase reads.
 fn mint(
     sources: &ProviderAccountMethodSources,
     provider: &ProviderId,
