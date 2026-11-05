@@ -67,6 +67,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use futures::FutureExt;
+    use rstest::rstest;
 
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -225,11 +226,17 @@ mod tests {
     }
 
     // A narration whose process exits after the start read it live, before its run's binding,
-    // opens no process and is refused as having none. Killed by binding a narration with a process
-    // opened where none is (the opener runs), and by answering the binding's missing process as a
-    // fault.
+    // opens no process and is refused as having none, whether the queue let the process go before
+    // the binding or still held it. Killed by binding a narration with a process opened where none
+    // is (the opener runs), by answering the binding's missing process as a fault, and by
+    // answering the turn's own re-read of a gone process as a fault (the queue still holding it).
+    #[rstest]
+    #[case::let_go_by_the_queue(true)]
+    #[case::still_held_by_the_queue(false)]
     #[tokio::test(start_paused = true)]
-    async fn a_narration_whose_process_exits_before_its_binding_opens_none() {
+    async fn a_narration_whose_process_exits_before_its_binding_opens_none(
+        #[case] is_let_go: bool,
+    ) {
         let session = Arc::new(ScriptedSession::new().await);
         let opened = Arc::new(AtomicUsize::new(0));
         let opens = Arc::clone(&opened);
@@ -263,7 +270,10 @@ mod tests {
         );
 
         session.exit();
-        session.ports.let_processes_go();
+        settle().await;
+        if is_let_go {
+            session.ports.let_processes_go();
+        }
         release.send(()).expect("the start waits on its hold");
         let refused = starting
             .await

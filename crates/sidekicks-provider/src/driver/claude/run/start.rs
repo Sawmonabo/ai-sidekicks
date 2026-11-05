@@ -422,14 +422,21 @@ impl ClaudeRunStart {
             None => return Ok(()),
         };
         // Read again: the session may have closed or moved to another process meanwhile, or its
-        // process was opened by the binding just now.
-        let live = self.slots.live_session(session_id).ok_or_else(|| {
-            claude_session_unavailable(
+        // process was opened by the binding just now. A narration's process gone before the queue
+        // let it go ends the run as the live-only binding would, so the start reads it typed.
+        let Some(live) = self.slots.live_session(session_id) else {
+            if process == DaemonTurnProcess::LiveOnly {
+                return Err(Box::new(DaemonTurnBindingError::NoProviderSession {
+                    session_id,
+                }));
+            }
+            return Err(claude_session_unavailable(
                 ClaudeSessionUnavailableReason::NoLiveSession,
                 session_id,
                 Some(run_id),
             )
-        })?;
+            .into());
+        };
         if let Some(name) = command_name
             && !self.lists_command(&live, name)
         {
