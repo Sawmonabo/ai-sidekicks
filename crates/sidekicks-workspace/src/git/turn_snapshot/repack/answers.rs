@@ -6,6 +6,7 @@
 use sidekicks_contracts::repo::git_reads::GitObjectId;
 
 use super::{PackingError, SnapshotPoint};
+use crate::git::cat_file::{CatFileAnswerError, ObjectAnswer, read_batch_check_answers};
 
 /// What `count-objects -v` reports of a folder.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -110,36 +111,28 @@ pub(super) fn read_bases_present(
     stdout: &[u8],
     bases: &[&GitObjectId],
 ) -> Result<Vec<BasePresence>, PackingError> {
-    let unreadable = |reason| PackingError::UnreadableAnswer {
-        command: "cat-file",
-        reason,
-    };
-    let text = String::from_utf8_lossy(stdout);
-    let lines: Vec<&str> = text.lines().collect();
-    if lines.len() != bases.len() {
-        return Err(unreadable("it answers a different number of objects"));
-    }
-    lines
-        .iter()
-        .zip(bases)
-        .map(|(line, base)| {
-            let fields: Vec<&str> = line.split(' ').collect();
-            match fields.as_slice() {
-                [id, "missing"] if *id == base.as_str() => Ok(BasePresence::Missing),
-                [id, object_type, size]
-                    if *id == base.as_str()
-                        && !size.is_empty()
-                        && size.bytes().all(|byte| byte.is_ascii_digit()) =>
-                {
-                    Ok(match *object_type {
-                        "commit" => BasePresence::Commit,
-                        other => BasePresence::NotACommit(other.to_owned()),
-                    })
-                }
-                _ => Err(unreadable("a line does not answer the base asked")),
+    let answers = read_batch_check_answers(stdout, bases).map_err(|failure| {
+        let reason = match failure {
+            CatFileAnswerError::OtherCount { .. } => "it answers a different number of objects",
+            CatFileAnswerError::Unreadable { .. } | CatFileAnswerError::OtherObject { .. } => {
+                "a line does not answer the base asked"
             }
+        };
+        PackingError::UnreadableAnswer {
+            command: "cat-file",
+            reason,
+        }
+    })?;
+    Ok(answers
+        .into_iter()
+        .map(|answer| match answer {
+            ObjectAnswer::Missing => BasePresence::Missing,
+            ObjectAnswer::Found { object_type, .. } if object_type == "commit" => {
+                BasePresence::Commit
+            }
+            ObjectAnswer::Found { object_type, .. } => BasePresence::NotACommit(object_type),
         })
-        .collect()
+        .collect())
 }
 
 /// Whether a ref of the repository reaches `base`, from `rev-list -n1 <base> --not --all`'s answer

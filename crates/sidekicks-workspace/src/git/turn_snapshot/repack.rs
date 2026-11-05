@@ -24,6 +24,7 @@ use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
 
+use crate::git::cat_file::object_lines;
 use crate::git::process::version::GitFeature;
 use crate::git::process::{GitCall, GitError, GitRunner};
 use crate::git::turn_snapshot::capture::{CORE_FSYNC_PIN, GitFloorReports};
@@ -492,11 +493,7 @@ impl CapturePacking {
         if bases.is_empty() {
             return Ok(HashSet::new());
         }
-        let mut input = Vec::new();
-        for base in &bases {
-            input.extend_from_slice(base.as_str().as_bytes());
-            input.push(b'\n');
-        }
+        let input = object_lines(bases.iter().copied());
         let arguments = in_git_folder(common_folder, &[], &["cat-file", "--batch-check"]);
         let output = self
             .git

@@ -21,6 +21,7 @@ use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use tokio::task::JoinError;
 
 use crate::git::GITLINK_MODE;
+use crate::git::cat_file::{BatchRecord, CatFileAnswerError, object_lines, read_batch_records};
 use crate::git::process::{CONFIG_UNSET_EXIT_CODE, GitCall, GitError, GitRunner, background_read};
 use crate::git::worktree::kept_copy::pins::{KeptPin, KeptWorktreePins};
 use crate::git::worktree::kept_copy::{KEPT_LFS_ENTRY, KEPT_REF_STORE_ENTRY};
@@ -72,6 +73,9 @@ pub(crate) enum SavedStateError {
     /// git answered in a form these reads do not know.
     #[error("{0}")]
     Unexpected(&'static str),
+    /// git's `cat-file` batch answer did not read.
+    #[error(transparent)]
+    CatFileAnswer(#[from] CatFileAnswerError),
     /// A file or folder could not be read or written.
     #[error("{} could not be read or written", path.display())]
     File {
@@ -277,15 +281,6 @@ pub(crate) async fn pack_objects(
     )
     .await?;
     Ok(())
-}
-
-fn object_lines<'a>(objects: impl IntoIterator<Item = &'a GitObjectId>) -> Vec<u8> {
-    let mut lines = Vec::new();
-    for object in objects {
-        lines.extend_from_slice(object.as_str().as_bytes());
-        lines.push(b'\n');
-    }
-    lines
 }
 
 /// The LFS store and the refs payload a repository's config names, as one read in a tree finds
@@ -534,29 +529,19 @@ pub(crate) async fn keep_lfs_objects(
     .await
 }
 
-// The LFS object ids the pointers among `cat-file --batch`'s blobs name, each once: every blob is a
-// `<object> <type> <size>` line, its bytes, then a newline.
+// The LFS object ids the pointers among `cat-file --batch`'s blobs name, each once; a record that
+// does not read fails with its reason, and one naming an object git lacks is unexpected.
 fn read_pointed_lfs_objects(batch: &[u8]) -> Result<BTreeSet<String>, SavedStateError> {
-    let unexpected =
-        || SavedStateError::Unexpected("git cat-file answered a blob in an unexpected form");
     let mut lfs_object_ids = BTreeSet::new();
-    let mut rest = batch;
-    while !rest.is_empty() {
-        let header_end = rest
-            .iter()
-            .position(|byte| *byte == b'\n')
-            .ok_or_else(unexpected)?;
-        let size = std::str::from_utf8(&rest[..header_end])
-            .ok()
-            .and_then(|header| header.rsplit(' ').next())
-            .and_then(|size| size.parse::<usize>().ok())
-            .ok_or_else(unexpected)?;
-        let body_end = header_end + 1 + size;
-        let blob = rest.get(header_end + 1..body_end).ok_or_else(unexpected)?;
-        if let Some(lfs_object_id) = pointed_lfs_object(blob) {
+    for record in read_batch_records(batch)? {
+        let BatchRecord::Found { contents, .. } = record else {
+            return Err(SavedStateError::Unexpected(
+                "git cat-file answered a blob it lacks",
+            ));
+        };
+        if let Some(lfs_object_id) = pointed_lfs_object(contents) {
             lfs_object_ids.insert(lfs_object_id);
         }
-        rest = rest.get(body_end + 1..).unwrap_or_default();
     }
     Ok(lfs_object_ids)
 }
