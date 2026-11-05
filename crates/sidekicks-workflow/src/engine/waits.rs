@@ -22,6 +22,7 @@ use serde_json::{Map, Value, json};
 use sidekicks_contracts::approval::ApprovalDecision;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::question::QuestionId;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::id::{UuidTextForm, mint_uuid_v7};
 use sidekicks_contracts::wire::instant::{NotAnInstant, WireInstant};
@@ -209,15 +210,8 @@ fn ask_cause(ask: &PersonAsk) -> WorkflowWaitCause {
     }
 }
 
-/// The `workflow.phase.suspended` of `step` in `scope`'s run, waiting on `ask` as `opened` opened
-/// it: the arm `ask` names, carrying the wait's id and its deadline.
-#[cfg_attr(
-    test,
-    expect(
-        dead_code,
-        reason = "the tick's commit, which writes the suspended event"
-    )
-)]
+/// The `workflow.phase.suspended` of `step` in the session `session_id`, waiting on `ask` as
+/// `opened` opened it: the arm `ask` names, carrying the wait's id and its deadline.
 #[cfg_attr(
     not(test),
     expect(
@@ -226,12 +220,11 @@ fn ask_cause(ask: &PersonAsk) -> WorkflowWaitCause {
     )
 )]
 pub(crate) fn suspended_payload(
-    scope: &RunScope,
+    session_id: SessionId,
     step: &WorkflowStepKey,
     opened: &OpenedPersonWait,
     ask: &PersonAsk,
 ) -> WorkflowPhaseSuspendedPayload {
-    let session_id = scope.session_id;
     let workflow_run_id = step.workflow_run_id;
     let node_id = step.node_id.clone();
     let attempt = step.attempt;

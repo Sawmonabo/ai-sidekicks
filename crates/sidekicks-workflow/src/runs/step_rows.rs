@@ -6,11 +6,15 @@ use std::borrow::Cow;
 use std::sync::LazyLock;
 
 use rusqlite::types::Value;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
+use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::workflow::run::status::WorkflowStepStatus;
+use sidekicks_contracts::wire::text::NonEmptyText;
+use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
+use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 use sidekicks_contracts::workflow::run::step::record::{
-    WorkflowPayloadRef, WorkflowStepKey, WorkflowStepSource,
+    WorkflowCost, WorkflowPayloadRef, WorkflowStepKey, WorkflowStepSource,
 };
 use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
@@ -19,6 +23,11 @@ use sidekicks_store::database::statement::{
 // The whole step key every statement but an insert matches its one row by.
 const STEP_KEY_SQL: &str = "workflow_run_id = @workflow_run_id AND node_id = @node_id
     AND attempt = @attempt AND execution_index = @execution_index";
+
+/// The assignments that empty every wait column of a step's row, which a statement moving a step
+/// out of `waiting` sets in that same statement, so no CHECK on the wait columns refuses it.
+pub(crate) const CLEAR_WAIT_COLUMNS_SQL: &str = "wait_cause = NULL, resume_at = NULL,
+      wait_deadline_at = NULL, wait_account_id = NULL, wait_started_at = NULL, wait_id = NULL";
 
 // A step the walk readied or skipped: its row is new, written at the event's instant.
 const INSERT_STEP_SQL: &str = "INSERT INTO workflow_steps (workflow_run_id, node_id, attempt,
@@ -56,6 +65,53 @@ static CANCEL_STEP_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE workflow_steps
   SET status = '{canceled}', finished_at = @finished_at,
+      total_pool_wait_ms = total_pool_wait_ms + @pool_wait_ms
+  WHERE {STEP_KEY_SQL}"
+    )
+});
+
+static SUCCEED_STEP_SQL: LazyLock<String> = LazyLock::new(|| {
+    let succeeded = <&'static str>::from(WorkflowStepStatus::Succeeded);
+    format!(
+        "UPDATE workflow_steps
+  SET status = '{succeeded}', finished_at = @finished_at, output_ref = @output_ref,
+      log_ref = @log_ref, cost_usd_micros = @cost_usd_micros, cost_account_id = @cost_account_id,
+      {CLEAR_WAIT_COLUMNS_SQL}
+  WHERE {STEP_KEY_SQL}"
+    )
+});
+
+// A step passing its input on stores it as its output; any other failure keeps the empty output
+// its pending row stored.
+static FAIL_STEP_SQL: LazyLock<String> = LazyLock::new(|| {
+    let failed = <&'static str>::from(WorkflowStepStatus::Failed);
+    format!(
+        "UPDATE workflow_steps
+  SET status = '{failed}', finished_at = @finished_at, error_json = @error_json,
+      decline_reason = @decline_reason, output_ref = COALESCE(@output_ref, output_ref),
+      log_ref = @log_ref, total_pool_wait_ms = total_pool_wait_ms + @pool_wait_ms,
+      {CLEAR_WAIT_COLUMNS_SQL}
+  WHERE {STEP_KEY_SQL}"
+    )
+});
+
+static WAIT_ON_PERSON_SQL: LazyLock<String> = LazyLock::new(|| {
+    let waiting = <&'static str>::from(WorkflowStepStatus::Waiting);
+    format!(
+        "UPDATE workflow_steps
+  SET status = '{waiting}', wait_cause = @wait_cause, wait_started_at = @wait_started_at,
+      wait_deadline_at = @wait_deadline_at, wait_id = @wait_id, log_ref = @log_ref
+  WHERE {STEP_KEY_SQL}"
+    )
+});
+
+static WAIT_ON_ACCOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
+    let waiting = <&'static str>::from(WorkflowStepStatus::Waiting);
+    let account = <&'static str>::from(WorkflowWaitCause::Account);
+    format!(
+        "UPDATE workflow_steps
+  SET status = '{waiting}', wait_cause = '{account}', wait_account_id = @wait_account_id,
+      wait_started_at = @wait_started_at, resume_at = NULL,
       total_pool_wait_ms = total_pool_wait_ms + @pool_wait_ms
   WHERE {STEP_KEY_SQL}"
     )
@@ -143,6 +199,116 @@ pub(crate) fn cancel_step(
         step,
         vec![
             text_binding("@finished_at", finished_at.as_str()),
+            pool_wait_binding(pool_wait_ms),
+        ],
+    )
+}
+
+/// Moves `step` to `succeeded` at `finished_at`, storing its output, its log and `cost`, where a
+/// provider was billed, with every wait column emptied.
+pub(crate) fn succeed_step(
+    step: &WorkflowStepKey,
+    finished_at: &WireInstant,
+    output_ref: &WorkflowPayloadRef,
+    log_ref: &WorkflowPayloadRef,
+    cost: Option<&WorkflowCost>,
+) -> WriteStatement {
+    keyed_statement(
+        &SUCCEED_STEP_SQL,
+        step,
+        vec![
+            text_binding("@finished_at", finished_at.as_str()),
+            (Cow::Borrowed("@output_ref"), payload_value(output_ref)),
+            (Cow::Borrowed("@log_ref"), payload_value(log_ref)),
+            (
+                Cow::Borrowed("@cost_usd_micros"),
+                cost.map_or(Value::Null, |cost| safe_integer(cost.usd_micros.0.get())),
+            ),
+            nullable_text_binding(
+                "@cost_account_id",
+                cost.map(|cost| cost.provider_account_id.as_str()),
+            ),
+        ],
+    )
+}
+
+/// What a failed step's row stores beside its status.
+pub(crate) struct FailedStepRow<'row> {
+    /// When it failed.
+    pub(crate) finished_at: &'row WireInstant,
+    /// Its error.
+    pub(crate) error: &'row WorkflowStepError,
+    /// The words typed with the Decline that failed it.
+    pub(crate) decline_reason: Option<&'row NonEmptyText>,
+    /// The input it passed on as its output; `None` keeps the stored output.
+    pub(crate) output_ref: Option<&'row WorkflowPayloadRef>,
+    /// Its log.
+    pub(crate) log_ref: &'row WorkflowPayloadRef,
+    /// The time a hold the failure cut ran since its last report, in milliseconds.
+    pub(crate) pool_wait_ms: u64,
+}
+
+/// Moves `step` to `failed` as `row` says, from wherever it stood, with every wait column emptied.
+pub(crate) fn fail_step(step: &WorkflowStepKey, row: &FailedStepRow<'_>) -> WriteStatement {
+    let error_json =
+        serde_json::to_string(row.error).expect("a step error writes as JSON, holding only text");
+    keyed_statement(
+        &FAIL_STEP_SQL,
+        step,
+        vec![
+            text_binding("@finished_at", row.finished_at.as_str()),
+            text_binding("@error_json", &error_json),
+            nullable_text_binding(
+                "@decline_reason",
+                row.decline_reason.map(NonEmptyText::as_str),
+            ),
+            (
+                Cow::Borrowed("@output_ref"),
+                row.output_ref.map_or(Value::Null, payload_value),
+            ),
+            (Cow::Borrowed("@log_ref"), payload_value(row.log_ref)),
+            pool_wait_binding(row.pool_wait_ms),
+        ],
+    )
+}
+
+/// Moves `step` to `waiting` on a person, the wait `wait_id` on `cause` since `started_at`, giving
+/// up at `deadline_at` where one is set, storing the log it recorded before it waited.
+pub(crate) fn wait_step_on_person(
+    step: &WorkflowStepKey,
+    cause: WorkflowWaitCause,
+    wait_id: UuidTextForm,
+    started_at: &WireInstant,
+    deadline_at: Option<&WireInstant>,
+    log_ref: &WorkflowPayloadRef,
+) -> WriteStatement {
+    keyed_statement(
+        &WAIT_ON_PERSON_SQL,
+        step,
+        vec![
+            text_binding("@wait_cause", <&'static str>::from(cause)),
+            text_binding("@wait_started_at", started_at.as_str()),
+            nullable_text_binding("@wait_deadline_at", deadline_at.map(WireInstant::as_str)),
+            text_binding("@wait_id", wait_id.text().as_str()),
+            (Cow::Borrowed("@log_ref"), payload_value(log_ref)),
+        ],
+    )
+}
+
+/// Moves `step` to `waiting` on the spent account `account_id` since `started_at`, with no resume
+/// instant, adding `pool_wait_ms`, the time a hold the wait cut ran since its last report.
+pub(crate) fn wait_step_on_account(
+    step: &WorkflowStepKey,
+    account_id: &ProviderAccountId,
+    started_at: &WireInstant,
+    pool_wait_ms: u64,
+) -> WriteStatement {
+    keyed_statement(
+        &WAIT_ON_ACCOUNT_SQL,
+        step,
+        vec![
+            text_binding("@wait_account_id", account_id.as_str()),
+            text_binding("@wait_started_at", started_at.as_str()),
             pool_wait_binding(pool_wait_ms),
         ],
     )

@@ -131,9 +131,12 @@ pub(crate) enum StepOutcome {
 }
 
 /// A wait on a person a step asks for, and how long it waits.
-#[expect(
-    dead_code,
-    reason = "the person-wait kinds and the tick's dispatch, which opens their waits"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the person-wait kinds and the tick's dispatch, which opens their waits"
+    )
 )]
 #[derive(Debug)]
 pub(crate) struct PersonWait {

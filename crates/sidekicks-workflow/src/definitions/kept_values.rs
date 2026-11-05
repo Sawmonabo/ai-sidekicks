@@ -1,18 +1,23 @@
 //! The values a `Keep for later runs` step keeps for its workflow, one per name, which later runs
 //! read as `$vars`. They belong to the workflow, not to a version, and sit in `workflow_node_state`
-//! under the empty node id.
+//! under the empty node id. A value above the inline cap is kept as the reference to a one-item
+//! payload artifact, which the read resolves back to the value.
 
 use std::borrow::Cow;
 use std::sync::Arc;
 
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{Connection, named_params};
-use serde_json::{Map, Value};
+use serde::Deserialize as _;
+use serde_json::Value;
+use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::WorkflowDefinitionId;
+use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::kept_values::WorkflowKeptValueClearResponse;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use sidekicks_contracts::workflow::run::step::record::WorkflowPayloadRef;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -21,7 +26,8 @@ use sidekicks_store::database::statement::{StatementBindings, WriteStatement, te
 use sidekicks_store::database::stored_column::text_column;
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
-use crate::definitions::library::{created_definition_statement, live_definition_statement};
+use crate::definitions::library::created_definition_statement;
+use crate::engine::ports::{PortError, StepPayloadArtifacts};
 use crate::not_found::WorkflowNotFound;
 
 /// The statements the store's reads run: a workflow's kept values.
@@ -30,10 +36,15 @@ pub const WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY: usize = 1;
 const SELECT_KEPT_VALUES_SQL: &str = "SELECT key, value_json, kept_by_run_id, updated_at
   FROM workflow_node_state WHERE definition_id = @definition_id AND node_id = '' ORDER BY key";
 
-// A kept value replaces the one its name held, whichever run kept that.
+// A kept value replaces the one its name held, whichever run kept that. A deleted workflow keeps
+// nothing and refuses nothing, so a late step of its run still commits its turn; the WHERE also
+// keeps SQLite from reading the conflict clause as a join's.
 const UPSERT_KEPT_VALUE_SQL: &str = "INSERT INTO workflow_node_state
     (definition_id, node_id, key, value_json, kept_by_run_id, updated_at)
-  VALUES (@definition_id, '', @key, @value_json, @kept_by_run_id, @updated_at)
+  SELECT @definition_id, '', @key, @value_json, @kept_by_run_id, @updated_at
+  WHERE EXISTS (
+    SELECT 1 FROM workflow_definitions WHERE id = @definition_id AND deleted_at IS NULL
+  )
   ON CONFLICT (definition_id, node_id, key) DO UPDATE SET
     value_json = excluded.value_json,
     kept_by_run_id = excluded.kept_by_run_id,
@@ -55,7 +66,7 @@ pub(crate) struct WorkflowKeptValue {
     pub(crate) kept_at: WireInstant,
 }
 
-/// Why kept values were not read, kept or cleared; a refused write keeps nothing.
+/// Why kept values were not read or cleared; a refused write keeps nothing.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WorkflowKeptValueError {
     /// The workflow is not in the library, or for a clear was never created
@@ -72,6 +83,12 @@ pub(crate) enum WorkflowKeptValueError {
     /// finish.
     #[error(transparent)]
     Pool(#[from] DatabaseReadError),
+    /// The payload store did not answer the artifact a value above the inline cap is kept in.
+    #[error("a kept value's artifact could not be read")]
+    Payload(#[source] PortError),
+    /// A kept value's artifact does not hold the one item it was written as.
+    #[error("a kept value's artifact does not read as its one item")]
+    PayloadItem(#[source] serde_json::Error),
 }
 
 impl From<WorkflowKeptValueError> for HandlerError {
@@ -82,7 +99,9 @@ impl From<WorkflowKeptValueError> for HandlerError {
             WorkflowKeptValueError::NotFound(not_found) => Self::Refused(not_found.into()),
             fault @ (WorkflowKeptValueError::Write(_)
             | WorkflowKeptValueError::Database(_)
-            | WorkflowKeptValueError::Pool(_)) => Self::Internal(Box::new(fault)),
+            | WorkflowKeptValueError::Pool(_)
+            | WorkflowKeptValueError::Payload(_)
+            | WorkflowKeptValueError::PayloadItem(_)) => Self::Internal(Box::new(fault)),
         }
     }
 }
@@ -99,57 +118,21 @@ pub(crate) fn clear_kept_values_statement(definition_id: WorkflowDefinitionId) -
     }
 }
 
-/// Keeps, reads and clears a workflow's kept values, reading through the daemon's read pool and
-/// writing through its writer. It stores the JSON value it is given, which for a value over 64 KiB
-/// is the reference to the artifact the caller wrote.
-#[expect(
-    dead_code,
-    reason = "the workflow engine's Keep for later runs step and the workflow.keptValue.clear \
-              handler"
-)]
-pub(crate) struct WorkflowKeptValueStore {
-    pool: Arc<DatabaseReadPool>,
-    writer: Arc<DatabaseWriter>,
-}
-
-#[expect(
-    dead_code,
-    reason = "the workflow engine's Keep for later runs step and the workflow.keptValue.clear \
-              handler"
-)]
-impl WorkflowKeptValueStore {
-    /// The store reading through `pool` and writing through `writer`.
-    pub(crate) fn new(pool: Arc<DatabaseReadPool>, writer: Arc<DatabaseWriter>) -> Self {
-        Self { pool, writer }
-    }
-
-    /// Every value the workflow keeps, by name. Fails with [`WorkflowKeptValueError::Database`] or
-    /// [`WorkflowKeptValueError::Pool`] when the read does.
-    pub(crate) async fn read(
-        &self,
-        definition_id: WorkflowDefinitionId,
-    ) -> Result<Vec<WorkflowKeptValue>, WorkflowKeptValueError> {
-        self.pool
-            .read(ReadLength::Short, move |connection| {
-                Ok(read_kept_values(connection, definition_id)?)
-            })
-            .await
-    }
-
-    /// Keeps each named value for the workflow from one run, in one write, each replacing the value
-    /// its name held, and answers when they were kept. Fails with
-    /// [`WorkflowKeptValueError::NotFound`] for a workflow not in the library, keeping nothing.
-    pub(crate) async fn keep(
-        &self,
-        definition_id: WorkflowDefinitionId,
-        run_id: WorkflowRunId,
-        values: &Map<String, Value>,
-    ) -> Result<WireInstant, WorkflowKeptValueError> {
-        let kept_at = WireInstant::now();
-        let definition_text = definition_id.text();
-        let run_text = run_id.text();
-        let mut statements = vec![live_definition_statement(definition_id)];
-        statements.extend(values.iter().map(|(name, value)| WriteStatement {
+/// The statements that keep each of `values`, by name, for the workflow `definition_id` from the
+/// run `run_id` at `kept_at`, each replacing the value its name held; a value above the inline cap
+/// is passed as the JSON of its payload reference. A deleted workflow keeps none of them, and none
+/// refuses the write it rides.
+pub(crate) fn kept_value_statements<'value>(
+    definition_id: WorkflowDefinitionId,
+    run_id: WorkflowRunId,
+    values: impl IntoIterator<Item = (&'value str, &'value Value)>,
+    kept_at: &WireInstant,
+) -> Vec<WriteStatement> {
+    let definition_text = definition_id.text();
+    let run_text = run_id.text();
+    values
+        .into_iter()
+        .map(|(name, value)| WriteStatement {
             sql: Cow::Borrowed(UPSERT_KEPT_VALUE_SQL),
             bindings: StatementBindings::Named(vec![
                 text_binding("@definition_id", definition_text.as_str()),
@@ -162,14 +145,68 @@ impl WorkflowKeptValueStore {
                 text_binding("@updated_at", kept_at.as_str()),
             ]),
             expected_row_count: None,
-        }));
-        match self.writer.write(statements).await {
-            Ok(_) => Ok(kept_at),
-            Err(WriteError::Refused { .. }) => {
-                Err(WorkflowNotFound::Definition { definition_id }.into())
-            }
-            Err(error) => Err(error.into()),
+        })
+        .collect()
+}
+
+/// Reads and clears a workflow's kept values, reading through the daemon's read pool, writing
+/// through its writer and resolving a value kept as an artifact through the payload store.
+#[expect(
+    dead_code,
+    reason = "the workflow.keptValue.clear handler and the engine's run start"
+)]
+pub(crate) struct WorkflowKeptValueStore {
+    pool: Arc<DatabaseReadPool>,
+    writer: Arc<DatabaseWriter>,
+    payloads: Arc<dyn StepPayloadArtifacts>,
+}
+
+#[expect(
+    dead_code,
+    reason = "the workflow.keptValue.clear handler and the engine's run start"
+)]
+impl WorkflowKeptValueStore {
+    /// The store reading through `pool`, writing through `writer` and reading kept artifacts
+    /// through `payloads`.
+    pub(crate) fn new(
+        pool: Arc<DatabaseReadPool>,
+        writer: Arc<DatabaseWriter>,
+        payloads: Arc<dyn StepPayloadArtifacts>,
+    ) -> Self {
+        Self {
+            pool,
+            writer,
+            payloads,
         }
+    }
+
+    /// Every value the workflow keeps, by name, each kept as an artifact read back to its value.
+    /// Fails with [`WorkflowKeptValueError::Database`] or [`WorkflowKeptValueError::Pool`] when
+    /// the read does, and with [`WorkflowKeptValueError::Payload`] or
+    /// [`WorkflowKeptValueError::PayloadItem`] when an artifact does not read.
+    pub(crate) async fn read(
+        &self,
+        definition_id: WorkflowDefinitionId,
+    ) -> Result<Vec<WorkflowKeptValue>, WorkflowKeptValueError> {
+        let mut kept_values = self
+            .pool
+            .read(ReadLength::Short, move |connection| {
+                Ok::<_, WorkflowKeptValueError>(read_kept_values(connection, definition_id)?)
+            })
+            .await?;
+        for kept_value in &mut kept_values {
+            if let Some(artifact_id) = kept_artifact_id(&kept_value.value) {
+                let bytes = self
+                    .payloads
+                    .read(&artifact_id)
+                    .await
+                    .map_err(WorkflowKeptValueError::Payload)?;
+                let [item] = serde_json::from_slice::<[WorkflowItem; 1]>(&bytes)
+                    .map_err(WorkflowKeptValueError::PayloadItem)?;
+                kept_value.value = item.json.0;
+            }
+        }
+        Ok(kept_values)
     }
 
     /// Deletes every value the workflow keeps and counts them. Fails with
@@ -198,6 +235,18 @@ impl WorkflowKeptValueStore {
             )
             .expect("a row count is a safe integer"),
         })
+    }
+}
+
+// The artifact a stored value names when it was kept as a payload reference, told apart by the
+// reference's shape.
+fn kept_artifact_id(value: &Value) -> Option<ArtifactId> {
+    if value.get("kind").and_then(Value::as_str) != Some("artifact") {
+        return None;
+    }
+    match WorkflowPayloadRef::deserialize(value) {
+        Ok(WorkflowPayloadRef::Artifact { artifact_id, .. }) => Some(artifact_id),
+        Ok(WorkflowPayloadRef::Inline { .. }) | Err(_) => None,
     }
 }
 

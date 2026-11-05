@@ -8,7 +8,10 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
+use sidekicks_contracts::workflow::definition::document::{
+    WorkflowDefinitionId, WorkflowNode, WorkflowNodeId, WorkflowVersionId,
+};
+use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStepStatus};
 use sidekicks_contracts::workflow::run::step::events::{
@@ -17,38 +20,50 @@ use sidekicks_contracts::workflow::run::step::events::{
 use sidekicks_contracts::workflow::run::step::record::{
     WorkflowPayloadRef, WorkflowStepKey, WorkflowStepSource,
 };
+use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
 use sidekicks_store::events::session::appender::{SessionEventAppender, SessionEventEmitError};
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
-use super::{RunTurnCommit, RunTurnCommitted};
+use super::{ReportedStep, RunTurnCommit, RunTurnCommitted, SettlementAnswer};
 use crate::engine::event_record::{EngineRecorder, RunEngineRecord};
-use crate::engine::ports::{EngineRecordSink, KeptEngineRecords};
+use crate::engine::ports::kept_payloads::KeptPayloads;
+use crate::engine::ports::{EngineRecordSink, KeptEngineRecords, StepPayloadArtifacts};
 use crate::engine::tick::walk::{WalkReady, WalkSkip};
 use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
+use crate::runs::gate_resolution::RunEventKeys;
 use crate::secrets::redaction::RunRedaction;
 use crate::test_rows::{
     TEST_NODE_ID, TEST_SESSION_ID, TestStep, insert_run, insert_step, insert_workflow_version,
 };
 
-const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e80";
+pub(super) const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e80";
 const VERSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e81";
 const RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e82";
 const RUN_STARTED_AT: &str = "2026-10-02T00:00:00.000Z";
 
-/// A running run's turn written through the test's event log, with the run's rows beside it.
-struct TurnHarness {
-    database: TestDatabase,
-    appender: SessionEventAppender,
-    record: RunEngineRecord,
-    rows: Connection,
+/// A running run's turn written through the test's event log, with the run's rows beside it and
+/// the payload store its turns write through.
+pub(super) struct TurnHarness {
+    pub(super) database: TestDatabase,
+    pub(super) appender: SessionEventAppender,
+    pub(super) writer: Arc<DatabaseWriter>,
+    pub(super) record: RunEngineRecord,
+    pub(super) rows: Connection,
+    pub(super) payloads: Arc<KeptPayloads>,
+    /// The node every step of the harness runs, of the kind `spec`.
+    pub(super) node: WorkflowNode,
+    /// A kind with one main input and one main output.
+    pub(super) spec: WorkflowNodeKindSpec,
 }
 
 impl TurnHarness {
-    async fn new() -> Self {
+    pub(super) async fn new() -> Self {
         let database = TestDatabase::new(crate::schema::schema_parts());
-        let TestLog { service, .. } = open_log(&database, None).await;
+        let TestLog {
+            service, writer, ..
+        } = open_log(&database, None).await;
         let appender = SessionEventAppender::new(service, SESSION_EVENT_VERSION.clone());
         let records = Arc::new(KeptEngineRecords::default());
         let record = EngineRecorder::new(records as Arc<dyn EngineRecordSink>)
@@ -66,16 +81,46 @@ impl TurnHarness {
         Self {
             database,
             appender,
+            writer,
             record,
             rows,
+            payloads: Arc::new(KeptPayloads::default()),
+            node: test_node(),
+            spec: test_spec(),
         }
     }
 
-    fn commit() -> RunTurnCommit {
-        RunTurnCommit::new(SessionId::new(TEST_SESSION_ID).expect("the test's session id"))
+    /// An empty turn of the harness's run, writing through its payload store.
+    pub(super) fn commit(&self) -> RunTurnCommit {
+        RunTurnCommit::new(
+            RunEventKeys {
+                session_id: SessionId::new(TEST_SESSION_ID).expect("the test's session id"),
+                definition_id: WorkflowDefinitionId::new(DEFINITION_ID)
+                    .expect("the test's definition id"),
+                workflow_version_id: WorkflowVersionId::new(VERSION_ID)
+                    .expect("the test's version id"),
+            },
+            Arc::clone(&self.payloads) as Arc<dyn StepPayloadArtifacts>,
+        )
     }
 
-    async fn append(&self, commit: RunTurnCommit) -> RunTurnCommitted {
+    /// The harness's node as the tick knows a step of it, readied by `readying_sequence`, its
+    /// hold last reported at `last_hold_report_at`, with no input.
+    pub(super) fn reported<'tick>(
+        &'tick self,
+        readying_sequence: SafeInt<0>,
+        last_hold_report_at: Option<&'tick WireInstant>,
+    ) -> ReportedStep<'tick> {
+        ReportedStep {
+            readying_sequence,
+            last_hold_report_at,
+            node: &self.node,
+            spec: &self.spec,
+            inputs: &[],
+        }
+    }
+
+    pub(super) async fn append(&self, commit: RunTurnCommit) -> RunTurnCommitted {
         commit
             .append(&self.appender, &self.record)
             .await
@@ -83,7 +128,11 @@ impl TurnHarness {
     }
 
     /// The test node's step at `execution_index`, stored at `status`.
-    fn store_step(&self, execution_index: u32, status: WorkflowStepStatus) -> WorkflowStepKey {
+    pub(super) fn store_step(
+        &self,
+        execution_index: u32,
+        status: WorkflowStepStatus,
+    ) -> WorkflowStepKey {
         insert_step(
             &self.rows,
             RUN_ID,
@@ -99,7 +148,7 @@ impl TurnHarness {
     }
 
     /// The status and pool wait of the step at `execution_index`.
-    fn step_row(&self, execution_index: u32) -> (String, i64) {
+    pub(super) fn step_row(&self, execution_index: u32) -> (String, i64) {
         self.rows
             .query_row(
                 "SELECT status, total_pool_wait_ms FROM workflow_steps WHERE execution_index = ?1",
@@ -110,7 +159,7 @@ impl TurnHarness {
     }
 
     /// Every stored event's sequence, type, instant and payload, in sequence order.
-    fn events(&self) -> Vec<(i64, String, String, Value)> {
+    pub(super) fn events(&self) -> Vec<(i64, String, String, Value)> {
         let reader = self.database.reader();
         let mut statement = reader
             .prepare(
@@ -134,11 +183,32 @@ impl TurnHarness {
     }
 }
 
-fn run_id() -> WorkflowRunId {
+/// The test node, of the test kind, with no retry or `onError`.
+pub(super) fn test_node() -> WorkflowNode {
+    serde_json::from_value(json!({
+        "id": TEST_NODE_ID, "kind": "test.step", "kindVersion": 1, "name": "Step", "order": 0,
+        "params": {},
+    }))
+    .expect("the test's node reads")
+}
+
+/// A kind with one main input and one main output.
+pub(super) fn test_spec() -> WorkflowNodeKindSpec {
+    serde_json::from_value(json!({
+        "kind": "test.step", "version": 1, "category": "developer",
+        "displayName": "Test", "description": "A test kind.", "icon": "test",
+        "params": [], "outputsDeriveFromParams": false,
+        "inputs": [{ "type": "main", "id": "inputs/main/0", "label": "In" }],
+        "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
+    }))
+    .expect("the test's spec reads")
+}
+
+pub(super) fn run_id() -> WorkflowRunId {
     WorkflowRunId::new(RUN_ID).expect("the test's run id")
 }
 
-fn step_key(node_id: &str, execution_index: u32) -> WorkflowStepKey {
+pub(super) fn step_key(node_id: &str, execution_index: u32) -> WorkflowStepKey {
     WorkflowStepKey {
         workflow_run_id: run_id(),
         node_id: WorkflowNodeId::new(node_id.to_owned()).expect("the test's node id"),
@@ -147,15 +217,15 @@ fn step_key(node_id: &str, execution_index: u32) -> WorkflowStepKey {
     }
 }
 
-fn instant(text: &str) -> WireInstant {
+pub(super) fn instant(text: &str) -> WireInstant {
     WireInstant::try_from(text.to_owned()).expect("the test's instant")
 }
 
-fn sequence(value: u64) -> SafeInt<0> {
+pub(super) fn sequence(value: u64) -> SafeInt<0> {
     SafeInt::new(value).expect("a sequence")
 }
 
-fn report(step: &WorkflowStepKey, at: &str, kind: StepReportKind) -> StepReport {
+pub(super) fn report(step: &WorkflowStepKey, at: &str, kind: StepReportKind) -> StepReport {
     StepReport {
         step: step.clone(),
         at: instant(at),
@@ -163,7 +233,7 @@ fn report(step: &WorkflowStepKey, at: &str, kind: StepReportKind) -> StepReport 
     }
 }
 
-fn empty_payload() -> WorkflowPayloadRef {
+pub(super) fn empty_payload() -> WorkflowPayloadRef {
     WorkflowPayloadRef::Inline { items: Vec::new() }
 }
 
@@ -193,28 +263,42 @@ async fn a_held_step_records_one_hold_and_its_pool_wait() {
         hold_started_at: instant(t0),
     };
 
-    let mut first = TurnHarness::commit();
-    first.report(report(&step, t0, held()), readying, None);
+    let mut first = harness.commit();
+    let answer = first
+        .report(report(&step, t0, held()), harness.reported(readying, None))
+        .await
+        .expect("a hold writes no payload");
+    assert!(answer.is_none());
     harness.append(first).await;
     assert_eq!(harness.step_row(1), ("waitingMemory".to_owned(), 0));
 
-    let mut repeat = TurnHarness::commit();
-    repeat.report(report(&step, t30, held()), readying, Some(&instant(t0)));
+    let mut repeat = harness.commit();
+    let t0_instant = instant(t0);
+    repeat
+        .report(
+            report(&step, t30, held()),
+            harness.reported(readying, Some(&t0_instant)),
+        )
+        .await
+        .expect("a hold writes no payload");
     harness.append(repeat).await;
     assert_eq!(harness.step_row(1), ("waitingMemory".to_owned(), 30_000));
 
-    let mut admitted = TurnHarness::commit();
-    admitted.report(
-        report(
-            &step,
-            t45,
-            StepReportKind::Admitted {
-                hold_started_at: Some(instant(t0)),
-            },
-        ),
-        readying,
-        Some(&instant(t30)),
-    );
+    let mut admitted = harness.commit();
+    let t30_instant = instant(t30);
+    admitted
+        .report(
+            report(
+                &step,
+                t45,
+                StepReportKind::Admitted {
+                    hold_started_at: Some(instant(t0)),
+                },
+            ),
+            harness.reported(readying, Some(&t30_instant)),
+        )
+        .await
+        .expect("an admission writes no payload");
     harness.append(admitted).await;
     assert_eq!(harness.step_row(1), ("running".to_owned(), 45_000));
 
@@ -262,18 +346,24 @@ async fn a_turn_is_one_write_in_report_order() {
         "2026-10-02T00:02:04.000Z",
     );
 
-    let mut commit = TurnHarness::commit();
+    let mut commit = harness.commit();
     let unheld = StepReportKind::Admitted {
         hold_started_at: None,
     };
-    commit.report(report(&step, t1, unheld), sequence(0), None);
     let started = StepReportKind::Started {
         input_ref: empty_payload(),
         permission_level: None,
     };
-    commit.report(report(&step, t2, started), sequence(0), None);
-    let progressed = StepReportKind::Progressed;
-    commit.report(report(&step, t3, progressed), sequence(0), None);
+    for (at, kind) in [
+        (t1, unheld),
+        (t2, started),
+        (t3, StepReportKind::Progressed),
+    ] {
+        commit
+            .report(report(&step, at, kind), harness.reported(sequence(0), None))
+            .await
+            .expect("a report before the end writes no payload");
+    }
     let skip_event = commit.skipped(&skip, &empty_payload(), &empty_payload(), instant(t4));
     commit.readied(&ready, ready_input.clone(), skip_event);
     let committed = harness.append(commit).await;
@@ -326,7 +416,7 @@ async fn a_turn_is_one_write_in_report_order() {
         ..skip
     };
     let refused_artifact = artifact_id();
-    let mut refused = TurnHarness::commit();
+    let mut refused = harness.commit();
     let skip_event = refused.skipped(&again, &empty_payload(), &empty_payload(), instant(t4));
     refused.readied(&ready, artifact_payload(refused_artifact), skip_event);
     let failure = refused
@@ -382,12 +472,15 @@ async fn a_canceled_held_step_adds_its_cut_hold(
         hold_started_at: hold_started_at.map(instant),
         is_sibling_failure,
     });
-    let mut commit = TurnHarness::commit();
-    commit.report(
-        report(&step, "2026-10-02T00:03:10.000Z", canceled),
-        sequence(0),
-        None,
-    );
+    let mut commit = harness.commit();
+    let answer = commit
+        .report(
+            report(&step, "2026-10-02T00:03:10.000Z", canceled),
+            harness.reported(sequence(0), None),
+        )
+        .await
+        .expect("a cancel writes no payload");
+    assert!(matches!(answer, Some(SettlementAnswer::Canceled)));
     harness.append(commit).await;
 
     assert_eq!(harness.step_row(1), ("canceled".to_owned(), pool_wait_ms));

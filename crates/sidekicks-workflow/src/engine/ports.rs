@@ -5,6 +5,8 @@
 //! records and the limit a chain's runs are counted under. The program implements each and hands
 //! the ones the dispatch reads to the engine as one bundle.
 
+#[cfg(test)]
+pub(crate) mod kept_payloads;
 pub mod tool_call;
 
 use std::error::Error;
