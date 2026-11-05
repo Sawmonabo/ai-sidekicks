@@ -433,61 +433,45 @@ struct NotPlaced {
 // A daemon turn on `session_id` whose admission failed: a refusal kept for the client to read by
 // its code, as a handler would answer it, and any other failure a fault.
 fn not_admitted(session_id: SessionId, failure: impl Into<HandlerError>) -> DaemonTurnBindingError {
-    match failure.into() {
-        HandlerError::Refused(refusal) => DaemonTurnBindingError::Refused {
+    refusal_or_fault(session_id, failure.into(), |fault| {
+        DaemonTurnBindingError::NotAdmitted {
             session_id,
-            refusal: Box::new(refusal),
-        },
-        fault @ (HandlerError::Internal(_) | HandlerError::Canceled) => {
-            DaemonTurnBindingError::NotAdmitted {
-                session_id,
-                source: Box::new(fault),
-            }
+            source: Box::new(fault),
         }
-    }
+    })
 }
 
 // A daemon turn's process open or binding on `session_id` that failed: a process let go before its
-// binding has none to run on, and any other failure leaves the binding unopened.
+// binding has none to run on, a refusal (a session closed or a provider missing meanwhile) is kept
+// for the client to read by its code, and any other failure leaves the binding unopened.
 fn binding_not_opened(
     session_id: SessionId,
     error: ProviderSessionError,
 ) -> DaemonTurnBindingError {
-    match error {
-        ProviderSessionError::NotOpen { session_id } => {
-            DaemonTurnBindingError::NoProviderSession { session_id }
-        }
-        other @ (ProviderSessionError::NoConversation { .. }
-        | ProviderSessionError::Compose { .. }
-        | ProviderSessionError::AdmittedAccount(_)
-        | ProviderSessionError::NoPosture { .. }
-        | ProviderSessionError::NoContractVersion { .. }
-        | ProviderSessionError::Provider(_)
-        | ProviderSessionError::Driver(_)
-        | ProviderSessionError::ResumeRefused { .. }
-        | ProviderSessionError::NotResumable(_)
-        | ProviderSessionError::Closed { .. }
-        | ProviderSessionError::BeingDeleted { .. }
-        | ProviderSessionError::Cursor(_)
-        | ProviderSessionError::ResumedRuns { .. }
-        | ProviderSessionError::OrphanedAnswers { .. }
-        | ProviderSessionError::ContinueNotReleased { .. }
-        | ProviderSessionError::AfterCarriedContinue { .. }
-        | ProviderSessionError::Port(_)
-        | ProviderSessionError::UnrecordedNotClosed { .. }
-        | ProviderSessionError::ProviderMissingNotPosted { .. }
-        | ProviderSessionError::Store(_)
-        | ProviderSessionError::PostureRefused { .. }
-        | ProviderSessionError::LevelNotStored { .. }
-        | ProviderSessionError::LevelNotMovedBack { .. }
-        | ProviderSessionError::ModeNotStored { .. }
-        | ProviderSessionError::ModeNotMovedBack { .. }
-        | ProviderSessionError::Read(_)
-        | ProviderSessionError::Pool(_)
-        | ProviderSessionError::GitFolder { .. }) => DaemonTurnBindingError::BindingNotRecorded {
+    if let ProviderSessionError::NotOpen { session_id } = error {
+        return DaemonTurnBindingError::NoProviderSession { session_id };
+    }
+    refusal_or_fault(session_id, error.into(), |fault| {
+        DaemonTurnBindingError::BindingNotRecorded {
             session_id,
-            source: Box::new(other),
+            source: Box::new(fault),
+        }
+    })
+}
+
+// `failure` on `session_id` as a handler reads it: its refusal kept as `Refused`, and any fault
+// answered as `fault` makes it.
+fn refusal_or_fault(
+    session_id: SessionId,
+    failure: HandlerError,
+    fault: impl FnOnce(HandlerError) -> DaemonTurnBindingError,
+) -> DaemonTurnBindingError {
+    match failure {
+        HandlerError::Refused(refusal) => DaemonTurnBindingError::Refused {
+            session_id,
+            refusal: Box::new(refusal),
         },
+        failure @ (HandlerError::Internal(_) | HandlerError::Canceled) => fault(failure),
     }
 }
 

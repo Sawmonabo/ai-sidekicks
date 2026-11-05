@@ -17,7 +17,9 @@ use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::session::controls::events::SessionNotice;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_provider::driver::run_control::DaemonTurnBindingResolver as _;
+use sidekicks_provider::driver::run_control::{
+    DaemonTurnBindingError, DaemonTurnBindingResolver as _,
+};
 use sidekicks_provider::runtime_binding::store::{RuntimeBindingRelaunch, RuntimeBindingStore};
 use sidekicks_provider::runtime_binding::test_store::spawned_build;
 use sidekicks_session::queue_store::RecordedQueueItemState;
@@ -288,6 +290,47 @@ async fn a_daemon_turn_on_a_session_not_yet_opened_creates_its_process() {
     assert_eq!(calls.creates.load(Ordering::SeqCst), 1);
     assert!(fixture.queue.admission.is_admitting(run_id));
     assert_eq!(binding.binding_id, fixture.run_binding_id(run_id));
+}
+
+// A turn the daemon starts on a session closed before its process opened is refused as the open
+// refuses it, `session.alreadyClosed`, and creates nothing. Killed by the open's refusal answered
+// as a binding not recorded, which the client reads as a fault.
+#[tokio::test]
+async fn a_daemon_turn_on_a_closed_session_is_refused_as_its_open_refuses_it() {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+    let run_id = fixture.insert_run("queued").await;
+    fixture
+        .database
+        .reader()
+        .execute(
+            "UPDATE sessions SET state = ?2 WHERE id = ?1",
+            params![
+                fixture.session_id.text().as_str(),
+                <&'static str>::from(SessionState::Closed)
+            ],
+        )
+        .expect("the session is closed");
+
+    let opened = timeout(
+        WAIT,
+        fixture
+            .queue
+            .admission()
+            .open_daemon_turn_binding(run_id, fixture.session_id),
+    )
+    .await
+    .expect("the open answers in time");
+
+    assert!(
+        matches!(
+            &opened,
+            Err(DaemonTurnBindingError::Refused { refusal, .. })
+                if refusal.code == RefusalCode::SessionAlreadyClosed
+        ),
+        "{opened:?}"
+    );
+    assert_eq!(calls.creates.load(Ordering::SeqCst), 0);
 }
 
 // A turn the daemon starts on a session with no process is admitted against the account the

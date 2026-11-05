@@ -476,8 +476,8 @@ pub enum DaemonTurnBindingError {
         /// The session.
         session_id: SessionId,
     },
-    /// The admission's refusal, which a client reads by its code: a provider no driver answers,
-    /// no account to run on, or a session closed.
+    /// A refusal of the turn's admission or of its process's open, which a client reads by its
+    /// code: a provider no driver answers, no account to run on, or a session closed.
     #[error("a turn on session {session_id} was refused")]
     Refused {
         /// The session.
@@ -514,8 +514,9 @@ pub trait DaemonTurnBindingResolver: Send + Sync {
     /// process this daemon has not opened is opened for the run first, as an admitted run's is:
     /// resumed where it has a conversation, else created on the account the run was admitted
     /// against, then settled, its turn first taking a place at the memory gate as an admitted
-    /// run's does. Fails `Refused` with the admission's refusal, and with another error when the
-    /// session cannot be admitted, placed, opened or bound, which ends the run failed.
+    /// run's does. Fails `Refused` with the admission's or the open's refusal, and with another
+    /// error when the session cannot be admitted, placed, opened or bound, which ends the run
+    /// failed.
     fn open_daemon_turn_binding(
         &self,
         run_id: RunId,
