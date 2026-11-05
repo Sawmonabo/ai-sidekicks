@@ -42,6 +42,8 @@ use crate::driver::contract::account::WindowTurnSpend;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
+use crate::pricing::quote::split_figure;
+use crate::pricing::rule::RequestPricing;
 
 /// A cumulative token axis a provider reading may carry: uncached input, cached input, cache-write
 /// input, output, reasoning output, and the total. A driver maps its own wire members onto them.
@@ -425,47 +427,11 @@ pub(crate) fn compose_one_turn_spend(
     })
 }
 
-/// A price list's answer for one request: whole micro-dollars from the provider's full breakdown,
-/// for a model the list carries by its exact id, never by family.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the pricing step sets each request's cost and its source through this ladder"
-    )
-)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct DerivedCostQuote {
-    /// The derived cost.
-    pub(crate) cost_usd_micros: UsdMicros,
-}
-
-/// The cost of one usage frame. A model the price list does not price gets no cost update: its
-/// request is held with its exact tokens until the list prices it, never given a made-up or zero
-/// cost.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the pricing step sets each request's cost and its source through this ladder"
-    )
-)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum CostUpdateResolution {
-    /// A cost update with its figure and where the figure came from.
-    CostUpdate {
-        /// Where the figure came from.
-        cost_source: UsageCostSource,
-        /// The request's cost.
-        cost_usd_micros: UsdMicros,
-    },
-    /// No figure yet; the request waits for the price list.
-    HeldUntilPriced,
-}
-
-/// Resolves one cost update's source: a finite, non-negative provider figure (in micro-dollars,
-/// converted from the provider's unit and rounded to a whole micro-dollar) is `providerReported`;
-/// else a price-list quote is `derivedExact`; else the request is held until priced.
+/// Prices one request: a finite, non-negative provider figure (in micro-dollars, converted from the
+/// provider's unit and rounded to a whole micro-dollar) is `providerReported`, shared across the
+/// request's rows by `row_weights`; else the request takes what `derive`, its pricer, answers: a
+/// `derivedExact` figure, or a hold for a price or a sign-in kind. A held request is never given a
+/// made-up or zero cost.
 #[cfg_attr(
     not(test),
     expect(
@@ -476,13 +442,14 @@ pub(crate) enum CostUpdateResolution {
 pub(crate) fn resolve_cost_update_provenance(
     provider: ProviderId,
     provider_reported_cost_usd_micros: Option<f64>,
-    derived_quote: Option<DerivedCostQuote>,
-) -> CostUpdateResolution {
+    row_weights: &[u64],
+    derive: impl FnOnce() -> RequestPricing,
+) -> RequestPricing {
     if let Some(reported_usd_micros) = provider_reported_cost_usd_micros {
         if let Some(cost_usd_micros) = whole_usd_micros(reported_usd_micros) {
-            return CostUpdateResolution::CostUpdate {
+            return RequestPricing::Priced {
                 cost_source: UsageCostSource::ProviderReported,
-                cost_usd_micros,
+                shares: split_figure(cost_usd_micros, row_weights),
             };
         }
         // Falling through silently would put a derived figure where the provider's was, with no
@@ -503,13 +470,7 @@ pub(crate) fn resolve_cost_update_provenance(
             ],
         );
     }
-    match derived_quote {
-        Some(quote) => CostUpdateResolution::CostUpdate {
-            cost_source: UsageCostSource::DerivedExact,
-            cost_usd_micros: quote.cost_usd_micros,
-        },
-        None => CostUpdateResolution::HeldUntilPriced,
-    }
+    derive()
 }
 
 // A finite, non-negative figure rounded half to even to whole micro-dollars, `None` when it is not
@@ -690,23 +651,21 @@ mod tests {
     #[test]
     fn refuses_a_negative_provider_cost_before_rounding_it() {
         let usd_micros = |whole| UsdMicros(SafeInt::new(whole).expect("a small whole figure"));
-        let derived_quote = DerivedCostQuote {
-            cost_usd_micros: usd_micros(7),
+        let derived = || RequestPricing::Priced {
+            cost_source: UsageCostSource::DerivedExact,
+            shares: vec![usd_micros(7)],
         };
 
         // -0.4 rounds to -0.0, which a sign check made after rounding would let through.
         assert_eq!(
-            resolve_cost_update_provenance(test_provider(), Some(-0.4), Some(derived_quote)),
-            CostUpdateResolution::CostUpdate {
-                cost_source: UsageCostSource::DerivedExact,
-                cost_usd_micros: usd_micros(7),
-            }
+            resolve_cost_update_provenance(test_provider(), Some(-0.4), &[1], derived),
+            derived()
         );
         assert_eq!(
-            resolve_cost_update_provenance(test_provider(), Some(1_250.0), Some(derived_quote)),
-            CostUpdateResolution::CostUpdate {
+            resolve_cost_update_provenance(test_provider(), Some(1_250.0), &[1], derived),
+            RequestPricing::Priced {
                 cost_source: UsageCostSource::ProviderReported,
-                cost_usd_micros: usd_micros(1_250),
+                shares: vec![usd_micros(1_250)],
             }
         );
     }

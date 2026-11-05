@@ -190,10 +190,9 @@ pub(crate) fn claude_text_variable<'environment>(
 
 /// The whole environment a session process, a relaunch or the sign-in check starts with, the
 /// person's telemetry settings withheld, the question tool's previews and extended questions
-/// switched on, with `additional_mandated_pairs`
-/// (a pair a caller sets on this one process) over it. Fails as
-/// `build_provider_process_environment` does: a mandated name claimed twice, or an account or
-/// scratch folder that is relative or ends up empty.
+/// switched on, with `additional_mandated_pairs` (a pair a caller sets on this one process) over
+/// it. Fails as `build_provider_process_environment` does: a mandated name claimed twice, or an
+/// account or scratch folder that is relative or ends up empty.
 pub(crate) fn compose_claude_process_environment(
     request: ClaudeProcessEnvironmentRequest<'_>,
     additional_mandated_pairs: &[(String, String)],
