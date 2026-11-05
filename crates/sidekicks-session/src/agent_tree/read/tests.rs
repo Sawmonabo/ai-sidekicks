@@ -52,7 +52,7 @@ fn helper_member(run_id: RunId, handle: &ChildHandle) -> AgentTreeMember {
 }
 
 /// One session's runs, nodes and log, on a database holding the agent tree's and the agents'
-/// tables, with a lead agent whose `agents` row runs on `model-lead`.
+/// tables, with a lead agent whose `agents` row runs on `model-lead` at `medium`.
 pub(crate) struct SessionLog {
     /// The database, which a test may open the event log on.
     pub(crate) database: TestDatabase,
@@ -76,14 +76,12 @@ impl SessionLog {
         let connection = database.opener()().expect("the test opens its database");
         let session_id = test_session_id();
         let lead = agent_id();
+        let mut lead_binding = binding(PROVIDERS[0].id, "model-lead");
+        lead_binding["effort"] = json!("medium");
         project(
             &connection,
             session_id,
-            &session_created(
-                session_id,
-                lead.text().as_str(),
-                &binding(PROVIDERS[0].id, "model-lead"),
-            ),
+            &session_created(session_id, lead.text().as_str(), &lead_binding),
         );
         Self {
             database,
@@ -178,13 +176,32 @@ impl SessionLog {
         run_id
     }
 
-    /// The one place a test builds and writes a node.
+    /// A node whose first start named no model or effort.
     pub(crate) fn node(
         &self,
         own_run_id: RunId,
         subagent_id: &str,
         parent_child_handle: Option<&ChildHandle>,
         started_at: &str,
+    ) -> ChildHandle {
+        self.node_on(
+            own_run_id,
+            subagent_id,
+            parent_child_handle,
+            started_at,
+            (None, None),
+        )
+    }
+
+    /// The one place a test builds and writes a node, its first start naming the model and effort
+    /// `(model_id, effort)`.
+    pub(crate) fn node_on(
+        &self,
+        own_run_id: RunId,
+        subagent_id: &str,
+        parent_child_handle: Option<&ChildHandle>,
+        started_at: &str,
+        (model_id, effort): (Option<&str>, Option<&str>),
     ) -> ChildHandle {
         let handle = mint_child_handle();
         let statement = insert_node(&NewAgentTreeNode {
@@ -197,6 +214,8 @@ impl SessionLog {
             name: None,
             role: None,
             provider_path: None,
+            model_id: model_id.map(str::to_owned),
+            effort: effort.map(str::to_owned),
             start_call_id: None,
             own_run_id,
             started_at: instant(started_at),
@@ -535,6 +554,51 @@ fn a_head_reads_its_model_effort_tokens_spend_and_start() {
     let nested_helper = head(helper_link(&tree, &fixture.nested_helper));
     assert_eq!(nested_helper.model_id.as_str(), "model-lead");
     assert_eq!(nested_helper.spend_usd_micros, spend(0));
+}
+
+// Killed by the node's values ignored (`h3` reads the lead's), by the node's model put before the
+// usage row (`h4` reads `m-own`), and by the binding's fallback dropped (`h2` reads no effort).
+#[test]
+fn a_provider_helpers_head_names_its_own_model_and_effort_before_its_parents_binding() {
+    let mut fixture = Fixture::new();
+    let session = &mut fixture.session;
+    let lead_run = fixture.lead_run;
+    let own_run = session.own_run(lead_run, "h3", RunState::Running, &at(6));
+    let named = session.node_on(
+        own_run,
+        "h3",
+        None,
+        &at(6),
+        (Some("gpt-5.4-mini"), Some("xhigh")),
+    );
+    let used_run = session.own_run(lead_run, "h4", RunState::Running, &at(7));
+    let used = session.node_on(used_run, "h4", None, &at(7), (Some("m-own"), Some("low")));
+    session.usage(used_run, "m-used", &at(8));
+    let tree = session.read();
+
+    let model_and_effort = |handle: &ChildHandle| {
+        let head = head(helper_link(&tree, handle));
+        (
+            head.model_id.as_str().to_owned(),
+            head.effort
+                .as_ref()
+                .map(|effort| effort.as_str().to_owned()),
+        )
+    };
+    assert_eq!(
+        model_and_effort(&named),
+        ("gpt-5.4-mini".to_owned(), Some("xhigh".to_owned()))
+    );
+    assert_eq!(
+        model_and_effort(&used),
+        ("m-used".to_owned(), Some("low".to_owned())),
+        "the model it ran on before the one its start named"
+    );
+    assert_eq!(
+        model_and_effort(&fixture.nested_helper),
+        ("model-lead".to_owned(), Some("medium".to_owned())),
+        "its parent's binding where its start named neither"
+    );
 }
 
 // Killed by a terminal state counted as live, by waiting for input counted as waiting, by the

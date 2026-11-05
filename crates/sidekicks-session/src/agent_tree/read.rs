@@ -235,7 +235,8 @@ pub fn resolve_child(
 /// depth, oldest first, each with its head; the badge's figures; and the refused creates that name
 /// a parent run. What the log reports is read from its events before `read_bound` outside its
 /// skipped ranges; each head's binding and name are its agent's row as it stands now, which no
-/// bound limits; each head's spend is its member's own in `agent_spend`, 0 where the list names
+/// bound limits, except that a provider helper's model and effort are its own where its start
+/// named them; each head's spend is its member's own in `agent_spend`, 0 where the list names
 /// none. Fails as a run's agent read does, with [`AgentTreeReadError::RunMissing`] when a run the
 /// tree names has no row, and as SQLite or a stored column does.
 pub fn read_agent_tree(
@@ -266,12 +267,23 @@ pub fn read_agent_tree(
         let run_agent = ancestry
             .agents
             .read_agent_binding(session_id, &draft.head_run)?;
+        // A provider helper runs under its parent's agent, so its own model and effort, where its
+        // start named them, come before that agent's binding; the model it ran on comes first.
+        let node = match &draft.subject {
+            LinkSubject::Node { place, .. } => Some(&tree.nodes[*place]),
+            LinkSubject::Run { .. } => None,
+        };
         let model_id = draft
             .model_runs
             .iter()
             .filter_map(|run_id| newest_models.get(run_id))
             .max_by_key(|(sequence, _)| *sequence)
-            .map_or(run_agent.binding.model_id, |(_, model)| model.clone());
+            .map(|(_, model)| model.clone())
+            .or_else(|| node.and_then(|node| node.model_id.clone()))
+            .unwrap_or(run_agent.binding.model_id);
+        let effort = node
+            .and_then(|node| node.effort.clone())
+            .or(run_agent.binding.effort);
         let via_agent_name = match &draft.subject {
             LinkSubject::Run {
                 reached_by: ChildRunProvenance::BridgeRun,
@@ -300,7 +312,7 @@ pub fn read_agent_tree(
         };
         let head = ChildRunHead {
             model_id,
-            effort: run_agent.binding.effort,
+            effort,
             via_agent_name,
             tokens: token_counts
                 .get(&draft.head_run)
