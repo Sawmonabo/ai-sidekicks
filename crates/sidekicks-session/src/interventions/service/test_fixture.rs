@@ -16,7 +16,6 @@ use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::run_control::InterruptPendingChoice;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::DatabaseWriter;
-use sidekicks_store::events::log_service::EventLogService;
 
 use crate::interventions::interrupt_queue::{
     InterruptCause, InterruptChoice, InterruptEnd, InterruptQueue, InterruptQueueError, SendNow,
@@ -26,12 +25,11 @@ use crate::interventions::service::{InterventionService, InterventionServiceDeps
 use crate::queue_store::send_now::{SentNow, mark_sent_now_statement, record_sent_now_statement};
 use crate::run::engine::RunEngine;
 
-/// An interventions service over `pool`, `event_log`, `engine` and `providers`, its interrupts'
-/// ends handed straight to `engine`, which is handed the queue and the service as its limit
-/// interrupter, as the daemon wires them. Panics when `engine` was handed either already.
+/// An interventions service over `pool`, `engine` and `providers`, its interrupts' ends handed
+/// straight to `engine`, which is handed the queue and the service as its limit interrupter, as
+/// the daemon wires them. Panics when `engine` was handed either already.
 pub fn test_intervention_service(
     pool: Arc<DatabaseReadPool>,
-    event_log: Arc<EventLogService>,
     engine: &Arc<RunEngine>,
     providers: Arc<ProviderRegistry>,
 ) -> Arc<InterventionService> {
@@ -41,7 +39,6 @@ pub fn test_intervention_service(
         .expect("the test's engine holds no run queue yet");
     let service = Arc::new(InterventionService::new(InterventionServiceDeps {
         pool,
-        event_log,
         engine: Arc::clone(engine),
         providers,
         queue,

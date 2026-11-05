@@ -722,7 +722,6 @@ fn resuming_provider_sessions(
             providers: Arc::clone(providers),
             interventions: test_intervention_service(
                 Arc::clone(&store.reads),
-                Arc::clone(&store.event_log),
                 engine,
                 Arc::clone(providers),
             ),

@@ -134,7 +134,6 @@ async fn harness_reading_priority(
             database.path(),
             INTERVENTION_SERVICE_STATEMENT_CAPACITY,
         )),
-        event_log: Arc::clone(&log.service),
         engine: Arc::clone(&engine),
         providers: Arc::new(providers),
         queue,

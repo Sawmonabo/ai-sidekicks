@@ -409,7 +409,6 @@ mod tests {
                 database.path(),
                 INTERVENTION_SERVICE_STATEMENT_CAPACITY,
             )),
-            Arc::clone(&log.service),
             &engine,
             Arc::clone(&providers),
         );

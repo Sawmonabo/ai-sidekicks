@@ -140,12 +140,13 @@ async fn a_limit_owed_through_a_choice_is_handed_once_the_answer_returns_the_run
         },
     );
     harness
-        .service
+        .engine
         .append(
             SessionEventDraft::of_session(harness.session_id, &requested)
                 .expect("the choice's request drafts"),
             Vec::new(),
             Vec::new(),
+            None,
         )
         .await
         .expect("the provider asks the choice");
