@@ -32,7 +32,9 @@ use crate::driver::codex::session::inbound::CodexSessionCall;
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{RunOpening, RunOpeningItem, StartRunParams};
-use crate::driver::run_control::{DaemonTurnBindingResolver, SteerTurnEndedError};
+use crate::driver::run_control::{
+    DaemonTurnBindingResolver, DaemonTurnProcess, SteerTurnEndedError,
+};
 use crate::port::run_host::RunHost;
 use crate::run::start_request::DaemonTurnStartRequest;
 
@@ -141,7 +143,11 @@ impl CodexPeerDelivery {
                         return Ok(());
                     };
                     let binding = bindings
-                        .open_daemon_turn_binding(run_id, session_id)
+                        .open_daemon_turn_binding(
+                            run_id,
+                            session_id,
+                            DaemonTurnProcess::OpenWhenAbsent,
+                        )
                         .await?;
                     let kept =
                         keep_reply_chain(&reply_chains, session_id, run_id, message.reply_chain);

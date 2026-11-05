@@ -45,6 +45,7 @@ use crate::driver::claude::DESCRIPTOR;
 use crate::driver::ports::{DriverPorts, MessageTakenListener, ProcessGoneListener};
 use crate::driver::run_control::{
     DaemonTurnAdmission, DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver,
+    DaemonTurnProcess,
 };
 use crate::driver::test_registry::new_agent_id;
 use crate::port::permission_ask::{
@@ -91,7 +92,8 @@ pub(crate) type ScriptedProcessOpener =
 
 /// Approval ports, the queue's intake of taken messages, the status line intake and the session
 /// message readings, each recording what reaches it, and the queue's opening of a daemon turn's
-/// process once a test sets one, or its refusal of every daemon turn's binding.
+/// process once a test sets one, its refusal of every daemon turn's binding, or a live-only
+/// binding answered as one whose process was let go.
 #[derive(Default)]
 pub(crate) struct RecordingPorts {
     calls: Mutex<Vec<PortCall>>,
@@ -99,6 +101,7 @@ pub(crate) struct RecordingPorts {
     message_readings: Mutex<Vec<SessionMessageReading>>,
     process_opener: Mutex<Option<ScriptedProcessOpener>>,
     refuses_daemon_turn_bindings: AtomicBool,
+    has_let_processes_go: AtomicBool,
 }
 
 impl RecordingPorts {
@@ -120,6 +123,12 @@ impl RecordingPorts {
     /// Brings each daemon turn's session process up through `opener` before its binding opens.
     pub(crate) fn open_processes_for_daemon_turns(&self, opener: ScriptedProcessOpener) {
         *lock(&self.process_opener) = Some(opener);
+    }
+
+    /// Answers every live-only daemon turn's binding from now on as the queue does once the
+    /// session's process was let go: `NoProviderSession`, nothing opened.
+    pub(crate) fn let_processes_go(&self) {
+        self.has_let_processes_go.store(true, Ordering::SeqCst);
     }
 
     /// Refuses every daemon turn's binding from now on, as the queue refuses one on a session
@@ -379,6 +388,7 @@ impl DaemonTurnBindingResolver for ScriptedBindings {
         &self,
         _run_id: RunId,
         session_id: SessionId,
+        process: DaemonTurnProcess,
     ) -> BoxFuture<'_, Result<DaemonTurnBinding, DaemonTurnBindingError>> {
         if self.0.refuses_daemon_turn_bindings.load(Ordering::SeqCst) {
             let refusal =
@@ -389,7 +399,16 @@ impl DaemonTurnBindingResolver for ScriptedBindings {
             }))
             .boxed();
         }
-        let opener = lock(&self.0.process_opener).clone();
+        let is_live_only = process == DaemonTurnProcess::LiveOnly;
+        if is_live_only && self.0.has_let_processes_go.load(Ordering::SeqCst) {
+            return ready(Err(DaemonTurnBindingError::NoProviderSession {
+                session_id,
+            }))
+            .boxed();
+        }
+        let opener = lock(&self.0.process_opener)
+            .clone()
+            .filter(|_| !is_live_only);
         async move {
             if let Some(opener) = opener {
                 opener(session_id).await;

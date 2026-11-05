@@ -32,7 +32,7 @@ use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::fork::config_change::CodexConfigForks;
 use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInboundSender};
 use crate::driver::codex::session::slots::CodexSessionSlots;
-use crate::driver::run_control::{DaemonTurnBinding, DaemonTurnBindingResolver};
+use crate::driver::run_control::{DaemonTurnBinding, DaemonTurnBindingResolver, DaemonTurnProcess};
 use crate::driver::session_control::{
     ClearSessionGoalParams, DriverGoalResult, SetSessionGoalParams,
 };
@@ -157,7 +157,11 @@ impl CodexSessionGoals {
                     };
                     let binding = goals
                         .daemon_turn_bindings
-                        .open_daemon_turn_binding(run_id, session_id)
+                        .open_daemon_turn_binding(
+                            run_id,
+                            session_id,
+                            DaemonTurnProcess::OpenWhenAbsent,
+                        )
                         .await?;
                     let set = goals
                         .set_for_run(session_id, run_id, binding, goal_text)
@@ -336,6 +340,7 @@ mod tests {
     use crate::driver::contract::error::DriverError;
     use crate::driver::run_control::{
         DaemonTurnAdmission, DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver,
+        DaemonTurnProcess,
     };
     use crate::driver::session_control::{DriverGoalResult, SetSessionGoalParams};
     use crate::driver::test_registry::new_run_id;
@@ -357,6 +362,7 @@ mod tests {
             &self,
             run_id: RunId,
             session_id: SessionId,
+            process: DaemonTurnProcess,
         ) -> BoxFuture<'_, Result<DaemonTurnBinding, DaemonTurnBindingError>> {
             async move {
                 self.slots
@@ -365,7 +371,7 @@ mod tests {
                     .expect("the session's slot is free")
                     .install(self.inbound.clone());
                 self.bindings
-                    .open_daemon_turn_binding(run_id, session_id)
+                    .open_daemon_turn_binding(run_id, session_id, process)
                     .await
             }
             .boxed()
@@ -387,6 +393,7 @@ mod tests {
             &self,
             _run_id: RunId,
             session_id: SessionId,
+            _process: DaemonTurnProcess,
         ) -> BoxFuture<'_, Result<DaemonTurnBinding, DaemonTurnBindingError>> {
             async move { Err(DaemonTurnBindingError::NoProviderSession { session_id }) }.boxed()
         }

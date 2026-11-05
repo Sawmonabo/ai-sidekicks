@@ -18,7 +18,7 @@ use sidekicks_contracts::session::controls::events::SessionNotice;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_provider::driver::run_control::{
-    DaemonTurnBindingError, DaemonTurnBindingResolver as _,
+    DaemonTurnBindingError, DaemonTurnBindingResolver as _, DaemonTurnProcess,
 };
 use sidekicks_provider::runtime_binding::store::{RuntimeBindingRelaunch, RuntimeBindingStore};
 use sidekicks_provider::runtime_binding::test_store::spawned_build;
@@ -262,20 +262,42 @@ async fn a_send_to_a_closed_session_on_a_missing_provider_posts_no_notice() {
 
 // A turn the daemon starts on a session this daemon never opened creates the session's process for
 // that turn's run once, after its run took a place at the memory gate, which it keeps; the run's
-// binding is the one the create recorded. Killed by binding the turn without opening the session
-// first, which refuses a session not yet opened, and by opening it outside the gate.
+// binding is the one the create recorded; a live-only turn there opens nothing and answers that the
+// session has no process. Killed by binding the turn without opening the session first, which
+// refuses a session not yet opened, by opening it outside the gate, and by a live-only turn
+// opening the process.
 #[tokio::test]
 async fn a_daemon_turn_on_a_session_not_yet_opened_creates_its_process() {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(recording_driver(&calls)).await;
     let run_id = fixture.insert_run("queued").await;
 
+    let live_only = timeout(
+        WAIT,
+        fixture.queue.admission().open_daemon_turn_binding(
+            run_id,
+            fixture.session_id,
+            DaemonTurnProcess::LiveOnly,
+        ),
+    )
+    .await
+    .expect("the live-only binding answers in time");
+    assert!(
+        matches!(
+            live_only,
+            Err(DaemonTurnBindingError::NoProviderSession { .. })
+        ),
+        "{live_only:?}"
+    );
+    assert_eq!(calls.creates.load(Ordering::SeqCst), 0);
+
     let binding = timeout(
         WAIT,
-        fixture
-            .queue
-            .admission()
-            .open_daemon_turn_binding(run_id, fixture.session_id),
+        fixture.queue.admission().open_daemon_turn_binding(
+            run_id,
+            fixture.session_id,
+            DaemonTurnProcess::OpenWhenAbsent,
+        ),
     )
     .await
     .expect("the binding opens in time")
@@ -314,10 +336,11 @@ async fn a_daemon_turn_on_a_closed_session_is_refused_as_its_open_refuses_it() {
 
     let opened = timeout(
         WAIT,
-        fixture
-            .queue
-            .admission()
-            .open_daemon_turn_binding(run_id, fixture.session_id),
+        fixture.queue.admission().open_daemon_turn_binding(
+            run_id,
+            fixture.session_id,
+            DaemonTurnProcess::OpenWhenAbsent,
+        ),
     )
     .await
     .expect("the open answers in time");

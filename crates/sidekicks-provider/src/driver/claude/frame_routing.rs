@@ -225,8 +225,10 @@ impl ClaudeFrameRouting {
             }
             band.message_call_ids.insert(call_id.clone());
         }
-        for call_id in &observation.answered_call_ids {
-            band.message_call_ids.remove(call_id);
+        // A start naming a call answered earlier in the turn waits on nothing, so the ids are kept
+        // until the lead's turn ends.
+        if observation.subagent_id.is_none() && observation.frame_kind == "result" {
+            band.message_call_ids.clear();
         }
         if let Some(signal) = &observation.subagent_lifecycle
             && signal.signal == ClaudeSubagentSignal::SubagentStart

@@ -28,7 +28,7 @@ use crate::driver::codex::session::fork::bind_codex_first_run;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::transport::connection::read_codex_object;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::driver::run_control::{DaemonTurnBinding, DaemonTurnBindingResolver};
+use crate::driver::run_control::{DaemonTurnBinding, DaemonTurnBindingResolver, DaemonTurnProcess};
 use crate::port::run_host::RunHost;
 use crate::run::start_request::DaemonTurnStartRequest;
 
@@ -128,7 +128,11 @@ async fn open_run(
                 let binding_slot = Arc::clone(&binding_slot);
                 async move {
                     let binding = resolver
-                        .open_daemon_turn_binding(run_id, session_id)
+                        .open_daemon_turn_binding(
+                            run_id,
+                            session_id,
+                            DaemonTurnProcess::OpenWhenAbsent,
+                        )
                         .await?;
                     *lock(&binding_slot) = Some(binding);
                     Ok(())

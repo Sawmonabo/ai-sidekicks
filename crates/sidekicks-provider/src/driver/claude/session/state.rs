@@ -103,8 +103,8 @@ pub(crate) struct ClaudeSessionRoutingBand {
     pub(crate) accountant: UsageDeltaAccountant,
     /// Each thread's usage as its messages sum it.
     pub(crate) usage_tally: ClaudeThreadUsageTally,
-    /// The `SendMessage` calls read and not yet answered: a helper one wakes runs on past the
-    /// call's result.
+    /// The `SendMessage` calls read in the lead's running turn, answered or not: a helper one wakes
+    /// runs on past the call's result, so its start waits on no call.
     pub(crate) message_call_ids: HashSet<String>,
 }
 

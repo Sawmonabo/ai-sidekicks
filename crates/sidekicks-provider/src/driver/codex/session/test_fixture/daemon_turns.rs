@@ -13,6 +13,7 @@ use sidekicks_std::mutex_lock::lock;
 use super::test_record_posture;
 use crate::driver::run_control::{
     DaemonTurnAdmission, DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver,
+    DaemonTurnProcess,
 };
 use crate::runtime_binding::test_store::test_provider_account_id;
 
@@ -48,6 +49,7 @@ impl DaemonTurnBindingResolver for TestDaemonTurnBindings {
         &self,
         _run_id: RunId,
         session_id: SessionId,
+        _process: DaemonTurnProcess,
     ) -> BoxFuture<'_, Result<DaemonTurnBinding, DaemonTurnBindingError>> {
         let binding = self.lock().clone().map(|binding_id| DaemonTurnBinding {
             binding_id,

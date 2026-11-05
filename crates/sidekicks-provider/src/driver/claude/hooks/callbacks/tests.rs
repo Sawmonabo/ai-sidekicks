@@ -626,6 +626,69 @@ async fn a_message_waking_an_ended_helper_counts_against_the_limit(
     }
 }
 
+// [`TARGET`] as `stored` holds it, read while the person's interrupt holds it in `pauses`.
+struct HeldDuringRead(Arc<Mutex<ClaudeRunPauses>>, StoredTarget);
+
+impl AgentTreeLookup for HeldDuringRead {
+    fn helper_by_subagent_id(
+        &self,
+        session_id: SessionId,
+        provider_name: ProviderId,
+        subagent_id: String,
+    ) -> Lookup<'_> {
+        hold_target(&mut lock(&self.0), Target::Interrupted);
+        self.1
+            .helper_by_subagent_id(session_id, provider_name, subagent_id)
+    }
+
+    fn helper_by_name(&self, session_id: SessionId, name: String) -> Lookup<'_> {
+        self.1.helper_by_name(session_id, name)
+    }
+
+    fn helper_by_provider_path(&self, session_id: SessionId, path: String) -> Lookup<'_> {
+        self.1.helper_by_provider_path(session_id, path)
+    }
+}
+
+// With the one slot taken, an interrupt holding the target while its read is in flight lets the
+// wake pass uncounted. Killed by counting the wake on the read alone, with no recheck of the hold
+// after it (the wake is held).
+#[tokio::test]
+async fn a_wake_whose_target_is_held_during_its_read_passes_uncounted() {
+    let one = OneHelperAtOnce::new();
+    admit_start(&one, "start-1");
+    assert_eq!(
+        one.start_helper("helper-1", "start-1"),
+        Vec::<String>::new()
+    );
+    let pauses = Arc::new(Mutex::new(ClaudeRunPauses::default()));
+    let stored = StoredTarget(Ok((RunState::Interrupted, None)));
+    let lookup = Arc::new(HeldDuringRead(Arc::clone(&pauses), stored));
+
+    let route = route_helper_wake(
+        Some(lookup),
+        &pauses,
+        &one.limit,
+        &fixed_session_id(),
+        "wake-1".to_owned(),
+        None,
+        "call-wake",
+        TARGET,
+    )
+    .await;
+
+    assert!(
+        matches!(
+            &route,
+            ClaudeRequestRoute::Answer {
+                answer: ClaudeHookAnswer::Pass,
+                ..
+            }
+        ),
+        "{route:?}"
+    );
+}
+
 // Killed by release out of arrival order (the later start freed before the wake), by a held wake
 // never released, and by an admitted wake left counted after its helper's resume started and
 // ended.

@@ -24,7 +24,7 @@ use sidekicks_provider::driver::contract::params_and_results::{
 };
 use sidekicks_provider::driver::run_control::{
     DaemonTurnAdmission, DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver,
-    InterruptRunRequest,
+    DaemonTurnProcess, InterruptRunRequest,
 };
 use sidekicks_session::console_state::read_session_max_steps_per_turn;
 use sidekicks_session::queue_store::{QueueItemBody, QueueItemReader, QueueItemRecord};
@@ -334,6 +334,7 @@ impl DaemonTurnBindingResolver for QueueAdmission {
         &self,
         run_id: RunId,
         session_id: SessionId,
+        process: DaemonTurnProcess,
     ) -> BoxFuture<'_, Result<DaemonTurnBinding, DaemonTurnBindingError>> {
         async move {
             let not_recorded = |error: QueueError| DaemonTurnBindingError::BindingNotRecorded {
@@ -341,8 +342,12 @@ impl DaemonTurnBindingResolver for QueueAdmission {
                 source: Box::new(error),
             };
             // A process this daemon opened is bound as it stands: the turn may be opening on that
-            // process's own task, so it waits for no settle a transition queued behind it holds.
-            if !self.deps.provider_sessions.is_opened(session_id) {
+            // process's own task, so it waits for no settle a transition queued behind it holds. A
+            // live-only turn opens none: the bind checks the process under its own lock, so one
+            // let go meanwhile answers `NoProviderSession`.
+            if process == DaemonTurnProcess::OpenWhenAbsent
+                && !self.deps.provider_sessions.is_opened(session_id)
+            {
                 let (provider, admitted_account, driver) = self
                     .admit_session_account(session_id)
                     .await

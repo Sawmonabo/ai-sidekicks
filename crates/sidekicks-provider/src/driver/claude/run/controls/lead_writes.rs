@@ -64,6 +64,9 @@ impl ClaudeRunControls {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use futures::FutureExt;
 
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -209,5 +212,55 @@ mod tests {
             .expect_err("a narration with no live process is refused");
         assert!(is_unavailable_for(&refused, NoLiveSession));
         assert_eq!(session.engine.first_daemon_turn_run(), None);
+    }
+
+    // A narration whose process exits after the start read it live, before its run's binding,
+    // opens no process and is refused as having none. Killed by binding a narration with a process
+    // opened where none is (the opener runs), and by answering the binding's missing process as a
+    // fault.
+    #[tokio::test(start_paused = true)]
+    async fn a_narration_whose_process_exits_before_its_binding_opens_none() {
+        let session = Arc::new(ScriptedSession::new().await);
+        let opened = Arc::new(AtomicUsize::new(0));
+        let opens = Arc::clone(&opened);
+        session
+            .ports
+            .open_processes_for_daemon_turns(Arc::new(move |_session_id| {
+                opens.fetch_add(1, Ordering::SeqCst);
+                async {}.boxed()
+            }));
+        let release = session.engine.hold_next_daemon_turn_start();
+        let starting = {
+            let session = Arc::clone(&session);
+            tokio::spawn(async move {
+                let opening = ClaudeDaemonTurnOpening::Narration {
+                    text: OutboundText {
+                        text: "The user stopped `sleep 100`.".to_owned(),
+                        origin: OutboundTextOrigin::SystemNarration,
+                    },
+                    message_id: mint_uuid_v7().to_string(),
+                };
+                session
+                    .start
+                    .start_daemon_turn(session.session_id, opening)
+                    .await
+            })
+        };
+        settle().await;
+        assert!(
+            session.engine.first_daemon_turn_run().is_some(),
+            "the start read the process live"
+        );
+
+        session.exit();
+        session.ports.let_processes_go();
+        release.send(()).expect("the start waits on its hold");
+        let refused = starting
+            .await
+            .expect("the start's task ends")
+            .expect_err("a narration whose process exited is refused");
+
+        assert!(is_unavailable_for(&refused, NoLiveSession), "{refused:?}");
+        assert_eq!(opened.load(Ordering::SeqCst), 0);
     }
 }

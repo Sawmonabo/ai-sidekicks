@@ -452,6 +452,16 @@ pub struct DaemonTurnBinding {
     pub step_bound: Option<SafeInt<1>>,
 }
 
+/// Which process a daemon turn's binding may run on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DaemonTurnProcess {
+    /// The session's process, opened for the turn where this daemon has none open.
+    OpenWhenAbsent,
+    /// Only a process this daemon has open, read under the binding's own lock: with none, the
+    /// binding fails `NoProviderSession` and opens nothing.
+    LiveOnly,
+}
+
 /// The account a turn the daemon starts on a session with no live process is admitted against,
 /// and the posture it runs at.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -510,8 +520,9 @@ pub enum DaemonTurnBindingError {
 
 /// Opens the binding of a turn the daemon starts on a session itself; the run queue serves it.
 pub trait DaemonTurnBindingResolver: Send + Sync {
-    /// The binding `run_id` runs on in `session_id`, and the session's lead agent. A session whose
-    /// process this daemon has not opened is opened for the run first, as an admitted run's is:
+    /// The binding `run_id` runs on in `session_id`, and the session's lead agent. Under
+    /// [`DaemonTurnProcess::OpenWhenAbsent`], a session whose process this daemon has not opened
+    /// is opened for the run first, as an admitted run's is:
     /// resumed where it has a conversation, else created on the account the run was admitted
     /// against, then settled, its turn first taking a place at the memory gate as an admitted
     /// run's does. Fails `Refused` with the admission's or the open's refusal, and with another
@@ -521,6 +532,7 @@ pub trait DaemonTurnBindingResolver: Send + Sync {
         &self,
         run_id: RunId,
         session_id: SessionId,
+        process: DaemonTurnProcess,
     ) -> BoxFuture<'_, Result<DaemonTurnBinding, DaemonTurnBindingError>>;
 
     /// What a driver fills a daemon turn's start request with when no process of `session_id` is
