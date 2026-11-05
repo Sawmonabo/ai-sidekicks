@@ -560,17 +560,7 @@ pub(crate) async fn register_method_inputs(
             appender: Arc::clone(&session.appender),
             settings: Arc::clone(&settings),
             base_environment,
-            reserved_names: Arc::clone(&providers.reserved_names),
-            screen_reader_environment_names: registry
-                .drivers()
-                .flat_map(|(provider, _)| {
-                    registry
-                        .descriptor(provider)
-                        .expect("a provider the registry lists has a descriptor")
-                        .screen_reader_environment_names()
-                })
-                .copied()
-                .collect(),
+            providers,
             run_folder: run_folder.folder_path.clone(),
             orphan_guard,
             daemon_program: daemon_program.to_path_buf(),
