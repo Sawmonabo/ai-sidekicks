@@ -59,7 +59,7 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
         | NothingWritten::HeldOnChain => json!([]),
     };
     let fixture = Fixture::new(
-        &body(Some(declared), nodes),
+        &body(Some(declared), &nodes),
         session,
         WorkflowChainAskAfterRuns::new(25),
         Some(test_provider()),
@@ -156,7 +156,7 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
 async fn a_held_start_that_cannot_clean_up_is_still_held() {
     let declared = json!([{ "type": "string", "name": "ticket", "required": true, "default": "" }]);
     let fixture = Fixture::new(
-        &body(Some(declared), json!([])),
+        &body(Some(declared), &json!([])),
         TestSession::WithoutFolder,
         WorkflowChainAskAfterRuns::new(25),
         Some(test_provider()),

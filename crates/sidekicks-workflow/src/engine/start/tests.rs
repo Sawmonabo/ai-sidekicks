@@ -382,7 +382,7 @@ fn store_session(rows: &Connection, session: TestSession, folder: &Path) {
 }
 
 // A version body whose trigger declares `inputs`, or none, holding `nodes`.
-fn body(inputs: Option<Value>, nodes: Value) -> Value {
+fn body(inputs: Option<Value>, nodes: &Value) -> Value {
     let mut trigger = json!({
         "id": "start", "kind": "trigger.manual", "kindVersion": 1, "name": "Start", "order": 0,
         "params": {}
@@ -508,7 +508,7 @@ async fn a_trigger_start_passes_the_rules_and_a_persons_or_agents_does_not(
     #[case] is_started: bool,
 ) {
     let fixture = Fixture::new(
-        &body(None, json!([])),
+        &body(None, &json!([])),
         TestSession::WithoutFolder,
         None,
         Some(test_provider()),
@@ -579,7 +579,7 @@ async fn a_started_run_records_its_trigger_chain_and_input_and_works_in_its_fold
         WrittenStart::TriggerJoiningAChain => {
             let declared = json!([{ "type": "string", "name": "branch", "default": "main" }]);
             let fixture = Fixture::new(
-                &body(Some(declared), json!([])),
+                &body(Some(declared), &json!([])),
                 TestSession::WithoutFolder,
                 WorkflowChainAskAfterRuns::new(25),
                 Some(test_provider()),
@@ -625,7 +625,7 @@ async fn a_started_run_records_its_trigger_chain_and_input_and_works_in_its_fold
         }
         WrittenStart::ManualWithALargeInput => {
             let fixture = Fixture::new(
-                &body(None, json!([git_node()])),
+                &body(None, &json!([git_node()])),
                 TestSession::WithFolder,
                 None,
                 Some(test_provider()),
@@ -694,7 +694,7 @@ async fn the_start_scope_holds_the_pinned_version_the_workflows_level_and_its_pi
 ) {
     let version_body = body(
         None,
-        json!([{
+        &json!([{
             "id": "review", "kind": "human.approval", "kindVersion": 1, "name": "Review",
             "order": 0, "params": { "note": "check the draft" }
         }]),
@@ -777,7 +777,7 @@ async fn the_start_scope_holds_the_pinned_version_the_workflows_level_and_its_pi
 #[tokio::test]
 async fn a_failed_scope_read_writes_no_run() {
     let fixture = Fixture::new(
-        &body(None, json!([])),
+        &body(None, &json!([])),
         TestSession::WithoutFolder,
         None,
         None,
