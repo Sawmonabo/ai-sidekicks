@@ -116,8 +116,8 @@ impl RunHost for RunEngine {
 }
 
 // A daemon turn refused because the session's turn is held reaches the driver as
-// [`DaemonTurnHeld`], and one its binding refused as that [`DaemonTurnBindingError`], so it can
-// tell either refusal from a failure; any other error goes whole.
+// [`DaemonTurnHeld`], and one its binding refused, or found no process for, as that
+// [`DaemonTurnBindingError`], so it can tell either from a failure; any other error goes whole.
 fn daemon_turn_failure(error: RunEngineError) -> RunHostError {
     if let RunEngineError::DaemonTurn(queue_error) = &error
         && let DaemonTurnQueueError::Refused(RunRefusal::SessionTurnHeld { session_id, .. }) =
@@ -131,7 +131,13 @@ fn daemon_turn_failure(error: RunEngineError) -> RunHostError {
         return Box::new(error);
     };
     match source.downcast::<DaemonTurnBindingError>() {
-        Ok(binding) if matches!(*binding, DaemonTurnBindingError::Refused { .. }) => {
+        Ok(binding)
+            if matches!(
+                *binding,
+                DaemonTurnBindingError::Refused { .. }
+                    | DaemonTurnBindingError::NoProviderSession { .. }
+            ) =>
+        {
             binding as RunHostError
         }
         Ok(binding) => Box::new(RunEngineError::Driver {
@@ -159,8 +165,8 @@ mod tests {
     use crate::run::engine::errors::RunEngineError;
     use crate::run::refusals::RunRefusal;
 
-    // Killed by handing the held refusal or the binding's over as the engine's own error, which
-    // the driver can only read as a failure, by typing any other error as held, and by handing a
+    // Killed by handing the held refusal, the binding's, or its missing process over as the
+    // engine's own error, which the driver can only read as a failure, by typing any other error as held, and by handing a
     // binding's fault over bare.
     #[test]
     fn a_daemon_turn_refused_for_a_held_turn_or_by_its_binding_reaches_the_driver_typed() {
@@ -203,6 +209,15 @@ mod tests {
             closed.downcast_ref::<DaemonTurnBindingError>(),
             Some(DaemonTurnBindingError::Refused { refusal, .. })
                 if refusal.code == RefusalCode::SessionAlreadyClosed
+        ));
+
+        let let_go = daemon_turn_failure(RunEngineError::Driver {
+            run_id: new_run_id(),
+            source: Box::new(DaemonTurnBindingError::NoProviderSession { session_id }),
+        });
+        assert!(matches!(
+            let_go.downcast_ref::<DaemonTurnBindingError>(),
+            Some(DaemonTurnBindingError::NoProviderSession { .. })
         ));
 
         let unadmitted = daemon_turn_failure(RunEngineError::Driver {
