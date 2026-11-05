@@ -64,6 +64,7 @@ impl SessionSpawnContextResolver for OneFolder {
                 account_folders,
                 step_bound: None,
                 advisor_model: None,
+                auto_memory: None,
             })
         }
         .boxed()
