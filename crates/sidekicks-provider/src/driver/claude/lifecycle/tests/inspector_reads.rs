@@ -23,8 +23,9 @@ use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, Scripted
 use crate::driver::claude::session::scripted::driver::{
     ScriptedDriver, create_params, sandbox_cannot_run,
 };
-use crate::driver::claude::session::scripted::settle;
+use crate::driver::claude::session::scripted::held_calls::init;
 use crate::driver::claude::session::scripted::starts::ScriptedStartRecord;
+use crate::driver::claude::session::scripted::{hand_scripted_frame, settle};
 use crate::driver::claude::session::transport::declarations::ClaudeInitializeDeclaration;
 use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::session_control::{
@@ -160,8 +161,7 @@ fn memory_entry(path: &str, kind: SessionMemoryEntryKind) -> SessionMemoryEntry 
 
 // Killed by: no listing sent; the listing's reply dropped; the stores not kept; files kept only
 // from a first read; files not taken from the read at all; the inspector making a read of its own;
-// a listing per read; a listing under way answered `Unread`, since the create returns once the
-// listing is written, before its answer.
+// a listing per read.
 #[tokio::test]
 async fn a_spawn_keeps_its_stores_and_listing_and_each_read_refreshes_the_files() {
     let fixture = ScriptedDriver::new();
@@ -173,7 +173,6 @@ async fn a_spawn_keeps_its_stores_and_listing_and_each_read_refreshes_the_files(
             ..ClaudeInitializeDeclaration::default()
         });
     let channel = Arc::new(ScriptedChannel::default());
-    let release = channel.hold_next_control("get_hooks_listing");
     channel.answer("get_hooks_listing", ScriptedAnswer::Reply(listing_reply()));
     channel.answer(
         "get_context_usage",
@@ -187,11 +186,10 @@ async fn a_spawn_keeps_its_stores_and_listing_and_each_read_refreshes_the_files(
     let start = fixture.next_start().await;
     let reads = inspector_reads(&fixture);
 
-    // The read starts while the listing's answer is held, then the answer goes.
-    let (listing, ()) = tokio::join!(reads.kept_hook_listing(session_id), async {
-        drop(release);
-    });
-    assert_eq!(listed_command(&listing), Some(vec!["audit.sh"]));
+    assert_eq!(
+        listed_command(&reads.kept_hook_listing(session_id).await),
+        Some(vec!["audit.sh"])
+    );
     let kept = reads.kept_memory(session_id).expect("the spawn is kept");
     assert_eq!(kept.files, Vec::<PathBuf>::new());
     assert_eq!(kept.stores, vec![store.clone()]);
@@ -435,28 +433,33 @@ async fn a_session_with_no_process_since_the_daemon_started_answers_at_next_star
     assert!(fixture.starts.take_started().is_empty());
 }
 
-// Killed by: an opening that reads again while one is under way; an opening that answers before
-// the read is held, when no file is kept yet; an opening that sends a listing of its own.
+// Killed by: an opening that reads again while one is under way, as a read of its own or one asked
+// behind it; an opening that answers before the read is held, when no file is kept yet; an
+// opening that sends a listing of its own.
 #[tokio::test]
 async fn an_opening_joins_a_read_under_way_and_sends_no_listing() {
     let fixture = ScriptedDriver::new();
     let channel = Arc::new(ScriptedChannel::default());
     channel.answer("get_hooks_listing", ScriptedAnswer::Reply(listing_reply()));
     let release = channel.hold_next_control("get_context_usage");
-    // Both name `a`, so the answer holds whichever read the opening joins.
-    for _ in 0..2 {
-        channel.answer(
-            "get_context_usage",
-            ScriptedAnswer::Reply(context_reply("a")),
-        );
-    }
+    channel.answer(
+        "get_context_usage",
+        ScriptedAnswer::Reply(context_reply("a")),
+    );
     let session_id = fixture.create(&channel).await;
     let start = fixture.next_start().await;
-    fixture.end_turn(&start, session_id);
+    // The process's own start, with no run open, asks one read.
+    let routes = &fixture
+        .driver
+        .composed_parts()
+        .expect("the pieces are composed")
+        .run_start
+        .routes;
+    hand_scripted_frame(&*start.listener, routes, session_id, &init());
     ScriptedDriver::wait_for(|| sent(&channel, "get_context_usage") == 1).await;
     let session = inspected(&fixture, session_id, None);
 
-    // The opening starts while the turn's first read is held, then the read's answer goes.
+    // The opening starts while that read is held, then the read's answer goes.
     let (memory, ()) = tokio::join!(fixture.driver.read_session_memory(&session), async {
         drop(release);
     });
@@ -473,7 +476,7 @@ async fn an_opening_joins_a_read_under_way_and_sends_no_listing() {
         .expect("the hooks list");
     settle().await;
 
-    assert_eq!(sent(&channel, "get_context_usage"), 2);
+    assert_eq!(sent(&channel, "get_context_usage"), 1);
     assert_eq!(sent(&channel, "get_hooks_listing"), 1);
 }
 
