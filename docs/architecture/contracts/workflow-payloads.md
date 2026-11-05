@@ -592,6 +592,12 @@ type WorkflowRunResumedPayload = WorkflowRunEventPayload & {
 interface WorkflowRunCanceledPayload extends WorkflowRunEventPayload {
   reason?: string;
 }
+// workflow.run.failed — the run failed on a step, whose own event carries the cause. `parked`: a
+// step failed under `onError: stop` or the crash sweep failed it, and the run holds with no
+// `finished_at` until it is resumed, canceled or deleted; `ended`: the run ended on its failure.
+interface WorkflowRunFailedPayload extends WorkflowRunEventPayload {
+  outcome: "parked" | "ended";
+}
 // workflow.run.deleted — appended in the same unit of work as the delete of the run's rows, so a
 // projection rebuild leaves out a run the person deleted, whose earlier events the log keeps.
 type WorkflowRunDeletedPayload = WorkflowRunEventPayload;
