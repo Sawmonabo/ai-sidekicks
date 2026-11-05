@@ -551,6 +551,17 @@ interface WorkflowStepEventPayload {
   attempt: number;
   executionIndex: number;
 }
+// A step an event's write readied, with what its `pending` row stores — the feed of each main input
+// slot, `null` where nothing fed it, and its input — so a rebuild writes the same row. The run is
+// the event's own. An event that readies steps carries them as `readied`, empty where it readied
+// none.
+interface WorkflowReadiedStep {
+  nodeId: WorkflowNodeId;
+  attempt: number;
+  executionIndex: number;
+  sources: Array<{ nodeId: WorkflowNodeId; outputIndex: number; executionIndex: number } | null>;
+  inputRef: WorkflowPayloadRef;
+}
 // Arming and firing happen before any run exists, so these carry the workflow and the trigger node
 // instead of a run. `scheduledInstant` is present on the two fired types and absent on the armed
 // ones: with the workflow and the node it is the occurrence's dedup key, which is what keeps a
@@ -571,6 +582,7 @@ type WorkflowRunResumedPayload = WorkflowRunEventPayload & {
     activeSteps: Array<{ nodeId: WorkflowNodeId; attempt: number; executionIndex: number }>;
     pendingGates: WorkflowNodeId[];
   };
+  readied: WorkflowReadiedStep[];
 } & WorkflowVersionRepin;
 // workflow.run.canceled — appended in the same unit of work as the status write, so a projection
 // rebuild cannot apply the last suspension again and resurrect a canceled run. `reason` is the person's own,
@@ -621,15 +633,23 @@ interface WorkflowStepCompletedPayload extends WorkflowStepEventPayload {
   outputRef: WorkflowPayloadRef;
   logRef: WorkflowPayloadRef;
   cost?: WorkflowCost;
+  readied: WorkflowReadiedStep[];
 }
 interface WorkflowStepFailedPayload extends WorkflowStepEventPayload {
   error: WorkflowStepError;
   failedItemIndex?: number;
   declineReason?: string; // only where words were typed on the `Decline`
+  readied: WorkflowReadiedStep[];
 }
 type WorkflowStepCanceledPayload = WorkflowStepEventPayload;
 interface WorkflowStepSkippedPayload extends WorkflowStepEventPayload {
   reason: "noItems" | "disabled";
+  readied: WorkflowReadiedStep[];
+}
+// workflow.phase.retried — a failed phase was retried; the step it names is the new attempt, whose
+// `pending` row its write readies.
+interface WorkflowPhaseRetriedPayload extends WorkflowStepEventPayload {
+  readied: WorkflowReadiedStep[];
 }
 // workflow.gate.resolved — the answer an approval took, in the same vocabulary
 // WorkflowGateResolveRequest uses, on the step it answered or, for a chain's question, on the
