@@ -597,7 +597,7 @@ mod tests {
     use crate::wire::record::JsonRecord;
 
     // A local kind's capabilities with `sandbox` as given.
-    fn capabilities_with(sandbox: Value) -> Value {
+    fn capabilities_with(sandbox: &Value) -> Value {
         json!({
             "cancelable": true, "resumable": false, "sideEffects": "local", "repository": false,
             "sandbox": sandbox,
@@ -613,18 +613,18 @@ mod tests {
         json!({ "tier": "full" }),
         false
     )]
-    #[case::always(Some(capabilities_with(json!({}))), json!({ "tier": "quick" }), true)]
+    #[case::always(Some(capabilities_with(&json!({}))), json!({ "tier": "quick" }), true)]
     #[case::listed_value(
-        Some(capabilities_with(json!({ "tier": ["full"] }))),
+        Some(capabilities_with(&json!({ "tier": ["full"] }))),
         json!({ "tier": "full" }),
         true
     )]
     #[case::unlisted_value(
-        Some(capabilities_with(json!({ "tier": ["full"] }))),
+        Some(capabilities_with(&json!({ "tier": ["full"] }))),
         json!({ "tier": "quick" }),
         false
     )]
-    #[case::default_value(Some(capabilities_with(json!({ "tier": ["full"] }))), json!({}), true)]
+    #[case::default_value(Some(capabilities_with(&json!({ "tier": ["full"] }))), json!({}), true)]
     fn a_kinds_sandbox_need_reads_like_show_when(
         #[case] capabilities: Option<Value>,
         #[case] node_params: Value,

@@ -237,10 +237,11 @@ pub struct WorkflowConnectionCheckInput {
 /// The findings for the rules that need only a document's trigger, as a node, its nodes and edges
 /// and the kinds' handles: the trigger, an empty document, repeated node names, each edge's nodes,
 /// ends and repeats, the inputs over their connection limit, cycles, orphans, then the repository
-/// rule, each in document order. `node_handles` holds each node's handles by node id, built by the caller from
-/// the kinds table; a node missing from it is of a kind the catalog does not list, whose handles
-/// and category then go unchecked though its edges still count toward cycles and reach. An edge
-/// naming a node the document does not hold is `nodeMissing` and is checked no further at that end.
+/// rule, each in document order. `node_handles` holds each node's handles by node id, built by the
+/// caller from the kinds table; a node missing from it is of a kind the catalog does not list,
+/// whose handles and category then go unchecked though its edges still count toward cycles and
+/// reach. An edge naming a node the document does not hold is `nodeMissing` and is checked no
+/// further at that end.
 pub fn check_workflow_graph<S: BuildHasher>(
     trigger: Option<&WorkflowNode>,
     document_nodes: &[WorkflowNode],
@@ -305,7 +306,11 @@ pub fn check_workflow_graph<S: BuildHasher>(
             .is_some_and(|param| !trigger.params.as_map().contains_key(param.0.as_str()))
     });
     if is_repository_none {
-        let node_ids = repository_needing_nodes(trigger, document_nodes, node_handles);
+        let node_ids = enabled_nodes_needing(trigger, document_nodes, |node| {
+            node_handles
+                .get(&node.id)
+                .is_some_and(|handles| handles.needs_repository)
+        });
         if !node_ids.is_empty() {
             findings.push(WorkflowDefinitionFinding::RepositoryRequired { node_ids });
         }
@@ -313,22 +318,17 @@ pub fn check_workflow_graph<S: BuildHasher>(
     findings
 }
 
-/// The nodes whose kinds need a project's repository, the trigger first, then in document order,
-/// leaving out a disabled node, which never runs. A node missing from `node_handles` needs none.
-pub fn repository_needing_nodes<S: BuildHasher>(
+/// The nodes for which `needs` holds, the trigger first, then in document order, leaving out a
+/// disabled node, which never runs.
+pub fn enabled_nodes_needing(
     trigger: Option<&WorkflowNode>,
     document_nodes: &[WorkflowNode],
-    node_handles: &HashMap<WorkflowNodeId, WorkflowNodeHandles, S>,
+    needs: impl Fn(&WorkflowNode) -> bool,
 ) -> Vec<WorkflowNodeId> {
     trigger
         .into_iter()
         .chain(document_nodes)
-        .filter(|node| node.disabled != Some(true))
-        .filter(|node| {
-            node_handles
-                .get(&node.id)
-                .is_some_and(|handles| handles.needs_repository)
-        })
+        .filter(|node| node.disabled != Some(true) && needs(node))
         .map(|node| node.id.clone())
         .collect()
 }

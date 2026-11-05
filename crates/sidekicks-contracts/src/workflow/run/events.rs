@@ -4,6 +4,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::provider::id::ProviderId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::text::NonEmptyText;
@@ -52,6 +53,14 @@ workflow_run_event! {
         pub trigger: WorkflowRunTrigger,
         /// Its place in its chain.
         pub chain: WorkflowRunChainPlace,
+        /// The provider the run's command steps use; absent when the workflow names none.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "ProviderId")]
+        pub provider: Option<ProviderId>,
         /// The input its trigger step starts on.
         #[garde(dive)]
         pub input_ref: WorkflowPayloadRef,
