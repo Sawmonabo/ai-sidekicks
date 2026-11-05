@@ -188,8 +188,8 @@ fn usage_message(message_id: &str, agent_id: Option<&str>, input: u64, output: u
 // Fails when a helper's spend is recorded as the lead's, when a message read twice counts twice,
 // when the lead's `result` does not raise its turn to the turn's own `usage`, or when the
 // process-wide `modelUsage` is metered. Mutations: `record_metered` dropping the helper's id;
-// `observe_message` adding each reading of one message; `confirm_turn` skipped; the `result`
-// reading `modelUsage`.
+// `observe_message` adding each reading of one message; `confirm_turn` skipped; a row read from
+// `modelUsage`.
 #[tokio::test(start_paused = true)]
 async fn a_helpers_usage_records_on_the_helper_and_the_lead_result_confirms_the_lead() {
     let session = ScriptedSession::new().await;
@@ -318,26 +318,30 @@ fn priced(requests: &[PricedRequest]) -> Vec<(UsageCostSource, Vec<(String, u64)
         .collect()
 }
 
-// Killed by taking the process's cumulative `costUSD` again at the second result (250,000), by
-// pricing in dollars rather than micro-dollars, by keeping the larger-window mark on a
-// `modelUsage` model (each turn priced from the table instead), and by charging a turn's rows to
-// one account after its account moved. The record writes one cost event per account a priced
-// request's rows name.
+// Killed by pricing from `modelUsage`, which a resumed process starts at its earlier turns' totals
+// (5,100,000 first), by subtracting the previous result's figure (25,000 and 25,000), by pricing
+// in dollars rather than micro-dollars, by keeping the larger-window mark on an entry's model (each
+// turn priced from the table instead), and by charging a turn's rows to one account after its
+// account moved. The record writes one cost event per account a priced request's rows name.
 #[tokio::test]
-async fn each_result_prices_its_turn_at_the_cost_the_process_added() {
+async fn each_result_prices_the_spend_it_states_since_the_previous_result() {
     let scratch = tempfile::tempdir().expect("a scratch folder is made");
     let stop = CancellationToken::new();
     let session = ScriptedSession::new().await;
     register_price_list(&session, &scratch, &stop).await;
     let opus = "claude-opus-5-5[1m]";
-    let list_cost = |cost_usd: f64| {
-        result(&json!({"modelUsage": {opus: {"costUSD": cost_usd, "costBasis": "list"}}}))
+    let stated = |input: u64, output: u64, cost_usd: f64, total_usd: f64| {
+        result(&json!({
+            "model_usage_since_last_result": {opus: {"inputTokens": input,
+                "outputTokens": output, "costUSD": cost_usd, "costBasis": "list"}},
+            "modelUsage": {opus: {"costUSD": total_usd, "costBasis": "list"}},
+        }))
     };
 
     session.hold_lead_turn("lead");
     session.frame(&init());
     session.frame(&priced_message("message-1", opus, 1_000, 500));
-    session.frame(&list_cost(0.10));
+    session.frame(&stated(1_000, 500, 0.10, 5.10));
     ScriptedDriver::wait_for(|| session.usage.priced().len() == 1).await;
     session.hold_lead_turn("lead");
     session.frame(&priced_message("message-2", opus, 1_000, 500));
@@ -345,7 +349,7 @@ async fn each_result_prices_its_turn_at_the_cost_the_process_added() {
     let moved = ProviderAccountId::new("moved-account".to_owned()).expect("an account id");
     session.usage.charge_to(moved.clone());
     session.frame(&priced_message("message-3", opus, 1_000, 500));
-    session.frame(&list_cost(0.25));
+    session.frame(&stated(2_000, 1_000, 0.15, 5.25));
     ScriptedDriver::wait_for(|| session.usage.priced().len() == 2).await;
     stop.cancel();
 

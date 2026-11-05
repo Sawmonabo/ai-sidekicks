@@ -203,19 +203,19 @@ impl ClaudeDeliveryStream {
         }
     }
 
-    /// Prices the rows the turn kept at its `result`, read as `result`, which reports each model's
-    /// cost.
+    /// Prices the rows the turn kept at its `result`, read as `result`, which states each model's
+    /// cost since the process's previous result; one stating no figures leaves them kept.
     pub(super) async fn price_turn(
         &self,
         session: &ClaudeSessionStream,
         result: &ClaudeInboundFrameObservation,
     ) {
+        let Some(model_costs) = &result.model_costs else {
+            return;
+        };
         let account = session.provider_account_id();
-        let models = lock(&session.turn_pricing).take_at_result(
-            &result.model_costs,
-            session.session_id,
-            &account,
-        );
+        let models =
+            lock(&session.turn_pricing).take_at_result(model_costs, session.session_id, &account);
         self.price_models(session, models).await;
     }
 

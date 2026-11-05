@@ -6,12 +6,11 @@
 //!   standard rates or `fast`'s, in no region or `us`, with every rate at the long-context tier
 //!   when the whole request's input passes the row's threshold, the cache writes split by lifetime
 //!   and the web searches at the row's per-search rate.
-//! - **A turn's rows.** At the `result`, a model whose `modelUsage` entry reads `list` or `managed`
-//!   with a cost takes that cost less the last the process reported for it, shared over the model's
-//!   rows; any other model is priced from the price list. The rows still kept when the process ends
-//!   are priced from the price list.
-
-use std::collections::HashMap;
+//! - **A turn's rows.** At a `result` stating each model's cost since the process's previous result,
+//!   a model whose entry reads `list` or `managed` with a cost takes that cost, shared over the
+//!   model's rows; any other model is priced from the price list. A `result` stating no figures
+//!   leaves the rows for the next one, and the rows still kept when the process ends are priced
+//!   from the price list.
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::UsageCostSource;
@@ -130,13 +129,10 @@ impl RequestPricer for ClaudeRequestPricer {
     }
 }
 
-/// One process's turn rows waiting for their price, by model, and what it last reported each
-/// model cost.
+/// One process's turn rows waiting for their price, by model.
 #[derive(Default)]
 pub(crate) struct ClaudeTurnPricing {
     kept: Vec<ClaudeModelRows>,
-    // The `costUSD` each model's entry last reported on this process, in dollars.
-    last_taken_usd: HashMap<ModelId, f64>,
     // The `costBasis` words already logged on this process.
     basis_reports: OnceReportedDiagnostics,
 }
@@ -165,9 +161,9 @@ impl ClaudeTurnPricing {
         }
     }
 
-    /// Takes every kept model's rows at a `result` reporting `model_costs`: a model whose entry
-    /// reads `list` or `managed` with a cost takes that cost less the last taken, which the entry's
-    /// cost then becomes; any other takes none. A basis the driver does not know is logged once per
+    /// Takes every kept model's rows at a `result` stating `model_costs`, each model's cost since
+    /// the process's previous result: a model whose entry reads `list` or `managed` with a cost
+    /// takes that cost; any other takes none. A basis the driver does not know is logged once per
     /// process on `session_id` and `provider_account_id`.
     pub(crate) fn take_at_result(
         &mut self,
@@ -185,8 +181,7 @@ impl ClaudeTurnPricing {
             };
             model.provider_figure_usd_micros = match (entry.cost_basis.as_deref(), entry.cost_usd) {
                 (Some("list" | "managed"), Some(cost_usd)) => {
-                    let last_taken_usd = self.take_last(&model.model_id, cost_usd);
-                    Some((cost_usd - last_taken_usd) * MICRO_DOLLARS_PER_DOLLAR)
+                    Some(cost_usd * MICRO_DOLLARS_PER_DOLLAR)
                 }
                 (Some("list" | "managed" | "unknown") | None, _) => None,
                 (Some(basis), _) => {
@@ -203,14 +198,6 @@ impl ClaudeTurnPricing {
         std::mem::take(&mut self.kept)
     }
 
-    // Sets `model_id`'s last taken cost to `cost_usd` and answers the one before it, 0 on a model
-    // this process has not reported.
-    fn take_last(&mut self, model_id: &ModelId, cost_usd: f64) -> f64 {
-        self.last_taken_usd
-            .insert(model_id.clone(), cost_usd)
-            .unwrap_or(0.0)
-    }
-
     fn report_basis(
         &mut self,
         basis: &str,
@@ -223,7 +210,7 @@ impl ClaudeTurnPricing {
             provider_account_id: Some(provider_account_id.clone()),
             kind: DriverDiagnosticKind::UnmappedWireKind,
             raw_wire_type: Some(basis.to_owned()),
-            disposition_reason: "a `modelUsage` entry's `costBasis` is not one the driver knows, \
+            disposition_reason: "a `model_usage_since_last_result` entry's `costBasis` is not one the driver knows, \
                                  so the model's requests are priced from the price list"
                 .to_owned(),
             details: Map::from_iter([

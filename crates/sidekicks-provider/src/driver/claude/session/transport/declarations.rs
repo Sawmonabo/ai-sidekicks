@@ -159,12 +159,17 @@ pub(crate) struct ClaudeMessageRequestFacts {
     pub(crate) web_search_requests: Option<u64>,
 }
 
-/// One model's spend as a `result`'s `modelUsage` reports it: the process's sum over every thread.
+/// One model's usage and cost since the process's previous result, its first since the process
+/// started, as a `result`'s `model_usage_since_last_result` entry states them over every thread.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ClaudeModelCost {
     /// The model, without the larger-window mark.
     pub(crate) model_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
-    /// `costUSD`, the process's spend on the model so far in dollars, where it is a number.
+    /// The input, cached input, cache write and output, each absent where it is no whole count.
+    pub(crate) counts: UsageAxisCounts,
+    /// `webSearchRequests`, absent where it is no whole count.
+    pub(crate) web_search_requests: Option<u64>,
+    /// `costUSD`, the spend on the model in dollars, where it is a number.
     pub(crate) cost_usd: Option<f64>,
     /// `costBasis`, as sent.
     pub(crate) cost_basis: Option<String>,
@@ -196,8 +201,9 @@ pub(crate) struct ClaudeInboundFrameObservation {
     pub(crate) handshake: Option<ClaudeHandshakeDeclaration>,
     /// The compaction boundary it carries.
     pub(crate) compaction_boundary: Option<ClaudeCompactionBoundaryObservation>,
-    /// A `result`'s spend per model, empty on any other frame.
-    pub(crate) model_costs: Vec<ClaudeModelCost>,
+    /// A `result`'s spend per model since the process's previous result; `None` on a `result`
+    /// carrying no figures and on any other frame, while an empty list states nothing spent.
+    pub(crate) model_costs: Option<Vec<ClaudeModelCost>>,
 }
 
 #[cfg(test)]

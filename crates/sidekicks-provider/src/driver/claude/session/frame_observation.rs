@@ -1,13 +1,13 @@
 //! The routing facts of one stream frame Claude Code writes on its output: its kind, the helper it
 //! came from, a helper's start, move to the background and end, the tool calls a `user` frame's
 //! results answer, the `SendMessage` calls an assistant frame makes, an assistant message's usage
-//! with what prices its request and a turn's own usage and cost per model, the `system/init` declaration with its MCP
-//! servers' readings and a later whole `/` list, the compaction boundary, and a start-up hook's
-//! start or end. The frame is untrusted, so it is read once into a struct naming only these
-//! members, each leniently: an absent or malformed one reads as absent, and every other member is
-//! skipped unread. A `result`'s `modelUsage`, the process's sum over every thread, is read only for
-//! each model's cost so far and its basis, never its token counts.
-
+//! with what prices its request and a result's own usage and cost per model, the `system/init`
+//! declaration with its MCP servers' readings and a later whole `/` list, the compaction boundary,
+//! and a start-up hook's start or end. The frame is untrusted, so it is read once into a struct
+//! naming only these members, each leniently: an absent or malformed one reads as absent, and
+//! every other member is skipped unread. A `result`'s cost per model is its
+//! `model_usage_since_last_result`, each model's counts and cost since the process's previous
+//! result; `modelUsage`, the process's running total, is never read.
 use std::fmt;
 use std::marker::PhantomData;
 
@@ -101,16 +101,27 @@ pub(crate) struct ClaudeStreamFrameRead {
     hook_id: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     hook_event: Option<String>,
-    #[serde(rename = "modelUsage", default, deserialize_with = "read_lenient")]
-    model_usage: Option<ClaudeModelUsage>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    model_usage_since_last_result: Option<ClaudeModelUsage>,
 }
 
-// A `result`'s `modelUsage`: each model's entry that reads as an object, in the frame's order.
+// A `result`'s `model_usage_since_last_result`: each model's entry that reads as an object, in the
+// frame's order.
 struct ClaudeModelUsage(Vec<(String, ClaudeModelUsageEntry)>);
 
-// One model's entry, read only for its cost so far and that cost's basis.
+// One model's entry: its counts, its cost and that cost's basis.
 #[derive(Deserialize)]
 struct ClaudeModelUsageEntry {
+    #[serde(rename = "inputTokens", default)]
+    input_tokens: Option<Box<RawValue>>,
+    #[serde(rename = "cacheReadInputTokens", default)]
+    cache_read_input_tokens: Option<Box<RawValue>>,
+    #[serde(rename = "cacheCreationInputTokens", default)]
+    cache_creation_input_tokens: Option<Box<RawValue>>,
+    #[serde(rename = "outputTokens", default)]
+    output_tokens: Option<Box<RawValue>>,
+    #[serde(rename = "webSearchRequests", default)]
+    web_search_requests: Option<Box<RawValue>>,
     #[serde(rename = "costUSD", default, deserialize_with = "read_lenient")]
     cost_usd: Option<f64>,
     #[serde(rename = "costBasis", default, deserialize_with = "read_lenient")]
@@ -355,10 +366,9 @@ impl ClaudeStreamFrameRead {
             boundary_position: None,
         });
         let model_costs = is_claude_result_frame_kind(&frame_kind)
-            .then_some(self.model_usage)
+            .then_some(self.model_usage_since_last_result)
             .flatten()
-            .map(|usage| usage.0.into_iter().filter_map(read_model_cost).collect())
-            .unwrap_or_default();
+            .map(|usage| usage.0.into_iter().filter_map(read_model_cost).collect());
         ClaudeInboundFrameObservation {
             subagent_id: filter_non_empty(self.agent_id)
                 .or_else(|| filter_non_empty(self.parent_tool_use_id)),
@@ -453,11 +463,20 @@ fn read_request_facts(model: Option<&str>, usage: &ClaudeTokenUsage) -> ClaudeMe
     }
 }
 
-// One model's cost as the stream reads its messages' model, without the larger-window mark; `None`
-// for a model id that does not fit.
+// One model's counts and cost, at the model as the stream reads its messages' model, without the
+// larger-window mark; `None` for a model id that does not fit.
 fn read_model_cost((model, entry): (String, ClaudeModelUsageEntry)) -> Option<ClaudeModelCost> {
     Some(ClaudeModelCost {
         model_id: FreeFormText::new(without_larger_window_mark(&model).to_owned()).ok()?,
+        counts: UsageAxisCounts {
+            input: read_count(entry.input_tokens.as_deref()),
+            cached_input: read_count(entry.cache_read_input_tokens.as_deref()),
+            cache_write_input: read_count(entry.cache_creation_input_tokens.as_deref()),
+            output: read_count(entry.output_tokens.as_deref()),
+            reasoning_output: None,
+            total: None,
+        },
+        web_search_requests: read_count(entry.web_search_requests.as_deref()),
         cost_usd: entry.cost_usd,
         cost_basis: entry.cost_basis,
     })
