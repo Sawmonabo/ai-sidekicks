@@ -80,8 +80,10 @@ pub(crate) struct RunScope {
     pub(crate) working_folder: PathBuf,
     /// The level the run's steps run at.
     pub(crate) permission_level: PermissionLevel,
-    /// The provider of the session's driver, whose shell a command step runs in.
-    pub(crate) provider: ProviderId,
+    /// The workflow's provider as the run started, whose sandbox and shell its command steps use;
+    /// `None` when the workflow names none, which a start allows only when no step runs in a
+    /// sandbox.
+    pub(crate) provider: Option<ProviderId>,
     /// The run's redaction, which scrubs every write the run makes.
     pub(crate) redaction: Arc<RunRedaction>,
     /// The run's cancel, of which each step's is a child.
@@ -121,7 +123,9 @@ pub(crate) fn test_run_scope(mode: WorkflowRunMode, nodes: Vec<WorkflowNode>) ->
         project: None,
         working_folder: PathBuf::from("/workspace"),
         permission_level: PermissionLevel::Ask,
-        provider: ProviderId::new("test-provider".to_owned()).expect("the test's provider id"),
+        provider: Some(
+            ProviderId::new("test-provider".to_owned()).expect("the test's provider id"),
+        ),
         redaction: Arc::new(RunRedaction::new(&[])),
         cancel: CancellationToken::new(),
     }

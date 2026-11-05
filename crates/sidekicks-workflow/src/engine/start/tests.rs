@@ -22,9 +22,7 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::workflow::definition::document::{
-    WorkflowDefinitionId, WorkflowNodeId, WorkflowVersionId,
-};
+use sidekicks_contracts::workflow::definition::document::{WorkflowNodeId, WorkflowVersionId};
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::WorkflowRunStatus;
@@ -57,9 +55,9 @@ use crate::definitions::kept_values::{
 use crate::engine::event_record::EngineRecorder;
 use crate::engine::ports::{
     ChainAskAfterReader, EngineRecordSink, KeptEngineRecords, PortError, REFUSED_PORT_CALL,
-    RunProviderReader, StepPayloadArtifacts,
+    StepPayloadArtifacts,
 };
-use crate::kinds::{NodeKindTable, git_test_kind};
+use crate::kinds::{NodeKindTable, command_test_kind, git_test_kind};
 use crate::schema::schema_parts;
 use crate::test_rows::{TEST_SESSION_ID, insert_run, insert_workflow_version_body};
 
@@ -164,26 +162,6 @@ impl ChainAskAfterReader for AskAfter {
     }
 }
 
-/// The provider reader: answers its provider for the test workflow in the test session, and fails
-/// for any other run or when it holds none.
-struct TestRunProvider(Option<ProviderId>);
-
-impl RunProviderReader for TestRunProvider {
-    fn run_provider<'call>(
-        &'call self,
-        workflow_id: &'call WorkflowDefinitionId,
-        session: &'call SessionId,
-    ) -> BoxFuture<'call, Result<ProviderId, PortError>> {
-        let is_test_run = workflow_id.text().as_str() == DEFINITION_ID && *session == session_id();
-        let provider = self
-            .0
-            .clone()
-            .filter(|_| is_test_run)
-            .ok_or_else(|| PortError::from("the test's reader holds no provider for this run"));
-        Box::pin(async move { provider })
-    }
-}
-
 fn test_provider() -> ProviderId {
     ProviderId::new("test-provider".to_owned()).expect("the test's provider id")
 }
@@ -198,8 +176,8 @@ enum TestSession {
 }
 
 /// The starter over a test database holding the store's, workspace and workflow tables, the
-/// workflow's version 1 with `body`, the payloads it stored, `provider` as the run's provider,
-/// none failing its read, and the git kind, which needs a project's repository.
+/// workflow's version 1 with `body` and no provider picked, the payloads it stored, the git kind,
+/// which needs a project's repository, and the command kind, which runs in its provider's sandbox.
 struct Fixture {
     database: TestDatabase,
     rows: Connection,
@@ -214,7 +192,6 @@ impl Fixture {
         body: &Value,
         session: TestSession,
         chain_ask_after: Option<WorkflowChainAskAfterRuns>,
-        provider: Option<ProviderId>,
     ) -> Self {
         let database = TestDatabase::new(schema_parts());
         let writer = Arc::new(
@@ -260,9 +237,11 @@ impl Fixture {
             authorizer: Arc::new(Authorizer::load_built_in().expect("the built-in rules load")),
             payloads: Arc::clone(&payloads) as Arc<dyn StepPayloadArtifacts>,
             chain_ask_after: Arc::new(AskAfter(chain_ask_after)),
-            provider: Arc::new(TestRunProvider(provider)),
             kept_values,
-            kinds: Arc::new(NodeKindTable::new(vec![git_test_kind()]).expect("the kinds build")),
+            kinds: Arc::new(
+                NodeKindTable::new(vec![git_test_kind(), command_test_kind()])
+                    .expect("the kinds build"),
+            ),
             data_folder: test_folder(&database).join("data"),
             recorder: Arc::new(EngineRecorder::new(
                 Arc::clone(&records) as Arc<dyn EngineRecordSink>
@@ -401,6 +380,14 @@ fn git_node() -> Value {
     })
 }
 
+// A step `id` of the command kind, which runs in its provider's sandbox, disabled or not.
+fn shell_node(id: &str, is_disabled: bool) -> Value {
+    json!({
+        "id": id, "kind": "developer.shell", "kindVersion": 1, "name": id, "order": 0,
+        "disabled": is_disabled, "params": { "command": "pnpm test" }
+    })
+}
+
 fn item(json: Value) -> WorkflowItem {
     WorkflowItem {
         json: AnyValue(json),
@@ -507,13 +494,7 @@ async fn a_trigger_start_passes_the_rules_and_a_persons_or_agents_does_not(
     #[case] is_registered_to_another_user: bool,
     #[case] is_started: bool,
 ) {
-    let fixture = Fixture::new(
-        &body(None, &json!([])),
-        TestSession::WithoutFolder,
-        None,
-        Some(test_provider()),
-    )
-    .await;
+    let fixture = Fixture::new(&body(None, &json!([])), TestSession::WithoutFolder, None).await;
     if is_registered_to_another_user {
         fixture
             .rows
@@ -582,7 +563,6 @@ async fn a_started_run_records_its_trigger_chain_and_input_and_works_in_its_fold
                 &body(Some(declared), &json!([])),
                 TestSession::WithoutFolder,
                 WorkflowChainAskAfterRuns::new(25),
-                Some(test_provider()),
             )
             .await;
             fixture.store_chain_root(1);
@@ -628,7 +608,6 @@ async fn a_started_run_records_its_trigger_chain_and_input_and_works_in_its_fold
                 &body(None, &json!([git_node()])),
                 TestSession::WithFolder,
                 None,
-                Some(test_provider()),
             )
             .await;
             let large = item(json!({ "note": "x".repeat(70 * 1024) }));
@@ -683,14 +662,17 @@ async fn a_started_run_records_its_trigger_chain_and_input_and_works_in_its_fold
 /// Mutations: pins taken for a trigger run, or dropped for a manual one; the session's level, or
 /// the column's default, in place of the workflow's; the trigger left out of the nodes or the
 /// version's nodes dropped; the scope's start read from the clock apart from the event's instant;
-/// another provider than the reader's; kept values not read.
+/// the provider read from anywhere but the workflow, or the run's row or started event left
+/// without it; a start with no provider refused though no step runs in a sandbox; kept values not
+/// read.
 #[rstest]
-#[case::a_manual_run(WorkflowStartArrival::Person, true)]
-#[case::a_trigger_run(WorkflowStartArrival::Trigger, false)]
+#[case::a_manual_run(WorkflowStartArrival::Person, true, Some("test-provider"))]
+#[case::a_trigger_run(WorkflowStartArrival::Trigger, false, None)]
 #[tokio::test]
 async fn the_start_scope_holds_the_pinned_version_the_workflows_level_and_its_pins(
     #[case] arrival: WorkflowStartArrival,
     #[case] has_pins: bool,
+    #[case] provider: Option<&str>,
 ) {
     let version_body = body(
         None,
@@ -699,26 +681,21 @@ async fn the_start_scope_holds_the_pinned_version_the_workflows_level_and_its_pi
             "order": 0, "params": { "note": "check the draft" }
         }]),
     );
-    let fixture = Fixture::new(
-        &version_body,
-        TestSession::WithFolder,
-        None,
-        Some(test_provider()),
-    )
-    .await;
+    let fixture = Fixture::new(&version_body, TestSession::WithFolder, None).await;
     let pins = json!({ "review": [{ "json": { "name": "Ada" } }] });
     fixture
         .rows
         .execute(
-            "UPDATE workflow_definitions SET permission_level = ?1, pin_data_json = ?2 \
-             WHERE id = ?3",
+            "UPDATE workflow_definitions SET permission_level = ?1, pin_data_json = ?2, \
+             provider = ?3 WHERE id = ?4",
             params![
                 <&'static str>::from(PermissionLevel::Ask),
                 pins.to_string(),
+                provider,
                 DEFINITION_ID
             ],
         )
-        .expect("the test sets the workflow's level and pins");
+        .expect("the test sets the workflow's level, pins and provider");
     fixture
         .rows
         .execute(
@@ -749,12 +726,22 @@ async fn the_start_scope_holds_the_pinned_version_the_workflows_level_and_its_pi
         if has_pins { pins } else { Value::Null }
     );
     assert_eq!(scope.permission_level, PermissionLevel::Ask);
-    assert_eq!(scope.provider, test_provider());
+    assert_eq!(scope.provider, provider.map(|_| test_provider()));
+    let row_provider: Option<String> = fixture
+        .rows
+        .query_row(
+            "SELECT provider FROM workflow_runs WHERE id = ?1",
+            [scope.run_id.text().as_str()],
+            |row| row.get(0),
+        )
+        .expect("the run is stored");
+    assert_eq!(row_provider.as_deref(), provider);
     assert_eq!(
         scope.project,
         Some(ProjectId::new(MOUNT_ID).expect("the project's id"))
     );
-    let (_, occurred_at, _) = fixture.started_record(scope.run_id);
+    let (payload, occurred_at, _) = fixture.started_record(scope.run_id);
+    assert_eq!(payload.get("provider"), provider.map(Value::from).as_ref());
     assert_eq!(
         scope.run_started_at,
         occurred_at
@@ -771,18 +758,20 @@ async fn the_start_scope_holds_the_pinned_version_the_workflows_level_and_its_pi
     );
 }
 
-/// Mutations: the scope read after the write (a run row and its event are kept); the run's own
-/// folder, or its emptied runs folder, left behind; the scope read after the trigger's input (the
-/// large input is stored).
+/// The workflow's pins do not parse, which fails a manual run's scope. Mutations: the scope read
+/// after the write (a run row and its event are kept); the run's own folder, or its emptied runs
+/// folder, left behind; the scope read after the trigger's input (the large input is stored).
 #[tokio::test]
 async fn a_failed_scope_read_writes_no_run() {
-    let fixture = Fixture::new(
-        &body(None, &json!([])),
-        TestSession::WithoutFolder,
-        None,
-        None,
-    )
-    .await;
+    let fixture = Fixture::new(&body(None, &json!([])), TestSession::WithoutFolder, None).await;
+    fixture
+        .rows
+        .execute(
+            "UPDATE workflow_definitions SET pin_data_json = '{\"start\": \"not a list\"}' \
+             WHERE id = ?1",
+            [DEFINITION_ID],
+        )
+        .expect("the test stores pins that do not parse");
     let large = item(json!({ "note": "x".repeat(70 * 1024) }));
 
     let outcome = fixture
@@ -794,7 +783,10 @@ async fn a_failed_scope_read_writes_no_run() {
         ))
         .await;
 
-    assert!(matches!(outcome, Err(WorkflowRunStartError::Provider(_))));
+    assert!(matches!(
+        outcome,
+        Err(WorkflowRunStartError::StoredDocument(_))
+    ));
     assert_eq!(fixture.count("SELECT COUNT(*) FROM workflow_runs"), 0);
     assert_eq!(fixture.count("SELECT COUNT(*) FROM session_events"), 0);
     assert_eq!(runs_folders(&fixture.data_folder()), Vec::<PathBuf>::new());

@@ -411,7 +411,8 @@ pub(crate) fn test_kind(
 }
 
 /// The command step `developer.shell` at version 1, with one main input and one main output,
-/// whose shell line is the `command` param it lists, passing its inputs on as its outputs.
+/// whose shell line is the `command` param it lists, which runs in its provider's sandbox, passing
+/// its inputs on as its outputs.
 #[cfg(test)]
 pub(crate) fn command_test_kind() -> NodeKind {
     test_kind(
@@ -423,6 +424,10 @@ pub(crate) fn command_test_kind() -> NodeKind {
             "inputs": [{ "type": "main", "id": "inputs/main/0", "label": "In" }],
             "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
             "outputsDeriveFromParams": false,
+            "capabilities": {
+                "cancelable": true, "resumable": false, "sideEffects": "local", "repository": false,
+                "sandbox": {}
+            },
         }),
         Some(COMMAND_PARAM),
         Box::new(PassThroughExecutor),

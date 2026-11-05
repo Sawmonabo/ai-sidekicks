@@ -8,6 +8,7 @@ use std::sync::LazyLock;
 
 use rusqlite::types::Value;
 use sidekicks_contracts::daemon::config::WorkflowChainAskAfterRuns;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceId};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::UuidText;
@@ -76,6 +77,8 @@ pub(crate) struct WorkflowRunCreation {
     pub(crate) chain: WorkflowRunChainPlace,
     /// Present only for a run that works in a project's repository.
     pub(crate) execution_context: Option<WorkflowRunExecutionContext>,
+    /// The workflow's provider as the run started; `None` when the workflow names none.
+    pub(crate) provider: Option<ProviderId>,
     /// When the request, fire or call that started it did so, in the stored form.
     pub(crate) started_at: WireInstant,
 }
@@ -84,11 +87,12 @@ static INSERT_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     let new_run = <&'static str>::from(WorkflowRunStatus::New);
     format!(
         "INSERT INTO workflow_runs (
-    id, workflow_version_id, session_id, status, mode, trigger_json, started_by,
+    id, workflow_version_id, session_id, provider, status, mode, trigger_json, started_by,
     chain_root_run_id, chain_from_error, chain_run_count, chain_kept_going, kept, started_at
   ) VALUES (
-    @id, @workflow_version_id, @session_id, '{new_run}', @mode, @trigger_json, @started_by,
-    @chain_root_run_id, @chain_from_error, @chain_run_count, @chain_kept_going, 0, @started_at
+    @id, @workflow_version_id, @session_id, @provider, '{new_run}', @mode, @trigger_json,
+    @started_by, @chain_root_run_id, @chain_from_error, @chain_run_count, @chain_kept_going, 0,
+    @started_at
   )"
     )
 });
@@ -178,6 +182,10 @@ pub(crate) fn workflow_run_creation_statements(
                 creation.workflow_version_id.text().as_str(),
             ),
             text_binding("@session_id", session_id.as_str()),
+            nullable_text_binding(
+                "@provider",
+                creation.provider.as_ref().map(ProviderId::as_str),
+            ),
             text_binding("@mode", <&'static str>::from(creation.mode)),
             text_binding("@trigger_json", &trigger_json),
             text_binding("@started_by", &started_by),
@@ -290,6 +298,7 @@ mod tests {
             started_by: WorkflowStartedBy::Schedule {},
             chain,
             execution_context: None,
+            provider: None,
             started_at: WireInstant::try_from("2026-10-02T00:00:00.000Z".to_owned())
                 .expect("an instant"),
         }
