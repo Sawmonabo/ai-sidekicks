@@ -19,7 +19,8 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::{UuidText, UuidTextForm};
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::database::statement::{
-    StatementBindings, WriteStatement, nullable_text_binding, text_binding,
+    StatementBindings, WriteStatement, json_list_binding, named_bindings, nullable_text_binding,
+    text_binding,
 };
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 use sidekicks_store::events::canonicalizer::digest_canonical_json;
@@ -420,10 +421,10 @@ pub(crate) fn read_unsettled_among(
     connection: &Connection,
     question_ids: &[QuestionId],
 ) -> rusqlite::Result<HashSet<QuestionId>> {
-    let listed = serde_json::to_string(question_ids).expect("a list of ids writes as JSON");
+    let listed = [json_list_binding("@questionIds", &question_ids)];
     connection
         .prepare_cached(&UNSETTLED_AMONG_SQL)?
-        .query_map(named_params! { "@questionIds": listed }, |row| {
+        .query_map(named_bindings(&listed).as_slice(), |row| {
             text_column(row, 0, |text| QuestionId::new(&text))
         })?
         .collect()

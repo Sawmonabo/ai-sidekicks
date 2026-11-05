@@ -32,8 +32,7 @@ use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
-use sidekicks_store::database::writer::messages::WriteJob;
-use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+use sidekicks_store::database::writer::{CommitHook, DatabaseWriter, WriteError};
 use strum::VariantArray;
 
 use crate::build_record::{
@@ -413,16 +412,14 @@ async fn write_declared(
     statements: Vec<WriteStatement>,
     is_build_recorded: bool,
 ) -> Result<(), WriteError> {
-    let on_commit = is_build_recorded.then(|| {
+    if is_build_recorded {
         let record_readers = Arc::clone(record_readers);
-        Box::new(move |_sequences: &[SafeInt<0>]| record_readers.build_recorded())
-            as Box<dyn FnOnce(&[SafeInt<0>]) + Send>
-    });
-    let job = WriteJob {
-        statements,
-        events: Vec::new(),
-    };
-    writer.enqueue(job, on_commit)?.await?;
+        let hook: CommitHook =
+            Box::new(move |_sequences: &[SafeInt<0>]| record_readers.build_recorded());
+        writer.write_then(statements, hook).await?;
+    } else {
+        writer.write(statements).await?;
+    }
     Ok(())
 }
 

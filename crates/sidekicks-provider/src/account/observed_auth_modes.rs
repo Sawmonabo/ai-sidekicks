@@ -13,7 +13,6 @@ use sidekicks_contracts::provider::account::record::{ProviderAccountId, Provider
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::statement::{StatementResult, WriteStatement};
-use sidekicks_store::database::writer::messages::WriteJob;
 use sidekicks_store::database::writer::{CommitHook, DatabaseWriter, WriteError};
 
 /// The cached kind of sign-in of each account read, shared by the accounts reader and the
@@ -87,11 +86,7 @@ impl ObservedAuthModes {
         let modes = Arc::clone(self);
         let account_id = account_id.clone();
         let hook: CommitHook = Box::new(move |_sequences: &[SafeInt<0>]| modes.forget(&account_id));
-        let job = WriteJob {
-            statements,
-            events: Vec::new(),
-        };
-        Ok(writer.enqueue(job, Some(hook))?.await?.statement_results)
+        writer.write_then(statements, hook).await
     }
 }
 

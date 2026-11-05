@@ -111,7 +111,7 @@ pub struct DatabaseWriterOptions {
 #[derive(Debug)]
 pub struct CommittedWrite {
     /// What each statement did.
-    pub statement_results: Vec<StatementResult>,
+    pub(crate) statement_results: Vec<StatementResult>,
     /// Each event row's sequence.
     pub(crate) sequences: Vec<SafeInt<0>>,
 }
@@ -432,11 +432,30 @@ impl DatabaseWriter {
         &self,
         statements: Vec<WriteStatement>,
     ) -> Result<Vec<StatementResult>, WriteError> {
+        self.write_statements(statements, None).await
+    }
+
+    /// Runs `statements` as [`DatabaseWriter::write`] does, and runs `hook` once they commit, even
+    /// when the caller stopped waiting. Fails as [`DatabaseWriter::write`] does.
+    pub async fn write_then(
+        &self,
+        statements: Vec<WriteStatement>,
+        hook: CommitHook,
+    ) -> Result<Vec<StatementResult>, WriteError> {
+        self.write_statements(statements, Some(hook)).await
+    }
+
+    // Queues `statements` as one write with no events and awaits what each did.
+    async fn write_statements(
+        &self,
+        statements: Vec<WriteStatement>,
+        on_commit: Option<CommitHook>,
+    ) -> Result<Vec<StatementResult>, WriteError> {
         let job = WriteJob {
             statements,
             events: Vec::new(),
         };
-        Ok(self.enqueue(job, None)?.await?.statement_results)
+        Ok(self.enqueue(job, on_commit)?.await?.statement_results)
     }
 
     /// Appends `events` in order, each at its session's next sequence, after `statements`, all as
