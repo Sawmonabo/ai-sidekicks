@@ -43,6 +43,7 @@ use crate::driver::codex::service::supervisor::test_service::ScriptedCodexServic
 use crate::driver::codex::service::supervisor::{
     CodexService, CodexServiceDependencies, CodexServiceSocket,
 };
+use crate::driver::codex::service::telemetry_switches::compose_command_telemetry_switches;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::contract::error::DriverError;
 use crate::driver::daemon_stop::DaemonStopIntent;
@@ -705,11 +706,13 @@ pub(crate) fn home_config_overrides(kind: &CodexHomeKind) -> Vec<String> {
     }
 }
 
-/// The switches of [`home_config_overrides`] as the `-c` pairs a `codex exec` or another short
-/// command on a home of `kind` starts with, before its own arguments.
+/// The switches of [`home_config_overrides`], then every exporter off on a home of the daemon's
+/// own, as the `-c` pairs a `codex exec` or another short command on a home of `kind` starts with,
+/// before its own arguments.
 pub(crate) fn home_exec_switches(kind: &CodexHomeKind) -> Vec<String> {
     home_config_overrides(kind)
         .into_iter()
+        .chain(compose_command_telemetry_switches(kind))
         .flat_map(|config_override| ["-c".to_owned(), config_override])
         .collect()
 }
