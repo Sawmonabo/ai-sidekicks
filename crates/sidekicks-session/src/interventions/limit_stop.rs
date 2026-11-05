@@ -65,7 +65,7 @@ struct LimitInterruptPending {
 /// down.
 #[derive(Debug, thiserror::Error)]
 #[error("the hand of run {run_id}'s interrupt at a limit ended without an answer")]
-struct HandCanceled {
+pub(super) struct HandCanceled {
     run_id: RunId,
 }
 

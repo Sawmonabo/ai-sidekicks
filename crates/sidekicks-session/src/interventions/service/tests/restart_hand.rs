@@ -20,6 +20,7 @@ use sidekicks_store::database::statement::DATABASE_NOW_SQL;
 use tokio::sync::oneshot;
 
 use super::{Harness, applied, harness};
+use crate::interventions::limit_stop::HandCanceled;
 use crate::interventions::limit_stop::tests::{hand_service_to_engine, owe_token_limit};
 use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::test_fixture::stored_run_state;
@@ -283,10 +284,11 @@ enum HeldHand {
 
 // The daemon's stop cuts an interrupt hand held in its driver within a second, whichever hand it
 // is: the restart's, the engine's limit stop, which then answers that no interventions service
-// interrupts the run, and the service's limit hand, which answers its row pending well within its
-// own bound. Killed by a bare spawn kept in any of the three (the stop's wait returns with the
-// hand still held, or the caller's answer waits on the hand's own bound), and by the token not
-// selected (the stop's wait never returns).
+// interrupts the run, and the service's limit hand, which answers its row pending as a hand the
+// stop cut, well within its own bound. Killed by a bare spawn kept in any of the three (the
+// stop's wait returns with the hand still held, or the caller's answer waits on the hand's own
+// bound), by the token not selected (the stop's wait never returns), and by a cut read as a hand
+// run to its end (the service's limit hand answers a hand past its bound).
 #[rstest]
 #[case::the_restarts_hand(HeldHand::PendingAtRestart)]
 #[case::the_engines_limit_stop(HeldHand::LimitStop)]
@@ -321,7 +323,8 @@ async fn the_stop_cuts_an_interrupt_hand_held_in_its_driver(#[case] hand: HeldHa
                 service
                     .interrupt_for_limit(run_id, RunLimit::TokenLimit, None)
                     .await,
-                Err(LimitInterruptFailure::RowPending { .. })
+                Err(LimitInterruptFailure::RowPending { source })
+                    if source.downcast_ref::<HandCanceled>().is_some()
             )
         })),
     };
@@ -362,28 +365,6 @@ async fn a_hand_asked_for_after_the_stop_never_runs() {
         "no task is answered once the hands are stopped"
     );
     assert!(!has_run.load(Ordering::SeqCst), "the hand never runs");
-}
-
-// A hand that only the token can end, held where it stands, is cut by the daemon's stop within a
-// second, and its task answers that it was cut. Killed by the token not selected (the stop's wait
-// never returns) and by a cut read as a hand run to its end (the task answers `Some`).
-#[tokio::test]
-async fn a_held_hand_is_cut_by_the_token_itself() {
-    let harness = harness(MockProviderDriver::new()).await;
-    let hand = harness
-        .engine
-        .hand_interrupt(harness.run_id, std::future::pending())
-        .expect("a hand is spawned before the stop");
-
-    tokio::time::timeout(HAND_CUT_BOUND, harness.engine.stop_interrupt_hands())
-        .await
-        .expect("the stop cuts the held hand within a second");
-
-    let ended = tokio::time::timeout(HAND_CUT_BOUND, hand)
-        .await
-        .expect("the cut hand's task ends")
-        .expect("the cut hand's task does not panic");
-    assert_eq!(ended, None, "the hand reads as cut by the stop");
 }
 
 // A limit's hand the daemon's stop let none start wrote no row, so it answers a failure that
