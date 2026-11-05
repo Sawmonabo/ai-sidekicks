@@ -30,6 +30,7 @@ use crate::driver::{ProviderAccountReader, SessionSpawnContextResolver};
 use crate::port::agent_tree_lookup::AgentTreeLookup;
 use crate::port::command_capture::CommandCapture;
 use crate::port::context_reading_publisher::ContextReadingPublisher;
+use crate::port::edit_checkpoint::EditCheckpoint;
 use crate::port::held_tool_calls::HeldToolCallReads;
 use crate::port::in_process_tool_servers::InProcessToolServers;
 use crate::port::inbound_dispatch::InboundDispatch;
@@ -223,6 +224,10 @@ pub struct DriverPorts {
     /// unregistered a wrapper is answered `Go` at once and its command is captured by nobody, as
     /// the readings ports drop theirs.
     pub command_capture: Arc<PortRegistration<Arc<dyn CommandCapture>>>,
+    /// The copy kept before each edit an agent's file tool makes; while it is unregistered an
+    /// edit is answered at once and nothing is copied, as the command capture port drops its
+    /// windows.
+    pub edit_checkpoint: Arc<PortRegistration<Arc<dyn EditCheckpoint>>>,
     /// The turn readings each run's working line reads; a reading made before it is registered is
     /// dropped.
     pub turn_readings: Arc<PortRegistration<Arc<dyn TurnReadingPublisher>>>,
@@ -316,6 +321,7 @@ impl DriverPorts {
             request_held: Arc::new(PortRegistration::new("request held")),
             command_output: Arc::new(PortRegistration::new("command output")),
             command_capture: Arc::new(PortRegistration::new("command capture")),
+            edit_checkpoint: Arc::new(PortRegistration::new("edit checkpoint")),
             turn_readings: Arc::new(PortRegistration::new("turn readings")),
             context_readings: Arc::new(PortRegistration::new("context readings")),
             session_message_readings: Arc::new(PortRegistration::new("session message readings")),
