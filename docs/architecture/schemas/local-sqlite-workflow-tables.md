@@ -2,7 +2,7 @@
 
 The workflow tables of the daemon's one SQLite schema. The [Local SQLite Schema](local-sqlite-schema.md) holds its pragmas, its conventions and every other area.
 
-Full workflow-engine schema. Its tables hold the definitions and their version chain, the runs, the append-only gate history (C-13/I5), a form step's draft, the per-step record, the armed triggers, the webhook tokens, the per-node key-value store, the workflow secrets' records and the builder's unsaved drafts ([Spec-015 §Interfaces And Contracts](../../specs/015-workflow-authoring-and-execution.md#interfaces-and-contracts)). `session_events` remains canonical truth. Table 1 is current state that changes in place: a definition's settings outside the hash, and its current body on a save. Tables 2 and 4 never change once written. Tables 3 and 6 are rebuildable projections. Tables 7 to 10 are MUTABLE truth: what this machine is armed to do next and which secrets it holds are facts no event history can reconstruct, so the durable row is the truth and an in-process timer is only a cache over it, re-armed from the row after a restart ([Spec-015 §Truth vs projection vs ephemeral (SA-24)](../../specs/015-workflow-authoring-and-execution.md#truth-vs-projection-vs-ephemeral-sa-24)). Tables 5 and 11, a form step's draft and the builder's unsaved drafts, are durable state with no timer: what the person has drafted but not saved is in no event, so the row holds it. One column on the projection tier is truth as well: a waiting step's `wait_deadline_at` is written when the step starts waiting, and the deadline timer is a cache over it.
+Full workflow-engine schema. Its tables hold the definitions and their version chain, the runs, the append-only gate history (C-13/I5), a form step's draft, the per-step record, the armed triggers, the webhook tokens, the per-node key-value store, the workflow secrets' records and the builder's unsaved drafts ([Spec-015 §Interfaces And Contracts](../../specs/015-workflow-authoring-and-execution.md#interfaces-and-contracts)). `session_events` remains canonical truth. Table 1 is current state that changes in place: a definition's settings outside the hash, and its current body on a save. Tables 2 and 4 never change once written. Tables 3 and 6 are rebuildable projections. Tables 7 to 10 are MUTABLE truth: what this machine is armed to do next and which secrets it holds are facts no event history can reconstruct, so the durable row is the truth and an in-process timer is only a cache over it, re-armed from the row after a restart ([Spec-015 §Truth vs projection vs ephemeral (SA-24)](../../specs/015-workflow-authoring-and-execution.md#truth-vs-projection-vs-ephemeral-sa-24)). Tables 5 and 11, a form step's draft and the builder's unsaved drafts, are durable state with no timer: what the person has drafted but not saved is in no event, so the row holds it. Every column of tables 3 and 6 rebuilds from the log, a waiting step's `wait_deadline_at` from the `workflow.phase.suspended` that carries it, and the deadline timer is a cache over that column, re-armed from the row after a restart.
 
 The normalized-table-over-blob shape and the rebuildable-projection split align with industry persistence precedents: durable-execution engines persist normalized state per run rather than monolithic blobs ([Restate — What is Durable Execution](https://restate.dev/what-is-durable-execution)); and large-engine persistence tiers separate hot live state from cold archive ([Argo Workflows — Workflow Archive](https://argo-workflows.readthedocs.io/en/latest/workflow-archive/)). [Spec-015 §References](../../specs/015-workflow-authoring-and-execution.md#references) enumerates the full primary-source corpus.
 
@@ -140,8 +140,13 @@ CREATE TABLE workflow_runs (
                             CHECK(chain_kept_going IS NULL OR chain_kept_going IN (0,1)),
   kept                      INTEGER NOT NULL DEFAULT 0 -- the run's Keep mark: deleting old runs (workflow.run.purge) leaves a kept run
                             CHECK(kept IN (0,1)),
+  -- Time waited on people: the run's cap does not count it
+  person_wait_since         TEXT,                      -- set while the run waits only on people, from its workflow.run.waiting where no step holds an 'account' wait; the statement that moves the run off 'waiting' clears it
+  person_wait_ms            INTEGER NOT NULL DEFAULT 0 -- milliseconds the run has waited on people, added to as each such wait ends; two waits at once count once
+                            CHECK(person_wait_ms >= 0),
   CHECK((chain_root_run_id = id) = (chain_run_count IS NOT NULL)),
-  CHECK((chain_run_count IS NULL) = (chain_kept_going IS NULL))
+  CHECK((chain_run_count IS NULL) = (chain_kept_going IS NULL)),
+  CHECK(person_wait_since IS NULL OR status = 'waiting')
 ) STRICT;
 
 CREATE INDEX idx_workflow_runs_session ON workflow_runs(session_id, id);  -- deleting old runs pages in session order, each page seeking past the last one's final run
@@ -216,10 +221,10 @@ CREATE INDEX idx_human_phase_form_state_step ON human_phase_form_state(workflow_
 --     the run, approval and form pipelines already emit)
 -- ========================================================================
 -- Owner: Plan-014
--- A projection, not a second account of the run: every field below except wait_deadline_at is derivable
--- from the log, which is what keeps one step's history a function of the events rather than a parallel
--- record. wait_deadline_at is truth: it is written when the step starts waiting, and the deadline timer
--- is a cache over it, re-armed from the row when the daemon starts.
+-- A projection, not a second account of the run: every field below is derivable from the log, which is
+-- what keeps one step's history a function of the events rather than a parallel record. wait_deadline_at
+-- comes from the workflow.phase.suspended that suspends the step, and the deadline timer is a cache over
+-- it, re-armed from the row when the daemon starts.
 CREATE TABLE workflow_steps (
   workflow_run_id   TEXT NOT NULL REFERENCES workflow_runs(id),
   node_id           TEXT NOT NULL,                 -- the node in the pinned definition this attempt ran
@@ -258,6 +263,8 @@ CREATE TABLE workflow_steps (
   permission_level  TEXT                           -- an agent step whose account cannot run its run's level: the level it ran at in its place, from its workflow.step.started; NULL on every other step
                     CHECK(permission_level IS NULL OR permission_level IN ('readonly','ask','reviewed','sandboxed','yolo')),
   decline_reason    TEXT,                          -- the words typed with the Decline on a command step's own approval card that failed it, from its workflow.step.failed; NULL on every other step and on a bare decline
+  total_pool_wait_ms INTEGER NOT NULL DEFAULT 0  -- milliseconds the memory gate held the step, summed over its holds, each from its first workflow.phase.waitingOnPool to the event that ends it
+                    CHECK(total_pool_wait_ms >= 0),
   PRIMARY KEY (workflow_run_id, node_id, attempt, execution_index),  -- the whole WorkflowStepKey the contracts address a step by; with node_id after the run id it also serves a lookup by run and node
   UNIQUE(workflow_run_id, execution_index),      -- the execution index is a total order per run
   CHECK((cost_usd_micros IS NULL) = (cost_account_id IS NULL)),  -- a figure always names the account that paid it
