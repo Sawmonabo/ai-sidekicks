@@ -167,11 +167,7 @@ async fn register_account(
                     &token,
                 )
                 .await;
-            // A refusal before the status read ran no provider in the home.
-            let legs = match &admitted {
-                Err(TokenCustodyError::NoStatusRead | TokenCustodyError::Sealing(_)) => None,
-                Ok(_) | Err(_) => Some(&sources.account_legs),
-            };
+            let legs = token_registration_legs(&admitted, &sources.account_legs);
             let account = keep_or_abandon(sources, minted, admitted, legs).await?;
             (account, registration.make_default, true)
         }
@@ -216,6 +212,18 @@ fn mint(
     }
     sources.providers.lookup(provider)?;
     Ok(sources.accounts.mint(provider.clone())?)
+}
+
+// The account legs a token registration's refused home is signed out through: none where the
+// refusal came before the provider's status read, which then ran no provider in the home.
+fn token_registration_legs<'legs, Registered>(
+    admitted: &Result<Registered, TokenCustodyError>,
+    legs: &'legs HashMap<ProviderId, Arc<dyn ProviderAccountLegs>>,
+) -> Option<&'legs HashMap<ProviderId, Arc<dyn ProviderAccountLegs>>> {
+    match admitted {
+        Err(TokenCustodyError::NoStatusRead | TokenCustodyError::Sealing(_)) => None,
+        Ok(_) | Err(_) => Some(legs),
+    }
 }
 
 // The admitted account, or the admission's refusal with the minted home signed out through its
@@ -404,4 +412,70 @@ fn refuse_unnamed_rename(
         .into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use rstest::rstest;
+    use sidekicks_contracts::keychain::KeychainRefusalCause;
+    use sidekicks_contracts::provider::id::ProviderId;
+    use sidekicks_provider::account::credential_home::test_legs::RecordedSignOuts;
+    use sidekicks_provider::account::errors::ProviderAccountRegistryError;
+    use sidekicks_provider::account::registry::open_test_registry;
+    use sidekicks_provider::account::token_custody::TokenCustodyError;
+    use sidekicks_provider::driver::contract::account::ProviderAccountLegs;
+    use sidekicks_provider::driver::contract::error::DriverError;
+    use sidekicks_store::credential_store::KeychainRefusal;
+    use sidekicks_store::database::writer::test_file::TestDatabase;
+
+    use super::token_registration_legs;
+    use crate::daemon::schema::schema_parts;
+
+    // A token registration the custody refused has its minted home signed out only where the
+    // refusal came after the provider's status read ran in it. Killed by no legs for every refusal
+    // (a token the provider read is left signed in) and by legs for a refusal before the read (a
+    // sign-out where no provider ran).
+    #[rstest]
+    #[case::no_status_read(TokenCustodyError::NoStatusRead, 0)]
+    #[case::sealing(
+        TokenCustodyError::Sealing(KeychainRefusal::of_test_keychain(
+            KeychainRefusalCause::Unavailable
+        )),
+        0
+    )]
+    #[case::not_accepted(TokenCustodyError::NotAccepted, 1)]
+    #[case::status_read(TokenCustodyError::StatusRead(DriverError::Internal("unread".into())), 1)]
+    #[case::registry(
+        TokenCustodyError::Registry(ProviderAccountRegistryError::DisplayLabelTaken),
+        1
+    )]
+    #[tokio::test]
+    async fn a_refused_token_registration_signs_out_only_a_home_a_provider_read(
+        #[case] refusal: TokenCustodyError,
+        #[case] sign_outs: usize,
+    ) {
+        let database = TestDatabase::new(schema_parts());
+        let data_folder = tempfile::tempdir().expect("a data folder");
+        let (registry, _writer) = open_test_registry(&database, data_folder.path()).await;
+        let claude = ProviderId::new("claude".to_owned()).expect("the Claude Code provider id");
+        let recorded = Arc::new(RecordedSignOuts::default());
+        let legs = HashMap::from([(
+            claude.clone(),
+            Arc::clone(&recorded) as Arc<dyn ProviderAccountLegs>,
+        )]);
+        let minted = registry.mint(claude).expect("a new account is minted");
+        let home = minted.home().path().to_path_buf();
+        let admitted: Result<(), TokenCustodyError> = Err(refusal);
+
+        registry
+            .abandon(minted, token_registration_legs(&admitted, &legs))
+            .await
+            .expect("the minted home's mark is cleared");
+
+        assert_eq!(recorded.signed_out().len(), sign_outs);
+        assert!(!home.exists(), "the refused registration's home is removed");
+    }
 }
