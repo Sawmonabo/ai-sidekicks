@@ -1,6 +1,7 @@
 use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -8,14 +9,18 @@ use sidekicks_std::mutex_lock::lock;
 use tokio::sync::watch;
 
 use super::daemon_ends::ClaudeDaemonEndSettlement;
+use crate::driver::claude::hooks::callbacks::UNTIMED_BACKGROUND_REASON;
 use crate::driver::claude::hooks::command_capture::tests::register_windows_capture;
+use crate::driver::claude::hooks::pause::ClaudeHookAnswer;
 use crate::driver::claude::session::scripted::held_calls::{helper_started, init, stand_in};
 use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle,
 };
 use crate::driver::diagnostics::RecordedEvents;
 use crate::driver::run_control::HelperStopReason;
-use crate::port::command_capture::{CaptureCall, CommandWindowEnd, next_call, no_call};
+use crate::port::command_capture::{
+    CaptureCall, CommandWindowEnd, CommandWindowStart, next_call, no_call,
+};
 use crate::port::run_host::test_host::EngineCall;
 use crate::run::delivery::LateAppendableRow;
 use crate::run::delivery::RunSetupRefusal;
@@ -733,4 +738,50 @@ async fn a_background_call_closes_at_its_task_notification() {
         next_call(&mut called).await,
         CaptureCall::Close(1, CommandWindowEnd::Untold)
     );
+}
+
+// Killed by the route not noting the shell call, and by the background-work refusal's mark not
+// taken.
+#[cfg(unix)]
+#[rstest]
+#[case::in_the_foreground(false)]
+#[case::refused_in_the_background(true)]
+#[tokio::test(start_paused = true)]
+async fn a_bash_call_no_wrapper_paired_is_named_at_its_result(#[case] is_refused: bool) {
+    let session = ScriptedSession::new().await;
+    let (_opens, held) = watch::channel(Some(true));
+    let windows = &session.parts.establishment.task_services.command_windows;
+    let mut called = register_windows_capture(windows, held);
+    session.hold_lead_turn("lead");
+    session.frame(&init());
+    let mut hook = before_tool("Bash", "call-2", None);
+    if is_refused {
+        hook["input"]["tool_input"]["run_in_background"] = json!(true);
+        let mut background_work = hook.clone();
+        background_work["callback_id"] = json!("sidekicks-background-claude");
+        session.request("background", &background_work);
+        let denied = ClaudeHookAnswer::Deny {
+            reason: UNTIMED_BACKGROUND_REASON.to_owned(),
+        };
+        assert_eq!(
+            session.channel.answer_to("background").await,
+            serde_json::to_value(denied).expect("an answer serializes")
+        );
+    }
+
+    session.request("pre", &hook);
+    assert_eq!(session.channel.answer_to("pre").await, json!({}));
+    session.frame(&stand_in("call-2", "done"));
+    settle().await;
+
+    if !is_refused {
+        let named = CommandWindowStart {
+            session_id: session.session_id,
+            apart_run: None,
+            command: "ls".to_owned(),
+            tool_call_id: Some(ToolCallId::new("call-2".to_owned()).expect("a call id")),
+        };
+        assert_eq!(next_call(&mut called).await, CaptureCall::Uncovered(named));
+    }
+    no_call(&mut called, "a call named again, or a refused call named").await;
 }

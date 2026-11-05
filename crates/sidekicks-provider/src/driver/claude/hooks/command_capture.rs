@@ -1,10 +1,15 @@
 //! The capture windows of Claude Code's commands that run with no wrapper, opened at the pre-tool
 //! hook and closed at the call's end: its post-tool hook, else its tool result, its background
-//! task's end or its refusal, else the backstop at its caller's or its process's end.
+//! task's end or its refusal, else the backstop at its caller's or its process's end. A shell call
+//! the wrapper runs is noted at its pre-tool hook instead; a wrapper's start pairs with the
+//! session's oldest note of its line, and a note still unpaired at its call's end is recorded as
+//! run uncovered. A call the daemon's own hook refused takes no note or window: a refusal ahead
+//! of its pre-tool hook leaves a mark the hook takes.
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::error::Error;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -14,6 +19,8 @@ use sidekicks_platforms::RUNS_COMMAND_WRAPPER;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 
+use crate::command::channel::records::NotedWrapperCalls;
+use crate::driver::claude::command_shape::bash_line_text;
 use crate::driver::claude::hooks::callbacks::answer_claude_request;
 use crate::driver::claude::hooks::pause::ClaudeHookAnswer;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
@@ -52,8 +59,7 @@ pub(crate) fn compose_command_capture_matcher() -> String {
     format!("^({})$", CLAUDE_UNWRAPPED_COMMAND_TOOLS.join("|"))
 }
 
-/// A command a pre-tool hook's call runs with no wrapper, whose window opens before the hook is
-/// answered.
+/// A command a pre-tool hook's call runs, followed by its tool-use id from the hook on.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ClaudeCommandTarget {
     /// The call's tool-use id, which its post-tool hooks name.
@@ -62,28 +68,52 @@ pub(crate) struct ClaudeCommandTarget {
     pub(crate) command: String,
     /// The calling helper's id, `None` on the lead.
     pub(crate) agent_id: Option<String>,
+    /// Where the command's window opens.
+    pub(crate) leg: ClaudeCommandLeg,
 }
 
-/// The command a pre-tool hook's call of `tool_name` runs with no wrapper, by the call
-/// `tool_use_id` of the helper `agent_id` or the lead: `None` for a tool with a wrapper, a call
-/// with no `command` (a `Monitor` watching a WebSocket runs nothing), and a call with no tool-use
-/// id, which is logged, since its command runs with no window.
+/// Where a command call's window opens.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ClaudeCommandLeg {
+    /// At the pre-tool hook, before it is answered: a command that runs with no wrapper.
+    Hook,
+    /// At its wrapper's start: a shell call the wrapper runs, noted at the hook until a wrapper's
+    /// start pairs with it.
+    Wrapper {
+        /// Whether the call runs its command in the background.
+        is_background: bool,
+    },
+}
+
+/// The command a pre-tool hook's call of `tool_name` runs, by the call `tool_use_id` of the helper
+/// `agent_id` or the lead, in the background where `run_in_background` says so: a `Wrapper` target
+/// for a shell call where the wrapper runs, a `Hook` target for a tool whose command runs with no
+/// wrapper here. `None` for any other tool, a call with no `command` (a `Monitor` watching a
+/// WebSocket runs nothing), and a call with no tool-use id, which is logged, since no hook can
+/// follow its command.
 pub(crate) fn read_claude_command_target(
     session_id: &SessionId,
     tool_name: &str,
     command: Option<&str>,
     tool_use_id: Option<&str>,
     agent_id: Option<&str>,
+    run_in_background: Option<bool>,
 ) -> Option<ClaudeCommandTarget> {
-    if !runs_with_no_wrapper(tool_name) {
+    let leg = if runs_with_no_wrapper(tool_name) {
+        ClaudeCommandLeg::Hook
+    } else if RUNS_COMMAND_WRAPPER && tool_name == CLAUDE_SHELL_TOOL_NAME {
+        ClaudeCommandLeg::Wrapper {
+            is_background: run_in_background == Some(true),
+        }
+    } else {
         return None;
-    }
+    };
     let command = filter_non_empty(command)?;
     let Some(tool_use_id) = tool_use_id else {
         tracing::warn!(
             %session_id,
             tool_name,
-            "a command call names no tool call, so its command runs with no window"
+            "a command call names no tool call, so no hook can follow its command"
         );
         return None;
     };
@@ -91,6 +121,7 @@ pub(crate) fn read_claude_command_target(
         tool_use_id: tool_use_id.to_owned(),
         command: command.to_owned(),
         agent_id: agent_id.map(str::to_owned),
+        leg,
     })
 }
 
@@ -153,17 +184,60 @@ enum ClaudeCommandWindowState {
         has_post_hook: bool,
         is_background: bool,
     },
+    // A shell call the wrapper runs, until a wrapper's start of `line`, the text the wrapper names
+    // for `command`, pairs with it; `order` tells the session's notes of one line apart by age.
+    Noted {
+        line: String,
+        command: String,
+        is_background: bool,
+        order: u64,
+    },
+    // A call the daemon's own hook refused before its pre-tool hook came.
+    Refused,
 }
 
 impl ClaudeCommandWindowState {
-    // Whether the call still runs in the foreground: still opening, or open short of a post hook
-    // that left it in the background.
+    // Whether the call still runs in the foreground: still opening, refused, noted in the
+    // foreground, or open short of a post hook that left it in the background.
     fn is_foreground(&self) -> bool {
         match self {
-            Self::Opening => true,
-            Self::Open { is_background, .. } => !is_background,
+            Self::Opening | Self::Refused => true,
+            Self::Open { is_background, .. } | Self::Noted { is_background, .. } => !is_background,
         }
     }
+
+    // What closes for this state's entry, removed from the session's call `tool_use_id` as `end`
+    // says: an open window closes, and a noted call that ran is recorded as run uncovered.
+    fn into_closing(
+        self,
+        session_id: SessionId,
+        tool_use_id: String,
+        end: CommandWindowEnd,
+    ) -> Option<ClaudeCommandClosing> {
+        match self {
+            Self::Opening | Self::Refused => None,
+            Self::Open { window, .. } => Some(ClaudeCommandClosing::Window(window, end)),
+            // A call that never ran has nothing to name.
+            Self::Noted { .. } if end == CommandWindowEnd::Unrun => None,
+            Self::Noted { command, .. } => {
+                Some(ClaudeCommandClosing::Uncovered(CommandWindowStart {
+                    session_id,
+                    apart_run: None,
+                    command,
+                    tool_call_id: ToolCallId::new(tool_use_id).ok(),
+                }))
+            }
+        }
+    }
+}
+
+/// What a closer answers for [`ClaudeCommandWindows::close`].
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ClaudeCommandClosing {
+    /// An open window, closed as its end says.
+    Window(CommandWindowId, CommandWindowEnd),
+    /// A shell call no wrapper paired, recorded as run uncovered.
+    Uncovered(CommandWindowStart),
 }
 
 /// Whose commands a backstop closes, all of one process's.
@@ -190,20 +264,23 @@ impl ClaudeCommandOwner {
     }
 }
 
-/// A command whose window entry went in as opening before its open is spawned or awaited, so a
-/// closer on the session's task always finds it; [`ClaudeCommandWindows::open_then_answer`] opens
-/// it.
+/// A command whose entry went in, as an opening window or a note, before its open is spawned or
+/// awaited, so a closer on the session's task always finds it;
+/// [`ClaudeCommandWindows::open_then_answer`] opens it.
 #[must_use]
 pub(crate) struct ClaudeCommandOpening {
     session_id: SessionId,
-    target: ClaudeCommandTarget,
+    // The target whose window opens; `None` for a noted or a refused call, which opens none.
+    target: Option<ClaudeCommandTarget>,
 }
 
 /// The windows of every session's commands that run with no wrapper, each by its session and
-/// tool-use id from its open to its close.
+/// tool-use id from its open to its close, with the notes of the shell calls the wrapper runs.
 pub(crate) struct ClaudeCommandWindows {
     capture: Arc<PortRegistration<Arc<dyn CommandCapture>>>,
     windows: Mutex<HashMap<(SessionId, String), ClaudeCommandWindow>>,
+    // The next note's order, taken under the windows' lock.
+    next_note: AtomicU64,
 }
 
 impl ClaudeCommandWindows {
@@ -212,32 +289,61 @@ impl ClaudeCommandWindows {
         Self {
             capture,
             windows: Mutex::default(),
+            next_note: AtomicU64::new(0),
         }
     }
 
-    /// Puts `target`'s window in as opening, kept as the window of `process`, whose hook opens
-    /// it; called on the hook's own path, before the open.
+    /// Puts `target`'s entry in, kept as the call of `process`, whose hook took it: a window as
+    /// opening on the hook's leg, a note on the wrapper's; a call already marked refused takes
+    /// neither and its mark is removed. Called on the hook's own path, before the open.
     pub(crate) fn begin_open(
         &self,
         session_id: SessionId,
         process: ProviderProcessIdentity,
         target: ClaudeCommandTarget,
     ) -> ClaudeCommandOpening {
-        lock(&self.windows).insert(
-            (session_id, target.tool_use_id.clone()),
+        let mut windows = lock(&self.windows);
+        let key = (session_id, target.tool_use_id.clone());
+        if let Entry::Occupied(entry) = windows.entry(key.clone())
+            && matches!(entry.get().state, ClaudeCommandWindowState::Refused)
+        {
+            entry.remove();
+            return ClaudeCommandOpening {
+                session_id,
+                target: None,
+            };
+        }
+        let (state, opens) = match target.leg {
+            ClaudeCommandLeg::Hook => (ClaudeCommandWindowState::Opening, true),
+            ClaudeCommandLeg::Wrapper { is_background } => (
+                ClaudeCommandWindowState::Noted {
+                    line: bash_line_text(&target.command),
+                    command: target.command.clone(),
+                    is_background,
+                    order: self.next_note.fetch_add(1, Ordering::Relaxed),
+                },
+                false,
+            ),
+        };
+        windows.insert(
+            key,
             ClaudeCommandWindow {
                 process,
                 agent_id: target.agent_id.clone(),
-                state: ClaudeCommandWindowState::Opening,
+                state,
             },
         );
-        ClaudeCommandOpening { session_id, target }
+        ClaudeCommandOpening {
+            session_id,
+            target: opens.then_some(target),
+        }
     }
 
     /// Opens `opening`'s window, tells it its command began covered, then answers the hook
     /// `request_id` through `channel` with no decision, so the command runs only once its window
-    /// is open. An open that fails, or no capture registered, answers with no window; an answer
-    /// that cannot be written stops the process, as every answer's.
+    /// is open; a noted or a refused call is answered at once. An open that fails, or no capture
+    /// registered, answers with no window; an answer that cannot be written stops the process, as
+    /// every answer's.
     pub(crate) async fn open_then_answer(
         &self,
         opening: ClaudeCommandOpening,
@@ -245,8 +351,10 @@ impl ClaudeCommandWindows {
         provider_account_id: &ProviderAccountId,
         request_id: String,
     ) {
-        let session_id = opening.session_id;
-        self.open(opening).await;
+        let ClaudeCommandOpening { session_id, target } = opening;
+        if let Some(target) = target {
+            self.open(session_id, target).await;
+        }
         answer_claude_request(
             channel,
             &session_id,
@@ -260,8 +368,7 @@ impl ClaudeCommandWindows {
     // The open: told covered before the entry turns open, since once the hook is answered a close
     // can come, and a close ahead of `command_began` records the window uncovered. An entry
     // removed meanwhile closes its window untold.
-    async fn open(&self, opening: ClaudeCommandOpening) {
-        let ClaudeCommandOpening { session_id, target } = opening;
+    async fn open(&self, session_id: SessionId, target: ClaudeCommandTarget) {
         let key = (session_id, target.tool_use_id);
         let Some(capture) = self.capture.port().cloned() else {
             lock(&self.windows).remove(&key);
@@ -308,20 +415,23 @@ impl ClaudeCommandWindows {
             None => Some(window),
         };
         if let Some(window) = removed {
-            self.close(window, CommandWindowEnd::Untold);
+            self.close(ClaudeCommandClosing::Window(
+                window,
+                CommandWindowEnd::Untold,
+            ));
         }
     }
 
     /// Takes the post-tool hook of the call `tool_use_id`, which ended as `end`: an open window is
     /// marked as past its post hook; a background call's stays open and answers `None`, and any
     /// other is removed and answers its window and end, for [`Self::close`]. A call with no window,
-    /// or one still opening, answers `None`.
+    /// one still opening, a note or a refusal mark answers `None`.
     pub(crate) fn take_post_hook(
         &self,
         session_id: SessionId,
         tool_use_id: &str,
         end: ClaudeCommandEnd,
-    ) -> Option<(CommandWindowId, CommandWindowEnd)> {
+    ) -> Option<ClaudeCommandClosing> {
         let mut windows = lock(&self.windows);
         let Entry::Occupied(mut entry) = windows.entry((session_id, tool_use_id.to_owned())) else {
             return None;
@@ -343,114 +453,177 @@ impl ClaudeCommandWindows {
             ClaudeCommandEnd::Ended(end) => {
                 let window = window.clone();
                 entry.remove();
-                Some((window, end))
+                Some(ClaudeCommandClosing::Window(window, end))
             }
         }
     }
 
     /// Takes the tool result of the call `tool_use_id`: a window no post hook reached closes
     /// `Untold`, whether the result is an error or not, since an interrupted call's result comes so
-    /// too; a background call's, past its post hook, stays open for its task's end. Answers the
-    /// window and end for [`Self::close`]; an entry still opening is removed, and its open closes
-    /// it.
+    /// too; a background call's, past its post hook, stays open for its task's end. A foreground
+    /// note no wrapper paired is recorded as run uncovered, and a background one stays for its
+    /// task's end; a refusal mark is removed. Answers what closes for [`Self::close`]; an entry
+    /// still opening is removed, and its open closes it.
     pub(crate) fn take_tool_result(
         &self,
         session_id: SessionId,
         tool_use_id: &str,
-    ) -> Option<(CommandWindowId, CommandWindowEnd)> {
+    ) -> Option<ClaudeCommandClosing> {
         self.take_one(
             session_id,
             tool_use_id,
             CommandWindowEnd::Untold,
-            |has_post_hook, _| !has_post_hook,
+            |state| match state {
+                ClaudeCommandWindowState::Open { has_post_hook, .. } => !has_post_hook,
+                ClaudeCommandWindowState::Noted { is_background, .. } => !is_background,
+                ClaudeCommandWindowState::Opening | ClaudeCommandWindowState::Refused => true,
+            },
         )
     }
 
     /// Takes the end of the task the call `tool_use_id` started: a background call's window
-    /// closes `Untold`; a foreground call's stays for its post hook, which tells its exit code.
-    /// Answers as [`Self::take_tool_result`] does.
+    /// closes `Untold` and its note no wrapper paired is recorded as run uncovered; a foreground
+    /// call's window stays for its post hook, which tells its exit code, and its note for its tool
+    /// result. Answers as [`Self::take_tool_result`] does.
     pub(crate) fn take_task_end(
         &self,
         session_id: SessionId,
         tool_use_id: &str,
-    ) -> Option<(CommandWindowId, CommandWindowEnd)> {
+    ) -> Option<ClaudeCommandClosing> {
         self.take_one(
             session_id,
             tool_use_id,
             CommandWindowEnd::Untold,
-            |_, is_background| is_background,
+            |state| match state {
+                ClaudeCommandWindowState::Open { is_background, .. }
+                | ClaudeCommandWindowState::Noted { is_background, .. } => *is_background,
+                ClaudeCommandWindowState::Opening => true,
+                ClaudeCommandWindowState::Refused => false,
+            },
         )
     }
 
     /// Takes the refusal of the call `tool_use_id` before it ran: its window closes `Unrun`, with
-    /// no after-capture. Answers as [`Self::take_tool_result`] does.
+    /// no after-capture, and its note or refusal mark is removed, recording nothing. Answers as
+    /// [`Self::take_tool_result`] does.
     pub(crate) fn take_unrun(
         &self,
         session_id: SessionId,
         tool_use_id: &str,
-    ) -> Option<(CommandWindowId, CommandWindowEnd)> {
-        self.take_one(session_id, tool_use_id, CommandWindowEnd::Unrun, |_, _| {
-            true
-        })
+    ) -> Option<ClaudeCommandClosing> {
+        self.take_one(session_id, tool_use_id, CommandWindowEnd::Unrun, |_| true)
     }
 
-    /// The backstop for what no closer read: removes the windows of the session's process
-    /// `process` that `owner` names, and answers each open one's window, closing `Untold`, for
-    /// [`Self::close`]; an entry still opening is removed, and its open closes it.
+    /// Takes the daemon's own hook's refusal of the call `tool_use_id` by the helper `agent_id` or
+    /// the lead on `process`, which no stream frame names: as [`Self::take_unrun`] does where the
+    /// call has an entry; otherwise marks the call refused, so its pre-tool hook takes no note or
+    /// window, until that hook, its tool result or the backstop for its caller removes the mark.
+    pub(crate) fn take_refused(
+        &self,
+        session_id: SessionId,
+        process: ProviderProcessIdentity,
+        agent_id: Option<String>,
+        tool_use_id: &str,
+    ) -> Option<ClaudeCommandClosing> {
+        let mut windows = lock(&self.windows);
+        match windows.entry((session_id, tool_use_id.to_owned())) {
+            Entry::Occupied(entry) => {
+                let (key, entry) = entry.remove_entry();
+                entry
+                    .state
+                    .into_closing(session_id, key.1, CommandWindowEnd::Unrun)
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(ClaudeCommandWindow {
+                    process,
+                    agent_id,
+                    state: ClaudeCommandWindowState::Refused,
+                });
+                None
+            }
+        }
+    }
+
+    /// The backstop for what no closer read: removes the entries of the session's process
+    /// `process` that `owner` names, and answers what closes for [`Self::close`]: each open
+    /// window, closing `Untold`, and each note no wrapper paired, recorded as run uncovered; an
+    /// entry still opening is removed, and its open closes it.
     pub(crate) fn take_remaining(
         &self,
         session_id: SessionId,
         process: ProviderProcessIdentity,
         owner: &ClaudeCommandOwner,
-    ) -> Vec<(CommandWindowId, CommandWindowEnd)> {
+    ) -> Vec<ClaudeCommandClosing> {
         lock(&self.windows)
             .extract_if(|(entry_session_id, _), entry| {
                 *entry_session_id == session_id && entry.process == process && owner.owns(entry)
             })
-            .filter_map(|(_, entry)| match entry.state {
-                ClaudeCommandWindowState::Opening => None,
-                ClaudeCommandWindowState::Open { window, .. } => {
-                    Some((window, CommandWindowEnd::Untold))
-                }
+            .filter_map(|((_, tool_use_id), entry)| {
+                entry
+                    .state
+                    .into_closing(session_id, tool_use_id, CommandWindowEnd::Untold)
             })
             .collect()
     }
 
-    // Removes the call `tool_use_id`'s entry where it is still opening, or open and `closes` it
-    // by its post-hook and background marks, answering an open one's window with `end`.
+    // Removes the call `tool_use_id`'s entry where `takes` its state, answering what closes for it
+    // as `end` says.
     fn take_one(
         &self,
         session_id: SessionId,
         tool_use_id: &str,
         end: CommandWindowEnd,
-        closes: impl FnOnce(bool, bool) -> bool,
-    ) -> Option<(CommandWindowId, CommandWindowEnd)> {
+        takes: impl FnOnce(&ClaudeCommandWindowState) -> bool,
+    ) -> Option<ClaudeCommandClosing> {
         let mut windows = lock(&self.windows);
         let Entry::Occupied(entry) = windows.entry((session_id, tool_use_id.to_owned())) else {
             return None;
         };
-        if let ClaudeCommandWindowState::Open {
-            has_post_hook,
-            is_background,
-            ..
-        } = entry.get().state
-            && !closes(has_post_hook, is_background)
-        {
+        if !takes(&entry.get().state) {
             return None;
         }
-        match entry.remove().state {
-            ClaudeCommandWindowState::Opening => None,
-            ClaudeCommandWindowState::Open { window, .. } => Some((window, end)),
-        }
+        let (key, entry) = entry.remove_entry();
+        entry.state.into_closing(session_id, key.1, end)
     }
 
-    /// Closes `window` as `end` says, off the caller's path, so no caller waits on its
-    /// after-capture.
-    pub(crate) fn close(&self, window: CommandWindowId, end: CommandWindowEnd) {
+    /// Carries out `closing` off the caller's path, so no caller waits on a window's
+    /// after-capture or a record's write: a window closes as its end says, and an uncovered call
+    /// is recorded.
+    pub(crate) fn close(&self, closing: ClaudeCommandClosing) {
         let Some(capture) = self.capture.port().cloned() else {
             return;
         };
-        tokio::spawn(async move { capture.close_window(window, end).await });
+        tokio::spawn(async move {
+            match closing {
+                ClaudeCommandClosing::Window(window, end) => {
+                    capture.close_window(window, end).await;
+                }
+                ClaudeCommandClosing::Uncovered(start) => {
+                    capture.record_uncovered_command(start).await;
+                }
+            }
+        });
+    }
+}
+
+impl NotedWrapperCalls for ClaudeCommandWindows {
+    fn pair_started_wrapper(&self, session_id: SessionId, line: &str) -> Option<ToolCallId> {
+        let mut windows = lock(&self.windows);
+        let (_, tool_use_id) = windows
+            .iter()
+            .filter_map(|((entry_session_id, tool_use_id), entry)| {
+                let ClaudeCommandWindowState::Noted {
+                    line: noted, order, ..
+                } = &entry.state
+                else {
+                    return None;
+                };
+                (*entry_session_id == session_id && noted == line).then_some((*order, tool_use_id))
+            })
+            .min_by_key(|(order, _)| *order)?;
+        let key = (session_id, tool_use_id.clone());
+        windows.remove(&key);
+        ToolCallId::new(key.1).ok()
     }
 }
 

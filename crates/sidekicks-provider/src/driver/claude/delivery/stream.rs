@@ -525,8 +525,8 @@ impl ClaudeDeliveryStream {
         after
     }
 
-    // The lead's or a helper's frame closes the windows of the calls it settles: each tool result
-    // in a `user` message, and a refusal before the call ran, which nothing ran under.
+    // The lead's or a helper's frame closes the windows and notes of the calls it settles: each
+    // tool result in a `user` message, and a refusal before the call ran, which nothing ran under.
     fn close_command_windows(
         &self,
         session: &ClaudeSessionStream,
@@ -549,8 +549,8 @@ impl ClaudeDeliveryStream {
             }
             _ => Vec::new(),
         };
-        for (window, end) in closing {
-            windows.close(window, end);
+        for closing in closing {
+            windows.close(closing);
         }
     }
 

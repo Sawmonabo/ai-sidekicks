@@ -69,11 +69,11 @@ impl ClaudeDeliveryStream {
         if *kind == ClaudeWireFrameKind::SystemTaskNotification {
             self.end_helper(session, &task).await;
             let windows = &self.dependencies.command_windows;
-            if let Some((window, end)) = task
+            if let Some(closing) = task
                 .tool_use_id()
                 .and_then(|tool_use_id| windows.take_task_end(session.session_id, tool_use_id))
             {
-                windows.close(window, end);
+                windows.close(closing);
             }
         }
         let run = self.task_run(session, &task, lead);
