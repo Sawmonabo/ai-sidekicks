@@ -56,6 +56,7 @@ use crate::driver::test_registry::{
 use crate::port::question::QuestionPort;
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::run::posture::ExecutionPostureService;
+use crate::runtime_binding::store::CreateRuntimeBindingInput;
 use crate::runtime_binding::test_store::{
     binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
 };
@@ -140,11 +141,15 @@ impl LiveCodexSession {
         let parts = Arc::clone(driver.parts().expect("the driver composes"));
 
         let run_id = new_run_id();
+        // The run's own binding, whose stored set a switch of its tool servers writes.
         let binding_id = bindings
-            .create(binding_input(
-                spawn_config_on(test_provider_account_id()),
-                spawned_build("0.130.0", "/opt/codex/bin"),
-            ))
+            .create(CreateRuntimeBindingInput {
+                run_id,
+                ..binding_input(
+                    spawn_config_on(test_provider_account_id()),
+                    spawned_build("0.130.0", "/opt/codex/bin"),
+                )
+            })
             .await
             .expect("the binding is recorded")
             .id;

@@ -24,7 +24,7 @@ use crate::driver::codex::service::supervisor::events::{
 use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
 use crate::driver::codex::session::errors::CodexSessionSlotState;
 use crate::driver::codex::session::test_fixture::{
-    TEST_THREAD, answer_fork, create_session_params, test_thread_settings,
+    TEST_THREAD, create_session_params, fork_reply, no_turns, test_thread_settings,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::SessionProcessState;
@@ -121,6 +121,8 @@ async fn an_idle_switch_answers_as_its_fork_ends(
         session_id,
         run_id,
         mut scripted,
+        // Kept open, since the fork points the run's binding at the conversation it moves onto.
+        database: _database,
         ..
     } = LiveCodexSession::idle().await;
     let tracker_off = SessionToolServer {
@@ -132,25 +134,41 @@ async fn an_idle_switch_answers_as_its_fork_ends(
     };
     let switching = driver.switch_session_mcp_servers(session_id, run_id, vec![tracker_off]);
     let forking = async {
-        if is_fork_answered {
-            answer_fork(
-                &mut scripted.script,
-                "thread-2",
-                &test_thread_settings(session_id),
-            )
-            .await;
-            return;
-        }
         let read = scripted.next_request("config/read").await;
         scripted
             .script
             .answer(&read, &json!({"config": {}, "origins": {}}));
         let forked = scripted.next_request("thread/fork").await;
-        scripted.script.send(&json!({
-            "jsonrpc": "2.0",
-            "id": forked["id"],
-            "error": {"code": -32603, "message": "the fork failed"},
-        }));
+        if !is_fork_answered {
+            scripted.script.send(&json!({
+                "jsonrpc": "2.0",
+                "id": forked["id"],
+                "error": {"code": -32603, "message": "the fork failed"},
+            }));
+            return;
+        }
+        let settings = test_thread_settings(session_id);
+        scripted
+            .script
+            .answer(&forked, &fork_reply("thread-2", &settings));
+        // The move onto the fork, up to the old conversation's unsubscribe.
+        loop {
+            let request = scripted.script.next_sent().await;
+            match request["method"].as_str() {
+                Some("thread/turns/list") => scripted.script.answer(&request, &no_turns()),
+                Some("thread/backgroundTerminals/list") => {
+                    scripted.script.answer(&request, &json!({"data": []}));
+                }
+                Some("thread/unsubscribe") => {
+                    assert_eq!(request["params"]["threadId"], TEST_THREAD);
+                    scripted
+                        .script
+                        .answer(&request, &json!({"status": "unsubscribed"}));
+                    return;
+                }
+                Some(_) | None => scripted.script.answer(&request, &json!({})),
+            }
+        }
     };
 
     let (switched, ()) =
