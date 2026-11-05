@@ -468,6 +468,8 @@ pub(crate) async fn register_method_inputs(
         working_folders: Arc::clone(&repo.folder_watch),
         git: git.clone(),
         snapshots: Arc::clone(&repo.snapshots),
+        command_captures: Arc::clone(&repo.command_captures),
+        packing: Arc::clone(&repo.packing),
         list_feed: Arc::clone(&list_feed),
         plan_holds,
         payloads: Arc::clone(&artifacts.payloads),

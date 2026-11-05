@@ -672,6 +672,21 @@ impl DaemonProcess {
             .expect("the session services are built before their follows begin");
         // Attached before the recovery pass, whose resumes end runs on the bindings they open.
         let binding_cursors = follow_binding_cursors(session, &followers);
+        // Before the recovery pass, whose resumes and the socket's first writes are the first calls
+        // that can run a command, so every open window it reads is the last run's.
+        match session.command_windows.settle_open_windows().await {
+            Ok(settled) if settled > 0 => {
+                tracing::info!(
+                    settled,
+                    "the command windows the last stop left open closed uncovered"
+                );
+            }
+            Ok(_) => {}
+            Err(error) => tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "the command windows the last stop left open could not be settled"
+            ),
+        }
         // Before the recovery pass too, so a turn its resumes end is captured.
         self.turn_capturing = Some(session.turn_capture.start(&followers));
         // Settles what the last stop left before any other follow of the log or any folder watch

@@ -130,10 +130,10 @@ pub(crate) struct RepoServices {
     pub(crate) worktree_events: Arc<WorktreeEventEmitter>,
     /// Each turn's checkout snapshot and the prune of a run's snapshot refs.
     pub(crate) snapshots: Arc<TurnSnapshotService>,
-    /// The packing of the capture folders, which forgets a purged session's folders.
+    /// The packing of the capture folders, which packs each command window's captures and
+    /// forgets a purged session's folders.
     pub(crate) packing: Arc<CapturePacking>,
     /// The two captures around each command a command window records.
-    #[expect(dead_code, reason = "the command windows' captures")]
     pub(crate) command_captures: Arc<CommandCaptureService>,
     /// The per-checkout lock, keyed by the canonical folder, that the turn snapshots, the commands'
     /// captures, the worktree creator and the run setup gate share.

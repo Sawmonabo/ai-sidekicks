@@ -329,6 +329,10 @@ pub(crate) async fn stop_work(
     if let Some(turn_capturing) = process.turn_capturing.take() {
         turn_capturing.stop().await;
     }
+    // After the drivers too, so no command ends past here; each close under way is written.
+    if let Some(session) = &process.session {
+        session.command_windows.stop().await;
+    }
     if let Some(git) = &process.git {
         git.wait_for_tree_ends().await;
     }
