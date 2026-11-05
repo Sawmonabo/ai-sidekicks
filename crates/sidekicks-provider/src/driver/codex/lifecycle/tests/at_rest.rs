@@ -56,6 +56,7 @@ impl SessionSpawnContextResolver for RunFolderApart {
                 },
                 step_bound: None,
                 advisor_model: None,
+                auto_memory: None,
             })
         }
         .boxed()

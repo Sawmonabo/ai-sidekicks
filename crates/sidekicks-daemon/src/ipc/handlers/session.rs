@@ -7,6 +7,7 @@ pub(crate) mod convert;
 pub(crate) mod create;
 pub(crate) mod draft_update;
 pub(crate) mod event_subscribe;
+pub(crate) mod goal;
 pub(crate) mod group;
 pub(crate) mod links;
 pub(crate) mod list;

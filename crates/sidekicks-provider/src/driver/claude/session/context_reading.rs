@@ -14,6 +14,7 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 use sidekicks_contracts::context_window::ContextWindowSource;
 use sidekicks_contracts::event::usage::UsageContextWindowUpdatedPayload;
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::inspector::{
@@ -25,11 +26,13 @@ use sidekicks_contracts::wire::number::Percent;
 use sidekicks_contracts::wire::text::{ComposedText, FreeFormText};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
+use tokio::sync::oneshot;
 
 use crate::driver::claude::delivery::stream::ClaudeSessionStreams;
 use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::driver::claude::session::arrivals::deliver_in_session_order;
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
+use crate::driver::claude::session::inspector_reads::ClaudeInspectorReads;
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::control::{
     ClaudeContextUsageDetail, ClaudeControlRequest,
@@ -134,17 +137,20 @@ pub(crate) struct ClaudeContextRead {
     pub(crate) reading: SessionContextReading,
     /// The model Claude Code read it on.
     pub(crate) model: Option<String>,
+    /// The memory files the read named, each a filesystem path carries.
+    pub(crate) memory_files: Vec<FilesystemPath>,
 }
 
 // What one session's reads hold: the last read; the read task under way, by its number, with
-// whether another read was asked behind it and the runs those asks follow; and the last lead
-// message whose usage gave a mid-turn reading, with its counts.
+// whether another read was asked behind it, the runs those asks follow and the openings waiting
+// for it; and the last lead message whose usage gave a mid-turn reading, with its counts.
 #[derive(Default)]
 struct ClaudeSessionReads {
     last: Option<ClaudeContextRead>,
     reading_task: Option<u64>,
     is_asked_again: bool,
     waiting_runs: Vec<ClaudeBoundRun>,
+    opening_waits: Vec<oneshot::Sender<()>>,
     mid_turn_message: Option<(String, UsageAxisCounts)>,
 }
 
@@ -164,22 +170,26 @@ pub(crate) struct ClaudeContextReadings {
     publisher: Arc<PortRegistration<Arc<dyn ContextReadingPublisher>>>,
     dispatch: Arc<dyn InboundDispatch>,
     streams: Arc<ClaudeSessionStreams>,
+    inspector_reads: Arc<ClaudeInspectorReads>,
     sessions: Mutex<HashMap<SessionId, ClaudeSessionReads>>,
     next_reading_task: AtomicU64,
 }
 
 impl ClaudeContextReadings {
     /// Readings published through `publisher` once registered, their rows filed through
-    /// `dispatch` in each session's order on `streams`.
+    /// `dispatch` in each session's order on `streams`, and the memory files each names kept in
+    /// `inspector_reads`.
     pub(crate) fn new(
         publisher: Arc<PortRegistration<Arc<dyn ContextReadingPublisher>>>,
         dispatch: Arc<dyn InboundDispatch>,
         streams: Arc<ClaudeSessionStreams>,
+        inspector_reads: Arc<ClaudeInspectorReads>,
     ) -> Self {
         Self {
             publisher,
             dispatch,
             streams,
+            inspector_reads,
             sessions: Mutex::default(),
             next_reading_task: AtomicU64::new(0),
         }
@@ -206,10 +216,48 @@ impl ClaudeContextReadings {
             reads.reading_task = Some(task);
             task
         };
+        self.start_reading(live, task, Vec::from_iter(run));
+    }
+
+    /// One read of `live`'s context for an opening of its inspector, filed on no run, joining the
+    /// read under way where there is one; like every read it refreshes the reading and the kept
+    /// memory files. Returns once that read is held or failed, or the session is forgotten.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the driver interface's memory read calls it")
+    )]
+    pub(crate) async fn read_for_opening(self: &Arc<Self>, live: &Arc<LiveClaudeSession>) {
+        let (opening, read) = oneshot::channel();
+        let task = {
+            let mut sessions = lock(&self.sessions);
+            let reads = sessions.entry(live.session_id).or_default();
+            reads.opening_waits.push(opening);
+            if reads.reading_task.is_some() {
+                None
+            } else {
+                let task = self.next_reading_task.fetch_add(1, Ordering::Relaxed);
+                reads.reading_task = Some(task);
+                Some(task)
+            }
+        };
+        if let Some(task) = task {
+            self.start_reading(live, task, Vec::new());
+        }
+        // A sender dropped with its forgotten session ends the wait too.
+        let _read = read.await;
+    }
+
+    // Starts the read task numbered `task` on `live`, filing its first read on `runs`; it reads
+    // again while reads are asked behind it, and wakes the waiting openings after each read.
+    fn start_reading(
+        self: &Arc<Self>,
+        live: &Arc<LiveClaudeSession>,
+        task: u64,
+        mut runs: Vec<ClaudeBoundRun>,
+    ) {
         let readings = Arc::clone(self);
         let live = Arc::clone(live);
         tokio::spawn(async move {
-            let mut runs = Vec::from_iter(run);
             loop {
                 readings.read_once(&live, task, &runs).await;
                 let mut sessions = lock(&readings.sessions);
@@ -220,6 +268,10 @@ impl ClaudeContextReadings {
                 else {
                     return;
                 };
+                for opening in std::mem::take(&mut reads.opening_waits) {
+                    // An opening that stopped waiting has nothing to wake.
+                    let _woken = opening.send(());
+                }
                 if !reads.is_asked_again {
                     reads.reading_task = None;
                     return;
@@ -279,6 +331,7 @@ impl ClaudeContextReadings {
             &ClaudeContextRead {
                 reading,
                 model: last.model,
+                memory_files: last.memory_files,
             },
             Some(run_id),
         ))
@@ -330,6 +383,8 @@ impl ClaudeContextReadings {
         if !self.hold_read(live.session_id, task, read.clone()) {
             return;
         }
+        self.inspector_reads
+            .keep_memory_files(live.session_id, read.memory_files.clone());
         for run in runs {
             let delivery = InboundDelivery::SessionRow {
                 binding: DeliveryBinding {
@@ -421,6 +476,13 @@ pub(crate) fn compose_claude_context_read(
             },
         })
     });
+    let memory_files = reply.memory_files.as_ref().map_or_else(Vec::new, |files| {
+        files
+            .0
+            .iter()
+            .filter_map(|file| FilesystemPath::new(file.path.clone()?).ok())
+            .collect()
+    });
     Some(ClaudeContextRead {
         reading: SessionContextReading {
             session_id,
@@ -434,6 +496,7 @@ pub(crate) fn compose_claude_context_read(
             usage,
         },
         model: reply.model.filter(|model| !model.is_empty()),
+        memory_files,
     })
 }
 

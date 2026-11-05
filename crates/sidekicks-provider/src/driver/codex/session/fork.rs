@@ -9,7 +9,6 @@ pub(crate) mod config_change;
 
 use std::sync::Arc;
 
-use serde_json::Map;
 use serde_json::value::RawValue;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::controls::methods::SessionMode;
@@ -30,6 +29,9 @@ use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::calls::CodexSessionTask;
+use crate::driver::codex::session::context_reading::{
+    CodexSessionContextReadings, compose_codex_recovery_data,
+};
 use crate::driver::codex::session::controls::update_codex_session_mode;
 use crate::driver::codex::session::conversation_release::CodexConversationRelease;
 use crate::driver::codex::session::errors::{CodexError, classify_rewind_fork_failure};
@@ -254,27 +256,28 @@ pub(crate) async fn move_codex_session_to_fork(
     ))
 }
 
-/// Points the binding of the session's first run at the conversation the session is on, recording
-/// with it each conversation a fork left before the session had a binding, and keeps on it the
-/// switching home where that home holds the conversation, which every later binding of the session
-/// carries on. Fails as a binding's write does, those conversations still owed to the next write.
+/// Points the binding of the session's first run at the conversation the session is on, keeping
+/// on it the session's fixed start and its conversation's home where either is there, which every
+/// later binding of the session carries on, and recording with it each conversation a fork left
+/// before the session had a binding, each row keeping the same data. Fails as a binding's write
+/// does, those conversations still owed to the next write.
 pub(crate) async fn bind_codex_first_run(
     record: &mut CodexSessionRecord,
+    context_readings: &CodexSessionContextReadings,
     bindings: &dyn RuntimeBindingWriter,
     binding_id: &RuntimeBindingId,
 ) -> Result<(), CodexError> {
-    let home = CodexConversationHome::of_service(record.service.home());
-    if home == CodexConversationHome::Switching {
-        let mut runtime_metadata = Map::new();
-        home.keep_in(&mut runtime_metadata);
-        bindings
-            .keep_recovery_data(binding_id.clone(), runtime_metadata)
-            .await
-            .map_err(|cause| CodexError::PortFailed {
-                port: RUNTIME_BINDING_STORE_PORT,
-                cause,
-            })?;
-    }
+    context_readings
+        .keep_on_first_binding(
+            bindings,
+            binding_id,
+            CodexConversationHome::of_service(record.service.home()),
+        )
+        .await
+        .map_err(|cause| CodexError::PortFailed {
+            port: RUNTIME_BINDING_STORE_PORT,
+            cause,
+        })?;
     if record.left_thread_ids_awaiting_binding.is_empty() {
         return Ok(());
     }
@@ -285,6 +288,7 @@ pub(crate) async fn bind_codex_first_run(
             resume_handle: record.thread_id.clone(),
             left_conversations: compose_left_conversations(
                 record,
+                context_readings.fixed_start_tokens(),
                 &record.left_thread_ids_awaiting_binding,
             ),
         },
@@ -420,6 +424,7 @@ async fn move_record_to_fork(
     };
     record_fork_in_binding(
         task.record,
+        task.context_readings.fixed_start_tokens(),
         dependencies,
         binding_id.as_ref(),
         &pre_fork_thread_id,
@@ -503,6 +508,7 @@ async fn open_fork_legs(
 // the first run's binding records it. A failed write lets the fork go.
 async fn record_fork_in_binding(
     record: &mut CodexSessionRecord,
+    fixed_start_tokens: Option<u64>,
     dependencies: &CodexForkDependencies,
     binding_id: Option<&RuntimeBindingId>,
     pre_fork_thread_id: &str,
@@ -521,7 +527,11 @@ async fn record_fork_in_binding(
         RuntimeBindingRebind {
             binding_id: binding_id.clone(),
             resume_handle: forked_thread_id.to_owned(),
-            left_conversations: compose_left_conversations(record, &left_thread_ids),
+            left_conversations: compose_left_conversations(
+                record,
+                fixed_start_tokens,
+                &left_thread_ids,
+            ),
         },
     )
     .await;
@@ -546,17 +556,24 @@ async fn rebind(
         })
 }
 
-// The conversations a session left, on the account its record runs on.
+// The conversations a session left, on the account its record runs on, each keeping the fixed
+// start `fixed_start_tokens` and the record's home as its recovery data.
 fn compose_left_conversations(
     record: &CodexSessionRecord,
+    fixed_start_tokens: Option<u64>,
     thread_ids: &[String],
 ) -> Vec<LeftConversation> {
+    let runtime_metadata = compose_codex_recovery_data(
+        fixed_start_tokens,
+        CodexConversationHome::of_service(record.service.home()),
+    );
     thread_ids
         .iter()
         .map(|conversation_id| LeftConversation {
             session_id: record.session_id,
             provider_account_id: record.provider_account_id.clone(),
             conversation_id: conversation_id.clone(),
+            runtime_metadata: runtime_metadata.clone(),
         })
         .collect()
 }

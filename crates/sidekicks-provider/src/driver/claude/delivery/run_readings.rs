@@ -26,6 +26,7 @@ use crate::driver::claude::delivery::messages::{
     ClaudeMessageBody, ClaudeMessageRow, ClaudeMessageRowKind, ClaudeOpenToolCall,
 };
 use crate::driver::claude::delivery::stream::daemon_ends::ClaudeDaemonEndedRun;
+use crate::driver::claude::delivery::stream::resumes::ClaudeHelperResumes;
 use crate::driver::claude::delivery::streamed_blocks::{
     ClaudeStreamedBlockKey, ClaudeStreamedBlocks,
 };
@@ -221,6 +222,8 @@ pub(crate) struct ClaudeStreamSession {
     pub(crate) turn_readings: ClaudeTurnReadings,
     /// Whether the open turn already took a message.
     pub(crate) has_turn_message: bool,
+    /// The helpers' newest own runs and the `SendMessage` calls read, which a resume goes by.
+    pub(crate) helper_resumes: ClaudeHelperResumes,
 }
 
 /// A turn's end as the stream delivers it on its run's binding: held while the daemon's own end
@@ -267,6 +270,7 @@ impl ClaudeStreamSession {
             restored_calls: ClaudeRestoredCalls::default(),
             turn_readings: ClaudeTurnReadings::default(),
             has_turn_message: false,
+            helper_resumes: ClaudeHelperResumes::default(),
         }
     }
 

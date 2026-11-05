@@ -17,6 +17,7 @@ use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMo
 use sidekicks_contracts::wire::record::Record;
 
 use crate::driver::ProviderAccountFolders;
+use crate::driver::claude::session::rules::CLAUDE_USER_SETTINGS_FILE;
 use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::{ScriptedDriver, sandbox_cannot_run};
 use crate::driver::claude::session::transport::declarations::ClaudeInitializeDeclaration;
@@ -82,7 +83,7 @@ async fn a_new_session_starts_at_reviewed_only_on_a_model_that_runs_auto_mode() 
     );
     std::fs::create_dir_all(&config_folder).expect("the account's config folder is made");
     std::fs::write(
-        config_folder.join("settings.json"),
+        config_folder.join(CLAUDE_USER_SETTINGS_FILE),
         json!({"permissions": {"defaultMode": "auto"}}).to_string(),
     )
     .expect("the account's settings are written");
@@ -281,7 +282,7 @@ async fn the_advisor_row_holds_the_apps_pick_else_the_persons_own_advisor() {
     let settings = fixture.home.join(".claude");
     std::fs::create_dir_all(&settings).expect("the settings folder is made");
     std::fs::write(
-        settings.join("settings.json"),
+        settings.join(CLAUDE_USER_SETTINGS_FILE),
         json!({"advisorModel": "opus"}).to_string(),
     )
     .expect("the person's settings are written");

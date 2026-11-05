@@ -83,6 +83,7 @@ CREATE TABLE left_conversations (
                          AND length(conversation_id) <= {RESUME_HANDLE_MAX_LEN}
                          AND instr(conversation_id, char(0)) = 0),
   left_at              TEXT NOT NULL,
+  runtime_metadata     TEXT NOT NULL DEFAULT '{{}}', -- JSON: the left leg's own recovery data
   PRIMARY KEY (provider_name, conversation_id)
 ) STRICT;
 

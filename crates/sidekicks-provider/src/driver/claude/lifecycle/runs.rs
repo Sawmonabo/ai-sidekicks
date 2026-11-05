@@ -25,7 +25,7 @@ use crate::driver::ports::resolve_run_folder;
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, InterruptRunRequest, OverrideDenialParams, PauseRunParams,
-    ResumeRunParams, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
+    ResumeRunOutcome, ResumeRunParams, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
 use crate::driver::session_control::{
     ClearSessionGoalParams, DriverGoalResult, SetSessionGoalParams,
@@ -157,7 +157,10 @@ impl ClaudeDriver {
     }
 
     /// Continues a paused or pausing run with its waiting messages.
-    pub(crate) async fn resume_run(&self, params: ResumeRunParams) -> Result<(), DriverError> {
+    pub(crate) async fn resume_run(
+        &self,
+        params: ResumeRunParams,
+    ) -> Result<ResumeRunOutcome, DriverError> {
         self.parts()?.run_controls.resume_run(params).await
     }
 
@@ -190,13 +193,7 @@ impl ClaudeDriver {
     ) -> Result<AgentRunContextCompactResponse, DriverError> {
         let parts = self.parts()?;
         let live = parts.run_start.live_session(params.session_id)?;
-        Ok(compact_claude_context(
-            &live,
-            &parts.run_start.handshakes,
-            &parts.run_start.routes,
-            &self.pending_compactions,
-        )
-        .await?)
+        Ok(compact_claude_context(&live, &parts.run_start, &self.pending_compactions).await?)
     }
 
     /// The session's commands, as one group carrying the params' run and binding: a live session's
@@ -243,7 +240,9 @@ impl ClaudeDriver {
         })
     }
 
-    /// Sets the session goal on the live process with Claude Code's own `/goal`.
+    /// Sets the session goal with Claude Code's own `/goal`, at once even while the lead's run
+    /// works, where Claude Code runs it when that turn ends; a session with no live process has
+    /// its process opened for it.
     pub(crate) async fn set_session_goal(
         &self,
         params: SetSessionGoalParams,
@@ -252,7 +251,8 @@ impl ClaudeDriver {
             .await
     }
 
-    /// Clears the session goal on the live process.
+    /// Clears the session goal, at once even while the lead's run works; a session with no live
+    /// process has its process opened for it.
     pub(crate) async fn clear_session_goal(
         &self,
         params: ClearSessionGoalParams,
@@ -260,22 +260,18 @@ impl ClaudeDriver {
         self.send_goal(params.session_id, None).await
     }
 
-    // Sends `/goal` with `goal_text`, or its clear with none, on the session's live process.
+    // Sends `/goal` with `goal_text`, or its clear with none: as the session's own run, which opens
+    // its process where none is live, or onto the lead's run that holds its turn.
     async fn send_goal(
         &self,
         session_id: SessionId,
         goal_text: Option<&str>,
     ) -> Result<DriverGoalResult, DriverError> {
         let parts = self.parts()?;
-        let live = parts.run_start.live_session(session_id)?;
+        let live = parts.run_start.slots.live_session(session_id);
         parts
             .goals
-            .send(
-                &live,
-                &parts.run_start.handshakes,
-                &parts.run_start,
-                goal_text,
-            )
+            .send(session_id, live.as_deref(), &parts.run_controls, goal_text)
             .await
     }
 }

@@ -27,9 +27,8 @@ use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_codex_service,
 };
-use crate::driver::codex::session::test_fixture::{
-    OneFolder, TEST_THREAD, TestDaemonTurnBindings, no_turns,
-};
+use crate::driver::codex::session::test_fixture::one_folder::OneFolder;
+use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestDaemonTurnBindings, no_turns};
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::driver::schema::schema_parts;
 use crate::driver::session_control::{
@@ -95,6 +94,7 @@ fn resume_params(
         ),
         Vec::new(),
         ProviderRowValues::default(),
+        None,
         Vec::new(),
         live_runs,
     )

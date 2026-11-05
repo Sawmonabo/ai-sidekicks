@@ -16,7 +16,7 @@ use rusqlite::OptionalExtension;
 use serde_json::Map;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::machine::settings::{
-    MachineSettings, ProviderRowValues, ProviderSettingValues,
+    MachineSettings, ProviderKnobValues, ProviderKnobs, ProviderRowValues, ProviderSettingValues,
 };
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -26,6 +26,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::repo::mount::WorkspaceState;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::TextError;
 use sidekicks_mcp::binding::resolver::McpAttributionTable;
 use sidekicks_mcp::binding::session_tool_servers::{
@@ -34,7 +35,7 @@ use sidekicks_mcp::binding::session_tool_servers::{
 use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_provider::driver::ports::SessionRelaunchListener;
 use sidekicks_provider::driver::session_control::{
-    CreateSessionParams, DriverResumeResult, SessionAccountPin,
+    CreateSessionParams, DriverResumeResult, SessionAccountPin, SubagentPolicy,
 };
 use sidekicks_provider::driver::{
     AccountFoldersError, ProviderAccountFolders, ProviderAccountReader, SessionSpawnContext,
@@ -61,7 +62,8 @@ use sidekicks_workspace::row_guards::{BOUND_ROOT_METADATA_PATH, CHECKOUT_ROOT_ME
 use sidekicks_workspace::working_folder::{WorkingFolderReadError, read_working_folder};
 
 use crate::console_state::{
-    read_session_advisor_model, read_session_max_steps_per_turn, read_session_mode,
+    read_session_advisor_model, read_session_auto_memory, read_session_max_steps_per_turn,
+    read_session_mode,
 };
 use crate::permission_level::read_session_permission_level;
 use crate::run::agent::{SessionLead, read_session_lead};
@@ -71,9 +73,9 @@ use crate::run::stored_leg::read_session_leg;
 use self::function_legs::SessionFunctionLegsFor;
 
 /// The statements the port prepares on a pooled connection: the lead, the working folder, the run
-/// folder, the level, the mode, the step bound, the advisor, and the session's run ids and their
-/// bindings for its leg.
-pub const SESSION_DIRECTORY_PROVIDER_PORT_STATEMENT_CAPACITY: usize = 9;
+/// folder, the level, the mode, the step bound, the advisor, the auto-memory switch, and the
+/// session's run ids and their bindings for its leg.
+pub const SESSION_DIRECTORY_PROVIDER_PORT_STATEMENT_CAPACITY: usize = 10;
 
 // The place the session works in and the folder its runs work in: its newest live workspace's
 // prepared root, else, before its first run prepares one, the folder that workspace was bound to,
@@ -239,13 +241,14 @@ pub struct SessionDirectoryProviderPort {
     deps: SessionDirectoryProviderPortDeps,
 }
 
-// The session's level's posture, its mode and every provider's row values, as they stand now,
-// and the git folder the posture is built on.
+// The session's level's posture, its mode and every provider's row values and knobs, as they
+// stand now, and the git folder the posture is built on.
 struct StandingOpening {
     git_folder: FilesystemPath,
     execution_posture: ExecutionPosture,
     mode: SessionMode,
     provider_settings: ProviderSettingValues,
+    provider_knobs: ProviderKnobValues,
 }
 
 impl SessionDirectoryProviderPort {
@@ -257,10 +260,11 @@ impl SessionDirectoryProviderPort {
     /// What `session_id`'s provider session opens with on `provider_account_id`'s account: its
     /// lead's provider, the model it runs on now and the effort, output speed, options and larger
     /// window its binding names, at the posture of the level it stands at, in the mode it was last
-    /// moved to, with the row values set in the app for that provider, the person's tool servers
-    /// at the session's project root where its driver takes a set, and each binding's function
-    /// legs. Fails for a session with no lead or no workspace, as the reads, git or the settings
-    /// file fail, when its project root is no path, and as its set cannot be composed.
+    /// moved to, with the row values set in the app for that provider, the helper policy of the
+    /// person's `Helpers at once` for it, the person's tool servers at the session's project root
+    /// where its driver takes a set, and each binding's function legs. Fails for a session with no
+    /// lead or no workspace, as the reads, git or the settings file fail, when its project root is
+    /// no path, and as its set cannot be composed.
     pub async fn compose_opening(
         &self,
         session_id: SessionId,
@@ -277,6 +281,7 @@ impl SessionDirectoryProviderPort {
             running_model,
         } = lead;
         let row_values = row_values_of(&standing.provider_settings, &binding.provider_name);
+        let helpers_at_once = helpers_at_once_of(&standing.provider_knobs, &binding.provider_name);
         let root = self
             .deps
             .project_records
@@ -310,9 +315,13 @@ impl SessionDirectoryProviderPort {
                 .map(|options| options.as_slice().to_vec())
                 .unwrap_or_default(),
             row_values,
+            // No saved agent definition reaches a spawn yet.
+            subagent_policy: Some(SubagentPolicy::from_helper_limit(
+                helpers_at_once,
+                Vec::new(),
+            )),
             // The session's callback tools are bound by their own owner.
             callback_tools: None,
-            subagent_policy: None,
             tool_servers,
             output_schema: None,
             provider_account_id,
@@ -419,7 +428,7 @@ impl SessionDirectoryProviderPort {
 
     // What an opening and a resume take from the session's records and the settings file now: the
     // git folder of the repository its runs work in, the posture of its level there, its mode,
-    // and every provider's row values.
+    // and every provider's row values and knobs.
     async fn read_standing_opening(
         &self,
         session_id: SessionId,
@@ -450,6 +459,7 @@ impl SessionDirectoryProviderPort {
             git_folder,
             mode,
             provider_settings: settings.provider_settings,
+            provider_knobs: settings.provider_knobs,
         })
     }
 
@@ -498,7 +508,7 @@ impl SessionDirectoryProviderPort {
         session_id: SessionId,
         provider_account_id: ProviderAccountId,
     ) -> Result<SessionSpawnContext, SessionDirectoryProviderPortError> {
-        let (working_folder, step_bound, advisor_model) = self
+        let (working_folder, step_bound, advisor_model, auto_memory) = self
             .deps
             .pool
             .read(ReadLength::Short, move |reader| {
@@ -506,6 +516,7 @@ impl SessionDirectoryProviderPort {
                     read_working_folder(reader, &session_id)?,
                     read_session_max_steps_per_turn(reader, &session_id)?,
                     read_session_advisor_model(reader, &session_id)?,
+                    read_session_auto_memory(reader, &session_id)?,
                 ))
             })
             .await?;
@@ -539,6 +550,7 @@ impl SessionDirectoryProviderPort {
             account_folders,
             step_bound,
             advisor_model,
+            auto_memory,
         })
     }
 
@@ -613,6 +625,7 @@ impl SessionDirectoryProviderPort {
                 session_id,
                 provider_account_id: predecessor.spawn_config.provider_account_id.clone(),
                 conversation_id: handle.clone(),
+                runtime_metadata: predecessor.runtime_metadata.clone(),
             })
             .into_iter()
             .collect();
@@ -633,9 +646,9 @@ impl SessionDirectoryProviderPort {
 impl SessionSpawnContextResolver for SessionDirectoryProviderPort {
     /// The session's newest ready workspace's root, its repository's common git folder (`None`
     /// outside one), the machine's and the project's environment rows, the account's folders, and
-    /// the session's own step bound and advisor. Fails for a session with no workspace ready to
-    /// run in, while the accounts port is unregistered, and as the reads,
-    /// git, the settings file or the accounts port fail.
+    /// the session's own step bound, advisor and `Auto memory` switch. Fails for a session with no
+    /// workspace ready to run in, while the accounts port is unregistered, and as the reads, git,
+    /// the settings file or the accounts port fail.
     fn resolve_spawn_context(
         &self,
         session_id: SessionId,
@@ -717,6 +730,14 @@ impl SessionRelaunchListener for SessionDirectoryProviderPort {
 // The row values set in the app on `provider`'s rows, empty where none is set.
 fn row_values_of(settings: &ProviderSettingValues, provider: &ProviderId) -> ProviderRowValues {
     settings.as_map().get(provider).cloned().unwrap_or_default()
+}
+
+// How many helpers `provider` runs at once, `None` for no limit, as for a provider left unset.
+fn helpers_at_once_of(knobs: &ProviderKnobValues, provider: &ProviderId) -> Option<SafeInt<0>> {
+    knobs
+        .as_map()
+        .get(provider)
+        .and_then(ProviderKnobs::helpers_at_once_limit)
 }
 
 #[cfg(test)]

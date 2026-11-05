@@ -33,7 +33,8 @@ use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::database::statement::{
-    StatementBindings, WriteStatement, nullable_text_binding, text_binding,
+    StatementBindings, WriteStatement, json_list_binding, named_bindings, nullable_text_binding,
+    text_binding,
 };
 use sidekicks_store::database::stored_column::{
     StoredJsonFault, parse_stored_json_object, text_column,
@@ -43,7 +44,7 @@ use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use crate::driver::contract::params_and_results::{
     DriverCliVersionReport, SpawnedVersionBindingCarriers,
 };
-use crate::driver::session_control::{SessionToolServer, SubagentPolicy};
+use crate::driver::session_control::SessionToolServer;
 use crate::left_conversations::{LeftConversation, compose_left_conversation_insert};
 use crate::output_validation::{
     ProviderOutputValidationError, check_contract_version, check_resume_handle,
@@ -86,12 +87,12 @@ const SELECT_RUN_BINDINGS_SQL: &str = select_bindings!("WHERE run_id = ? ORDER B
 // One statement for any number of runs: the ids arrive as one JSON array, so no list of
 // placeholders is built per count or reaches SQLite's bound on them.
 const SELECT_BINDINGS_OF_RUNS_SQL: &str = select_bindings!(
-    "WHERE run_id IN (SELECT value FROM json_each(?)) ORDER BY run_id, created_at, id"
+    "WHERE run_id IN (SELECT value FROM json_each(@run_ids)) ORDER BY run_id, created_at, id"
 );
 
 // The run index serves each run; only the newest row is read.
 const SELECT_NEWEST_RESUMABLE_BINDING_OF_RUNS_SQL: &str = select_bindings!(
-    "WHERE run_id IN (SELECT value FROM json_each(?)) AND resume_handle IS NOT NULL
+    "WHERE run_id IN (SELECT value FROM json_each(@run_ids)) AND resume_handle IS NOT NULL
      ORDER BY created_at DESC, id DESC
      LIMIT 1"
 );
@@ -135,11 +136,11 @@ const INSERT_RELAUNCHED_BINDING_SQL: &str = "
     FROM runtime_bindings
    WHERE id = @predecessor_id";
 
-// Only the account member of the spawn record changes, in SQL, so a concurrent patch of another
-// column is kept.
-const MOVE_BINDING_ACCOUNT_SQL: &str = "
+// Only one member of the spawn record changes, in SQL, so a concurrent patch of another column is
+// kept.
+const SET_SPAWN_CONFIG_MEMBER_SQL: &str = "
   UPDATE runtime_bindings
-     SET spawn_config = json_set(spawn_config, @account_member, @provider_account_id),
+     SET spawn_config = json_set(spawn_config, @member, @value),
          updated_at   = @updated_at
    WHERE id = @id";
 
@@ -161,6 +162,9 @@ const REPLACE_TOOL_SERVERS_SQL: &str = "
 
 // The spawn record's member holding the tool servers, as the record is serialized.
 const TOOL_SERVERS_MEMBER: &str = "toolServers";
+
+// The spawn record's member naming the requested output speed, as the record is serialized.
+const OUTPUT_SPEED_MEMBER: &str = "outputSpeed";
 
 const DELETE_BINDING_SQL: &str = "DELETE FROM runtime_bindings WHERE id = ?";
 
@@ -184,13 +188,6 @@ pub struct RuntimeBindingSpawnConfig {
         deserialize_with = "sidekicks_contracts::wire::present"
     )]
     pub callback_tools: Option<Vec<SessionCallbackTool>>,
-    /// The provider-native subagent policy.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "sidekicks_contracts::wire::present"
-    )]
-    pub subagent_policy: Option<SubagentPolicy>,
     /// Every tool server the session can reach, each with the person's switch, so a resume starts
     /// with exactly the servers that were on.
     #[serde(
@@ -408,19 +405,9 @@ pub fn read_bindings_of_runs(
         return Ok(Vec::new());
     }
     let mut statement = reader.prepare_cached(SELECT_BINDINGS_OF_RUNS_SQL)?;
-    let rows = statement.query_map([run_ids_json(run_ids)], binding_from_row)?;
+    let listed = [json_list_binding("@run_ids", &run_ids)];
+    let rows = statement.query_map(named_bindings(&listed).as_slice(), binding_from_row)?;
     rows.collect()
-}
-
-// The run ids as the one JSON array `json_each` reads.
-fn run_ids_json(run_ids: &[RunId]) -> String {
-    Value::Array(
-        run_ids
-            .iter()
-            .map(|run_id| Value::String(run_id.text().as_str().to_owned()))
-            .collect(),
-    )
-    .to_string()
 }
 
 /// The newest binding of `run_ids` with a resume handle, by when each was recorded and then by id,
@@ -433,9 +420,10 @@ pub fn read_newest_resumable_binding_of_runs(
     if run_ids.is_empty() {
         return Ok(None);
     }
+    let listed = [json_list_binding("@run_ids", &run_ids)];
     reader
         .prepare_cached(SELECT_NEWEST_RESUMABLE_BINDING_OF_RUNS_SQL)?
-        .query_row([run_ids_json(run_ids)], binding_from_row)
+        .query_row(named_bindings(&listed).as_slice(), binding_from_row)
         .optional()
 }
 
@@ -657,16 +645,11 @@ impl RuntimeBindingStore {
     ) -> Result<bool, RuntimeBindingStoreError> {
         let results = self
             .writer
-            .write(vec![WriteStatement {
-                sql: Cow::Borrowed(MOVE_BINDING_ACCOUNT_SQL),
-                bindings: StatementBindings::Named(vec![
-                    text_binding("@id", id.as_str()),
-                    text_binding("@account_member", &format!("$.{PROVIDER_ACCOUNT_MEMBER}")),
-                    text_binding("@provider_account_id", provider_account_id.as_str()),
-                    text_binding("@updated_at", WireInstant::now().as_str()),
-                ]),
-                expected_row_count: None,
-            }])
+            .write(vec![set_spawn_config_member(
+                id,
+                PROVIDER_ACCOUNT_MEMBER,
+                provider_account_id.as_str(),
+            )])
             .await?;
         Ok(results.first().is_some_and(|result| result.row_count > 0))
     }
@@ -710,6 +693,26 @@ impl RuntimeBindingStore {
             }])
             .await?;
         Ok(results.first().is_some_and(|result| result.row_count > 0))
+    }
+}
+
+/// The statement that sets binding `id`'s requested output speed to `output_speed`, for a caller
+/// committing it in its own write; it changes no row when the binding has none.
+pub fn write_output_speed(id: &RuntimeBindingId, output_speed: &ProviderToken) -> WriteStatement {
+    set_spawn_config_member(id, OUTPUT_SPEED_MEMBER, output_speed.as_str())
+}
+
+// Sets the spawn record's `member` of binding `id` to `value`.
+fn set_spawn_config_member(id: &RuntimeBindingId, member: &str, value: &str) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(SET_SPAWN_CONFIG_MEMBER_SQL),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@id", id.as_str()),
+            text_binding("@member", &format!("$.{member}")),
+            text_binding("@value", value),
+            text_binding("@updated_at", WireInstant::now().as_str()),
+        ]),
+        expected_row_count: None,
     }
 }
 

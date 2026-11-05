@@ -1,6 +1,9 @@
-//! The port's opening's tool servers, its relaunch record, its run folder and its git folder.
+//! The port's opening's tool servers and helper policy, its relaunch record, its run folder, its
+//! git folder and a spawn context's memory switch.
 
+use std::collections::BTreeMap;
 use std::error::Error;
+use std::ffi::OsStr;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -11,8 +14,9 @@ use futures::future::BoxFuture;
 use rstest::rstest;
 use rusqlite::{Connection, params};
 use serde_json::{Value, json};
+use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::free_form_string::FilesystemPath;
-use sidekicks_contracts::machine::settings::MachineSettings;
+use sidekicks_contracts::machine::settings::{MachineSettings, ProviderKnobs};
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::mcp::server::{
     McpApprovalMode, McpBindingScope, McpServerBindingRef, McpServerName, McpServerStatus,
@@ -23,7 +27,9 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceState};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_ipc::stream::feed::{CreditGate, Feed};
 use sidekicks_mcp::binding::resolver::McpAttributionTable;
@@ -36,8 +42,13 @@ use sidekicks_provider::driver::mcp_server::read::{
 };
 use sidekicks_provider::driver::mcp_server::status::{McpServerReading, McpServerStatusEmission};
 use sidekicks_provider::driver::ports::SessionRelaunchListener;
-use sidekicks_provider::driver::session_control::{DriverResumeResult, SessionToolServer};
-use sidekicks_provider::driver::{PROVIDERS, SessionSpawnContextResolver};
+use sidekicks_provider::driver::session_control::{
+    DriverResumeResult, SessionToolServer, SubagentPolicy,
+};
+use sidekicks_provider::driver::test_registry::TestProviderAccounts;
+use sidekicks_provider::driver::{
+    CurrentProviderAccount, PROVIDERS, ProviderAccountReader, SessionSpawnContextResolver,
+};
 use sidekicks_provider::left_conversations::read_left_conversations;
 use sidekicks_provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RUNTIME_BINDING_STORE_STATEMENT_CAPACITY, RuntimeBindingSpawnConfig,
@@ -55,7 +66,7 @@ use sidekicks_store::database::writer::test_file::{
 };
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use sidekicks_workspace::git::process::test_repository::make_test_repository;
-use sidekicks_workspace::git::process::{GitLimits, GitRunner, test_git_runner};
+use sidekicks_workspace::git::process::{GitCall, GitLimits, GitRunner, test_git_runner};
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
 use sidekicks_workspace::project::records::{
     PROJECT_RECORDS_STATEMENT_CAPACITY, ProjectRecords, ProjectSessionActivity, ProjectSessionFacts,
@@ -66,6 +77,8 @@ use super::{
     GitFolderUnavailable, SESSION_DIRECTORY_PROVIDER_PORT_STATEMENT_CAPACITY,
     SessionDirectoryProviderPort, SessionDirectoryProviderPortDeps, SessionGitFolder,
 };
+use crate::agents::projection::test_fixture::{binding, write_log_row};
+use crate::console_state::auto_memory_change_statement;
 use crate::run::binding_cursors::{RUN_BINDING_CURSORS_STATEMENT_CAPACITY, RunBindingCursors};
 use crate::run::engine::test_fixture::insert_running_run;
 use crate::run::epochs::ExecutionEpochs;
@@ -93,8 +106,34 @@ impl MachineSettingsReader for Unread {
     }
 }
 
+// A settings file whose one knob set is `Helpers at once` at `limit`, on `provider`.
+struct HelpersAtOnce {
+    provider: ProviderId,
+    limit: SafeInt<0>,
+}
+
+impl MachineSettingsReader for HelpersAtOnce {
+    fn read_machine_settings(
+        &self,
+    ) -> BoxFuture<'_, Result<MachineSettings, Box<dyn Error + Send + Sync>>> {
+        let knobs = ProviderKnobs {
+            helpers_at_once: Some(Some(self.limit)),
+            ..ProviderKnobs::default()
+        };
+        let provider_knobs = Record::new(BTreeMap::from([(self.provider.clone(), knobs)]))
+            .expect("a provider id is never `__proto__`");
+        async move {
+            Ok(MachineSettings {
+                provider_knobs,
+                ..MachineSettings::default()
+            })
+        }
+        .boxed()
+    }
+}
+
 // A port over a session whose leg runs on `conversation-1`, with the tracker's stream of the
-// bindings it first observes.
+// bindings it first observes and its accounts port registered by the test that reads an account.
 struct PortOverLeg<FirstObservations> {
     port: SessionDirectoryProviderPort,
     pool: Arc<DatabaseReadPool>,
@@ -102,6 +141,7 @@ struct PortOverLeg<FirstObservations> {
     leg_id: RuntimeBindingId,
     first_observations: FirstObservations,
     mcp_attribution: Arc<McpAttributionTable>,
+    provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
 }
 
 // A port over a session whose leg was stored with `spawn_config`.
@@ -110,6 +150,7 @@ async fn port_over_a_leg(
     session_id: SessionId,
     git: GitRunner,
     spawn_config: RuntimeBindingSpawnConfig,
+    settings: Arc<dyn MachineSettingsReader>,
 ) -> PortOverLeg<impl Feed<Emission = McpServerBindingRef>> {
     // One writer for the file, as the daemon keeps one.
     let writer = Arc::new(
@@ -150,14 +191,15 @@ async fn port_over_a_leg(
     let (mcp_status, _subscriber, first_observations) = open_test_tracker().await;
     let mcp_attribution = Arc::new(McpAttributionTable::default());
     let mcp_store = McpBindingStore::new(writer, Arc::clone(&pool));
+    let provider_accounts = Arc::new(PortRegistration::new("provider accounts"));
     let port = SessionDirectoryProviderPort::new(SessionDirectoryProviderPortDeps {
         pool: Arc::clone(&pool),
         read_damaged_from_sequence: Arc::new(|_: &SessionId| None),
         binding_cursors,
         git,
-        settings: Arc::new(Unread),
+        settings,
         project_records: Arc::new(ProjectRecords::new(Arc::clone(&pool), Arc::new(Unread))),
-        provider_accounts: Arc::new(PortRegistration::new("provider accounts")),
+        provider_accounts: Arc::clone(&provider_accounts),
         mcp_status,
         mcp_attribution: Arc::clone(&mcp_attribution),
         mcp_tool_servers: Arc::new(McpSessionToolServers::new(
@@ -172,6 +214,7 @@ async fn port_over_a_leg(
         leg_id,
         first_observations,
         mcp_attribution,
+        provider_accounts,
     }
 }
 
@@ -207,6 +250,7 @@ async fn a_relaunch_records_its_binding_and_the_conversation_it_left(
         session_id,
         test_git_runner(),
         spawn_config_on(test_provider_account_id()),
+        Arc::new(Unread),
     )
     .await;
     let binding_id = mint_runtime_binding_id();
@@ -260,6 +304,7 @@ async fn a_relaunch_that_records_nothing_forgets_its_opened_cursor(#[case] is_an
         session_id,
         test_git_runner(),
         spawn_config_on(test_provider_account_id()),
+        Arc::new(Unread),
     )
     .await;
     let opened_id = mint_runtime_binding_id();
@@ -329,6 +374,7 @@ async fn a_relaunch_resolves_the_set_its_binding_stored() {
             }]),
             ..spawn_config_on(test_provider_account_id())
         },
+        Arc::new(Unread),
     )
     .await;
 
@@ -381,6 +427,7 @@ async fn an_opening_sends_the_persons_servers_at_its_root(#[case] takes_tool_ser
         session_id,
         test_git_runner(),
         spawn_config_on(test_provider_account_id()),
+        Arc::new(Unread),
     )
     .await;
     let connection = database.reader();
@@ -519,6 +566,7 @@ async fn the_run_folder_reads_the_newest_live_workspace(
         session_id,
         test_git_runner(),
         spawn_config_on(test_provider_account_id()),
+        Arc::new(Unread),
     )
     .await;
     let connection = database.reader();
@@ -581,6 +629,7 @@ async fn a_git_folder_that_is_gone_or_not_named_is_unavailable(
         session_id,
         git,
         spawn_config_on(test_provider_account_id()),
+        Arc::new(Unread),
     )
     .await;
     let connection = database.reader();
@@ -615,18 +664,160 @@ async fn a_git_folder_that_is_gone_or_not_named_is_unavailable(
     }
 }
 
+// A spawn context carries the session's own `Auto memory` switch, unset where the person never set
+// it. Killed by the switch left off the read (every case reads unset) and by a fixed value.
+#[rstest]
+#[case::never_set(None)]
+#[case::off(Some(false))]
+#[case::on(Some(true))]
+#[tokio::test]
+async fn a_spawn_context_carries_the_sessions_memory_switch(#[case] auto_memory: Option<bool>) {
+    let database = TestDatabase::new(schema_parts());
+    let session_id = test_session_id();
+    let PortOverLeg {
+        port,
+        provider_accounts,
+        ..
+    } = port_over_a_leg(
+        &database,
+        session_id,
+        test_git_runner(),
+        spawn_config_on(test_provider_account_id()),
+        Arc::new(Unread),
+    )
+    .await;
+    let connection = database.reader();
+    store_session_and_mount(&connection, session_id);
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let fs_root = folder.path().to_string_lossy().into_owned();
+    insert_workspace(
+        &connection,
+        session_id,
+        "live",
+        WorkspaceState::Ready,
+        Some(&fs_root),
+        &json!({}),
+        "2026-10-14T09:30:00.000Z",
+    );
+    let accounts: Arc<dyn ProviderAccountReader> = Arc::new(TestProviderAccounts::holding_folder(
+        CurrentProviderAccount::Current(test_provider_account_id()),
+        Some(folder.path().to_path_buf()),
+    ));
+    provider_accounts
+        .register(accounts)
+        .expect("the accounts reader registers");
+    // Git refuses a removed folder, so the git folder reads as none.
+    folder.close().expect("the folder is removed");
+    if let Some(is_enabled) = auto_memory {
+        DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
+            .await
+            .expect("the writer opens")
+            .write(vec![auto_memory_change_statement(
+                &session_id,
+                is_enabled,
+                "2026-10-14T09:30:00.000Z",
+            )])
+            .await
+            .expect("the switch is written");
+    }
+
+    let context = port
+        .resolve_spawn_context(session_id, test_provider_account_id())
+        .await
+        .expect("the spawn context resolves");
+
+    assert_eq!(context.auto_memory, auto_memory);
+}
+
+// An opening carries the helper policy of `Helpers at once` as set for the lead's provider: unset
+// there, with `0` set for another provider, it runs helpers with no limit, `0` there runs none,
+// and a count there is that limit. Killed by the policy left out, by the knob read for another
+// provider, by the knob never read, and by a count read as no limit or as helpers switched off.
+#[rstest]
+#[case::set_for_another_provider(1, 0, SubagentPolicy::Enabled {
+    helpers_at_once: None,
+    definitions: Vec::new(),
+})]
+#[case::zero_for_the_leads_provider(0, 0, SubagentPolicy::Disabled {})]
+#[case::a_count_for_the_leads_provider(0, 3, SubagentPolicy::Enabled {
+    helpers_at_once: SafeInt::new(3),
+    definitions: Vec::new(),
+})]
+#[tokio::test]
+async fn compose_opening_carries_the_leads_providers_helpers_at_once(
+    #[case] knob_provider: usize,
+    #[case] limit: u64,
+    #[case] expected: SubagentPolicy,
+) {
+    let database = TestDatabase::new(schema_parts());
+    let session_id = test_session_id();
+    let settings = HelpersAtOnce {
+        provider: ProviderId::new(PROVIDERS[knob_provider].id.to_owned())
+            .expect("a registered provider id"),
+        limit: SafeInt::new(limit).expect("a small count is a limit"),
+    };
+    let PortOverLeg { port, .. } = port_over_a_leg(
+        &database,
+        session_id,
+        test_git_runner(),
+        spawn_config_on(test_provider_account_id()),
+        Arc::new(settings),
+    )
+    .await;
+    let connection = database.reader();
+    store_session_and_mount(&connection, session_id);
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    test_git_runner()
+        .run(
+            None,
+            GitCall::read([OsStr::new("init"), folder.path().as_os_str()]),
+        )
+        .await
+        .expect("the repository is made");
+    let fs_root = folder.path().to_string_lossy().into_owned();
+    insert_workspace(
+        &connection,
+        session_id,
+        "live",
+        WorkspaceState::Ready,
+        Some(&fs_root),
+        &json!({}),
+        "2026-10-14T09:30:00.000Z",
+    );
+    let lead_binding = binding(PROVIDERS[0].id, "model-a");
+    let lead = json!({ "agentId": mint_uuid_v7().to_string(), "binding": lead_binding });
+    write_log_row(
+        &connection,
+        session_id,
+        0,
+        (
+            SessionEventType::SessionCreated,
+            &json!({ "mainAgent": lead }),
+        ),
+        None,
+        "2026-10-14T09:00:00.000Z",
+    );
+
+    let opening = port
+        .compose_opening(session_id, test_provider_account_id())
+        .await
+        .expect("the opening composes");
+
+    assert_eq!(opening.create_params.subagent_policy, Some(expected));
+}
+
+// The id of the project and of its mount, which a project's reads parse as ids.
+const PROJECT_AND_MOUNT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e80";
+
 // Stores `session_id`'s row and the project mount its workspaces are of.
 fn store_session_and_mount(connection: &Connection, session_id: SessionId) {
     insert_session_row(connection, session_id.text().as_str(), None, None);
-    for row in project_and_mount_rows(MOUNT_ID, None) {
+    for row in project_and_mount_rows(PROJECT_AND_MOUNT_ID, None) {
         connection
             .execute_batch(&row)
             .expect("the project and its mount are stored");
     }
 }
-
-// The project and mount every session of these tests works in, a UUID as a project id reads.
-const MOUNT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e74";
 
 // Stores a workspace `id` of `session_id` in `state`, prepared at `fs_root` where it names one.
 fn insert_workspace(
@@ -651,7 +842,7 @@ fn insert_workspace(
                 <&'static str>::from(state),
                 metadata.to_string(),
                 at,
-                MOUNT_ID
+                PROJECT_AND_MOUNT_ID
             ],
         )
         .expect("the test stores a workspace");

@@ -124,13 +124,13 @@ pub(crate) async fn read_codex_mcp_config(
     if roots.is_empty() {
         reads.push(CodexRootConfigRead {
             root: None,
-            read: read_codex_config(connection, home, true).await?,
+            read: read_codex_config(connection, Some(home), true).await?,
         });
     }
     for root in roots {
         reads.push(CodexRootConfigRead {
             root: Some(root.root.clone()),
-            read: read_codex_config(connection, &root.folder, true).await?,
+            read: read_codex_config(connection, Some(&root.folder), true).await?,
         });
     }
     let mut reading = attribute_codex_mcp_servers(&reads);

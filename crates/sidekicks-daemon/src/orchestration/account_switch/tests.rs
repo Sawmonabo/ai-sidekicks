@@ -247,6 +247,7 @@ async fn fixture() -> Fixture {
         account_reader: Arc::new(ProviderAccounts::new(
             Arc::clone(&reads),
             Arc::new(NoTokens),
+            accounts.observed_auth_modes(),
         )),
         switch_legs: HashMap::from([(
             first_provider(),

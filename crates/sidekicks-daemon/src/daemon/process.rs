@@ -35,6 +35,7 @@ use jiff::Timestamp;
 use sidekicks_artifact::plans::store::StoredPlanHolds;
 use sidekicks_contracts::daemon::lifecycle::{DAEMON_READY_LINE, DAEMON_STOP_DRAIN_BOUND_MS};
 use sidekicks_contracts::jsonrpc::negotiation::CURRENT_PROTOCOL_VERSION;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_ipc::caller_process::descent::CallerCheck;
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
 use sidekicks_ipc::protocol_negotiation::ProtocolNegotiator;
@@ -381,6 +382,8 @@ impl DaemonProcess {
                 shell: &shell,
                 copier: &copier,
                 now: Timestamp::now(),
+                daemon_started_at: WireInstant::from_timestamp(self.started_at)
+                    .expect("the clock reads after year 0000"),
                 backup_folder,
                 run_folder,
                 secure_defaults: &secure_defaults,

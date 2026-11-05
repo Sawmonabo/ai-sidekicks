@@ -56,10 +56,12 @@ pub(crate) fn run_outcome_of(
         | SessionEventType::AgentRunWaitingForInput
         | SessionEventType::AgentRunPausing
         | SessionEventType::AgentRunRolledBack
+        | SessionEventType::AgentRunParentCorrected
         | SessionEventType::AgentRunProviderInitialized
         | SessionEventType::AgentTurnStarted
         | SessionEventType::AgentTurnCompleted
         | SessionEventType::AgentTurnInterrupted
+        | SessionEventType::AgentChildrenStopped
         | SessionEventType::AgentTurnFailed
         | SessionEventType::AgentRunWorkerShuttingDown
         | SessionEventType::AgentRunStepLimitReached
@@ -78,6 +80,7 @@ pub(crate) fn run_outcome_of(
         | SessionEventType::AgentToolCallFailed
         | SessionEventType::AgentSubagentStarted
         | SessionEventType::AgentSubagentCompleted
+        | SessionEventType::AgentSubagentStopped
         | SessionEventType::AgentCommandEnded
         | SessionEventType::AgentQueueItemCreated
         | SessionEventType::AgentQueueItemAdmitted

@@ -45,7 +45,7 @@ use crate::driver::claude::delivery::commands::{ClaudeCommandChannel, ClaudeSess
 use crate::driver::claude::delivery::mcp_tasks::restore::ClaudeKeptCallsSource;
 use crate::driver::claude::delivery::stream::{ClaudeSessionStream, ClaudeSessionStreams};
 use crate::driver::claude::frame_routing::ClaudeFrameRouting;
-use crate::driver::claude::goals::endings::{ClaudeGoalFile, ClaudeProcessGoal};
+use crate::driver::claude::goals::file::{ClaudeGoalFile, ClaudeGoalFork, ClaudeProcessGoal};
 use crate::driver::claude::handshake_register::ClaudeHandshakeRegister;
 use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::driver::claude::inbox::listener::ClaudeSessionInboxes;
@@ -63,6 +63,7 @@ use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
 };
 use crate::driver::claude::session::ignored_settings::find_ignored_setting_notice;
+use crate::driver::claude::session::inspector_reads::ClaudeInspectorReads;
 use crate::driver::claude::session::permission_mode::{
     ClaudePermissionModeRecord, follow_claude_reported_levels,
 };
@@ -129,6 +130,8 @@ pub(crate) struct ClaudeSessionEstablishment {
     pub(crate) sources: Arc<ClaudeSpawnSources>,
     /// Each account's read of its connectors and organization servers.
     pub(crate) account_servers: Arc<ClaudeAccountServerReads>,
+    /// What each session's processes showed the inspector.
+    pub(crate) inspector_reads: Arc<ClaudeInspectorReads>,
 }
 
 // The callback tools a spawn binds: its own, rolled back should it fail, or a fork's, shared with
@@ -494,12 +497,32 @@ impl ClaudeSessionEstablishment {
         let config_folder = claude_config_folder(&legs.spawn_environment, PathRules::NATIVE);
         let kept_calls =
             ClaudeKeptCallsSource::new(config_folder.clone(), provider_session_id.clone());
-        // Followed from before the process starts, so every goal outcome it writes is read.
+        // Followed from before the process starts, so every goal outcome it writes is read; a fork
+        // passes over the records it copies from its predecessor.
+        let fork = if let ClaudeConversationStart::Fork {
+            resume_handle,
+            resume_at_message_uuid,
+            ..
+        } = &conversation
+        {
+            Some(ClaudeGoalFork {
+                resume_handle,
+                resume_at_message_uuid,
+            })
+        } else {
+            None
+        };
+        let (goal_file, restored_goal) =
+            ClaudeGoalFile::open(&legs.spawn_environment, &provider_session_id, fork).await;
+        // A process with no file yet restores none, and a fork keeps what its predecessor held.
+        if let Some(restored_goal) = restored_goal {
+            self.task_services
+                .goal_endings
+                .seed(session_id, restored_goal.condition);
+        }
         let goal = ClaudeProcessGoal {
             agent_id,
-            file: Mutex::new(
-                ClaudeGoalFile::open(&legs.spawn_environment, &provider_session_id).await,
-            ),
+            file: Mutex::new(goal_file),
         };
         let stream = Arc::new(ClaudeSessionStream::new(
             provider_account_id,
@@ -709,6 +732,11 @@ impl ClaudeSessionEstablishment {
             channel.follow(live.process_identity.process_id);
         }
         self.task_services.idle_sleep.note_awake(session_id);
+        self.inspector_reads.keep_spawn(
+            live,
+            started.settings_readback.auto_memory_enabled,
+            &self.sources,
+        );
         self.streams.insert(Arc::clone(&stream));
         // A resume reuses its predecessor's conversation id, which a held record would match.
         self.handshakes.forget_handshake(session_id);
@@ -719,6 +747,11 @@ impl ClaudeSessionEstablishment {
             session_id,
             &live.provider_session_id,
             &started.initialize.fast_mode,
+        );
+        self.handshakes.hold_initialize_commands(
+            session_id,
+            &live.provider_session_id,
+            &started.initialize.commands,
         );
         if let Some(SubagentPolicy::Enabled {
             helpers_at_once: Some(helpers_at_once),

@@ -1,13 +1,15 @@
 //! The settings every Codex conversation is started, resumed and forked with: its folder, model,
 //! permission level and profile, base instructions, and a `config` carrying its model's window, the
 //! features it runs with, its tool servers, its connectors' defaults, its commands' environment,
-//! its helper limit and its helpers' role files. A resume and a fork send them all again, so a
-//! conversation never falls back to what Codex persisted; a resume that joins a conversation the
-//! service holds loaded sends none, since Codex applies none there. A start and every turn select
-//! the daemon's executor relay as the conversation's environment. Also the `turn/start` and
-//! `thread/settings/update` params, whose members carry absent, `null` and a value as three
-//! meanings, the Build or Plan collaboration mode they carry, and the item-injection method a
-//! loaded conversation takes changed instructions through.
+//! its helper limit, its helpers' role files and the session's memory switch. A resume and a fork
+//! send them all again, so a conversation never falls back to what Codex persisted; a resume that
+//! joins a conversation the service holds loaded sends none, since Codex applies none there. A
+//! start and every turn select the daemon's executor relay as the conversation's environment. Also
+//! the `turn/start` and `thread/settings/update` params, whose members carry absent, `null` and a
+//! value as three meanings, the Build or Plan collaboration mode they carry, and the
+//! item-injection method a loaded conversation takes changed instructions through.
+
+pub(crate) mod memories;
 
 use std::path::{Path, PathBuf};
 
@@ -61,6 +63,9 @@ pub(crate) struct CodexThreadSettings {
     pub(crate) tool_servers: Vec<SessionToolServer>,
     /// The instructions the conversation runs under; sent on every start, resume and fork.
     pub(crate) base_instructions: Option<String>,
+    /// The session's `Auto memory` switch, sent as Codex's two memory keys on every start, resume
+    /// and fork; `None` where the person never set it, which sends neither.
+    pub(crate) auto_memory: Option<bool>,
 }
 
 /// The members `thread/start`, `thread/resume` and `thread/fork` all carry.
@@ -402,6 +407,7 @@ fn compose_thread_config(
         settings.level,
         &settings.profile_folders,
     ));
+    config.extend(memories::compose_codex_memory_config(settings.auto_memory));
     config
 }
 
@@ -474,11 +480,10 @@ fn into_object(members: &impl Serialize) -> Map<String, Value> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
     use rstest::rstest;
     use serde_json::{Map, Value, json};
-    use sidekicks_contracts::session::controls::methods::PermissionLevel;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_platforms::PathRules;
@@ -493,7 +498,7 @@ mod tests {
     use crate::driver::PROVIDERS;
     use crate::driver::codex::DESCRIPTOR;
     use crate::driver::codex::app_server_protocol::{ModeKind, Settings, TextUserInputType};
-    use crate::driver::codex::permission_level::CodexProfileFolders;
+    use crate::driver::codex::session::test_fixture::test_thread_settings;
     use crate::driver::codex::vendored_schema::vendored_schema_file;
     use crate::driver::session_control::SubagentPolicy;
     use crate::spawn_environment::{
@@ -503,23 +508,10 @@ mod tests {
 
     fn settings_with(subagent_policy: Option<SubagentPolicy>) -> CodexThreadSettings {
         CodexThreadSettings {
-            session_id: SessionId::new("0192f3a4-5b6c-7d8e-9f01-23456789abcd")
-                .expect("the text is a UUID"),
-            working_directory: PathBuf::from("/work/repository"),
-            model: "gpt-5".to_owned(),
-            model_context_window: None,
-            level: PermissionLevel::Ask,
-            profile_folders: CodexProfileFolders {
-                working_directory: PathBuf::from("/work/repository"),
-                git_common_folder: None,
-                deny_paths: Vec::new(),
-                command_channel_folder: PathBuf::from("/data/command-channels/session"),
-            },
-            command_environment: Vec::new(),
             subagent_policy,
-            helper_roles: Vec::new(),
-            tool_servers: Vec::new(),
-            base_instructions: None,
+            ..test_thread_settings(
+                SessionId::new("0192f3a4-5b6c-7d8e-9f01-23456789abcd").expect("the text is a UUID"),
+            )
         }
     }
 

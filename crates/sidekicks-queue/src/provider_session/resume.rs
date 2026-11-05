@@ -4,7 +4,8 @@
 //! and stayed down, under a binding minted here whose cursor opens before the driver runs, and
 //! recorded as the session's opening, so the next message opens nothing again; a resume the
 //! provider deferred, starting no process, opens nothing. Each relaunch carries the held lead's
-//! continue where the person's answers are owed it.
+//! continue where the person's answers are owed it, and one that records its binding hands the
+//! driver the helpers live before it to re-attach.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -18,7 +19,9 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::driver::capabilities::DriverCapabilityFlag;
+use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::idle_sleep::SessionSleepState;
+use sidekicks_provider::driver::run_control::ReattachHelpersParams;
 use sidekicks_provider::driver::session_control::{
     DriverResumeResult, ProviderTurnAnswer, ResumeSessionParams, ResumedRunAnswer,
 };
@@ -29,6 +32,7 @@ use sidekicks_provider::runtime_binding::resume::{
 use sidekicks_provider::runtime_binding::store::{
     RuntimeBinding, RuntimeBindingRelaunch, mint_runtime_binding_id,
 };
+use sidekicks_session::agent_tree::reattach::read_helpers_to_reattach;
 use sidekicks_session::console_state::read_session_mode;
 use sidekicks_session::idle_sleep::kept_schedules::read_session_schedules;
 use sidekicks_session::idle_sleep::openings::SessionProcessWaker;
@@ -124,6 +128,7 @@ impl ProviderSessions {
             execution_posture.clone(),
             opening.create_params.options,
             opening.create_params.row_values,
+            opening.create_params.subagent_policy,
             kept_schedules,
             live_runs,
         )?;
@@ -306,6 +311,14 @@ impl ProviderSessions {
         }
         // Kept before the driver runs, so a give-back it sends before it answers finds them.
         self.hand_continue(session_id, continued_lead_id, claims);
+        // The helpers live before the driver runs, read here because the settle of its answer may
+        // record each one ended; a stop in progress is never revived.
+        let live_helper_runs: Vec<RunId> = params
+            .live_runs
+            .iter()
+            .filter(|run| run.subagent_id.is_some() && !run.is_stopping)
+            .map(|run| run.run_id)
+            .collect();
         let answered = match relaunch {
             Relaunch::Resume | Relaunch::Continue => driver.resume_session(params).await,
             Relaunch::Restart => driver.restart_session(params).await,
@@ -439,6 +452,7 @@ impl ProviderSessions {
                     session_id,
                     provider_account_id: leg.spawn_config.provider_account_id.clone(),
                     conversation_id: handle.clone(),
+                    runtime_metadata: leg.runtime_metadata.clone(),
                 })
                 .into_iter()
                 .collect();
@@ -458,9 +472,11 @@ impl ProviderSessions {
                     close_unrecorded(driver.as_ref(), session_id, unrecorded.into()).await,
                 ));
             }
+            self.reattach_helpers(driver.as_ref(), session_id, live_helper_runs)
+                .await;
         } else {
             // A process already up answered on the binding that brought it up, which has its
-            // cursor and its row.
+            // cursor and its row, and whichever relaunch brought it up re-attached its helpers.
             self.deps.binding_cursors.forget_binding(&minted_id);
             taken.map_err(after_carried)?;
         }
@@ -476,6 +492,48 @@ impl ProviderSessions {
                 is_deferred: false,
             },
         ))
+    }
+
+    // Hands `driver` the helpers of `session_id` whose runs `live_helper_runs` names, with their
+    // ancestors, parents first, under the caller's transition lock; with none it reads and calls
+    // nothing. A failed read or call is logged and the relaunch stands, since the settle already
+    // recorded each helper as the provider answered for it.
+    async fn reattach_helpers(
+        &self,
+        driver: &dyn ProviderDriver,
+        session_id: SessionId,
+        live_helper_runs: Vec<RunId>,
+    ) {
+        if live_helper_runs.is_empty() {
+            return;
+        }
+        let reattached: Result<(), Box<dyn Error + Send + Sync>> = async {
+            let helpers = self
+                .deps
+                .pool
+                .read(ReadLength::Short, move |reader| {
+                    read_helpers_to_reattach(reader, session_id, &live_helper_runs)
+                        .map_err(Box::<dyn Error + Send + Sync>::from)
+                })
+                .await?;
+            if !helpers.is_empty() {
+                driver
+                    .reattach_helpers(ReattachHelpersParams {
+                        session_id,
+                        helpers,
+                    })
+                    .await?;
+            }
+            Ok(())
+        }
+        .await;
+        if let Err(error) = reattached {
+            tracing::warn!(
+                session_id = %session_id,
+                error = &*error as &(dyn Error + 'static),
+                "the helpers live before the relaunch could not be re-attached"
+            );
+        }
     }
 
     // Moves each run `runs` names on from its answered wait to running, through the resumed runs'

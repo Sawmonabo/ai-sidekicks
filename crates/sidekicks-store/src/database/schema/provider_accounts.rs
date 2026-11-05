@@ -242,6 +242,19 @@ CREATE TABLE provider_account_usage_turns (
   cache_read_tokens     INTEGER,
   cache_write_tokens    INTEGER,
   reasoning_tokens      INTEGER,
+  -- What a later repricing reads of the turn's request, each NULL where the provider named none.
+  request_key       TEXT,     -- the provider's id of the request, shared by its rows
+  speed             TEXT,     -- the request's speed tier, in the provider's word
+  processing_region TEXT,     -- where the request was processed
+  cache_write_extended_tokens INTEGER,  -- the cache write's share at the longer lifetime
+  web_search_requests         INTEGER,  -- the web searches the request ran
+  thread_speed      TEXT,     -- the thread's declared tier, which prices the helpers it spawned
+  subagent_id       TEXT,     -- the helper the provider attributes the turn to
+  -- Set once the turn's driver left its request unpriced, and on a turn no session owns.
+  is_held           INTEGER NOT NULL DEFAULT 0 CHECK(is_held IN (0, 1)),
+  -- The start of the daemon whose live append wrote the row, in the stored form; NULL on a row a
+  -- rebuild or the observer wrote.
+  daemon_started_at TEXT,
   -- Whole micro-dollars and where they came from, set once when the turn is priced.
   cost_usd_micros INTEGER,
   cost_source     TEXT
@@ -252,11 +265,24 @@ CREATE TABLE provider_account_usage_turns (
   CHECK (run_id IS NULL OR session_id IS NOT NULL)
 ) STRICT;
 
--- The two slices the account surface draws.
+-- The five reads of the table: the account surface's slices by day and by model, a request's rows
+-- by its key, a session's rows by time, and the held requests' rows no figure names yet.
 CREATE INDEX idx_provider_account_usage_turns_account_day
   ON provider_account_usage_turns(account_id, occurred_at);
 CREATE INDEX idx_provider_account_usage_turns_account_model
   ON provider_account_usage_turns(account_id, model_id);
+-- A request's rows by its key, so a request seen again after a restart is found without a scan.
+CREATE INDEX idx_provider_account_usage_turns_account_request
+  ON provider_account_usage_turns(account_id, request_key);
+-- A session's rows by time, so the thread tier live at a helper's request is found without a scan;
+-- the account indexes miss a session that moved accounts.
+CREATE INDEX idx_provider_account_usage_turns_session_time
+  ON provider_account_usage_turns(session_id, occurred_at);
+-- The held requests' reads: the keys of the rows no figure names, and one key's rows by request
+-- in turn order, with no sort.
+CREATE INDEX idx_provider_account_usage_turns_unpriced
+  ON provider_account_usage_turns(cost_usd_micros, provider, account_id, model_id, speed,
+                                  processing_region, request_key, turn_id);
 "
     )
 }

@@ -22,6 +22,7 @@ use std::sync::{Arc, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use jiff::Timestamp;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_platforms::DaemonRunFolder;
 use sidekicks_provider::account::observer::window_store::usage_window_projection_statements;
@@ -101,6 +102,8 @@ pub(crate) struct DatabaseFileStart<'a> {
     pub(crate) copier: &'a DatabaseFileCopier,
     /// The time a new copy aside is named for.
     pub(crate) now: Timestamp,
+    /// The daemon's start in the stored form, which each usage row a live append writes carries.
+    pub(crate) daemon_started_at: WireInstant,
     /// Where the person keeps backups, which a repair reads the newest of.
     pub(crate) backup_folder: PathBuf,
     /// The run folder the repairing socket binds in.
@@ -240,6 +243,7 @@ pub(crate) async fn open_database_file(
         shell,
         copier,
         now,
+        daemon_started_at,
         backup_folder,
         run_folder,
         secure_defaults,
@@ -361,7 +365,9 @@ pub(crate) async fn open_database_file(
         writer: Arc::clone(&writer),
         pool: Arc::clone(&pool),
         followers: Arc::clone(&followers),
-        projection_statements: Some(Box::new(session_projection_statements)),
+        projection_statements: Some(Box::new(move |envelope| {
+            session_projection_statements(envelope, &daemon_started_at)
+        })),
         refuse_session_write: Some(Box::new({
             let status = Arc::clone(&status);
             move |session_id, event_type| refuse_session_event(&status, session_id, event_type)
@@ -524,16 +530,20 @@ async fn open_writer(
 
 // The statements the projections kept in each event's own write take for `envelope`: the session's
 // directory row first, which the others' rows refer to, then the agents' rows, then the questions'
-// queued answers, then the attention entries, then the provider accounts' metered turn and quota
-// windows.
+// queued answers, then the attention entries, then the provider accounts' metered turn, marked with
+// `daemon_started_at`, and quota windows.
 fn session_projection_statements(
     envelope: &UnsequencedEventEnvelope,
+    daemon_started_at: &WireInstant,
 ) -> Result<Vec<WriteStatement>, ProjectionError> {
     let mut statements = directory_statements_for(&DirectoryEvent::from(envelope))?;
     statements.extend(agents_projection_statements(envelope)?);
     statements.extend(question_projection_statements(envelope));
     statements.extend(attention_projection_statements(envelope)?);
-    statements.extend(usage_turn_projection_statements(envelope)?);
+    statements.extend(usage_turn_projection_statements(
+        envelope,
+        daemon_started_at,
+    )?);
     statements.extend(usage_window_projection_statements(envelope)?);
     Ok(statements)
 }

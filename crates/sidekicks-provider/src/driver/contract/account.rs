@@ -375,10 +375,10 @@ pub struct MemoryImportStore {
 /// account, so the import itself never names a provider.
 pub trait ProviderMemoryImportLegs: Send + Sync {
     /// The person's own memory stores, each with the folders it is copied into for the account
-    /// whose home is `home`; a store whose folder does not stand holds no memory to copy. Lists
-    /// folders of the person's own home and writes nothing, so it blocks and runs off the
-    /// runtime's threads. Fails with the system's error when a folder of the person's own home
-    /// cannot be listed.
+    /// whose home is `home`; a store whose folder does not stand holds no memory to copy. Reads
+    /// the person's own home and the provider's settings for it, and writes nothing, so it blocks
+    /// and runs off the runtime's threads. Fails with the system's error when the person's own
+    /// home cannot be read, and with the provider's when its settings cannot be.
     fn memory_import_stores(&self, home: &CredentialHome) -> io::Result<Vec<MemoryImportStore>>;
 }
 

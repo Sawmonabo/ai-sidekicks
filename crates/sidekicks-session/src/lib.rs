@@ -16,7 +16,7 @@ pub mod budget;
 pub mod changes;
 pub mod checkpoints;
 pub mod console_state;
-pub mod conversation_purge;
+pub mod conversations;
 pub mod convert;
 pub mod create;
 pub mod directory;
@@ -46,3 +46,10 @@ pub mod tags;
 pub mod transcript;
 pub mod usage_record;
 pub mod working_folder;
+
+/// `text` as an instant, for tests that spell their instants out. Panics on text no instant holds.
+#[cfg(test)]
+pub(crate) fn instant(text: &str) -> sidekicks_contracts::wire::instant::WireInstant {
+    sidekicks_contracts::wire::instant::WireInstant::try_from(text.to_owned())
+        .expect("a test instant")
+}

@@ -16,7 +16,7 @@ use reqwest::header::{
 };
 use secrecy::SecretString;
 use serde::Deserialize;
-use sidekicks_std::outbound_http::{CappedBodyError, read_capped_body};
+use sidekicks_std::outbound_http::{CappedBodyError, outbound_client_builder, read_capped_body};
 use tokio::sync::OnceCell;
 use tokio::time::Instant;
 use zeroize::Zeroizing;
@@ -251,12 +251,11 @@ pub(crate) fn read_connector_list(body: &[u8]) -> Option<ClaudeConnectorMarks> {
     ))
 }
 
-// The client the list is read through: one idle connection, decoding a gzip, deflate or brotli
-// reply; the request's own `Accept-Encoding` keeps the client from naming its own.
+// The client the list is read through: the app's shared outbound settings with one idle
+// connection, decoding a gzip, deflate or brotli reply; the request's own `Accept-Encoding` keeps
+// the client from naming its own.
 async fn build_http_client() -> Result<reqwest::Client, reqwest::Error> {
-    reqwest::Client::builder()
-        .pool_max_idle_per_host(IDLE_CONNECTIONS_PER_HOST)
-        .build()
+    outbound_client_builder(IDLE_CONNECTIONS_PER_HOST).build()
 }
 
 /// The API host the account's Claude Code reads its connector list from: its approved custom host,

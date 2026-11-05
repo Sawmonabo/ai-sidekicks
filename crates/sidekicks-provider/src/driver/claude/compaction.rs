@@ -12,8 +12,7 @@ use sidekicks_std::error_description::describe_error;
 
 use crate::compaction_wait::{CompactionWaitTerminal, PendingCompactionRegistry};
 use crate::driver::claude::DESCRIPTOR;
-use crate::driver::claude::handshake_register::ClaudeHandshakeRegister;
-use crate::driver::claude::run::routes::ClaudeRunRoutes;
+use crate::driver::claude::run::start::ClaudeRunStart;
 use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeSessionUnavailableReason};
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::user_message::{
@@ -31,18 +30,12 @@ const CLAUDE_COMPACTION_COMMAND_NAME: &str = "compact";
 /// typed compaction frame, recording every other end as a diagnostic.
 pub(crate) async fn compact_claude_context(
     live: &LiveClaudeSession,
-    handshakes: &ClaudeHandshakeRegister,
-    routes: &ClaudeRunRoutes,
+    start: &ClaudeRunStart,
     pending_compactions: &PendingCompactionRegistry,
 ) -> Result<AgentRunContextCompactResponse, ClaudeSessionError> {
     let session_id = live.session_id;
-    let is_listed = handshakes
-        .held_handshake_for(session_id, &live.provider_session_id)
-        .is_some_and(|held| {
-            held.invocable_command_names
-                .contains(CLAUDE_COMPACTION_COMMAND_NAME)
-        });
-    if !is_listed {
+    let routes = &*start.routes;
+    if !start.lists_command(live, CLAUDE_COMPACTION_COMMAND_NAME) {
         return Ok(AgentRunContextCompactResponse::Refused {
             reason: CompactionRefusal::CommandAbsent,
         });
@@ -179,8 +172,7 @@ mod tests {
 
             let response = compact_claude_context(
                 &session.live,
-                &session.start.handshakes,
-                &session.start.routes,
+                &session.start,
                 &PendingCompactionRegistry::default(),
             )
             .await

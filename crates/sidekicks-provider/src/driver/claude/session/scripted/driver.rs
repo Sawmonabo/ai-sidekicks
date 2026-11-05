@@ -14,13 +14,12 @@ use futures::future::BoxFuture;
 use secrecy::SecretString;
 use serde_json::{Map, json};
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
-use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::account::record::{
     CredentialGeneration, ProviderAccountId, ProviderAuthMode,
 };
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
+use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::Record;
@@ -42,7 +41,7 @@ use super::held_calls::init;
 use super::starts::{ScriptedStartRecord, ScriptedStarts};
 use super::{
     SCRIPTED_PROVIDER_SESSION_ID, binding_id, exit_scripted_process, hand_scripted_frame,
-    scripted_staged_changes,
+    scripted_posture, scripted_staged_changes,
 };
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::lifecycle::ClaudeDriver;
@@ -67,7 +66,7 @@ use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::port::session_advisor_store::SessionAdvisorStore;
-use crate::run::posture::{ExecutionPostureService, compose_execution_posture};
+use crate::run::posture::ExecutionPostureService;
 use crate::runtime_binding::resume::ResumeFunctionLegs;
 use crate::runtime_binding::store::{RuntimeBinding, mint_runtime_binding_id};
 use crate::runtime_binding::test_store::{spawn_config_on, test_provider_account_id};
@@ -124,6 +123,7 @@ impl SessionSpawnContextResolver for FolderContexts {
                 account_folders,
                 step_bound,
                 advisor_model,
+                auto_memory: None,
             })
         }
         .boxed()
@@ -537,7 +537,19 @@ impl ScriptedDriver {
         }
     }
 
-    /// Opens a session on `channel` through the driver's create.
+    /// Waits until `channel` holds the hooks listing its process's start sends.
+    pub(crate) async fn wait_for_hooks_listing(channel: &ScriptedChannel) {
+        Self::wait_for(|| {
+            channel
+                .control_requests()
+                .iter()
+                .any(|request| request["subtype"] == "get_hooks_listing")
+        })
+        .await;
+    }
+
+    /// Opens a session on `channel` through the driver's create, once its start's hooks listing
+    /// is written.
     pub(crate) async fn create(&self, channel: &Arc<ScriptedChannel>) -> SessionId {
         let session_id = new_session_id();
         self.starts.script_session(Arc::clone(channel));
@@ -545,6 +557,7 @@ impl ScriptedDriver {
             .create_session(create_params(session_id))
             .await
             .expect("the session opens");
+        Self::wait_for_hooks_listing(channel).await;
         session_id
     }
 
@@ -652,10 +665,7 @@ pub(crate) fn create_params(session_id: SessionId) -> CreateSessionParams {
         effort: None,
         larger_window: None,
         // The run engine opens every session with a posture.
-        execution_posture: Some(compose_execution_posture(
-            PermissionLevel::Ask,
-            FilesystemPath::new("/".to_owned()).expect("the root is a path"),
-        )),
+        execution_posture: Some(scripted_posture()),
         mode: SessionMode::Build,
         output_speed: None,
         options: Vec::new(),

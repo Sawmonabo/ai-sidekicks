@@ -1,8 +1,9 @@
 //! The environment of every process the daemon starts. Each starts from the login shell's
 //! environment with the person's rows laid over it, a row naming a variable the app sets dropped:
 //!
-//! - a provider's process loses the run's credential variables and the names its driver withholds,
-//!   then gets its driver's process variables and the account's folders, which nothing overrides;
+//! - a provider's process loses the run's credential variables, the names its driver withholds and
+//!   the names its spawn withholds (the person's telemetry settings), then gets its driver's
+//!   process variables and the account's folders, which nothing overrides;
 //! - the commands a provider's conversation runs lose the same names and get the account's folders,
 //!   without the process variables;
 //! - a command the person's project runs (a setup command, a Terminal pane's shell) keeps every
@@ -85,6 +86,26 @@ pub struct ProviderEnvironmentRequest<'a> {
     pub credential_homes: &'a [(String, String)],
 }
 
+/// The names one provider process's spawn withholds beyond its driver's list: every name that
+/// starts with one of `prefixes`, and each of `names`, compared under the place's rules. Removed
+/// while the base and rows are laid, so no row brings one back, and before the mandated pairs, so
+/// a pair the driver sets survives.
+#[derive(Clone, Copy)]
+pub(crate) struct WithheldEnvironmentNames<'a> {
+    /// The prefixes whose every name is withheld.
+    pub(crate) prefixes: &'a [&'a str],
+    /// The single names withheld.
+    pub(crate) names: &'a [&'a str],
+}
+
+impl WithheldEnvironmentNames<'static> {
+    /// Nothing withheld beyond the driver's list.
+    pub(crate) const NONE: Self = Self {
+        prefixes: &[],
+        names: &[],
+    };
+}
+
 /// Why a provider's environment could not be built. Each names the variable and never its value,
 /// which can hold a credential.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -116,15 +137,16 @@ pub enum SpawnEnvironmentError {
     },
 }
 
-/// The provider process's whole environment: the session's, the run's credential variables and the
-/// driver's withheld names removed, then the driver's process variables (its auto-update opt-out
-/// among them), every driver's background-work switch, the account's folders and
-/// `additional_mandated_pairs` (a pair a caller sets on this one process), which no base pair or
-/// row overrides. Fails when two mandated pairs claim one name, or when an account folder is
+/// The provider process's whole environment: the session's, the run's credential variables, the
+/// driver's withheld names and `withheld` removed, then the driver's process variables (its
+/// auto-update opt-out among them), every driver's background-work switch, the account's folders
+/// and `additional_mandated_pairs` (a pair a caller sets on this one process), which no base pair
+/// or row overrides. Fails when two mandated pairs claim one name, or when an account folder is
 /// relative or ends up empty.
 pub(crate) fn build_provider_process_environment(
     request: &ProviderEnvironmentRequest<'_>,
     additional_mandated_pairs: &[(String, String)],
+    withheld: WithheldEnvironmentNames<'_>,
 ) -> Result<Vec<(String, String)>, SpawnEnvironmentError> {
     let process_pairs = request.descriptor.process_environment.iter().copied();
     let given_pairs = request
@@ -132,7 +154,7 @@ pub(crate) fn build_provider_process_environment(
         .iter()
         .chain(additional_mandated_pairs)
         .map(|(name, value)| (name.as_str(), value.as_str()));
-    build_driver_environment(request, process_pairs.chain(given_pairs))
+    build_driver_environment(request, process_pairs.chain(given_pairs), withheld)
 }
 
 /// The whole environment of the commands a provider's conversation runs: the session's, the run's
@@ -146,7 +168,11 @@ pub fn build_conversation_command_environment(
         .credential_homes
         .iter()
         .map(|(name, value)| (name.as_str(), value.as_str()));
-    build_driver_environment(request, credential_home_pairs)
+    build_driver_environment(
+        request,
+        credential_home_pairs,
+        WithheldEnvironmentNames::NONE,
+    )
 }
 
 /// The whole environment of a command the person's project runs: the session's, every variable
@@ -154,7 +180,7 @@ pub fn build_conversation_command_environment(
 pub fn build_project_command_environment(
     session: &SessionEnvironment<'_>,
 ) -> Vec<(String, String)> {
-    layer_session_environment(session, []).into_pairs()
+    layer_session_environment(session, [], &[]).into_pairs()
 }
 
 /// `environment` with `folder` first on its `PATH`, the variable's own spelling kept; a `PATH` it
@@ -194,11 +220,13 @@ pub fn remove_environment_names(
     environment.retain(|(name, _)| !removed_keys.contains(&*rules.environment_name_key(name)));
 }
 
-/// The session's environment for a provider with every driver's background-work switch and
-/// `mandated_pairs` set over it, which nothing in the session overrides.
+/// The session's environment for a provider, `withheld` removed with the driver's own names, with
+/// every driver's background-work switch and `mandated_pairs` set over it, which nothing in the
+/// session overrides.
 fn build_driver_environment<'p>(
     request: &ProviderEnvironmentRequest<'_>,
     mandated_pairs: impl IntoIterator<Item = (&'p str, &'p str)>,
+    withheld: WithheldEnvironmentNames<'_>,
 ) -> Result<Vec<(String, String)>, SpawnEnvironmentError> {
     let off_switches = request
         .session
@@ -219,8 +247,10 @@ fn build_driver_environment<'p>(
         .deny_env_vars
         .iter()
         .chain(request.descriptor.withheld_environment_names)
+        .chain(withheld.names)
         .copied();
-    let mut environment = layer_session_environment(&request.session, removed_names);
+    let mut environment =
+        layer_session_environment(&request.session, removed_names, withheld.prefixes);
 
     let mut mandated_names_by_key: HashMap<Cow<'p, str>, &'p str> = HashMap::new();
     for (name, value) in mandated_pairs {
@@ -251,17 +281,23 @@ fn build_driver_environment<'p>(
     Ok(pairs)
 }
 
-/// The base with the rows set over it, every name `removed_names` names left out, a row naming a
-/// reserved or app-set variable dropped. A later pair replaces an earlier one of its name, so a row
-/// beats the base and a project row beats an `Every project` row.
+/// The base with the rows set over it, every name `removed_names` names or one of
+/// `removed_prefixes` starts left out, a row naming a reserved or app-set variable dropped. A later
+/// pair replaces an earlier one of its name, so a row beats the base and a project row beats an
+/// `Every project` row.
 fn layer_session_environment<'n>(
     session: &SessionEnvironment<'_>,
     removed_names: impl IntoIterator<Item = &'n str>,
+    removed_prefixes: &'n [&'n str],
 ) -> EnvironmentByName {
     let rules = session.rules;
     let removed_keys: HashSet<Cow<'n, str>> = removed_names
         .into_iter()
         .map(|name| rules.environment_name_key(name))
+        .collect();
+    let removed_prefix_keys: Vec<Cow<'n, str>> = removed_prefixes
+        .iter()
+        .map(|prefix| rules.environment_name_key(prefix))
         .collect();
     let reserved_keys: HashSet<Cow<'static, str>> = session
         .reserved_names
@@ -291,7 +327,11 @@ fn layer_session_environment<'n>(
     let mut environment = EnvironmentByName::default();
     for (name, value) in pairs {
         let key = rules.environment_name_key(name);
-        if !removed_keys.contains(&*key) {
+        if !removed_keys.contains(&*key)
+            && !removed_prefix_keys
+                .iter()
+                .any(|prefix| key.starts_with(&**prefix))
+        {
             environment.set(key.into_owned(), name, value);
         }
     }
@@ -326,19 +366,21 @@ impl EnvironmentByName {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use sidekicks_contracts::agent::provider_binding::AgentBindingSwitchBoundary;
     use sidekicks_contracts::machine::settings::{APP_SET_ENVIRONMENT_NAMES, EnvironmentRow};
     use sidekicks_contracts::mcp::server::config::McpTransport;
+    use sidekicks_contracts::run::children::ChildStoppedState;
     use sidekicks_contracts::wire::text::{BoundedText, NulFreeText};
     use sidekicks_platforms::{PathRules, PerSystem, SystemFolders};
 
     use super::{
         ProviderEnvironmentRequest, ReservedEnvironmentNames, SessionEnvironment,
-        SpawnEnvironmentError, build_conversation_command_environment,
+        SpawnEnvironmentError, WithheldEnvironmentNames, build_conversation_command_environment,
         build_project_command_environment, build_provider_process_environment,
     };
     use crate::driver::{
         BackgroundWork, CommandSandboxNeeds, ProviderCommand, ProviderDescriptor,
-        ProviderMemoryEstimates,
+        ProviderMemoryEstimates, ProviderSwitchBoundaries,
     };
     use crate::tool_server_name::McpServerNameRule;
 
@@ -373,7 +415,15 @@ mod tests {
             conversation_bytes: None,
         },
         standard_output_speed: "standard",
+        stop_all_row_word: ChildStoppedState::Stopped,
         output_speed_levels: None,
+        switch_boundaries: ProviderSwitchBoundaries {
+            model_id: AgentBindingSwitchBoundary::TurnBoundary,
+            effort: AgentBindingSwitchBoundary::TurnBoundary,
+            output_speed: AgentBindingSwitchBoundary::TurnBoundary,
+            options: AgentBindingSwitchBoundary::TurnBoundary,
+            larger_window: AgentBindingSwitchBoundary::TurnBoundary,
+        },
         process_environment: &[("APP_UPDATES_OFF", "1")],
         launch_environment_names: &["APP_LAUNCH"],
         credential_home_environment_names: &["APP_HOME"],
@@ -464,8 +514,9 @@ mod tests {
             credential_homes: &[],
         };
 
-        let process = build_provider_process_environment(&request, &[])
-            .expect("the provider's environment builds");
+        let process =
+            build_provider_process_environment(&request, &[], WithheldEnvironmentNames::NONE)
+                .expect("the provider's environment builds");
         let commands = build_conversation_command_environment(&request)
             .expect("the conversation's command environment builds");
         let project = build_project_command_environment(&request.session);
@@ -502,8 +553,9 @@ mod tests {
             credential_homes: &[],
         };
 
-        let process = build_provider_process_environment(&request, &[])
-            .expect("the provider's environment builds");
+        let process =
+            build_provider_process_environment(&request, &[], WithheldEnvironmentNames::NONE)
+                .expect("the provider's environment builds");
         let commands = build_conversation_command_environment(&request)
             .expect("the conversation's command environment builds");
         let project = build_project_command_environment(&request.session);
@@ -546,8 +598,9 @@ mod tests {
             credential_homes: &[],
         };
 
-        let process = build_provider_process_environment(&request, &[])
-            .expect("the provider's environment builds");
+        let process =
+            build_provider_process_environment(&request, &[], WithheldEnvironmentNames::NONE)
+                .expect("the provider's environment builds");
 
         assert_eq!(
             PathRules::Posix.environment_value(&process, "path"),
@@ -602,9 +655,12 @@ mod tests {
             credential_homes: &credential_homes,
         };
 
-        let process =
-            build_provider_process_environment(&request, &pairs(&[("TRACE_ADDRESS", "mandated")]))
-                .expect("the provider's environment builds");
+        let process = build_provider_process_environment(
+            &request,
+            &pairs(&[("TRACE_ADDRESS", "mandated")]),
+            WithheldEnvironmentNames::NONE,
+        )
+        .expect("the provider's environment builds");
 
         assert_eq!(value(&process, "APP_HOME"), Some("/accounts/work"));
         assert_eq!(value(&process, "TRACE_ADDRESS"), Some("mandated"));
@@ -661,8 +717,68 @@ mod tests {
         };
 
         assert_eq!(
-            build_provider_process_environment(&request, &pairs(additional_mandated_pairs)),
+            build_provider_process_environment(
+                &request,
+                &pairs(additional_mandated_pairs),
+                WithheldEnvironmentNames::NONE
+            ),
             Err(refusal)
+        );
+    }
+
+    /// A spawn's telemetry list shaped as Claude Code's: a prefix and a name.
+    const TELEMETRY_WITHHELD: WithheldEnvironmentNames<'static> = WithheldEnvironmentNames {
+        prefixes: &["OTEL_"],
+        names: &["CLAUDE_CODE_ENABLE_TELEMETRY"],
+    };
+
+    // The person's telemetry settings, from the base or a row, reach a conversation's commands but
+    // not a provider process withholding them, which keeps the person's opt-out and the exporter
+    // pair its driver sets. Killed by withholding in every builder, and by removing the withheld
+    // names after the mandated pairs are set.
+    #[test]
+    fn a_withheld_telemetry_setting_reaches_conversation_commands_and_no_provider_process() {
+        let base = pairs(&[
+            ("OTEL_EXPORTER_OTLP_HEADERS", "authorization=person"),
+            ("CLAUDE_CODE_ENABLE_TELEMETRY", "1"),
+            ("DISABLE_TELEMETRY", "1"),
+        ]);
+        let project_rows = rows(&[("OTEL_TRACES_EXPORTER", "console")]);
+        let reserved_names = reserved();
+        let request = ProviderEnvironmentRequest {
+            session: SessionEnvironment {
+                base: &base,
+                every_project_rows: &[],
+                project_rows: &project_rows,
+                reserved_names: &reserved_names,
+                rules: PathRules::Posix,
+            },
+            descriptor: &DESCRIPTOR,
+            deny_env_vars: &[],
+            credential_homes: &[],
+        };
+
+        let process = build_provider_process_environment(
+            &request,
+            &pairs(&[("OTEL_EXPORTER_OTLP_LOGS_HEADERS", "authorization=daemon")]),
+            TELEMETRY_WITHHELD,
+        )
+        .expect("the provider's environment builds");
+        let commands = build_conversation_command_environment(&request)
+            .expect("the conversation's command environment builds");
+
+        assert_eq!(
+            value(&commands, "OTEL_EXPORTER_OTLP_HEADERS"),
+            Some("authorization=person")
+        );
+        assert_eq!(value(&commands, "OTEL_TRACES_EXPORTER"), Some("console"));
+        assert_eq!(value(&process, "OTEL_EXPORTER_OTLP_HEADERS"), None);
+        assert_eq!(value(&process, "OTEL_TRACES_EXPORTER"), None);
+        assert_eq!(value(&process, "CLAUDE_CODE_ENABLE_TELEMETRY"), None);
+        assert_eq!(value(&process, "DISABLE_TELEMETRY"), Some("1"));
+        assert_eq!(
+            value(&process, "OTEL_EXPORTER_OTLP_LOGS_HEADERS"),
+            Some("authorization=daemon")
         );
     }
 }

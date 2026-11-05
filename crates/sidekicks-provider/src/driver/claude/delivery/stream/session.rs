@@ -20,7 +20,7 @@ use crate::driver::claude::delivery::mcp_tasks::restore::{ClaudeKeptCall, Claude
 use crate::driver::claude::delivery::run_readings::{ClaudeOpenTurn, ClaudeStreamSession};
 use crate::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
 use crate::driver::claude::delivery::turn_readings::ClaudeTurnReadings;
-use crate::driver::claude::goals::endings::ClaudeProcessGoal;
+use crate::driver::claude::goals::file::ClaudeProcessGoal;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
 use crate::driver::claude::session::arrivals::{ClaudeArrivalSender, ClaudeTurnAtRead};

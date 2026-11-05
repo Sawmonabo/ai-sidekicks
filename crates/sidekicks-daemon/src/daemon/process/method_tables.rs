@@ -14,6 +14,7 @@ use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_recovery::damaged_history::DamagedHistory;
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_recovery::write_gate::RecoveryWriteGate;
+use sidekicks_session::agent_tree::controls::ChildRunControls;
 use sidekicks_session::attention::delivery::web_address::sender::WebAddressSender;
 use sidekicks_session::attention::service::AttentionService;
 use sidekicks_session::changes::SessionChanges;
@@ -77,6 +78,7 @@ use crate::ipc::handlers::provider_account::{
 use crate::ipc::handlers::question::register_question_resolve;
 use crate::ipc::handlers::repo::branches::register_repo_branches;
 use crate::ipc::handlers::repo::mount::register_repo_mounts;
+use crate::ipc::handlers::run::child::register_child_run_controls;
 use crate::ipc::handlers::run::control::{RunControlServices, register_run_control};
 use crate::ipc::handlers::run::queue::{RunQueueMethods, register_run_queue};
 use crate::ipc::handlers::run::safety_holds::RunSafetyHolds;
@@ -88,6 +90,7 @@ use crate::ipc::handlers::session::convert::register_session_convert;
 use crate::ipc::handlers::session::create::register_session_create;
 use crate::ipc::handlers::session::draft_update::register_session_draft_update;
 use crate::ipc::handlers::session::event_subscribe::register_session_event_subscribe;
+use crate::ipc::handlers::session::goal::register_session_goal_methods;
 use crate::ipc::handlers::session::group::register_session_groups;
 use crate::ipc::handlers::session::links::register_session_links;
 use crate::ipc::handlers::session::list::register_session_list;
@@ -105,6 +108,7 @@ use crate::ipc::handlers::terminal::{register_terminal_methods, register_termina
 use crate::ipc::handlers::transcript::register_transcript_reads;
 use crate::ipc::handlers::workspace::register_workspaces;
 use crate::ipc::handlers::worktree::register_worktrees;
+use crate::orchestration::goal_service::SessionGoals;
 
 /// Every service the method tables take, each table's own inputs where its owner bundles them.
 pub(crate) struct MethodTableServices {
@@ -130,6 +134,8 @@ pub(crate) struct MethodTableServices {
     pub(crate) approval_methods: Arc<ApprovalMethodSources>,
     /// The run control methods' services.
     pub(crate) run_control: RunControlServices,
+    /// A person's controls on one helper of a run.
+    pub(crate) child_run_controls: Arc<ChildRunControls>,
     /// The run queue methods' inputs.
     pub(crate) run_queue: RunQueueMethods,
     /// The command methods' sources.
@@ -181,6 +187,8 @@ pub(crate) struct MethodTableServices {
     pub(crate) session_snapshots: SessionSnapshotSources,
     /// The session and file search methods' inputs.
     pub(crate) session_search: SessionSearchMethods,
+    /// Sets and clears the goal of a session's lead agent.
+    pub(crate) session_goals: Arc<SessionGoals>,
     /// The session controls' inputs: the level, the mode, side questions, reviews and the
     /// command list.
     pub(crate) session_controls: SessionControlMethods,
@@ -248,6 +256,7 @@ pub(crate) fn register_method_tables(
     register_provider_account_methods(builder, services.provider_accounts)?;
     register_approval_methods(builder, &services.approval_methods)?;
     register_run_control(builder, &services.run_control)?;
+    register_child_run_controls(builder, services.child_run_controls)?;
     register_run_queue(builder, &services.run_queue)?;
     register_command_methods(builder, &services.command_methods)?;
     register_turn_methods(builder, &services.turn_readings)?;
@@ -277,6 +286,7 @@ pub(crate) fn register_method_tables(
     )?;
     register_session_controls(builder, services.session_controls)?;
     register_mcp_servers(builder, services.mcp_servers)?;
+    register_session_goal_methods(builder, services.session_goals)?;
     register_session_tags(builder, services.tags)?;
     register_session_groups(builder, services.session_groups)?;
     register_session_links(builder, services.links, services.related_ranking)?;

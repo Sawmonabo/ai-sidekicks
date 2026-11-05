@@ -47,6 +47,7 @@ use sidekicks_provider::runtime_binding::resume::ResumeFunctionLegs;
 use sidekicks_provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RuntimeBindingSpawnConfig, mint_runtime_binding_id,
 };
+use sidekicks_session::agent_tree::reattach::HELPER_REATTACH_STATEMENT_CAPACITY;
 use sidekicks_session::console_state::read_session_mode;
 use sidekicks_session::idle_sleep::openings::SessionProcessFollower;
 use sidekicks_session::run::agent::RunAgentReader;
@@ -79,8 +80,9 @@ pub mod test_opening;
 mod tests;
 
 /// The statements the provider sessions' reads prepare: a session's state, its live runs and their
-/// open turns, their bindings, its mode, its level, its kept schedules and its place.
-pub const PROVIDER_SESSIONS_STATEMENT_CAPACITY: usize = 8;
+/// open turns, their bindings, its mode, its level, its kept schedules and its place, and the read
+/// of the helpers a relaunch re-attaches.
+pub const PROVIDER_SESSIONS_STATEMENT_CAPACITY: usize = 8 + HELPER_REATTACH_STATEMENT_CAPACITY;
 
 /// What a session's provider session opens with, composed from the session's lead as its log
 /// stands now.
@@ -708,7 +710,6 @@ fn spawn_config_of(params: &CreateSessionParams) -> RuntimeBindingSpawnConfig {
     RuntimeBindingSpawnConfig {
         execution_posture: params.execution_posture.clone(),
         callback_tools: params.callback_tools.clone(),
-        subagent_policy: params.subagent_policy.clone(),
         tool_servers: params.tool_servers.clone(),
         output_schema: params.output_schema.clone(),
         provider_account_id: params.provider_account_id.clone(),

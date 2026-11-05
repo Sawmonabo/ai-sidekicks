@@ -25,7 +25,9 @@ use sidekicks_session::questions::projection::QuestionsProjection;
 use sidekicks_session::queue_store::plan_message::plan_message_item_sql;
 use sidekicks_session::run::ids::SESSION_RUN_IDS_SQL;
 use sidekicks_store::database::sql_list::sql_list_of;
-use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::database::statement::{
+    StatementBindings, WriteStatement, json_list_binding, text_binding,
+};
 use sidekicks_store::database::stored_column::text_column;
 use sidekicks_store::events::projection::SessionProjection as _;
 use sidekicks_workflow::runs::deletion::workflow_run_deletion_statements;
@@ -475,10 +477,7 @@ pub(super) fn session_deletion_statements(
         sql: Cow::Borrowed(GONE_WORKTREES_DELETE_SQL.as_str()),
         bindings: StatementBindings::Named(vec![
             session_binding(),
-            text_binding(
-                "@worktreeIds",
-                &serde_json::to_string(gone_worktree_ids).expect("worktree ids write as JSON"),
-            ),
+            json_list_binding("@worktreeIds", &gone_worktree_ids),
         ]),
         expected_row_count: None,
     });

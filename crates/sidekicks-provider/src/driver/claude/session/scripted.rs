@@ -16,7 +16,8 @@ use std::time::Duration;
 
 use futures::FutureExt;
 use serde_json::Value;
-use sidekicks_contracts::provider::driver::capabilities::{CredentialPolicyRef, ExecutionPosture};
+use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
@@ -69,6 +70,7 @@ use crate::driver::session_control::CreateSessionParams;
 use crate::driver::test_registry::{new_agent_id, new_run_id, new_session_id};
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::process_identity::ProviderProcessIdentity;
+use crate::run::posture::compose_execution_posture;
 use crate::runtime_binding::test_store::{spawned_build, test_provider_account_id};
 
 /// Staged-change worktrees under a scratch folder of their own, on a spawner of their own.
@@ -87,16 +89,21 @@ pub(crate) fn binding_id(name: &str) -> RuntimeBindingId {
     RuntimeBindingId::new(name.to_owned()).expect("a test binding id fits")
 }
 
+/// The posture every scripted session runs at, Ask: its create's, its live session's and a daemon
+/// turn's admission's.
+pub(crate) fn scripted_posture() -> ExecutionPosture {
+    compose_execution_posture(
+        PermissionLevel::Ask,
+        FilesystemPath::new("/".to_owned()).expect("the root is a path"),
+    )
+}
+
 /// A live session at Ask on the scripted process `channel`.
 pub(crate) fn scripted_live_session(
     session_id: SessionId,
     channel: Arc<dyn ClaudeProcessChannel>,
 ) -> LiveClaudeSession {
-    let execution_posture = ExecutionPosture::Ask {
-        credential_policy_ref: CredentialPolicyRef::new("policy".to_owned())
-            .expect("a test policy reference fits"),
-        writable_roots: Vec::new(),
-    };
+    let execution_posture = scripted_posture();
     let choices = unreadable_claude_command_choices("unread");
     LiveClaudeSession {
         session_id,
@@ -198,6 +205,8 @@ pub(crate) struct ScriptedSession {
     pub(crate) wall_clock: Arc<TestWallClock>,
     listener: Arc<dyn ClaudeProcessListener>,
     control_frames: Mutex<ClaudeControlFrameReader>,
+    // How many control requests the session's start wrote.
+    start_requests: usize,
     // The home, working folder and database the session's start read from.
     _folder: TempDir,
     _database: TestDatabase,
@@ -245,6 +254,8 @@ impl ScriptedSession {
             .create_session(params(session_id))
             .await
             .expect("the session opens");
+        ScriptedDriver::wait_for_hooks_listing(&channel).await;
+        let start_requests = channel.control_requests().len();
         let started = starts.take_started().pop().expect("a start was recorded");
         let parts = Arc::clone(driver.composed_parts().expect("the pieces are composed"));
         let establishment = &parts.establishment;
@@ -280,9 +291,17 @@ impl ScriptedSession {
             parts,
             listener: started.listener,
             control_frames: Mutex::new(control_frames),
+            start_requests,
             _folder: folder,
             _database: database,
         }
+    }
+
+    /// The control requests written since the session's start wrote its own.
+    pub(crate) fn control_requests_after_start(&self) -> Vec<Value> {
+        self.channel
+            .control_requests()
+            .split_off(self.start_requests)
     }
 
     /// Hands the reader's next stream frame over, as the process wrote it.

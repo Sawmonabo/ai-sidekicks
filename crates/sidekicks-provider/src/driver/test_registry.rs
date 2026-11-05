@@ -1,16 +1,16 @@
 //! The driver registry other areas' tests build on: the shared services every driver's build takes,
 //! the table's first providers answered by stand-in drivers, a run bound to the first one, every
 //! provider answered by a mock driver, the session inbox addresser the table's own drivers answer,
-//! an accounts reader answering one current account, the table with Codex's driver over a scripted
-//! service, and the stand-in Codex service a test program runs as itself; the run, session and
-//! message ids the drivers' tests mint, and the run queue's intake as a driver tells it.
+//! an accounts reader answering the current account and every account's folders it holds, the table
+//! with Codex's driver over a scripted service, and the stand-in Codex service a test program runs
+//! as itself; the run, session and message ids the drivers' tests mint, and the run queue's intake
+//! as a driver tells it.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Arc;
-#[cfg(test)]
 use std::sync::Mutex;
 use std::time::SystemTime;
 
@@ -35,7 +35,6 @@ use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::Spawner;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
-#[cfg(test)]
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::scheduler::Scheduler;
@@ -49,6 +48,7 @@ use tokio::runtime::Handle;
 use tokio::sync::Notify;
 use tokio::sync::watch;
 
+use crate::account::errors::ProviderAccountRegistryError;
 use crate::background_work::BackgroundWorkForms;
 use crate::command::waiting_checks::SystemInputWaitReader;
 use crate::command_search::ProviderCommandSearch;
@@ -139,23 +139,72 @@ impl AttachmentResolver for NothingServed {
     }
 }
 
-/// An accounts reader answering every provider's current account as it holds it, for a test that
-/// admits runs; it resolves no account's folders and reads no credential generation.
-pub struct TestProviderAccounts(pub CurrentProviderAccount);
+/// An accounts reader answering every provider's current account as it holds it, every account's
+/// sign-in kind as the test sets it, and every account's folders as the one folder it may hold,
+/// which is both an account's configuration and credential folder; it reads no credential
+/// generation and answers no sealed token.
+pub struct TestProviderAccounts {
+    current: CurrentProviderAccount,
+    folder: Option<PathBuf>,
+    sign_in_kind: Mutex<TestSignInKind>,
+}
+
+// Every account's sign-in kind as the test set it, or that the test removed the accounts.
+#[derive(Clone, Copy)]
+enum TestSignInKind {
+    Registered(Option<ProviderAuthMode>),
+    Removed,
+}
+
+impl TestProviderAccounts {
+    /// Accounts answering `current`, each registered with no sign-in kind read and no folders.
+    pub fn new(current: CurrentProviderAccount) -> Self {
+        Self::holding_folder(current, None)
+    }
+
+    /// Accounts answering `current`, each registered with no sign-in kind read, whose folders are
+    /// both `folder`; `None` answers that no account has folders.
+    pub fn holding_folder(current: CurrentProviderAccount, folder: Option<PathBuf>) -> Self {
+        Self {
+            current,
+            folder,
+            sign_in_kind: Mutex::new(TestSignInKind::Registered(None)),
+        }
+    }
+
+    /// Answers `sign_in_kind` as every account's kind from now on.
+    pub fn set_sign_in_kind(&self, sign_in_kind: Option<ProviderAuthMode>) {
+        *lock(&self.sign_in_kind) = TestSignInKind::Registered(sign_in_kind);
+    }
+
+    /// Answers every account's kind read as an account not registered from now on.
+    pub fn remove_accounts(&self) {
+        *lock(&self.sign_in_kind) = TestSignInKind::Removed;
+    }
+
+    /// The folders it answers for every account, `None` where it holds no folder.
+    pub fn account_folders(&self) -> Option<ProviderAccountFolders> {
+        self.folder.clone().map(|folder| ProviderAccountFolders {
+            configuration_folder: folder.clone(),
+            credential_store_folder: folder,
+        })
+    }
+}
 
 impl ProviderAccountReader for TestProviderAccounts {
     fn resolve_account_folders(
         &self,
         _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<ProviderAccountFolders, AccountFoldersError>> {
-        async { Err(AccountFoldersError::NotFound) }.boxed()
+        let account_folders = self.account_folders().ok_or(AccountFoldersError::NotFound);
+        async move { account_folders }.boxed()
     }
 
     fn current_account(
         &self,
         _provider_id: ProviderId,
     ) -> BoxFuture<'_, Result<CurrentProviderAccount, Box<dyn Error + Send + Sync>>> {
-        let current = self.0.clone();
+        let current = self.current.clone();
         async move { Ok(current) }.boxed()
     }
 
@@ -168,10 +217,16 @@ impl ProviderAccountReader for TestProviderAccounts {
 
     fn read_observed_auth_mode(
         &self,
-
         _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn Error + Send + Sync>>> {
-        async { Ok(None) }.boxed()
+        let sign_in_kind = *lock(&self.sign_in_kind);
+        async move {
+            match sign_in_kind {
+                TestSignInKind::Registered(sign_in_kind) => Ok(sign_in_kind),
+                TestSignInKind::Removed => Err(ProviderAccountRegistryError::NotFound.into()),
+            }
+        }
+        .boxed()
     }
 
     fn read_sealed_token(
@@ -182,13 +237,13 @@ impl ProviderAccountReader for TestProviderAccounts {
     }
 }
 
-/// A registration holding [`TestProviderAccounts`] answering `current`.
+/// A registration holding [`TestProviderAccounts`] answering `current` and no account's folders.
 pub fn registered_test_accounts(
     current: CurrentProviderAccount,
 ) -> Arc<PortRegistration<Arc<dyn ProviderAccountReader>>> {
     let provider_accounts = PortRegistration::new("provider accounts");
     provider_accounts
-        .register(Arc::new(TestProviderAccounts(current)) as Arc<dyn ProviderAccountReader>)
+        .register(Arc::new(TestProviderAccounts::new(current)) as Arc<dyn ProviderAccountReader>)
         .expect("a new registration takes its port");
     Arc::new(provider_accounts)
 }

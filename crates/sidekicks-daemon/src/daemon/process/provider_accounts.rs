@@ -24,6 +24,7 @@ use sidekicks_contracts::provider::account::record::{
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::transcript::run_facts::RunStateEventType;
 use sidekicks_contracts::trust_statement::DeviceId;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::{Spawner, WallClock, wake_helper};
 use sidekicks_provider::account::errors::ProviderAccountRegistryError;
 use sidekicks_provider::account::home_lock::AccountHomeLock;
@@ -44,11 +45,13 @@ use sidekicks_provider::driver::contract::account::{
     ProviderAccountLegs, ProviderMemoryImportLegs, ProviderObserveLegs, ProviderSignInLegs,
     ProviderSwitchLegs, ProviderTokenLimitsLegs, ProviderTokenStatusLegs, ProviderWindowTurnLegs,
 };
+use sidekicks_provider::driver::ports::RequestHeldListener;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_queue::provider_session::ProviderSessions;
 use sidekicks_recovery::account_homes::LeftoverMintedHomes;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::usage_record::UsageRecord;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::credential_store::SecretKeychain;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -108,6 +111,11 @@ pub(crate) struct ProviderAccountPlaneStart<'start> {
     pub(crate) appender: Arc<SessionEventAppender>,
     /// The last good point of each session whose history is damaged.
     pub(crate) read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
+    /// The drivers' registration of the repricing's intake, which the observer hands each
+    /// window-start turn to.
+    pub(crate) request_held: Arc<PortRegistration<Arc<dyn RequestHeldListener>>>,
+    /// The daemon's start in its stored form, which the observer's window-start rows record.
+    pub(crate) daemon_started_at: WireInstant,
 }
 
 /// The account plane, built before the socket serves.
@@ -150,6 +158,8 @@ pub(crate) async fn build_provider_account_plane(
         provider_sessions,
         appender,
         read_damaged_from_sequence,
+        request_held,
+        daemon_started_at,
     } = start;
     let wake_helper = wake_helper().map(|helper| {
         Arc::new(SystemWakeHelper::new(
@@ -166,6 +176,7 @@ pub(crate) async fn build_provider_account_plane(
     let reader: Arc<dyn ProviderAccountReader> = Arc::new(ProviderAccounts::new(
         Arc::clone(&reads),
         Arc::clone(&provider_tokens),
+        registry.observed_auth_modes(),
     ));
     let ProviderAccountLegSet {
         account: account_legs,
@@ -217,6 +228,8 @@ pub(crate) async fn build_provider_account_plane(
         wall_clock: clock,
         wake_helper: wake_helper.clone(),
         publisher: Arc::clone(&publisher) as _,
+        request_held,
+        daemon_started_at,
     }));
     let sign_in = Arc::new(ProviderSignInBroker::new(
         Arc::clone(&registry),

@@ -4,6 +4,7 @@ use std::borrow::Cow;
 
 use rusqlite::types::Value;
 use rusqlite::{Connection, Params, Statement, params_from_iter};
+use serde::Serialize;
 use sidekicks_contracts::place::Place;
 
 // The form every stored time is written in, as a SQL literal.
@@ -61,6 +62,20 @@ pub fn nullable_text_binding(name: &'static str, text: Option<&str>) -> (Cow<'st
         Cow::Borrowed(name),
         text.map_or(Value::Null, |text| Value::Text(text.to_owned())),
     )
+}
+
+/// `values` as the one JSON array `json_each` reads, so one statement takes any number of values
+/// without a placeholder per value.
+pub fn json_list_value(values: &impl Serialize) -> Value {
+    Value::Text(serde_json::to_string(values).expect("a list of ids or words writes as JSON"))
+}
+
+/// A named binding of `values` as [`json_list_value`] writes them, its `name` written with its `@`.
+pub fn json_list_binding(
+    name: &'static str,
+    values: &impl Serialize,
+) -> (Cow<'static, str>, Value) {
+    (Cow::Borrowed(name), json_list_value(values))
 }
 
 /// A `place` column's value: the place as its wire JSON (`"windows"` or `{"distro":…}`), `NULL`

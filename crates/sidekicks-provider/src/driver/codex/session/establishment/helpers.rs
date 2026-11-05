@@ -22,34 +22,38 @@ use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::run_control::ReattachedHelper;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
-/// Reopens the helper `thread_id` on `connection` as it stands, with no setting, and answers its
-/// newest turn, `None` where it holds none; Codex answers a resume that asks for its newest-turn
-/// page, as this one does, with the page or a refusal, so a reply with no page holds no turn.
-/// Fails as the resume does, a parent not loaded among Codex's refusals.
+/// Reopens the helper `thread_id` on `connection` as it stands, with no setting but the session's
+/// memory switch `auto_memory`, which a helper the service loads again starts under, and answers
+/// its newest turn, `None` where it holds none; Codex answers a resume that asks for its
+/// newest-turn page, as this one does, with the page or a refusal, so a reply with no page holds
+/// no turn. Fails as the resume does, a parent not loaded among Codex's refusals.
 pub(crate) async fn reopen_codex_helper(
     connection: &CodexAppServerConnection,
     thread_id: &str,
+    auto_memory: Option<bool>,
 ) -> Result<Option<CodexListedTurn>, CodexError> {
-    let reply = request_bare_thread_resume(connection, thread_id).await?;
+    let reply = request_bare_thread_resume(connection, thread_id, auto_memory).await?;
     Ok(read_codex_resumed_newest_turn(&reply))
 }
 
-/// Reopens the helper `thread_id` as [`reopen_codex_helper`] does, registered on `service` as
-/// session `session_id`'s first, since Codex sends a reopened helper's waiting asks right after
-/// its reply and the service refuses one no session names. A refused reopen lets go of the
-/// registration it made; one already there stays.
+/// Reopens the helper `thread_id` as [`reopen_codex_helper`] does, under the session's memory
+/// switch `auto_memory`, which a helper the service loads again starts under, registered on
+/// `service` as session `session_id`'s first, since Codex sends a reopened helper's waiting asks
+/// right after its reply and the service refuses one no session names. A refused reopen lets go of
+/// the registration it made; one already there stays.
 pub(crate) async fn reopen_registered_codex_helper(
     service: &CodexService,
     connection: &CodexAppServerConnection,
     session_id: SessionId,
     thread_id: &str,
+    auto_memory: Option<bool>,
 ) -> Result<Option<CodexListedTurn>, CodexError> {
     let was_registered = service
         .threads_of(&session_id)
         .iter()
         .any(|registered| registered == thread_id);
     service.register_thread(thread_id.to_owned(), session_id);
-    let reopened = reopen_codex_helper(connection, thread_id).await;
+    let reopened = reopen_codex_helper(connection, thread_id, auto_memory).await;
     if reopened.is_err() && !was_registered {
         service.release_thread(thread_id);
     }

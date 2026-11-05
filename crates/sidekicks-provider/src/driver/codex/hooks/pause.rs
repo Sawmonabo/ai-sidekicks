@@ -1,7 +1,9 @@
 //! Pause and continue on Codex by the daemon's hooks. A paused helper's next pre-tool call is held
 //! until it continues, and the words waiting for it reach it at its next post-tool hook. A paused
 //! lead's next pre-tool call is parked until run control has sent its turn's interrupt, then
-//! denied, so the parked call never runs. The first call held is the pause taking effect.
+//! denied, so the parked call never runs. The first call held is the pause taking effect. A
+//! collaboration call aimed at a helper a pause holds is denied first, so no agent wakes it around
+//! the hold.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -11,14 +13,19 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
+use crate::driver::codex::hooks::call_checks::CodexCallRuns;
 use crate::driver::codex::hooks::server::{
     CodexHookAnswer, CodexHookAnswerer, CodexHookEvent, CodexHookInput,
 };
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::hook_pauses::{EndedHookPause, HookPauses, PAUSED_REASON, PausedRole};
+use crate::port::agent_tree_lookup::AgentTreeLookup;
+
+mod targets;
 
 /// The run a conversation's pause stops, and the binding its `paused` is delivered on.
 #[expect(
@@ -79,6 +86,23 @@ impl PauseState {
     }
 }
 
+/// What a continue answers of the pause it ended: whether it had taken effect, and whether it lost
+/// a held call that stopped waiting, its hook connection gone; both `false` when none was in force.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Codex run control pauses and continues runs through it"
+    )
+)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CodexEndedPause {
+    /// Whether the pause had stopped the conversation.
+    pub(crate) had_taken_effect: bool,
+    /// Whether a call it held stopped waiting while it held, so the hold was lost.
+    pub(crate) had_lost_hold: bool,
+}
+
 /// Every Codex conversation's hook pause, the lead's and each helper's, and the words waiting for
 /// a continued helper's next finished call.
 #[cfg_attr(
@@ -91,6 +115,10 @@ impl PauseState {
 pub(crate) struct CodexRunPauses {
     /// Told when a pause takes effect, and asked whether a pause's run is live.
     run_control: Arc<dyn CodexPauseRunControl>,
+    /// The session's agent tree, once registered, where a collaboration call's path is resolved.
+    agent_tree: Arc<PortRegistration<Arc<dyn AgentTreeLookup>>>,
+    /// The run each call belongs to, which names the call's session.
+    call_runs: Arc<dyn CodexCallRuns>,
     /// Never held across an await.
     state: Mutex<PauseState>,
 }
@@ -103,10 +131,17 @@ pub(crate) struct CodexRunPauses {
     )
 )]
 impl CodexRunPauses {
-    /// Pauses that tell `run_control` when each takes effect.
-    pub(crate) fn new(run_control: Arc<dyn CodexPauseRunControl>) -> Self {
+    /// Pauses that tell `run_control` when each takes effect, resolving a collaboration call's
+    /// target through `agent_tree` in the session `call_runs` names.
+    pub(crate) fn new(
+        run_control: Arc<dyn CodexPauseRunControl>,
+        agent_tree: Arc<PortRegistration<Arc<dyn AgentTreeLookup>>>,
+        call_runs: Arc<dyn CodexCallRuns>,
+    ) -> Self {
         Self {
             run_control,
+            agent_tree,
+            call_runs,
             state: Mutex::new(PauseState::default()),
         }
     }
@@ -159,16 +194,27 @@ impl CodexRunPauses {
 
     /// Continues the conversation `thread_id`: its held calls are let go to the answerers after
     /// the pauses, and `words`, when given, reach it at its next finished call. Answers whether
-    /// the pause had taken effect; `false` when it was not paused.
-    pub(crate) fn resume(&self, thread_id: &str, words: Option<String>) -> bool {
+    /// the pause had taken effect and whether it lost a held call.
+    pub(crate) fn resume(&self, thread_id: &str, words: Option<String>) -> CodexEndedPause {
         let mut state = self.lock();
+        // A held call that stopped waiting is lost, not let go by this continue.
+        if let Some(session_id) = state
+            .pauses
+            .get(&thread_id.to_owned())
+            .map(|pause| *pause.session_id())
+        {
+            state
+                .pauses
+                .withdraw_held(&session_id, oneshot::Sender::is_closed);
+        }
         let Some(EndedHookPause {
             detail,
             held,
             had_taken_effect,
+            had_lost_hold,
         }) = state.end_pause(thread_id)
         else {
-            return false;
+            return CodexEndedPause::default();
         };
         // A dropped hold lets its call go on to the next answerer, so a continued call still
         // meets every check after the pause, and passes when none answers.
@@ -182,7 +228,10 @@ impl CodexRunPauses {
                 },
             );
         }
-        had_taken_effect
+        CodexEndedPause {
+            had_taken_effect,
+            had_lost_hold,
+        }
     }
 
     // Answers a pre-tool call: held while its conversation is paused, denied at once on a lead
@@ -273,17 +322,21 @@ impl CodexRunPauses {
 }
 
 impl CodexHookAnswerer for CodexRunPauses {
-    /// A pre-tool call is held or denied by its conversation's pause; a post-tool call takes the
-    /// words waiting for it. Never fails.
+    /// A pre-tool call aimed at a held helper is denied, and any other is held or denied by its
+    /// conversation's pause; a post-tool call takes the words waiting for it. Never fails.
     fn answer<'a>(
         &'a self,
         input: &'a CodexHookInput,
         token: &'a CancellationToken,
     ) -> BoxFuture<'a, Result<Option<CodexHookAnswer>, CodexError>> {
         match input.event {
-            CodexHookEvent::PreToolUse => {
-                async move { Ok(self.hold_call(&input.thread_id, token).await) }.boxed()
+            CodexHookEvent::PreToolUse => async move {
+                if let Some(denial) = self.answer_aimed_call(input).await {
+                    return Ok(Some(denial));
+                }
+                Ok(self.hold_call(&input.thread_id, token).await)
             }
+            .boxed(),
             CodexHookEvent::PostToolUse => {
                 let words = self.take_words(&input.thread_id);
                 async move { Ok(words) }.boxed()
@@ -308,16 +361,19 @@ mod tests {
     use rstest::rstest;
     use serde_json::{Map, Value};
     use sidekicks_contracts::run::id::RunId;
+    use sidekicks_std::port_registration::PortRegistration;
     use tokio::task::JoinHandle;
     use tokio_util::sync::CancellationToken;
 
     use super::{CodexHookPause, CodexPauseRunControl, CodexRunPauses, paused_denial};
+    use crate::driver::codex::hooks::call_checks::{CodexCallRuns, CodexHookCallRun};
     use crate::driver::codex::hooks::server::{
         CodexHookAnswer, CodexHookAnswerer, CodexHookCall, CodexHookDispatch, CodexHookEvent,
         CodexHookInput,
     };
     use crate::driver::hook_pauses::PausedRole;
     use crate::driver::test_registry::fixed_session_id;
+    use crate::port::agent_tree_lookup::AgentTreeLookup;
 
     const LEAD: &str = "thread-lead";
     const HELPER: &str = "thread-helper";
@@ -327,7 +383,7 @@ mod tests {
 
     /// Counts the pauses that took effect, with every run live unless told otherwise.
     #[derive(Default)]
-    struct RecordingRunControl {
+    pub(super) struct RecordingRunControl {
         took_effect: AtomicUsize,
         is_run_ended: AtomicBool,
     }
@@ -346,7 +402,28 @@ mod tests {
         RunId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5e").expect("a valid run id")
     }
 
-    fn pause() -> CodexHookPause {
+    /// Every call's run is one run of the fixed session.
+    struct OneSessionRuns;
+
+    impl CodexCallRuns for OneSessionRuns {
+        fn find_call_run(
+            &self,
+            _thread_id: &str,
+            _turn_id: Option<&str>,
+        ) -> Option<CodexHookCallRun> {
+            Some(CodexHookCallRun {
+                session_id: fixed_session_id(),
+                run_id: run_id(),
+            })
+        }
+
+        fn read_limit_refusal(&self, _run: &CodexHookCallRun) -> Option<String> {
+            None
+        }
+    }
+
+    /// The pause of a run of the fixed session.
+    pub(super) fn pause() -> CodexHookPause {
         CodexHookPause {
             session_id: fixed_session_id(),
             run_id: run_id(),
@@ -354,10 +431,21 @@ mod tests {
         }
     }
 
-    fn pauses() -> (Arc<CodexRunPauses>, Arc<RecordingRunControl>) {
+    /// Pauses over `agent_tree`, every call in the fixed session, with the run control they tell.
+    pub(super) fn pauses_over(
+        agent_tree: Arc<PortRegistration<Arc<dyn AgentTreeLookup>>>,
+    ) -> (Arc<CodexRunPauses>, Arc<RecordingRunControl>) {
         let run_control = Arc::new(RecordingRunControl::default());
-        let pauses = Arc::new(CodexRunPauses::new(run_control.clone()));
+        let pauses = Arc::new(CodexRunPauses::new(
+            run_control.clone(),
+            agent_tree,
+            Arc::new(OneSessionRuns),
+        ));
         (pauses, run_control)
+    }
+
+    fn pauses() -> (Arc<CodexRunPauses>, Arc<RecordingRunControl>) {
+        pauses_over(Arc::new(PortRegistration::new("agent tree lookup")))
     }
 
     // One hook call on `thread_id` through a dispatch point whose only answerer is the pauses; the
@@ -411,7 +499,7 @@ mod tests {
         let after_the_interrupt = call(&pauses, CodexHookEvent::PreToolUse, LEAD);
         assert_eq!(settled(after_the_interrupt).await, Some(paused_denial()));
 
-        assert!(pauses.resume(LEAD, None));
+        assert!(pauses.resume(LEAD, None).had_taken_effect);
         let after_continue = call(&pauses, CodexHookEvent::PreToolUse, LEAD);
         assert_eq!(settled(after_continue).await, Some(CodexHookAnswer::Pass));
     }
@@ -430,7 +518,11 @@ mod tests {
         pauses.interrupt_sent(HELPER);
         assert!(is_still_held(&mut first).await);
 
-        assert!(pauses.resume(HELPER, Some("check the tests first".to_owned())));
+        assert!(
+            pauses
+                .resume(HELPER, Some("check the tests first".to_owned()))
+                .had_taken_effect
+        );
         assert_eq!(settled(first).await, Some(CodexHookAnswer::Pass));
         assert_eq!(settled(second).await, Some(CodexHookAnswer::Pass));
         let finished = call(&pauses, CodexHookEvent::PostToolUse, HELPER);

@@ -7,9 +7,10 @@ use sidekicks_platforms::PathRules;
 use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 
 use super::{
-    ClaudeProjectFolder, ClaudeRepository, ClaudeRulesError, compose_claude_project_allow_update,
-    compose_claude_session_rule_lists, remove_claude_project_rule, remove_claude_tool_server_rules,
-    resolve_claude_local_settings_file, write_claude_project_rule,
+    CLAUDE_SHARED_SETTINGS_FILE, CLAUDE_USER_SETTINGS_FILE, ClaudeProjectFolder, ClaudeRepository,
+    ClaudeRulesError, compose_claude_project_allow_update, compose_claude_session_rule_lists,
+    local_settings_path, remove_claude_project_rule, remove_claude_tool_server_rules,
+    resolve_claude_local_settings_file, settings_path, write_claude_project_rule,
 };
 use crate::driver::claude::session::settings_file::ClaudeSettingsFileError;
 
@@ -32,10 +33,6 @@ fn allow_command(subject: &str) -> ProviderAskRule {
         ProviderAskActionKind::Command,
         subject,
     )
-}
-
-fn local_settings(folder: &Path) -> PathBuf {
-    folder.join(".claude").join("settings.local.json")
 }
 
 fn read(file: &Path) -> String {
@@ -81,7 +78,7 @@ async fn a_write_lands_at_the_root_once_and_a_revoke_clears_the_root_and_the_sta
     // A file an earlier Claude Code left in the starting folder, whose rules still apply.
     fs::create_dir_all(worktree.join(".claude")).expect("the folder is made");
     fs::write(
-        local_settings(&worktree),
+        local_settings_path(&worktree),
         "{\"permissions\": {\"allow\": [\"Bash(npm test *)\", \"Read\"]}}",
     )
     .expect("the old file is written");
@@ -98,7 +95,7 @@ async fn a_write_lands_at_the_root_once_and_a_revoke_clears_the_root_and_the_sta
         .expect("the rule is written");
     }
     assert_eq!(
-        read(&local_settings(&root)),
+        read(&local_settings_path(&root)),
         "{\n  \"permissions\": {\n    \"allow\": [\n      \"Bash(npm test *)\"\n    ]\n  }\n}\n"
     );
     assert_eq!(
@@ -116,9 +113,9 @@ async fn a_write_lands_at_the_root_once_and_a_revoke_clears_the_root_and_the_sta
     )
     .await
     .expect("the rule is revoked");
-    assert!(!read(&local_settings(&root)).contains("npm test"));
+    assert!(!read(&local_settings_path(&root)).contains("npm test"));
     assert_eq!(
-        read(&local_settings(&worktree)),
+        read(&local_settings_path(&worktree)),
         "{\"permissions\": {\"allow\": [\"Read\"]}}"
     );
 }
@@ -153,7 +150,7 @@ fn claude_codes_local_file_sits_at_the_root_only_where_claude_code_puts_it(
 
     let resolved = resolve_claude_local_settings_file(&folder, &home, path_rules);
 
-    assert_eq!(resolved.path, local_settings(&repository.path(anchor)));
+    assert_eq!(resolved.path, local_settings_path(&repository.path(anchor)));
 }
 
 #[tokio::test]
@@ -185,19 +182,19 @@ async fn the_file_claude_code_writes_for_the_answer_is_left_to_it() {
         &home,
         PathRules::Posix,
         &allow_command("npm test"),
-        Some(&local_settings(&root)),
+        Some(&local_settings_path(&root)),
     )
     .await
     .expect("the rule is written");
 
-    assert!(!local_settings(&root).exists());
-    assert!(read(&local_settings(&worktree)).contains("Bash(npm test *)"));
+    assert!(!local_settings_path(&root).exists());
+    assert!(read(&local_settings_path(&worktree)).contains("Bash(npm test *)"));
 }
 
 #[tokio::test]
 async fn an_edit_keeps_every_other_byte_and_a_block_moves_the_allow_out() {
     let folder = tempfile::tempdir().expect("a project folder");
-    let file = local_settings(folder.path());
+    let file = local_settings_path(folder.path());
     fs::create_dir_all(file.parent().expect("the file has a folder")).expect("the folder is made");
     fs::write(
         &file,
@@ -248,7 +245,7 @@ async fn a_failed_writes_rollback_brings_back_the_entry_it_moved() {
     let home = tempfile::tempdir().expect("a home folder");
     let block_text = "{\"permissions\": {\"deny\": [\"Bash(rm *)\"]}}";
     for (folder, text) in [(first.path(), block_text), (second.path(), "[]")] {
-        let file = local_settings(folder);
+        let file = local_settings_path(folder);
         fs::create_dir_all(file.parent().expect("the file has a folder"))
             .expect("the folder is made");
         fs::write(&file, text).expect("the file is written");
@@ -273,7 +270,7 @@ async fn a_failed_writes_rollback_brings_back_the_entry_it_moved() {
         ClaudeRulesError::SettingsFile(ClaudeSettingsFileError::Refused { .. })
     ));
     assert!(failure.cleanup_failures().is_empty());
-    assert_eq!(read(&local_settings(first.path())), block_text);
+    assert_eq!(read(&local_settings_path(first.path())), block_text);
 }
 
 #[rstest]
@@ -286,7 +283,7 @@ async fn a_failed_writes_rollback_brings_back_the_entry_it_moved() {
 #[tokio::test]
 async fn a_file_that_is_not_a_strict_settings_object_is_refused_unchanged(#[case] text: &str) {
     let folder = tempfile::tempdir().expect("a project folder");
-    let file = local_settings(folder.path());
+    let file = local_settings_path(folder.path());
     fs::create_dir_all(file.parent().expect("the file has a folder")).expect("the folder is made");
     fs::write(&file, text).expect("the file is written");
     let folders = [ClaudeProjectFolder {
@@ -319,14 +316,14 @@ async fn a_file_that_is_not_a_strict_settings_object_is_refused_unchanged(#[case
 async fn a_revoke_clears_every_file_the_person_keeps_and_is_refused_where_managed_keeps_it() {
     let folder = tempfile::tempdir().expect("a project folder");
     let config_folder = tempfile::tempdir().expect("a config folder");
-    let shared_file = folder.path().join(".claude").join("settings.json");
+    let shared_file = settings_path(folder.path(), CLAUDE_SHARED_SETTINGS_FILE);
     fs::create_dir_all(folder.path().join(".claude")).expect("the folder is made");
     fs::write(
         &shared_file,
         "{\"permissions\": {\"allow\": [\"Bash(npm test *)\"]}}",
     )
     .expect("the shared file is written");
-    let user_file = config_folder.path().join("settings.json");
+    let user_file = config_folder.path().join(CLAUDE_USER_SETTINGS_FILE);
     fs::write(
         &user_file,
         "{\"permissions\": {\"allow\": [\"Bash(cargo build *)\"]}}",
@@ -351,7 +348,7 @@ async fn a_revoke_clears_every_file_the_person_keeps_and_is_refused_where_manage
     .expect("the drop-in is written");
     // The local file holds the rule the shared file keeps, and the managed one the drop-in keeps.
     fs::write(
-        local_settings(folder.path()),
+        local_settings_path(folder.path()),
         "{\"permissions\": {\"allow\": [\"Bash(npm test *)\", \"Bash(just *)\"]}}",
     )
     .expect("the local file is written");
@@ -396,16 +393,16 @@ async fn a_revoke_clears_every_file_the_person_keeps_and_is_refused_where_manage
     assert!(matches!(nowhere, Err(ClaudeRulesError::RuleNotFound)));
     assert!(!read(&shared_file).contains("npm test"));
     assert!(!read(&user_file).contains("cargo build"));
-    let local_text = read(&local_settings(folder.path()));
+    let local_text = read(&local_settings_path(folder.path()));
     assert!(!local_text.contains("npm test") && local_text.contains("Bash(just *)"));
     assert_eq!(read(&managed_file), managed_text);
-    assert!(!local_settings(other_folder.path()).exists());
+    assert!(!local_settings_path(other_folder.path()).exists());
 }
 
 #[tokio::test]
 async fn a_removed_tool_servers_rules_go_in_claude_codes_spelling_and_other_servers_stay() {
     let folder = tempfile::tempdir().expect("a project folder");
-    let file = local_settings(folder.path());
+    let file = local_settings_path(folder.path());
     fs::create_dir_all(file.parent().expect("the file has a folder")).expect("the folder is made");
     fs::write(
         &file,
@@ -448,7 +445,7 @@ async fn a_revoke_keeps_every_byte_of_the_list_but_the_entry_and_its_separator(
     #[case] expected: &str,
 ) {
     let folder = tempfile::tempdir().expect("a project folder");
-    let file = local_settings(folder.path());
+    let file = local_settings_path(folder.path());
     fs::create_dir_all(file.parent().expect("the file has a folder")).expect("the folder is made");
     fs::write(
         &file,
@@ -506,7 +503,7 @@ async fn two_writes_to_one_file_at_once_both_land() {
     first.expect("the first write lands");
     second.expect("the second write lands");
 
-    let text = read(&local_settings(folder.path()));
+    let text = read(&local_settings_path(folder.path()));
     assert!(text.contains("Bash(npm test *)") && text.contains("Bash(cargo build *)"));
 }
 
@@ -528,7 +525,7 @@ async fn an_allow_that_would_stretch_is_never_handed_over(#[case] subject: &str)
         .await
         .expect("nothing is written");
 
-    assert!(!local_settings(folder.path()).exists());
+    assert!(!local_settings_path(folder.path()).exists());
     assert_eq!(
         compose_claude_project_allow_update(&allow, PathRules::Posix)
             .expect("a command's rule composes"),

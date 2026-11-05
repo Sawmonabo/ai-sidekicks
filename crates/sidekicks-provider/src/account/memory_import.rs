@@ -35,7 +35,8 @@ pub enum MemoryImportError {
     /// The account's one memory import has already run; nothing was copied.
     #[error("the account's memory has already been imported")]
     AlreadyImported,
-    /// A memory folder could not be read, or a file not copied; the failure names no path.
+    /// A memory folder could not be read, a file not copied, or the person's provider settings not
+    /// read; a folder's or a file's failure names no path.
     #[error("the memory could not be copied")]
     Copy(#[source] io::Error),
     /// The account could not be read, its home is not there, or the outcome was not stored.

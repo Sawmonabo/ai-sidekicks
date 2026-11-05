@@ -1,7 +1,9 @@
 //! Claude Code's fixed facts: its command, folders, sandbox, environment, tool servers and the
 //! forms of work it is kept from starting outside a session.
 
+use sidekicks_contracts::agent::provider_binding::AgentBindingSwitchBoundary;
 use sidekicks_contracts::mcp::server::config::McpTransport;
+use sidekicks_contracts::run::children::ChildStoppedState;
 use sidekicks_contracts::voice::VoiceKind;
 use sidekicks_platforms::{
     LinuxSystemFolder, MacosSystemFolder, PerSystem, SystemFolder, SystemFolders,
@@ -22,7 +24,7 @@ use crate::driver::claude::tools::CLAUDE_BUILT_IN_TOOLS;
 use crate::driver::claude::written_names::CLAUDE_WRITTEN_NAME_FORMS;
 use crate::driver::{
     BackgroundWork, CommandSandboxNeeds, InstallFolder, InstallFolderBase, ProviderCommand,
-    ProviderCommandLookup, ProviderDescriptor, ProviderMemoryEstimates,
+    ProviderCommandLookup, ProviderDescriptor, ProviderMemoryEstimates, ProviderSwitchBoundaries,
 };
 
 /// Claude Code's fixed facts. Its plan ids read as their own words, and it reads no tool-server
@@ -94,9 +96,19 @@ pub(crate) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         conversation_bytes: None,
     },
     standard_output_speed: "off",
+    // Its `stop_task` ends a child for good; it refuses every later message to that child.
+    stop_all_row_word: ChildStoppedState::Stopped,
     // Its declared state has a third value, which the provider enters after a rate limit and no
     // request asks for.
     output_speed_levels: Some(&["off", "on"]),
+    // Claude Code takes each in its running process between turns.
+    switch_boundaries: ProviderSwitchBoundaries {
+        model_id: AgentBindingSwitchBoundary::TurnBoundary,
+        effort: AgentBindingSwitchBoundary::TurnBoundary,
+        output_speed: AgentBindingSwitchBoundary::TurnBoundary,
+        options: AgentBindingSwitchBoundary::TurnBoundary,
+        larger_window: AgentBindingSwitchBoundary::TurnBoundary,
+    },
     process_environment: &[
         // Its two update switches, so the build recorded at start is the one that runs.
         ("DISABLE_AUTOUPDATER", "1"),
@@ -111,6 +123,16 @@ pub(crate) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         // asks text and number questions under a title; unset, a process asks neither.
         ("CLAUDE_CODE_QUESTION_PREVIEW_FORMAT", "markdown"),
         ("CLAUDE_CODE_QUESTION_EXTENDED", "1"),
+        // Claude Code's own helper caps are lifted: the daemon applies the person's limit itself,
+        // and nothing bounds how deep helpers nest.
+        (
+            "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
+            "9223372036854775807",
+        ),
+        (
+            "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
+            "9223372036854775807",
+        ),
     ],
     launch_environment_names: &[],
     // The account's configuration home, its credential store, and the scratch folder the daemon

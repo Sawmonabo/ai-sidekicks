@@ -1,17 +1,27 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use serde_json::{Map, Value, json};
 use sidekicks_contracts::context_window::ContextWindowSource;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::inspector::SessionContextReading;
 use sidekicks_contracts::wire::number::Percent;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::writer::test_file::TestDatabase;
 
 use super::{
     CodexContextWindowReading, CodexFixedStart, CodexReadingSettings, CodexSessionContextReadings,
     LateReading, PublishedReadings, compose_settings_reading, publish_counted,
 };
 use crate::driver::codex::model_windows::{CodexModelWindow, CodexModelWindows};
+use crate::driver::codex::service::home::CodexConversationHome;
+use crate::driver::schema::schema_parts;
 use crate::driver::test_registry::fixed_session_id;
 use crate::port::context_reading_publisher::ContextReadingPublisher;
+use crate::runtime_binding::store::{mint_runtime_binding_id, read_binding};
+use crate::runtime_binding::test_store::{
+    binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
+};
 use crate::usage_delta_accountant::{UsageAxisCounts, WindowTelemetry};
 
 const MODEL: &str = "gpt-5.5";
@@ -151,4 +161,78 @@ fn only_the_conversations_first_request_sets_the_fixed_start() {
         CodexSessionContextReadings::new(fixed_session_id(), CodexFixedStart::Kept(None));
     resumed.note_fixed_start(&report(true, 180_000));
     assert_eq!(resumed.fixed_start_tokens, None);
+}
+
+// A first binding keeps the fixed start and the home in the bind's own write, and is marked only
+// once a write holding the fixed start succeeded. Killed by writing empty recovery data, which
+// fails an account home's first binding on a store failure (step 1); by the composer dropping the
+// home, or marking after a write that held no fixed start (step 2); by marking before the write
+// (step 3); by the composer dropping the fixed start, or no mark after a write that held it
+// (step 4); and by dropping the early return on a marked binding (step 5).
+#[tokio::test]
+async fn a_first_binding_keeps_the_fixed_start_and_marks_it_once_written() {
+    let database = TestDatabase::new(schema_parts());
+    let store = open_store(&database).await;
+    let recorded = store
+        .create(binding_input(
+            spawn_config_on(test_provider_account_id()),
+            spawned_build("2.0.0", "/opt/provider/2.0.0/bin"),
+        ))
+        .await
+        .expect("the binding is recorded")
+        .id;
+    let unrecorded = mint_runtime_binding_id();
+    let kept_data = || -> Map<String, Value> {
+        read_binding(&database.reader(), &recorded)
+            .expect("the binding reads")
+            .expect("the binding has a row")
+            .runtime_metadata
+    };
+    let kept_on = |readings: &CodexSessionContextReadings| -> Option<RuntimeBindingId> {
+        lock(&readings.fixed_start_kept_on).clone()
+    };
+    let mut readings =
+        CodexSessionContextReadings::new(fixed_session_id(), CodexFixedStart::Kept(None));
+
+    readings
+        .keep_on_first_binding(&store, &unrecorded, CodexConversationHome::Account)
+        .await
+        .expect("an account home with no fixed start writes nothing");
+
+    readings
+        .keep_on_first_binding(&store, &recorded, CodexConversationHome::Switching)
+        .await
+        .expect("the home is kept");
+    assert_eq!(
+        Value::Object(kept_data()),
+        json!({ "conversationHome": "switching" })
+    );
+    assert_eq!(kept_on(&readings), None);
+
+    readings.fixed_start_tokens = Some(12_000);
+    readings
+        .keep_on_first_binding(&store, &unrecorded, CodexConversationHome::Account)
+        .await
+        .expect_err("a binding with no row fails the write");
+    assert_eq!(kept_on(&readings), None);
+
+    readings
+        .keep_on_first_binding(&store, &recorded, CodexConversationHome::Account)
+        .await
+        .expect("the fixed start is kept");
+    assert_eq!(
+        Value::Object(kept_data()),
+        json!({ "contextFixedStartTokens": 12_000 })
+    );
+    assert_eq!(kept_on(&readings), Some(recorded.clone()));
+
+    readings.fixed_start_tokens = Some(99);
+    readings
+        .keep_on_first_binding(&store, &recorded, CodexConversationHome::Account)
+        .await
+        .expect("a marked binding is not written again");
+    assert_eq!(
+        Value::Object(kept_data()),
+        json!({ "contextFixedStartTokens": 12_000 })
+    );
 }

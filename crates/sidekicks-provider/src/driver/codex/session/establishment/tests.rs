@@ -26,9 +26,13 @@ use crate::runtime_binding::resume::ResumeFunctionLegs;
 use crate::runtime_binding::store::mint_runtime_binding_id;
 
 mod adopted_helpers;
+mod adoption;
 mod answered;
 mod continuation;
 mod held;
+mod joined_service;
+mod runs_left_standing;
+mod unanswered_start;
 
 // Killed by dropping the profile's read-back, and by dropping the let-go of the conversation a
 // refused read-back leaves.

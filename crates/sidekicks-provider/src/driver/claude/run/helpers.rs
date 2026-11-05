@@ -211,7 +211,7 @@ mod tests {
             outcome.expect("the stop is answered"),
             HelperStopOutcome::Stopped
         );
-        let requests = session.channel.control_requests();
+        let requests = session.control_requests_after_start();
         assert_eq!(requests.len(), 1, "{requests:?}");
         assert_eq!(requests[0]["subtype"], "stop_task");
         assert_eq!(requests[0]["task_id"], "helper");
@@ -265,6 +265,9 @@ mod tests {
         assert!(is_denied_as_stopped(&session, "next-tool"));
         assert_eq!(answer_to(&session, "held-tool"), None);
         let still_held = lock(pauses).resume_helper(&session.session_id, "helper", None);
-        assert_eq!(!still_held.is_empty(), is_paused && expected.is_none());
+        assert_eq!(
+            !still_held.released.is_empty(),
+            is_paused && expected.is_none()
+        );
     }
 }

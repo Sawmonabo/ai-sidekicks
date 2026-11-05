@@ -675,6 +675,7 @@ async fn the_conversations_fixed_start_is_kept_on_its_binding_for_a_resume() {
         ),
         Vec::new(),
         ProviderRowValues::default(),
+        None,
         Vec::new(),
         Vec::new(),
     )

@@ -415,7 +415,7 @@ async fn start_title_thread(
     }
     let config = read_codex_config::<Map<String, Value>>(
         connection,
-        Path::new(request.working_directory),
+        Some(Path::new(request.working_directory)),
         false,
     )
     .await?;

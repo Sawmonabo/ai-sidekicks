@@ -177,6 +177,7 @@ mod tests {
                 ..UsageAxisCounts::default()
             },
             declared_per_turn: None,
+            request: crate::usage_delta_accountant::UsageRequestFacts::default(),
         }
     }
 
