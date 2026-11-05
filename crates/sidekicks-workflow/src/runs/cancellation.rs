@@ -14,6 +14,7 @@ use sidekicks_store::database::statement::{
 };
 
 use crate::runs::record::{GOING_RUN_STATUSES_SQL, parked_failed_run_condition};
+use crate::runs::step_rows::CLEAR_WAIT_COLUMNS_SQL;
 
 /// A cancel as the run's rows record it.
 #[cfg_attr(
@@ -65,8 +66,7 @@ static CANCEL_STEPS_SQL: LazyLock<String> = LazyLock::new(|| {
         "UPDATE workflow_steps
   SET status = CASE WHEN status IN ({going}) THEN '{canceled}' ELSE status END,
       finished_at = CASE WHEN status IN ({going}) THEN @finished_at ELSE finished_at END,
-      wait_cause = NULL, resume_at = NULL, wait_deadline_at = NULL, wait_account_id = NULL,
-      wait_started_at = NULL, wait_id = NULL
+      {CLEAR_WAIT_COLUMNS_SQL}
   WHERE workflow_run_id = @workflow_run_id"
     )
 });
