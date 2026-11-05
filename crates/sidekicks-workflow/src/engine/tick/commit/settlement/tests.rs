@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use rstest::rstest;
 use rusqlite::params;
+use rusqlite::types::Value as SqlValue;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::wire::AnyValue;
@@ -33,19 +34,25 @@ use crate::test_rows::{TEST_NODE_ID, TestStep, insert_step};
 
 const AT: &str = "2026-10-02T00:05:00.000Z";
 
-/// The JSON a stored text column of the step at `execution_index` holds, `Null` where it is NULL.
+/// A stored column of the step at `execution_index` as JSON: an integer as a number, text as the
+/// JSON it holds or else as a string, and NULL as `Null`.
 fn step_json(harness: &TurnHarness, column: &str, execution_index: u32) -> Value {
-    harness
+    let stored = harness
         .rows
         .query_row(
             &format!("SELECT {column} FROM workflow_steps WHERE execution_index = ?1"),
             params![execution_index],
-            |row| row.get::<_, Option<String>>(0),
+            |row| row.get::<_, SqlValue>(0),
         )
-        .expect("the step's column reads")
-        .map_or(Value::Null, |text| {
-            serde_json::from_str(&text).unwrap_or(Value::String(text))
-        })
+        .expect("the step's column reads");
+    match stored {
+        SqlValue::Null => Value::Null,
+        SqlValue::Integer(number) => json!(number),
+        SqlValue::Text(text) => serde_json::from_str(&text).unwrap_or(Value::String(text)),
+        SqlValue::Real(_) | SqlValue::Blob(_) => {
+            panic!("no step column the tests read is {column}")
+        }
+    }
 }
 
 /// The stored events' types, in order.
