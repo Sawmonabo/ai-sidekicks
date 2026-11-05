@@ -5,7 +5,7 @@ use std::time::Duration;
 use sidekicks_contracts::provider::account::record::{BillingMode, ProviderAccountHealthState};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_provider::account::credential_home::minted::{
+use sidekicks_provider::account::credential_home::marks::{
     clear_minted_mark, mark_minted, read_minted_homes,
 };
 use sidekicks_provider::account::credential_home::test_legs::RecordedSignOuts;

@@ -1,8 +1,9 @@
 //! The start's sweep of the homes minted for new accounts that a stop left with no row: each such
 //! home is signed out through its provider and removed, then its mark; an account a row names only
-//! loses its mark, and the home of an account removed from the list, which carries no mark, stays
-//! as it is. The marks are read before any sign-in can mint an account, so a sign-in under way
-//! never has its home swept; the sign-outs then run in the background, all at once.
+//! loses its mark, and the home of an account removed from the list, which carries a removed mark
+//! this sweep never reads, stays as it is. The marks are read before any sign-in can mint an
+//! account, so a sign-in under way never has its home swept; the sign-outs then run in the
+//! background, all at once.
 
 use std::collections::HashMap;
 use std::hash::BuildHasher;
@@ -12,8 +13,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_provider::account::credential_home::minted::{
-    MintedHome, clear_minted_mark, read_minted_homes,
+use sidekicks_provider::account::credential_home::marks::{
+    MarkedHome, clear_minted_mark, read_minted_homes,
 };
 use sidekicks_provider::account::registry::ProviderAccountRegistry;
 use sidekicks_provider::account::resolver::credential_home_folders;
@@ -23,7 +24,7 @@ use sidekicks_provider::driver::contract::account::ProviderAccountLegs;
 /// at the start before any sign-in can mint another.
 pub struct LeftoverMintedHomes {
     data_folder: PathBuf,
-    homes: Vec<(MintedHome, bool)>,
+    homes: Vec<(MarkedHome, bool)>,
 }
 
 impl LeftoverMintedHomes {
@@ -104,7 +105,7 @@ impl LeftoverMintedHomes {
 // removes it, answering whether it is gone; a home whose sign-out fails or overruns stays, so its
 // sign-in is never left behind a removed folder.
 async fn remove_unadmitted_home<S: BuildHasher>(
-    home: &MintedHome,
+    home: &MarkedHome,
     legs: &HashMap<ProviderId, Arc<dyn ProviderAccountLegs>, S>,
     bound: Duration,
 ) -> bool {

@@ -40,7 +40,7 @@ use sidekicks_store::database::statement::{
 };
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
-use crate::account::credential_home::minted::{clear_minted_mark, mark_minted};
+use crate::account::credential_home::marks::{clear_minted_mark, mark_minted};
 use crate::account::credential_home::{
     CredentialHome, create_credential_home, remove_credential_home,
 };
