@@ -44,6 +44,7 @@ use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::start::account::start_account_home_service;
 use crate::driver::codex::service::supervisor::start::kept_records::on_record;
 use crate::driver::codex::service::supervisor::start::terminal::start_terminal_service;
+use crate::driver::codex::service::telemetry_switches::compose_telemetry_switches;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::transport::connection::{
     CodexAppServerConnection, open_codex_connection, read_codex_object,
@@ -570,25 +571,36 @@ pub(super) fn read_service_version(
 }
 
 // The launch of a service on the native program the build runs, with the launcher's variables
-// set, in the dedicated empty working folder. Every service carries the privacy choices read now
-// from the person's own Codex folder, last, so they win over any switch before them, whichever
-// home it runs on. Fails as that read does.
+// set, in the dedicated empty working folder. Its home's telemetry switches come first, composed
+// against the telemetry target as registered now, with their environment pair set past the
+// withhold; every service carries the privacy choices read now from the person's own Codex folder,
+// last, so they win over any switch before them, whichever home it runs on. Fails as that read
+// does.
 async fn compose_launch(
     service: &CodexService,
     executable: &ResolvedProviderExecutable,
-    mut additional_config_overrides: Vec<String>,
+    additional_config_overrides: Vec<String>,
     launch_socket: &Path,
 ) -> Result<CodexProcessLaunch, StartFailure> {
+    let target = service
+        .dependencies()
+        .telemetry_target
+        .port()
+        .map(Arc::as_ref);
+    let switches = compose_telemetry_switches(&service.home().kind, service.kind(), target);
     let privacy = read_codex_privacy(&service.dependencies().personal_home).await?;
-    additional_config_overrides.extend(privacy.config_overrides());
+    let mut config_overrides = switches.config_overrides;
+    config_overrides.extend(additional_config_overrides);
+    config_overrides.extend(privacy.config_overrides());
     let arguments = compose_codex_service_arguments(&CodexServiceCommandLineInput {
         listen_address: service.listen_address(launch_socket),
-        additional_config_overrides,
+        additional_config_overrides: config_overrides,
     });
-    Ok(
+    let mut launch =
         compose_codex_native_launch(&service.dependencies().data_folder, executable, arguments)
-            .await?,
-    )
+            .await?;
+    launch.environment.extend(switches.environment);
+    Ok(launch)
 }
 
 /// The launch of `executable`'s native Codex program, never the npm launcher, with `arguments`
