@@ -33,10 +33,10 @@ impl OneFolder {
     /// The accounts reader of the test account, whose folders are both its Codex home beside the
     /// working folder.
     pub(crate) fn accounts(&self) -> TestProviderAccounts {
-        TestProviderAccounts {
-            current: CurrentProviderAccount::Current(test_provider_account_id()),
-            folder: Some(self.0.with_file_name("codex-home")),
-        }
+        TestProviderAccounts::holding_folder(
+            CurrentProviderAccount::Current(test_provider_account_id()),
+            Some(self.0.with_file_name("codex-home")),
+        )
     }
 }
 

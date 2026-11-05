@@ -75,7 +75,7 @@ async fn summarize_on_copy(
                     session_id: params.session_id,
                     binding_id: params.binding_id.clone(),
                     owner: MeteredUsageOwner::SessionCopy,
-                    delta,
+                    delta: *delta,
                 };
                 file_copy_usage(usage, metered, &params.resume.provider_account_id).await;
             }

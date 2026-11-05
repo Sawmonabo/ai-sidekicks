@@ -370,10 +370,9 @@ mod tests {
                     event_log,
                     SESSION_EVENT_VERSION.clone(),
                 )),
-                account_reader: Arc::new(TestProviderAccounts {
-                    current: CurrentProviderAccount::Current(current),
-                    folder: None,
-                }),
+                account_reader: Arc::new(TestProviderAccounts::new(
+                    CurrentProviderAccount::Current(current),
+                )),
                 providers: Arc::new(registry_of_first_provider(Arc::new(driver))),
                 locks: KeyedLock::new(),
             };

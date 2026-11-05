@@ -11,7 +11,9 @@ use sidekicks_std::port_registration::PortRegistration;
 use super::{ClaudeContextReadings, ClaudeSessionReads, compose_claude_context_read, window_row};
 use crate::driver::claude::delivery::stream::ClaudeSessionStreams;
 use crate::driver::claude::session::inspector_reads::ClaudeInspectorReads;
-use crate::driver::claude::session::transport::declarations::ClaudeMessageUsageObservation;
+use crate::driver::claude::session::transport::declarations::{
+    ClaudeMessageRequestFacts, ClaudeMessageUsageObservation,
+};
 use crate::driver::test_registry::fixed_session_id;
 use crate::port::context_reading_publisher::ContextReadingPublisher;
 use crate::port::run_host::test_host::RecordingRunEngine;
@@ -86,6 +88,7 @@ fn a_mid_turn_reading_is_made_on_the_last_read_and_the_next_read_replaces_it() {
             output: Some(500),
             ..UsageAxisCounts::default()
         },
+        request: ClaudeMessageRequestFacts::default(),
     };
     assert!(
         readings

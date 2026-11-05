@@ -203,6 +203,8 @@ impl LiveCodexSession {
                     }],
                     client_message_ids: vec!["message-1".to_owned()],
                     output_speed_for_turn: None,
+                    sent_output_speed_for_turn: None,
+                    model: "gpt-5.5".to_owned(),
                 },
             );
         }

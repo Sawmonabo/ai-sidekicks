@@ -104,10 +104,9 @@ async fn the_smallest_turn_runs_its_one_command_line_on_the_account_s_store_and_
     services
         .ports
         .provider_accounts
-        .register(Arc::new(TestProviderAccounts {
-            current: CurrentProviderAccount::NoneRegistered,
-            folder: None,
-        }) as Arc<dyn ProviderAccountReader>)
+        .register(Arc::new(TestProviderAccounts::new(
+            CurrentProviderAccount::NoneRegistered,
+        )) as Arc<dyn ProviderAccountReader>)
         .expect("the accounts port is registered once");
     let legs = test_account_legs(&services, Weak::new());
     let folders = ProviderAccountFolders {

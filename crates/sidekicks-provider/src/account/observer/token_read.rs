@@ -45,7 +45,7 @@ impl ObserverShared {
         {
             Ok(Ok(reading)) => {
                 if let Some(spend) = &reading.spend {
-                    self.record_window_turn(&account.account_id, spend).await?;
+                    self.record_window_turn(account, spend).await?;
                 }
                 Ok(Some(reading.observation))
             }

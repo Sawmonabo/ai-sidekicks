@@ -65,7 +65,7 @@ jobs:
       search-index: ${{ steps.filter.outputs.search-index || 'true' }}
       slow-jobs: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'main') }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.SWEEP_REF }}
       # SHA-pinned like every third-party action here; Renovate keeps the pin current.
@@ -151,7 +151,7 @@ jobs:
     outputs:
       major-minor: ${{ steps.read.outputs.major-minor }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.SWEEP_REF }}
           persist-credentials: false
@@ -194,19 +194,19 @@ jobs:
         node: ${{ fromJSON(needs.node-version.outputs.major-minor) }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.SWEEP_REF }}
 
       - name: Setup pnpm
         # SHA-pinned; Renovate's pinGitHubActionDigests preset (renovate.json5) keeps it current.
-        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: 10.33.2
           run_install: false
 
       - name: Setup Node.js ${{ matrix.node }}
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
           cache: "pnpm"
@@ -247,10 +247,10 @@ jobs:
       # `rust-toolchain.toml` pins, for the WebAssembly target Sätteri's release builds for; a
       # newer Rust fails to link the module. Installed once here, before the newest stable Rust so
       # that one stays the default, and never by a Cargo run on a cache miss. Every job that builds
-      # the desktop repeats this step through the anchor. SHA-pinned.
+      # the desktop repeats this step through the anchor.
       - &markdown-parser-rust
         name: Set up Rust for the markdown parser
-        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        uses: ./.github/actions/setup-rust
         with:
           toolchain: 1.95.0
           targets: wasm32-wasip1-threads
@@ -259,20 +259,12 @@ jobs:
       # also run through Cargo, and the compression module, built for WebAssembly. The action
       # installs the newest stable Rust with that target once, before Turbo runs both builds at the
       # same time; left to `rust-toolchain.toml`, each Cargo run would install it and the two would
-      # collide. SHA-pinned.
+      # collide. The crates' tests run through `cargo nextest`, which the action installs too.
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        uses: ./.github/actions/setup-rust
         with:
           targets: wasm32-unknown-unknown
-
-      # The crates' tests run through `cargo nextest` (`turbo.json`): its prebuilt Linux binary, one
-      # exact release, checked against its pinned SHA-256 before it is unpacked.
-      - name: Install cargo-nextest
-        run: |
-          ASSET="cargo-nextest-0.9.148-x86_64-unknown-linux-gnu.tar.gz"
-          curl -fsSL "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.148/${ASSET}" -o "/tmp/${ASSET}"
-          echo "223ba936714cc861a9cdedad5a8eb664dfdd69d6fbdf6cea6aa8184f523290dc  /tmp/${ASSET}" | sha256sum -c -
-          tar -xzf "/tmp/${ASSET}" -C "${CARGO_HOME:-$HOME/.cargo}/bin"
+          nextest: "true"
 
       # Every workspace but the desktop: the `desktop` job's bundle leg builds it whenever a file
       # its filter names changes, so building it here too would build it twice.
@@ -415,19 +407,19 @@ jobs:
           - tier: "structure:layering"
     steps: &desktop-tier-steps
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.SWEEP_REF }}
 
       - name: Setup pnpm
         # SHA-pinned; Renovate's pinGitHubActionDigests preset (renovate.json5) keeps it current.
-        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: 10.33.2
           run_install: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: "pnpm"
@@ -459,9 +451,9 @@ jobs:
       # the compression module, both compiled from Rust. The remote cache above returns them
       # while their inputs are unchanged; on a miss they compile with this toolchain, not whichever
       # the runner image carries, and the WebAssembly target is installed once here, never by two
-      # Cargo runs at the same time. The newest stable Rust; SHA-pinned.
+      # Cargo runs at the same time. The newest stable Rust.
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        uses: ./.github/actions/setup-rust
         with:
           targets: wasm32-unknown-unknown
 
@@ -552,19 +544,19 @@ jobs:
       CARGO_BUILD_WARNINGS: deny
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.SWEEP_REF }}
 
       - name: Setup pnpm
         # SHA-pinned; Renovate's pinGitHubActionDigests preset (renovate.json5) keeps it current.
-        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: 10.33.2
           run_install: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: "pnpm"
@@ -587,9 +579,9 @@ jobs:
 
       # The fixture bundle's edges build the daemon's session search addon and the compression
       # module, both compiled from Rust on a cache miss; the WebAssembly target is installed once
-      # here, never by two Cargo runs at the same time. The newest stable Rust; SHA-pinned.
+      # here, never by two Cargo runs at the same time. The newest stable Rust.
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        uses: ./.github/actions/setup-rust
         with:
           targets: wasm32-unknown-unknown
 
@@ -622,19 +614,19 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.SWEEP_REF }}
 
       - name: Setup pnpm
         # SHA-pinned; Renovate's pinGitHubActionDigests preset (renovate.json5) keeps it current.
-        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: 10.33.2
           run_install: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: "pnpm"
@@ -683,19 +675,19 @@ jobs:
       CARGO_BUILD_WARNINGS: deny
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.SWEEP_REF }}
 
       - name: Setup pnpm
         # SHA-pinned; Renovate's pinGitHubActionDigests preset (renovate.json5) keeps it current.
-        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: 10.33.2
           run_install: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: "pnpm"
@@ -723,9 +715,9 @@ jobs:
 
       # On a cache miss the daemon's build compiles the session search's addon and the desktop's
       # compiles the compression module, both from Rust; the WebAssembly target is installed
-      # once here, never by two Cargo runs at the same time. The newest stable Rust; SHA-pinned.
+      # once here, never by two Cargo runs at the same time. The newest stable Rust.
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        uses: ./.github/actions/setup-rust
         with:
           targets: wasm32-unknown-unknown
 
@@ -756,7 +748,7 @@ jobs:
       # a scrollback number.
       - name: Upload coverage reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-reports
           path: |

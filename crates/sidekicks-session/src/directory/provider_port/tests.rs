@@ -435,10 +435,10 @@ async fn a_spawn_context_carries_the_sessions_memory_switch(#[case] auto_memory:
         &json!({}),
         "2026-10-14T09:30:00.000Z",
     );
-    let accounts: Arc<dyn ProviderAccountReader> = Arc::new(TestProviderAccounts {
-        current: CurrentProviderAccount::Current(test_provider_account_id()),
-        folder: Some(folder.path().to_path_buf()),
-    });
+    let accounts: Arc<dyn ProviderAccountReader> = Arc::new(TestProviderAccounts::holding_folder(
+        CurrentProviderAccount::Current(test_provider_account_id()),
+        Some(folder.path().to_path_buf()),
+    ));
     provider_accounts
         .register(accounts)
         .expect("the accounts reader registers");

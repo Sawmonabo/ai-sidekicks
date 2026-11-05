@@ -7,6 +7,9 @@ use std::collections::HashSet;
 
 use sidekicks_contracts::free_form_string::FilesystemPath;
 
+use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
+use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
+
 use crate::driver::claude::event_normalizer::ClaudeSubagentLifecycleSignal;
 use crate::driver::mcp_server::status::McpServerStatusIngestResult;
 use crate::usage_delta_accountant::UsageAxisCounts;
@@ -137,6 +140,25 @@ pub(crate) struct ClaudeMessageUsageObservation {
     pub(crate) message_id: String,
     /// Its counts so far.
     pub(crate) counts: UsageAxisCounts,
+    /// What prices its request, as this reading carries it.
+    pub(crate) request: ClaudeMessageRequestFacts,
+}
+
+/// What prices one assistant message's request, each absent where the message carries none or a
+/// value that does not fit: its model without the larger-window mark, its speed as given, its
+/// region (none for `global`), and its longer-lifetime cache write and web searches so far.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ClaudeMessageRequestFacts {
+    /// The model.
+    pub(crate) model_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
+    /// The speed tier.
+    pub(crate) speed: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
+    /// The region it was processed in.
+    pub(crate) processing_region: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
+    /// The cache write at the longer lifetime so far.
+    pub(crate) cache_write_extended_tokens: Option<u64>,
+    /// The web searches so far.
+    pub(crate) web_search_requests: Option<u64>,
 }
 
 /// The routing facts of one inbound stream frame, not the frame itself.
