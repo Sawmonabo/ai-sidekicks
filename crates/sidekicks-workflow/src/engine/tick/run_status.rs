@@ -50,7 +50,7 @@ pub(crate) enum GoingRunStatus {
     Running,
     /// Only waits are left, a failed park beside them included.
     Waiting,
-    /// A failed step parked the run and nothing else is live: `failed` with no `finished_at`.
+    /// A failed step parked the run and no step waits: `failed` with no `finished_at`.
     FailedPark,
     /// Every step settled: the run's ending, not this status, writes what follows.
     Settled,
@@ -143,8 +143,8 @@ pub(crate) struct RunPersonWait {
 }
 
 /// The person-wait columns after a change at `at`: a `Waiting` change opens a wait at `at` where
-/// no step holds an account wait; a change that leaves waiting (`leaves_waiting`, which the
-/// ending, Cancel and the crash sweep pass too) closes an open one, adding the whole milliseconds
+/// no step holds an account wait; a `Resumed` or `FailedPark` change, or `leaves_waiting` (which
+/// the ending, Cancel and the crash sweep pass), closes an open one, adding the whole milliseconds
 /// since it opened, never fewer than 0; anything else leaves the columns as they are.
 #[cfg_attr(
     not(test),
@@ -160,8 +160,13 @@ pub(crate) fn person_wait_after(
     account_waits: usize,
     at: &WireInstant,
 ) -> RunPersonWait {
+    let closes = leaves_waiting
+        || matches!(
+            change,
+            Some(RunStatusChange::Resumed | RunStatusChange::FailedPark)
+        );
     match &before.since {
-        Some(since) if leaves_waiting => {
+        Some(since) if closes => {
             let elapsed_ms = since
                 .unix_millisecond()
                 .zip(at.unix_millisecond())
@@ -286,7 +291,7 @@ mod tests {
             &opened_at,
         );
         assert_eq!(open.since, Some(opened_at.clone()));
-        let closed = person_wait_after(&open, Some(RunStatusChange::Resumed), true, 0, &closed_at);
+        let closed = person_wait_after(&open, Some(RunStatusChange::Resumed), false, 0, &closed_at);
         assert_eq!(
             closed,
             RunPersonWait {
