@@ -309,7 +309,8 @@ impl StartupRecovery {
             if stop.is_cancelled() {
                 return Err(PassFailure::Stopped);
             }
-            self.settle_held_tool_calls(session_id).await;
+            self.settle_held_tool_calls(session_id, is_named(&session_id))
+                .await;
         }
         if stop.is_cancelled() {
             return Err(PassFailure::Stopped);
@@ -354,7 +355,8 @@ impl StartupRecovery {
             }
             pass.phase = RecoveryPhase::RunResumption;
             if listing.holding_tool_calls.contains(&session_id) {
-                self.settle_held_tool_calls(session_id).await;
+                self.settle_held_tool_calls(session_id, is_named(&session_id))
+                    .await;
             }
             let is_under_stop = is_named(&session_id);
             self.settle_session(session_id, is_under_stop, tally, stop)
@@ -460,14 +462,14 @@ impl StartupRecovery {
         })
     }
 
-    // Settles the calls `session_id` held in the background through the provider sessions; a
-    // failure is logged and the pass goes on, the calls left running until the session's next
-    // resume settles them.
-    async fn settle_held_tool_calls(&self, session_id: SessionId) {
+    // Settles the calls `session_id` held in the background through the provider sessions, as the
+    // person's Stop left them when `is_under_stop`; a failure is logged and the pass goes on, the
+    // calls left running until the session's next resume settles them.
+    async fn settle_held_tool_calls(&self, session_id: SessionId, is_under_stop: bool) {
         if let Err(failure) = self
             .deps
             .provider_sessions
-            .settle_held_tool_calls(session_id)
+            .settle_held_tool_calls(session_id, is_under_stop)
             .await
         {
             tracing::warn!(

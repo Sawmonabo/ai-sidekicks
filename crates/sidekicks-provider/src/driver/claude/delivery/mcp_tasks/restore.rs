@@ -112,13 +112,16 @@ pub(crate) enum ClaudeHeldCallSettle {
     /// The daemon restarted with no process of the session running, so a call its record keeps
     /// may still be restored, and one kept nowhere ended with the restart.
     Restart,
+    /// The person stopped the service with no process of the session running, so a call its
+    /// record keeps waits for the next resume, and one kept nowhere ended with the Stop.
+    Stop,
 }
 
 impl ClaudeKeptCall {
     /// How the call ends once the process that held it is gone, settled for `settle`: as its saved
-    /// ending says, else failed as ended with the process, or with the restart after one, with no
-    /// body; `None` when a process ended or the daemon restarted for a call read as recorded, which
-    /// a later process may restore.
+    /// ending says, else failed as ended with the process, or with the restart or the Stop after
+    /// one, with no body; `None` when a process ended or the daemon restarted or stopped for a call
+    /// read as recorded, which a later process may restore.
     pub(crate) fn into_end(
         self,
         settle: ClaudeHeldCallSettle,
@@ -132,7 +135,9 @@ impl ClaudeKeptCall {
         match self {
             Self::Ended { outcome, text } => Some((outcome, text)),
             Self::Recorded => match settle {
-                ClaudeHeldCallSettle::ProcessExit | ClaudeHeldCallSettle::Restart => None,
+                ClaudeHeldCallSettle::ProcessExit
+                | ClaudeHeldCallSettle::Restart
+                | ClaudeHeldCallSettle::Stop => None,
                 ClaudeHeldCallSettle::SessionClose => Some(ended_with_the_process),
             },
             Self::Unkept => match settle {
@@ -142,6 +147,12 @@ impl ClaudeKeptCall {
                 ClaudeHeldCallSettle::Restart => Some((
                     ClaudeToolCallOutcome::Failed {
                         end_cause: Some(ToolCallEndCause::DaemonRestart),
+                    },
+                    None,
+                )),
+                ClaudeHeldCallSettle::Stop => Some((
+                    ClaudeToolCallOutcome::Failed {
+                        end_cause: Some(ToolCallEndCause::DaemonStop),
                     },
                     None,
                 )),
