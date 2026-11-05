@@ -199,6 +199,9 @@ CREATE TABLE workflow_runs (
   -- JSON: the run's typed error; NULL unless it failed, was canceled or crashed.
   error_json                TEXT
                             CHECK(error_json IS NULL OR json_valid(error_json)),
+  -- The run's one summary line, which a Write a summary step writes on the run;
+  -- NULL until one does.
+  summary                   TEXT,
   chain_root_run_id         TEXT NOT NULL,           -- the run's own id on a first run
   chain_from_error          INTEGER NOT NULL DEFAULT 0 -- 1 when an error trigger joined
                             CHECK(chain_from_error IN (0, 1)),
