@@ -3,7 +3,7 @@
 
 use std::sync::LazyLock;
 
-use rusqlite::Row;
+use rusqlite::{Connection, OptionalExtension as _, Row, named_params};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::cost::UsdMicros;
@@ -122,6 +122,73 @@ pub(crate) static GOING_RUN_STATUSES_SQL: LazyLock<String> =
 pub(crate) fn parked_failed_run_condition(alias: &str) -> String {
     let failed = <&'static str>::from(WorkflowRunStatus::Failed);
     format!("({alias}.status = '{failed}' AND {alias}.finished_at IS NULL)")
+}
+
+/// The SQL condition on the runs table read as `alias` that holds for a finished run: one neither
+/// going nor parked on its failed step, so it can no longer be resumed or canceled.
+pub(crate) fn finished_run_condition(alias: &str) -> String {
+    format!(
+        "({alias}.status NOT IN ({going}) AND NOT {parked})",
+        going = *GOING_RUN_STATUSES_SQL,
+        parked = parked_failed_run_condition(alias),
+    )
+}
+
+/// How far a run has come: still going, a failed run parked on its failed step, or finished.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RunProgress {
+    /// New, running or waiting.
+    Going,
+    /// Failed and parked on its failed step, waiting on Resume; it has not ended.
+    ParkedOnFailedStep,
+    /// Ended, so it can no longer be resumed or canceled.
+    Finished,
+}
+
+/// A run's status and end as its row stores them, read to tell how far it has come.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct StoredRunProgress {
+    /// Where it stands.
+    pub(crate) status: WorkflowRunStatus,
+    /// When it ended; absent while it has not.
+    pub(crate) finished_at: Option<WireInstant>,
+}
+
+impl StoredRunProgress {
+    /// How far the run has come, as [`finished_run_condition`] and
+    /// [`parked_failed_run_condition`] tell it in SQL.
+    pub(crate) fn progress(&self) -> RunProgress {
+        if GOING_RUN_STATUSES.contains(&self.status) {
+            RunProgress::Going
+        } else if self.status == WorkflowRunStatus::Failed && self.finished_at.is_none() {
+            RunProgress::ParkedOnFailedStep
+        } else {
+            RunProgress::Finished
+        }
+    }
+}
+
+const RUN_PROGRESS_SQL: &str =
+    "SELECT status, finished_at FROM workflow_runs WHERE id = @workflow_run_id";
+
+/// The progress of run `workflow_run_id`, `None` where no row answers to it. Fails with
+/// `rusqlite::Error::FromSqlConversionFailure` for a stored value that does not read as its type.
+pub(crate) fn read_run_progress(
+    connection: &Connection,
+    workflow_run_id: WorkflowRunId,
+) -> rusqlite::Result<Option<StoredRunProgress>> {
+    connection
+        .prepare_cached(RUN_PROGRESS_SQL)?
+        .query_row(
+            named_params! { "@workflow_run_id": workflow_run_id.text().as_str() },
+            |row| {
+                Ok(StoredRunProgress {
+                    status: text_column(row, 0, closed_word)?,
+                    finished_at: optional_text_column(row, 1, WireInstant::try_from)?,
+                })
+            },
+        )
+        .optional()
 }
 
 /// Where a request's instant falls among the stored instants, which compare as text in their one
