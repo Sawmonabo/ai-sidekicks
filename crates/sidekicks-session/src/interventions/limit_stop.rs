@@ -3,11 +3,11 @@
 //! refused or outdated, and a second interrupt of one limit is refused while one is pending. The
 //! hand runs as one of the engine's interrupt hands: it holds the run's interrupt lock and records
 //! the outcome however late it comes, unless the daemon's stop cuts it, and the engine's stop waits
-//! on it for a bounded time. Once its row is written, the stop's cut is kept whatever cuts the
-//! stop. A hand the provider got with no answer back leaves its row pending and the stop's cut
-//! kept, for the run's end to settle: applied when the run ended `interrupted`, else expired with
-//! the limit still owed. A restart's hand carries out once a row the old process left `accepted`,
-//! its outcome recorded as a hand no stop awaits.
+//! on it for a bounded time. Once its row's write is queued, the stop's cut is kept whatever cuts
+//! the stop, until that write fails. A hand the provider got with no answer back leaves its row
+//! pending and the stop's cut kept, for the run's end to settle: applied when the run ended
+//! `interrupted`, else expired with the limit still owed. A restart's hand carries out once a row
+//! the old process left `accepted`, its outcome recorded as a hand no stop awaits.
 
 use std::pin::Pin;
 use std::time::Duration;
@@ -25,6 +25,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::run_control::{InterruptPayload, InterruptPendingChoice};
 use sidekicks_std::bounded_wait::wait_within;
+use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
@@ -158,8 +159,8 @@ async fn ended_without_answer(
 
 impl InterventionService {
     // Records and accepts the interrupt of `run_id` at `limit`, its row naming the turn of `cut`,
-    // in one write, has the engine keep that cut once the row is written, then carries it out; the
-    // caller holds the run's interrupt lock.
+    // in one write, has the engine keep that cut from the poll that queues the write until the
+    // write fails, then carries it out; the caller holds the run's interrupt lock.
     async fn hand_limit_interrupt(
         &self,
         run_id: RunId,
@@ -195,28 +196,43 @@ impl InterventionService {
             client_idempotency_key: mint_client_key(),
             device_id: None,
         };
+        let accepted_event = draft(&accepted.target, &ReachedState::Accepted).map_err(no_row)?;
+        let requested_event = draft(&accepted.target, &ReachedState::Requested).map_err(no_row)?;
+        let statements = vec![
+            no_pending_limit_interrupt_statement(&run_id, limit),
+            insert_requested_intervention_statement(&requested),
+            move_intervention_statement(
+                &accepted.target.intervention_id,
+                &InterventionTransition::Accept,
+            ),
+        ];
+        // Under the session's hold nothing is awaited from the mark to the write's queuing, so a
+        // cut of this hand finds the cut marked exactly when the write is queued, which commits
+        // anyway.
+        let hold = SESSION_APPEND_LOCK
+            .acquire(accepted.target.session_id)
+            .await;
+        if let Some(cut) = cut {
+            self.engine.keep_cut_named_by_row(run_id, cut);
+        }
         let recorded = self
+            .engine
             .append(
-                draft(&accepted.target, &ReachedState::Accepted).map_err(no_row)?,
-                vec![
-                    no_pending_limit_interrupt_statement(&run_id, limit),
-                    insert_requested_intervention_statement(&requested),
-                    move_intervention_statement(
-                        &accepted.target.intervention_id,
-                        &InterventionTransition::Accept,
-                    ),
-                ],
-                vec![draft(&accepted.target, &ReachedState::Requested).map_err(no_row)?],
+                accepted_event,
+                statements,
+                vec![requested_event],
+                Some(&hold),
             )
             .await;
+        drop(hold);
         if let Err(error) = recorded {
+            if let Some(cut) = cut {
+                self.engine.forget_cut_named_by_row(cut);
+            }
             return Err(match error.refused_statement_index() {
                 Some(PENDING_GUARD_INDEX) => no_row(LimitInterruptPending { run_id, limit }),
                 _ => no_row(error),
             });
-        }
-        if let Some(cut) = cut {
-            self.engine.keep_cut_named_by_row(run_id, cut);
         }
         self.carry_out_limit_interrupt(&accepted).await
     }

@@ -140,9 +140,10 @@ pub(super) struct LiveRuns {
     pub(super) helper_runs: HashMap<(RuntimeBindingId, SubagentId), RunId>,
     /// Each session's undo rollback writes in progress, oldest first, each until it ends.
     pub(super) undo_writes: HashMap<SessionId, Vec<Arc<UndoWrite>>>,
-    /// Each stop whose cut a limit row names since that row was written, so the stop keeps its
-    /// cut even where the daemon's stop cuts it before its hand answers; one leaves when its stop
-    /// keeps its cut or the cut leaves its turn's list, so the marks are bounded by the cuts.
+    /// Each stop whose cut a limit row names since that row's write was queued, so the stop keeps
+    /// its cut even where the daemon's stop cuts it before its hand answers; one leaves when its
+    /// row's write fails, when its stop keeps its cut or when the cut leaves its turn's list, so
+    /// the marks are bounded by the cuts.
     pub(super) rowed_cuts: HashSet<u64>,
     /// The identity the next limit stop's cut takes.
     pub(super) next_stop_id: AtomicU64,
@@ -294,7 +295,7 @@ impl CutGuard<'_> {
 }
 
 // A stop dropped before it decided, its task cut by the daemon's stop among them, keeps a cut a
-// written row names and withdraws any other.
+// queued or written row names and withdraws any other.
 impl Drop for CutGuard<'_> {
     fn drop(&mut self) {
         if self.key.is_none() {

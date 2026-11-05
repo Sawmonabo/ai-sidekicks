@@ -54,7 +54,7 @@ use super::AcceptedLimitInterrupt;
 use crate::interventions::service::InterventionTarget;
 use crate::interventions::service::tests::{Harness, applied, harness};
 use crate::run::engine::test_fixture::stored_run_state;
-use crate::run::engine::tests::{SETTLE_WAIT, hold_cut};
+use crate::run::engine::tests::{SETTLE_WAIT, hold_cut, is_cut_named_by_row, turn};
 use crate::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
 use crate::run::pause::{RunPauseControl, RunPauseError};
 use crate::run::provider_choice::{
@@ -207,16 +207,18 @@ async fn a_limits_row_is_never_refused_and_its_failure_says_what_it_left(
     );
 }
 
-// A second interrupt of one limit is refused while the first is pending, with nothing written
-// and no dispatch. Killed by dropping the pending guard, which lets the second dispatch.
+// A second interrupt of one limit is refused while the first is pending, with nothing written,
+// no dispatch and its cut unmarked. Killed by dropping the pending guard or the mark's clear.
 #[tokio::test]
 async fn a_second_interrupt_of_one_limit_is_refused_while_one_is_pending() {
     let harness = harness(MockProviderDriver::new()).await;
-    record_accepted_row(&harness, RunLimit::SpendLimit, None);
+    let limit = RunLimit::SpendLimit;
+    record_accepted_row(&harness, limit, None);
+    let cut = hold_cut(&harness.engine, harness.run_id, turn(1), limit);
 
     let handed = harness
         .service
-        .interrupt_for_limit(harness.run_id, RunLimit::SpendLimit, None)
+        .interrupt_for_limit(harness.run_id, limit, Some(cut))
         .await;
 
     assert!(
@@ -225,6 +227,7 @@ async fn a_second_interrupt_of_one_limit_is_refused_while_one_is_pending() {
     );
     assert_eq!(harness.stored_rows().len(), 1);
     assert_eq!(harness.stored_event_types(), Vec::<String>::new());
+    assert!(!is_cut_named_by_row(&harness.engine, cut));
 }
 
 /// What the driver answers a hand past its bound.
