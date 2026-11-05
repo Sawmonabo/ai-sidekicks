@@ -6,6 +6,7 @@ use std::time::Duration;
 use serde_json::json;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::instant::WireInstant;
 use tokio::sync::oneshot;
 
 use super::test_fixture::{TestLog, open_log};
@@ -286,5 +287,69 @@ async fn a_command_ending_is_stored_with_a_summary_only_when_it_failed() {
         .query_row("SELECT count(*) FROM session_events", [], |row| row.get(0))
         .expect("the test counts the stored rows");
     assert_eq!(rows, 1);
+    assert_eq!(writer.close(None).await.expect("the writer closes"), 0);
+}
+
+// Killed by stamping a preceding event with the clock, and by letting a draft's instant override
+// the instant the append's linkage carries for its main event.
+#[tokio::test]
+async fn each_preceding_event_keeps_its_own_instant() {
+    let database = TestDatabase::new(crate::database::schema::schema_parts());
+    let TestLog {
+        writer, service, ..
+    } = open_log(&database, None).await;
+    let appender = SessionEventAppender::new(service, SESSION_EVENT_VERSION.clone());
+    let session_id = test_session_id();
+    let run_id = mint_uuid_v7().to_string();
+    let instant = |text: &str| WireInstant::try_from(text.to_owned()).expect("an instant");
+    let invoked = || {
+        let event = serde_json::from_value(json!({
+            "type": "agent.toolCall.invoked",
+            "payload": { "sessionId": session_id, "runId": run_id, "toolName": "Read" },
+        }))
+        .expect("the test writes an agent.toolCall.invoked event");
+        SessionEventDraft::of_session(session_id, &event).expect("the event passes its checks")
+    };
+    let before = WireInstant::now();
+
+    appender
+        .append(
+            invoked().with_occurred_at(instant("2001-01-01T00:00:03.000Z")),
+            SessionEventLinkage {
+                preceding_events: vec![
+                    invoked().with_occurred_at(instant("2001-01-01T00:00:01.000Z")),
+                    invoked().with_occurred_at(instant("2001-01-01T00:00:02.000Z")),
+                    invoked(),
+                ],
+                ..SessionEventLinkage::default()
+            },
+        )
+        .await
+        .expect("the write commits");
+    appender
+        .append(
+            invoked().with_occurred_at(instant("2001-01-01T00:00:03.000Z")),
+            SessionEventLinkage {
+                occurred_at: Some(instant("2001-01-01T00:00:04.000Z")),
+                ..SessionEventLinkage::default()
+            },
+        )
+        .await
+        .expect("the write commits");
+
+    let reader = database.reader();
+    let stored: Vec<String> = reader
+        .prepare("SELECT occurred_at FROM session_events ORDER BY sequence")
+        .expect("the test reads the stored instants")
+        .query_map([], |row| row.get(0))
+        .expect("the test reads the stored instants")
+        .collect::<Result<_, _>>()
+        .expect("each instant reads");
+    assert_eq!(stored.len(), 5);
+    assert_eq!(stored[0], "2001-01-01T00:00:01.000Z");
+    assert_eq!(stored[1], "2001-01-01T00:00:02.000Z");
+    assert!(stored[2].as_str() >= before.as_str(), "{stored:?}");
+    assert_eq!(stored[3], "2001-01-01T00:00:03.000Z");
+    assert_eq!(stored[4], "2001-01-01T00:00:04.000Z");
     assert_eq!(writer.close(None).await.expect("the writer closes"), 0);
 }
