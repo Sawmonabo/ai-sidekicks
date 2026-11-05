@@ -252,14 +252,11 @@ pub(crate) enum CodexTransportDiagnostic {
         /// The read's failure.
         error: DiagnosticCause,
     },
-    /// The fork that moves an idle conversation onto the session's config failed, or never ran
-    /// since the session could not be claimed for it; the session's next turn forks again before
-    /// it starts.
+    /// The fork that moves an idle conversation onto the session's config failed; the session's
+    /// next turn forks again before it starts.
     ConversationForkFailed {
-        /// The session.
-        session_id: SessionId,
-        /// The conversation, where the fork reached one.
-        thread_id: Option<String>,
+        /// The conversation.
+        thread_id: String,
         /// The fork's failure.
         error: DiagnosticCause,
     },
@@ -533,13 +530,8 @@ impl CodexTransportDiagnostic {
                 error = &**error as &(dyn Error + 'static),
                 "a Codex conversation's unload could not be confirmed; its resume decides"
             ),
-            Self::ConversationForkFailed {
-                session_id,
-                thread_id,
-                error,
-            } => tracing::warn!(
-                session_id = %session_id,
-                thread_id = thread_id.as_deref(),
+            Self::ConversationForkFailed { thread_id, error } => tracing::warn!(
+                thread_id = thread_id.as_str(),
                 error = &**error as &(dyn Error + 'static),
                 "a Codex conversation's fork onto the session's config failed"
             ),

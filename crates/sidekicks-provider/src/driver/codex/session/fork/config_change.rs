@@ -126,18 +126,11 @@ impl CodexConfigForks {
         session_id: SessionId,
         inbound: &CodexSessionInboundSender,
     ) -> Result<bool, Arc<CodexError>> {
-        let claim = match self.slots.claim_establishing(session_id).await {
-            Ok(claim) => claim,
-            Err(error) => {
-                CodexTransportDiagnostic::ConversationForkFailed {
-                    session_id,
-                    thread_id: None,
-                    error: error.to_string().into(),
-                }
-                .report();
-                return Err(Arc::new(error));
-            }
-        };
+        let claim = self
+            .slots
+            .claim_establishing(session_id)
+            .await
+            .map_err(Arc::new)?;
         let (reply, replied) = oneshot::channel();
         // A session whose task ended owes nothing now.
         if !inbound.push(CodexSessionInbound::Call(CodexSessionCall::ConfigFork {
@@ -167,14 +160,12 @@ pub(crate) async fn run_codex_config_fork(
         return Ok((false, CodexRoutedFrames::default()));
     }
     let binding_id = task.record.binding_id.clone();
-    let session_id = task.record.session_id;
     let thread_id = task.record.thread_id.clone();
     match establish_codex_fork(task, dependencies, None, binding_id).await {
         Ok(routed) => Ok((true, routed)),
         Err(error) => {
             CodexTransportDiagnostic::ConversationForkFailed {
-                session_id,
-                thread_id: Some(thread_id),
+                thread_id,
                 error: error.to_string().into(),
             }
             .report();
