@@ -139,14 +139,15 @@ pub trait SessionRelaunchListener: Send + Sync {
 pub struct HeldRequest {
     /// What a price list prices the request by.
     pub key: UnpricedUsageKey,
-    /// The ids of the request's usage rows.
+    /// The ids of the request's usage rows not yet marked held; empty when every row was written
+    /// held.
     pub row_ids: Vec<FreeFormText<EVENT_FIELD_MAX_LEN>>,
 }
 
 /// The repricing's intake of a request its driver left unpriced.
 pub trait RequestHeldListener: Send + Sync {
-    /// Takes `held` into the repricing, marking its rows held before it answers; fails as the
-    /// mark's write fails.
+    /// Takes `held` into the repricing, marking its listed rows held before it answers; fails as
+    /// the mark's write fails.
     fn request_held(
         &self,
         held: HeldRequest,

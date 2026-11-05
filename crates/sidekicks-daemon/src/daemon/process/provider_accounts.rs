@@ -24,6 +24,7 @@ use sidekicks_contracts::provider::account::record::{
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::transcript::run_facts::RunStateEventType;
 use sidekicks_contracts::trust_statement::DeviceId;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::{Spawner, WallClock, wake_helper};
 use sidekicks_provider::account::errors::ProviderAccountRegistryError;
 use sidekicks_provider::account::home_lock::AccountHomeLock;
@@ -113,6 +114,8 @@ pub(crate) struct ProviderAccountPlaneStart<'start> {
     /// The drivers' registration of the repricing's intake, which the observer hands each
     /// window-start turn to.
     pub(crate) request_held: Arc<PortRegistration<Arc<dyn RequestHeldListener>>>,
+    /// The daemon's start in its stored form, which the observer's window-start rows record.
+    pub(crate) daemon_started_at: WireInstant,
 }
 
 /// The account plane, built before the socket serves.
@@ -156,6 +159,7 @@ pub(crate) async fn build_provider_account_plane(
         appender,
         read_damaged_from_sequence,
         request_held,
+        daemon_started_at,
     } = start;
     let wake_helper = wake_helper().map(|helper| {
         Arc::new(SystemWakeHelper::new(
@@ -225,6 +229,7 @@ pub(crate) async fn build_provider_account_plane(
         wake_helper: wake_helper.clone(),
         publisher: Arc::clone(&publisher) as _,
         request_held,
+        daemon_started_at,
     }));
     let sign_in = Arc::new(ProviderSignInBroker::new(
         Arc::clone(&registry),

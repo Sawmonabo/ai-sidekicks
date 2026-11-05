@@ -436,7 +436,13 @@ impl ObserverShared {
         let turn_id = mint_sessionless_turn_id();
         self.database_writer
             .write(vec![
-                sessionless_usage_turn_statement(&turn_id, provider_account_id, &sent_at, spend),
+                sessionless_usage_turn_statement(
+                    &turn_id,
+                    provider_account_id,
+                    &sent_at,
+                    &self.daemon_started_at,
+                    spend,
+                ),
                 WriteStatement {
                     sql: std::borrow::Cow::Borrowed(RECORD_WINDOW_START_SQL.as_str()),
                     bindings: StatementBindings::Named(vec![
@@ -459,7 +465,8 @@ impl ObserverShared {
                 speed: None,
                 processing_region: None,
             },
-            row_ids: vec![turn_id],
+            // Written held, so the hand-off has no row to mark.
+            row_ids: Vec::new(),
         };
         if let Err(error) = repricing.request_held(held).await {
             tracing::warn!(

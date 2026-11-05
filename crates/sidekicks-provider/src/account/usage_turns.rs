@@ -51,13 +51,15 @@ SELECT @turn_id, account_id, provider, @occurred_at, @session_id, @run_id, @mode
   @thread_speed, @subagent_id, @observed_credential_generation, @daemon_started_at
 FROM provider_accounts WHERE account_id = @account_id";
 
-// A turn no session owns: no session or run, the generation the account's row holds now, and held,
-// since nothing meters it further.
+// A turn no session owns: no session or run, the generation the account's row holds now, the
+// daemon start that wrote it, and held, since nothing meters it further.
 const INSERT_SESSIONLESS_USAGE_TURN_SQL: &str = "INSERT INTO provider_account_usage_turns
   (turn_id, account_id, provider, occurred_at, model_id, input_tokens, output_tokens,
-   cache_read_tokens, cache_write_tokens, reasoning_tokens, observed_credential_generation, is_held)
+   cache_read_tokens, cache_write_tokens, reasoning_tokens, observed_credential_generation,
+   daemon_started_at, is_held)
 SELECT @turn_id, account_id, provider, @occurred_at, @model_id, @input_tokens, @output_tokens,
-  @cache_read_tokens, @cache_write_tokens, @reasoning_tokens, credential_generation, 1
+  @cache_read_tokens, @cache_write_tokens, @reasoning_tokens, credential_generation,
+  @daemon_started_at, 1
 FROM provider_accounts WHERE account_id = @account_id AND removal_intent = 0";
 
 // A turn's figure is set once: a priced row keeps its figure, and a row its account's removal
@@ -229,13 +231,14 @@ pub fn mint_sessionless_turn_id() -> FreeFormText<EVENT_FIELD_MAX_LEN> {
 }
 
 /// The statement that writes the turn `turn_id` no session owns, spent on `provider_account_id`'s
-/// account at `occurred_at`: held from the write, as a whole request, and charged to the account's
-/// generation as its row stands at the write. Refused by its row count for an account not
-/// registered.
+/// account at `occurred_at` under the daemon start `daemon_started_at`: held from the write, as a
+/// whole request, and charged to the account's generation as its row stands at the write. Refused
+/// by its row count for an account not registered.
 pub fn sessionless_usage_turn_statement(
     turn_id: &FreeFormText<EVENT_FIELD_MAX_LEN>,
     provider_account_id: &ProviderAccountId,
     occurred_at: &WireInstant,
+    daemon_started_at: &WireInstant,
     spend: &WindowTurnSpend,
 ) -> WriteStatement {
     WriteStatement {
@@ -250,6 +253,7 @@ pub fn sessionless_usage_turn_statement(
             count_binding("@cache_read_tokens", spend.cache_read_tokens),
             count_binding("@cache_write_tokens", spend.cache_write_tokens),
             count_binding("@reasoning_tokens", spend.reasoning_tokens),
+            text_binding("@daemon_started_at", daemon_started_at.as_str()),
         ]),
         expected_row_count: Some(1),
     }

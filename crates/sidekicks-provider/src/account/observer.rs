@@ -130,6 +130,8 @@ pub struct ProviderAccountObserverDeps {
     /// takes each window-start turn's row once written; while unregistered the row waits for the
     /// next start.
     pub request_held: Arc<PortRegistration<Arc<dyn RequestHeldListener>>>,
+    /// The daemon's start, in its stored form, which each window-start turn's row records.
+    pub daemon_started_at: WireInstant,
 }
 
 /// One read of an account and when it was taken.
@@ -261,6 +263,7 @@ struct ObserverShared {
     usage: Arc<dyn UsageSink>,
     publisher: Arc<dyn ProviderAccountNotificationPublisher>,
     request_held: Arc<PortRegistration<Arc<dyn RequestHeldListener>>>,
+    daemon_started_at: WireInstant,
     // One per provider whose reads run one at a time; its window turns take it too.
     one_reader_at_a_time: HashMap<ProviderId, Arc<tokio::sync::Mutex<()>>>,
     live_turns: Arc<dyn AccountLiveTurns>,
@@ -301,6 +304,7 @@ impl ProviderAccountObserver {
                 usage: deps.usage,
                 publisher: deps.publisher,
                 request_held: deps.request_held,
+                daemon_started_at: deps.daemon_started_at,
                 one_reader_at_a_time,
                 live_turns: deps.live_turns,
                 accounts_in_flight: deps.accounts_in_flight,

@@ -39,6 +39,7 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::web_address::HttpsAddress;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::call_fixtures::{context, request};
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
@@ -459,6 +460,7 @@ impl MethodInputs {
             wake_helper: Some(Arc::clone(&wake_helper)),
             publisher: Arc::clone(&publisher) as _,
             request_held: Arc::new(PortRegistration::new("request held")),
+            daemon_started_at: WireInstant::now(),
         }));
         let providers = Arc::new(registry_of_first_provider(Arc::new(
             MockProviderDriver::new(),

@@ -17,6 +17,7 @@ use sidekicks_contracts::provider::account::record::{
 };
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::{WakeHelperStatus, WallClock, WallClockWait};
@@ -501,6 +502,7 @@ impl Fixture {
             wake_helper: Some(Arc::clone(&wakes) as Arc<dyn MachineWakeHelper>),
             publisher: Arc::clone(&notifications) as Arc<dyn ProviderAccountNotificationPublisher>,
             request_held: Arc::new(request_held),
+            daemon_started_at: WireInstant::now(),
         });
         Self {
             registry,

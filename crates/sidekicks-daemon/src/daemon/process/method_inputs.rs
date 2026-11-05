@@ -17,6 +17,7 @@ use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::process_identity::ProcessIdentity;
 use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_contracts::trust_statement::DeviceId;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::{BoundedText, TextError};
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
 use sidekicks_ipc::presence::PresenceRegister;
@@ -502,6 +503,8 @@ pub(crate) async fn register_method_inputs(
         appender: Arc::clone(&session.appender),
         read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
         request_held: Arc::clone(&providers.ports.request_held),
+        daemon_started_at: WireInstant::from_timestamp(started_at)
+            .expect("the clock reads after year 0000"),
     })
     .await;
     let mcp_client = Arc::new(McpClient::new(
