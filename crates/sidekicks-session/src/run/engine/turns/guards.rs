@@ -1,6 +1,7 @@
 //! The guards a run's turn writes ride on and the SQL they and the run reads share: a turn start
 //! refused once its number is held, a turn end refused once its turn holds one, a reply's piece
-//! taken only while its run lives or a turn of it is open, and the run's started turns with no end.
+//! taken only while its run lives or a turn of it is open, a write refused while its run holds a
+//! turn with no end, and the run's started turns with no end.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -59,6 +60,10 @@ static RUN_LIVE_OR_TURN_OPEN_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// Finds a started turn of the run with no end.
+static SELECT_OPEN_TURN_SQL: LazyLock<String> =
+    LazyLock::new(|| open_turns_sql("@run_id", "LIMIT 1"));
+
 /// Holds when the turn start the enclosing query reads as `started` has no end, spelled in the
 /// order the turn ends' unique index is declared so the probe reads that index.
 pub(crate) fn turn_holds_no_end_sql() -> String {
@@ -97,6 +102,15 @@ pub(crate) fn run_live_or_turn_open_statement(run_id: &RunId) -> WriteStatement 
         sql: Cow::Borrowed(RUN_LIVE_OR_TURN_OPEN_SQL.as_str()),
         bindings: StatementBindings::Named(vec![text_binding("@run_id", run_id.text().as_str())]),
         expected_row_count: Some(1),
+    }
+}
+
+/// Refuses the write while `run_id` holds a turn that started and has no end.
+pub(crate) fn no_open_turn_statement(run_id: &RunId) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(SELECT_OPEN_TURN_SQL.as_str()),
+        bindings: StatementBindings::Named(vec![text_binding("@run_id", run_id.text().as_str())]),
+        expected_row_count: Some(0),
     }
 }
 

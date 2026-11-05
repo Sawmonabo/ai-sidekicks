@@ -5,9 +5,11 @@
 //! driver took the resume, numbers and ends each turn, counts a turn's steps against its step
 //! bound, stops a run at a limit, records the markers a provider reports on a live run, tells a
 //! session when a run's provider does not run it at the fast output level it carried, and re-arms
-//! and finalizes the live runs a restart's resume found again, and records an undo's confirmed
-//! cut as the run's rollback, holding back a turn opening that meets an undo's write in progress.
+//! and finalizes the live runs a restart's resume found again, moves a lead a failed continue
+//! left `running` back to `paused`, and records an undo's confirmed cut as the run's rollback,
+//! holding back a turn opening that meets an undo's write in progress.
 
+mod continued_lead;
 mod ending;
 pub mod errors;
 mod host;
