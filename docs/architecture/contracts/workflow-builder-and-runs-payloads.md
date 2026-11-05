@@ -402,6 +402,8 @@ interface WorkflowNodeKindSpec {
     resumable: boolean;
     sideEffects: "none" | "local" | "external";
     repository: boolean; // true where a run of the kind needs a project's repository
+    // When a run of the kind runs in its provider's sandbox: absent never, {} always, else as showWhen
+    sandbox?: Record<string, unknown[]>;
   };
 }
 interface WorkflowKindListResponse {

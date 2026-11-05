@@ -113,6 +113,7 @@ CREATE TABLE workflow_runs (
   id                        TEXT PRIMARY KEY,          -- the workflow run id, an event-sourced UUID; run_execution_contexts keys the captured context of a run that works in a repository by it
   workflow_version_id       TEXT NOT NULL REFERENCES workflow_versions(id),
   session_id                TEXT NOT NULL,             -- the asking chat's session, or the workflow's own session for a run no chat asked for
+  provider                  TEXT,                      -- the workflow's provider as the run started, which a restart reads; NULL when the workflow named none
   status                    TEXT NOT NULL DEFAULT 'new'
                             CHECK(status IN (
                               'new','running','waiting','succeeded','failed','canceled','crashed'
