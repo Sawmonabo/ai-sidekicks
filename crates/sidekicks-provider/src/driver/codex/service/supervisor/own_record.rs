@@ -31,6 +31,44 @@ impl CodexService {
     }
 }
 
+/// The record file a launch or a join publishes on its service for as long as it can succeed:
+/// unless it is kept, the name published before it comes back once it fails or is dropped, so a
+/// retire and the next start act on the service's own record.
+pub(super) struct PublishedRecordFile<'service> {
+    service: &'service CodexService,
+    // The name before the publish, put back unless the attempt is kept.
+    previous: Option<LastingServiceRecordFile>,
+    is_kept: bool,
+}
+
+impl<'service> PublishedRecordFile<'service> {
+    /// Publishes `record_file` on `service`, so a daemon stop leaves that record to it.
+    pub(super) fn publish(
+        service: &'service CodexService,
+        record_file: LastingServiceRecordFile,
+    ) -> Self {
+        let previous = lock(&service.process_record_file).replace(record_file);
+        Self {
+            service,
+            previous,
+            is_kept: false,
+        }
+    }
+
+    /// Keeps the published name once the attempt succeeded.
+    pub(super) fn keep(mut self) {
+        self.is_kept = true;
+    }
+}
+
+impl Drop for PublishedRecordFile<'_> {
+    fn drop(&mut self) {
+        if !self.is_kept {
+            self.service.set_process_record_file(self.previous.take());
+        }
+    }
+}
+
 /// The record file of the lasting service on the socket `service` dials, where a start of it
 /// records the process it launches. Fails as [`LastingServiceRecordFile::of_socket`] does.
 pub(crate) fn socket_record_file(service: &CodexService) -> io::Result<LastingServiceRecordFile> {

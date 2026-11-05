@@ -35,6 +35,7 @@ use crate::driver::codex::service::process::{
 };
 use crate::driver::codex::service::record::{LastingServiceRecord, LastingServiceRecordFile};
 use crate::driver::codex::service::registry::live_record_files;
+use crate::driver::codex::service::supervisor::own_record::socket_record_file;
 use crate::driver::codex::service::supervisor::test_service::{
     STAND_IN_CODEX, StandInReplies, TestCodexProgram, UnheardEvents, answer_as_codex_service,
     bind_test_listener, next_socket_request, send_on_socket, test_codex_service_dependencies,
@@ -532,8 +533,9 @@ async fn a_daemon_stop_of_kept_records_leaves_a_live_service_s_record_to_its_sup
 
 // Fails when a launch on a socket of its own beside the home's, as a terminal service launches
 // beside a draining one, is in flight at a daemon stop and the kept stop ends it and removes its
-// record beside the start's own teardown. Killed by dropping the launch's publish of its record
-// file before it writes the record.
+// record beside the start's own teardown, or when the failed launch leaves its record named the
+// service's in place of the home socket's. Killed by dropping the launch's publish of its record
+// file before it writes the record, and by dropping the failure's restore of the name before it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_daemon_stop_leaves_a_launch_beside_under_way_to_its_supervisor() {
     if !CAN_SIGNAL_A_STOP {
@@ -598,6 +600,9 @@ async fn a_daemon_stop_leaves_a_launch_beside_under_way_to_its_supervisor() {
         .unwrap_or_else(|failure| panic!("the log is named: {:?}", failure.error));
     let beside_record = LastingServiceRecordFile::of_socket(&data_folder, &codex_home, &own_socket)
         .expect("the record file is named");
+    // The home socket's record, which a former start of the service named its own.
+    let home_record = socket_record_file(&service).expect("the home's record file is named");
+    service.set_process_record_file(Some(home_record.clone()));
     let locked = lock_record(beside_record.clone())
         .await
         .unwrap_or_else(|failure| panic!("the record locks: {:?}", failure.error));
@@ -633,6 +638,7 @@ async fn a_daemon_stop_leaves_a_launch_beside_under_way_to_its_supervisor() {
     let Err(_failure) = launched else {
         panic!("the launch answered on a socket held unanswered");
     };
+    let named = service.process_record_file();
     drop(locked);
     let failures = stop_kept_services(
         data_folder.clone(),
@@ -667,6 +673,11 @@ async fn a_daemon_stop_leaves_a_launch_beside_under_way_to_its_supervisor() {
         "the kept stop removed a launch's record under way"
     );
     assert!(is_running, "the kept stop ended a launch under way");
+    assert_eq!(
+        named,
+        Some(home_record),
+        "a failed launch left its record named the service's"
+    );
 }
 
 // A shell stand-in running `script`, which writes one byte once it is ready, recorded as the

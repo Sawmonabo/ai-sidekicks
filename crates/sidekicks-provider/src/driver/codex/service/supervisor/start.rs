@@ -41,6 +41,7 @@ use crate::driver::codex::service::record::{
 };
 use crate::driver::codex::service::start_lock::{CodexStartLock, take_codex_start_lock};
 use crate::driver::codex::service::supervisor::CodexService;
+use crate::driver::codex::service::supervisor::own_record::PublishedRecordFile;
 use crate::driver::codex::service::supervisor::start::account::start_account_home_service;
 use crate::driver::codex::service::supervisor::start::kept_records::on_record;
 use crate::driver::codex::service::supervisor::start::terminal::start_terminal_service;
@@ -360,8 +361,8 @@ pub(super) fn name_lasting_log_file(service: &CodexService) -> Result<PathBuf, S
 /// Launches `process_launch` as a lasting service writing `log_file`, keeps its record under
 /// `locked`, published on `service` first, as launched and, once it answers on `launch_socket`
 /// under the ticket `launch`, with where its socket really is; `cancel` stands the wait down.
-/// Fails as the launch, the connect, the socket's read or a record's write does, a launched
-/// process handed back with the failure for the start's teardown.
+/// Fails as the launch, the connect, the socket's read or a record's write does, the name
+/// published before put back and a launched process handed back for the start's teardown.
 pub(super) async fn launch_lasting_service(
     service: &Arc<CodexService>,
     launch: u64,
@@ -377,7 +378,7 @@ pub(super) async fn launch_lasting_service(
             .map_err(|error| start_failed("The Codex service could not be started.", error))?;
     let record_file = locked.file().clone();
     // Published before the write, so a daemon stop under way leaves the record to this service.
-    service.set_process_record_file(Some(record_file.clone()));
+    let published = PublishedRecordFile::publish(service, record_file.clone());
     let launched = LastingServiceRecord::launched(
         lasting.record().clone(),
         service.socket.home_socket.clone(),
@@ -423,12 +424,15 @@ pub(super) async fn launch_lasting_service(
     }
     .await;
     match kept {
-        Ok((connection, reply, physical_socket)) => Ok(LaunchedLastingService {
-            process,
-            connection,
-            reply,
-            physical_socket,
-        }),
+        Ok((connection, reply, physical_socket)) => {
+            published.keep();
+            Ok(LaunchedLastingService {
+                process,
+                connection,
+                reply,
+                physical_socket,
+            })
+        }
         Err(error) => Err(StartFailure {
             error,
             process: Some(Box::new(process)),
