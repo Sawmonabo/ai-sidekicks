@@ -112,8 +112,9 @@ zstd.workspace = true
 # Helpers other crates' tests use: the drivers' test registry with its session inbox addresser, the
 # test provider id, the driver's mock, the unanswered request, the diagnostics recorder, the
 # runtime binding's test store, the question port's test card, the provider process stand-in and
-# its test identity, the late appendable row's `Clone` and `PartialEq`, and the kept terminal
-# service with its listener and its recording `codex` command.
+# its test identity, the late appendable row's `Clone` and `PartialEq`, the kept terminal service
+# with its listener and its recording `codex` command, and the command capture whose opens a test
+# holds.
 test-support = [
   "dep:mockall",
   "dep:tracing-subscriber",

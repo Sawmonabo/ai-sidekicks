@@ -9,6 +9,11 @@ use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
+#[cfg(any(test, feature = "test-support"))]
+mod test_support;
+#[cfg(any(test, feature = "test-support"))]
+pub use test_support::{CaptureCall, held_capture, next_call, no_call, unregistered_capture};
+
 /// One window, as the capture that opened it names it.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct CommandWindowId(String);
@@ -41,18 +46,21 @@ pub struct CommandWindowStart {
 /// How a window's command ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CommandWindowEnd {
-    /// The wrapper told its command's end: its exit code, or the signal number that ended it.
+    /// The leg told its command's end: the wrapper its exit code or the signal number that ended
+    /// it, a shell its end mark's exit code.
     Exited {
         /// The command's exit code, absent for a signal's end.
         exit_code: Option<i32>,
         /// The signal that ended the command.
         signal: Option<i32>,
     },
-    /// The wrapper ended before its command began, by the daemon's stop, a signal or a kill while
-    /// it waited for its `Go`, so the command never ran.
+    /// The leg ended before its command began, so the command never ran: the wrapper by the
+    /// daemon's stop, a signal or a kill while it waited for its `Go`; a shell whose write failed,
+    /// or that marked its prompt or exited with no command started.
     Unrun,
-    /// The wrapper's process ended after its command began, or its channel stopped being followed,
-    /// without telling the command's end.
+    /// The leg ended after its command began without telling the command's end: the wrapper's
+    /// process ended or its channel stopped being followed; a shell marked its next prompt with no
+    /// end mark, or exited.
     Untold,
 }
 

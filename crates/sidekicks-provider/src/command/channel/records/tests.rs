@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::process::Child;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -18,8 +17,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::BoundedInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_platforms::{InputTerminal, InputWaitReading, TerminalSignal, send_signal};
-use sidekicks_std::port_registration::PortRegistration;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::watch;
 
 use super::{RecordFollower, follow_channel_records, tail_output};
 use crate::command::channel::test_support::{
@@ -36,7 +34,7 @@ use crate::command::running_set::{
 use crate::command::waiting_checks::InputWaitReader;
 use crate::driver::contract::MockProviderDriver;
 use crate::port::command_capture::{
-    CommandCapture, CommandWindowEnd, CommandWindowId, CommandWindowOpenError, CommandWindowStart,
+    CaptureCall, CommandWindowEnd, held_capture, next_call, no_call, unregistered_capture,
 };
 use crate::port::running_command_publisher::{CommandStart, RunningCommandPublisher as _};
 
@@ -76,92 +74,6 @@ impl InputWaitReader for NoTerminals {
     }
 }
 
-/// A call a capture was handed, its window named by its open's ordinal, from 1.
-#[derive(Debug, PartialEq, Eq)]
-enum CaptureCall {
-    Open(usize),
-    Began(usize, bool),
-    Close(usize, CommandWindowEnd),
-}
-
-/// A capture whose opens settle as the test sets `opens`: held while it reads `None`, then each
-/// opened or failed as it reads; each call is handed to the test, each window named by its open's
-/// ordinal.
-struct HeldCapture {
-    opens: watch::Receiver<Option<bool>>,
-    calls: mpsc::UnboundedSender<CaptureCall>,
-    /// How many opens it was asked.
-    opened: AtomicUsize,
-}
-
-impl CommandCapture for HeldCapture {
-    fn open_window(
-        &self,
-        _start: CommandWindowStart,
-    ) -> BoxFuture<'_, Result<CommandWindowId, CommandWindowOpenError>> {
-        let mut opens = self.opens.clone();
-        let window = self.opened.fetch_add(1, Ordering::SeqCst) + 1;
-        // A call after the test ended, the close of a window it left open, reaches no one.
-        self.calls
-            .send(CaptureCall::Open(window))
-            .unwrap_or_default();
-        async move {
-            let opened = *opens
-                .wait_for(Option::is_some)
-                .await
-                .expect("the test holds the opens");
-            if opened == Some(true) {
-                Ok(CommandWindowId::new(window.to_string()))
-            } else {
-                Err(CommandWindowOpenError::CaptureFailed(
-                    "the test failed it".into(),
-                ))
-            }
-        }
-        .boxed()
-    }
-
-    fn command_began(&self, window: &CommandWindowId, is_covered: bool) -> BoxFuture<'_, ()> {
-        let window = window.as_str().parse().expect("an open's ordinal");
-        self.calls
-            .send(CaptureCall::Began(window, is_covered))
-            .unwrap_or_default();
-        async {}.boxed()
-    }
-
-    fn close_window(&self, window: CommandWindowId, end: CommandWindowEnd) -> BoxFuture<'_, ()> {
-        let window = window.as_str().parse().expect("an open's ordinal");
-        self.calls
-            .send(CaptureCall::Close(window, end))
-            .unwrap_or_default();
-        async {}.boxed()
-    }
-}
-
-/// A capture registration nothing registered.
-fn unregistered_capture() -> Arc<PortRegistration<Arc<dyn CommandCapture>>> {
-    Arc::new(PortRegistration::new("command capture"))
-}
-
-/// A registered [`HeldCapture`], its opens as `opens` sets them, its calls on the receiver.
-fn held_capture(
-    opens: watch::Receiver<Option<bool>>,
-) -> (
-    Arc<PortRegistration<Arc<dyn CommandCapture>>>,
-    mpsc::UnboundedReceiver<CaptureCall>,
-) {
-    let (calls, called) = mpsc::unbounded_channel();
-    let capture = unregistered_capture();
-    capture
-        .register(Arc::new(HeldCapture {
-            opens,
-            calls,
-            opened: AtomicUsize::new(0),
-        }))
-        .expect("the capture registers once");
-    (capture, called)
-}
-
 /// The requests a wrapper is answered, in order: its acknowledgment, then `go`.
 fn acknowledged_and_go() -> Vec<DaemonRequest> {
     vec![DaemonRequest::Acknowledged {}, DaemonRequest::Go {}]
@@ -186,20 +98,6 @@ fn starting(process: Option<&str>) -> PartyRecord {
         stdout_path: None,
         process: process.map(str::to_owned),
     }
-}
-
-/// The next call `called` takes, failing the test after 5 s.
-async fn next_call(called: &mut mpsc::UnboundedReceiver<CaptureCall>) -> CaptureCall {
-    tokio::time::timeout(Duration::from_secs(5), called.recv())
-        .await
-        .expect("a call comes")
-        .expect("the capture stays")
-}
-
-/// Fails unless `called` takes no call for 200 ms.
-async fn no_call(called: &mut mpsc::UnboundedReceiver<CaptureCall>, what: &str) {
-    let call = tokio::time::timeout(Duration::from_millis(200), called.recv()).await;
-    assert!(call.is_err(), "{what}: {call:?}");
 }
 
 fn session() -> SessionId {
