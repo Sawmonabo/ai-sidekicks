@@ -21,7 +21,7 @@ use crate::driver::ports::resolve_run_folder;
 use crate::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, FasterModelRetryOutcome,
     FasterModelRetryParams, InterruptRunRequest, OverrideDenialParams, PauseRunParams, PickedSkill,
-    ResumeRunParams,
+    ResumeRunOutcome, ResumeRunParams,
 };
 
 impl CodexDriver {
@@ -76,7 +76,10 @@ impl CodexDriver {
     }
 
     /// Continues a paused or pausing run with the messages that waited for it.
-    pub(crate) async fn resume_run(&self, params: ResumeRunParams) -> Result<(), DriverError> {
+    pub(crate) async fn resume_run(
+        &self,
+        params: ResumeRunParams,
+    ) -> Result<ResumeRunOutcome, DriverError> {
         self.parts()?.run_control.resume_run(params).await
     }
 

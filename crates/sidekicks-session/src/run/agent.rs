@@ -31,21 +31,30 @@ use crate::run::ids::read_session_run_ids;
 
 use crate::agents::projection::read_agent_row;
 
-static SELECT_RUN_AGENT_SQL: LazyLock<String> = LazyLock::new(|| {
+/// The agent of the run whose `agent.run.queued` row is aliased `queued`, as SQL: the agent the row
+/// names, the one minted from a saved definition with it, else the session's lead.
+pub(crate) fn queued_run_agent_sql(queued: &str) -> String {
     let session_created = SessionEventType::SessionCreated.as_str();
-    let run_queued = SessionEventType::AgentRunQueued.as_str();
     format!(
-        "SELECT COALESCE(
-      json_extract(queued.payload, '$.agentId'),
-      json_extract(queued.payload, '$.resolvedAgent.agentId'),
+        "COALESCE(
+      json_extract({queued}.payload, '$.agentId'),
+      json_extract({queued}.payload, '$.resolvedAgent.agentId'),
       (SELECT json_extract(created.payload, '$.mainAgent.agentId')
          FROM session_events AS created
-        WHERE created.session_id = queued.session_id
-          AND created.type = '{session_created}')) AS agent_id
+        WHERE created.session_id = {queued}.session_id
+          AND created.type = '{session_created}'))"
+    )
+}
+
+static SELECT_RUN_AGENT_SQL: LazyLock<String> = LazyLock::new(|| {
+    let run_queued = SessionEventType::AgentRunQueued.as_str();
+    format!(
+        "SELECT {agent} AS agent_id
    FROM session_events AS queued
   WHERE queued.session_id = @session_id
     AND queued.type = '{run_queued}'
-    AND queued.run_id = @run_id"
+    AND queued.run_id = @run_id",
+        agent = queued_run_agent_sql("queued"),
     )
 });
 

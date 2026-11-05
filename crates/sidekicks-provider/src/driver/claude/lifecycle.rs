@@ -478,6 +478,7 @@ impl ClaudeDriver {
                 scheduler: Arc::clone(&self.scheduler),
                 background_work: Arc::clone(&self.sources.background_work),
                 tool_servers: Arc::clone(&ports.in_process_tool_servers),
+                agent_tree_lookup: Arc::clone(&ports.agent_tree_lookup),
                 processes: Arc::clone(&self.sources.processes),
                 restarts: Arc::clone(&restarts),
                 controls: Arc::clone(&session_controls),

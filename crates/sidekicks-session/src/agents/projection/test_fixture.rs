@@ -14,7 +14,7 @@ use sidekicks_store::database::writer::test_file::test_envelope;
 use crate::agents::projection::agents_projection_statements;
 
 /// A binding on `provider` and `model` that follows the provider's current account.
-pub(crate) fn binding(provider: &str, model: &str) -> Value {
+pub fn binding(provider: &str, model: &str) -> Value {
     json!({
         "providerName": provider,
         "modelId": model,
@@ -24,11 +24,7 @@ pub(crate) fn binding(provider: &str, model: &str) -> Value {
 }
 
 /// `session_id`'s birth with its lead `agent_id` on `binding`.
-pub(crate) fn session_created(
-    session_id: SessionId,
-    agent_id: &str,
-    binding: &Value,
-) -> SessionEvent {
+pub fn session_created(session_id: SessionId, agent_id: &str, binding: &Value) -> SessionEvent {
     event(
         "session.created",
         &json!({
@@ -46,7 +42,7 @@ pub(crate) fn session_created(
 }
 
 /// The run `run_id` queued for `agent_id`, minted on `binding` from a saved definition.
-pub(crate) fn resolved_run_queued(
+pub fn resolved_run_queued(
     session_id: SessionId,
     run_id: &str,
     agent_id: &str,
@@ -81,7 +77,7 @@ pub(crate) fn resolved_run_queued(
 
 /// The switch `switch_id` of `agent_id` applied in place, from `from` to `to`, landing on
 /// `landed`.
-pub(crate) fn binding_changed(
+pub fn binding_changed(
     session_id: SessionId,
     agent_id: &str,
     switch_id: &str,
@@ -106,7 +102,7 @@ pub(crate) fn binding_changed(
 }
 
 /// The switch `switch_id` of `agent_id`, which stays on `from`, failed for want of its effort.
-pub(crate) fn binding_change_failed(
+pub fn binding_change_failed(
     session_id: SessionId,
     agent_id: &str,
     switch_id: &str,
@@ -127,14 +123,14 @@ pub(crate) fn binding_change_failed(
 }
 
 /// Runs the statements an append of `event` to `session_id`'s log takes for the agents.
-pub(crate) fn project(connection: &Connection, session_id: SessionId, event: &SessionEvent) {
+pub fn project(connection: &Connection, session_id: SessionId, event: &SessionEvent) {
     let statements = agents_projection_statements(&test_envelope(session_id, event))
         .expect("the test's event reads as its type's");
     run_statements(connection, &statements);
 }
 
 /// Runs `statements` in order, each held to the rows it must change.
-pub(crate) fn run_statements(connection: &Connection, statements: &[WriteStatement]) {
+pub fn run_statements(connection: &Connection, statements: &[WriteStatement]) {
     for statement in statements {
         let changed = run_statement(connection, statement).expect("the statement runs");
         if let Some(expected) = statement.expected_row_count {
@@ -145,7 +141,7 @@ pub(crate) fn run_statements(connection: &Connection, statements: &[WriteStateme
 
 /// Writes one row of `session_id`'s log at `sequence`, an `event_type` event with `payload` as the
 /// test spells it, filed under `run_id` where it names one and occurring at `occurred_at`.
-pub(crate) fn write_log_row(
+pub fn write_log_row(
     connection: &Connection,
     session_id: SessionId,
     sequence: i64,

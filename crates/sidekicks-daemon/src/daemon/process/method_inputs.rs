@@ -37,6 +37,8 @@ use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::account::credential_home::sign_out_every_home;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
+use sidekicks_provider::port::run_pause::ContinuedMessages;
+use sidekicks_provider::port::session_wake::SessionWaker;
 use sidekicks_queue::memory_gate::{
     INGEST_WORKER_BYTES, MemoryGate, MemoryGateFigures, QUICK_THREAD_BYTES,
 };
@@ -44,6 +46,8 @@ use sidekicks_queue::run_token_limit::RunTokenLimitReader;
 use sidekicks_queue::service::answer_continue::HaltedRunRecord;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
 use sidekicks_recovery::startup::StartupRecovery;
+use sidekicks_session::agent_tree::controls::ChildRunControls;
+use sidekicks_session::agent_tree::lookup::StoredAgentTreeLookup;
 use sidekicks_session::attention::banner_launcher::BannerLauncher;
 use sidekicks_session::attention::delivery::web_address::sender::{
     WebAddressSender, WebAddressSenderDependencies,
@@ -51,6 +55,7 @@ use sidekicks_session::attention::delivery::web_address::sender::{
 use sidekicks_session::attention::service::{AttentionService, AttentionServiceDependencies};
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::groups::service::SessionGroupService;
+use sidekicks_session::interventions::service::InterventionService;
 use sidekicks_session::plan_holds::PlanHolds;
 use sidekicks_session::run::folders::SessionLiveRunFolders;
 use sidekicks_session::run::held_tool_calls::StoredHeldToolCalls;
@@ -126,6 +131,7 @@ use crate::ipc::handlers::session::controls::SessionControlMethods;
 use crate::ipc::handlers::session::search::SessionSearchMethods;
 use crate::ipc::handlers::session::snapshots::SessionSnapshotSources;
 use crate::observability::diagnostic_buckets::recorders::provider_messages_folder;
+use crate::orchestration::goal_service::SessionGoals;
 
 /// What the method tables' services are built from: what the start opened, read and built before
 /// them.
@@ -536,6 +542,7 @@ pub(crate) async fn register_method_inputs(
             context_readings: Arc::clone(&session.context_readings),
             tool_call_statuses: Arc::clone(&session.tool_call_statuses),
             held_tool_calls: Arc::new(StoredHeldToolCalls::new(Arc::clone(&reads))),
+            agent_tree_lookup: Arc::new(StoredAgentTreeLookup::new(Arc::clone(&reads))),
             idle_sleep: Arc::clone(&session.idle_sleep),
             session_resumes: Arc::clone(&session.stored_resumes),
             provider_sessions: Arc::clone(&session.provider_sessions),
@@ -653,6 +660,8 @@ pub(crate) async fn register_method_inputs(
         providers: Arc::clone(&registry),
         read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
     });
+    // The messages waiting for a paused run, which a run's and a child's continue deliver.
+    let continued: Arc<dyn ContinuedMessages> = Arc::new(session.queue.delivery());
     let (erase_reads, erase_data_folder, erase_legs) = (
         Arc::clone(&reads),
         data_folder.to_path_buf(),
@@ -730,8 +739,17 @@ pub(crate) async fn register_method_inputs(
                 interventions: Arc::clone(&session.interventions),
                 pauses: Arc::clone(&session.pauses),
                 choices: Arc::clone(&session.choices),
-                continued: Arc::new(session.queue.delivery()),
+                continued: Arc::clone(&continued),
             },
+            child_run_controls: Arc::new(ChildRunControls::new(
+                Arc::clone(&reads),
+                Arc::clone(&registry),
+                InterventionService::clone(&session.interventions),
+                Arc::clone(&session.pauses),
+                continued,
+                Arc::clone(&session.appender),
+                Arc::clone(&read_damaged_from_sequence),
+            )),
             command_methods: Arc::new(CommandMethodSources {
                 pool: Arc::clone(&reads),
                 running: Arc::clone(&session.running_commands),
@@ -782,6 +800,11 @@ pub(crate) async fn register_method_inputs(
                 files: Arc::clone(&session.file_search),
                 read_damaged_from_sequence,
             },
+            session_goals: Arc::new(SessionGoals {
+                pool: Arc::clone(&reads),
+                providers: Arc::clone(&registry),
+                session_wakes: Arc::clone(&session.idle_sleep) as Arc<dyn SessionWaker>,
+            }),
             session_controls: SessionControlMethods {
                 sources: driver_methods,
                 provider_sessions: Arc::clone(&session.provider_sessions),

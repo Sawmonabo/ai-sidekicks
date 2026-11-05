@@ -15,6 +15,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
+use sidekicks_provider::driver::run_control::ResumeRunOutcome;
 use sidekicks_provider::driver::test_registry::registry_of_first_provider;
 use sidekicks_session::queue_store::{QueueItemOutcome, RecordedQueueItemState};
 use sidekicks_session::run::engine::test_fixture::test_engine;
@@ -154,7 +155,15 @@ async fn a_take_back_and_a_resume_of_one_run_take_the_session_in_turn(
                     .expect("the driver's answer reads")
                     .take()
                     .expect("the driver is resumed once");
-                async move { answer.await.expect("the test answers the driver") }.boxed()
+                async move {
+                    answer
+                        .await
+                        .expect("the test answers the driver")
+                        .map(|()| ResumeRunOutcome {
+                            is_hold_lost: false,
+                        })
+                }
+                .boxed()
             });
     }
     let home = tempfile::tempdir().expect("the test makes a home folder");

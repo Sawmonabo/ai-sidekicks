@@ -16,7 +16,8 @@ use std::time::Duration;
 
 use futures::FutureExt;
 use serde_json::Value;
-use sidekicks_contracts::provider::driver::capabilities::{CredentialPolicyRef, ExecutionPosture};
+use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
@@ -69,6 +70,7 @@ use crate::driver::session_control::CreateSessionParams;
 use crate::driver::test_registry::{new_agent_id, new_run_id, new_session_id};
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::process_identity::ProviderProcessIdentity;
+use crate::run::posture::compose_execution_posture;
 use crate::runtime_binding::test_store::{spawned_build, test_provider_account_id};
 
 /// Staged-change worktrees under a scratch folder of their own, on a spawner of their own.
@@ -87,16 +89,21 @@ pub(crate) fn binding_id(name: &str) -> RuntimeBindingId {
     RuntimeBindingId::new(name.to_owned()).expect("a test binding id fits")
 }
 
+/// The posture every scripted session runs at, Ask: its create's, its live session's and a daemon
+/// turn's admission's.
+pub(crate) fn scripted_posture() -> ExecutionPosture {
+    compose_execution_posture(
+        PermissionLevel::Ask,
+        FilesystemPath::new("/".to_owned()).expect("the root is a path"),
+    )
+}
+
 /// A live session at Ask on the scripted process `channel`.
 pub(crate) fn scripted_live_session(
     session_id: SessionId,
     channel: Arc<dyn ClaudeProcessChannel>,
 ) -> LiveClaudeSession {
-    let execution_posture = ExecutionPosture::Ask {
-        credential_policy_ref: CredentialPolicyRef::new("policy".to_owned())
-            .expect("a test policy reference fits"),
-        writable_roots: Vec::new(),
-    };
+    let execution_posture = scripted_posture();
     let choices = unreadable_claude_command_choices("unread");
     LiveClaudeSession {
         session_id,

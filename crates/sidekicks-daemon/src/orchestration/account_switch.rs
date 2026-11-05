@@ -40,7 +40,7 @@ use futures::future::{BoxFuture, join_all};
 use sidekicks_contracts::agent::provider_binding::{
     AgentBindingContinuity, AgentBindingSwitchAccountState, AgentBindingSwitchFailureReason,
     AgentBindingSwitchTarget, AgentProviderBindingChangeFailedPayload,
-    AgentProviderBindingChangedPayload, SwitchId,
+    AgentProviderBindingChangedPayload,
 };
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -53,7 +53,6 @@ use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNotic
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_provider::account::readiness::derive_account_readiness;
@@ -80,6 +79,8 @@ use sidekicks_store::events::session::appender::{
 use sidekicks_store::events::session::read::{DamagedFromSequenceReader, session_read_bound};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
+
+use crate::orchestration::binding_switch::{account_state_of, mint_switch_id};
 
 /// The level control's own move of a session's level, which a switch takes a lead through when its
 /// new account cannot run the level it stands at.
@@ -819,40 +820,6 @@ fn skip_unreadable(session_id: SessionId, error: &(dyn Error + 'static)) {
 #[derive(Debug, thiserror::Error)]
 #[error("the account switch ended before it answered")]
 struct SwitchEnded;
-
-fn mint_switch_id() -> SwitchId {
-    SwitchId::new(mint_uuid_v7().to_string()).expect("a minted UUID is a switch id")
-}
-
-// The state a failed move's refusal names of the account: a gone sign-in, a gone home, an account
-// not registered, and anything else not decided.
-fn account_state_of(error: &DriverError) -> AgentBindingSwitchAccountState {
-    let code = match error {
-        DriverError::Refused(refusal) => Some(refusal.code),
-        DriverError::Unanswered(_)
-        | DriverError::SteerTurnEnded(_)
-        | DriverError::RunRefused(_)
-        | DriverError::CapabilityProbe(_)
-        | DriverError::ExecutableUnresolvable(_)
-        | DriverError::ModelCatalogUnreadable(_)
-        | DriverError::ProviderAxisInvalid(_)
-        | DriverError::RuleNotKept(_)
-        | DriverError::SkillNotListed(_)
-        | DriverError::NoPersonServerEntry(_)
-        | DriverError::SignInFailed(_)
-        | DriverError::Internal(_) => None,
-    };
-    match code {
-        Some(RefusalCode::ProviderAccountNotAuthenticated) => {
-            AgentBindingSwitchAccountState::ReauthRequired
-        }
-        Some(RefusalCode::ProviderAccountCredentialHomeUnavailable) => {
-            AgentBindingSwitchAccountState::HomeMissing
-        }
-        Some(RefusalCode::ProviderAccountNotFound) => AgentBindingSwitchAccountState::NotRegistered,
-        _ => AgentBindingSwitchAccountState::Indeterminate,
-    }
-}
 
 #[cfg(test)]
 mod tests;

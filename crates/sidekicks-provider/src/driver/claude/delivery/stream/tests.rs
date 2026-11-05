@@ -39,20 +39,25 @@ pub(super) fn result(members: &Value) -> Value {
     frame
 }
 
-fn tool_call(message_id: &str, tool_use_id: &str, agent_id: Option<&str>) -> Value {
+// An assistant frame calling the tool `tool_name` under `tool_use_id`, the helper `agent_id`'s or,
+// with none, the lead's.
+pub(super) fn tool_call(
+    message_id: &str,
+    tool_use_id: &str,
+    tool_name: &str,
+    agent_id: Option<&str>,
+) -> Value {
     let mut frame = json!({
         "type": "assistant",
         "session_id": SCRIPTED_PROVIDER_SESSION_ID,
         "message": {
             "id": message_id,
             "role": "assistant",
-            "content": [
-                {"type": "tool_use", "id": tool_use_id, "name": "Bash", "input": {"command": "ls"}},
-            ],
+            "content": [{"type": "tool_use", "id": tool_use_id, "name": tool_name, "input": {}}],
         },
     });
-    if let (Some(frame), Some(agent_id)) = (frame.as_object_mut(), agent_id) {
-        frame.insert("agent_id".to_owned(), Value::from(agent_id));
+    if let Some(agent_id) = agent_id {
+        frame["agent_id"] = json!(agent_id);
     }
     frame
 }
@@ -66,7 +71,7 @@ async fn a_turns_frames_stay_its_runs_after_the_reader_released_its_hold() {
     let run_id = session.hold_lead_turn("lead");
 
     session.frame(&init());
-    session.frame(&tool_call("message-1", "call-1", None));
+    session.frame(&tool_call("message-1", "call-1", "Bash", None));
     session.frame(&result(&json!({})));
     settle().await;
 
@@ -252,8 +257,8 @@ async fn a_step_is_one_lead_message_carrying_a_tool_call() {
     let run_id = session.hold_lead_turn("lead");
 
     session.frame(&init());
-    session.frame(&tool_call("message-1", "call-1", None));
-    session.frame(&tool_call("message-1", "call-2", None));
+    session.frame(&tool_call("message-1", "call-1", "Bash", None));
+    session.frame(&tool_call("message-1", "call-2", "Bash", None));
     session.frame(&json!({
         "type": "assistant",
         "session_id": SCRIPTED_PROVIDER_SESSION_ID,
@@ -272,7 +277,7 @@ async fn a_step_is_one_lead_message_carrying_a_tool_call() {
         "tool_use_id": "call-1",
         "is_backgrounded": false,
     }));
-    session.frame(&tool_call("message-3", "call-3", Some("helper")));
+    session.frame(&tool_call("message-3", "call-3", "Bash", Some("helper")));
     settle().await;
 
     let steps: Vec<_> = session
@@ -365,8 +370,8 @@ async fn a_frame_no_run_holds_is_reported_once_per_kind_and_adds_nothing() {
     let recording = recorded.record_until_dropped();
 
     // Only a turn's `system/init` opens a run of the session's own; any other frame stays unheld.
-    session.frame(&tool_call("message-1", "call-1", None));
-    session.frame(&tool_call("message-2", "call-2", None));
+    session.frame(&tool_call("message-1", "call-1", "Bash", None));
+    session.frame(&tool_call("message-2", "call-2", "Bash", None));
     settle().await;
     drop(recording);
 

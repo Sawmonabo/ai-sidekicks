@@ -17,6 +17,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::session::controls::methods::SideQuestionId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_std::error_description::describe_error;
@@ -124,7 +125,7 @@ pub struct ProviderAxisInvalid {
     /// The agent whose binding set the axis.
     pub(crate) agent_id: AgentId,
     /// The request's member the value was set on.
-    pub(crate) axis: ProviderAxis,
+    pub axis: ProviderAxis,
     /// The value as the request set it.
     pub(crate) value: Value,
 }
@@ -180,29 +181,57 @@ impl ProviderAxisInvalid {
             value: json!(effort),
         })
     }
+
+    /// Checks a binding's output `speed` against `output_speed_levels`, the levels the provider
+    /// lists for it; `None` or an empty list offers no speed, so any speed is refused.
+    pub(crate) fn check_output_speed<Level: AsRef<str>>(
+        agent_id: AgentId,
+        speed: &str,
+        output_speed_levels: Option<&[Level]>,
+    ) -> Result<(), Self> {
+        if output_speed_levels
+            .is_some_and(|levels| levels.iter().any(|level| level.as_ref() == speed))
+        {
+            return Ok(());
+        }
+        Err(Self {
+            agent_id,
+            axis: ProviderAxis::OutputSpeed,
+            value: json!(speed),
+        })
+    }
+
+    /// Checks a binding's larger `window`, in tokens, against the catalog: refused unless the
+    /// provider lists a larger-window row for the binding's model.
+    pub(crate) fn check_larger_window(
+        agent_id: AgentId,
+        window: SafeInt<1>,
+        has_larger_row: bool,
+    ) -> Result<(), Self> {
+        if has_larger_row {
+            return Ok(());
+        }
+        Err(Self {
+            agent_id,
+            axis: ProviderAxis::LargerWindow,
+            value: json!(window),
+        })
+    }
 }
 
 /// The request members that set a provider axis, named as the request names them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, strum::Display, strum::IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]
-pub(crate) enum ProviderAxis {
+pub enum ProviderAxis {
     /// The provider.
     ProviderName,
     /// The model.
     ModelId,
     /// The model's larger context window.
-    #[expect(
-        dead_code,
-        reason = "the binding check of an agent's provider switch names it"
-    )]
     LargerWindow,
     /// The reasoning effort.
     Effort,
     /// The output speed.
-    #[expect(
-        dead_code,
-        reason = "the binding check of an agent's provider switch names it"
-    )]
     OutputSpeed,
     /// A session option.
     Options,
