@@ -1,8 +1,8 @@
 //! What one live process's task does with each arrival, in order: a frame of a process the slot
 //! still binds opens a turn Claude Code started by itself, feeds the goal, helper and stream
 //! readings, and leaves the running model and a too-long turn's cut behind it; a turn end settles
-//! the turn; a request goes through the daemon's hooks or on to the requests; the exit forgets
-//! everything the process held.
+//! the turn; a request goes through the daemon's hooks or on to the requests, an edit's copy and
+//! its answer spawned off the task; the exit forgets everything the process held.
 
 use std::sync::{Arc, Mutex};
 
@@ -33,6 +33,7 @@ use crate::driver::claude::hooks::callbacks::{
     ClaudeRequestRoute, answer_background_work_check, answer_claude_request, route_claude_request,
     route_helper_start, route_helper_wake, route_message_target,
 };
+use crate::driver::claude::hooks::edit_checkpoint::keep_copy_then_answer;
 use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::hold_renewal::arm_hold_renewal;
@@ -55,6 +56,7 @@ use crate::driver::claude::session::tool_server_calls::ClaudeToolServerCalls;
 use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
 use crate::driver::delivery_dispatch::dispatch_delivery;
 use crate::port::agent_tree_lookup::AgentTreeLookup;
+use crate::port::edit_checkpoint::EditCheckpoint;
 use crate::port::in_process_tool_servers::InProcessToolServers;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery};
@@ -103,6 +105,8 @@ pub(crate) struct ClaudeSessionTaskServices {
     /// The session's agent tree, once registered, which the message-target check reads a
     /// helper's stored stop from and the helper-wake check whether it has ended.
     pub(crate) agent_tree_lookup: Arc<PortRegistration<Arc<dyn AgentTreeLookup>>>,
+    /// The copy kept before each edit a passed pre-tool hook lets run, once registered.
+    pub(crate) edit_checkpoint: Arc<PortRegistration<Arc<dyn EditCheckpoint>>>,
     /// Which process runs each session, each removed at its exit.
     pub(crate) processes: Arc<ProviderProcessRegistry>,
     /// The restarts of a process that ended on its own, and the build moves a turn held back.
@@ -240,7 +244,9 @@ impl ClaudeSessionTask {
     }
 
     // Answers, holds or hands on one request as its route says; a helper start's, a message
-    // target's or a helper wake's check settles into an answer or a hold, taken in its turn.
+    // target's or a helper wake's check settles into an answer or a hold, taken in its turn. An
+    // edit's copy and answer are spawned, so the task takes its next arrival while the file is
+    // copied; the spawned answer ends at its write, failing as any late answer does.
     async fn take_route(&mut self, route: ClaudeRequestRoute, level: Option<PermissionLevel>) {
         let services = Arc::clone(&self.services);
         let live = &self.live;
@@ -300,6 +306,21 @@ impl ClaudeSessionTask {
             ClaudeRequestRoute::Answer { request_id, answer } => {
                 answer_claude_request(&*live.channel, &session_id, account, request_id, &answer)
                     .await;
+            }
+            ClaudeRequestRoute::KeepEditCopy { request_id, edit } => {
+                let edit_checkpoint = services.edit_checkpoint.port().cloned();
+                let channel = Arc::clone(&live.channel);
+                let account = account.clone();
+                tokio::spawn(async move {
+                    keep_copy_then_answer(
+                        edit_checkpoint.as_ref(),
+                        &*channel,
+                        &account,
+                        request_id,
+                        edit,
+                    )
+                    .await;
+                });
             }
             ClaudeRequestRoute::Held { helper } => {
                 if let Some(helper) = helper {

@@ -448,6 +448,7 @@ impl ClaudeDriver {
                 helper_steers: Arc::clone(&helper_steers),
                 interventions: Arc::clone(&interventions),
                 command_channels: Arc::clone(&self.sources.command_channels),
+                edit_checkpoint: Arc::clone(&ports.edit_checkpoint),
             };
             let task_services = Arc::new(ClaudeSessionTaskServices {
                 delivery,
@@ -479,6 +480,7 @@ impl ClaudeDriver {
                 background_work: Arc::clone(&self.sources.background_work),
                 tool_servers: Arc::clone(&ports.in_process_tool_servers),
                 agent_tree_lookup: Arc::clone(&ports.agent_tree_lookup),
+                edit_checkpoint: Arc::clone(&ports.edit_checkpoint),
                 processes: Arc::clone(&self.sources.processes),
                 restarts: Arc::clone(&restarts),
                 controls: Arc::clone(&session_controls),

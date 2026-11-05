@@ -30,9 +30,9 @@ use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions, W
 
 use super::shadows::{
     Shadow, ShadowContent, ShadowId, VolumeFolder, current_shadows, delete_unused_shadow_statement,
-    insert_current_shadow_statement, insert_volume_folder_statement, link_window_shadow_statement,
-    retire_current_shadow_statement, unlink_window_shadows_statement, unused_shadows,
-    volume_folders, window_shadows,
+    every_volume_folder, insert_current_shadow_statement, insert_volume_folder_statement,
+    link_window_shadow_statement, retire_current_shadow_statement, unlink_window_shadows_statement,
+    unused_shadows, volume_folders, window_shadows,
 };
 use super::{
     Checkpoint, CheckpointVersion, CommandWindowClosing, CommandWindowId, CommandWindowOpening,
@@ -673,7 +673,8 @@ async fn open_windows_and_failed_edits_read_what_they_name() {
     );
 }
 
-// Kills: a missing `ON CONFLICT` and the session filter dropped.
+// Kills: a missing `ON CONFLICT`, the session filter dropped, and every session's read filtered to
+// one session.
 #[tokio::test]
 async fn a_volume_folder_is_kept_once_per_session() {
     let fixture = Fixture::new().await;
@@ -684,6 +685,7 @@ async fn a_volume_folder_is_kept_once_per_session() {
             .expect("a test path"),
     };
     let own = folder("own");
+    let other = folder("other");
     for _ in 0..2 {
         fixture
             .writer
@@ -696,16 +698,20 @@ async fn a_volume_folder_is_kept_once_per_session() {
     }
     fixture
         .writer
-        .write(vec![insert_volume_folder_statement(
-            other_session,
-            &folder("other"),
-        )])
+        .write(vec![insert_volume_folder_statement(other_session, &other)])
         .await
         .expect("another session's folder is written");
 
+    let reader = fixture.database.reader();
     assert_eq!(
-        volume_folders(&fixture.database.reader(), fixture.session_id).expect("the folders read"),
-        [own]
+        volume_folders(&reader, fixture.session_id).expect("the folders read"),
+        std::slice::from_ref(&own)
+    );
+    let mut every = vec![(fixture.session_id, own), (other_session, other)];
+    every.sort_by(|left, right| left.0.text().as_str().cmp(right.0.text().as_str()));
+    assert_eq!(
+        every_volume_folder(&reader).expect("every session's folders read"),
+        every
     );
 }
 

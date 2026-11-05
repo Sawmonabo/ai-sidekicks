@@ -1,7 +1,8 @@
 //! Routes each request a live Claude Code process sends: the daemon's own pause, helper-start,
-//! message-target, helper-limit, helper-wake and background-work hooks are answered here, and
-//! every other request (tool asks, dialogs, the question hook, a reviewer's block) goes on to the
-//! event side, which answers it or leaves it pending at the provider.
+//! message-target, helper-limit, helper-wake and background-work hooks are answered here, the
+//! pre-tool hook of a call that changes a file only once its file's copy is kept, and every other
+//! request (tool asks, dialogs, the question hook, a reviewer's block) goes on to the event side,
+//! which answers it or leaves it pending at the provider.
 
 use std::sync::{Arc, Mutex};
 
@@ -19,9 +20,12 @@ use sidekicks_std::mutex_lock::lock;
 
 use crate::background_work::{BackgroundWorkForms, refuse_background_work};
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::hooks::edit_checkpoint::{keep_copy_then_answer, read_claude_edit};
 use crate::driver::claude::hooks::helper_limit::{ClaudeHelperLimit, ClaudeHelperStartAnswer};
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
-use crate::driver::claude::hooks::pause::{ClaudeHookAnswer, ClaudePauseAnswer, ClaudeRunPauses};
+use crate::driver::claude::hooks::pause::{
+    ClaudeHookAnswer, ClaudePauseAnswer, ClaudeReleasedCallback, ClaudeRunPauses,
+};
 use crate::driver::claude::hooks::registration::{
     CLAUDE_HELPER_TOOL_NAME, CLAUDE_MESSAGE_TOOL_NAME, ClaudeHookCallback as RegisteredHook,
 };
@@ -39,6 +43,8 @@ use crate::driver::hook_pauses::target_unread_reason;
 use crate::driver::run_control::HelperStopReason;
 use crate::lenient_json::{lenient_object, read_lenient};
 use crate::port::agent_tree_lookup::{AgentTreeHelper, AgentTreeLookup};
+use crate::port::edit_checkpoint::{EditCheckpoint, EditCheckpointRequest};
+use crate::record_readers::filter_non_empty;
 use crate::run::posture::resolve_posture;
 
 /// Where one request a process sent goes.
@@ -55,6 +61,13 @@ pub(crate) enum ClaudeRequestRoute {
     Held {
         /// The helper a pause holds, `None` on a hold the helper limit makes.
         helper: Option<ClaudeHeldHelper>,
+    },
+    /// Answer it with no decision once its file's copy is kept, through [`keep_copy_then_answer`].
+    KeepEditCopy {
+        /// The request's id.
+        request_id: String,
+        /// The edit the call makes.
+        edit: EditCheckpointRequest,
     },
     /// Answer it once the shell call it carries is checked for background work, through
     /// [`answer_background_work_check`].
@@ -120,10 +133,12 @@ struct HookInput {
     tool_use_id: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     tool_input: Option<HookToolInput>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    cwd: Option<String>,
 }
 
-// The members of a hooked tool call's input the daemon's hooks read: a shell call's, and the
-// recipient of a message call.
+// The members of a hooked tool call's input the daemon's hooks read: a shell call's, the
+// recipient of a message call, and the file a file-changing call names.
 #[derive(Deserialize)]
 struct HookToolInput {
     #[serde(default, deserialize_with = "read_lenient")]
@@ -135,6 +150,10 @@ struct HookToolInput {
     timeout: Option<serde::de::IgnoredAny>,
     #[serde(default, deserialize_with = "read_lenient")]
     to: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    file_path: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    notebook_path: Option<String>,
 }
 
 /// The parts of a shell call the background-work hook reads.
@@ -236,7 +255,13 @@ pub(crate) fn route_claude_request(
                 agent_id,
                 to,
             },
-            None => route_before_tool(pauses, session_id, request.request_id, agent_id),
+            None => route_before_tool(
+                pauses,
+                session_id,
+                request.request_id,
+                agent_id,
+                read_hooked_edit(session_id, callback, input.as_ref()),
+            ),
         },
         RegisteredHook::PauseAfterBatch => pause_route(
             pauses.answer_after_batch(session_id, agent_id.as_deref()),
@@ -251,12 +276,8 @@ pub(crate) fn route_claude_request(
             request_id: request.request_id,
         },
         RegisteredHook::HelperLimit => {
-            let tool_use_id = callback
-                .tool_use_id
-                .clone()
-                .or_else(|| input.and_then(|input| input.tool_use_id))
-                .filter(|id| !id.is_empty())
-                .unwrap_or_else(|| request.request_id.clone());
+            let tool_use_id = read_tool_use_id(callback, input.as_ref())
+                .map_or_else(|| request.request_id.clone(), str::to_owned);
             if is_helper_start {
                 let answer = helpers.answer_start(session_id, &request.request_id, &tool_use_id);
                 return helper_limit_route(answer, request.request_id);
@@ -341,7 +362,7 @@ pub(crate) async fn route_helper_start(
             },
         };
     }
-    route_before_tool(&mut lock(pauses), session_id, request_id, agent_id)
+    route_before_tool(&mut lock(pauses), session_id, request_id, agent_id, None)
 }
 
 // The reason a refused helper start gives the agent, `cause` saying why the level cannot run.
@@ -391,7 +412,7 @@ pub(crate) async fn route_message_target(
             };
         }
     }
-    route_before_tool(&mut lock(pauses), session_id, request_id, agent_id)
+    route_before_tool(&mut lock(pauses), session_id, request_id, agent_id, None)
 }
 
 /// The route of a message call `request_id`, the tool call `tool_use_id` by the helper `agent_id`
@@ -471,18 +492,23 @@ fn helper_limit_route(answer: ClaudeHelperStartAnswer, request_id: String) -> Cl
     }
 }
 
-// The pause's route for a pre-tool callback: an answer now, or a hold that names the helper.
+// The pause's route for a pre-tool callback making `edit`: the pause decides first, so a denied
+// call takes no copy and a held one keeps its edit for its continue; a passed edit is copied
+// before its answer, and any other call is answered now.
 fn route_before_tool(
     pauses: &mut ClaudeRunPauses,
     session_id: &SessionId,
     request_id: String,
     agent_id: Option<String>,
+    mut edit: Option<EditCheckpointRequest>,
 ) -> ClaudeRequestRoute {
-    pause_route(
-        pauses.answer_before_tool(session_id, agent_id.as_deref(), &request_id),
-        request_id,
-        agent_id,
-    )
+    let answer = pauses.answer_before_tool(session_id, agent_id.as_deref(), &request_id, &mut edit);
+    match (answer, edit) {
+        (ClaudePauseAnswer::Answer(ClaudeHookAnswer::Pass), Some(edit)) => {
+            ClaudeRequestRoute::KeepEditCopy { request_id, edit }
+        }
+        (answer, _) => pause_route(answer, request_id, agent_id),
+    }
 }
 
 /// Answers one request Claude Code holds through `channel`. An answer that cannot be written
@@ -525,6 +551,42 @@ pub(crate) async fn answer_claude_request(
     channel.terminate().await;
 }
 
+/// Answers the callbacks a helper's continue `released`, in order: one carrying an edit once its
+/// file's copy is kept through `edit_checkpoint`, the rest with their own answers. An answer that
+/// cannot be written stops the process, as [`answer_claude_request`] does.
+pub(crate) async fn answer_released_callbacks(
+    edit_checkpoint: Option<&Arc<dyn EditCheckpoint>>,
+    channel: &dyn ClaudeProcessChannel,
+    session_id: &SessionId,
+    provider_account_id: &ProviderAccountId,
+    released: Vec<ClaudeReleasedCallback>,
+) {
+    for callback in released {
+        match callback.edit {
+            Some(edit) => {
+                keep_copy_then_answer(
+                    edit_checkpoint,
+                    channel,
+                    provider_account_id,
+                    callback.request_id,
+                    edit,
+                )
+                .await;
+            }
+            None => {
+                answer_claude_request(
+                    channel,
+                    session_id,
+                    provider_account_id,
+                    callback.request_id,
+                    &callback.answer,
+                )
+                .await;
+            }
+        }
+    }
+}
+
 // A pause's route: an answer now, or a hold, which names the helper it holds.
 fn pause_route(
     answer: ClaudePauseAnswer,
@@ -540,6 +602,33 @@ fn pause_route(
             }),
         },
     }
+}
+
+// The edit a pre-tool hook's call makes, read from its tool, its input and the hook's folder.
+fn read_hooked_edit(
+    session_id: &SessionId,
+    callback: &ClaudeHookCallback,
+    input: Option<&HookInput>,
+) -> Option<EditCheckpointRequest> {
+    let input = input?;
+    let tool_input = input.tool_input.as_ref();
+    read_claude_edit(
+        session_id,
+        input.tool_name.as_deref()?,
+        tool_input.and_then(|tool_input| tool_input.file_path.as_deref()),
+        tool_input.and_then(|tool_input| tool_input.notebook_path.as_deref()),
+        input.cwd.as_deref(),
+        read_tool_use_id(callback, Some(input)),
+    )
+}
+
+// The hooked call's tool-use id: the callback's own, else its input's, each only when non-empty.
+fn read_tool_use_id<'callback>(
+    callback: &'callback ClaudeHookCallback,
+    input: Option<&'callback HookInput>,
+) -> Option<&'callback str> {
+    filter_non_empty(callback.tool_use_id.as_deref())
+        .or_else(|| filter_non_empty(input?.tool_use_id.as_deref()))
 }
 
 fn read_hook_input(callback: &ClaudeHookCallback) -> Option<HookInput> {
