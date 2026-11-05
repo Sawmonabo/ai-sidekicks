@@ -486,7 +486,9 @@ mod tests {
         ClaudeConversation, ClaudeConversationFolders, ClaudeConversationOutline,
         delete_claude_conversations, find_claude_taken_messages, read_claude_conversation_outline,
     };
-    use crate::driver::claude::session::rules::{ClaudeProjectFolder, ClaudeRepository};
+    use crate::driver::claude::session::rules::{
+        CLAUDE_USER_SETTINGS_FILE, ClaudeProjectFolder, ClaudeRepository, local_settings_path,
+    };
     use crate::driver::claude::spawn::environment::compose_claude_scratch_folder;
 
     const SESSION_ID: &str = "3f1c0d4e-0000-4000-8000-000000000001";
@@ -600,7 +602,7 @@ mod tests {
             concat!(r#"{"slug":""}"#, "\n", r#"{"slug":"brave-otter"}"#, "\n"),
         );
         write(
-            &root.join(".claude").join("settings.local.json"),
+            &local_settings_path(&root),
             r#"{"plansDirectory":"my-plans"}"#,
         );
         let kept = [
@@ -722,7 +724,7 @@ mod tests {
             .join("claude-501")
             .join("-project")
             .join("a"),
-            config.join("settings.json"),
+            config.join(CLAUDE_USER_SETTINGS_FILE),
         ];
         for path in &kept {
             write(path, "x");
