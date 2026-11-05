@@ -75,8 +75,8 @@ fn workflow_schema_sql() -> String {
 -- ---------------------------------------------------------------------------
 -- workflow_definitions: one row per workflow in the one library.
 -- ---------------------------------------------------------------------------
--- The layout, tags, permission level, background browser and pinned data sit
--- outside the content hash, so changing any of them mints no version.
+-- The layout, tags, permission level, background browser, provider and pinned
+-- data sit outside the content hash, so changing any of them mints no version.
 CREATE TABLE workflow_definitions (
   id                   TEXT PRIMARY KEY,
   name                 TEXT NOT NULL,                -- as the person cased it
@@ -101,6 +101,9 @@ CREATE TABLE workflow_definitions (
   -- browser it started with.
   background_browser   TEXT NOT NULL DEFAULT '{settings_default}'
                        CHECK(background_browser IN ({background_browsers})),
+  -- The provider whose sandbox and shell the workflow's command steps run in;
+  -- NULL until one is chosen. A run reads it when it starts.
+  provider             TEXT,
   -- JSON object of node id to a pinned item array; NULL when nothing is pinned.
   pin_data_json        TEXT
                        CHECK(pin_data_json IS NULL

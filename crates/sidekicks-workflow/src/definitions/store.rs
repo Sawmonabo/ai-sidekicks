@@ -1,7 +1,7 @@
 //! The writes to the one workflow library: create (a duplicate among them), save a new version,
 //! soft delete, and the settings kept beside a version (layout, pinned data, tags, permission
-//! level, background browser), which mint none. Each change is one write, so a refused write leaves
-//! nothing behind.
+//! level, background browser, provider), which mint none. Each change is one write, so a refused
+//! write leaves nothing behind.
 
 mod params;
 mod settings;
@@ -18,6 +18,7 @@ use rusqlite::{Connection, OptionalExtension as _, named_params};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::jsonrpc::issue::{ISSUES_MAX, IssuePathSegment};
 use sidekicks_contracts::name_fold::fold_name;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::schema::ReceivedCheckError;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::True;
@@ -66,13 +67,14 @@ use crate::not_found::{WorkflowNotFound, WorkflowVersionAddress};
 /// version a refused save is told about.
 pub const WORKFLOW_DEFINITION_STORE_STATEMENT_CAPACITY: usize = 1;
 
-// A permission level is left to the column's default, so a new workflow starts at `yolo`.
+// A permission level is left to the column's default, so a new workflow starts at `yolo`; the
+// provider is the prefill the create's caller passes.
 const INSERT_DEFINITION_SQL: &str = "INSERT INTO workflow_definitions (
     id, name, name_folded, content_hash, schema_version, definition_body, layout_json,
-    pin_data_json, tags, created_at, created_by, updated_at
+    pin_data_json, tags, provider, created_at, created_by, updated_at
   ) VALUES (
     @id, @name, @name_folded, @content_hash, @schema_version, @definition_body, @layout_json,
-    @pin_data_json, @tags, @created_at, @created_by, @created_at
+    @pin_data_json, @tags, @provider, @created_at, @created_by, @created_at
   )";
 
 // A Duplicate whose document holds the copied version's content, its hash under the source's name
@@ -261,9 +263,10 @@ impl WorkflowDefinitionStore {
     }
 
     /// Creates a workflow and its first version in one write, with no policy check; a create from
-    /// the new-workflow draft clears that draft in the same write. A Duplicate is written under
-    /// the first free `<name> copy` name after the document's and keeps the copied version's
-    /// package locks while the document holds that version's content. Fails with
+    /// the new-workflow draft clears that draft in the same write, and the workflow stores the
+    /// provider pick its caller passes, none for `None`. A Duplicate is written under the first
+    /// free `<name> copy` name after the document's and keeps the copied version's package locks
+    /// while the document holds that version's content. Fails with
     /// [`WorkflowDefinitionStoreError::Refused`] for a document with findings or a name another
     /// workflow holds, and with [`WorkflowDefinitionStoreError::NotFound`] for a copied version
     /// not in the library, writing nothing.
@@ -278,6 +281,7 @@ impl WorkflowDefinitionStore {
         &self,
         request: &WorkflowDefinitionCreateRequest,
         author: &WorkflowSaveAuthor,
+        provider: Option<&ProviderId>,
     ) -> Result<WorkflowDefinitionCreateResponse, WorkflowDefinitionStoreError> {
         let document = &request.document;
         let WorkflowCreateOrigin::Duplicate { .. } = request.origin else {
@@ -289,7 +293,7 @@ impl WorkflowDefinitionStore {
                 sent_content_hash: &hash.content_hash,
             };
             return self
-                .insert_workflow(document, &first_version, author, request.origin)
+                .insert_workflow(document, &first_version, author, request.origin, provider)
                 .await?
                 .ok_or_else(|| name_taken().into());
         };
@@ -314,7 +318,7 @@ impl WorkflowDefinitionStore {
                 sent_content_hash: &sent_content_hash,
             };
             if let Some(created) = self
-                .insert_workflow(document, &first_version, author, request.origin)
+                .insert_workflow(document, &first_version, author, request.origin, provider)
                 .await?
             {
                 return Ok(created);
@@ -533,6 +537,7 @@ impl WorkflowDefinitionStore {
         first_version: &FirstVersion<'_>,
         author: &WorkflowSaveAuthor,
         origin: WorkflowCreateOrigin,
+        provider: Option<&ProviderId>,
     ) -> Result<Option<WorkflowDefinitionCreateResponse>, WorkflowDefinitionStoreError> {
         let FirstVersion {
             name,
@@ -590,6 +595,7 @@ impl WorkflowDefinitionStore {
                         stored_pin_data_json(document.pin_data.as_ref()).as_deref(),
                     ),
                     text_binding("@tags", &tags_json),
+                    nullable_text_binding("@provider", provider.map(ProviderId::as_str)),
                     text_binding("@created_at", created_at.as_str()),
                     text_binding("@created_by", author.device_id.as_str()),
                 ]),
