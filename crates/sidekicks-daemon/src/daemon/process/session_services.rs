@@ -40,6 +40,7 @@ use sidekicks_queue::service::answer_continue::HaltedRunRecord;
 use sidekicks_queue::service::{RunQueue, RunQueueDeps};
 use sidekicks_session::auto_title::{SessionAutoTitle, SessionAutoTitling};
 use sidekicks_session::changes::SessionChanges;
+use sidekicks_session::checkpoints::edits::EditCheckpoints;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::draft_store::SessionDraftStore;
 use sidekicks_session::idle_sleep::openings::{SessionProcessFollower, SessionProcessWaker};
@@ -238,6 +239,8 @@ pub(crate) struct SessionServices {
     pub(crate) auto_title: Arc<SessionAutoTitle>,
     /// Records the checkout at each turn end; the start starts it and the stop waits for it.
     pub(crate) turn_capture: Arc<TurnCapture>,
+    /// Keeps the copy of each file an agent's edit tool is about to write.
+    pub(crate) edit_checkpoints: Arc<EditCheckpoints>,
     /// The questions an agent asks the person.
     pub(crate) questions: Arc<QuestionsService>,
     /// The plans an agent hands over.
@@ -341,6 +344,11 @@ pub(crate) fn build_session_services(
         Arc::clone(&reads),
         Arc::clone(&read_damaged_from_sequence),
         snapshots,
+        data_folder.clone(),
+    ));
+    let edit_checkpoints = Arc::new(EditCheckpoints::new(
+        Arc::clone(&reads),
+        Arc::clone(&writer),
         data_folder.clone(),
     ));
     // Taken before the watch moves on; the file search opens it with how each folder is followed.
@@ -571,6 +579,7 @@ pub(crate) fn build_session_services(
             providers,
         )),
         turn_capture,
+        edit_checkpoints,
         changes,
         questions,
         plans: Arc::new(PlansService::new(publisher, Arc::clone(&appender), reads)),
