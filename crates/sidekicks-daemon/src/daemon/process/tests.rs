@@ -34,7 +34,6 @@ use sidekicks_platforms::{
     replace_file_atomically,
 };
 use sidekicks_provider::account::credential_home::HomesSignOut;
-use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
 use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::registry::ProviderRegistry;
