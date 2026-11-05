@@ -2,6 +2,7 @@
 //! drivers to call once they are built, and those a driver answers for the rest of the daemon.
 
 pub mod agent_tree_lookup;
+pub mod bun_program;
 pub mod command_capture;
 pub mod context_reading_publisher;
 pub mod edit_checkpoint;

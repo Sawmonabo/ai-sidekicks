@@ -28,6 +28,7 @@ use crate::driver::run_control::DaemonTurnBindingResolver;
 use crate::driver::session_control::DriverResumeResult;
 use crate::driver::{ProviderAccountReader, SessionSpawnContextResolver};
 use crate::port::agent_tree_lookup::AgentTreeLookup;
+use crate::port::bun_program::BunProgram;
 use crate::port::command_capture::CommandCapture;
 use crate::port::context_reading_publisher::ContextReadingPublisher;
 use crate::port::edit_checkpoint::EditCheckpoint;
@@ -290,6 +291,9 @@ pub struct DriverPorts {
     pub held_tool_calls: Arc<PortRegistration<Arc<dyn HeldToolCallReads>>>,
     /// The session's agent tree, which a pre-tool hook looks up the helper a tool call names in.
     pub agent_tree_lookup: Arc<PortRegistration<Arc<dyn AgentTreeLookup>>>,
+    /// The daemon's copy of bun, which a step that runs under bun asks its path from; a step that
+    /// asks before it is registered refuses.
+    pub bun_program: Arc<PortRegistration<Arc<dyn BunProgram>>>,
 }
 
 impl Default for DriverPorts {
@@ -347,6 +351,7 @@ impl DriverPorts {
             tool_call_statuses: Arc::new(PortRegistration::new("tool call statuses")),
             held_tool_calls: Arc::new(PortRegistration::new("held tool calls")),
             agent_tree_lookup: Arc::new(PortRegistration::new("agent tree lookup")),
+            bun_program: Arc::new(PortRegistration::new("bun program")),
         }
     }
 }
