@@ -53,14 +53,14 @@ use crate::run::provider_choice::run_end::read_waiting_refusal;
 use crate::run::read::{LiveRun, read_helper_lead};
 use crate::run::state_change::RunWriteCompanions;
 
-// The run's interrupts that have no outcome yet, the person's or the daemon's own at a limit, in
-// the order they were asked for. An applied one ends its run in the outcome's own write, so a live
-// run never holds one.
-static SELECT_PENDING_INTERRUPTS_SQL: LazyLock<String> = LazyLock::new(|| {
+// The interrupts with no outcome yet of the run the SQL expression `run_id` names (a parameter or
+// a column of an outer query), the person's or the daemon's own at a limit, in the order they were
+// asked for. An applied one ends its run in the outcome's own write, so a live run never holds one.
+fn pending_interrupts_sql(run_id: &str) -> String {
     format!(
         "SELECT id, state, device_id, payload, expected_run_version, client_idempotency_key
   FROM interventions
-  WHERE target_run_id = @run_id
+  WHERE target_run_id = {run_id}
     AND type = '{}'
     AND state IN ('{}', '{}')
   ORDER BY created_at, id",
@@ -68,13 +68,17 @@ static SELECT_PENDING_INTERRUPTS_SQL: LazyLock<String> = LazyLock::new(|| {
         <&'static str>::from(InterventionState::Requested),
         <&'static str>::from(InterventionState::Accepted)
     )
-});
+}
 
-// The limit the run still owes: one whose reached event no end of the run by that limit followed.
-// A token limit is discharged only by `agent.run.stopped` with its trigger, since a stopped run is
-// never live again; a step limit by any later `agent.run.interrupted`, after which a continue
-// counts the steps afresh. A token limit wins over a step limit, since its end is final.
-static SELECT_OWED_LIMIT_SQL: LazyLock<String> = LazyLock::new(|| {
+static SELECT_PENDING_INTERRUPTS_SQL: LazyLock<String> =
+    LazyLock::new(|| pending_interrupts_sql("@run_id"));
+
+// The limit still owed by the run the SQL expression `run_id` names: one whose reached event no
+// end of the run by that limit followed. A token limit is discharged only by `agent.run.stopped`
+// with its trigger, since a stopped run is never live again; a step limit by any later
+// `agent.run.interrupted`, after which a continue counts the steps afresh. A token limit wins over
+// a step limit, since its end is final.
+fn owed_limit_sql(run_id: &str) -> String {
     let step = SessionEventType::AgentRunStepLimitReached;
     let token = SessionEventType::AgentRunTokenLimitReached;
     let interrupted = SessionEventType::AgentRunInterrupted;
@@ -83,12 +87,12 @@ static SELECT_OWED_LIMIT_SQL: LazyLock<String> = LazyLock::new(|| {
         serde_json::to_value(StopTrigger::TokenLimit).expect("a closed word serializes");
     format!(
         "SELECT reached.type FROM session_events AS reached
-  WHERE reached.run_id = @run_id
+  WHERE reached.run_id = {run_id}
     AND ((reached.category = '{token_category}' AND reached.type = '{token}')
       OR (reached.category = '{step_category}' AND reached.type = '{step}'))
     AND NOT EXISTS (
       SELECT 1 FROM session_events AS ended
-       WHERE ended.run_id = @run_id
+       WHERE ended.run_id = {run_id}
          AND ended.sequence > reached.sequence
          AND ((reached.type = '{token}'
              AND ended.category = '{stopped_category}'
@@ -111,7 +115,20 @@ static SELECT_OWED_LIMIT_SQL: LazyLock<String> = LazyLock::new(|| {
             .as_str()
             .expect("a closed word serializes as text"),
     )
-});
+}
+
+static SELECT_OWED_LIMIT_SQL: LazyLock<String> = LazyLock::new(|| owed_limit_sql("@run_id"));
+
+/// Holds when a stop of the run the SQL expression `run_id` names (a parameter or a column of an
+/// outer query) settles it, as [`read_has_own_stop`] reads its stops: an interrupt with no outcome
+/// yet, or a limit it still owes.
+pub(crate) fn run_has_own_stop_sql(run_id: &str) -> String {
+    format!(
+        "(EXISTS ({}) OR EXISTS ({}))",
+        pending_interrupts_sql(run_id),
+        owed_limit_sql(run_id)
+    )
+}
 
 // Every open turn of the run a limit's interrupt row names as the turn its stop cut, with that
 // limit: the row is the cut's one mark, read in any state but a failed or refused one's. The open
