@@ -63,9 +63,10 @@ struct CodexMemoryFeature {
 }
 
 impl CodexMemoryFeature {
-    // The switch, its own key winning where both are set, as Codex reads them.
+    // The switch, the legacy key winning where both are set: Codex applies the keys in sorted
+    // order, so `memory_tool` lands after `memories`.
     fn switch(&self) -> Option<bool> {
-        self.memories.or(self.memory_tool)
+        self.memory_tool.or(self.memories)
     }
 }
 

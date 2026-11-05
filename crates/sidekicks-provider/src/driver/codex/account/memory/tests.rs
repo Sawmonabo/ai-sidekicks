@@ -29,7 +29,7 @@ enum HomeFolder {
 
 // Codex's own rule picks a home's store: a set version over everything else, else the second for a
 // fresh home with the feature on and dual writes not off, else the first. A requirement's pin of
-// the feature wins over the config's, and the feature's own key over its legacy `memory_tool`.
+// the feature wins over the config's, and the legacy `memory_tool` over the feature's own key.
 #[rstest]
 // Killed by a set version ignored.
 #[case::set_first(
@@ -97,11 +97,17 @@ enum HomeFolder {
     HomeFolder::WithoutFirstStore,
     CodexMemoryStore::Second
 )]
-// Killed by the legacy key read over the feature's own, and by a requirement that turns the
-// feature off ignored where the config turns it on.
-#[case::own_key_wins_in_requirements(
-    json!({"features": {"memories": true}}),
+// Killed by the feature's own key read over the legacy one, which Codex applies last.
+#[case::legacy_key_wins_in_requirements(
+    json!({}),
     Some(json!({"memories": false, "memory_tool": true})),
+    HomeFolder::WithoutFirstStore,
+    CodexMemoryStore::Second
+)]
+// Killed by a requirement that turns the feature off ignored where the config turns it on.
+#[case::required_off(
+    json!({"features": {"memories": true}}),
+    Some(json!({"memories": false})),
     HomeFolder::WithoutFirstStore,
     CodexMemoryStore::First
 )]
