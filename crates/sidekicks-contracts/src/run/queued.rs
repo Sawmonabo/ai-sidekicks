@@ -5,6 +5,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use strum::{IntoStaticStr, VariantArray};
 
+use crate::agent::definition::binding::ProviderToken;
 use crate::agent::definition::{AgentId, AgentResolvedConfiguration};
 use crate::agent::methods::agent_entry;
 use crate::agent::tree::ChildHandle;
@@ -62,8 +63,8 @@ agent_entry! {
     }
 }
 
-/// A provider's own helper as the run it starts names it: the handle the daemon keeps for it and
-/// the ids its provider gave it and its parent.
+/// A provider's own helper as the run it starts names it: the handle the daemon minted for it, the
+/// ids its provider gave it and its parent, and the model and effort the start names.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderChildStart {
@@ -113,6 +114,23 @@ pub struct ProviderChildStart {
     )]
     #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
     pub provider_path: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    /// The model its provider started it on, where the start names one.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ProviderToken")]
+    pub model_id: Option<ProviderToken>,
+    /// The reasoning effort its provider started it at, in the provider's own word, where the start
+    /// names one.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ProviderToken")]
+    pub effort: Option<ProviderToken>,
     /// The provider's call that started this run of the helper, where the provider names one.
     #[serde(
         default,
