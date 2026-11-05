@@ -290,7 +290,8 @@ impl Bench {
         envelope
     }
 
-    // Writes a window-start turn of `model` on `account-a` and answers its row's id.
+    // Writes a window-start turn of `model` on `account-a` under this start, held, and answers its
+    // row's id.
     fn sessionless_row(&self, model: &str) -> FreeFormText<EVENT_FIELD_MAX_LEN> {
         let turn_id = mint_sessionless_turn_id();
         let spend = WindowTurnSpend {
@@ -306,6 +307,7 @@ impl Bench {
             &[sessionless_usage_turn_statement(
                 &turn_id,
                 &account("account-a"),
+                &instant(THIS_START),
                 &instant(THIS_START),
                 &spend,
             )],
@@ -498,21 +500,23 @@ async fn a_request_still_being_metered_is_priced_only_once_handed_over() {
                 model_id: Some(FreeFormText::new("m1".to_owned()).expect("a model id")),
                 ..late_key()
             },
-            row_ids: vec![window_start.clone()],
+            // As the observer hands it over: written held, so nothing to mark.
+            row_ids: Vec::new(),
         })
         .await
-        .expect("the hand-off marks its row");
+        .expect("the hand-off queues its key");
     repricing.run_queued(false).await;
     assert_eq!(bench.figures()[window_start.as_str()], Some(7));
     stop.cancel();
 }
 
 // Fails when a removed account's key keeps waiting, in the map of keys held for a price, which
-// keeps the list fetching hourly, or in the map of accounts held for their sign-in kind.
+// keeps the list fetching hourly, or in the map of accounts held for their sign-in kind. The
+// copy taken does not price the key held for a price, so only the removal lets it go.
 #[tokio::test]
 async fn a_removed_accounts_keys_leave_both_waits_and_the_fetch_returns_to_daily() {
     let bench = Bench::new().await;
-    bench.token_row("account-b", "late", EARLIER_START, &json!({}));
+    bench.token_row("account-b", "unlisted", EARLIER_START, &json!({}));
     bench.token_row("account-b", "m1", EARLIER_START, &json!({}));
     let repricing = bench.repricing();
     let stop = CancellationToken::new();
@@ -542,8 +546,8 @@ async fn a_removed_accounts_keys_leave_both_waits_and_the_fetch_returns_to_daily
     stop.cancel();
 }
 
-// Fails when the task's loop loses a copy taken while a wake is pending, so a key held for a
-// price waits for the next copy.
+// Fails when the running task does not price a key held for a price on a copy taken while it
+// runs.
 #[tokio::test]
 async fn the_running_task_prices_a_held_key_on_a_copy_taken_beside_a_wake() {
     let bench = Bench::new().await;

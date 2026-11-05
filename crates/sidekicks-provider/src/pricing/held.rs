@@ -156,10 +156,10 @@ impl HeldRequestRepricing {
         tokio::spawn(Arc::clone(self).run(stop))
     }
 
-    /// Tells that `account_id`'s account changed: an account held for its sign-in kind when the
-    /// task runs has its kind read again, and its keys passed over where it differs; any other
-    /// account reads nothing. Queued whether or not it is held now, so a change during a pass that
-    /// holds it is not lost.
+    /// Tells that `account_id`'s account changed: an account with a key held when the task runs has
+    /// its kind read again, its keys passed over where the kind it was held under differs and
+    /// dropped where it is no longer registered; any other account reads nothing. Queued whether or
+    /// not it is held now, so a change during a pass that holds it is not lost.
     pub fn account_changed(&self, account_id: &ProviderAccountId) {
         lock(&self.held_keys)
             .queued_accounts
@@ -250,16 +250,18 @@ impl HeldRequestRepricing {
         if are_start_keys_unread {
             self.pass_over_start_keys().await;
         }
-        let (mut keys, accounts) = {
+        // Accounts first, so a key a removal let go is not passed over again.
+        let accounts = mem::take(&mut lock(&self.held_keys).queued_accounts);
+        let mut keys = HashSet::new();
+        for account_id in accounts {
+            keys.extend(self.recheck_account(account_id).await);
+        }
+        {
             let mut held_keys = lock(&self.held_keys);
-            let mut keys = mem::take(&mut held_keys.queued_keys);
+            keys.extend(mem::take(&mut held_keys.queued_keys));
             if is_table_new {
                 keys.extend(held_keys.price_held.iter().cloned());
             }
-            (keys, mem::take(&mut held_keys.queued_accounts))
-        };
-        for account_id in accounts {
-            keys.extend(self.recheck_account(account_id).await);
         }
         for key in keys {
             self.pass_over_key(key).await;
@@ -287,29 +289,44 @@ impl HeldRequestRepricing {
     }
 
     // The keys of `account_id`, let go when its sign-in kind now reads other than the one they
-    // were held under; none for an account not held, and none, its entry dropped, for an account
-    // no longer registered, whose rows its removal took.
+    // were held under. An account that holds no key reads nothing; one no longer registered, whose
+    // rows its removal took, has every key it held for a price or its kind dropped.
     async fn recheck_account(&self, account_id: ProviderAccountId) -> HashSet<UnpricedUsageKey> {
-        let held_kind = lock(&self.held_keys)
-            .kind_held
-            .get(&account_id)
-            .map(|account| account.sign_in_kind);
-        let Some(held_kind) = held_kind else {
-            return HashSet::new();
+        let (held_kind, is_price_held) = {
+            let held_keys = lock(&self.held_keys);
+            (
+                held_keys
+                    .kind_held
+                    .get(&account_id)
+                    .map(|account| account.sign_in_kind),
+                held_keys
+                    .price_held
+                    .iter()
+                    .any(|key| key.account_id == account_id),
+            )
         };
+        if held_kind.is_none() && !is_price_held {
+            return HashSet::new();
+        }
         match self
             .provider_accounts
             .read_observed_auth_mode(account_id.clone())
             .await
         {
-            Ok(sign_in_kind) if sign_in_kind != held_kind => lock(&self.held_keys)
-                .kind_held
-                .remove(&account_id)
-                .map(|account| account.keys)
-                .unwrap_or_default(),
+            Ok(sign_in_kind) if held_kind.is_some_and(|held_kind| sign_in_kind != held_kind) => {
+                lock(&self.held_keys)
+                    .kind_held
+                    .remove(&account_id)
+                    .map(|account| account.keys)
+                    .unwrap_or_default()
+            }
             Ok(_) => HashSet::new(),
             Err(error) if is_account_gone(&error) => {
-                lock(&self.held_keys).kind_held.remove(&account_id);
+                let mut held_keys = lock(&self.held_keys);
+                held_keys.kind_held.remove(&account_id);
+                held_keys
+                    .price_held
+                    .retain(|key| key.account_id != account_id);
                 HashSet::new()
             }
             Err(error) => {
@@ -526,9 +543,11 @@ impl RequestHeldListener for HeldRequestRepricing {
         let held_keys = Arc::clone(&self.held_keys);
         let wake = Arc::clone(&self.wake);
         let hand_off = tokio::spawn(async move {
-            writer
-                .write(vec![held_mark_statement(&held.row_ids)])
-                .await?;
+            if !held.row_ids.is_empty() {
+                writer
+                    .write(vec![held_mark_statement(&held.row_ids)])
+                    .await?;
+            }
             lock(&held_keys).queued_keys.insert(held.key);
             wake.notify_one();
             Ok::<(), BoxedError>(())
