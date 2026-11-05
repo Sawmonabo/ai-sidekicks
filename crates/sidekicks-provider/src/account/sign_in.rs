@@ -10,11 +10,12 @@
 //!   stored, never across the person's round trip. A new account's id and home are minted at the
 //!   start and held in memory; its row is written only once the status read after the flow names
 //!   who signed in, with billing `unknown` and the kind of sign-in the read reports. Any other end
-//!   has the minted home signed out, where its provider ran there, and removed, and writes no row. A sign-in on a registered account keeps its row
-//!   whatever the end, storing the status read it took and its kind of sign-in, unless the home's
-//!   sign-in changed since the flow started (a reset or another credential), which fails the
-//!   attempt with nothing written. A row written goes out as `accountChanged` before the attempt's
-//!   end.
+//!   has the minted home removed, signed out first where its flow showed an address, and writes no
+//!   row. A sign-in on a registered account keeps its row whatever the end, storing the status
+//!   read it took and its kind of sign-in, unless the home's sign-in changed since the flow started
+//!   (a reset or another credential), which fails the attempt with nothing written. A row written
+//!   goes out as `accountChanged` before the attempt's end.
+//! - Once the broker has stopped, a start answers that it ended before it reads or mints anything.
 //! - Only typed fields leave: the reply's address, code and bound, `signInCodeRequested` and
 //!   `signInCompleted`. No line of a provider's stream reaches a caller, except the words a failed
 //!   end gives as its reason, which leave bounded with every address, code and credential
@@ -165,7 +166,8 @@ pub enum ProviderSignInError {
     /// The provider's flow could not start or take its input, or refused.
     #[error(transparent)]
     Driver(#[from] DriverError),
-    /// The attempt's task ended before it answered whether the flow started.
+    /// The broker had stopped, or the attempt's task ended before it answered whether the flow
+    /// started.
     #[error("the sign-in's start ended without an answer")]
     StartEnded,
 }
@@ -228,8 +230,8 @@ pub struct ProviderSignInBroker {
 impl ProviderSignInBroker {
     /// A broker writing through `registry`, starting each provider's flow through its entry in
     /// `legs` and storing its end under the account's hold on `home_lock`, a new account's home
-    /// that no row took signed out through its provider's entry in `account_legs`, where its
-    /// provider ran there, and removed, holding each account in `accounts_in_flight` while its
+    /// that no row took signed out through its provider's entry in `account_legs`, where its flow
+    /// showed an address, and removed, holding each account in `accounts_in_flight` while its
     /// attempt runs, sending its notifications to `publisher` and each account it signs in to
     /// `watcher`.
     pub fn new(
@@ -269,13 +271,17 @@ impl ProviderSignInBroker {
     /// the account has a switch onto it or its home's reset in flight;
     /// [`ProviderSignInError::Unsupported`] for a provider with no legs, the registry's error for
     /// an account not registered or a home that cannot be made, the driver's where the flow does
-    /// not start, and [`ProviderSignInError::StartEnded`] where the attempt's task ended first; a
-    /// failed start leaves no minted home.
+    /// not start, and [`ProviderSignInError::StartEnded`], before anything is read or minted, once
+    /// the broker has stopped, or where the attempt's task ended first; a failed start leaves no
+    /// minted home.
     pub async fn start(
         &self,
         request: ProviderAccountSignInRequest,
         origin: SignInOrigin,
     ) -> Result<ProviderAccountSignInResponse, ProviderSignInError> {
+        if self.has_stopped() {
+            return Err(ProviderSignInError::StartEnded);
+        }
         let requested_arm = match &request {
             ProviderAccountSignInRequest::Registered(registered) => registered.arm,
             ProviderAccountSignInRequest::New(new) => new.arm,
@@ -400,15 +406,19 @@ impl ProviderSignInBroker {
 
     /// Ends every attempt, as the daemon's stop does: one still waiting for its account's home
     /// starts nothing, and an open flow is canceled through its provider's own cancel and settles
-    /// as canceled, a new account's minted home signed out, where its provider ran there, and
-    /// removed; then waits up to `bound` for every
-    /// attempt to settle, answering whether all did.
+    /// as canceled, a new account's minted home signed out and removed; then waits up to `bound`
+    /// for every attempt to settle, answering whether all did. Every later start is refused.
     pub async fn stop(&self, bound: Duration) -> bool {
         self.attempt.stopping.cancel();
         self.attempt.tasks.close();
         tokio::time::timeout(bound, self.attempt.tasks.wait())
             .await
             .is_ok()
+    }
+
+    /// Whether [`Self::stop`] has run, after which nothing may mint a new account's home.
+    pub fn has_stopped(&self) -> bool {
+        self.attempt.stopping.is_cancelled()
     }
 
     fn legs_of(

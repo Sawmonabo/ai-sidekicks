@@ -1,8 +1,9 @@
 //! `provider.account.register`, `provider.account.update` and `provider.account.delete`: an
 //! account added, its token re-supplied, its settings changed, and its removal.
 //!
-//! - A new account's id and home are minted here; a registration that does not end in a row
-//!   has the home it minted signed out, where its provider ran there, and removed.
+//! - A new account's id and home are minted here, and none once the sign-in broker has stopped,
+//!   as before an erase; a registration that does not end in a row has the home it minted signed
+//!   out, where its provider ran there, and removed.
 //! - A re-supply replaces the account's token before its name and billing, so a token its
 //!   provider or the keychain refuses leaves the account as it was.
 //! - An account made current here goes through the same switch as the switch method, which moves
@@ -40,6 +41,7 @@ use sidekicks_provider::account::registry::{
     AccountAdmission, AccountSettingsChange, MintedAccount, RegisteredAccount,
 };
 use sidekicks_provider::account::resolver::credential_home_folders;
+use sidekicks_provider::account::sign_in::ProviderSignInError;
 use sidekicks_provider::account::token_custody::{TokenAccountRegistration, TokenCustodyError};
 use sidekicks_provider::account::wake_helper::{MachineWakeHelper, wake_helper_not_installed};
 use sidekicks_provider::driver::contract::account::ProviderAccountLegs;
@@ -203,11 +205,15 @@ async fn register_account(
     Ok((made.account, made.left))
 }
 
-// A new account's id and home, for a provider the daemon runs.
+// A new account's id and home, for a provider the daemon runs; refused as an ended sign-in start
+// once the sign-in broker has stopped, so nothing is minted into a data folder an erase reads.
 fn mint(
     sources: &ProviderAccountMethodSources,
     provider: &ProviderId,
 ) -> Result<MintedAccount, HandlerError> {
+    if sources.sign_in.has_stopped() {
+        return Err(ProviderSignInError::StartEnded.into());
+    }
     sources.providers.lookup(provider)?;
     Ok(sources.accounts.mint(provider.clone())?)
 }

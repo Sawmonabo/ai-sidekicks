@@ -35,10 +35,6 @@ use crate::driver::schema::schema_parts;
 // The longest the stop waits for the attempts to settle.
 const STOP_BOUND: Duration = Duration::from_secs(5);
 
-// The new-account starts sent after the stop: each would start its flow one time in three were
-// the stop not checked first, so all of them missing it by chance has odds near two in a million.
-const STARTS_AFTER_STOP: usize = 32;
-
 // A broker over `database` with homes under `data_folder`, its flows started and read as `status`
 // says and sent to the receiver, its notifications to the other, and its new accounts' sign-outs
 // recorded.
@@ -151,10 +147,9 @@ async fn a_stop_cancels_a_new_accounts_open_flow_and_signs_out_and_removes_its_h
     assert_eq!(outcome, ProviderSignInOutcome::Canceled);
 }
 
-// Every new-account start sent after the stop ends before its flow: none reaches the provider,
-// none signs a home out, and each minted home and mark is gone. Killed by the wait for the home
-// checking the free home before the stop, and by an ended start signing out a home no provider
-// ran in.
+// A new-account start sent after the stop ends before it mints: it reaches no provider, signs no
+// home out, and makes no home or mark. Killed by a start that mints before it checks the stop,
+// which makes the folder of homes.
 #[tokio::test]
 async fn a_stopped_broker_starts_no_flow() {
     let database = TestDatabase::new(schema_parts());
@@ -165,25 +160,21 @@ async fn a_stopped_broker_starts_no_flow() {
         "nothing is under way"
     );
 
-    for _ in 0..STARTS_AFTER_STOP {
-        let started = fixture
-            .broker
-            .start(new_account_start(), SignInOrigin::ThisMachine)
-            .await;
-        assert!(
-            matches!(started, Err(ProviderSignInError::StartEnded)),
-            "a start after the stop ends before its flow"
-        );
-    }
+    let started = fixture
+        .broker
+        .start(new_account_start(), SignInOrigin::ThisMachine)
+        .await;
+    assert!(
+        matches!(started, Err(ProviderSignInError::StartEnded)),
+        "a start after the stop ends before it mints"
+    );
 
     assert!(lock(&fixture.legs.homes).is_empty(), "no flow starts");
     assert!(
         fixture.sign_outs.signed_out().is_empty(),
         "no home is signed out"
     );
-    let homes = data_folder.path().join("accounts");
-    let left = std::fs::read_dir(&homes).map_or(0, Iterator::count);
-    assert_eq!(left, 0, "no minted home is left");
+    assert_eq!(homes_left(data_folder.path()), None, "no home is minted");
     assert!(
         read_minted_homes(data_folder.path())
             .expect("the marks read")
