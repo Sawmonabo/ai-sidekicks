@@ -17,10 +17,6 @@ pub mod list;
     expect(dead_code, reason = "each driver prices its live requests through it")
 )]
 pub(crate) mod live;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "each driver prices its requests through it")
-)]
 pub(crate) mod quote;
 pub mod receiver;
 pub mod rule;

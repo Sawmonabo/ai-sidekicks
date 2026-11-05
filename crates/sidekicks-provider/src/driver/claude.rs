@@ -81,6 +81,7 @@ use crate::driver::{
 };
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 use crate::port::session_inbox_address::SessionInboxAddresser;
+use crate::pricing::rule::RequestPricer;
 
 mod account;
 mod attachments;
@@ -101,6 +102,7 @@ mod lifecycle;
 mod live_sessions;
 mod mcp;
 mod output_speed;
+mod pricing;
 mod rate_limit_windows;
 mod release_notes;
 mod run;
@@ -350,6 +352,10 @@ const CLAUDE_MESSAGE_HANDING: MessageHanding = MessageHanding {
 const NO_HELD_TURN_REASON: &str = "Claude Code holds no turn for a safety check.";
 
 impl ProviderDriver for ClaudeDriver {
+    fn request_pricer(&self) -> Option<Arc<dyn RequestPricer>> {
+        Some(Arc::new(pricing::ClaudeRequestPricer))
+    }
+
     fn create_session(
         &self,
         params: CreateSessionParams,
