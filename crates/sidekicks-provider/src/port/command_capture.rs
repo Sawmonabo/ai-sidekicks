@@ -13,7 +13,8 @@ use sidekicks_contracts::session::id::SessionId;
 mod test_support;
 #[cfg(any(test, feature = "test-support"))]
 pub use test_support::{
-    CaptureCall, held_capture, held_capture_with_starts, next_call, no_call, unregistered_capture,
+    CaptureCall, held_capture, held_capture_with_starts, next_call, no_call, register_held_capture,
+    unregistered_capture,
 };
 
 /// One window, as the capture that opened it names it.
@@ -59,11 +60,13 @@ pub enum CommandWindowEnd {
     },
     /// The leg ended before its command began, so the command never ran: the wrapper by the
     /// daemon's stop, a signal or a kill while it waited for its `Go`; a shell whose write failed,
-    /// or that marked its prompt or exited with no command started.
+    /// or that marked its prompt or exited with no command started; Claude Code's call refused
+    /// before it ran, by an ask's refusal, a denial in auto mode or a refusal its stream names.
     Unrun,
     /// The leg ended after its command began without telling the command's end: the wrapper's
     /// process ended or its channel stopped being followed; a shell marked its next prompt with no
-    /// end mark, or exited; Claude Code's failure hook named no exit code.
+    /// end mark, or exited; Claude Code's failure hook named no exit code, or its call's result,
+    /// its background task's end or its caller's end came with no post hook.
     Untold,
 }
 

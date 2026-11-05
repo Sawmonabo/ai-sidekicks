@@ -4,6 +4,7 @@
 //! streams as stored pieces of their message, the provider's status, warnings and model switches,
 //! a helper's child run, the turn's end, the session's running commands, the usage each thread
 //! spent, what the working line and the context ring read, and each message another session sent.
+//! A call's tool result, its refusal and its background task's end close its command's window.
 //! A frame of a turn no daemon run holds is recorded and dropped, a peer message published first.
 
 mod backgrounded;
@@ -59,6 +60,7 @@ use crate::driver::claude::delivery::turn_end::ClaudeTerminalReason;
 use crate::driver::claude::delivery::turn_readings::is_claude_message_start;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::goals::endings::{ClaudeGoalEndings, GoalEndingInput};
+use crate::driver::claude::hooks::command_capture::ClaudeCommandWindows;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::driver::claude::rate_limit_windows::{
     ClaudeUsageProbeModels, read_claude_quota_windows,
@@ -121,6 +123,9 @@ pub(crate) struct ClaudeStreamDependencies {
     /// Where the messages other sessions sent, and a refused one, are published once registered.
     pub(crate) session_message_readings:
         Arc<PortRegistration<Arc<dyn SessionMessageReadingPublisher>>>,
+    /// The windows of the commands that run with no wrapper, which a call's tool result, refusal
+    /// or background task's end closes where no post hook did.
+    pub(crate) command_windows: Arc<ClaudeCommandWindows>,
 }
 
 /// What a frame left for the session's task to do beyond its deliveries.
@@ -231,6 +236,7 @@ impl ClaudeDeliveryStream {
                 None => return after,
             }
         };
+        self.close_command_windows(session, &kind, &body);
         self.read_resume_frame(session, &kind, &routed.route, &body, &turn_at_read)
             .await;
         // A helper's own message carries no row of the session's, only the lines of its calls;
@@ -519,6 +525,35 @@ impl ClaudeDeliveryStream {
         after
     }
 
+    // The lead's or a helper's frame closes the windows of the calls it settles: each tool result
+    // in a `user` message, and a refusal before the call ran, which nothing ran under.
+    fn close_command_windows(
+        &self,
+        session: &ClaudeSessionStream,
+        kind: &ClaudeWireFrameKind,
+        body: &ClaudeFrameBody,
+    ) {
+        let windows = &self.dependencies.command_windows;
+        let closing: Vec<_> = match (kind, body) {
+            (ClaudeWireFrameKind::User, ClaudeFrameBody::Message(message)) => message
+                .tool_results()
+                .filter_map(|(tool_use_id, _)| {
+                    windows.take_tool_result(session.session_id, tool_use_id)
+                })
+                .collect(),
+            (ClaudeWireFrameKind::SystemPermissionDenied, ClaudeFrameBody::Members(members)) => {
+                read_non_empty_string(members, "tool_use_id")
+                    .and_then(|tool_use_id| windows.take_unrun(session.session_id, tool_use_id))
+                    .into_iter()
+                    .collect()
+            }
+            _ => Vec::new(),
+        };
+        for (window, end) in closing {
+            windows.close(window, end);
+        }
+    }
+
     /// Sends the pieces and held rows whose time has come at `now`, as the session's timer fires.
     pub(crate) async fn deliver_due(&self, session: &ClaudeSessionStream, now: Instant) {
         let (pieces, released, turn) = {
@@ -731,4 +766,4 @@ fn is_too_long_for_window(members: &Map<String, Value>) -> bool {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

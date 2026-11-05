@@ -354,6 +354,7 @@ impl ClaudeDriver {
                     home_folder: self.sources.home_folder.clone(),
                     path_rules: PathRules::NATIVE,
                 },
+                command_windows: Arc::clone(&command_windows),
             },
         ));
         let message_taken = Arc::clone(&ports.message_taken);
@@ -384,6 +385,7 @@ impl ClaudeDriver {
             tool_call_statuses: Arc::clone(&ports.tool_call_statuses),
             goal_endings: Arc::clone(&goal_endings),
             session_message_readings: Arc::clone(&ports.session_message_readings),
+            command_windows: Arc::clone(&command_windows),
         }));
         let goals = Arc::new(ClaudeGoalCommands::default());
         let cuts = Arc::new(ClaudeConversationCuts {

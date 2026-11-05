@@ -1,9 +1,10 @@
 //! The task frames Claude Code reports beside a turn, which may come after the turn that started
 //! them ended: a helper's end moves its child run, a shell or Monitor task becomes a row of the
 //! session's running commands on the run that started it, and a tool server's background call
-//! stays open until its own notification closes it, its progress the status line under it. Also
-//! the usage routing metered off a frame, recorded on the run whose thread spent it, and the move
-//! of the session's bindings onto another account, made in its place among those frames.
+//! stays open until its own notification closes it, its progress the status line under it; a
+//! background command's end closes its window. Also the usage routing metered off a frame, recorded
+//! on the run whose thread spent it, and the move of the session's bindings onto another account,
+//! made in its place among those frames.
 
 mod exit_settle;
 mod rest_settle;
@@ -67,6 +68,13 @@ impl ClaudeDeliveryStream {
         };
         if *kind == ClaudeWireFrameKind::SystemTaskNotification {
             self.end_helper(session, &task).await;
+            let windows = &self.dependencies.command_windows;
+            if let Some((window, end)) = task
+                .tool_use_id()
+                .and_then(|tool_use_id| windows.take_task_end(session.session_id, tool_use_id))
+            {
+                windows.close(window, end);
+            }
         }
         let run = self.task_run(session, &task, lead);
         let (ends, progress) = {

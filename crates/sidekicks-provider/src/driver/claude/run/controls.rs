@@ -213,6 +213,7 @@ impl ClaudeRunControls {
                 &self.command_windows,
                 &*live.channel,
                 &session_id,
+                live.process_identity,
                 &live.admitted_provider_account_id(),
                 resumed.released,
             )

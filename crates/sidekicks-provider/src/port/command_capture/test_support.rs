@@ -109,9 +109,23 @@ pub fn held_capture_with_starts(
     mpsc::UnboundedReceiver<CaptureCall>,
     Arc<Mutex<Vec<CommandWindowStart>>>,
 ) {
+    let capture = unregistered_capture();
+    let (called, starts) = register_held_capture(&capture, opens);
+    (capture, called, starts)
+}
+
+/// Registers into `capture`, a registration the caller holds, a capture whose opens settle as
+/// `opens` sets them; answers the receiver its calls arrive on and the list of the starts it is
+/// asked to open, in order. Panics when `capture` is already registered.
+pub fn register_held_capture(
+    capture: &PortRegistration<Arc<dyn CommandCapture>>,
+    opens: watch::Receiver<Option<bool>>,
+) -> (
+    mpsc::UnboundedReceiver<CaptureCall>,
+    Arc<Mutex<Vec<CommandWindowStart>>>,
+) {
     let (calls, called) = mpsc::unbounded_channel();
     let starts = Arc::default();
-    let capture = unregistered_capture();
     capture
         .register(Arc::new(HeldCapture {
             opens,
@@ -120,7 +134,7 @@ pub fn held_capture_with_starts(
             starts: Arc::clone(&starts),
         }))
         .expect("the capture registers once");
-    (capture, called, starts)
+    (called, starts)
 }
 
 /// The next call `called` takes; panics when none comes within 5 s.

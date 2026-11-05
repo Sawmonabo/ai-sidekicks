@@ -25,6 +25,7 @@ use crate::driver::test_registry::fixed_session_id;
 use crate::port::command_capture::{
     CaptureCall, CommandWindowEnd, held_capture, next_call, no_call,
 };
+use crate::process_identity::TEST_PROVIDER_PROCESS;
 
 // A hook's input for a call of `tool_name` with `tool_input` by the helper `agent_id` or the lead,
 // by the call `tool_use_id` where one is given.
@@ -140,7 +141,7 @@ async fn each_post_hook_closes_its_window_once_with_its_end(
     let (_opens, held) = watch::channel(Some(true));
     let (capture, mut called) = held_capture(held);
     let windows = ClaudeCommandWindows::new(capture);
-    open_one_window(&windows, &mut called, "toolu_1").await;
+    open_one_window(&windows, &mut called, TEST_PROVIDER_PROCESS, "toolu_1").await;
     let mut input = call_input(
         "PowerShell",
         &json!({ "command": "Get-ChildItem" }),
@@ -224,6 +225,7 @@ async fn a_paused_helpers_command_opens_its_window_only_when_passed() {
         &windows,
         &*channel,
         &session_id,
+        TEST_PROVIDER_PROCESS,
         &account,
         steered.released,
     )
@@ -245,6 +247,7 @@ async fn a_paused_helpers_command_opens_its_window_only_when_passed() {
                 &windows,
                 &*channel,
                 &session_id,
+                TEST_PROVIDER_PROCESS,
                 &account,
                 passed.released,
             )

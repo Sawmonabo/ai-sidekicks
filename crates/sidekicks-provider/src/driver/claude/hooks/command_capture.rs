@@ -1,5 +1,6 @@
 //! The capture windows of Claude Code's commands that run with no wrapper, opened at the pre-tool
-//! hook and closed at the call's end.
+//! hook and closed at the call's end: its post-tool hook, else its tool result, its background
+//! task's end or its refusal, else the backstop at its caller's or its process's end.
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -20,6 +21,7 @@ use crate::driver::claude::spawn::settings::CLAUDE_SHELL_TOOL_NAME;
 use crate::port::command_capture::{
     CommandCapture, CommandWindowEnd, CommandWindowId, CommandWindowOpenError, CommandWindowStart,
 };
+use crate::process_identity::ProviderProcessIdentity;
 use crate::record_readers::filter_non_empty;
 
 /// The tool that runs a PowerShell command.
@@ -133,25 +135,59 @@ impl ClaudeCommandEnd {
     }
 }
 
-// One command's window as the hooks follow it.
+// One command's window as the hooks follow it, with the process whose hook opened it and the
+// helper that called it, `None` on the lead.
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the closers at a call's result, its background task's end, its denial and the \
-                  run's end read the helper, the post hook and the background mark"
-    )
-)]
-enum ClaudeCommandWindow {
+struct ClaudeCommandWindow {
+    process: ProviderProcessIdentity,
+    agent_id: Option<String>,
+    state: ClaudeCommandWindowState,
+}
+
+#[derive(Debug)]
+enum ClaudeCommandWindowState {
     // The open is under way; the call's post hook only follows its answer.
     Opening,
     Open {
         window: CommandWindowId,
-        agent_id: Option<String>,
         has_post_hook: bool,
         is_background: bool,
     },
+}
+
+impl ClaudeCommandWindowState {
+    // Whether the call still runs in the foreground: still opening, or open short of a post hook
+    // that left it in the background.
+    fn is_foreground(&self) -> bool {
+        match self {
+            Self::Opening => true,
+            Self::Open { is_background, .. } => !is_background,
+        }
+    }
+}
+
+/// Whose commands a backstop closes, all of one process's.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ClaudeCommandOwner {
+    /// The lead's foreground commands, as its turn ends.
+    Lead,
+    /// The foreground commands of the helper this `agent_id` names, as it ends.
+    Helper(String),
+    /// Every command, background ones too, as the process ends.
+    Process,
+}
+
+impl ClaudeCommandOwner {
+    // Whether a backstop for this owner closes `entry`.
+    fn owns(&self, entry: &ClaudeCommandWindow) -> bool {
+        match self {
+            Self::Lead => entry.agent_id.is_none() && entry.state.is_foreground(),
+            Self::Helper(agent_id) => {
+                entry.agent_id.as_deref() == Some(agent_id.as_str()) && entry.state.is_foreground()
+            }
+            Self::Process => true,
+        }
+    }
 }
 
 /// A command whose window entry went in as opening before its open is spawned or awaited, so a
@@ -179,15 +215,21 @@ impl ClaudeCommandWindows {
         }
     }
 
-    /// Puts `target`'s window in as opening; called on the hook's own path, before the open.
+    /// Puts `target`'s window in as opening, kept as the window of `process`, whose hook opens
+    /// it; called on the hook's own path, before the open.
     pub(crate) fn begin_open(
         &self,
         session_id: SessionId,
+        process: ProviderProcessIdentity,
         target: ClaudeCommandTarget,
     ) -> ClaudeCommandOpening {
         lock(&self.windows).insert(
             (session_id, target.tool_use_id.clone()),
-            ClaudeCommandWindow::Opening,
+            ClaudeCommandWindow {
+                process,
+                agent_id: target.agent_id.clone(),
+                state: ClaudeCommandWindowState::Opening,
+            },
         );
         ClaudeCommandOpening { session_id, target }
     }
@@ -256,9 +298,8 @@ impl ClaudeCommandWindows {
         capture.command_began(&window, true).await;
         let removed = match lock(&self.windows).get_mut(&key) {
             Some(entry) => {
-                *entry = ClaudeCommandWindow::Open {
+                entry.state = ClaudeCommandWindowState::Open {
                     window,
-                    agent_id: target.agent_id,
                     has_post_hook: false,
                     is_background: false,
                 };
@@ -285,12 +326,11 @@ impl ClaudeCommandWindows {
         let Entry::Occupied(mut entry) = windows.entry((session_id, tool_use_id.to_owned())) else {
             return None;
         };
-        let ClaudeCommandWindow::Open {
+        let ClaudeCommandWindowState::Open {
             window,
             has_post_hook,
             is_background,
-            ..
-        } = entry.get_mut()
+        } = &mut entry.get_mut().state
         else {
             return None;
         };
@@ -305,6 +345,102 @@ impl ClaudeCommandWindows {
                 entry.remove();
                 Some((window, end))
             }
+        }
+    }
+
+    /// Takes the tool result of the call `tool_use_id`: a window no post hook reached closes
+    /// `Untold`, whether the result is an error or not, since an interrupted call's result comes so
+    /// too; a background call's, past its post hook, stays open for its task's end. Answers the
+    /// window and end for [`Self::close`]; an entry still opening is removed, and its open closes
+    /// it.
+    pub(crate) fn take_tool_result(
+        &self,
+        session_id: SessionId,
+        tool_use_id: &str,
+    ) -> Option<(CommandWindowId, CommandWindowEnd)> {
+        self.take_one(
+            session_id,
+            tool_use_id,
+            CommandWindowEnd::Untold,
+            |has_post_hook, _| !has_post_hook,
+        )
+    }
+
+    /// Takes the end of the task the call `tool_use_id` started: a background call's window
+    /// closes `Untold`; a foreground call's stays for its post hook, which tells its exit code.
+    /// Answers as [`Self::take_tool_result`] does.
+    pub(crate) fn take_task_end(
+        &self,
+        session_id: SessionId,
+        tool_use_id: &str,
+    ) -> Option<(CommandWindowId, CommandWindowEnd)> {
+        self.take_one(
+            session_id,
+            tool_use_id,
+            CommandWindowEnd::Untold,
+            |_, is_background| is_background,
+        )
+    }
+
+    /// Takes the refusal of the call `tool_use_id` before it ran: its window closes `Unrun`, with
+    /// no after-capture. Answers as [`Self::take_tool_result`] does.
+    pub(crate) fn take_unrun(
+        &self,
+        session_id: SessionId,
+        tool_use_id: &str,
+    ) -> Option<(CommandWindowId, CommandWindowEnd)> {
+        self.take_one(session_id, tool_use_id, CommandWindowEnd::Unrun, |_, _| {
+            true
+        })
+    }
+
+    /// The backstop for what no closer read: removes the windows of the session's process
+    /// `process` that `owner` names, and answers each open one's window, closing `Untold`, for
+    /// [`Self::close`]; an entry still opening is removed, and its open closes it.
+    pub(crate) fn take_remaining(
+        &self,
+        session_id: SessionId,
+        process: ProviderProcessIdentity,
+        owner: &ClaudeCommandOwner,
+    ) -> Vec<(CommandWindowId, CommandWindowEnd)> {
+        lock(&self.windows)
+            .extract_if(|(entry_session_id, _), entry| {
+                *entry_session_id == session_id && entry.process == process && owner.owns(entry)
+            })
+            .filter_map(|(_, entry)| match entry.state {
+                ClaudeCommandWindowState::Opening => None,
+                ClaudeCommandWindowState::Open { window, .. } => {
+                    Some((window, CommandWindowEnd::Untold))
+                }
+            })
+            .collect()
+    }
+
+    // Removes the call `tool_use_id`'s entry where it is still opening, or open and `closes` it
+    // by its post-hook and background marks, answering an open one's window with `end`.
+    fn take_one(
+        &self,
+        session_id: SessionId,
+        tool_use_id: &str,
+        end: CommandWindowEnd,
+        closes: impl FnOnce(bool, bool) -> bool,
+    ) -> Option<(CommandWindowId, CommandWindowEnd)> {
+        let mut windows = lock(&self.windows);
+        let Entry::Occupied(entry) = windows.entry((session_id, tool_use_id.to_owned())) else {
+            return None;
+        };
+        if let ClaudeCommandWindowState::Open {
+            has_post_hook,
+            is_background,
+            ..
+        } = entry.get().state
+            && !closes(has_post_hook, is_background)
+        {
+            return None;
+        }
+        match entry.remove().state {
+            ClaudeCommandWindowState::Opening => None,
+            ClaudeCommandWindowState::Open { window, .. } => Some((window, end)),
         }
     }
 
@@ -330,16 +466,17 @@ pub(crate) mod tests {
     use tokio::sync::{mpsc, watch};
 
     use super::{
-        ClaudeCommandEnd, ClaudeCommandTarget, ClaudeCommandWindow, ClaudeCommandWindows,
-        ClaudeHookAnswer,
+        ClaudeCommandEnd, ClaudeCommandOwner, ClaudeCommandTarget, ClaudeCommandWindow,
+        ClaudeCommandWindowState, ClaudeCommandWindows, ClaudeHookAnswer,
     };
     use crate::driver::claude::hooks::edit_checkpoint::tests::is_answered;
     use crate::driver::claude::session::scripted::channel::ScriptedChannel;
     use crate::driver::test_registry::fixed_session_id;
     use crate::port::command_capture::{
-        CaptureCall, CommandWindowStart, held_capture, held_capture_with_starts, next_call,
-        no_call, unregistered_capture,
+        CaptureCall, CommandWindowEnd, CommandWindowStart, held_capture, held_capture_with_starts,
+        next_call, no_call, register_held_capture, unregistered_capture,
     };
+    use crate::process_identity::{ProviderProcessIdentity, TEST_PROVIDER_PROCESS};
 
     // The account every test answers as.
     fn account() -> ProviderAccountId {
@@ -355,15 +492,36 @@ pub(crate) mod tests {
         }
     }
 
-    /// Opens the window of the lead's `PowerShell` call `tool_use_id` in the fixed session through
-    /// `windows`, whose capture already lets opens through, taking its open and its covered start
-    /// from `called`.
+    /// Registers on `windows`' own registration, which nothing registered yet, a capture whose
+    /// opens settle as `opens` sets them, and answers the receiver its calls arrive on. Panics
+    /// when the registration was already made.
+    pub(crate) fn register_windows_capture(
+        windows: &ClaudeCommandWindows,
+        opens: watch::Receiver<Option<bool>>,
+    ) -> mpsc::UnboundedReceiver<CaptureCall> {
+        register_held_capture(&windows.capture, opens).0
+    }
+
+    /// Opens the window of the lead's `PowerShell` call `tool_use_id` in the fixed session, by a
+    /// hook of `process`, through `windows`, whose capture already lets opens through, taking its
+    /// open and its covered start from `called`.
     pub(crate) async fn open_one_window(
         windows: &ClaudeCommandWindows,
         called: &mut mpsc::UnboundedReceiver<CaptureCall>,
+        process: ProviderProcessIdentity,
         tool_use_id: &str,
     ) {
-        let opening = windows.begin_open(fixed_session_id(), powershell_target(tool_use_id));
+        open_target(windows, called, process, powershell_target(tool_use_id)).await;
+    }
+
+    // Opens `target`'s window as `open_one_window` does.
+    async fn open_target(
+        windows: &ClaudeCommandWindows,
+        called: &mut mpsc::UnboundedReceiver<CaptureCall>,
+        process: ProviderProcessIdentity,
+        target: ClaudeCommandTarget,
+    ) {
+        let opening = windows.begin_open(fixed_session_id(), process, target);
         let channel = ScriptedChannel::default();
         windows
             .open_then_answer(opening, &channel, &account(), "r-open".to_owned())
@@ -383,7 +541,11 @@ pub(crate) mod tests {
         let (capture, mut called, starts) = held_capture_with_starts(held);
         let windows = Arc::new(ClaudeCommandWindows::new(capture));
         let channel = Arc::new(ScriptedChannel::default());
-        let opening = windows.begin_open(fixed_session_id(), powershell_target("toolu_1"));
+        let opening = windows.begin_open(
+            fixed_session_id(),
+            TEST_PROVIDER_PROCESS,
+            powershell_target("toolu_1"),
+        );
         let answering = tokio::spawn({
             let windows = Arc::clone(&windows);
             let channel = Arc::clone(&channel);
@@ -426,7 +588,7 @@ pub(crate) mod tests {
         let (_opens, held) = watch::channel(Some(true));
         let (capture, mut called) = held_capture(held);
         let windows = ClaudeCommandWindows::new(capture);
-        open_one_window(&windows, &mut called, "toolu_1").await;
+        open_one_window(&windows, &mut called, TEST_PROVIDER_PROCESS, "toolu_1").await;
 
         let end = ClaudeCommandEnd::read_after_tool(background_task_id, task_id);
         assert_eq!(end, ClaudeCommandEnd::Background);
@@ -440,11 +602,14 @@ pub(crate) mod tests {
         assert!(
             matches!(
                 kept.get(&(fixed_session_id(), "toolu_1".to_owned())),
-                Some(ClaudeCommandWindow::Open {
+                Some(ClaudeCommandWindow {
+                    process: TEST_PROVIDER_PROCESS,
                     agent_id: None,
-                    has_post_hook: true,
-                    is_background: true,
-                    ..
+                    state: ClaudeCommandWindowState::Open {
+                        has_post_hook: true,
+                        is_background: true,
+                        ..
+                    },
                 })
             ),
             "kept {kept:?}"
@@ -475,7 +640,11 @@ pub(crate) mod tests {
         let windows = ClaudeCommandWindows::new(capture);
         let channel = ScriptedChannel::default();
 
-        let opening = windows.begin_open(fixed_session_id(), powershell_target("toolu_1"));
+        let opening = windows.begin_open(
+            fixed_session_id(),
+            TEST_PROVIDER_PROCESS,
+            powershell_target("toolu_1"),
+        );
         windows
             .open_then_answer(opening, &channel, &account(), "r1".to_owned())
             .await;
@@ -488,6 +657,192 @@ pub(crate) mod tests {
             assert_eq!(next_call(&mut called).await, CaptureCall::Open(1));
             no_call(&mut called, "a start told with no window").await;
         }
+        assert!(lock(&windows.windows).is_empty());
+    }
+
+    // A process other than the test's own, as a rewind's fork runs.
+    const FORK_PROCESS: ProviderProcessIdentity = ProviderProcessIdentity {
+        process_id: 8,
+        spawn_sequence: 2,
+    };
+
+    // Windows over a capture that lets every open through.
+    fn open_windows() -> (ClaudeCommandWindows, mpsc::UnboundedReceiver<CaptureCall>) {
+        let (_opens, held) = watch::channel(Some(true));
+        let (capture, called) = held_capture(held);
+        (ClaudeCommandWindows::new(capture), called)
+    }
+
+    // Closes what a closer answered, as the session's task does.
+    fn close_all(
+        windows: &ClaudeCommandWindows,
+        closing: impl IntoIterator<Item = (super::CommandWindowId, CommandWindowEnd)>,
+    ) {
+        for (window, end) in closing {
+            windows.close(window, end);
+        }
+    }
+
+    // The window ended untold whose open was the `window`th.
+    fn untold(window: usize) -> CaptureCall {
+        CaptureCall::Close(window, CommandWindowEnd::Untold)
+    }
+
+    // Killed by `Unrun` at a tool result, by a background window closed at its result, and by a
+    // second close. The result's `is_error` is never read, so one case covers an error or not.
+    #[rstest]
+    #[case::no_post_hook(None, Some(CommandWindowEnd::Untold))]
+    #[case::background(Some(ClaudeCommandEnd::Background), None)]
+    #[case::post_hook_closed(
+        Some(ClaudeCommandEnd::read_after_tool(None, None)),
+        Some(CommandWindowEnd::Exited { exit_code: Some(0), signal: None })
+    )]
+    #[tokio::test]
+    async fn a_tool_result_closes_only_a_window_no_post_hook_reached(
+        #[case] post_hook: Option<ClaudeCommandEnd>,
+        #[case] expected: Option<CommandWindowEnd>,
+    ) {
+        let (windows, mut called) = open_windows();
+        let session_id = fixed_session_id();
+        open_one_window(&windows, &mut called, TEST_PROVIDER_PROCESS, "toolu_1").await;
+        if let Some(end) = post_hook {
+            close_all(&windows, windows.take_post_hook(session_id, "toolu_1", end));
+        }
+
+        for _ in 0..2 {
+            close_all(&windows, windows.take_tool_result(session_id, "toolu_1"));
+        }
+
+        if let Some(end) = expected {
+            assert_eq!(next_call(&mut called).await, CaptureCall::Close(1, end));
+        }
+        no_call(&mut called, "a window closed again").await;
+    }
+
+    // Killed by a background window left open past its task, and by a foreground exit code lost to
+    // the task end.
+    #[tokio::test]
+    async fn a_task_end_closes_only_a_background_window() {
+        let (windows, mut called) = open_windows();
+        let session_id = fixed_session_id();
+        open_one_window(&windows, &mut called, TEST_PROVIDER_PROCESS, "toolu_1").await;
+        open_one_window(&windows, &mut called, TEST_PROVIDER_PROCESS, "toolu_2").await;
+
+        close_all(&windows, windows.take_task_end(session_id, "toolu_1"));
+        no_call(&mut called, "a foreground window closed at its task's end").await;
+        let exited = ClaudeCommandEnd::read_after_failed_tool(Some("Exit code 3"));
+        close_all(
+            &windows,
+            windows.take_post_hook(session_id, "toolu_1", exited),
+        );
+        let ended = CommandWindowEnd::Exited {
+            exit_code: Some(3),
+            signal: None,
+        };
+        assert_eq!(next_call(&mut called).await, CaptureCall::Close(1, ended));
+
+        let background = ClaudeCommandEnd::Background;
+        close_all(
+            &windows,
+            windows.take_post_hook(session_id, "toolu_2", background),
+        );
+        close_all(&windows, windows.take_task_end(session_id, "toolu_2"));
+        assert_eq!(next_call(&mut called).await, untold(2));
+    }
+
+    // Killed by no backstop, by a background window closed at a turn end, by another helper's
+    // window closed, and by a process end closing a fork's windows.
+    #[tokio::test]
+    async fn the_backstop_closes_what_no_closer_reached() {
+        let (windows, mut called) = open_windows();
+        let (session_id, process) = (fixed_session_id(), TEST_PROVIDER_PROCESS);
+        open_one_window(&windows, &mut called, process, "lead").await;
+        open_one_window(&windows, &mut called, process, "lead-background").await;
+        for agent_id in ["h1", "h2"] {
+            let target = ClaudeCommandTarget {
+                agent_id: Some(agent_id.to_owned()),
+                ..powershell_target(agent_id)
+            };
+            open_target(&windows, &mut called, process, target).await;
+        }
+        open_one_window(&windows, &mut called, FORK_PROCESS, "fork").await;
+        let background = ClaudeCommandEnd::Background;
+        close_all(
+            &windows,
+            windows.take_post_hook(session_id, "lead-background", background),
+        );
+
+        let lead = ClaudeCommandOwner::Lead;
+        close_all(&windows, windows.take_remaining(session_id, process, &lead));
+        assert_eq!(next_call(&mut called).await, untold(1));
+        no_call(
+            &mut called,
+            "a turn end closed more than the lead's foreground",
+        )
+        .await;
+
+        let helper = ClaudeCommandOwner::Helper("h1".to_owned());
+        close_all(
+            &windows,
+            windows.take_remaining(session_id, process, &helper),
+        );
+        assert_eq!(next_call(&mut called).await, untold(3));
+        no_call(&mut called, "a helper's end closed another's").await;
+
+        let ended = ClaudeCommandOwner::Process;
+        close_all(
+            &windows,
+            windows.take_remaining(session_id, process, &ended),
+        );
+        let mut closed = [next_call(&mut called).await, next_call(&mut called).await];
+        closed.sort_by_key(|call| format!("{call:?}"));
+        assert_eq!(closed, [untold(2), untold(4)]);
+        no_call(&mut called, "a process end closed its fork's window").await;
+        assert!(lock(&windows.windows).contains_key(&(session_id, "fork".to_owned())));
+    }
+
+    // Killed by a window left open by a closer that ran while it opened.
+    #[rstest]
+    #[case::tool_result(false)]
+    #[case::process_end(true)]
+    #[tokio::test]
+    async fn a_window_opening_at_a_closer_closes_once_open(#[case] is_process_end: bool) {
+        let (opens, held) = watch::channel(None);
+        let (capture, mut called) = held_capture(held);
+        let windows = Arc::new(ClaudeCommandWindows::new(capture));
+        let channel = Arc::new(ScriptedChannel::default());
+        let (session_id, process) = (fixed_session_id(), TEST_PROVIDER_PROCESS);
+        let opening = windows.begin_open(session_id, process, powershell_target("toolu_1"));
+        let answering = tokio::spawn({
+            let windows = Arc::clone(&windows);
+            let channel = Arc::clone(&channel);
+            async move {
+                windows
+                    .open_then_answer(opening, &*channel, &account(), "r1".to_owned())
+                    .await;
+            }
+        });
+        assert_eq!(next_call(&mut called).await, CaptureCall::Open(1));
+
+        let closing = if is_process_end {
+            windows.take_remaining(session_id, process, &ClaudeCommandOwner::Process)
+        } else {
+            windows
+                .take_tool_result(session_id, "toolu_1")
+                .into_iter()
+                .collect()
+        };
+        assert!(
+            closing.is_empty(),
+            "a window still opening has none to close"
+        );
+        opens.send(Some(true)).expect("the open waits on the test");
+        answering.await.expect("the answer's task ends");
+
+        assert_eq!(next_call(&mut called).await, CaptureCall::Began(1, true));
+        assert_eq!(next_call(&mut called).await, untold(1));
+        no_call(&mut called, "a window closed twice").await;
+        assert!(is_answered(&channel, "r1"));
         assert!(lock(&windows.windows).is_empty());
     }
 }

@@ -24,6 +24,7 @@ use crate::driver::run_control::HelperStopReason;
 use crate::driver::test_registry::fixed_session_id;
 use crate::port::command_capture::unregistered_capture;
 use crate::port::edit_checkpoint::{EditCheckpoint, EditCheckpointRequest};
+use crate::process_identity::TEST_PROVIDER_PROCESS;
 
 // A pre-tool hook's input for a `Write` of `path` by the helper `agent_id` or the lead, by the
 // call `tool_use_id`.
@@ -201,6 +202,7 @@ async fn a_released_helper_edit_is_copied_before_its_answer_only_when_passed() {
         &command_windows,
         &*channel,
         &session_id,
+        TEST_PROVIDER_PROCESS,
         &account,
         steered.released,
     )
@@ -221,6 +223,7 @@ async fn a_released_helper_edit_is_copied_before_its_answer_only_when_passed() {
                 &command_windows,
                 &*channel,
                 &session_id,
+                TEST_PROVIDER_PROCESS,
                 &account,
                 passed.released,
             )

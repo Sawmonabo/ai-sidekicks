@@ -48,6 +48,7 @@ use crate::driver::run_control::HelperStopReason;
 use crate::lenient_json::{lenient_object, read_lenient};
 use crate::port::agent_tree_lookup::{AgentTreeHelper, AgentTreeLookup};
 use crate::port::edit_checkpoint::{EditCheckpoint, EditCheckpointRequest};
+use crate::process_identity::ProviderProcessIdentity;
 use crate::record_readers::filter_non_empty;
 use crate::run::posture::resolve_posture;
 
@@ -636,20 +637,21 @@ pub(crate) async fn answer_claude_request(
 
 /// Answers the callbacks a helper's continue `released`, in order: one carrying an edit once its
 /// file's copy is kept through `edit_checkpoint`, one carrying a command once its window is open
-/// through `command_windows`, the rest with their own answers. An answer that cannot be written
-/// stops the process, as [`answer_claude_request`] does.
+/// through `command_windows` as a window of `process`, the rest with their own answers. An answer
+/// that cannot be written stops the process, as [`answer_claude_request`] does.
 pub(crate) async fn answer_released_callbacks(
     edit_checkpoint: Option<&Arc<dyn EditCheckpoint>>,
     command_windows: &ClaudeCommandWindows,
     channel: &dyn ClaudeProcessChannel,
     session_id: &SessionId,
+    process: ProviderProcessIdentity,
     provider_account_id: &ProviderAccountId,
     released: Vec<ClaudeReleasedCallback>,
 ) {
     for callback in released {
         match callback.capture {
             Some(ClaudeToolCapture::Command(target)) => {
-                let opening = command_windows.begin_open(*session_id, target);
+                let opening = command_windows.begin_open(*session_id, process, target);
                 command_windows
                     .open_then_answer(opening, channel, provider_account_id, callback.request_id)
                     .await;

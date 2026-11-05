@@ -3,7 +3,9 @@
 //! readings, and leaves the running model and a too-long turn's cut behind it; a turn end settles
 //! the turn; a request goes through the daemon's hooks or on to the requests, an edit's copy or a
 //! command's window and its answer spawned off the task, and a command's window closed off it at
-//! its post-tool hook; the exit forgets everything the process held.
+//! its post-tool hook; the exit forgets everything the process held. What no closer reached is
+//! closed at its caller's end: the lead's foreground commands at its turn's end, a helper's at the
+//! helper's end, and every command of the process, background ones too, at the process's end.
 
 use std::sync::{Arc, Mutex};
 
@@ -34,7 +36,7 @@ use crate::driver::claude::hooks::callbacks::{
     ClaudeRequestRoute, ClaudeToolCapture, answer_background_work_check, answer_claude_request,
     route_claude_request, route_helper_start, route_helper_wake, route_message_target,
 };
-use crate::driver::claude::hooks::command_capture::ClaudeCommandWindows;
+use crate::driver::claude::hooks::command_capture::{ClaudeCommandOwner, ClaudeCommandWindows};
 use crate::driver::claude::hooks::edit_checkpoint::keep_copy_then_answer;
 use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
@@ -63,6 +65,7 @@ use crate::port::in_process_tool_servers::InProcessToolServers;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
+use crate::thread_frame_router::SubagentLifecycleEventType;
 
 /// What every session's task shares.
 pub(crate) struct ClaudeSessionTaskServices {
@@ -202,6 +205,12 @@ impl ClaudeSessionTask {
             &routed.routed.helper_lifecycle,
             &observation.answered_call_ids,
         );
+        for emission in &routed.routed.helper_lifecycle {
+            if emission.event_type == SubagentLifecycleEventType::Completed {
+                let helper = ClaudeCommandOwner::Helper(emission.subagent_id.clone());
+                self.close_remaining_commands(&helper);
+            }
+        }
         for request_id in admitted {
             answer_claude_request(
                 &*live.channel,
@@ -217,6 +226,9 @@ impl ClaudeSessionTask {
             .delivery
             .take_frame(&self.stream, routed, is_reviewed)
             .await;
+        if is_turn_ending {
+            self.close_remaining_commands(&ClaudeCommandOwner::Lead);
+        }
         if let Some(running_model) = after.running_model {
             lock(&live.settings).running_model = running_model;
         }
@@ -336,7 +348,10 @@ impl ClaudeSessionTask {
                 capture: ClaudeToolCapture::Command(target),
             } => {
                 // In before the spawn, so a closer taken next on this task finds it.
-                let opening = services.command_windows.begin_open(session_id, target);
+                let opening =
+                    services
+                        .command_windows
+                        .begin_open(session_id, live.process_identity, target);
                 let command_windows = Arc::clone(&services.command_windows);
                 let channel = Arc::clone(&live.channel);
                 let account = account.clone();
@@ -406,6 +421,15 @@ impl ClaudeSessionTask {
         }
     }
 
+    // Closes the windows of this process's commands `owner` names that no closer reached.
+    fn close_remaining_commands(&self, owner: &ClaudeCommandOwner) {
+        let windows = &self.services.command_windows;
+        let live = &self.live;
+        for (window, end) in windows.take_remaining(live.session_id, live.process_identity, owner) {
+            windows.close(window, end);
+        }
+    }
+
     // A helper's pause took effect as its next tool call was held, so its child run is paused.
     async fn report_helper_paused(&self, agent_id: &str) {
         let start = &self.services.self_started.start;
@@ -447,6 +471,8 @@ impl ClaudeSessionTask {
         services
             .processes
             .remove_exited(session_id, self.live.process_identity);
+        // A superseded process's commands end with it; a fork's stay open.
+        self.close_remaining_commands(&ClaudeCommandOwner::Process);
         if let Some(socket) = &self.live.messaging_socket {
             ClaudeSessionInboxes::remove_process_socket(session_id, socket).await;
         }
