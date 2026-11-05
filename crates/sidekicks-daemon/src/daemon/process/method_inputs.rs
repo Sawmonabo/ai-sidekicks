@@ -5,6 +5,7 @@
 //! them; it hands back the parts the start runs next and the stop ends.
 
 mod recovery;
+mod worktree;
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -59,7 +60,6 @@ use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::groups::service::SessionGroupService;
 use sidekicks_session::interventions::service::InterventionService;
 use sidekicks_session::plan_holds::PlanHolds;
-use sidekicks_session::run::folders::SessionLiveRunFolders;
 use sidekicks_session::run::held_tool_calls::StoredHeldToolCalls;
 use sidekicks_session::search::index::live::LiveIndex;
 use sidekicks_shell::orphan::guard::OrphanGuard;
@@ -74,9 +74,8 @@ use sidekicks_store::machine::local::LocalMachine;
 use sidekicks_workspace::clone::service::{CloneAttachedListener, CloneService, CloneServiceDeps};
 use sidekicks_workspace::folder::list::FolderListService;
 use sidekicks_workspace::git::process::GitRunner;
-use sidekicks_workspace::git::worktree::creation::{WorktreeCreator, WorktreeCreatorDeps};
-use sidekicks_workspace::git::worktree::naming::WorktreeNaming;
-use sidekicks_workspace::git::worktree::setup::{WorktreeSetupRunner, WorktreeSetupRunnerDeps};
+use sidekicks_workspace::git::worktree::creation::WorktreeCreator;
+use sidekicks_workspace::git::worktree::setup::WorktreeSetupRunner;
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
 use sidekicks_workspace::managed::service::managed_workspaces_folder;
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
@@ -95,6 +94,9 @@ use crate::daemon::machine_settings::methods::{
 use crate::daemon::process::database::DatabaseFile;
 use crate::daemon::process::method_inputs::recovery::{
     RecoveryServiceStart, RecoveryServices, build_recovery_services,
+};
+use crate::daemon::process::method_inputs::worktree::{
+    WorktreeServiceStart, WorktreeServices, build_worktree_services,
 };
 use crate::daemon::process::method_tables::{MethodTableServices, register_method_tables};
 use crate::daemon::process::provider_accounts::{
@@ -119,7 +121,6 @@ use crate::daemon::process::workspace_services::{
     ExecutionRootStart, WorkspaceServiceStart, WorkspaceWork, build_execution_root_services,
     build_workspace_services,
 };
-use crate::daemon::process::worktree_sources::WorktreeSources;
 use crate::daemon::process_tree_usage::ProcessTreeUsageReader;
 use crate::daemon::status_methods::StatusMethodsDeps;
 use crate::data_acts::erase::{ACCOUNT_SIGN_OUT_BOUND, DataErase, DataEraseDeps, EraseStep};
@@ -379,34 +380,23 @@ pub(crate) async fn register_method_inputs(
         attribution: mcp_attribution,
         probe_gate: Arc::new(McpMachineProbeGate::default()),
     }));
-    let worktree_sources = Arc::new(WorktreeSources {
-        reads: Arc::clone(&reads),
-        records: Arc::clone(&port.project_records),
-        worktrees: Arc::clone(&repo.worktrees),
-        settings: Arc::clone(&settings_reader),
-        base_environment: Arc::clone(&base_environment),
-        reserved_names: Arc::clone(&providers.reserved_names),
-    });
-    let worktree_setup = Arc::new(WorktreeSetupRunner::new(WorktreeSetupRunnerDeps {
+    let WorktreeServices {
+        setup: worktree_setup,
+        live_run_folders,
+        creator: worktree_creator,
+    } = build_worktree_services(WorktreeServiceStart {
+        reads: &reads,
+        writer: &writer,
+        repo,
+        records: &port.project_records,
+        settings: &settings_reader,
+        base_environment: &base_environment,
+        reserved_names: &providers.reserved_names,
         git: git.clone(),
         spawner: spawner.clone(),
-        watcher: Arc::clone(&repo.folder_watch),
-        sources: Arc::clone(&worktree_sources) as _,
-    }));
-    let live_run_folders = Arc::new(SessionLiveRunFolders::new(Arc::clone(&reads)));
+    });
     // The creator's, the run setup gate's around a run's context write, and the turn snapshots'.
     let checkout_lock = Arc::clone(&repo.checkout_lock);
-    let worktree_creator = Arc::new(WorktreeCreator::new(WorktreeCreatorDeps {
-        git: git.clone(),
-        reads: Arc::clone(&reads),
-        writer: Arc::clone(&writer),
-        events: Arc::clone(&repo.worktree_events),
-        naming: WorktreeNaming::new(repo.worktrees_folder.clone(), worktree_sources),
-        worktrees: Arc::clone(&repo.worktrees),
-        setup: Arc::clone(&worktree_setup),
-        live_run_folders: Arc::clone(&live_run_folders) as _,
-        checkout_lock: Arc::clone(&checkout_lock),
-    }));
     let attention = Arc::new(AttentionService::new(AttentionServiceDependencies {
         writer: Arc::clone(&writer),
         pool: Arc::clone(&reads),
