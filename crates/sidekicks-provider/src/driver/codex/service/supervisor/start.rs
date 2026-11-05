@@ -126,6 +126,10 @@ pub(super) struct StartedService {
     /// Whether a terminal service a former daemon left runs other hooks than this daemon's, so a
     /// planned restart is owed once it is up.
     pub(super) is_restart_owed: bool,
+    /// The name the start's launch or join published its own over, which a failure or a teardown
+    /// before the service is adopted puts back once it stopped `process`; `None` where the start
+    /// published no name.
+    pub(super) earlier_record_file: Option<Box<EarlierRecordFile>>,
 }
 
 /// A start that failed, with the process it launched, which the runner tears down.
@@ -134,7 +138,7 @@ pub(super) struct StartFailure {
     pub(super) error: CodexError,
     /// What it launched, if anything, boxed so the failure stays small.
     pub(super) process: Option<Box<CodexServiceProcess>>,
-    /// The name the failed launch or join published before its own, which the teardown puts back
+    /// The name the failed launch or join published its own over, which the teardown puts back
     /// once it stopped `process`, boxed as `process` is; `None` where the failure published none.
     pub(super) earlier_record_file: Option<Box<EarlierRecordFile>>,
 }
@@ -254,7 +258,7 @@ async fn start_relayed_service(
         Err(error) => Err(StartFailure {
             error,
             process: started.process.map(Box::new),
-            earlier_record_file: None,
+            earlier_record_file: started.earlier_record_file,
         }),
     }
 }
@@ -331,6 +335,7 @@ async fn start_own_child_service(
             version,
             physical_socket,
             is_restart_owed: false,
+            earlier_record_file: None,
         }),
         Err(error) => Err(StartFailure {
             error,
@@ -351,6 +356,8 @@ pub(super) struct LaunchedLastingService {
     pub(super) reply: Box<RawValue>,
     /// Where its socket really is.
     pub(super) physical_socket: PathBuf,
+    /// The name its launch published its own over.
+    pub(super) earlier_record_file: EarlierRecordFile,
 }
 
 /// Names the log every lasting service on `service`'s home writes and records it as the service's.
@@ -434,15 +441,13 @@ pub(super) async fn launch_lasting_service(
     }
     .await;
     match kept {
-        Ok((connection, reply, physical_socket)) => {
-            published.keep();
-            Ok(LaunchedLastingService {
-                process,
-                connection,
-                reply,
-                physical_socket,
-            })
-        }
+        Ok((connection, reply, physical_socket)) => Ok(LaunchedLastingService {
+            process,
+            connection,
+            reply,
+            physical_socket,
+            earlier_record_file: published.hand_back(),
+        }),
         Err(error) => Err(StartFailure {
             error,
             process: Some(Box::new(process)),

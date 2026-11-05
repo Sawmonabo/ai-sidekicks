@@ -455,6 +455,9 @@ impl ServiceRunner {
                     {
                         clear_home_socket_link(&stopping, Some(started.physical_socket)).await;
                     }
+                    if let Some(earlier_record_file) = started.earlier_record_file {
+                        earlier_record_file.restore(&stopping);
+                    }
                 }
                 Some(Parked::Failed {
                     process,

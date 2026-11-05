@@ -228,6 +228,7 @@ async fn join_listener(
         physical_socket: read_physical_socket(socket).await?,
         is_restart_owed: false,
         connection,
+        earlier_record_file: None,
     })
 }
 
@@ -277,17 +278,15 @@ pub(super) async fn join_former_service(
         record_file,
     });
     match joined {
-        Ok((connection, version, is_restart_owed)) => {
-            published.keep();
-            Ok(StartedService {
-                kind: CodexServiceKind::Terminal,
-                process,
-                connection,
-                version,
-                physical_socket,
-                is_restart_owed,
-            })
-        }
+        Ok((connection, version, is_restart_owed)) => Ok(StartedService {
+            kind: CodexServiceKind::Terminal,
+            process,
+            connection,
+            version,
+            physical_socket,
+            is_restart_owed,
+            earlier_record_file: Some(Box::new(published.hand_back())),
+        }),
         Err(error) => Err(StartFailure {
             error,
             process: process.map(Box::new),
@@ -300,7 +299,7 @@ pub(super) async fn join_former_service(
 // its record, and lets go of the start lock once it listens, the home's link moved onto a service
 // launched beside a draining one and pointed back at a service that holds it; its hooks, while the
 // daemon runs any, are trusted before any conversation.
-async fn launch_terminal_service(
+pub(super) async fn launch_terminal_service(
     service: &Arc<CodexService>,
     launch: u64,
     cancel: &CancellationToken,
@@ -351,6 +350,7 @@ async fn launch_terminal_service(
         connection,
         reply,
         physical_socket,
+        earlier_record_file,
     } = launch_lasting_service(
         service,
         launch,
@@ -378,6 +378,7 @@ async fn launch_terminal_service(
         Ok::<_, CodexError>(version)
     }
     .await;
+    let earlier_record_file = Some(Box::new(earlier_record_file));
     match trusted {
         Ok(version) => Ok(StartedService {
             kind: CodexServiceKind::Terminal,
@@ -386,11 +387,13 @@ async fn launch_terminal_service(
             version,
             physical_socket,
             is_restart_owed: false,
+            earlier_record_file,
         }),
+        // Its process is handed back with the name before the launch's, put back once it ends.
         Err(error) => Err(StartFailure {
             error,
             process: Some(Box::new(process)),
-            earlier_record_file: None,
+            earlier_record_file,
         }),
     }
 }

@@ -62,6 +62,7 @@ pub(super) async fn start_account_home_service(
         connection,
         reply,
         physical_socket,
+        earlier_record_file,
     } = launch_lasting_service(
         service,
         launch,
@@ -72,6 +73,7 @@ pub(super) async fn start_account_home_service(
         &socket,
     )
     .await?;
+    let earlier_record_file = Some(Box::new(earlier_record_file));
     match read_service_version(&reply, executable) {
         Ok(version) => Ok(StartedService {
             kind: CodexServiceKind::Account,
@@ -80,11 +82,12 @@ pub(super) async fn start_account_home_service(
             version,
             physical_socket,
             is_restart_owed: false,
+            earlier_record_file,
         }),
         Err(error) => Err(StartFailure {
             error,
             process: Some(Box::new(process)),
-            earlier_record_file: None,
+            earlier_record_file,
         }),
     }
 }
@@ -127,6 +130,7 @@ async fn join_kept_service(
             version,
             physical_socket,
             is_restart_owed: false,
+            earlier_record_file: None,
         }),
         Err(error) => Err(StartFailure {
             error,

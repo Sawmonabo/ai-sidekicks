@@ -24,11 +24,16 @@ use crate::driver::codex::service::process::{CodexProcessLaunch, repin_lasting_c
 use crate::driver::codex::service::record::{
     LastingServiceRecord, LastingServiceRecordFile, LockedServiceRecord,
 };
-use crate::driver::codex::service::supervisor::own_record::socket_record_file;
+use crate::driver::codex::service::supervisor::own_record::{
+    retire_own_record, socket_record_file,
+};
 use crate::driver::codex::service::supervisor::start::kept_records::{
     KeptServicesStop, lock_record, stop_kept_services,
 };
-use crate::driver::codex::service::supervisor::start::terminal::join_former_service;
+use crate::driver::codex::service::supervisor::start::take_start_lock;
+use crate::driver::codex::service::supervisor::start::terminal::{
+    join_former_service, launch_terminal_service,
+};
 use crate::driver::codex::service::supervisor::start::{
     LaunchedLastingService, StartFailure, compose_launch, launch_lasting_service,
     name_lasting_log_file,
@@ -38,6 +43,7 @@ use crate::driver::codex::service::supervisor::test_service::{
     bind_test_listener, test_codex_service_dependencies, write_failing_codex,
 };
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceSocket};
+use crate::spawned_version::ResolvedProviderExecutable;
 
 // Fails when the erase's end of a recorded service that is gone leaves the home's link naming the
 // socket the service really listened on, so a plain `codex` meets a link to a dead socket.
@@ -233,13 +239,14 @@ async fn a_daemon_stop_of_kept_records_leaves_a_live_service_s_record_to_its_sup
     );
 }
 
-// A terminal service on the home socket of `folder`, set to launch beside it on a socket of its
+// A terminal service on `home_socket` under `folder`, set to launch beside it on a socket of its
 // own, its listener bound and handed back for the test to answer, with the home socket's record
 // keeping a running stand-in and named the service's, as a former start left it.
 struct BesideLaunch {
     service: Arc<CodexService>,
     // Taken by the one launch the set-up is for.
     process_launch: Option<CodexProcessLaunch>,
+    executable: ResolvedProviderExecutable,
     log_file: PathBuf,
     own_socket: PathBuf,
     listener: Listener,
@@ -250,8 +257,7 @@ struct BesideLaunch {
 }
 
 // Sets up a launch beside the home's under `folder`; `None` where the system binds no listener.
-async fn prepare_beside_launch(folder: &Path) -> Option<BesideLaunch> {
-    let home_socket = folder.join("home.sock");
+async fn prepare_beside_launch(folder: &Path, home_socket: PathBuf) -> Option<BesideLaunch> {
     let own_socket = folder.join("own.sock");
     let listener = bind_test_listener(&own_socket)?;
     let program = folder.join("codex");
@@ -314,6 +320,7 @@ async fn prepare_beside_launch(folder: &Path) -> Option<BesideLaunch> {
     Some(BesideLaunch {
         service,
         process_launch: Some(process_launch),
+        executable,
         log_file,
         own_socket,
         listener,
@@ -377,7 +384,9 @@ async fn a_daemon_stop_leaves_a_launch_beside_published_after_it_began_to_its_su
         return;
     }
     let folder = tempfile::tempdir().expect("a scratch folder is made");
-    let Some(mut beside) = prepare_beside_launch(folder.path()).await else {
+    let Some(mut beside) =
+        prepare_beside_launch(folder.path(), folder.path().join("home.sock")).await
+    else {
         return;
     };
     let locked = lock_record(beside.beside_record.clone())
@@ -458,7 +467,9 @@ async fn a_failed_launch_beside_keeps_its_record_named_until_its_teardown() {
         return;
     }
     let folder = tempfile::tempdir().expect("a scratch folder is made");
-    let Some(mut beside) = prepare_beside_launch(folder.path()).await else {
+    let Some(mut beside) =
+        prepare_beside_launch(folder.path(), folder.path().join("home.sock")).await
+    else {
         return;
     };
     let locked = lock_record(beside.beside_record.clone())
@@ -517,6 +528,85 @@ async fn a_failed_launch_beside_keeps_its_record_named_until_its_teardown() {
         named,
         Some(beside.home_record),
         "a failed launch left its record named the service's"
+    );
+}
+
+// Fails when a start that fails after its launch succeeded, here on the move of the home's link
+// onto the service launched beside, leaves the launched record named the service's once its
+// teardown stopped that process, so the service's retire acts on the removed record in place of
+// the home socket's. Killed by handing the failure back without the name before the launch's.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_failing_after_its_launch_leaves_the_retire_to_the_home_socket_s_record() {
+    if !CAN_SIGNAL_A_STOP || !CAN_LINK_A_SOCKET {
+        return;
+    }
+    let folder = tempfile::tempdir().expect("a scratch folder is made");
+    // The home's socket in a folder that is not there, so the move of its link fails.
+    let home_socket = folder.path().join("gone").join("home.sock");
+    let Some(beside) = prepare_beside_launch(folder.path(), home_socket).await else {
+        return;
+    };
+    let locked = lock_record(beside.beside_record.clone())
+        .await
+        .unwrap_or_else(|failure| panic!("the record locks: {:?}", failure.error));
+    let start_lock = take_start_lock(&beside.service.home().codex_home, Duration::from_secs(10))
+        .await
+        .unwrap_or_else(|failure| panic!("Codex's start lock is taken: {:?}", failure.error));
+    let cancel = CancellationToken::new();
+    let (started, ()) = tokio::join!(
+        launch_terminal_service(
+            &beside.service,
+            1,
+            &cancel,
+            &beside.executable,
+            start_lock,
+            &locked,
+            &beside.own_socket,
+        ),
+        async {
+            let stream = timeout(Duration::from_secs(10), beside.listener.accept())
+                .await
+                .expect("the launch dials within its wait")
+                .expect("the dial is accepted");
+            tokio::spawn(answer_as_codex_service(
+                stream,
+                StandInReplies::default(),
+                |_request| {},
+            ));
+        },
+    );
+    let Err(failure) = started else {
+        panic!("the start moved the home's link into a folder that is not there");
+    };
+    drop(locked);
+
+    // The teardown: the launched process retired under its own record's name, then the name before
+    // it put back.
+    retire_own_record(&beside.service)
+        .await
+        .expect("the launched process is retired");
+    if let Some(earlier_record_file) = failure.earlier_record_file {
+        earlier_record_file.restore(&beside.service);
+    }
+    // The service's own retire, once nothing starts it again.
+    retire_own_record(&beside.service)
+        .await
+        .expect("the service's record is retired");
+    let read_record = |file: &LastingServiceRecordFile| {
+        file.lock()
+            .and_then(|locked| locked.read())
+            .expect("the record reads")
+    };
+    let (home_kept, beside_kept) = (
+        read_record(&beside.home_record),
+        read_record(&beside.beside_record),
+    );
+    end_recorded_stand_ins(beside.data_folder).await;
+
+    assert_eq!(beside_kept, None, "the teardown left the launched record");
+    assert_eq!(
+        home_kept, None,
+        "the retire acted on the removed record in place of the home socket's"
     );
 }
 
