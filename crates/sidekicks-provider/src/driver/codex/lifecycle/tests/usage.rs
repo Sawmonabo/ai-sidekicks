@@ -5,7 +5,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use axum::http::StatusCode;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde_json::{Value, json};
@@ -15,7 +14,6 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use tempfile::TempDir;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
@@ -29,7 +27,7 @@ use crate::driver::{CurrentProviderAccount, ProviderAccountReader};
 use crate::port::usage_sink::{
     MeteredUsage, PricedRequest, ProviderQuotaWindow, RecordedUsage, UsageSink,
 };
-use crate::pricing::test_fixture::{ListServer, open_held, serve};
+use crate::pricing::test_fixture::started_list;
 use crate::runtime_binding::test_store::test_provider_account_id;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
@@ -212,26 +210,15 @@ async fn a_total_that_did_not_grow_records_and_prices_nothing() {
     accounts.set_sign_in_kind(Some(ProviderAuthMode::OauthSubscription));
     let scratch = TempDir::new().expect("a scratch folder");
     let stop = CancellationToken::new();
-    let server = Arc::new(ListServer::default());
-    let price_list = open_held(
+    let (price_list, _server) = started_list(
         &scratch.path().join("price-list"),
-        serve(&server).await,
-        &Arc::new(TestWallClock::default()),
-    )
-    .await;
-    let mut table_watch = price_list.subscribe();
-    server.script(
-        StatusCode::OK,
-        Some(r#"W/"gpt-5""#),
+        r#"W/"gpt-5""#,
         br#"{"m1": {"input_cost_per_token": 3e-06},
             "seed-only": {"input_cost_per_token": 2e-06},
             "gpt-5": {"input_cost_per_token": 1.25e-06, "output_cost_per_token": 1e-05}}"#,
-    );
-    drop(price_list.start(stop.clone()));
-    table_watch
-        .changed()
-        .await
-        .expect("the list sends the copy it took");
+        &stop,
+    )
+    .await;
     let ports = &live.driver.ports;
     assert!(ports.usage.register(Arc::clone(&usage) as _).is_ok());
     assert!(ports.request_held.register(Arc::clone(&usage) as _).is_ok());

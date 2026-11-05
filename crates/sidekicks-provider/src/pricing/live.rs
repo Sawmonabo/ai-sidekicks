@@ -397,7 +397,6 @@ fn recorded_usage(live: &LiveUsageRow) -> RecordedUsage {
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use axum::http::StatusCode;
     use futures::FutureExt as _;
     use futures::future::BoxFuture;
     use sidekicks_contracts::event::usage::{UsageContainment, UsageCostSource};
@@ -408,7 +407,6 @@ mod tests {
     use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
     use sidekicks_std::mutex_lock::lock;
-    use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
     use tempfile::TempDir;
     use tokio_util::sync::CancellationToken;
 
@@ -422,7 +420,7 @@ mod tests {
     use crate::pricing::list::PriceTable;
     use crate::pricing::quote::{RequestTokenCounts, RequestUsage, quote_request_rows};
     use crate::pricing::rule::{RequestPricer, RequestPricing};
-    use crate::pricing::test_fixture::{ListServer, open_held, serve};
+    use crate::pricing::test_fixture::started_list;
     use crate::usage_delta_accountant::{
         MeteredUsageDelta, UsageAxisCounts, UsageDiagnosticBand, UsageRequestFacts,
     };
@@ -554,21 +552,8 @@ mod tests {
         scratch: &TempDir,
         stop: &CancellationToken,
     ) -> LivePricing {
-        let server = Arc::new(ListServer::default());
-        let clock = Arc::new(TestWallClock::default());
-        let price_list = open_held(
-            &scratch.path().join("price-list"),
-            serve(&server).await,
-            &clock,
-        )
-        .await;
-        let mut table_watch = price_list.subscribe();
-        server.script(StatusCode::OK, Some(r#"W/"opus""#), OPUS_COPY);
-        drop(price_list.start(stop.clone()));
-        table_watch
-            .changed()
-            .await
-            .expect("the list sends the copy it took");
+        let folder = scratch.path().join("price-list");
+        let (price_list, _server) = started_list(&folder, r#"W/"opus""#, OPUS_COPY, stop).await;
         let ports = DriverPorts::new();
         ports
             .usage

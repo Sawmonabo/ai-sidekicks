@@ -16,6 +16,7 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use tokio::sync::watch;
+use tokio_util::sync::CancellationToken;
 
 use crate::pricing::store::{HeldPriceList, PriceListConfig};
 
@@ -112,4 +113,25 @@ pub(crate) async fn open_held(
         seed: test_seed,
     };
     HeldPriceList::open(config, scheduler, wall_clock, in_use).await
+}
+
+/// A list opened in `folder` that took `copy` under `etag` from a stand-in server of its own, its
+/// fetch task running until `stop`; answers the list and its server, which a test scripts further.
+pub(crate) async fn started_list(
+    folder: &Path,
+    etag: &'static str,
+    copy: &'static [u8],
+    stop: &CancellationToken,
+) -> (Arc<HeldPriceList>, Arc<ListServer>) {
+    let server = Arc::new(ListServer::default());
+    let clock = Arc::new(TestWallClock::default());
+    let price_list = open_held(folder, serve(&server).await, &clock).await;
+    let mut table_watch = price_list.subscribe();
+    server.script(StatusCode::OK, Some(etag), copy);
+    drop(price_list.start(stop.clone()));
+    table_watch
+        .changed()
+        .await
+        .expect("the list sends the copy it took");
+    (price_list, server)
 }

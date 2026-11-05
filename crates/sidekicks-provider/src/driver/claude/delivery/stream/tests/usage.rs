@@ -13,7 +13,6 @@ use sidekicks_contracts::event::usage::{
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
 
@@ -24,7 +23,7 @@ use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
 };
 use crate::port::usage_sink::{MeteredUsageOwner, PricedRequest, ProviderQuotaWindow};
-use crate::pricing::test_fixture::{ListServer, open_held, serve};
+use crate::pricing::test_fixture::{ListServer, started_list};
 use crate::run::delivery::LateAppendableRow;
 use crate::run::state_entry::RunStateEntry;
 use crate::runtime_binding::test_store::test_provider_account_id;
@@ -279,21 +278,8 @@ async fn register_price_list(
     scratch: &TempDir,
     stop: &CancellationToken,
 ) -> Arc<ListServer> {
-    let server = Arc::new(ListServer::default());
-    let clock = Arc::new(TestWallClock::default());
-    let price_list = open_held(
-        &scratch.path().join("price-list"),
-        serve(&server).await,
-        &clock,
-    )
-    .await;
-    let mut table_watch = price_list.subscribe();
-    server.script(StatusCode::OK, Some(r#"W/"opus""#), OPUS_COPY);
-    drop(price_list.start(stop.clone()));
-    table_watch
-        .changed()
-        .await
-        .expect("the list sends the copy it took");
+    let folder = scratch.path().join("price-list");
+    let (price_list, server) = started_list(&folder, r#"W/"opus""#, OPUS_COPY, stop).await;
     session
         .price_list
         .register(price_list)
