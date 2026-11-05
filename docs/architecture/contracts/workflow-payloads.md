@@ -69,6 +69,9 @@ interface WorkflowDefinitionReadResponse {
   // The browser the workflow's runs use in the background, which the builder's browser pill reads;
   // a new workflow reads `settingsDefault`.
   backgroundBrowser: "settingsDefault" | "sandboxed" | "notSandboxed";
+  // The provider whose sandbox and shell the workflow's command steps run in; absent until one is
+  // chosen.
+  provider?: ProviderId;
   createdAt: string;
   // The webhook token's dates, present only where the document's trigger is a webhook and a token
   // exists. The token itself is never read back — only its hash is kept, and
@@ -677,6 +680,7 @@ Daemon JSON-RPC; the `workflow` root, each name following the wire-name grammar,
 | `workflow.tags.update` | `mutation` | `WorkflowTagsUpdateRequest` → `WorkflowDefinitionSettingResponse` | The workflow's tags, saved beside the definition without a new version |
 | `workflow.permissionLevel.update` | `mutation` | `WorkflowPermissionLevelUpdateRequest` → `WorkflowPermissionLevelUpdateResponse` | The workflow's own permission level, saved beside the definition without a new version |
 | `workflow.backgroundBrowser.update` | `mutation` | `WorkflowBackgroundBrowserUpdateRequest` → `WorkflowBackgroundBrowserUpdateResponse` | The workflow's background-browser pick from the builder's browser pill, saved beside the definition without a new version; every later run uses it, a live run keeping the browser it started with |
+| `workflow.provider.update` | `mutation` | `WorkflowProviderUpdateRequest` → `WorkflowProviderUpdateResponse` | The provider whose sandbox and shell the workflow's command steps run in, saved beside the definition without a new version; every later run starts with it |
 | `workflow.pinData.update` | `mutation` | `WorkflowPinDataUpdateRequest` → `WorkflowPinDataUpdateResponse` | Pins or unpins a node's test data without a new version; honored only in manual runs |
 | `workflow.draft.update` | `mutation` | `WorkflowDraftUpdateRequest` → `WorkflowDraftUpdateResponse` | The builder's unsaved draft, held by the daemon so it survives a reload, one per saved workflow and one for a new workflow |
 | `workflow.draft.read` | `query` | `WorkflowDraftReadRequest` → `WorkflowDraftReadResponse` | The draft read back after a reload, by the id the builder's address carries |

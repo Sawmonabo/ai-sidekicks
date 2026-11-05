@@ -384,6 +384,7 @@ The wire registry carries the `workflow.*` methods, each named by the wire-name 
 | `workflow.pinData.update` | Pins or unpins a node's test data, from the inspector or the step panel, without a new version. |
 | `workflow.permissionLevel.update` | `{definitionId, level}`: the workflow's own permission level, the level pill's pick, saved on the workflow at once without a new version; every run of it uses that level, a live run from its next step. |
 | `workflow.backgroundBrowser.update` | `{definitionId, pick: "settingsDefault" \| "sandboxed" \| "notSandboxed"}`: the browser pill's pick, saved on the workflow at once without a new version; every later run of it uses it, a live run keeping the browser it started with. |
+| `workflow.provider.update` | `{definitionId, provider}`: the provider whose sandbox and shell the workflow's command steps run in, saved on the workflow at once without a new version; every later run of it starts with it. A new workflow is prefilled with the provider whose account is marked `Default` and is blank where none is; the pick can be changed but not cleared. |
 | `workflow.tags.update` | `{definitionId, tags}`: the workflow's tags, set beside its name in the builder header and saved at once without a new version; the Workflows tab row and its tag filter read them. |
 | `workflow.draft.update` | The builder's unsaved draft, held by the daemon so it survives a reload. |
 | `workflow.draft.read` | That draft, read back after a reload by the workflow the address names. |

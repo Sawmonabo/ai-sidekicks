@@ -38,6 +38,11 @@ CREATE TABLE workflow_definitions (
   -- started with. OUTSIDE the content_hash preimage, so a change mints no version.
   background_browser   TEXT NOT NULL DEFAULT 'settingsDefault'
                        CHECK(background_browser IN ('settingsDefault','sandboxed','notSandboxed')),
+  -- The provider whose sandbox and shell the workflow's command steps run in, set from the builder
+  -- and prefilled at create where a provider has an account marked Default: a run reads it when it
+  -- starts. NULL until one is chosen; a person can change it but not clear it. No CHECK, since a
+  -- provider is an open id. OUTSIDE the content_hash preimage, so a change mints no version.
+  provider             TEXT,
   -- The node's pinned test data: an item array per node id. OUTSIDE the content_hash preimage and on
   -- the definition only, so a pin mints no version; NULL = nothing pinned.
   pin_data_json        TEXT

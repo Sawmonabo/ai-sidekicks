@@ -470,6 +470,20 @@ interface WorkflowBackgroundBrowserUpdateResponse {
   pick: "settingsDefault" | "sandboxed" | "notSandboxed";
 }
 
+// WorkflowProviderUpdate — workflow.provider.update. Sets the provider whose sandbox and shell every
+// run of the workflow uses for its command steps, read when a run starts. A new workflow is
+// prefilled with the provider whose account is marked Default, and is blank where none is; a pick
+// can be changed but not cleared. The pick sits outside the hashed body, so a change mints no
+// version.
+interface WorkflowProviderUpdateRequest {
+  definitionId: WorkflowDefinitionId;
+  provider: ProviderId;
+}
+interface WorkflowProviderUpdateResponse {
+  definitionId: WorkflowDefinitionId;
+  provider: ProviderId;
+}
+
 // WorkflowPinDataUpdate — workflow.pinData.update. Pins test data onto one node, or unpins it with
 // `items: null`, from the inspector's Output panel, a run's step panel, or Copy this run into the
 // builder — without a new version, because pinned data sits outside the hashed body. Pinned data is
