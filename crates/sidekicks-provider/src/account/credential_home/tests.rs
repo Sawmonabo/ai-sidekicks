@@ -145,7 +145,7 @@ async fn every_home_is_signed_out_and_a_refused_one_is_answered() {
     let (registry, _writer) = open_test_registry(&database, data_folder.path()).await;
     let first = admit_signed_in(&registry).await;
     let second = admit_signed_in(&registry).await;
-    let legs = Arc::new(RecordedSignOuts::refusing(second.account_id.clone()));
+    let legs = Arc::new(RecordedSignOuts::refusing([second.account_id.clone()]));
 
     let failed = sign_out_every_home(
         &registry,

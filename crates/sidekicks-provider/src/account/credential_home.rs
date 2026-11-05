@@ -316,9 +316,9 @@ pub async fn sign_out_every_home<S: BuildHasher>(
     Ok(sign_out_homes(accounts, sign_out, bound).await)
 }
 
-// Runs a file-system step off the runtime's threads, its failure a home that could not be made or
-// emptied.
-async fn run_on_blocking_thread(
+// Runs a file-system step off the runtime's threads, its failure a home or a mark that could not be
+// made, emptied or written.
+pub(super) async fn run_on_blocking_thread(
     step: impl FnOnce() -> io::Result<()> + Send + 'static,
 ) -> Result<(), ProviderAccountRegistryError> {
     tokio::task::spawn_blocking(step)
