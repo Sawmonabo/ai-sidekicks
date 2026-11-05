@@ -1,0 +1,349 @@
+//! What a Codex request costs: its rule, which its live pricing and the repricing of held requests
+//! both call.
+//!
+//! - **A plan sign-in** (a subscription or a token from one) is valued at the standard rates, or
+//!   its tier's where the row has them: a cache write at the input rate, never long context and no
+//!   region.
+//! - **An API key** takes the long-context rates once the request's input, cache reads and writes
+//!   pass the row's threshold, its region's multiplier where the service's host is one of the API's
+//!   regional hosts, and every cache write at the row's 30-minute rate. Any other host is unpriced.
+//! - **Any other sign-in kind**, or none read yet, holds the request for the kind.
+//!
+//! Web searches carry no count on Codex's usage, so none is priced.
+
+use sidekicks_contracts::event::usage::UsageCostSource;
+use sidekicks_contracts::provider::account::record::ProviderAuthMode;
+use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::BoundedText;
+
+use crate::account::usage_turns::unpriced::{UnpricedRequest, UnpricedUsageKey};
+use crate::driver::codex::DESCRIPTOR;
+use crate::driver::codex::config_read::OPENAI_REGION_PREFIXES;
+use crate::pricing::list::{PriceTable, SpeedPricing};
+use crate::pricing::quote::{RequestTokenCounts, RequestUsage, quote_request_rows};
+use crate::pricing::rule::{RequestPricer, RequestPricing};
+
+/// Codex's rule for pricing its requests from the held price table by the account's sign-in kind.
+pub(crate) struct CodexRequestPricer;
+
+impl RequestPricer for CodexRequestPricer {
+    fn needs_sign_in_kind(&self) -> bool {
+        true
+    }
+
+    // The table has the model's own row and the row prices its tier with rates of its own; a tier
+    // the row prices only by a multiplier is unpriced. The region is left to `price`, which reads
+    // it only for an API key.
+    fn prices_key(&self, table: &PriceTable, key: &UnpricedUsageKey) -> bool {
+        key.model_id
+            .as_ref()
+            .and_then(|model_id| table.row(model_id.as_str()))
+            .is_some_and(|row| {
+                matches!(
+                    row.speed(rate_speed(key)),
+                    Some(SpeedPricing::Standard | SpeedPricing::SpeedRates)
+                )
+            })
+    }
+
+    fn price(
+        &self,
+        table: &PriceTable,
+        key: &UnpricedUsageKey,
+        request: &UnpricedRequest,
+        sign_in_kind: Option<ProviderAuthMode>,
+    ) -> RequestPricing {
+        let is_plan = match sign_in_kind {
+            Some(ProviderAuthMode::OauthSubscription | ProviderAuthMode::OauthToken) => true,
+            Some(ProviderAuthMode::ApiKey) => false,
+            Some(
+                ProviderAuthMode::External | ProviderAuthMode::None | ProviderAuthMode::Unknown,
+            )
+            | None => return RequestPricing::HeldForSignInKind,
+        };
+        let Some(model_id) = &key.model_id else {
+            return RequestPricing::HeldForPrice;
+        };
+        let region = if is_plan {
+            None
+        } else {
+            key.processing_region.as_ref().map(BoundedText::as_str)
+        };
+        if region.is_some_and(|region| !OPENAI_REGION_PREFIXES.contains(&region)) {
+            return RequestPricing::HeldForPrice;
+        }
+        let row_tokens: Vec<RequestTokenCounts> = request
+            .rows
+            .iter()
+            .map(|row| {
+                let count = |axis: usize| row.tokens[axis].map_or(0, SafeInt::get);
+                let (input, cache_write) = if is_plan {
+                    (count(0).saturating_add(count(3)), 0)
+                } else {
+                    (count(0), count(3))
+                };
+                RequestTokenCounts {
+                    input,
+                    output: count(1),
+                    cache_read: count(2),
+                    cache_write,
+                    cache_write_extended: 0,
+                }
+            })
+            .collect();
+        let long_context_tokens = if is_plan {
+            0
+        } else {
+            row_tokens
+                .iter()
+                .map(|tokens| {
+                    tokens
+                        .input
+                        .saturating_add(tokens.cache_read)
+                        .saturating_add(tokens.cache_write)
+                })
+                .fold(0, u64::saturating_add)
+        };
+        let rows: Vec<RequestUsage<'_>> = row_tokens
+            .into_iter()
+            .map(|tokens| RequestUsage {
+                model_id: model_id.as_str(),
+                speed: rate_speed(key),
+                region,
+                region_words: &OPENAI_REGION_PREFIXES,
+                long_context_tokens,
+                // Codex writes the cache at one lifetime only, so no count reads this.
+                extended_cache_lifetime_hours: 1,
+                tokens,
+                web_searches: 0,
+                search_context_size: "medium",
+            })
+            .collect();
+        match quote_request_rows(table, &rows) {
+            Ok(shares) => RequestPricing::Priced {
+                cost_source: UsageCostSource::DerivedExact,
+                shares,
+            },
+            Err(_refusal) => RequestPricing::HeldForPrice,
+        }
+    }
+}
+
+// The tier whose rates the key's requests take: `None` for the standard tier, which Codex names
+// `default` or leaves unset.
+fn rate_speed(key: &UnpricedUsageKey) -> Option<&str> {
+    key.speed
+        .as_ref()
+        .map(BoundedText::as_str)
+        .filter(|speed| *speed != DESCRIPTOR.standard_output_speed)
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use sidekicks_contracts::event::usage::UsageCostSource;
+    use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
+    use sidekicks_contracts::session::cost::UsdMicros;
+    use sidekicks_contracts::wire::instant::WireInstant;
+    use sidekicks_contracts::wire::integer::SafeInt;
+    use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
+
+    use super::CodexRequestPricer;
+    use crate::account::usage_turns::unpriced::{
+        UnpricedRequest, UnpricedUsageKey, UnpricedUsageRow,
+    };
+    use crate::driver::codex::DESCRIPTOR;
+    use crate::pricing::list::{PriceRowSelection, decode_price_table};
+    use crate::pricing::rule::{RequestPricer, RequestPricing};
+
+    // Two of the list's OpenAI rows as it carries them, cut to the rates the tests read: one with
+    // regional multipliers, long-context and `priority` rates, one with neither.
+    const OPENAI_COPY: &str = r#"{
+        "gpt-6.1-sol": {
+            "input_cost_per_token": 2e-06,
+            "input_cost_per_token_above_272k_tokens": 4e-06,
+            "input_cost_per_token_priority": 4e-06,
+            "cache_read_input_token_cost": 1e-07,
+            "cache_read_input_token_cost_above_272k_tokens": 2e-07,
+            "cache_creation_input_token_cost": 2.5e-06,
+            "cache_creation_input_token_cost_above_12hr": 5e-06,
+            "output_cost_per_token": 1e-05,
+            "output_cost_per_token_priority": 2e-05,
+            "regional_processing_uplift_multiplier_eu": 1.1,
+            "regional_processing_uplift_multiplier_us": 1.1
+        },
+        "gpt-5.3-codex": {
+            "input_cost_per_token": 1.75e-06,
+            "cache_read_input_token_cost": 1.75e-07,
+            "output_cost_per_token": 1.4e-05
+        }
+    }"#;
+
+    const API_KEY: Option<ProviderAuthMode> = Some(ProviderAuthMode::ApiKey);
+    const PLAN: Option<ProviderAuthMode> = Some(ProviderAuthMode::OauthSubscription);
+
+    // One request's counts: input, output, cache read and cache write.
+    type Counts = [u64; 4];
+
+    // What one request of `counts` on `model` at `speed` in `region` makes under `sign_in_kind`,
+    // through `prices_key` first as both callers ask.
+    fn price(
+        model: &str,
+        speed: Option<&str>,
+        region: Option<&str>,
+        sign_in_kind: Option<ProviderAuthMode>,
+        counts: Counts,
+    ) -> RequestPricing {
+        let table = decode_price_table(OPENAI_COPY, PriceRowSelection::Every)
+            .expect("the copy is a price list")
+            .table;
+        let fact = |text: Option<&str>| {
+            text.map(|text| BoundedText::new(text.to_owned()).expect("a fact"))
+        };
+        let key = UnpricedUsageKey {
+            provider: DESCRIPTOR.provider_id(),
+            account_id: ProviderAccountId::new("account-a".to_owned()).expect("an account id"),
+            model_id: Some(FreeFormText::new(model.to_owned()).expect("a model id")),
+            speed: fact(speed),
+            processing_region: fact(region),
+        };
+        let figure = |count: u64| Some(SafeInt::new(count).expect("a small count"));
+        let [input, output, cache_read, cache_write] = counts;
+        let request = UnpricedRequest {
+            request_key: None,
+            rows: vec![UnpricedUsageRow {
+                turn_id: FreeFormText::new("event-1".to_owned()).expect("an event id"),
+                session_id: None,
+                run_id: None,
+                subagent_id: None,
+                occurred_at: WireInstant::now(),
+                tokens: [
+                    figure(input),
+                    figure(output),
+                    figure(cache_read),
+                    figure(cache_write),
+                    None,
+                ],
+                cache_write_extended_tokens: None,
+                web_search_requests: None,
+                thread_speed: None,
+            }],
+        };
+        assert!(CodexRequestPricer.prices_key(&table, &key));
+        CodexRequestPricer.price(&table, &key, &request, sign_in_kind)
+    }
+
+    fn priced(whole: u64) -> RequestPricing {
+        RequestPricing::Priced {
+            cost_source: UsageCostSource::DerivedExact,
+            shares: vec![UsdMicros(SafeInt::new(whole).expect("a small figure"))],
+        }
+    }
+
+    // Killed by leaving cached input in the input count (24,000), by `>=` at the threshold
+    // (814,400 for 272,000 tokens), by long context or the region on a plan (818,400; 450,120), by
+    // a plan's write at the write rate (409,700), by `default` read as a tier (unpriced), by a
+    // write at the longer lifetime (5,000), by the region ignored (3,000) and by pricing a kind
+    // that holds.
+    #[rstest]
+    #[case::standard("gpt-6.1-sol", None, None, API_KEY, [1_000, 100, 10_000, 0], priced(4_000))]
+    #[case::default_tier(
+        "gpt-6.1-sol",
+        Some("default"),
+        None,
+        API_KEY,
+        [1_000, 100, 0, 0],
+        priced(3_000)
+    )]
+    #[case::long_context_past_n(
+        "gpt-6.1-sol",
+        None,
+        None,
+        API_KEY,
+        [200_000, 0, 72_001, 0],
+        priced(814_400)
+    )]
+    #[case::long_context_at_n(
+        "gpt-6.1-sol",
+        None,
+        None,
+        API_KEY,
+        [200_000, 0, 72_000, 0],
+        priced(407_200)
+    )]
+    #[case::priority(
+        "gpt-6.1-sol",
+        Some("priority"),
+        None,
+        API_KEY,
+        [1_000, 100, 0, 0],
+        priced(6_000)
+    )]
+    #[case::thirty_minute_write("gpt-6.1-sol", None, None, API_KEY, [0, 0, 0, 1_000], priced(2_500))]
+    #[case::plan(
+        "gpt-6.1-sol",
+        None,
+        Some("eu"),
+        PLAN,
+        [200_000, 0, 72_001, 1_000],
+        priced(409_200)
+    )]
+    #[case::regional_host(
+        "gpt-6.1-sol",
+        None,
+        Some("eu"),
+        API_KEY,
+        [1_000, 100, 0, 0],
+        priced(3_300)
+    )]
+    #[case::unknown_host(
+        "gpt-5.3-codex",
+        None,
+        Some("unknownHost"),
+        API_KEY,
+        [1_000, 100, 0, 0],
+        RequestPricing::HeldForPrice
+    )]
+    #[case::no_kind(
+        "gpt-6.1-sol",
+        None,
+        None,
+        None,
+        [1_000, 100, 0, 0],
+        RequestPricing::HeldForSignInKind
+    )]
+    #[case::external_kind(
+        "gpt-6.1-sol",
+        None,
+        None,
+        Some(ProviderAuthMode::External),
+        [1_000, 100, 0, 0],
+        RequestPricing::HeldForSignInKind
+    )]
+    fn prices_a_request_by_the_sign_in_kind(
+        #[case] model: &str,
+        #[case] speed: Option<&str>,
+        #[case] region: Option<&str>,
+        #[case] sign_in_kind: Option<ProviderAuthMode>,
+        #[case] counts: Counts,
+        #[case] expected: RequestPricing,
+    ) {
+        assert_eq!(price(model, speed, region, sign_in_kind, counts), expected);
+    }
+
+    // A regional host on a row with no regional multiplier takes the base rates, and a region the
+    // row lacks while it carries others is held. Killed by holding the first, by its 1.1 (3,465)
+    // and by the base rate on the second.
+    #[test]
+    fn a_region_the_row_does_not_name_is_base_or_held_by_what_the_row_carries() {
+        let counts = [1_000, 100, 0, 0];
+        assert_eq!(
+            price("gpt-5.3-codex", None, Some("eu"), API_KEY, counts),
+            priced(3_150)
+        );
+        assert_eq!(
+            price("gpt-6.1-sol", None, Some("ae"), API_KEY, counts),
+            RequestPricing::HeldForPrice
+        );
+    }
+}

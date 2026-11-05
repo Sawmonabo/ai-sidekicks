@@ -197,14 +197,7 @@ pub(crate) enum CodexProcessingRegion {
 const OPENAI_API_HOST: &str = "api.openai.com";
 
 /// The API's data-residency domain prefixes, each labeling a host `<prefix>.api.openai.com`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Codex's pricing reads each service's region through it"
-    )
-)]
-const OPENAI_REGION_PREFIXES: [&str; 10] =
+pub(crate) const OPENAI_REGION_PREFIXES: [&str; 10] =
     ["us", "eu", "ae", "au", "ca", "jp", "in", "sg", "kr", "gb"];
 
 /// Codex's built-in model provider, whose base URL is `openai_base_url`.
