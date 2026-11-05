@@ -337,6 +337,9 @@ pub(crate) struct ClaudeHooks {
     /// After each tool call.
     #[serde(rename = "PostToolUse", skip_serializing_if = "Vec::is_empty")]
     pub(crate) post_tool_use: Vec<ClaudeHookMatcher>,
+    /// After a tool call that started and failed.
+    #[serde(rename = "PostToolUseFailure", skip_serializing_if = "Vec::is_empty")]
+    pub(crate) post_tool_use_failure: Vec<ClaudeHookMatcher>,
     /// After each batch of tool calls.
     #[serde(rename = "PostToolBatch", skip_serializing_if = "Vec::is_empty")]
     pub(crate) post_tool_batch: Vec<ClaudeHookMatcher>,

@@ -12,7 +12,9 @@ use sidekicks_contracts::session::id::SessionId;
 #[cfg(any(test, feature = "test-support"))]
 mod test_support;
 #[cfg(any(test, feature = "test-support"))]
-pub use test_support::{CaptureCall, held_capture, next_call, no_call, unregistered_capture};
+pub use test_support::{
+    CaptureCall, held_capture, held_capture_with_starts, next_call, no_call, unregistered_capture,
+};
 
 /// One window, as the capture that opened it names it.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -47,7 +49,8 @@ pub struct CommandWindowStart {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CommandWindowEnd {
     /// The leg told its command's end: the wrapper its exit code or the signal number that ended
-    /// it, a shell its end mark's exit code.
+    /// it, a shell its end mark's exit code, Claude Code's post-tool hooks zero on success and
+    /// otherwise the failure's exit code.
     Exited {
         /// The command's exit code, absent for a signal's end.
         exit_code: Option<i32>,
@@ -60,7 +63,7 @@ pub enum CommandWindowEnd {
     Unrun,
     /// The leg ended after its command began without telling the command's end: the wrapper's
     /// process ended or its channel stopped being followed; a shell marked its next prompt with no
-    /// end mark, or exited.
+    /// end mark, or exited; Claude Code's failure hook named no exit code.
     Untold,
 }
 

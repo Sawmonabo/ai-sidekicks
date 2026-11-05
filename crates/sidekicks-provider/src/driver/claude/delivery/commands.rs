@@ -41,7 +41,9 @@ use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::command_shape::{CLAUDE_SHELL_PREFIX_COMMAND, bash_line_text};
 use crate::driver::claude::delivery::messages::ClaudeMessageFrame;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
+use crate::driver::claude::hooks::command_capture::CLAUDE_MONITOR_TOOL_NAME;
 use crate::driver::claude::run::routes::ClaudeBoundRun;
+use crate::driver::claude::spawn::settings::CLAUDE_SHELL_TOOL_NAME;
 use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
 use crate::port::command_capture::CommandCapture;
 use crate::port::running_command_publisher::{
@@ -59,7 +61,7 @@ pub(crate) const CLAUDE_TOOL_SERVER_TASK_TYPE: &str = "mcp_task";
 const CLAUDE_WORKFLOW_TASK_TYPE: &str = "local_workflow";
 
 /// The tools whose calls start a shell or Monitor task, each naming its line in `command`.
-const CLAUDE_COMMAND_TOOLS: [&str; 2] = ["Bash", "Monitor"];
+const CLAUDE_COMMAND_TOOLS: [&str; 2] = [CLAUDE_SHELL_TOOL_NAME, CLAUDE_MONITOR_TOOL_NAME];
 
 /// How many started calls' lines are kept for the task each starts; a call's task follows it at
 /// once, so only the newest few are ever looked up.

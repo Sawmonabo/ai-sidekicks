@@ -12,13 +12,17 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_std::mutex_lock::lock;
 
 use super::{answer_value, route_hook_input};
-use crate::driver::claude::hooks::callbacks::{ClaudeRequestRoute, answer_released_callbacks};
+use crate::driver::claude::hooks::callbacks::{
+    ClaudeRequestRoute, ClaudeToolCapture, answer_released_callbacks,
+};
+use crate::driver::claude::hooks::command_capture::ClaudeCommandWindows;
 use crate::driver::claude::hooks::edit_checkpoint::tests::{GatedEditCheckpoint, is_answered};
 use crate::driver::claude::hooks::pause::{ClaudeHookAnswer, ClaudeRunPauses};
 use crate::driver::claude::hooks::registration::ClaudeHookCallback as RegisteredHook;
 use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::run_control::HelperStopReason;
 use crate::driver::test_registry::fixed_session_id;
+use crate::port::command_capture::unregistered_capture;
 use crate::port::edit_checkpoint::{EditCheckpoint, EditCheckpointRequest};
 
 // A pre-tool hook's input for a `Write` of `path` by the helper `agent_id` or the lead, by the
@@ -71,7 +75,6 @@ enum SentPath {
 )]
 #[case::relative_file_with_no_folder("Write", "file_path", SentPath::Relative, false, false)]
 #[case::read("Read", "file_path", SentPath::Absolute, true, false)]
-#[case::shell("Bash", "file_path", SentPath::Absolute, true, false)]
 fn an_edit_call_routes_to_its_copy(
     #[case] tool_name: &str,
     #[case] member: &str,
@@ -105,7 +108,13 @@ fn an_edit_call_routes_to_its_copy(
     );
 
     match (is_copied, route) {
-        (true, ClaudeRequestRoute::KeepEditCopy { request_id, edit }) => {
+        (
+            true,
+            ClaudeRequestRoute::CaptureBeforeTool {
+                request_id,
+                capture: ClaudeToolCapture::Edit(edit),
+            },
+        ) => {
             assert_eq!(request_id, "r1");
             assert_eq!(edit, edit_of(absolute, "toolu_1"));
         }
@@ -185,9 +194,11 @@ async fn a_released_helper_edit_is_copied_before_its_answer_only_when_passed() {
     let (edit_checkpoint, open) = GatedEditCheckpoint::gated();
     let port: Arc<dyn EditCheckpoint> = Arc::clone(&edit_checkpoint) as _;
     let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
+    let command_windows = Arc::new(ClaudeCommandWindows::new(unregistered_capture()));
 
     answer_released_callbacks(
         Some(&port),
+        &command_windows,
         &*channel,
         &session_id,
         &account,
@@ -207,6 +218,7 @@ async fn a_released_helper_edit_is_copied_before_its_answer_only_when_passed() {
         async move {
             answer_released_callbacks(
                 Some(&port),
+                &command_windows,
                 &*channel,
                 &session_id,
                 &account,

@@ -45,6 +45,7 @@ use crate::driver::test_registry::fixed_session_id;
 use crate::port::agent_tree_lookup::{AgentTreeHelper, AgentTreeLookup};
 use crate::run::posture::{compose_execution_posture, resolve_posture};
 
+mod command_windows;
 mod edit_copies;
 
 // Routes one pre-tool callback of `hook` for `tool_name`, called by the helper `agent_id` or the

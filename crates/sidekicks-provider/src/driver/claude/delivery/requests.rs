@@ -540,6 +540,8 @@ impl ClaudeInboundRequests {
                 | RegisteredHook::HelperLimit
                 | RegisteredHook::BackgroundWork
                 | RegisteredHook::HelperSteerAfterTool
+                | RegisteredHook::CaptureAfterTool
+                | RegisteredHook::CaptureAfterFailedTool
                 | RegisteredHook::HelperSteerAtStop,
             )
             | None => record_unattributed(session, "hook_callback", &request_id),

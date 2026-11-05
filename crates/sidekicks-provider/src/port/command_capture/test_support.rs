@@ -1,12 +1,13 @@
 //! A capture for tests whose opens settle as the test says and whose calls the test reads, for
 //! every leg that opens a window.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::{mpsc, watch};
 
@@ -33,13 +34,16 @@ struct HeldCapture {
     calls: mpsc::UnboundedSender<CaptureCall>,
     /// How many opens it was asked.
     opened: AtomicUsize,
+    /// Each start it was asked to open, in order.
+    starts: Arc<Mutex<Vec<CommandWindowStart>>>,
 }
 
 impl CommandCapture for HeldCapture {
     fn open_window(
         &self,
-        _start: CommandWindowStart,
+        start: CommandWindowStart,
     ) -> BoxFuture<'_, Result<CommandWindowId, CommandWindowOpenError>> {
+        lock(&self.starts).push(start);
         let mut opens = self.opens.clone();
         let window = self.opened.fetch_add(1, Ordering::SeqCst) + 1;
         // A call after the test ended, the close of a window it left open, reaches no one.
@@ -79,8 +83,11 @@ impl CommandCapture for HeldCapture {
     }
 }
 
+// A test capture's registration, as a leg takes it.
+type CaptureRegistration = Arc<PortRegistration<Arc<dyn CommandCapture>>>;
+
 /// A capture registration nothing registered, so a leg opens no window.
-pub fn unregistered_capture() -> Arc<PortRegistration<Arc<dyn CommandCapture>>> {
+pub fn unregistered_capture() -> CaptureRegistration {
     Arc::new(PortRegistration::new("command capture"))
 }
 
@@ -88,20 +95,32 @@ pub fn unregistered_capture() -> Arc<PortRegistration<Arc<dyn CommandCapture>>> 
 /// whose calls arrive on the receiver.
 pub fn held_capture(
     opens: watch::Receiver<Option<bool>>,
+) -> (CaptureRegistration, mpsc::UnboundedReceiver<CaptureCall>) {
+    let (capture, called, _starts) = held_capture_with_starts(opens);
+    (capture, called)
+}
+
+/// A capture as [`held_capture`] makes it, which also keeps each start it is asked to open, in
+/// order, in the list it answers third.
+pub fn held_capture_with_starts(
+    opens: watch::Receiver<Option<bool>>,
 ) -> (
-    Arc<PortRegistration<Arc<dyn CommandCapture>>>,
+    CaptureRegistration,
     mpsc::UnboundedReceiver<CaptureCall>,
+    Arc<Mutex<Vec<CommandWindowStart>>>,
 ) {
     let (calls, called) = mpsc::unbounded_channel();
+    let starts = Arc::default();
     let capture = unregistered_capture();
     capture
         .register(Arc::new(HeldCapture {
             opens,
             calls,
             opened: AtomicUsize::new(0),
+            starts: Arc::clone(&starts),
         }))
         .expect("the capture registers once");
-    (capture, called)
+    (capture, called, starts)
 }
 
 /// The next call `called` takes; panics when none comes within 5 s.

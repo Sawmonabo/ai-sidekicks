@@ -24,6 +24,7 @@ use crate::driver::claude::delivery::requests::ClaudeInboundRequests;
 use crate::driver::claude::delivery::reviewer::compose_claude_override_sentence;
 use crate::driver::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
 use crate::driver::claude::hooks::callbacks::answer_released_callbacks;
+use crate::driver::claude::hooks::command_capture::ClaudeCommandWindows;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::driver::claude::intervention::{
@@ -127,6 +128,8 @@ pub(crate) struct ClaudeRunControls {
     pub(crate) command_channels: Arc<ClaudeCommandChannels>,
     /// The copy kept before each edit a continued helper's held call makes, once registered.
     pub(crate) edit_checkpoint: Arc<PortRegistration<Arc<dyn EditCheckpoint>>>,
+    /// The windows of the commands a continued helper's held calls run with no wrapper.
+    pub(crate) command_windows: Arc<ClaudeCommandWindows>,
 }
 
 impl ClaudeRunControls {
@@ -207,6 +210,7 @@ impl ClaudeRunControls {
                 lock(&self.pauses).resume_helper(&session_id, &route.agent_id, steer.as_deref());
             answer_released_callbacks(
                 self.edit_checkpoint.port(),
+                &self.command_windows,
                 &*live.channel,
                 &session_id,
                 &live.admitted_provider_account_id(),

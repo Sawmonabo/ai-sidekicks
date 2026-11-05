@@ -1,8 +1,9 @@
 //! What one live process's task does with each arrival, in order: a frame of a process the slot
 //! still binds opens a turn Claude Code started by itself, feeds the goal, helper and stream
 //! readings, and leaves the running model and a too-long turn's cut behind it; a turn end settles
-//! the turn; a request goes through the daemon's hooks or on to the requests, an edit's copy and
-//! its answer spawned off the task; the exit forgets everything the process held.
+//! the turn; a request goes through the daemon's hooks or on to the requests, an edit's copy or a
+//! command's window and its answer spawned off the task, and a command's window closed off it at
+//! its post-tool hook; the exit forgets everything the process held.
 
 use std::sync::{Arc, Mutex};
 
@@ -30,9 +31,10 @@ use crate::driver::claude::delivery::stream::{
 use crate::driver::claude::goals::ClaudeGoalCommands;
 use crate::driver::claude::goals::endings::ClaudeGoalEndings;
 use crate::driver::claude::hooks::callbacks::{
-    ClaudeRequestRoute, answer_background_work_check, answer_claude_request, route_claude_request,
-    route_helper_start, route_helper_wake, route_message_target,
+    ClaudeRequestRoute, ClaudeToolCapture, answer_background_work_check, answer_claude_request,
+    route_claude_request, route_helper_start, route_helper_wake, route_message_target,
 };
+use crate::driver::claude::hooks::command_capture::ClaudeCommandWindows;
 use crate::driver::claude::hooks::edit_checkpoint::keep_copy_then_answer;
 use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
@@ -107,6 +109,9 @@ pub(crate) struct ClaudeSessionTaskServices {
     pub(crate) agent_tree_lookup: Arc<PortRegistration<Arc<dyn AgentTreeLookup>>>,
     /// The copy kept before each edit a passed pre-tool hook lets run, once registered.
     pub(crate) edit_checkpoint: Arc<PortRegistration<Arc<dyn EditCheckpoint>>>,
+    /// The windows of the commands that run with no wrapper, opened at their pre-tool hooks and
+    /// closed at their post-tool hooks.
+    pub(crate) command_windows: Arc<ClaudeCommandWindows>,
     /// Which process runs each session, each removed at its exit.
     pub(crate) processes: Arc<ProviderProcessRegistry>,
     /// The restarts of a process that ended on its own, and the build moves a turn held back.
@@ -245,8 +250,9 @@ impl ClaudeSessionTask {
 
     // Answers, holds or hands on one request as its route says; a helper start's, a message
     // target's or a helper wake's check settles into an answer or a hold, taken in its turn. An
-    // edit's copy and answer are spawned, so the task takes its next arrival while the file is
-    // copied; the spawned answer ends at its write, failing as any late answer does.
+    // edit's copy or a command's open, and its answer, are spawned, so the task takes its next
+    // arrival meanwhile; the spawned answer ends at its write, failing as any late answer does. A
+    // post-tool hook takes its window first, then is answered, and the window's close is spawned.
     async fn take_route(&mut self, route: ClaudeRequestRoute, level: Option<PermissionLevel>) {
         let services = Arc::clone(&self.services);
         let live = &self.live;
@@ -307,7 +313,10 @@ impl ClaudeSessionTask {
                 answer_claude_request(&*live.channel, &session_id, account, request_id, &answer)
                     .await;
             }
-            ClaudeRequestRoute::KeepEditCopy { request_id, edit } => {
+            ClaudeRequestRoute::CaptureBeforeTool {
+                request_id,
+                capture: ClaudeToolCapture::Edit(edit),
+            } => {
                 let edit_checkpoint = services.edit_checkpoint.port().cloned();
                 let channel = Arc::clone(&live.channel);
                 let account = account.clone();
@@ -321,6 +330,42 @@ impl ClaudeSessionTask {
                     )
                     .await;
                 });
+            }
+            ClaudeRequestRoute::CaptureBeforeTool {
+                request_id,
+                capture: ClaudeToolCapture::Command(target),
+            } => {
+                // In before the spawn, so a closer taken next on this task finds it.
+                let opening = services.command_windows.begin_open(session_id, target);
+                let command_windows = Arc::clone(&services.command_windows);
+                let channel = Arc::clone(&live.channel);
+                let account = account.clone();
+                tokio::spawn(async move {
+                    command_windows
+                        .open_then_answer(opening, &*channel, &account, request_id)
+                        .await;
+                });
+            }
+            ClaudeRequestRoute::CaptureAfterTool {
+                request_id,
+                tool_use_id,
+                end,
+            } => {
+                let closing =
+                    services
+                        .command_windows
+                        .take_post_hook(session_id, &tool_use_id, end);
+                answer_claude_request(
+                    &*live.channel,
+                    &session_id,
+                    account,
+                    request_id,
+                    &ClaudeHookAnswer::Pass,
+                )
+                .await;
+                if let Some((window, end)) = closing {
+                    services.command_windows.close(window, end);
+                }
             }
             ClaudeRequestRoute::Held { helper } => {
                 if let Some(helper) = helper {

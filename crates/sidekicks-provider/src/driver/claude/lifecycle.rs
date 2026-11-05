@@ -48,6 +48,7 @@ use crate::driver::claude::frame_routing::ClaudeFrameRouting;
 use crate::driver::claude::goals::ClaudeGoalCommands;
 use crate::driver::claude::goals::endings::ClaudeGoalEndings;
 use crate::driver::claude::handshake_register::ClaudeHandshakeRegister;
+use crate::driver::claude::hooks::command_capture::ClaudeCommandWindows;
 use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
@@ -327,6 +328,9 @@ impl ClaudeDriver {
         let pauses = Arc::new(Mutex::new(ClaudeRunPauses::default()));
         let helpers = Arc::new(Mutex::new(ClaudeHelperLimit::default()));
         let helper_steers = Arc::new(Mutex::new(ClaudeHelperSteers::default()));
+        let command_windows = Arc::new(ClaudeCommandWindows::new(Arc::clone(
+            &ports.command_capture,
+        )));
         let dialogs = Arc::new(ClaudeProviderDialogs::new(ClaudeStreamDialogPorts::new(
             Arc::clone(dispatch),
             Arc::clone(&routes),
@@ -449,6 +453,7 @@ impl ClaudeDriver {
                 interventions: Arc::clone(&interventions),
                 command_channels: Arc::clone(&self.sources.command_channels),
                 edit_checkpoint: Arc::clone(&ports.edit_checkpoint),
+                command_windows: Arc::clone(&command_windows),
             };
             let task_services = Arc::new(ClaudeSessionTaskServices {
                 delivery,
@@ -481,6 +486,7 @@ impl ClaudeDriver {
                 tool_servers: Arc::clone(&ports.in_process_tool_servers),
                 agent_tree_lookup: Arc::clone(&ports.agent_tree_lookup),
                 edit_checkpoint: Arc::clone(&ports.edit_checkpoint),
+                command_windows,
                 processes: Arc::clone(&self.sources.processes),
                 restarts: Arc::clone(&restarts),
                 controls: Arc::clone(&session_controls),

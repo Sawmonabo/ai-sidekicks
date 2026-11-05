@@ -12,10 +12,10 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::scheduler::ScheduledJobHandle;
 
+use crate::driver::claude::hooks::callbacks::ClaudeToolCapture;
 use crate::driver::claude::hooks::stopped_helpers::ClaudeStoppedHelpers;
 use crate::driver::hook_pauses::{HELD_TARGET_REASON, HookPauses, PAUSED_REASON, PausedRole};
 use crate::driver::run_control::HelperStopReason;
-use crate::port::edit_checkpoint::EditCheckpointRequest;
 
 /// The reason a held helper's call is denied with before Claude Code's own bound would end the
 /// hold, which the helper reads; the call it makes again is held anew.
@@ -134,15 +134,15 @@ pub(crate) struct ClaudeReleasedCallback {
     pub(crate) request_id: String,
     /// Its answer.
     pub(crate) answer: ClaudeHookAnswer,
-    /// The edit its call makes, whose copy is kept before the answer; set only on a call the
-    /// continue lets run.
-    pub(crate) edit: Option<EditCheckpointRequest>,
+    /// The capture its call takes before the answer, an edit's copy or a command's window; set
+    /// only on a call the continue lets run.
+    pub(crate) capture: Option<ClaudeToolCapture>,
 }
 
-// One callback a paused helper's pause holds, with the edit its call makes.
+// One callback a paused helper's pause holds, with the capture its call takes.
 struct ClaudeHeldCallback {
     request_id: String,
-    edit: Option<EditCheckpointRequest>,
+    capture: Option<ClaudeToolCapture>,
 }
 
 /// What a helper's continue answers: the held callbacks it releases, and whether its pause lost a
@@ -270,13 +270,13 @@ impl ClaudeRunPauses {
 
     /// Answers a pre-tool callback: a stopped helper is denied, a paused lead's is denied, a
     /// paused helper's is held, any other passes with no decision. `agent_id` is the helper's,
-    /// `None` on the lead. A held call takes its `edit` into the hold; any other leaves it.
+    /// `None` on the lead. A held call takes its `capture` into the hold; any other leaves it.
     pub(crate) fn answer_before_tool(
         &mut self,
         session_id: &SessionId,
         agent_id: Option<&str>,
         request_id: &str,
-        edit: &mut Option<EditCheckpointRequest>,
+        capture: &mut Option<ClaudeToolCapture>,
     ) -> ClaudePauseAnswer {
         if let Some(denial) = self
             .stopped_helpers
@@ -297,7 +297,7 @@ impl ClaudeRunPauses {
         }
         let held = ClaudeHeldCallback {
             request_id: request_id.to_owned(),
-            edit: edit.take(),
+            capture: capture.take(),
         };
         let has_taken_effect = self
             .helper_pauses
@@ -344,8 +344,8 @@ impl ClaudeRunPauses {
     }
 
     /// Continues one helper and answers the callbacks it was held on: with no decision, each
-    /// carrying its edit, or denied with `steer` as the reason, which the helper reads as the
-    /// person's words, so no edit runs. Also answers whether its pause lost a callback Claude Code
+    /// carrying its capture, or denied with `steer` as the reason, which the helper reads as the
+    /// person's words, so no call runs and none is captured. Also answers whether its pause lost a callback Claude Code
     /// withdrew while it held.
     pub(crate) fn resume_helper(
         &mut self,
@@ -376,7 +376,7 @@ impl ClaudeRunPauses {
                 .map(|held| ClaudeReleasedCallback {
                     request_id: held.request_id,
                     answer: answer.clone(),
-                    edit: held.edit.filter(|_| is_passed),
+                    capture: held.capture.filter(|_| is_passed),
                 })
                 .collect(),
             had_lost_hold: ended.had_lost_hold,
@@ -450,12 +450,12 @@ impl ClaudeRunPauses {
                     reason: HELD_HELPER_RENEWAL_REASON.to_owned(),
                 },
                 // The call is denied, and the one the helper makes again is read afresh.
-                edit: None,
+                capture: None,
             })
             .collect()
     }
 
-    /// Drops a callback Claude Code withdrew; it will not be answered, and its edit is not copied.
+    /// Drops a callback Claude Code withdrew; it will not be answered, and its call is not captured.
     pub(crate) fn withdraw_callback(&mut self, session_id: &SessionId, request_id: &str) {
         self.helper_pauses
             .withdraw_held(session_id, |held| held.request_id == request_id);
@@ -494,6 +494,7 @@ mod tests {
         ClaudeHookAnswer, ClaudePauseAnswer, ClaudeReleasedCallback, ClaudeResumedHelper,
         ClaudeRunPauses, HELD_HELPER_RENEWAL_REASON,
     };
+    use crate::driver::claude::hooks::callbacks::ClaudeToolCapture;
     use crate::driver::test_registry::fixed_session_id;
     use crate::port::edit_checkpoint::EditCheckpointRequest;
 
@@ -563,12 +564,12 @@ mod tests {
                 ClaudeReleasedCallback {
                     request_id: "r1".to_owned(),
                     answer: steer_answer.clone(),
-                    edit: None,
+                    capture: None,
                 },
                 ClaudeReleasedCallback {
                     request_id: "r2".to_owned(),
                     answer: steer_answer,
-                    edit: None,
+                    capture: None,
                 },
             ]
         );
@@ -585,7 +586,7 @@ mod tests {
             [ClaudeReleasedCallback {
                 request_id: "r4".to_owned(),
                 answer: ClaudeHookAnswer::Pass,
-                edit: None,
+                capture: None,
             }]
         );
     }
@@ -608,8 +609,8 @@ mod tests {
         let session_id = fixed_session_id();
         let mut pauses = ClaudeRunPauses::default();
         pauses.pause_helper(&session_id, "helper");
-        let mut first = Some(edit_of("/work/a.rs", "toolu_1"));
-        let mut second = Some(edit_of("/work/b.rs", "toolu_2"));
+        let mut first = Some(ClaudeToolCapture::Edit(edit_of("/work/a.rs", "toolu_1")));
+        let mut second = Some(ClaudeToolCapture::Edit(edit_of("/work/b.rs", "toolu_2")));
         pauses.answer_before_tool(&session_id, Some("helper"), "r1", &mut first);
         pauses.answer_before_tool(&session_id, Some("helper"), "r2", &mut second);
         assert_eq!((first, second), (None, None));
@@ -622,7 +623,7 @@ mod tests {
                 released: vec![ClaudeReleasedCallback {
                     request_id: "r2".to_owned(),
                     answer: ClaudeHookAnswer::Pass,
-                    edit: Some(edit_of("/work/b.rs", "toolu_2")),
+                    capture: Some(ClaudeToolCapture::Edit(edit_of("/work/b.rs", "toolu_2"))),
                 }],
                 had_lost_hold: true,
             }
@@ -678,7 +679,7 @@ mod tests {
                 answer: ClaudeHookAnswer::Deny {
                     reason: HELD_HELPER_RENEWAL_REASON.to_owned(),
                 },
-                edit: None,
+                capture: None,
             }]
         );
         assert!(!pauses.has_renewal(&session_id, "helper"));
