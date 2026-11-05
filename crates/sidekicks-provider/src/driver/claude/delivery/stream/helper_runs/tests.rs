@@ -229,6 +229,105 @@ async fn a_background_helpers_nested_start_after_the_turn_ended_hangs_under_it()
     );
 }
 
+// The pre-tool callback of the `Agent` call `call_id` with `tool_input`, made by the helper
+// `agent_id` where one is named, else the lead; its own `effort` is the caller's turn level.
+fn helper_call_hook(call_id: &str, agent_id: Option<&str>, tool_input: &Value) -> Value {
+    let mut input = json!({
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Agent",
+        "tool_use_id": call_id,
+        "tool_input": tool_input,
+        "effort": {"level": "max"},
+    });
+    if let Some(agent_id) = agent_id {
+        input["agent_id"] = json!(agent_id);
+    }
+    json!({
+        "subtype": "hook_callback",
+        "callback_id": "sidekicks-pause-before-tool",
+        "input": input,
+    })
+}
+
+// Each helper's child run names the model and effort its `Agent` call asked for, read from the
+// call's pre-tool hook, the lead's call or a helper's own; a fork's, a call naming neither and a
+// withdrawn call's name none. Kills: the hook's input never read (`p` names nothing), an entry
+// keyed by the request id (no start finds it), a helper's own call missed (`c` names nothing), a
+// fork's values kept (`f` names `high`), the hook input's own `effort.level` read for the call's
+// (`max` on every start), and a withdrawal that forgets nothing (`w` names `opus`).
+#[tokio::test(start_paused = true)]
+async fn a_helpers_start_names_the_model_and_effort_its_agent_call_asked_for() {
+    let session = ScriptedSession::new().await;
+    session.hold_lead_turn("lead");
+    session.frame(&init());
+
+    for (request_id, call_id, tool_input) in [
+        (
+            "hook-p",
+            "call-p",
+            json!({"subagent_type": "Explore", "model": "haiku", "effort": "low"}),
+        ),
+        (
+            "hook-f",
+            "call-f",
+            json!({"subagent_type": "fork", "effort": "high"}),
+        ),
+        ("hook-n", "call-n", json!({"subagent_type": "Plan"})),
+        ("hook-w", "call-w", json!({"model": "opus"})),
+    ] {
+        session.request(request_id, &helper_call_hook(call_id, None, &tool_input));
+    }
+    session.cancel("hook-w");
+    for (task_id, call_id) in [
+        ("p", "call-p"),
+        ("f", "call-f"),
+        ("n", "call-n"),
+        ("w", "call-w"),
+    ] {
+        session.frame(&nested_start(task_id, call_id, None, None));
+    }
+    session.request(
+        "hook-c",
+        &helper_call_hook("call-c", Some("p"), &json!({"model": "haiku"})),
+    );
+    session.frame(&nested_start("c", "call-c", Some("p"), None));
+    settle().await;
+
+    let asked: Vec<(String, Option<String>, Option<String>)> = session
+        .engine
+        .deliveries()
+        .into_iter()
+        .filter(|delivery| delivery.kind == "childRun")
+        .map(|delivery| {
+            let subagent = delivery
+                .subagent
+                .expect("a child run delivery names its helper");
+            (
+                subagent.subagent_id.as_str().to_owned(),
+                subagent.model_id.map(|model| model.as_str().to_owned()),
+                subagent.effort.map(|effort| effort.as_str().to_owned()),
+            )
+        })
+        .collect();
+    let named = |helper: &str, model: Option<&str>, effort: Option<&str>| {
+        (
+            helper.to_owned(),
+            model.map(str::to_owned),
+            effort.map(str::to_owned),
+        )
+    };
+    assert_eq!(
+        asked,
+        [
+            named("p", Some("haiku"), Some("low")),
+            named("f", None, None),
+            named("n", None, None),
+            named("w", None, None),
+            named("c", Some("haiku"), None),
+        ]
+    );
+}
+
 /// The `task_notification` that ends the helper `task_id` with `status`.
 pub(in super::super) fn helper_ended(task_id: &str, status: &str, summary: &str) -> Value {
     json!({

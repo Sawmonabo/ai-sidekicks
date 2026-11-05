@@ -10,7 +10,9 @@
 //! daemon refused is bound to that ended run all the same, which absorbs its frames, and is
 //! stopped. A helper's new own run clears a stop that is not final. A helper's start and end are
 //! also rows on the run its start went beneath. The start is dispatched on the session's task
-//! before any later arrival, so a request of the helper finds its run bound.
+//! before any later arrival, so a request of the helper finds its run bound. A new child run names
+//! the model and effort its `Agent` call asked for, read from the call's pre-tool hook, which
+//! Claude Code answers before it runs the call.
 
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
@@ -26,6 +28,7 @@ use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::commands::ClaudeTaskFrame;
 use crate::driver::claude::delivery::system::read_claude_helper_end;
 use crate::driver::claude::event_normalizer::ClaudeSubagentLifecycleSignal;
+use crate::driver::claude::hooks::callbacks::ClaudeHelperCall;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeChildRunRoute};
 use crate::driver::run_control::HelperStopReason;
 use crate::run::delivery::{
@@ -146,6 +149,10 @@ impl ClaudeDeliveryStream {
         let (run_id, refusal) = if let Some(run_id) = continued {
             (Some(run_id), None)
         } else {
+            let helper_call =
+                parent_tool_call_id.and_then(|call_id| session.lock().helper_calls.remove(call_id));
+            let (model_id, effort) =
+                helper_call.map_or((None, None), |call| (call.model_id, call.effort));
             let child = InboundDelivery::ChildRun {
                 binding: DeliveryBinding {
                     binding_id: carrier.binding_id.clone(),
@@ -166,6 +173,8 @@ impl ClaudeDeliveryStream {
                         .and_then(|signal| signal.subagent_type.as_deref())
                         .and_then(|role| FreeFormText::new(role.to_owned()).ok()),
                     provider_path: None,
+                    model_id,
+                    effort,
                     start_call_id: start_call_of(emission),
                 },
             };
@@ -364,6 +373,22 @@ impl ClaudeDeliveryStream {
             lifecycle_wire_type(emission.event_type),
         )
         .await;
+    }
+}
+
+impl ClaudeSessionStream {
+    /// Keeps what the helper call `helper_call` asked for until its helper's start takes it.
+    pub(crate) fn record_helper_call(&self, helper_call: ClaudeHelperCall) {
+        self.lock()
+            .helper_calls
+            .insert(helper_call.call_id.clone(), helper_call);
+    }
+
+    /// Forgets the helper call whose pre-tool hook the withdrawn request `request_id` carried.
+    pub(crate) fn withdraw_helper_call(&self, request_id: &str) {
+        self.lock()
+            .helper_calls
+            .retain(|_, helper_call| helper_call.request_id != request_id);
     }
 }
 

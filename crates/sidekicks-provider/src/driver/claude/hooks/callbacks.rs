@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
+use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::run::control::StopTrigger;
@@ -71,6 +72,8 @@ pub(crate) enum ClaudeRequestRoute {
         request_id: String,
         /// The calling helper's id, `None` on the lead.
         agent_id: Option<String>,
+        /// What the call asked for, where it names a model or an effort its helper starts on.
+        helper_call: Option<ClaudeHelperCall>,
     },
     /// Answer or hold it through [`route_message_target`], which checks the helper a message call
     /// aims at before the pause decides: a call of the message tool that names a recipient.
@@ -122,8 +125,8 @@ struct HookInput {
     tool_input: Option<HookToolInput>,
 }
 
-// The members of a hooked tool call's input the daemon's hooks read: a shell call's, and the
-// recipient of a message call.
+// The members of a hooked tool call's input the daemon's hooks read: a shell call's, the recipient
+// of a message call, and the type, model and effort a helper call asks for.
 #[derive(Deserialize)]
 struct HookToolInput {
     #[serde(default, deserialize_with = "read_lenient")]
@@ -135,6 +138,60 @@ struct HookToolInput {
     timeout: Option<serde::de::IgnoredAny>,
     #[serde(default, deserialize_with = "read_lenient")]
     to: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    subagent_type: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    model: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    effort: Option<String>,
+}
+
+/// What a helper's `Agent` call asked for, read from its pre-tool hook: the model and effort it
+/// names, by its call id.
+#[derive(Debug)]
+pub(crate) struct ClaudeHelperCall {
+    /// The call's id, which its helper's start names.
+    pub(crate) call_id: String,
+    /// The hook request that carried it, which a withdrawal names.
+    pub(crate) request_id: String,
+    /// The model the call names.
+    pub(crate) model_id: Option<ProviderToken>,
+    /// The effort the call names, in Claude Code's word.
+    pub(crate) effort: Option<ProviderToken>,
+}
+
+// The subagent type Claude Code starts on the caller's own model and effort, whatever its call
+// names.
+const CLAUDE_FORK_SUBAGENT_TYPE: &str = "fork";
+
+// What the helper call the hook `callback` carries asks for: `None` where it names no call id, is
+// a fork, or names no model or effort the contract holds.
+fn read_helper_call(
+    callback: &ClaudeHookCallback,
+    input: Option<&HookInput>,
+    request_id: &str,
+) -> Option<ClaudeHelperCall> {
+    let call_id = callback
+        .tool_use_id
+        .clone()
+        .or_else(|| input?.tool_use_id.clone())
+        .filter(|id| !id.is_empty())?;
+    let tool_input = input?.tool_input.as_ref()?;
+    if tool_input.subagent_type.as_deref() == Some(CLAUDE_FORK_SUBAGENT_TYPE) {
+        return None;
+    }
+    let token = |text: &Option<String>| text.clone().and_then(|text| ProviderToken::new(text).ok());
+    let model_id = token(&tool_input.model);
+    let effort = token(&tool_input.effort);
+    if model_id.is_none() && effort.is_none() {
+        return None;
+    }
+    Some(ClaudeHelperCall {
+        call_id,
+        request_id: request_id.to_owned(),
+        model_id,
+        effort,
+    })
 }
 
 /// The parts of a shell call the background-work hook reads.
@@ -168,7 +225,7 @@ lenient_object!(HookInput, HookToolInput);
 
 /// Routes one request event off a session's process, at the session's `level`: a withdrawal also
 /// withdraws a held pause or helper start; a call of the helper tool goes to the helper-start
-/// check, and a call of the message tool that names a recipient to the message-target check,
+/// check, carrying the model and effort the call asks for, and a call of the message tool that names a recipient to the message-target check,
 /// before the pause decides; a pause callback, and a helper-limit callback on the helper tool, is
 /// answered or held here, while one on the message tool that names a recipient goes to the
 /// helper-wake check and any other passes; a helper's post-tool and stop callbacks carry its
@@ -225,6 +282,7 @@ pub(crate) fn route_claude_request(
         // released straight from the pause store.
         RegisteredHook::PauseBeforeTool if is_helper_start => {
             ClaudeRequestRoute::CheckHelperStart {
+                helper_call: read_helper_call(callback, input.as_ref(), &request.request_id),
                 request_id: request.request_id,
                 agent_id,
             }
