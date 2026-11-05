@@ -32,6 +32,8 @@ use super::{
     ProviderSignInError, SignInOrigin, SignedInAccountWatcher,
 };
 use crate::account::credential_home::CredentialHome;
+use crate::account::credential_home::marks::read_minted_homes;
+use crate::account::credential_home::test_legs::RecordedSignOuts;
 use crate::account::home_lock::AccountHomeLock;
 use crate::account::registry::tests::register;
 use crate::account::registry::{
@@ -39,8 +41,8 @@ use crate::account::registry::{
     open_test_registry,
 };
 use crate::driver::contract::account::{
-    ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInLegs,
-    ProviderSignInObservation,
+    ProviderAccountLegs, ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput,
+    ProviderSignInLegs, ProviderSignInObservation,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::schema::schema_parts;
@@ -332,8 +334,9 @@ fn refusal_of(error: ProviderSignInError) -> (RefusalCode, Option<serde_json::Va
 // status read reported. No published notification carries the prompt or the code, and no session
 // event is appended. Killed by a row inserted at the start, by a raw line forwarded as the failure
 // text, by the provider's own reason for a failed flow dropped or passing a code or an address
-// through, by a code written before the prompt or twice, by a failed new account keeping its home,
-// by the home held across the flow or after it, by a written row not published, and by the reported
+// through, by a code written before the prompt or twice, by a failed new account keeping its home
+// or its minted mark, by a start that failed before showing an address signing its home out, by
+// the home held across the flow or after it, by a written row not published, and by the reported
 // kind not written or an earlier kind kept over it, a registered account's included.
 #[rstest]
 #[case::new_named(false, Status::Read { is_account_named: true }, ProviderSignInEnd::Finished,
@@ -387,13 +390,17 @@ async fn one_sign_in_attempt_settles_as_its_end_says(
     let watcher = Arc::new(RecordingWatcher::default());
     let home_lock = Arc::new(AccountHomeLock::default());
     let accounts_in_flight = Arc::new(AccountsInFlight::default());
+    let sign_outs = Arc::new(RecordedSignOuts::default());
     let broker = ProviderSignInBroker::new(
         Arc::clone(&registry),
         HashMap::from([(
             provider("claude"),
             Arc::clone(&legs) as Arc<dyn ProviderSignInLegs>,
         )]),
-        HashMap::new(),
+        HashMap::from([(
+            provider("claude"),
+            Arc::clone(&sign_outs) as Arc<dyn ProviderAccountLegs>,
+        )]),
         Arc::new(RecordingPublisher(published_sender)),
         Arc::clone(&watcher) as Arc<dyn SignedInAccountWatcher>,
         Arc::clone(&home_lock),
@@ -424,6 +431,15 @@ async fn one_sign_in_attempt_settles_as_its_end_says(
         let homes = lock(&legs.homes).clone();
         assert_eq!(homes.len(), 1);
         assert!(!homes[0].exists(), "a refused new account keeps no home");
+        assert!(
+            sign_outs.signed_out().is_empty(),
+            "no address showed, so none signs out"
+        );
+        let marks = read_minted_homes(data_folder.path()).expect("the marks read");
+        assert!(
+            marks.is_empty(),
+            "a refused new account keeps no minted mark"
+        );
         return;
     };
     let response = started.expect("the sign-in starts");
