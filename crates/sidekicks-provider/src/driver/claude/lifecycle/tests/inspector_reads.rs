@@ -88,9 +88,8 @@ async fn session_brought_down(fixture: &ScriptedDriver, reported: usize) -> Sess
         listed_command(&reads.kept_hook_listing(session_id).await),
         Some(vec!["audit.sh"])
     );
-    fixture
-        .starts
-        .script_session(Arc::new(ScriptedChannel::default()));
+    // No process is scripted for the relaunch, which is refused before any start, so the next
+    // create takes its own.
     fixture
         .relaunches
         .is_open_refused
