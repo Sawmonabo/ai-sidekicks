@@ -25,9 +25,8 @@ use sidekicks_contracts::daemon::backup::BACKUP_DEFAULT_FOLDER_NAME;
 use sidekicks_contracts::daemon::data::{
     DaemonDataEraseResponse, DataEraseSignOutFailure, DataEraseSignedInAccount,
 };
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_provider::account::credential_home::HomeSignOutError;
-use sidekicks_provider::account::errors::ProviderAccountRegistryError;
+use sidekicks_provider::account::credential_home::{HomeLeftSignedIn, HomeSignOutError};
+use sidekicks_provider::account::homes::AccountHomesReadError;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::daemon_stop::{DaemonStopIntent, RecordedServicesStop};
 use sidekicks_provider::driver::registry::ProviderRegistry;
@@ -40,13 +39,11 @@ pub(crate) mod mode;
 /// One step of the erase that the running daemon carries out.
 pub(crate) type EraseStep = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
 
-/// Signs every provider account out in its home, answering each account that did not sign out
-/// with why; fails when the accounts cannot be read.
+/// Signs every account home the erase deletes out, answering each account that did not sign out
+/// with why; fails when the homes cannot be read.
 pub(crate) type AccountsSignOut = Arc<
-    dyn Fn() -> BoxFuture<
-            'static,
-            Result<Vec<(ProviderAccountId, HomeSignOutError)>, ProviderAccountRegistryError>,
-        > + Send
+    dyn Fn() -> BoxFuture<'static, Result<Vec<HomeLeftSignedIn>, AccountHomesReadError>>
+        + Send
         + Sync,
 >;
 
@@ -234,15 +231,17 @@ impl DataErase {
             Ok(unsigned) => DaemonDataEraseResponse {
                 signed_in_accounts: unsigned
                     .into_iter()
-                    .map(|(account_id, failure)| {
+                    .map(|left| {
                         tracing::warn!(
-                            account = account_id.as_str(),
-                            error = &failure as &(dyn Error + 'static),
+                            account = left.account_id.as_str(),
+                            error = &left.cause as &(dyn Error + 'static),
                             "a provider account did not sign out before the erase"
                         );
                         DataEraseSignedInAccount {
-                            account_id,
-                            cause: sign_out_failure(&failure),
+                            cause: sign_out_failure(&left.cause),
+                            account_id: left.account_id,
+                            provider: left.provider,
+                            listing: left.listing,
                         }
                     })
                     .collect(),

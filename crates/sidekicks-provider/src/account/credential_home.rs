@@ -20,6 +20,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::future::BoxFuture;
+use sidekicks_contracts::daemon::data::DataEraseAccountListing;
 use sidekicks_contracts::provider::account::record::{
     CredentialGeneration, ProviderAccountHealthState, ProviderAccountId,
 };
@@ -30,9 +31,13 @@ use sidekicks_platforms::{
     create_missing_private_folders, create_new_private_folder, make_folder_link, remove_tree,
 };
 use sidekicks_store::data_folder::agent_memory_folder;
+use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 
 use crate::account::errors::ProviderAccountRegistryError;
 use crate::account::home_lock::AccountHomeLock;
+use crate::account::homes::{
+    AccountHomesReadError, HomeToErase, homes_to_erase, query_account_homes,
+};
 use crate::account::registry::ProviderAccountRegistry;
 use crate::account::resolver::credential_home_folders;
 use crate::driver::contract::account::ProviderAccountLegs;
@@ -247,14 +252,31 @@ pub enum HomeSignOutError {
     Overran,
 }
 
-/// One account [`sign_out_homes`] signs out: its id, its provider and its home's folders.
+/// One account [`sign_out_homes`] signs out: its id, its provider, how it stood on the list and its
+/// home's folders.
 pub struct HomeSignOut {
     /// The account's id.
     pub account_id: ProviderAccountId,
     /// The account's provider.
     pub provider: ProviderId,
+    /// How the account stood on the list.
+    pub listing: DataEraseAccountListing,
     /// The account's home's folders, which the sign-out runs in.
     pub folders: ProviderAccountFolders,
+}
+
+/// An account [`sign_out_homes`] left signed in: its id, its provider, how it stood on the list,
+/// and why.
+#[derive(Debug)]
+pub struct HomeLeftSignedIn {
+    /// The account's id.
+    pub account_id: ProviderAccountId,
+    /// The account's provider.
+    pub provider: ProviderId,
+    /// How the account stood on the list.
+    pub listing: DataEraseAccountListing,
+    /// Why it was not signed out.
+    pub cause: HomeSignOutError,
 }
 
 /// Signs every account of `accounts` out in its home through the provider's own sign-out that
@@ -268,7 +290,7 @@ pub async fn sign_out_homes<'legs>(
         ProviderAccountFolders,
     ) -> Option<BoxFuture<'legs, Result<(), DriverError>>>,
     bound: Duration,
-) -> Vec<(ProviderAccountId, HomeSignOutError)> {
+) -> Vec<HomeLeftSignedIn> {
     let sign_outs = accounts.into_iter().map(|account| {
         let signing_out = sign_out(
             &account.provider,
@@ -276,14 +298,20 @@ pub async fn sign_out_homes<'legs>(
             account.folders,
         );
         async move {
-            let Some(signing_out) = signing_out else {
-                return Some((account.account_id, HomeSignOutError::NoProvider));
+            let cause = match signing_out {
+                None => HomeSignOutError::NoProvider,
+                Some(signing_out) => match tokio::time::timeout(bound, signing_out).await {
+                    Ok(Ok(())) => return None,
+                    Ok(Err(error)) => HomeSignOutError::SignOut(error),
+                    Err(_elapsed) => HomeSignOutError::Overran,
+                },
             };
-            match tokio::time::timeout(bound, signing_out).await {
-                Ok(Ok(())) => None,
-                Ok(Err(error)) => Some((account.account_id, HomeSignOutError::SignOut(error))),
-                Err(_elapsed) => Some((account.account_id, HomeSignOutError::Overran)),
-            }
+            Some(HomeLeftSignedIn {
+                account_id: account.account_id,
+                provider: account.provider,
+                listing: account.listing,
+                cause,
+            })
         }
     });
     futures::future::join_all(sign_outs)
@@ -293,22 +321,47 @@ pub async fn sign_out_homes<'legs>(
         .collect()
 }
 
-/// Signs every account `registry` lists out through its provider's legs among `legs`, as
-/// [`sign_out_homes`] does, before `Erase all data` deletes the homes. Answers each account it
-/// could not sign out, with why. Fails when the accounts cannot be read.
+/// Signs every home `Erase all data` deletes out through its provider's legs among `legs`, as
+/// [`sign_out_homes`] does: each listed account's, each whose removal has begun, each removed
+/// account's kept home and each home minted for a sign-in that did not finish, read from the
+/// accounts table on `reads` and the marks under the daemon's `data_folder`. Answers each account
+/// it could not sign out, with why. Fails when the rows or the marks cannot be read, or a row names
+/// no valid account or provider id, with nothing signed out.
 pub async fn sign_out_every_home<S: BuildHasher>(
-    registry: &ProviderAccountRegistry,
+    reads: &DatabaseReadPool,
+    data_folder: &Path,
     legs: &HashMap<ProviderId, Arc<dyn ProviderAccountLegs>, S>,
     bound: Duration,
-) -> Result<Vec<(ProviderAccountId, HomeSignOutError)>, ProviderAccountRegistryError> {
-    let accounts = registry.list(None).await?.into_iter().map(|account| {
-        let folders = credential_home_folders(&account.provider, &account.credential_home);
-        HomeSignOut {
-            account_id: account.account_id,
-            provider: account.provider,
-            folders,
-        }
-    });
+) -> Result<Vec<HomeLeftSignedIn>, AccountHomesReadError> {
+    let data_folder = data_folder.to_path_buf();
+    let homes = reads
+        .read(ReadLength::Short, move |connection| {
+            Ok(homes_to_erase(
+                query_account_homes(connection)?,
+                &data_folder,
+            )?)
+        })
+        .await?;
+    let accounts = homes
+        .into_iter()
+        .map(|HomeToErase { home, listing }| {
+            let (Some(account_id), Some(provider), Ok(folders)) = (
+                ProviderAccountId::new(home.account_id.clone()),
+                ProviderId::new(home.provider.clone()),
+                home.folders(),
+            ) else {
+                return Err(AccountHomesReadError::UnnamedHome {
+                    account_id: home.account_id,
+                });
+            };
+            Ok(HomeSignOut {
+                account_id,
+                provider,
+                listing,
+                folders,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let sign_out = |provider: &ProviderId, account_id, folders| {
         legs.get(provider)
             .map(|legs| legs.sign_out_home(account_id, folders))

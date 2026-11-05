@@ -653,8 +653,9 @@ pub(crate) async fn register_method_inputs(
         providers: Arc::clone(&registry),
         read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
     });
-    let (erase_accounts, erase_legs) = (
-        Arc::clone(&accounts.methods.accounts),
+    let (erase_reads, erase_data_folder, erase_legs) = (
+        Arc::clone(&reads),
+        data_folder.to_path_buf(),
         accounts.methods.account_legs.clone(),
     );
     register_method_tables(
@@ -705,9 +706,10 @@ pub(crate) async fn register_method_inputs(
                     providers: Arc::clone(&registry),
                     stop_work,
                     sign_out_accounts: Arc::new(move || {
-                        let (registry, legs) = (Arc::clone(&erase_accounts), erase_legs.clone());
+                        let (pool, legs) = (Arc::clone(&erase_reads), erase_legs.clone());
+                        let folder = erase_data_folder.clone();
                         async move {
-                            sign_out_every_home(&registry, &legs, ACCOUNT_SIGN_OUT_BOUND).await
+                            sign_out_every_home(&pool, &folder, &legs, ACCOUNT_SIGN_OUT_BOUND).await
                         }
                         .boxed()
                     }),
