@@ -159,8 +159,19 @@ pub(crate) struct ClaudeMessageRequestFacts {
     pub(crate) web_search_requests: Option<u64>,
 }
 
+/// One model's spend as a `result`'s `modelUsage` reports it: the process's sum over every thread.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ClaudeModelCost {
+    /// The model, without the larger-window mark.
+    pub(crate) model_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    /// `costUSD`, the process's spend on the model so far in dollars, where it is a number.
+    pub(crate) cost_usd: Option<f64>,
+    /// `costBasis`, as sent.
+    pub(crate) cost_basis: Option<String>,
+}
+
 /// The routing facts of one inbound stream frame, not the frame itself.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ClaudeInboundFrameObservation {
     /// The `type/subtype` wire kind, as sent and untrusted.
     pub(crate) frame_kind: String,
@@ -185,6 +196,8 @@ pub(crate) struct ClaudeInboundFrameObservation {
     pub(crate) handshake: Option<ClaudeHandshakeDeclaration>,
     /// The compaction boundary it carries.
     pub(crate) compaction_boundary: Option<ClaudeCompactionBoundaryObservation>,
+    /// A `result`'s spend per model, empty on any other frame.
+    pub(crate) model_costs: Vec<ClaudeModelCost>,
 }
 
 #[cfg(test)]
