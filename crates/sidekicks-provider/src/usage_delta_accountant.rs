@@ -184,6 +184,24 @@ pub struct MeteredUsageDelta {
 }
 
 impl MeteredUsageDelta {
+    // Whether every count the row would carry is zero or absent: the axes, the longer-lifetime
+    // cache write and the searches, since a change of either of the last two alone is still spend.
+    fn is_unchanged(&self) -> bool {
+        let axes = &self.axis_deltas;
+        [
+            axes.input,
+            axes.cached_input,
+            axes.cache_write_input,
+            axes.output,
+            axes.reasoning_output,
+            axes.total,
+            self.request.cache_write_extended_tokens,
+            self.request.web_search_requests,
+        ]
+        .into_iter()
+        .all(|count| count.unwrap_or(0) == 0)
+    }
+
     /// The delta's counts as a usage row carries them, each absent where the reading carried none;
     /// `None` when one passes the wire's integer range.
     pub fn row_figures(&self) -> Option<UsageRowFigures> {
@@ -290,11 +308,20 @@ impl UsageDeltaAccountant {
     }
 
     /// Meters one cumulative reading into a per-turn delta; `None` for a thread with no
-    /// established base, since metering it would invent a zero base for a resume.
+    /// established base, since metering it would invent a zero base for a resume, and for a
+    /// reading that changed nothing, a repeat, which records and prices nothing. The base
+    /// registers advance either way.
     pub(crate) fn meter_reading(
         &mut self,
         reading: CumulativeUsageReading,
     ) -> Option<MeteredUsageDelta> {
+        self.meter_change(reading)
+            .filter(|delta| !delta.is_unchanged())
+    }
+
+    // The delta one reading makes against its thread's base registers, advancing them; a reading
+    // that changed nothing meters to a delta of zeros.
+    fn meter_change(&mut self, reading: CumulativeUsageReading) -> Option<MeteredUsageDelta> {
         let base_registers = self
             .base_registers_by_thread_id
             .get_mut(&reading.thread_id)?;
@@ -435,7 +462,8 @@ impl UsageDeltaAccountant {
 
 /// What a process that ran one turn and nothing else spent on `provider`: its cumulative `counts`
 /// metered from a zero base, the input normalized as a session's usage rows are, on `model_id` as
-/// the provider names it. Fails with `None` where a count is past the wire's integer range.
+/// the provider names it; a turn that spent nothing composes its counts as they read. Fails with
+/// `None` where a count is past the wire's integer range.
 pub(crate) fn compose_one_turn_spend(
     provider: ProviderId,
     model_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
@@ -444,7 +472,8 @@ pub(crate) fn compose_one_turn_spend(
     const THREAD_ID: &str = "one-turn";
     let mut accountant = UsageDeltaAccountant::new(provider);
     accountant.establish_thread(THREAD_ID.to_owned(), ThreadBaseEstablishment::Fresh);
-    let delta = accountant.meter_reading(CumulativeUsageReading {
+    // The thread is established, so only a count past the range below fails.
+    let delta = accountant.meter_change(CumulativeUsageReading {
         thread_id: THREAD_ID.to_owned(),
         named_turn_id: None,
         cumulative: counts,
@@ -467,13 +496,6 @@ pub(crate) fn compose_one_turn_spend(
 /// request's rows by `row_weights`; else the request takes what `derive`, its pricer, answers: a
 /// `derivedExact` figure, or a hold for a price or a sign-in kind. A held request is never given a
 /// made-up or zero cost.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the pricing step sets each request's cost and its source through this ladder"
-    )
-)]
 pub(crate) fn resolve_cost_update_provenance(
     provider: ProviderId,
     provider_reported_cost_usd_micros: Option<f64>,
@@ -511,13 +533,6 @@ pub(crate) fn resolve_cost_update_provenance(
 // A finite, non-negative figure rounded half to even to whole micro-dollars, `None` when it is not
 // one or rounds past what the wire's integer holds. The sign is checked before rounding, since a
 // figure just above -0.5 rounds to -0.0, which compares as not negative.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the pricing step sets each request's cost and its source through this ladder"
-    )
-)]
 fn whole_usd_micros(usd_micros: f64) -> Option<UsdMicros> {
     if !usd_micros.is_finite() || usd_micros < 0.0 {
         return None;
@@ -635,12 +650,14 @@ mod tests {
         // Any provider: it only labels the accountant's diagnostics.
         let mut accountant = UsageDeltaAccountant::new(test_provider());
         accountant.establish_thread("fresh".to_owned(), ThreadBaseEstablishment::Fresh);
-        assert_eq!(input_delta(&mut accountant, "fresh", 0), 0);
         assert_eq!(input_delta(&mut accountant, "fresh", 100), 100);
         assert_eq!(input_delta(&mut accountant, "fresh", 150), 50);
 
-        // A decrease floors at zero and re-bases at the observed value.
-        assert_eq!(input_delta(&mut accountant, "fresh", 50), 0);
+        // A repeat changes nothing, so it meters to no delta.
+        assert_eq!(accountant.meter_reading(reading("fresh", 150)), None);
+
+        // A decrease floors at zero, so it meters to no delta, and re-bases at the observed value.
+        assert_eq!(accountant.meter_reading(reading("fresh", 50)), None);
         assert_eq!(input_delta(&mut accountant, "fresh", 70), 20);
 
         // A resume bases at the prior-emitted sum, never at zero.

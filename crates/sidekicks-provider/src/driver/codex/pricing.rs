@@ -10,18 +10,41 @@
 //! - **Any other sign-in kind**, or none read yet, holds the request for the kind.
 //!
 //! Web searches carry no count on Codex's usage, so none is priced.
+//!
+//! A session's recorder prices each row as it records it: it reads its service's region once per
+//! service, stamps it on every row so the stored row and the live key carry one region, and hands
+//! each model's recorded rows to the live pricing. A row naming no model is recorded unpriced.
+
+use std::error::Error;
+use std::path::Path;
+use std::sync::Arc;
 
 use sidekicks_contracts::event::usage::UsageCostSource;
+use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::ProviderAuthMode;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::BoundedText;
+use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 
 use crate::account::usage_turns::unpriced::{UnpricedRequest, UnpricedUsageKey};
 use crate::driver::codex::DESCRIPTOR;
-use crate::driver::codex::config_read::OPENAI_REGION_PREFIXES;
+use crate::driver::codex::config_read::{
+    CodexProcessingRegion, OPENAI_REGION_PREFIXES, read_codex_processing_region,
+};
+use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
+use crate::driver::ports::DriverPorts;
+use crate::port::usage_sink::{MeteredUsage, UsageSink};
 use crate::pricing::list::{PriceTable, SpeedPricing};
+use crate::pricing::live::{LivePricing, LiveUsageRow};
 use crate::pricing::quote::{RequestTokenCounts, RequestUsage, quote_request_rows};
 use crate::pricing::rule::{RequestPricer, RequestPricing};
+
+type BoxedError = Box<dyn Error + Send + Sync>;
+type RegionWord = BoundedText<1, EVENT_FIELD_MAX_LEN>;
+
+// The region a service on a host that is neither the API's own nor one of its regional hosts
+// stamps on its rows; no regional prefix equals it, so the rule holds an API key's requests.
+const UNKNOWN_HOST_REGION: &str = "unknownHost";
 
 /// Codex's rule for pricing its requests from the held price table by the account's sign-in kind.
 pub(crate) struct CodexRequestPricer;
@@ -126,6 +149,116 @@ impl RequestPricer for CodexRequestPricer {
             },
             Err(_refusal) => RequestPricing::HeldForPrice,
         }
+    }
+}
+
+/// One Codex session's pricing on its usage recorder: the live pricing through Codex's rule, and
+/// the region of the service it last read one on.
+pub(crate) struct CodexRecorderPricing {
+    live: LivePricing,
+    region: Option<(CodexServiceId, Option<RegionWord>)>,
+}
+
+impl CodexRecorderPricing {
+    /// The recorder-side pricing over the usage record, price list, repricing and accounts in
+    /// `ports`.
+    pub(crate) fn new(ports: &DriverPorts) -> Self {
+        Self {
+            live: LivePricing::new(
+                DESCRIPTOR.provider_id(),
+                Arc::new(CodexRequestPricer),
+                ports,
+            ),
+            region: None,
+        }
+    }
+
+    /// Records `batch`, metered on `service` for `folder`, through `sink` in order, each delta
+    /// stamped with the service's region, then prices what was recorded once per model. A region
+    /// that could not be read, which leaves the batch on the unknown host's region, and a delta
+    /// that was not recorded are each handed to `report`.
+    pub(crate) async fn record(
+        &mut self,
+        sink: &dyn UsageSink,
+        batch: Vec<MeteredUsage>,
+        service: &CodexService,
+        folder: &Path,
+        report: &impl Fn(BoxedError),
+    ) {
+        let region = self.read_region(service, folder, report).await;
+        let mut rows_by_model: Vec<(
+            SessionId,
+            FreeFormText<EVENT_FIELD_MAX_LEN>,
+            Vec<LiveUsageRow>,
+        )> = Vec::new();
+        for mut metered in batch {
+            metered.delta.request.processing_region.clone_from(&region);
+            let session_id = metered.session_id;
+            let priced = metered
+                .delta
+                .request
+                .model_id
+                .clone()
+                .map(|model_id| (model_id, metered.delta.clone()));
+            match sink.record_metered(metered).await {
+                Ok(Some(recorded)) => {
+                    let Some((model_id, delta)) = priced else {
+                        continue;
+                    };
+                    let row = LiveUsageRow::new(&recorded, session_id, &delta);
+                    match rows_by_model
+                        .iter_mut()
+                        .find(|(session, model, _)| *session == session_id && *model == model_id)
+                    {
+                        Some((_, _, rows)) => rows.push(row),
+                        None => rows_by_model.push((session_id, model_id, vec![row])),
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => report(error),
+            }
+        }
+        for (session_id, model_id, rows) in rows_by_model {
+            self.live.price(session_id, &model_id, rows, None).await;
+        }
+    }
+
+    // The region of `service`'s model provider, read once per service; a failed read is reported
+    // and answers the unknown host's region, kept for no later batch.
+    async fn read_region(
+        &mut self,
+        service: &CodexService,
+        folder: &Path,
+        report: &impl Fn(BoxedError),
+    ) -> Option<RegionWord> {
+        if let Some((service_id, region)) = &self.region
+            && *service_id == service.id()
+        {
+            return region.clone();
+        }
+        let read = match service.connection() {
+            Ok(connection) => read_codex_processing_region(&connection, folder).await,
+            Err(error) => Err(error),
+        };
+        let region = match read {
+            Ok(region) => region,
+            Err(error) => {
+                report(Box::new(error));
+                return region_word(&CodexProcessingRegion::UnknownHost);
+            }
+        };
+        let word = region_word(&region);
+        self.region = Some((service.id(), word.clone()));
+        word
+    }
+}
+
+// The word a row carries for `region`: none, the regional host's prefix, or the unknown host's.
+fn region_word(region: &CodexProcessingRegion) -> Option<RegionWord> {
+    match region {
+        CodexProcessingRegion::NoRegion => None,
+        CodexProcessingRegion::Region(prefix) => BoundedText::new(prefix.clone()),
+        CodexProcessingRegion::UnknownHost => BoundedText::new(UNKNOWN_HOST_REGION.to_owned()),
     }
 }
 

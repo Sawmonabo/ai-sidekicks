@@ -37,14 +37,14 @@ struct ScriptedAnswer {
 /// The list's stand-in server: it answers from its script and records each request's
 /// `If-None-Match`, whose count is the requests made.
 #[derive(Default)]
-pub(super) struct ListServer {
+pub(crate) struct ListServer {
     answers: Mutex<VecDeque<ScriptedAnswer>>,
     if_none_match: Mutex<Vec<Option<String>>>,
 }
 
 impl ListServer {
     /// Queues the answer to the next request not yet scripted.
-    pub(super) fn script(
+    pub(crate) fn script(
         &self,
         status: StatusCode,
         etag: Option<&'static str>,
@@ -54,7 +54,7 @@ impl ListServer {
     }
 
     /// Each request's `If-None-Match`, in order.
-    pub(super) fn if_none_match(&self) -> Vec<Option<String>> {
+    pub(crate) fn if_none_match(&self) -> Vec<Option<String>> {
         lock(&self.if_none_match).clone()
     }
 }
@@ -80,7 +80,7 @@ async fn answer(State(server): State<Arc<ListServer>>, headers: HeaderMap) -> Re
 }
 
 /// Serves `server` on a loopback port and answers the list's address on it.
-pub(super) async fn serve(server: &Arc<ListServer>) -> Url {
+pub(crate) async fn serve(server: &Arc<ListServer>) -> Url {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("a loopback port binds");
@@ -94,7 +94,7 @@ pub(super) async fn serve(server: &Arc<ListServer>) -> Url {
 
 /// Opens the list in `folder` against `url`, with `m1` and `seed-only` in use, its scheduler and
 /// the list on one test clock.
-pub(super) async fn open_held(
+pub(crate) async fn open_held(
     folder: &Path,
     url: Url,
     clock: &Arc<TestWallClock>,

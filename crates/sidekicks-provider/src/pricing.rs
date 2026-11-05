@@ -12,14 +12,10 @@ pub(crate) mod export_status;
 mod fetch;
 pub mod held;
 pub mod list;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "each driver prices its live requests through it")
-)]
 pub(crate) mod live;
 pub(crate) mod quote;
 pub mod receiver;
 pub mod rule;
 pub mod store;
 #[cfg(test)]
-mod test_fixture;
+pub(crate) mod test_fixture;
