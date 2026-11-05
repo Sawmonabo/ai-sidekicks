@@ -1,7 +1,8 @@
 //! The record file a service names as its own lasting process's: the name a start publishes and
-//! a daemon stop reads, the socket's record it falls back on, its retire once that process ended,
-//! and a later start's retire of the record its last process was kept in.
+//! a daemon stop reads under the folder's lock, the socket's record it falls back on, its retire
+//! once that process ended, and a later start's retire of the record its last process was kept in.
 
+use std::collections::HashSet;
 use std::io;
 use std::path::Path;
 use std::sync::Arc;
@@ -77,6 +78,26 @@ pub(crate) fn socket_record_file(service: &CodexService) -> io::Result<LastingSe
         &service.home().codex_home,
         service.socket_path(),
     )
+}
+
+/// The record files a daemon stop leaves to `services`, which the kept stop skips: the record of
+/// each of the daemon's own services, which its supervisor stops, the one a launch or a join under
+/// way publishes first among them, and a joined service's, left alone because the daemon never
+/// stops it. Each service's socket's record is among them too; a record whose Codex folder no
+/// longer resolves cannot be named, so the kept stop takes it.
+pub(super) fn live_record_files(
+    services: &[Arc<CodexService>],
+) -> HashSet<LastingServiceRecordFile> {
+    services
+        .iter()
+        .flat_map(|service| {
+            [
+                service.process_record_file(),
+                socket_record_file(service).ok(),
+            ]
+        })
+        .flatten()
+        .collect()
 }
 
 /// Retires the record of the process `service`'s last start brought up, else of its own socket,

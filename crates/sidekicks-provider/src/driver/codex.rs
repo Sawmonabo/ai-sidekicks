@@ -1,6 +1,5 @@
 //! The Codex driver, over the one shared Codex app-server every session reaches by its socket.
 
-use std::collections::HashSet;
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -301,8 +300,7 @@ pub(super) fn stop_recorded_services(
     let data_folder = data_folder.to_owned();
     async move {
         // No daemon runs, so no live service holds a record.
-        let failures =
-            stop_kept_services(data_folder, KeptServicesStop::Erase, HashSet::new()).await;
+        let failures = stop_kept_services(data_folder, KeptServicesStop::Erase, &[]).await;
         if failures.is_empty() {
             return Ok(());
         }

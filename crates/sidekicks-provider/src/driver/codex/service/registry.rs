@@ -12,8 +12,8 @@
 pub(crate) mod personal_folder_read;
 pub(crate) mod terminal_sessions;
 
+use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -34,9 +34,8 @@ use crate::driver::codex::account::{
 use crate::driver::codex::service::home::{
     CodexConversationHome, CodexHomeKind, CodexServiceHome, CodexServiceKind,
 };
-use crate::driver::codex::service::record::{LastingServiceRecordFile, recorded_home_keys};
+use crate::driver::codex::service::record::recorded_home_keys;
 use crate::driver::codex::service::socket_link::{is_listening, point_socket_link_at_service};
-use crate::driver::codex::service::supervisor::own_record::socket_record_file;
 use crate::driver::codex::service::supervisor::start::kept_records::{
     KeptServicesStop, report_kept_service_unstopped, stop_kept_services,
 };
@@ -550,7 +549,7 @@ impl CodexServiceRegistry {
                 let kept_stop = stop_kept_services(
                     data_folder,
                     KeptServicesStop::DaemonStop { deadline },
-                    live_record_files(&services),
+                    &services,
                 );
                 let (_stopped, failures) = tokio::join!(live_stops, kept_stop);
                 for failure in failures {
@@ -738,27 +737,6 @@ pub(crate) fn switching_home(data_folder: &Path) -> PathBuf {
 /// The capability read's home: its folder under the daemon's `data_folder`.
 pub(crate) fn capability_read_home(data_folder: &Path) -> PathBuf {
     data_folder.join(CODEX_CAPABILITY_READ_FOLDER)
-}
-
-/// The record files a daemon stop leaves to `services`, which the kept stop skips: the record of
-/// each of the daemon's own services, which its supervisor stops, the one a launch under way
-/// publishes before writing it among them, and a joined service's, left alone because the daemon
-/// never stops it. Each service's socket's record is among them, so a join under way, which
-/// publishes nothing, is skipped too; a record whose Codex folder no longer resolves cannot be
-/// named, so the kept stop takes it.
-pub(super) fn live_record_files(
-    services: &[Arc<CodexService>],
-) -> HashSet<LastingServiceRecordFile> {
-    services
-        .iter()
-        .flat_map(|service| {
-            [
-                service.process_record_file(),
-                socket_record_file(service).ok(),
-            ]
-        })
-        .flatten()
-        .collect()
 }
 
 /// The home's own control socket.
