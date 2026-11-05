@@ -8,6 +8,7 @@ use super::{
     ClaudeVariableSource, read_claude_self_update,
 };
 use crate::driver::claude::mcp::config::ClaudePersonConfigFiles;
+use crate::driver::claude::session::rules::{CLAUDE_SHARED_SETTINGS_FILE, settings_path};
 
 // The files one case writes, each `None` where the case has no such file.
 struct CaseFiles<'case> {
@@ -36,7 +37,7 @@ enum ExpectedSource {
 async fn read_case(folder: &Path, files: &CaseFiles<'_>) -> ClaudeSelfUpdateReading {
     let config_files = ClaudePersonConfigFiles {
         person_config: folder.join(".claude.json"),
-        user_settings: folder.join(".claude").join("settings.json"),
+        user_settings: settings_path(folder, CLAUDE_SHARED_SETTINGS_FILE),
     };
     let managed_folder = folder.join("managed");
     fs::create_dir_all(folder.join(".claude")).expect("the config folder is made");
@@ -180,7 +181,7 @@ async fn opt_out_reads_the_variable_claude_code_runs_with(
                     file: folder.path().join("managed").join("managed-settings.json"),
                 },
                 ExpectedSource::User => ClaudeVariableSource::UserSettings {
-                    file: folder.path().join(".claude").join("settings.json"),
+                    file: settings_path(folder.path(), CLAUDE_SHARED_SETTINGS_FILE),
                 },
                 ExpectedSource::Shell => ClaudeVariableSource::LoginShell,
             },

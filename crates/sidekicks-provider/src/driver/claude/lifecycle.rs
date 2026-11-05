@@ -9,7 +9,6 @@ mod sessions;
 #[cfg(test)]
 mod tests;
 
-use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use sidekicks_contracts::provider::driver::commands::{
@@ -33,9 +32,7 @@ use crate::driver::claude::account::ClaudeAccountLegs;
 use crate::driver::claude::account::credentials::ClaudeSignInReader;
 use crate::driver::claude::delivery::commands::{ClaudeCommandChannels, ClaudeCommandPrograms};
 use crate::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
-use crate::driver::claude::delivery::requests::answers::{
-    ClaudeAnswerRules, read_claude_repository,
-};
+use crate::driver::claude::delivery::requests::answers::ClaudeAnswerRules;
 use crate::driver::claude::delivery::requests::{
     ClaudeInboundRequests, ClaudeInboundRequestsDependencies,
 };
@@ -81,7 +78,6 @@ use crate::driver::claude::spawn::launch::installed_build::{
 };
 use crate::driver::contract::error::DriverError;
 use crate::port::inbound_dispatch::InboundDispatch;
-use crate::port::repository_reader::RepositoryReading;
 use crate::port::run_host::RunHost;
 use crate::port::session_inbox_address::SessionInboxAddresser;
 
@@ -298,13 +294,6 @@ impl ClaudeDriver {
     /// session is live either.
     pub(crate) fn composed_parts(&self) -> Option<&Arc<ClaudeSessionParts>> {
         self.parts.get()
-    }
-
-    /// The repository of `working_folder` as Claude Code places its project settings; `None`
-    /// outside git, and before the daemon registers its repository reader.
-    async fn read_repository(&self, working_folder: &Path) -> Option<(RepositoryReading, bool)> {
-        let repositories = self.sources.ports.repositories.port()?;
-        read_claude_repository(&**repositories, working_folder).await
     }
 
     // Every piece a session shares, wired over `engine` and its `dispatch`.
