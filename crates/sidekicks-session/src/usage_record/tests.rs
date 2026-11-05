@@ -39,7 +39,7 @@ use sidekicks_provider::port::usage_sink::{
     MeteredUsage, MeteredUsageOwner, ProviderQuotaWindow, RecordedUsage, UsageSink,
 };
 use sidekicks_provider::usage_delta_accountant::{
-    MeteredUsageDelta, UsageAxisCounts, UsageDiagnosticBand,
+    MeteredUsageDelta, UsageAxisCounts, UsageDiagnosticBand, UsageRequestFacts,
 };
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
@@ -263,6 +263,7 @@ impl Harness {
                         cache_read_tokens_delta: cache_read,
                         cache_write_tokens_delta: 0,
                     },
+                    request: UsageRequestFacts::default(),
                 },
             })
             .await

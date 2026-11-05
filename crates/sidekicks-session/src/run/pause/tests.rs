@@ -26,7 +26,7 @@ use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::error_causes::unanswered;
 use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
-use sidekicks_provider::driver::run_control::{TakenMessages, WaitingMessage};
+use sidekicks_provider::driver::run_control::{ResumeRunOutcome, TakenMessages, WaitingMessage};
 use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
 };
@@ -188,7 +188,7 @@ struct HeldCall {
 /// Has `driver`'s one resume wait for the test's answer.
 fn hold_resume(driver: &mut MockProviderDriver) -> HeldCall {
     let (started_sender, started) = oneshot::channel();
-    let (answer, answered) = oneshot::channel();
+    let (answer, answered) = oneshot::channel::<Result<(), DriverError>>();
     let held = Mutex::new(Some((started_sender, answered)));
     driver.expect_resume_run().times(1).returning(move |_| {
         let (started, answered) = held
@@ -197,7 +197,15 @@ fn hold_resume(driver: &mut MockProviderDriver) -> HeldCall {
             .take()
             .expect("the driver is resumed once");
         started.send(()).expect("the test waits for the call");
-        async move { answered.await.expect("the test answers the call") }.boxed()
+        async move {
+            answered
+                .await
+                .expect("the test answers the call")
+                .map(|()| ResumeRunOutcome {
+                    is_hold_lost: false,
+                })
+        }
+        .boxed()
     });
     HeldCall { started, answer }
 }
@@ -332,7 +340,9 @@ async fn a_failed_resume_moves_nothing_and_sends_each_message_once(#[case] failu
                         "the provider would not resume".into(),
                     )),
                     (true, ResumeFailure::Unanswered) => Err(unanswered()),
-                    (false, _) => Ok(()),
+                    (false, _) => Ok(ResumeRunOutcome {
+                        is_hold_lost: false,
+                    }),
                 }
             }
             .boxed()
@@ -395,7 +405,12 @@ async fn a_run_ended_under_the_resume_is_not_moved(
                 )
             })
             .expect("the process exit ends the run");
-        async { Ok(()) }.boxed()
+        async {
+            Ok(ResumeRunOutcome {
+                is_hold_lost: false,
+            })
+        }
+        .boxed()
     });
     driver.expect_find_taken_messages().returning(|params| {
         let taken = params.message_ids;
@@ -519,10 +534,14 @@ async fn a_pause_whose_answer_never_came_stays_pausing_for_the_providers_report(
 #[tokio::test]
 async fn a_report_during_the_resumes_run_read_waits_and_the_resume_takes_the_run() {
     let mut driver = MockProviderDriver::new();
-    driver
-        .expect_resume_run()
-        .times(1)
-        .returning(|_| async { Ok(()) }.boxed());
+    driver.expect_resume_run().times(1).returning(|_| {
+        async {
+            Ok(ResumeRunOutcome {
+                is_hold_lost: false,
+            })
+        }
+        .boxed()
+    });
     let fixture = Arc::new(fixture(driver, "pausing").await);
     let held_read = fixture.engine.resume_read_pause().arm();
     let messages = Arc::new(WaitingMessages::holding(waiting_message()));

@@ -245,6 +245,11 @@ impl ClaudeDriver {
                 slot.finish();
             }
         }
+        // Once no process can be adopted, so a spawn the close waited for leaves no rows behind.
+        parts
+            .establishment
+            .inspector_reads
+            .forget_session(session_id);
         // Once the process's own exit settled what it held, so only what that left open is read.
         if !parts.restarts.is_stopped() {
             self.settle_held_calls_at_rest(
@@ -432,19 +437,11 @@ impl ClaudeDriver {
         params: FindTakenMessagesParams,
     ) -> Result<TakenMessages, DriverError> {
         let session_id = params.session_id;
-        let parts = self.composed_parts();
-        let conversation = parts
-            .and_then(|parts| parts.slots().live_session(session_id))
-            .map(|live| ClaudeEndedConversation {
-                provider_session_id: live.provider_session_id.clone(),
-                spawn_environment: live.spawn_bound_legs.spawn_environment.clone(),
-            })
-            .or_else(|| parts.and_then(|parts| parts.restarts.ended_conversation(session_id)))
-            .ok_or_else(|| {
-                DriverError::Internal(
-                    format!("no Claude Code conversation of session {session_id} is known").into(),
-                )
-            })?;
+        let conversation = self.last_conversation(session_id).ok_or_else(|| {
+            DriverError::Internal(
+                format!("no Claude Code conversation of session {session_id} is known").into(),
+            )
+        })?;
         let file = conversation_file_of(
             &conversation.spawn_environment,
             &conversation.provider_session_id,
@@ -487,6 +484,12 @@ impl ClaudeDriver {
         let sources = &self.sources;
         let session_id = params.session_id;
         self.close_command_channel(session_id).await;
+        if let Some(parts) = self.composed_parts() {
+            parts
+                .establishment
+                .inspector_reads
+                .forget_session(session_id);
+        }
         // The session's folder is the same on every account it ran on.
         let Some(first) = params.conversations.first() else {
             return Ok(());
@@ -499,7 +502,7 @@ impl ClaudeDriver {
             .resolve_spawn_context(session_id, first.provider_account_id.clone())
             .await
             .map_err(DriverError::Internal)?;
-        let repository = self.read_repository(&context.working_directory).await;
+        let repository = sources.read_repository(&context.working_directory).await;
         let project_folder = claude_project_folder(&context.working_directory, repository.as_ref());
         let data_folder = sources.data_folder.to_string_lossy();
         let place = ClaudePurgePlace {

@@ -1,7 +1,7 @@
 //! Routes each request a live Claude Code process sends: the daemon's own pause, helper-start,
-//! helper-limit and background-work hooks are answered here, and every other request (tool asks,
-//! dialogs, the question hook, a reviewer's block) goes on to the event side, which answers it or
-//! leaves it pending at the provider.
+//! message-target, helper-limit, helper-wake and background-work hooks are answered here, and
+//! every other request (tool asks, dialogs, the question hook, a reviewer's block) goes on to the
+//! event side, which answers it or leaves it pending at the provider.
 
 use std::sync::{Arc, Mutex};
 
@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
+use sidekicks_contracts::run::control::StopTrigger;
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
@@ -21,7 +23,7 @@ use crate::driver::claude::hooks::helper_limit::{ClaudeHelperLimit, ClaudeHelper
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::pause::{ClaudeHookAnswer, ClaudePauseAnswer, ClaudeRunPauses};
 use crate::driver::claude::hooks::registration::{
-    CLAUDE_HELPER_TOOL_NAME, ClaudeHookCallback as RegisteredHook,
+    CLAUDE_HELPER_TOOL_NAME, CLAUDE_MESSAGE_TOOL_NAME, ClaudeHookCallback as RegisteredHook,
 };
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::inbound::{
@@ -33,7 +35,10 @@ use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
+use crate::driver::hook_pauses::target_unread_reason;
+use crate::driver::run_control::HelperStopReason;
 use crate::lenient_json::{lenient_object, read_lenient};
+use crate::port::agent_tree_lookup::{AgentTreeHelper, AgentTreeLookup};
 use crate::run::posture::resolve_posture;
 
 /// Where one request a process sent goes.
@@ -67,6 +72,29 @@ pub(crate) enum ClaudeRequestRoute {
         /// The calling helper's id, `None` on the lead.
         agent_id: Option<String>,
     },
+    /// Answer or hold it through [`route_message_target`], which checks the helper a message call
+    /// aims at before the pause decides: a call of the message tool that names a recipient.
+    CheckMessageTarget {
+        /// The request's id.
+        request_id: String,
+        /// The calling helper's id, `None` on the lead.
+        agent_id: Option<String>,
+        /// The recipient the call names.
+        to: String,
+    },
+    /// Answer or hold it through [`route_helper_wake`], which reads whether the helper a message
+    /// call aims at has ended before the helper limit decides: a message call that names a
+    /// recipient, seen by the helper-limit hook.
+    CheckHelperWake {
+        /// The request's id.
+        request_id: String,
+        /// The calling helper's id, `None` on the lead.
+        agent_id: Option<String>,
+        /// The message call's id, which the woken helper's start names as its parent.
+        tool_use_id: String,
+        /// The recipient the call names.
+        to: String,
+    },
     /// Hand it on to the event side: every request the daemon's hooks do not answer, and every
     /// withdrawal.
     Forward(ClaudeInboundRequestEvent),
@@ -91,11 +119,13 @@ struct HookInput {
     #[serde(default, deserialize_with = "read_lenient")]
     tool_use_id: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
-    tool_input: Option<ShellToolInput>,
+    tool_input: Option<HookToolInput>,
 }
 
+// The members of a hooked tool call's input the daemon's hooks read: a shell call's, and the
+// recipient of a message call.
 #[derive(Deserialize)]
-struct ShellToolInput {
+struct HookToolInput {
     #[serde(default, deserialize_with = "read_lenient")]
     command: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
@@ -103,6 +133,8 @@ struct ShellToolInput {
     // Only whether a limit is set is read; Claude Code checks its type before the hook runs.
     #[serde(default)]
     timeout: Option<serde::de::IgnoredAny>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    to: Option<String>,
 }
 
 /// The parts of a shell call the background-work hook reads.
@@ -116,7 +148,7 @@ pub(crate) struct ClaudeShellCall {
 }
 
 impl ClaudeShellCall {
-    fn of(tool_input: ShellToolInput) -> Self {
+    fn of(tool_input: HookToolInput) -> Self {
         Self {
             command: tool_input.command.filter(|command| !command.is_empty()),
             is_untimed_background: tool_input.run_in_background == Some(true)
@@ -132,15 +164,17 @@ pub(crate) const UNTIMED_BACKGROUND_REASON: &str = "Not started: a command run w
     watcher or anything meant to keep running until someone stops it, start it with shell_run \
     instead.";
 
-lenient_object!(HookInput, ShellToolInput);
+lenient_object!(HookInput, HookToolInput);
 
 /// Routes one request event off a session's process, at the session's `level`: a withdrawal also
 /// withdraws a held pause or helper start; a call of the helper tool goes to the helper-start
-/// check before the pause decides; a pause or helper-limit callback is answered or held here; a
-/// helper's post-tool and stop callbacks carry its waiting words; the background-work callback is
-/// checked; the question hook goes on only at Sandboxed and the denial hook only at
-/// Reviewed, both registered at every level since a live process can move, and pass with no
-/// decision off them; anything else goes on.
+/// check, and a call of the message tool that names a recipient to the message-target check,
+/// before the pause decides; a pause callback, and a helper-limit callback on the helper tool, is
+/// answered or held here, while one on the message tool that names a recipient goes to the
+/// helper-wake check and any other passes; a helper's post-tool and stop callbacks carry its
+/// waiting words; the background-work callback is checked; the question hook goes on only at
+/// Sandboxed and the denial hook only at Reviewed, both registered at every level since a live
+/// process can move, and pass with no decision off them; anything else goes on.
 pub(crate) fn route_claude_request(
     event: ClaudeInboundRequestEvent,
     session_id: &SessionId,
@@ -170,6 +204,11 @@ pub(crate) fn route_claude_request(
         .filter(|id| !id.is_empty());
     let is_helper_start = input.as_ref().and_then(|input| input.tool_name.as_deref())
         == Some(CLAUDE_HELPER_TOOL_NAME);
+    let message_to = input
+        .as_ref()
+        .filter(|input| input.tool_name.as_deref() == Some(CLAUDE_MESSAGE_TOOL_NAME))
+        .and_then(|input| input.tool_input.as_ref()?.to.clone())
+        .filter(|to| !to.is_empty());
     let request_id = request.request_id.clone();
     let pass_off_level = |at: PermissionLevel, request| {
         if level == Some(at) {
@@ -190,9 +229,15 @@ pub(crate) fn route_claude_request(
                 agent_id,
             }
         }
-        RegisteredHook::PauseBeforeTool => {
-            route_before_tool(pauses, session_id, request.request_id, agent_id)
-        }
+        RegisteredHook::PauseBeforeTool => match message_to {
+            // Checked before the pause for the same reason as a helper start.
+            Some(to) => ClaudeRequestRoute::CheckMessageTarget {
+                request_id: request.request_id,
+                agent_id,
+                to,
+            },
+            None => route_before_tool(pauses, session_id, request.request_id, agent_id),
+        },
         RegisteredHook::PauseAfterBatch => pause_route(
             pauses.answer_after_batch(session_id, agent_id.as_deref()),
             request.request_id,
@@ -212,12 +257,21 @@ pub(crate) fn route_claude_request(
                 .or_else(|| input.and_then(|input| input.tool_use_id))
                 .filter(|id| !id.is_empty())
                 .unwrap_or_else(|| request.request_id.clone());
-            match helpers.answer_start(session_id, &request.request_id, &tool_use_id) {
-                ClaudeHelperStartAnswer::Admit => ClaudeRequestRoute::Answer {
+            if is_helper_start {
+                let answer = helpers.answer_start(session_id, &request.request_id, &tool_use_id);
+                return helper_limit_route(answer, request.request_id);
+            }
+            match message_to {
+                Some(to) => ClaudeRequestRoute::CheckHelperWake {
+                    request_id: request.request_id,
+                    agent_id,
+                    tool_use_id,
+                    to,
+                },
+                None => ClaudeRequestRoute::Answer {
                     request_id: request.request_id,
                     answer: ClaudeHookAnswer::Pass,
                 },
-                ClaudeHelperStartAnswer::Hold => ClaudeRequestRoute::Held { helper: None },
             }
         }
         RegisteredHook::HelperSteerAfterTool => ClaudeRequestRoute::Answer {
@@ -296,6 +350,125 @@ fn helper_start_refused_reason(cause: &str) -> String {
         "Not started: this session's permission level cannot run right now, because {cause}. \
          Continue without a helper, or tell the person."
     )
+}
+
+/// The route of a message call `request_id` by the helper `agent_id` or the lead, aimed at the
+/// helper `to`: a stopped caller is denied with its own stop's sentence; a call aimed at a helper
+/// stopped with every other agent, in memory or, once its process or the daemon restarted, by the
+/// stop its newest own run stored through `lookup`, is denied with that stop's sentence; one aimed
+/// at a helper a pause or an interrupt holds is denied with [`HELD_TARGET_REASON`]; a failed read
+/// is denied with its cause; any other is answered or held as the pause says. A `to` naming the
+/// lead or no helper finds none. `pauses` is never locked across the read.
+///
+/// [`HELD_TARGET_REASON`]: crate::driver::hook_pauses::HELD_TARGET_REASON
+pub(crate) async fn route_message_target(
+    lookup: Option<Arc<dyn AgentTreeLookup>>,
+    pauses: &Mutex<ClaudeRunPauses>,
+    session_id: &SessionId,
+    request_id: String,
+    agent_id: Option<String>,
+    to: String,
+) -> ClaudeRequestRoute {
+    let aimed = lock(pauses).answer_aimed_call(session_id, agent_id.as_deref(), &to);
+    if let Some(answer) = aimed {
+        return ClaudeRequestRoute::Answer { request_id, answer };
+    }
+    if let Some(lookup) = lookup {
+        let stored = lookup
+            .helper_by_subagent_id(*session_id, DESCRIPTOR.provider_id(), to)
+            .await;
+        let denial = match stored {
+            Ok(Some(helper)) => {
+                is_stopped_with_all(&helper).then(|| HelperStopReason::StopAll.sentence())
+            }
+            Ok(None) => None,
+            Err(error) => Some(target_unread_reason(&describe_error(&*error))),
+        };
+        if let Some(reason) = denial {
+            return ClaudeRequestRoute::Answer {
+                request_id,
+                answer: ClaudeHookAnswer::Deny { reason },
+            };
+        }
+    }
+    route_before_tool(&mut lock(pauses), session_id, request_id, agent_id)
+}
+
+/// The route of a message call `request_id`, the tool call `tool_use_id` by the helper `agent_id`
+/// or the lead, aimed at the helper `to`, which wakes it when it has ended: a helper the tree
+/// holds whose newest own run ended counts against the session's helper limit as a new start
+/// does, admitted while the session has room and held otherwise. A call the message-target check
+/// denies passes uncounted, since it wakes nothing: a stopped caller's, and one aimed at a helper
+/// stopped with every other agent, in memory or by its stored stop, or at a helper a pause or an
+/// interrupt holds, whose interrupted run has not ended. A running helper, an id the tree does not
+/// hold or a tree not yet registered passes; a failed read is denied with its cause. Neither lock
+/// is held across the read, and `pauses` is taken before `helpers`, as every route takes them.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the call's ids and the stores it reads, each a separate input"
+)]
+pub(crate) async fn route_helper_wake(
+    lookup: Option<Arc<dyn AgentTreeLookup>>,
+    pauses: &Mutex<ClaudeRunPauses>,
+    helpers: &Mutex<ClaudeHelperLimit>,
+    session_id: &SessionId,
+    request_id: String,
+    agent_id: Option<&str>,
+    tool_use_id: &str,
+    to: &str,
+) -> ClaudeRequestRoute {
+    let pass = |request_id| ClaudeRequestRoute::Answer {
+        request_id,
+        answer: ClaudeHookAnswer::Pass,
+    };
+    let is_target_denied = lock(pauses)
+        .answer_aimed_call(session_id, agent_id, to)
+        .is_some();
+    if is_target_denied {
+        return pass(request_id);
+    }
+    let Some(lookup) = lookup else {
+        return pass(request_id);
+    };
+    let stored = lookup
+        .helper_by_subagent_id(*session_id, DESCRIPTOR.provider_id(), to.to_owned())
+        .await;
+    match stored {
+        Ok(Some(helper)) if helper.own_run_state.is_terminal() && !is_stopped_with_all(&helper) => {
+            let pauses = lock(pauses);
+            if helper.own_run_state == RunState::Interrupted
+                && pauses.is_helper_held(session_id, to)
+            {
+                return pass(request_id);
+            }
+            let answer = lock(helpers).answer_start(session_id, &request_id, tool_use_id);
+            helper_limit_route(answer, request_id)
+        }
+        Ok(Some(_) | None) => pass(request_id),
+        Err(error) => ClaudeRequestRoute::Answer {
+            request_id,
+            answer: ClaudeHookAnswer::Deny {
+                reason: target_unread_reason(&describe_error(&*error)),
+            },
+        },
+    }
+}
+
+// Whether the stored helper was stopped with every other agent, by the stop its newest own run
+// stored, which no message wakes.
+fn is_stopped_with_all(helper: &AgentTreeHelper) -> bool {
+    matches!(helper.own_run_stop_trigger, Some(StopTrigger::StopAll))
+}
+
+// The helper limit's route for a start or a wake: a pass now, or a hold the limit releases.
+fn helper_limit_route(answer: ClaudeHelperStartAnswer, request_id: String) -> ClaudeRequestRoute {
+    match answer {
+        ClaudeHelperStartAnswer::Admit => ClaudeRequestRoute::Answer {
+            request_id,
+            answer: ClaudeHookAnswer::Pass,
+        },
+        ClaudeHelperStartAnswer::Hold => ClaudeRequestRoute::Held { helper: None },
+    }
 }
 
 // The pause's route for a pre-tool callback: an answer now, or a hold that names the helper.
@@ -377,221 +550,4 @@ fn read_hook_input(callback: &ClaudeHookCallback) -> Option<HookInput> {
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::driver::test_registry::fixed_session_id;
-    use std::path::Path;
-    use std::sync::{Arc, Mutex};
-
-    use rstest::rstest;
-    use serde_json::json;
-    use serde_json::value::RawValue;
-    use sidekicks_contracts::free_form_string::FilesystemPath;
-    use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
-    use sidekicks_contracts::session::controls::methods::PermissionLevel;
-    use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
-    use sidekicks_std::error_description::describe_error;
-    use sidekicks_std::mutex_lock::lock;
-
-    use super::{
-        ClaudeHeldHelper, ClaudeRequestRoute, ClaudeShellCall, ShellToolInput,
-        UNTIMED_BACKGROUND_REASON, answer_background_work_check, helper_start_refused_reason,
-        route_claude_request, route_helper_start,
-    };
-    use crate::background_work::BackgroundWorkForms;
-    use crate::driver::PROVIDERS;
-    use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
-    use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
-    use crate::driver::claude::hooks::pause::{ClaudeHookAnswer, ClaudeRunPauses};
-    use crate::driver::claude::hooks::registration::ClaudeHookCallback as RegisteredHook;
-    use crate::driver::claude::session::transport::inbound::{
-        ClaudeHookCallback, ClaudeInboundRequest, ClaudeInboundRequestBody,
-        ClaudeInboundRequestEvent,
-    };
-    use crate::run::posture::{compose_execution_posture, resolve_posture};
-
-    // Routes one pre-tool callback for `tool_name`, called by the helper `agent_id` or the lead.
-    fn route_pre_tool_call(
-        pauses: &Mutex<ClaudeRunPauses>,
-        tool_name: &str,
-        agent_id: Option<&str>,
-        request_id: &str,
-    ) -> ClaudeRequestRoute {
-        let mut input = json!({ "tool_name": tool_name });
-        if let Some(agent_id) = agent_id {
-            input["agent_id"] = agent_id.into();
-        }
-        let event = ClaudeInboundRequestEvent::Request(ClaudeInboundRequest {
-            request_id: request_id.to_owned(),
-            body: ClaudeInboundRequestBody::HookCallback(ClaudeHookCallback {
-                callback_id: Some(RegisteredHook::PauseBeforeTool.id().to_owned()),
-                tool_use_id: None,
-                input: Some(RawValue::from_string(input.to_string()).expect("a JSON input")),
-            }),
-        });
-        route_claude_request(
-            event,
-            &fixed_session_id(),
-            Some(PermissionLevel::Sandboxed),
-            &mut lock(pauses),
-            &mut ClaudeHelperLimit::default(),
-            &mut ClaudeHelperSteers::default(),
-        )
-    }
-
-    // Routes one helper start through the route and the check, as the session's task does.
-    async fn route_start(
-        pauses: &Mutex<ClaudeRunPauses>,
-        posture: &ExecutionPosture,
-        agent_id: Option<&str>,
-        request_id: &str,
-    ) -> ClaudeRequestRoute {
-        let ClaudeRequestRoute::CheckHelperStart {
-            request_id,
-            agent_id,
-        } = route_pre_tool_call(pauses, "Agent", agent_id, request_id)
-        else {
-            panic!("a helper start goes to the check");
-        };
-        route_helper_start(
-            Some(posture),
-            pauses,
-            &fixed_session_id(),
-            request_id,
-            agent_id,
-        )
-        .await
-    }
-
-    fn sandboxed_over(root: &Path) -> ExecutionPosture {
-        compose_execution_posture(
-            PermissionLevel::Sandboxed,
-            FilesystemPath::new(root.to_string_lossy().into_owned()).expect("a valid path"),
-        )
-    }
-
-    /// The answer a case expects: a pass, the time-limit denial, or another denial.
-    #[derive(Debug)]
-    enum Expected {
-        Pass,
-        UntimedDenial,
-        BackgroundWorkDenial,
-    }
-
-    // Killed by a hook that lets a provider's background work through or refuses an ordinary
-    // command; by a dropped or inverted time-limit check (an untimed background call passed, a
-    // timed one denied). Mutations: in `answer_background_work_check`, `untimed_answer` always
-    // `Pass`; in `ClaudeShellCall::of`, `timeout.is_none()` to `is_some()` or the condition
-    // dropped.
-    #[rstest]
-    #[case::provider_background_work(
-        json!({"command": "bash -c 'claude --bg x'"}),
-        Expected::BackgroundWorkDenial
-    )]
-    #[case::ordinary_command(json!({"command": "ls -la"}), Expected::Pass)]
-    #[case::background_with_no_timeout(
-        json!({"command": "npm run build", "run_in_background": true}),
-        Expected::UntimedDenial
-    )]
-    #[case::background_with_a_timeout(
-        json!({"command": "npm run build", "run_in_background": true, "timeout": 600_000}),
-        Expected::Pass
-    )]
-    #[tokio::test]
-    async fn the_background_work_hook_denies_background_work_and_untimed_background_calls(
-        #[case] tool_input: serde_json::Value,
-        #[case] expected: Expected,
-    ) {
-        let shell_lines = ShellLineReadingBound::new(4096);
-        let background_work = Arc::new(BackgroundWorkForms::of_providers(PROVIDERS));
-        let tool_input: ShellToolInput = serde_json::from_value(tool_input).expect("a tool input");
-
-        let answer = answer_background_work_check(
-            &shell_lines,
-            &background_work,
-            ClaudeShellCall::of(tool_input),
-        )
-        .await;
-
-        match (expected, &answer) {
-            (Expected::Pass, ClaudeHookAnswer::Pass) => {}
-            (Expected::UntimedDenial, ClaudeHookAnswer::Deny { reason })
-                if reason == UNTIMED_BACKGROUND_REASON => {}
-            (Expected::BackgroundWorkDenial, ClaudeHookAnswer::Deny { reason })
-                if reason != UNTIMED_BACKGROUND_REASON => {}
-            (expected, answer) => panic!("expected {expected:?}, answered {answer:?}"),
-        }
-    }
-
-    // Killed by the check skipped (the helper tool routed to the pause, or the check answering
-    // `None` on a refusal) and by the check applied to every tool (the shell call routed to it).
-    #[tokio::test]
-    async fn a_helper_start_is_denied_where_the_sandboxed_root_is_gone_and_a_shell_call_passes() {
-        let scratch = tempfile::tempdir().expect("a scratch folder");
-        let gone = scratch.path().join("repo.git");
-        let posture = sandboxed_over(&gone);
-        let pauses = Mutex::new(ClaudeRunPauses::default());
-
-        let ClaudeRequestRoute::Answer {
-            request_id,
-            answer: ClaudeHookAnswer::Deny { reason },
-        } = route_start(&pauses, &posture, None, "r1").await
-        else {
-            panic!("a posture whose root is gone refuses the helper start");
-        };
-        let rejection = resolve_posture(&posture)
-            .await
-            .expect_err("the root is gone");
-        let cause = describe_error(&rejection);
-        assert!(
-            cause.starts_with(&format!("the writable root '{}'", gone.display())),
-            "{cause}"
-        );
-        assert_eq!(request_id, "r1");
-        assert_eq!(reason, helper_start_refused_reason(&cause));
-        assert!(
-            reason.starts_with(
-                "Not started: this session's permission level cannot run right now, because "
-            ) && reason.ends_with(". Continue without a helper, or tell the person."),
-            "{reason}"
-        );
-
-        assert!(matches!(
-            route_pre_tool_call(&pauses, "Bash", None, "r2"),
-            ClaudeRequestRoute::Answer {
-                answer: ClaudeHookAnswer::Pass,
-                ..
-            }
-        ));
-    }
-
-    // Killed by a deny on every helper start (the check refusing a posture that resolves) and by
-    // the pause skipped for a helper's start (the call answered at once while its helper is
-    // paused).
-    #[tokio::test]
-    async fn a_resolvable_posture_passes_a_helper_start_and_a_paused_helpers_start_is_held() {
-        let scratch = tempfile::tempdir().expect("a scratch folder");
-        let posture = sandboxed_over(scratch.path());
-        let pauses = Mutex::new(ClaudeRunPauses::default());
-
-        assert!(matches!(
-            route_start(&pauses, &posture, None, "r1").await,
-            ClaudeRequestRoute::Answer {
-                answer: ClaudeHookAnswer::Pass,
-                ..
-            }
-        ));
-        lock(&pauses).pause_helper(&fixed_session_id(), "helper-a");
-        let ClaudeRequestRoute::Held { helper } =
-            route_start(&pauses, &posture, Some("helper-a"), "r2").await
-        else {
-            panic!("a paused helper's helper start is held");
-        };
-        assert_eq!(
-            helper,
-            Some(ClaudeHeldHelper {
-                agent_id: "helper-a".to_owned(),
-                has_taken_effect: true,
-            })
-        );
-    }
-}
+mod tests;

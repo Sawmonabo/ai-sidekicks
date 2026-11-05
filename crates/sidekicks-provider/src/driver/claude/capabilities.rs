@@ -36,6 +36,13 @@ const CLAUDE_DEFAULT_MODEL_POINTER: &str = "default";
 /// The suffix Claude Code puts on a model id for that model's 1M-token window.
 const CLAUDE_LARGER_WINDOW_MARK: &str = "[1m]";
 
+/// `model` without the larger-window mark, the id the model is priced and attributed under.
+pub(crate) fn without_larger_window_mark(model: &str) -> &str {
+    model
+        .strip_suffix(CLAUDE_LARGER_WINDOW_MARK)
+        .unwrap_or(model)
+}
+
 /// One catalog model text: an id, a name or an effort.
 type CatalogText = FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>;
 

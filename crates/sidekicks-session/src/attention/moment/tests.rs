@@ -213,6 +213,10 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
     run_state("stopped", json!({})),
     resolve(AttentionOpenEntries::Run(run_id()))
 )]
+#[case::stopped_with_every_agent(
+    run_state("stopped", json!({"trigger": "stopAll"})),
+    resolve(AttentionOpenEntries::Run(run_id()))
+)]
 #[case::turn_started(
     json!({"type": "agent.turn.started", "payload": {
         "sessionId": SESSION, "runId": RUN, "runVersion": 0, "turnNumber": 1,

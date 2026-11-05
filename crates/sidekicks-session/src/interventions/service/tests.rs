@@ -42,6 +42,7 @@ use sidekicks_provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_store::events::log_service::test_fixture::open_log;
 use tempfile::TempDir;
 
@@ -66,6 +67,8 @@ pub(crate) struct Harness {
     pub(crate) engine: Arc<RunEngine>,
     /// The service under test.
     pub(crate) service: Arc<InterventionService>,
+    /// The event log the service appends to, which a test appending to the same log reuses.
+    pub(crate) event_log: Arc<EventLogService>,
     /// The run's session.
     pub(crate) session_id: SessionId,
     /// The run.
@@ -131,7 +134,7 @@ async fn harness_reading_priority(
             database.path(),
             INTERVENTION_SERVICE_STATEMENT_CAPACITY,
         )),
-        event_log: log.service,
+        event_log: Arc::clone(&log.service),
         engine: Arc::clone(&engine),
         providers: Arc::new(providers),
         queue,
@@ -140,6 +143,7 @@ async fn harness_reading_priority(
         database,
         engine,
         service,
+        event_log: log.service,
         session_id,
         run_id,
         holds_taken,

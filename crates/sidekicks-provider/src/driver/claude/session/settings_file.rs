@@ -119,7 +119,7 @@ pub(crate) struct ClaudeSettingsSources<'a> {
     /// The folder Claude Code reads an administrator's settings from; `None` where it names none.
     pub(crate) managed_settings_folder: Option<&'a Path>,
     /// The session's working folder, with what Claude Code reads to place its local settings.
-    pub(crate) project_folder: &'a ClaudeProjectFolder<'a>,
+    pub(crate) project_folder: ClaudeProjectFolder<'a>,
     /// The person's own home folder, which places the project's local file.
     pub(crate) home_folder: &'a Path,
     /// The account home's own settings file, `settings.json` in its config folder.
@@ -356,7 +356,7 @@ pub(crate) async fn read_claude_setting<Setting>(
         }
     }
     let mut files: Vec<_> = list_claude_local_settings_files(
-        sources.project_folder,
+        &sources.project_folder,
         sources.home_folder,
         sources.path_rules,
     )
@@ -578,7 +578,10 @@ mod tests {
         read_claude_setting,
     };
     use crate::driver::claude::session::memory::CLAUDE_AUTO_MEMORY_SETTING;
-    use crate::driver::claude::session::rules::ClaudeProjectFolder;
+    use crate::driver::claude::session::rules::{
+        CLAUDE_SHARED_SETTINGS_FILE, CLAUDE_USER_SETTINGS_FILE, ClaudeProjectFolder,
+        local_settings_path, settings_path,
+    };
 
     // Writes `contents` to `file`, making its folder, where the case names one.
     fn write_settings(file: &Path, contents: Option<&str>) {
@@ -637,16 +640,16 @@ mod tests {
         let managed_folder = scratch.path().join("managed");
         let working_folder = scratch.path().join("work");
         let home_folder = scratch.path().join("home");
-        let account_settings_file = scratch.path().join("account").join("settings.json");
+        let account_settings_file = scratch
+            .path()
+            .join("account")
+            .join(CLAUDE_USER_SETTINGS_FILE);
         fs::create_dir_all(&managed_folder).expect("the managed folder is made");
         fs::create_dir_all(&working_folder).expect("the working folder is made");
         write_settings(&managed_folder.join("managed-settings.json"), managed);
+        write_settings(&local_settings_path(&working_folder), local);
         write_settings(
-            &working_folder.join(".claude").join("settings.local.json"),
-            local,
-        );
-        write_settings(
-            &working_folder.join(".claude").join("settings.json"),
+            &settings_path(&working_folder, CLAUDE_SHARED_SETTINGS_FILE),
             shared,
         );
         write_settings(&account_settings_file, account);
@@ -658,7 +661,7 @@ mod tests {
         let setting = read_claude_setting(
             &ClaudeSettingsSources {
                 managed_settings_folder: Some(&managed_folder),
-                project_folder: &project_folder,
+                project_folder,
                 home_folder: &home_folder,
                 account_settings_file: &account_settings_file,
                 path_rules: PathRules::NATIVE,

@@ -505,7 +505,8 @@ impl UsageSink for UsageRecord {
     }
 }
 
-// The row of `delta` on `target`, unstamped, attributed to `helper` where one is named.
+// The row of `delta` on `target`, unstamped, attributed to `helper` where one is named, with the
+// request facts a later repricing reads.
 fn usage_row(
     session_id: SessionId,
     target: &MeteredTarget,
@@ -524,14 +525,14 @@ fn usage_row(
         containment: delta.containment,
         provider_account_id: target.provider_account_id.clone(),
         credential_generation: target.credential_generation,
-        model_id: None,
+        model_id: delta.request.model_id.clone(),
         subagent_id: helper,
-        request_key: None,
-        speed: None,
-        processing_region: None,
-        cache_write_extended_tokens: None,
-        web_search_requests: None,
-        thread_speed: None,
+        request_key: delta.request.request_key.clone(),
+        speed: delta.request.speed.clone(),
+        processing_region: delta.request.processing_region.clone(),
+        cache_write_extended_tokens: axis_figure(delta.request.cache_write_extended_tokens)?,
+        web_search_requests: axis_figure(delta.request.web_search_requests)?,
+        thread_speed: delta.request.thread_speed.clone(),
         source_epoch: None,
         source_position: None,
     })
@@ -611,7 +612,7 @@ fn row_token_count(payload: &UsageTokenCountRecordedPayload) -> u64 {
     figure(payload.input_tokens).saturating_add(figure(payload.output_tokens))
 }
 
-// An axis's figure on the row: absent where the reading carried none, never zero.
+// A count on the row: absent where the reading carried none, never zero.
 fn axis_figure(figure: Option<u64>) -> Result<Option<SafeInt<0>>, UsageRecordError> {
     figure
         .map(|figure| SafeInt::new(figure).ok_or(UsageRecordError::FigureOutOfRange))

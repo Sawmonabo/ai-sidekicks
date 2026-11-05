@@ -189,6 +189,19 @@ pub fn stored_run_state(database: &TestDatabase, run_id: &RunId) -> (String, i64
         .expect("the test reads the run's row")
 }
 
+/// The run's stored parent, `None` for a run with none.
+#[cfg(test)]
+pub(crate) fn parent_of(database: &TestDatabase, run_id: &RunId) -> Option<String> {
+    database
+        .reader()
+        .query_row(
+            "SELECT parent_run_id FROM runs WHERE run_id = ?1",
+            [run_id.text().as_str()],
+            |row| row.get(0),
+        )
+        .expect("the test reads the run's row")
+}
+
 /// Whether a stop wins over `run_id`, read as a restart's caller reads it before any run of the
 /// session settles.
 #[cfg(test)]

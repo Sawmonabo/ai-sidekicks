@@ -125,6 +125,7 @@ async fn reopen_bound_codex_helpers(
     let mut routed = CodexRoutedFrames::default();
     let record = &*task.record;
     let session_id = record.session_id;
+    let auto_memory = record.thread_settings.auto_memory;
     let service = Arc::clone(&record.service);
     let connection = match service.connection() {
         Ok(connection) => connection,
@@ -156,8 +157,14 @@ async fn reopen_bound_codex_helpers(
         |helper| Some(helper.parent_run_id),
     );
     for helper in ordered {
-        match reopen_registered_codex_helper(&service, &connection, session_id, &helper.thread_id)
-            .await
+        match reopen_registered_codex_helper(
+            &service,
+            &connection,
+            session_id,
+            &helper.thread_id,
+            auto_memory,
+        )
+        .await
         {
             Ok(Some(newest)) => routed.extend(
                 end_owed_codex_helper_turn(

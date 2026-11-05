@@ -11,7 +11,7 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
-use super::continuation::{
+use super::adoption::{
     AdoptionScript, CONTINUATION_TURN, ROOT_TURN, adopt_continuing, cut_turn_listed, lead_run,
     page_turn,
 };

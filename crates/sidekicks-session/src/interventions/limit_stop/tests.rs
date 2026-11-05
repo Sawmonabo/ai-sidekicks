@@ -35,7 +35,9 @@ use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::error_causes::unanswered;
 use sidekicks_provider::driver::message_handing::MessageHanding;
-use sidekicks_provider::driver::run_control::{AnswerProviderChoiceResult, WaitingMessage};
+use sidekicks_provider::driver::run_control::{
+    AnswerProviderChoiceResult, ResumeRunOutcome, WaitingMessage,
+};
 use sidekicks_provider::port::run_pause::{
     ContinuedMessages, ContinuedMessagesError, SessionOpening,
 };
@@ -628,8 +630,11 @@ enum ReturnToRunning {
     RefusedPause,
 }
 
-/// No messages wait for the run; the lock is the queue's on each session.
-struct NoWaitingMessages(KeyedLock<SessionId>);
+/// No messages wait for the run.
+pub(crate) struct NoWaitingMessages(
+    /// The queue's lock on each session.
+    pub(crate) KeyedLock<SessionId>,
+);
 
 impl ContinuedMessages for NoWaitingMessages {
     fn open_session(
@@ -754,7 +759,12 @@ async fn a_limit_owed_through_a_pause_is_handed_once_the_provider_runs(
                     })
                     .expect("the test reads the run");
                 assert_eq!((rows, state.as_str()), (1, state_before));
-                async { Ok(()) }.boxed()
+                async {
+                    Ok(ResumeRunOutcome {
+                        is_hold_lost: false,
+                    })
+                }
+                .boxed()
             });
     }
     let harness = harness(driver).await;

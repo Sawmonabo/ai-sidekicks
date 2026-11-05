@@ -548,14 +548,5 @@ fn no_live_run(run_id: RunId) -> ClaudeSessionError {
     }
 }
 
-// The refusal while another run's turn or a command holds the session.
-fn turn_in_flight(session_id: SessionId) -> ClaudeSessionError {
-    claude_session_unavailable(
-        ClaudeSessionUnavailableReason::SessionTurnInFlight,
-        session_id,
-        None,
-    )
-}
-
 #[cfg(test)]
 mod tests;

@@ -9,6 +9,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use strum::IntoStaticStr;
 
 use crate::agent::definition::AgentId;
 use crate::agent::definition::binding::ProviderToken;
@@ -214,9 +215,10 @@ pub struct UsageTokenCountRecordedPayload {
     pub source_position: Option<SourcePosition>,
 }
 
-/// Where a priced request's figure came from.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// Where a priced request's figure came from; converts to its wire word.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, IntoStaticStr)]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum UsageCostSource {
     /// The provider's own figure.
     ProviderReported,

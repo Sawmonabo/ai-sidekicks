@@ -36,9 +36,8 @@ use sidekicks_recovery::stop_intent::{StopIntent, StopIntentFile};
 use sidekicks_session::changes::{
     SESSION_CHANGES_STATEMENT_CAPACITY, SessionChangeError, SessionChanges,
 };
-use sidekicks_session::conversation_purge::{
-    CONVERSATION_PURGE_STATEMENT_CAPACITY, ConversationPurge,
-};
+use sidekicks_session::conversations::SESSION_CONVERSATIONS_STATEMENT_CAPACITY;
+use sidekicks_session::conversations::purge::ConversationPurge;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::directory::run_activity::ProjectSessionActivityReader;
 use sidekicks_session::questions::service::QuestionsService;
@@ -159,7 +158,7 @@ pub(crate) async fn test_purge(
         database.path(),
         EVENT_LOG_STATEMENT_CAPACITY
             + SESSION_PURGE_STATEMENT_CAPACITY
-            + CONVERSATION_PURGE_STATEMENT_CAPACITY
+            + SESSION_CONVERSATIONS_STATEMENT_CAPACITY
             + APPROVAL_RULES_STATEMENT_CAPACITY
             + ARTIFACT_STATEMENT_CAPACITY
             + REPO_MOUNT_SERVICE_STATEMENT_CAPACITY,

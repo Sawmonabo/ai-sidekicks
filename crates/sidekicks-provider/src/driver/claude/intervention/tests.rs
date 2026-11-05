@@ -186,7 +186,7 @@ async fn an_interrupt_sends_and_answers_as_its_choice_and_the_build_allow(
 
     let response = apply(&session, interrupt(run_id, pending, reorders_waiting)).await;
 
-    let requests = session.channel.control_requests();
+    let requests = session.control_requests_after_start();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0]["subtype"], "interrupt");
     assert_eq!(
@@ -251,7 +251,7 @@ fn foreground_task_started(
 
 // The calls whose work the session asked to move to the background ahead of its interrupt, sorted.
 fn backgrounded_before_interrupt(session: &ScriptedSession) -> Vec<Value> {
-    let mut requests = session.channel.control_requests();
+    let mut requests = session.control_requests_after_start();
     let last = requests.pop().expect("the interrupt went");
     assert_eq!(last["subtype"], "interrupt");
     let mut backgrounded: Vec<_> = requests
@@ -304,13 +304,14 @@ async fn an_interrupt_moves_each_foreground_helper_to_the_background_first() {
         interrupt(run_id, InterruptPendingChoice::NextTurn, false),
     )
     .await;
-    let requests = without_helpers.channel.control_requests();
+    let requests = without_helpers.control_requests_after_start();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0]["subtype"], "interrupt");
 }
 
 // Killed by forgetting a helper's call only at its `task_notification`, so an interrupt after the
-// call's result asks Claude Code to move a helper that already ended.
+// call's result asks Claude Code to move a helper that already ended, and by a foreground start
+// naming a `SendMessage` call already answered waiting on that call, which the interrupt moves.
 #[tokio::test(start_paused = true)]
 async fn an_interrupt_moves_only_the_helpers_whose_calls_are_still_waited_on() {
     let session = ScriptedSession::new().await;
@@ -334,6 +335,27 @@ async fn an_interrupt_moves_only_the_helpers_whose_calls_are_still_waited_on() {
             "content": [{"type": "tool_result", "tool_use_id": "call-1", "content": "done"}],
         },
     }));
+    session.frame(&json!({
+        "type": "assistant",
+        "message": {
+            "id": "message-1",
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": "send-1", "name": "SendMessage", "input": {}}],
+        },
+    }));
+    session.frame(&json!({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "send-1", "content": "sent"}],
+        },
+    }));
+    session.frame(&foreground_task_started(
+        "helper-1",
+        "local_agent",
+        "send-1",
+        None,
+    ));
     settle().await;
     apply(
         &session,
@@ -368,8 +390,7 @@ async fn a_helper_move_cut_mid_write_stops_the_process_in_place_of_the_interrupt
     .await;
 
     let subtypes: Vec<_> = session
-        .channel
-        .control_requests()
+        .control_requests_after_start()
         .iter()
         .map(|request| request["subtype"].clone())
         .collect();
@@ -420,7 +441,7 @@ async fn a_helpers_interrupt_holds_it_and_stops_its_commands_its_lead_going_on(
     .await;
 
     assert_eq!(response.status, expected_status);
-    let requests = session.channel.control_requests();
+    let requests = session.control_requests_after_start();
     assert_eq!(requests.len(), 1, "{requests:?}");
     assert_eq!(requests[0]["subtype"], "stop_task");
     assert_eq!(requests[0]["task_id"], "cmd-1");

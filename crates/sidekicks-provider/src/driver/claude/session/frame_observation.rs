@@ -1,25 +1,28 @@
 //! The routing facts of one stream frame Claude Code writes on its output: its kind, the helper it
 //! came from, a helper's start, move to the background and end, the tool calls a `user` frame's
-//! results answer, an assistant message's usage and a turn's own usage, the `system/init`
-//! declaration with its MCP servers' readings and a later whole `/` list, the compaction boundary,
-//! and a start-up hook's start or end. The frame is untrusted, so it is read once into a struct
-//! naming only these members, each leniently: an absent or malformed one reads as absent, and
-//! every other member is skipped unread. `modelUsage`, the process's sum over every thread, is
-//! never read.
+//! results answer, the `SendMessage` calls an assistant frame makes, an assistant message's usage
+//! with what prices its request and a turn's own usage, the `system/init` declaration with its MCP
+//! servers' readings and a later whole `/` list, the compaction boundary, and a start-up hook's
+//! start or end. The frame is untrusted, so it is read once into a struct naming only these
+//! members, each leniently: an absent or malformed one reads as absent, and every other member is
+//! skipped unread. `modelUsage`, the process's sum over every thread, is never read.
 
 use serde::Deserialize;
 use serde_json::Value;
 use serde_json::value::RawValue;
+use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 
+use crate::driver::claude::capabilities::without_larger_window_mark;
 use crate::driver::claude::delivery::commands::CLAUDE_HELPER_TASK_TYPE;
 use crate::driver::claude::event_normalizer::{
     ClaudeSubagentLifecycleSignal, ClaudeSubagentSignal, compose_claude_wire_frame_kind,
     is_claude_result_frame_kind,
 };
+use crate::driver::claude::hooks::registration::CLAUDE_MESSAGE_TOOL_NAME;
 use crate::driver::claude::session::transport::declarations::{
     ClaudeCompactionBoundaryObservation, ClaudeCumulativeUsageObservation,
     ClaudeFastModeDeclaration, ClaudeHandshakeDeclaration, ClaudeInboundFrameObservation,
-    ClaudeMessageUsageObservation,
+    ClaudeMessageRequestFacts, ClaudeMessageUsageObservation,
 };
 use crate::driver::claude::tools::normalize_claude_mcp_server_init_census;
 use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
@@ -92,24 +95,30 @@ pub(crate) struct ClaudeStreamFrameRead {
     hook_event: Option<String>,
 }
 
-// A message as its frame carries it: an assistant message's id and usage so far, and the blocks
-// of either.
+// A message as its frame carries it: an assistant message's id, model and usage so far, and the
+// blocks of either.
 #[derive(Deserialize)]
 struct ClaudeFrameMessage {
     #[serde(default, deserialize_with = "read_lenient")]
     id: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
+    model: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
     usage: Option<ClaudeTokenUsage>,
     #[serde(default, deserialize_with = "read_lenient")]
-    content: Option<LenientList<ClaudeResultBlock>>,
+    content: Option<LenientList<ClaudeContentBlock>>,
 }
 
-// A content block, read only for a tool result's call; the result's own content is skipped
-// unread, since it can be a whole file.
+// A content block, read only for a tool call's id and tool and a tool result's call; the result's
+// own content and the call's input are skipped unread, since either can be a whole file.
 #[derive(Deserialize)]
-struct ClaudeResultBlock {
+struct ClaudeContentBlock {
     #[serde(rename = "type", default, deserialize_with = "read_lenient")]
     block_type: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    id: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    name: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     tool_use_id: Option<String>,
 }
@@ -121,12 +130,8 @@ struct ClaudeTaskPatch {
     is_backgrounded: Option<bool>,
 }
 
-// A message's or a turn's token counts, each member as sent.
+// A message's or a turn's token counts, each member as sent, and what prices a message's request.
 #[derive(Deserialize)]
-#[expect(
-    clippy::struct_field_names,
-    reason = "the members carry Claude Code's own names"
-)]
 struct ClaudeTokenUsage {
     #[serde(default)]
     input_tokens: Option<Box<RawValue>>,
@@ -136,6 +141,28 @@ struct ClaudeTokenUsage {
     cache_creation_input_tokens: Option<Box<RawValue>>,
     #[serde(default)]
     output_tokens: Option<Box<RawValue>>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    speed: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    inference_geo: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    cache_creation: Option<ClaudeCacheCreation>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    server_tool_use: Option<ClaudeServerToolUse>,
+}
+
+// The cache write by lifetime, read only for its longer-lifetime part.
+#[derive(Deserialize)]
+struct ClaudeCacheCreation {
+    #[serde(default)]
+    ephemeral_1h_input_tokens: Option<Box<RawValue>>,
+}
+
+// The server tools a message ran, read only for its web searches.
+#[derive(Deserialize)]
+struct ClaudeServerToolUse {
+    #[serde(default)]
+    web_search_requests: Option<Box<RawValue>>,
 }
 
 // One entry of the whole `/` list a `system/commands_changed` frame carries.
@@ -148,9 +175,11 @@ struct ClaudeChangedCommand {
 lenient_object!(
     ClaudeStreamFrameRead,
     ClaudeFrameMessage,
-    ClaudeResultBlock,
+    ClaudeContentBlock,
     ClaudeTaskPatch,
     ClaudeTokenUsage,
+    ClaudeCacheCreation,
+    ClaudeServerToolUse,
     ClaudeChangedCommand
 );
 
@@ -210,9 +239,11 @@ impl ClaudeStreamFrameRead {
             .then_some(self.message.as_ref())
             .flatten()
             .and_then(|message| {
+                let usage = message.usage.as_ref()?;
                 Some(ClaudeMessageUsageObservation {
                     message_id: filter_non_empty(message.id.clone())?,
-                    counts: read_token_counts(message.usage.as_ref()?)?,
+                    counts: read_token_counts(usage)?,
+                    request: read_request_facts(message.model.as_deref(), usage),
                 })
             });
         let commands_changed = (frame_kind == "system/commands_changed")
@@ -235,6 +266,21 @@ impl ClaudeStreamFrameRead {
                     .iter()
                     .filter(|block| block.block_type.as_deref() == Some("tool_result"))
                     .filter_map(|block| filter_non_empty(block.tool_use_id.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let message_call_ids = (frame_kind == "assistant")
+            .then(|| self.message.as_ref()?.content.as_ref())
+            .flatten()
+            .map(|content| {
+                content
+                    .0
+                    .iter()
+                    .filter(|block| {
+                        block.block_type.as_deref() == Some("tool_use")
+                            && block.name.as_deref() == Some(CLAUDE_MESSAGE_TOOL_NAME)
+                    })
+                    .filter_map(|block| filter_non_empty(block.id.clone()))
                     .collect()
             })
             .unwrap_or_default();
@@ -261,6 +307,7 @@ impl ClaudeStreamFrameRead {
             subagent_lifecycle,
             backgrounded_helper_id,
             answered_call_ids,
+            message_call_ids,
             handshake,
             compaction_boundary,
         }
@@ -318,6 +365,29 @@ fn read_token_counts(usage: &ClaudeTokenUsage) -> Option<UsageAxisCounts> {
         total: None,
     };
     (counts != UsageAxisCounts::default()).then_some(counts)
+}
+
+// What prices a message's request: its model without the larger-window mark, its speed as given,
+// its region where it names one other than `global`, and its longer-lifetime cache write and web
+// searches so far. A text that does not fit its type reads as absent.
+fn read_request_facts(model: Option<&str>, usage: &ClaudeTokenUsage) -> ClaudeMessageRequestFacts {
+    ClaudeMessageRequestFacts {
+        model_id: model
+            .and_then(|model| FreeFormText::new(without_larger_window_mark(model).to_owned()).ok()),
+        speed: usage.speed.clone().and_then(BoundedText::new),
+        processing_region: usage
+            .inference_geo
+            .clone()
+            .filter(|region| region != "global")
+            .and_then(BoundedText::new),
+        cache_write_extended_tokens: usage.cache_creation.as_ref().and_then(|cache_creation| {
+            read_count(cache_creation.ephemeral_1h_input_tokens.as_deref())
+        }),
+        web_search_requests: usage
+            .server_tool_use
+            .as_ref()
+            .and_then(|server_tool_use| read_count(server_tool_use.web_search_requests.as_deref())),
+    }
 }
 
 // One member's count; a member that is no whole count reads as absent.

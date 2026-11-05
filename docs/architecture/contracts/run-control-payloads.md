@@ -185,7 +185,7 @@ interface AgentQueueItemReorderRequest {
 type AgentRunInterveneRequest =
   | {
       // The lead's interrupt. `Interrupt everything` is this arm on the lead's run plus
-      // `agent.childRun.stopAll` on the same run (§Run-Control Method-Name Registry below).
+      // `agent.childRun.stopAll` on its session (§Run-Control Method-Name Registry below).
       type: "interrupt";
       targetRunId: RunId;
       expectedRunVersion: number;
@@ -641,7 +641,6 @@ interface AgentChildRunPausedUpdateRequest {
   childHandle: ChildHandle;
   paused: boolean;
   expectedRunVersion: number;
-  clientIdempotencyKey: string; // a UUID
 }
 interface AgentChildRunPausedUpdateResponse {
   childHandle: ChildHandle;
@@ -651,12 +650,13 @@ interface AgentChildRunPausedUpdateResponse {
   // Never beside `paused: true`.
   holdLost?: true;
 }
-// The one stop that reaches a subtree: every child under the run, at every depth, one stop per id
-// walked from the daemon's own parent-to-child index, never relayed through the lead — `stop_task`
-// per child on Claude Code, which ends it `stopped` for good, and `turn/interrupt` per helper on
-// Codex, which leaves it `interrupted`.
+// The one stop that reaches a subtree: every agent the session dispatched, at every depth, one
+// stop per id walked from the daemon's own parent-to-child index, never relayed through the lead —
+// `stop_task` per child on Claude Code, which ends it `stopped` for good, and `turn/interrupt` per
+// helper on Codex, which leaves it `interrupted`.
 interface AgentChildRunStopAllRequest {
-  runId: RunId;
+  // The session whose agents to stop.
+  sessionId: SessionId;
 }
 interface AgentChildRunStopAllResponse {
   // One row per child the walk reached, so a failure is reported on its own row and never hides the
@@ -697,13 +697,13 @@ Plan-002's queue / intervention / pause-resume operations and a child's controls
 
 **What `agent.run.pause` and `agent.run.resume` realize, per provider.** Pause is a daemon feature, not a provider verb, and it writes no file. On a Claude Code lead it is two hooks registered in the session's `initialize` request and answered over the wire; on a child, on any provider, it is the daemon's pre-tool hook holding that child's next tool call, taken through the approval pipeline the daemon already owns; on a Codex lead it is the boundary interrupt. A hold ends only by an answer — allow from the resume, or deny carrying the person's typed words, which the child reads as its instruction — never by ending the hook, because any exit but a deny lets the held call run. The daemon sets each hook's timeout far past any wait a person would sit through — on Codex 10^12 seconds on the hook row and its entry's tool timeout together, because Codex cuts the call at the smaller of the two and a Codex hook that times out lets the call run — so a hold is lossless: the held call simply goes unanswered, the leg burns no tokens and loses nothing. A cancellation of a held callback is treated as a LOST pause and never as a release. There is no separate "pause now" operation: `agent.run.pause` and `agent.run.resume` are the whole control, and a continue after a pause is a send rather than an operation of its own.
 
-**A child's steer, interrupt and pause.** A live child gets the same three controls its session has, as calls of its own — `agent.childRun.steer`, `agent.childRun.interrupt` and `agent.childRun.paused.update {paused}` — because the lead's steer and interrupt act on the lead; each rests on a provider-driver operation of its own beside the lead's. `agent.childRun.stopAll {runId}` is the one call that stops a subtree. What each satisfies:
+**A child's steer, interrupt and pause.** A live child gets the same three controls its session has, as calls of its own — `agent.childRun.steer`, `agent.childRun.interrupt` and `agent.childRun.paused.update {paused}` — because the lead's steer and interrupt act on the lead; each rests on a provider-driver operation of its own beside the lead's. `agent.childRun.stopAll {sessionId}` is the one call that stops every agent the session dispatched. What each satisfies:
 
 - **The target.** A child's durable handle is the run it belongs to PLUS the provider's own child handle together, never a bare child id: `targetRunId` and `childHandle`, the task id from Claude Code's task-started frame or the thread id from Codex's turn-started frame, each persisted by the daemon at dispatch so a restart re-attaches every child by id. `childHandle` names only a provider's own subagent; a child the daemon bridges as a run of its own is addressed through that run's own verbs.
 - **The mechanism, the same on every provider.** For a provider's own helper at any depth, a steer to a running child is the daemon's post-tool hook returning the words as added context aimed at that child — `agent_id` on Claude Code, the helper the hook input names on Codex — or, when it arrives as the child finishes, the continuation the helper-finish hook (`SubagentStop`) returns; the pause is the daemon's pre-tool hook holding the child's next call; the interrupt is that hold plus the end of its running command — never the provider's own stop-task tool; a steer to a held child answers the held call deny with the typed words; and a send into an ended child — completed, failed, or stopped at its token limit — goes through its parent, which is asked to message it (`SendMessage` on Claude Code, `followup_task` on Codex), and starts the helper's next run under the parent's current run. A steer lands at the child's next tool call, or as it finishes. Every helper a Codex agent starts is a multi-agent v2 helper, to which Codex refuses `turn/start` and `turn/steer`, so neither is ever sent to one; `turn/interrupt` reaches it.
 - **The pause toggle.** `agent.childRun.paused.update {paused: true}` takes the hold; `paused: false`, the toggle's second press, answers the held callback with allow. A cancellation of a held callback is a LOST pause, reported on the result as `holdLost`, never read as a release.
 - **Offered on every child.** Each control is the daemon's own hook on every provider, at any depth. What gates it is the provider's own support, read from the `capabilities` array of Claude Code's init frame and from Codex's schema and model lists, never from a version compare; a hook the CLI refuses at `initialize` keeps the control, with the reason as its hover label, which a press on the control also opens; the press shows only the reason and runs nothing. A control the provider then refuses answers `agent.childRun.controlRefused` with `providerRefused`, and the mechanism is never named to the person.
-- **No fan-out.** An interrupt of one child reaches that child and nothing under it, and whatever dispatched it keeps running. The three stops that do reach a subtree — interrupt everything (`agent.run.intervene {type: "interrupt"}` on the lead's run plus `agent.childRun.stopAll` on the same run), stop all running (`agent.childRun.stopAll`), and the undo's stop of the children started after its point — are one stop per id walked from the daemon's own parent-to-child index at every depth, never a relay through the lead, because neither Claude Code's lead nor Codex's can stop a subtree: `stop_task` per child on Claude Code, which is final (the CLI refuses every later message to that child), and `turn/interrupt` per helper on Codex, where each child rests `interrupted` and keeps its box. `agent.childRun.stopAll` reports each child's outcome on its own row, so one failure never hides the rest.
+- **No fan-out.** An interrupt of one child reaches that child and nothing under it, and whatever dispatched it keeps running. The three stops that do reach a subtree — interrupt everything (`agent.run.intervene {type: "interrupt"}` on the lead's run plus `agent.childRun.stopAll` on its session), stop all running (`agent.childRun.stopAll`), and the undo's stop of the children started after its point — are one stop per id walked from the daemon's own parent-to-child index at every depth, never a relay through the lead, because neither Claude Code's lead nor Codex's can stop a subtree: `stop_task` per child on Claude Code, which is final (the CLI refuses every later message to that child), and `turn/interrupt` per helper on Codex, where each child rests `interrupted` and keeps its box. `agent.childRun.stopAll` reports each child's outcome on its own row, so one failure never hides the rest.
 
 A handle that names no child of the run answers `agent.childRun.notFound`; any other refusal of the three is `agent.childRun.controlRefused`, with `reason` `childEnded` or `providerRefused`. Spec-003's V1 control set is the same three controls; these address them at a child.
 

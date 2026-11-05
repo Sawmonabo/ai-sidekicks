@@ -44,8 +44,8 @@ use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
     FindTakenMessagesParams, HelperStopOutcome, HelperStopParams, InterruptRunRequest,
-    OverrideDenialParams, PauseRunParams, PickedSkill, ReattachHelpersParams, ResumeRunParams,
-    TakenMessages, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
+    OverrideDenialParams, PauseRunParams, PickedSkill, ReattachHelpersParams, ResumeRunOutcome,
+    ResumeRunParams, TakenMessages, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
@@ -60,6 +60,8 @@ use crate::driver::session_control::{
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 use crate::port::session_inbox_address::SessionInboxAddresser;
+use crate::pricing::receiver::TelemetryExportReader;
+use crate::pricing::rule::RequestPricer;
 
 pub mod account;
 pub mod error;
@@ -154,8 +156,12 @@ pub trait ProviderDriver: Send + Sync {
     fn pause_run(&self, params: PauseRunParams) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// Continues a paused or pausing run from where it stopped, with nothing repeated, delivering
-    /// the waiting messages; resolves once the provider has the request.
-    fn resume_run(&self, params: ResumeRunParams) -> BoxFuture<'_, Result<(), DriverError>>;
+    /// the waiting messages; resolves once the provider has the request. The outcome marks the
+    /// hold lost where a call the pause held was withdrawn while it held, its hook connection gone.
+    fn resume_run(
+        &self,
+        params: ResumeRunParams,
+    ) -> BoxFuture<'_, Result<ResumeRunOutcome, DriverError>>;
 
     /// Looks messages a resume sent with no answer back up in the provider's own record of the
     /// conversation by their ids, answering the ones it holds; called only once no live provider
@@ -191,6 +197,18 @@ pub trait ProviderDriver: Send + Sync {
     /// of a message's files checks each picture against: a fixed fact of the driver, like
     /// [`message_handing`](Self::message_handing); `None` where the provider sets no limit.
     fn picture_base64_size_limit(&self) -> Option<u64> {
+        None
+    }
+
+    /// The reader of the telemetry the provider's processes export, which the daemon hands the
+    /// receiver under the provider's id; `None` where the provider exports none.
+    fn telemetry_export_reader(&self) -> Option<Arc<dyn TelemetryExportReader>> {
+        None
+    }
+
+    /// The rule that prices this provider's requests, which its live pricing and the repricing of
+    /// held requests both call; `None` where the driver prices none.
+    fn request_pricer(&self) -> Option<Arc<dyn RequestPricer>> {
         None
     }
 

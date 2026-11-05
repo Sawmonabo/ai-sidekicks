@@ -22,9 +22,9 @@ use crate::driver::codex::session::fork::config_change::CodexConfigForks;
 use crate::driver::codex::session::inbound::CodexSessionCall;
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::session::state::CodexSessionRecord;
+use crate::driver::codex::thread::settings::memories::compose_codex_bare_thread_resume_with_memory_switch;
 use crate::driver::codex::thread::settings::{
-    CodexThreadSettingsUpdateParams, compose_codex_bare_thread_resume_params,
-    compose_codex_collaboration_mode, compose_codex_level_config,
+    CodexThreadSettingsUpdateParams, compose_codex_collaboration_mode, compose_codex_level_config,
 };
 use crate::driver::codex::thread::view::THREAD_RESUME_METHOD;
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
@@ -216,24 +216,29 @@ impl CodexSessionControls {
             thread_id,
             event,
             !reading.is_thread_loaded,
+            reading.auto_memory,
         )
         .await
     }
 }
 
 // Sends the approval of `event` on `thread_id`, the conversation resumed first where the service
-// has not loaded it.
+// has not loaded it, carrying the session's memory switch.
 async fn send_approval(
     connection: &CodexAppServerConnection,
     thread_id: String,
     event: Value,
     needs_resume: bool,
+    auto_memory: Option<bool>,
 ) -> Result<(), CodexError> {
     if needs_resume {
         connection
             .request(
                 THREAD_RESUME_METHOD,
-                &compose_codex_bare_thread_resume_params(thread_id.clone()),
+                &compose_codex_bare_thread_resume_with_memory_switch(
+                    thread_id.clone(),
+                    auto_memory,
+                ),
             )
             .await?;
     }
@@ -310,12 +315,14 @@ mod tests {
         );
     }
 
-    // Kills: the resume dropped, which Codex answers with "thread not found"; and `Allow once` on
-    // the session's idle conversation opened as a run waiting for a turn Codex never starts, since
-    // Codex records the approval there with no new turn.
+    // Kills: the resume dropped, which Codex answers with "thread not found"; the resume sent with
+    // no `config`, which loads the conversation under the home's own memory settings; and `Allow
+    // once` on the session's idle conversation opened as a run waiting for a turn Codex never
+    // starts, since Codex records the approval there with no new turn.
     #[tokio::test]
     async fn allow_once_reaches_the_blocked_conversation_and_starts_no_turn() {
         let mut session = TestCodexSession::start().await;
+        session.task.record.thread_settings.auto_memory = Some(true);
         let controls = CodexSessionControls::new(Arc::clone(&session.slots));
         let denial = json!({
             "threadId": "thread-left",
@@ -337,6 +344,11 @@ mod tests {
                 "the conversation is loaded first"
             );
             assert_eq!(resumed["params"]["threadId"], "thread-left");
+            assert_eq!(
+                resumed["params"]["config"],
+                json!({"memories.use_memories": true, "memories.generate_memories": true}),
+                "the conversation loads under the session's memory switch"
+            );
             script.answer(&resumed, &json!({"thread": {"id": "thread-left"}}));
             let approved = script.next_sent().await;
             assert_eq!(approved["method"], "thread/approveGuardianDeniedAction");

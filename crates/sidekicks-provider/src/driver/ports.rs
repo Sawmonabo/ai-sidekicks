@@ -8,22 +8,26 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
+use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::writer::DatabaseWriter;
 
 use crate::account::home_lock::AccountHomeLock;
 use crate::account::registry::ProviderAccountRegistry;
+use crate::account::usage_turns::unpriced::UnpricedUsageKey;
 use crate::callback_tools::host::CallbackToolHost;
 use crate::command::running_set::RunningCommandSets;
 use crate::driver::contract::error::DriverError;
 use crate::driver::run_control::DaemonTurnBindingResolver;
 use crate::driver::session_control::DriverResumeResult;
 use crate::driver::{ProviderAccountReader, SessionSpawnContextResolver};
+use crate::port::agent_tree_lookup::AgentTreeLookup;
 use crate::port::command_capture::CommandCapture;
 use crate::port::context_reading_publisher::ContextReadingPublisher;
 use crate::port::held_tool_calls::HeldToolCallReads;
@@ -48,6 +52,8 @@ use crate::port::tool_call_status_publisher::ToolCallStatusPublisher;
 use crate::port::tool_server_route::ToolServerRoute;
 use crate::port::turn_reading_publisher::TurnReadingPublisher;
 use crate::port::usage_sink::UsageSink;
+use crate::pricing::receiver::TelemetryTarget;
+use crate::pricing::store::HeldPriceList;
 use crate::runtime_binding::resume::ResumeFunctionLegs;
 
 /// The run queue's intake of a message the provider took into a run's turn.
@@ -129,6 +135,26 @@ pub trait SessionRelaunchListener: Send + Sync {
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
 }
 
+/// A request its driver left unpriced, and the ids of its usage rows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HeldRequest {
+    /// What a price list prices the request by.
+    pub key: UnpricedUsageKey,
+    /// The ids of the request's usage rows not yet marked held; empty when every row was written
+    /// held.
+    pub row_ids: Vec<FreeFormText<EVENT_FIELD_MAX_LEN>>,
+}
+
+/// The repricing's intake of a request its driver left unpriced.
+pub trait RequestHeldListener: Send + Sync {
+    /// Takes `held` into the repricing, marking its listed rows held before it answers; fails as
+    /// the mark's write fails.
+    fn request_held(
+        &self,
+        held: HeldRequest,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+}
+
 /// One place the daemon runs sessions in, as its start found it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionPlace {
@@ -178,6 +204,17 @@ pub struct DriverPorts {
     /// each metered change and quota window is dropped, as the command output and the readings
     /// ports drop theirs while the other ports refuse: the provider's stream never waits on it.
     pub usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
+    /// The held price list each driver prices its requests from and marks its models in use on.
+    /// Until it is registered a request stays unpriced, and each `mark_in_use` and
+    /// `report_missing` call is dropped.
+    pub price_list: Arc<PortRegistration<Arc<HeldPriceList>>>,
+    /// Where a provider process exports its telemetry and the token it presents. A process started
+    /// before it is registered starts with the person's telemetry settings withheld and no
+    /// exporter set.
+    pub telemetry_target: Arc<PortRegistration<Arc<TelemetryTarget>>>,
+    /// The repricing's intake of a request a driver left unpriced. Until it is registered, a held
+    /// request waits for the next start's pass.
+    pub request_held: Arc<PortRegistration<Arc<dyn RequestHeldListener>>>,
     /// The running commands of every session, which each driver reports its agent's commands to
     /// and follows each command's channel into; a command reported before it is registered is
     /// dropped.
@@ -246,6 +283,8 @@ pub struct DriverPorts {
     /// resumes; a session resumed before it is registered rebuilds none, and a session closed, or
     /// settled at the start, before it is registered settles none.
     pub held_tool_calls: Arc<PortRegistration<Arc<dyn HeldToolCallReads>>>,
+    /// The session's agent tree, which a pre-tool hook looks up the helper a tool call names in.
+    pub agent_tree_lookup: Arc<PortRegistration<Arc<dyn AgentTreeLookup>>>,
 }
 
 impl Default for DriverPorts {
@@ -272,6 +311,9 @@ impl DriverPorts {
             session_relaunched: Arc::new(PortRegistration::new("session relaunched")),
             process_gone: Arc::new(PortRegistration::new("process gone")),
             usage: Arc::new(PortRegistration::new("usage")),
+            price_list: Arc::new(PortRegistration::new("price list")),
+            telemetry_target: Arc::new(PortRegistration::new("telemetry target")),
+            request_held: Arc::new(PortRegistration::new("request held")),
             command_output: Arc::new(PortRegistration::new("command output")),
             command_capture: Arc::new(PortRegistration::new("command capture")),
             turn_readings: Arc::new(PortRegistration::new("turn readings")),
@@ -298,6 +340,7 @@ impl DriverPorts {
             account_home_lock: Arc::new(PortRegistration::new("account home lock")),
             tool_call_statuses: Arc::new(PortRegistration::new("tool call statuses")),
             held_tool_calls: Arc::new(PortRegistration::new("held tool calls")),
+            agent_tree_lookup: Arc::new(PortRegistration::new("agent tree lookup")),
         }
     }
 }

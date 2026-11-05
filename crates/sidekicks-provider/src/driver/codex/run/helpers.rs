@@ -136,6 +136,7 @@ impl CodexRunControl {
                 &connection,
                 params.session_id,
                 thread_id,
+                reading.auto_memory,
             )
             .await;
             if let Err(error) = reopened {
@@ -554,11 +555,13 @@ mod tests {
     // The helpers are reopened in the order given, parents first: one an adoption already reopened,
     // which holds a route, is skipped, and a reopen Codex refuses is passed over, the next helper
     // still reopened. Kills: the routed helper reopened (its resume comes first), a stop at the
-    // refusal (the last helper's resume never comes, or the call fails), and the order reversed
-    // (the child's resume comes before its parent's).
+    // refusal (the last helper's resume never comes, or the call fails), the order reversed (the
+    // child's resume comes before its parent's), and a helper loaded again with no memory keys,
+    // which starts it under the home's own settings.
     #[tokio::test(start_paused = true)]
     async fn reattached_helpers_reopen_in_order_past_a_refusal() {
         let mut session = TestCodexSession::start().await;
+        session.task.record.thread_settings.auto_memory = Some(false);
         let session_id = session.task.record.session_id;
         let routed_run = new_run_id();
         session
@@ -593,6 +596,11 @@ mod tests {
             assert_eq!(reopened["method"], "thread/resume");
             assert_eq!(reopened["params"]["threadId"], "helper-reopened");
             assert_eq!(reopened["params"]["excludeTurns"], true);
+            assert_eq!(
+                reopened["params"]["config"],
+                json!({"memories.use_memories": false, "memories.generate_memories": false}),
+                "the helper loads under the session's memory switch"
+            );
             script.answer(
                 &reopened,
                 &json!({

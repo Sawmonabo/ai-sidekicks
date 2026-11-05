@@ -9,7 +9,6 @@ use std::sync::Arc;
 use futures::FutureExt as _;
 use futures::future::{join_all, try_join_all};
 use serde_json::{Value, json};
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::provider::declaration::ProviderDeclarationText;
@@ -31,6 +30,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::not_found::agent::agent_not_found;
 use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
@@ -504,15 +504,6 @@ fn no_live_binding(detail: Value) -> DomainError {
         RefusalCode::ProviderUnavailable,
     )
     .with_detail(detail)
-}
-
-// The refusal of an agent the session's log names nowhere.
-fn agent_not_found(agent_id: &AgentId) -> DomainError {
-    DomainError::new(
-        "The session holds no such agent",
-        RefusalCode::AgentNotFound,
-    )
-    .with_detail(json!({ "agentId": agent_id }))
 }
 
 #[cfg(test)]

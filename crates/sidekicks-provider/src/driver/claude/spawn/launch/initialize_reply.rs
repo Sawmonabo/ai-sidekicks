@@ -4,10 +4,11 @@
 //! read leniently and a row naming no value is skipped.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::Path;
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
+use sidekicks_contracts::free_form_string::FilesystemPath;
 
 use crate::driver::claude::session::transport::declarations::{
     ClaudeFastModeDeclaration, ClaudeInitializeDeclaration, ClaudeOfferedModel,
@@ -113,7 +114,7 @@ fn read_reply(reply: Option<&RawValue>) -> InitializeReply {
         .unwrap_or_default()
 }
 
-/// What `reply` declares about the process's models, styles, fast mode and memory stores.
+/// What `reply` declares about the process's models, styles, fast mode, commands and memory stores.
 pub(crate) fn read_claude_initialize_declaration(
     reply: Option<&RawValue>,
 ) -> ClaudeInitializeDeclaration {
@@ -148,18 +149,23 @@ pub(crate) fn read_claude_initialize_declaration(
             .map(|styles| styles.0)
             .unwrap_or_default(),
         output_style: filter_non_empty(reply.output_style),
+        commands: listed_command_rows(reply.commands)
+            .into_iter()
+            .map(|command| command.name)
+            .collect(),
         memory_stores: read_memory_stores(reply.memory_paths),
     }
 }
 
-// The auto-memory folder, then the team-memory folder, each kept only where it is an absolute path.
-fn read_memory_stores(memory_paths: Option<MemoryPaths>) -> Vec<PathBuf> {
+// The auto-memory folder, then the team-memory folder, each kept only where it is an absolute path
+// a filesystem path carries.
+fn read_memory_stores(memory_paths: Option<MemoryPaths>) -> Vec<FilesystemPath> {
     memory_paths
         .into_iter()
         .flat_map(|paths| [paths.auto, paths.team])
         .flatten()
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
+        .filter(|path| Path::new(path).is_absolute())
+        .filter_map(|path| FilesystemPath::new(path).ok())
         .collect()
 }
 
@@ -167,8 +173,12 @@ fn read_memory_stores(memory_paths: Option<MemoryPaths>) -> Vec<PathBuf> {
 pub(crate) fn read_claude_listed_command_rows(
     reply: Option<&RawValue>,
 ) -> Vec<ClaudeListedCommand> {
-    read_reply(reply)
-        .commands
+    listed_command_rows(read_reply(reply).commands)
+}
+
+// The commands a reply's `commands` member lists, in its order, a row naming no command skipped.
+fn listed_command_rows(commands: Option<LenientList<CommandRow>>) -> Vec<ClaudeListedCommand> {
+    commands
         .map(|commands| commands.0)
         .unwrap_or_default()
         .into_iter()

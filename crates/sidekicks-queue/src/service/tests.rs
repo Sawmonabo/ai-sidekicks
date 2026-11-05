@@ -44,7 +44,7 @@ use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::params_and_results::RunOpeningItem;
 use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
 use sidekicks_provider::driver::run_control::{
-    ApplyInterventionParams, ApplyInterventionResponse, InterventionResultStatus,
+    ApplyInterventionParams, ApplyInterventionResponse, InterventionResultStatus, ResumeRunOutcome,
     SteerTurnEndedError, WithdrawQueuedMessageResult,
 };
 use sidekicks_provider::driver::session_control::ProviderSessionHandle;
@@ -107,6 +107,8 @@ struct DriverCalls {
     steers: Mutex<Vec<(QueueItemId, bool)>>,
     /// Each resume, with the messages it carried.
     resumes: Mutex<Vec<(RunId, Vec<QueueItemId>)>>,
+    /// How many provider processes were created.
+    creates: AtomicUsize,
     /// Holds a settle of the session's process before it answers.
     settle_pause: PausePoint,
     /// Holds a start before it answers.
@@ -164,7 +166,9 @@ fn recording_driver(calls: &Arc<DriverCalls>) -> MockProviderDriver {
     driver
         .expect_starts_process()
         .returning(|_, _| async { false }.boxed());
-    driver.expect_create_session().returning(|_| {
+    let creating = Arc::clone(calls);
+    driver.expect_create_session().returning(move |_| {
+        creating.creates.fetch_add(1, Ordering::SeqCst);
         async {
             Ok(ProviderSessionHandle {
                 provider_session_id: "provider-session".to_owned(),
@@ -234,7 +238,12 @@ fn recording_driver(calls: &Arc<DriverCalls>) -> MockProviderDriver {
     driver.expect_resume_run().returning(move |params| {
         let messages = params.messages.iter().map(|message| message.id).collect();
         lock(&resuming.resumes).push((params.run_id, messages));
-        async { Ok(()) }.boxed()
+        async {
+            Ok(ResumeRunOutcome {
+                is_hold_lost: false,
+            })
+        }
+        .boxed()
     });
     driver
 }

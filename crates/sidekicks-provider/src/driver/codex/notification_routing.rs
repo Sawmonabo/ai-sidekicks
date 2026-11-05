@@ -12,6 +12,7 @@ use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use sidekicks_contracts::context_window::ContextWindowSource;
 use sidekicks_contracts::mcp::server::{McpServerName, McpServerStatus};
+use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 use tokio::time::Instant;
 
 use crate::compaction_wait::PendingCompactionRegistry;
@@ -402,7 +403,7 @@ impl CodexSessionRouting {
         match route {
             ThreadFrameRoute::Project | ThreadFrameRoute::RouteConnectionScoped => {
                 // Metered first, so no cumulative counter is passed on as a turn's own.
-                let usage = self.meter_usage_frame(record, frame, routed);
+                let usage = self.meter_usage_frame(record, frame, &route, routed);
                 // Only the session's own conversation fills its meter.
                 if let Some(usage) = usage
                     && route == ThreadFrameRoute::Project
@@ -417,7 +418,7 @@ impl CodexSessionRouting {
                 self.deliver(delivery, record, frame, route, routed).await;
             }
             ThreadFrameRoute::CarveOutUsage { .. } => {
-                self.meter_usage_frame(record, frame, routed);
+                self.meter_usage_frame(record, frame, &route, routed);
             }
             ThreadFrameRoute::CarveOutInteractiveRequest { .. } => {
                 // The parent's pipeline on the helper's own identity; dropping it would hang the
@@ -435,17 +436,20 @@ impl CodexSessionRouting {
     }
 
     // Meters a usage frame and answers its reading; `None` for any other frame or no reading. A
-    // reading that cannot be read is reported, since a silent drop is spend no receipt shows.
+    // reading that cannot be read is reported, since a silent drop is spend no receipt shows. A
+    // helper's reading runs at the thread's tier and names no model; any other runs at its turn's
+    // sent tier and model, else the thread's, as for a turn the daemon started, which keeps none.
     fn meter_usage_frame(
         &mut self,
         record: &CodexSessionRecord,
         frame: &CodexRoutableFrame,
+        route: &ThreadFrameRoute,
         routed: &mut CodexRoutedFrames,
     ) -> Option<CumulativeUsageReading> {
         if frame.method != CODEX_THREAD_TOKEN_USAGE_METHOD {
             return None;
         }
-        let Some(reading) = read_codex_token_usage(&frame.params) else {
+        let Some(mut reading) = read_codex_token_usage(&frame.params) else {
             report(
                 record,
                 DriverDiagnosticKind::UsageAxisReadingRejected,
@@ -456,6 +460,25 @@ impl CodexSessionRouting {
             );
             return None;
         };
+        let is_helper = matches!(route, ThreadFrameRoute::CarveOutUsage { .. });
+        let input = reading
+            .named_turn_id
+            .as_ref()
+            .filter(|_| !is_helper)
+            .and_then(|turn_id| record.turn_input_by_turn_id.get(turn_id));
+        let thread_speed = record
+            .declared_output_speed
+            .as_ref()
+            .map(|speed| speed.declared.as_str());
+        let speed = input
+            .and_then(|input| input.sent_output_speed_for_turn.as_deref())
+            .or(thread_speed);
+        reading.request.speed = speed.and_then(|speed| BoundedText::new(speed.to_owned()));
+        reading.request.thread_speed =
+            thread_speed.and_then(|speed| BoundedText::new(speed.to_owned()));
+        reading.request.model_id = (!is_helper)
+            .then(|| input.map_or(&record.thread_settings.model, |input| &input.model))
+            .and_then(|model| FreeFormText::new(model.clone()).ok());
         routed
             .metered_usage
             .extend(self.accountant.meter_reading(reading.clone()));
@@ -700,146 +723,4 @@ fn report<const FIELDS: usize>(
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-    use std::time::Duration;
-
-    use serde_json::json;
-    use sidekicks_contracts::mcp::server::McpServerStatus;
-
-    use crate::driver::codex::session::test_fixture::status_sink::{
-        CountingStatusSink, mcp_server_startup,
-    };
-    use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestCodexSession};
-    use crate::driver::mcp_server::status::McpServerReading;
-
-    // The other conversation is one the session moved off while a command of it runs, which the
-    // router still routes as the session's own. Killed by reporting a startup by its method alone,
-    // or by its route alone: the left conversation's server would reach the sink.
-    #[tokio::test(start_paused = true)]
-    async fn only_a_startup_on_the_sessions_own_conversation_reaches_its_status_sink() {
-        let mut session = TestCodexSession::start().await;
-        let sink = Arc::new(CountingStatusSink::default());
-        session.task.record.on_mcp_server_status = Some(Arc::clone(&sink) as _);
-        session
-            .task
-            .routing
-            .hold_thread("thread-left".to_owned(), true);
-
-        session
-            .task
-            .handle(mcp_server_startup("thread-left", "left", "ready", None))
-            .await;
-        session
-            .task
-            .handle(mcp_server_startup(TEST_THREAD, "github", "ready", None))
-            .await;
-
-        let reported = sink.reported();
-        let names: Vec<&str> = reported
-            .iter()
-            .map(|emission| emission.server_name.as_str())
-            .collect();
-        assert_eq!(names, ["github"]);
-    }
-
-    // One startup round lists once, after its last server settles, every page, each server with
-    // its tools and with its startup's status and text, so a failed server keeps its reason; a
-    // settle outside the round lists nothing. Killed by listing while a server of the round still
-    // starts, by the list's second page dropped, by the listed tools dropped, by the list's status
-    // or its empty text replacing the startup's, and by listing again on a settle outside the
-    // round.
-    #[tokio::test(start_paused = true)]
-    async fn a_startup_round_lists_its_servers_once_keeping_each_startups_status() {
-        let mut session = TestCodexSession::start().await;
-        let sink = Arc::new(CountingStatusSink::default());
-        session.task.record.on_mcp_server_status = Some(Arc::clone(&sink) as _);
-
-        for inbound in [
-            mcp_server_startup(TEST_THREAD, "github", "starting", None),
-            mcp_server_startup(TEST_THREAD, "docs", "starting", None),
-            mcp_server_startup(TEST_THREAD, "github", "ready", None),
-        ] {
-            session.task.handle(inbound).await;
-        }
-        let script = &mut session.scripted.script;
-        let answer = async {
-            let first = script.next_sent().await;
-            assert_eq!(first["method"], "mcpServerStatus/list");
-            assert_eq!(
-                first["params"],
-                json!({"threadId": TEST_THREAD, "detail": "toolsAndAuthOnly"})
-            );
-            script.answer(
-                &first,
-                &json!({
-                    "data": [{"name": "github", "runtimeStatus": "connected", "tools": {
-                        "search": {"name": "search"}
-                    }}],
-                    "nextCursor": "page-2"
-                }),
-            );
-            let second = script.next_sent().await;
-            assert_eq!(second["params"]["cursor"], "page-2");
-            script.answer(
-                &second,
-                &json!({"data": [{"name": "docs", "runtimeStatus": "failed", "tools": {
-                    "read": {"name": "read"}
-                }}]}),
-            );
-        };
-        tokio::join!(
-            session.task.handle(mcp_server_startup(
-                TEST_THREAD,
-                "docs",
-                "failed",
-                Some("handshake timed out")
-            )),
-            answer
-        );
-
-        let listed: Vec<_> = sink.reported()[4..]
-            .iter()
-            .map(|emission| {
-                (
-                    emission.server_name.as_str().to_owned(),
-                    emission.reading,
-                    emission.failure_text.clone(),
-                    emission
-                        .tool_names
-                        .as_ref()
-                        .map(|names| names.iter().map(|name| name.as_str().to_owned()).collect()),
-                )
-            })
-            .collect();
-        assert_eq!(
-            listed,
-            [
-                (
-                    "github".to_owned(),
-                    McpServerReading::Observed(McpServerStatus::Connected),
-                    None,
-                    Some(vec!["search".to_owned()])
-                ),
-                (
-                    "docs".to_owned(),
-                    McpServerReading::Observed(McpServerStatus::Failed),
-                    Some("handshake timed out".to_owned()),
-                    Some(vec!["read".to_owned()])
-                ),
-            ]
-        );
-
-        session
-            .task
-            .handle(mcp_server_startup(TEST_THREAD, "reused", "ready", None))
-            .await;
-        let script = &mut session.scripted.script;
-        assert!(
-            tokio::time::timeout(Duration::from_secs(1), script.next_sent())
-                .await
-                .is_err(),
-            "a settle outside the round listed again"
-        );
-    }
-}
+mod tests;

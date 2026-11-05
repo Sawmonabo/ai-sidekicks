@@ -4,7 +4,11 @@
 //! inbound frame.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+
+use sidekicks_contracts::free_form_string::FilesystemPath;
+
+use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
+use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 
 use crate::driver::claude::event_normalizer::ClaudeSubagentLifecycleSignal;
 use crate::driver::mcp_server::status::McpServerStatusIngestResult;
@@ -51,9 +55,9 @@ pub(crate) struct ClaudeOfferedModel {
     pub(crate) effort_levels: Option<Vec<String>>,
 }
 
-/// What the `initialize` reply declared about the session's models, styles and memory: the models
-/// it offers, in its order, which of them run in auto mode, the output styles the process offers,
-/// and the folders of its memory stores.
+/// What the `initialize` reply declared about the session's models, styles, commands and memory:
+/// the models it offers, in its order, which of them run in auto mode, the output styles the
+/// process offers, the commands it lists, and the folders of its memory stores.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ClaudeInitializeDeclaration {
     /// The fast mode it reports.
@@ -67,9 +71,12 @@ pub(crate) struct ClaudeInitializeDeclaration {
     pub(crate) output_styles: Vec<String>,
     /// The output style the process runs with, where the reply names one.
     pub(crate) output_style: Option<String>,
+    /// The commands it lists, by name without the `/`, in its order.
+    pub(crate) commands: Vec<String>,
     /// The folders of Claude Code's auto-memory and team-memory stores, each kept where the reply
-    /// names it as an absolute path, the auto-memory store first when it is kept.
-    pub(crate) memory_stores: Vec<PathBuf>,
+    /// names it as an absolute path a filesystem path carries, the auto-memory store first when it
+    /// is kept.
+    pub(crate) memory_stores: Vec<FilesystemPath>,
 }
 
 impl ClaudeInitializeDeclaration {
@@ -133,6 +140,25 @@ pub(crate) struct ClaudeMessageUsageObservation {
     pub(crate) message_id: String,
     /// Its counts so far.
     pub(crate) counts: UsageAxisCounts,
+    /// What prices its request, as this reading carries it.
+    pub(crate) request: ClaudeMessageRequestFacts,
+}
+
+/// What prices one assistant message's request, each absent where the message carries none or a
+/// value that does not fit: its model without the larger-window mark, its speed as given, its
+/// region (none for `global`), and its longer-lifetime cache write and web searches so far.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ClaudeMessageRequestFacts {
+    /// The model.
+    pub(crate) model_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
+    /// The speed tier.
+    pub(crate) speed: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
+    /// The region it was processed in.
+    pub(crate) processing_region: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
+    /// The cache write at the longer lifetime so far.
+    pub(crate) cache_write_extended_tokens: Option<u64>,
+    /// The web searches so far.
+    pub(crate) web_search_requests: Option<u64>,
 }
 
 /// The routing facts of one inbound stream frame, not the frame itself.
@@ -154,6 +180,8 @@ pub(crate) struct ClaudeInboundFrameObservation {
     pub(crate) backgrounded_helper_id: Option<String>,
     /// The tool calls a `user` frame's tool results answer.
     pub(crate) answered_call_ids: Vec<String>,
+    /// The `SendMessage` calls an `assistant` frame makes.
+    pub(crate) message_call_ids: Vec<String>,
 
     /// The `system/init` declaration, which rides the observation so routing always sees it.
     pub(crate) handshake: Option<ClaudeHandshakeDeclaration>,

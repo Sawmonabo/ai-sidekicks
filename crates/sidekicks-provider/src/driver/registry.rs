@@ -35,7 +35,7 @@ pub(crate) fn provider_not_found(provider: &ProviderId) -> DomainError {
 
 /// The refusal for a call gated on `flag` that the driver does not declare; its detail carries only
 /// the provider's id and the flag.
-pub(crate) fn provider_capability_unsupported(
+pub fn provider_capability_unsupported(
     provider: &ProviderId,
     flag: DriverCapabilityFlag,
 ) -> DomainError {

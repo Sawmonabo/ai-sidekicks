@@ -11,6 +11,7 @@ mod body;
 pub(crate) mod daemon_ends;
 mod goals;
 mod helper_runs;
+pub(crate) mod resumes;
 mod rows;
 mod run_end;
 mod session;
@@ -235,6 +236,8 @@ impl ClaudeDeliveryStream {
                 None => return after,
             }
         };
+        self.read_resume_frame(session, &kind, &routed.route, &body, &turn_at_read)
+            .await;
         // A helper's own message carries no row of the session's, only the lines of its calls;
         // a goal line of its own draws no goal row.
         if is_helper_frame {

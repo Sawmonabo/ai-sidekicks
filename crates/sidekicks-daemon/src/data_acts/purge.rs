@@ -62,7 +62,7 @@ use sidekicks_recovery::damaged_history::DamagedSessionPurge;
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_recovery::stop_intent::StopIntentFile;
 use sidekicks_session::changes::{SessionChangeError, SessionChanges};
-use sidekicks_session::conversation_purge::{ConversationPurge, ConversationPurgeError};
+use sidekicks_session::conversations::purge::{ConversationPurge, ConversationPurgeError};
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::questions::service::QuestionsService;
 use sidekicks_session::readings::context::ContextReadings;

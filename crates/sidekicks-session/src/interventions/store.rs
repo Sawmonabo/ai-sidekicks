@@ -34,7 +34,8 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::run_control::InterruptPendingChoice;
 use sidekicks_store::database::session_scope::SessionScopedSql;
 use sidekicks_store::database::statement::{
-    DATABASE_NOW_SQL, StatementBindings, WriteStatement, nullable_text_binding, text_binding,
+    DATABASE_NOW_SQL, StatementBindings, WriteStatement, json_list_binding, nullable_text_binding,
+    text_binding,
 };
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventDraftError};
@@ -373,12 +374,7 @@ pub(crate) fn run_in_states_statement(run_id: &RunId, states: &[RunState]) -> Wr
         sql: Cow::Borrowed(RUN_IN_STATES_SQL),
         bindings: StatementBindings::Named(vec![
             text_binding("@run_id", run_id.text().as_str()),
-            (
-                Cow::Borrowed("@states"),
-                Value::Text(
-                    serde_json::to_string(states).expect("a list of run states serializes"),
-                ),
-            ),
+            json_list_binding("@states", &states),
         ]),
         expected_row_count: Some(1),
     }

@@ -14,6 +14,7 @@ use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::run_control::ResumeRunOutcome;
 use sidekicks_provider::port::run_pause::SessionOpening;
 use sidekicks_provider::run::turn_end::TurnOutcome;
 
@@ -34,7 +35,12 @@ async fn a_paused_lead_in_an_unopened_session_is_opened_before_its_driver_is_cal
         .returning(move |_params| {
             let openings = counted.openings.load(Ordering::SeqCst);
             *recorded.lock().expect("the openings read") = Some(openings);
-            async { Ok(()) }.boxed()
+            async {
+                Ok(ResumeRunOutcome {
+                    is_hold_lost: false,
+                })
+            }
+            .boxed()
         });
     let fixture = fixture(driver, "paused").await;
 

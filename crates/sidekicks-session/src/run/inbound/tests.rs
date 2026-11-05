@@ -50,6 +50,7 @@ use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 use crate::transcript::reasoning::read_reasoning;
 
 mod after_run;
+mod parent_correction;
 
 /// A run-state stream no one reads.
 pub(crate) struct UnreadRunStates;

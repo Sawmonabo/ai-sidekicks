@@ -34,7 +34,7 @@ use crate::driver::claude::spawn::legs::{
     ClaudeSpawnLegServices, ClaudeSpawnLegsRequest, build_claude_spawn_bound_legs,
 };
 use crate::driver::contract::error::DriverError;
-use crate::driver::session_control::{NameSessionParams, run_naming_pass_until};
+use crate::driver::session_control::{NameSessionParams, SubagentPolicy, run_naming_pass_until};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 
 /// The model a naming pass runs on when no process of the session is live: the small model
@@ -199,7 +199,8 @@ async fn compose_naming_legs(
             session_id,
             model: CLAUDE_NAMING_MODEL.to_owned(),
             execution_posture: None,
-            subagent_policy: None,
+            // The naming pass starts no helper.
+            subagent_policy: Some(SubagentPolicy::Disabled {}),
             tool_servers: None,
             output_schema: None,
             on_mcp_server_status: None,

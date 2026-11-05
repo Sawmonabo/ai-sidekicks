@@ -167,13 +167,15 @@ pub enum ProcessExit {
 }
 
 /// Why the daemon itself ended a run `stopped`: the run passed the token limit the person set, the
-/// person stopped the service before the run started, or the person removed every message the run
-/// was queued for.
+/// person stopped it with every other agent, the person stopped the service before the run started,
+/// or the person removed every message the run was queued for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum StopTrigger {
     /// The token limit was passed.
     TokenLimit,
+    /// The person stopped every agent at once; its end is final, as the token limit's is.
+    StopAll,
     /// The person stopped the service before the run started.
     DaemonStop,
     /// Every message the run was queued for was removed before it started.
@@ -671,6 +673,7 @@ methods! {
             result: AgentChildRunInterruptResponse,
             refusals: [
                 AgentRunNotFound,
+                AgentRunVersionStale,
                 AgentChildRunNotFound,
                 AgentChildRunControlRefused,
                 AgentQueueItemNotFound,
@@ -681,14 +684,19 @@ methods! {
             mutating: true,
             params: AgentChildRunPausedUpdateRequest,
             result: AgentChildRunPausedUpdateResponse,
-            refusals: [AgentRunNotFound, AgentChildRunNotFound, AgentChildRunControlRefused],
+            refusals: [
+                AgentRunNotFound,
+                AgentRunVersionStale,
+                AgentChildRunNotFound,
+                AgentChildRunControlRefused,
+            ],
         },
-        /// Stops every live child of a run.
+        /// Stops every live agent a session dispatched, at every depth.
         AgentChildRunStopAll = mutation "agent.childRun.stopAll" {
             mutating: true,
             params: AgentChildRunStopAllRequest,
             result: AgentChildRunStopAllResponse,
-            refusals: [AgentRunNotFound],
+            refusals: [SessionNotFound],
         },
         /// Answers the recovery question a restart left a run halted on.
         AgentRunRecoveryResolve = mutation "agent.run.recovery.resolve" {

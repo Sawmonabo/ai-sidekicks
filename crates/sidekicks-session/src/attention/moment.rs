@@ -310,8 +310,9 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
                 AttentionMomentTrigger::RunFailed,
             ),
         ),
-        // Only a limit the daemon enforced fails the run; the person's own interrupt, a canceled
-        // workflow phase, a restart and the person's stop of the service raise nothing.
+        // Only a limit the daemon enforced fails the run; the person's own interrupt, a stop of
+        // every agent, a canceled workflow phase, a restart and the person's stop of the service
+        // raise nothing.
         SessionEvent::AgentRunInterrupted(payload) => {
             let is_limit = match payload.trigger {
                 Some(InterruptReason::StepLimit | InterruptReason::SpendLimit) => true,
@@ -334,9 +335,13 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         SessionEvent::AgentRunStopped(payload) => {
             let is_limit = match payload.trigger {
                 Some(StopTrigger::TokenLimit) => true,
-                // A run the person ended before it started, by stopping the service or removing
-                // every message it was queued for, raises nothing.
-                Some(StopTrigger::DaemonStop | StopTrigger::MessagesRemoved) | None => false,
+                // A stop of every agent raises nothing, and neither does a run the person ended
+                // before it started, by stopping the service or removing every message it was
+                // queued for.
+                Some(
+                    StopTrigger::StopAll | StopTrigger::DaemonStop | StopTrigger::MessagesRemoved,
+                )
+                | None => false,
             };
             resolve_run(
                 payload.run_id,
@@ -473,10 +478,12 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         | SessionEvent::AgentToolCallFailed(_)
         | SessionEvent::AgentSubagentStarted(_)
         | SessionEvent::AgentSubagentCompleted(_)
+        | SessionEvent::AgentSubagentStopped(_)
         | SessionEvent::AgentRunProviderInitialized(_)
         | SessionEvent::AgentTurnStarted(_)
         | SessionEvent::AgentTurnCompleted(_)
         | SessionEvent::AgentTurnInterrupted(_)
+        | SessionEvent::AgentChildrenStopped(_)
         | SessionEvent::AgentTurnFailed(_)
         | SessionEvent::AgentRunWorkerShuttingDown(_)
         | SessionEvent::SessionProviderStatusReported(_)
@@ -531,6 +538,7 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         | SessionEvent::AgentRunTokenLimitReached(_)
         | SessionEvent::AgentRunRecoveryResolved(_)
         | SessionEvent::AgentRunRecoveryStepsAdded(_)
+        | SessionEvent::AgentRunParentCorrected(_)
         | SessionEvent::SessionAdvisorChanged(_)
         | SessionEvent::SessionOutputStyleChanged(_)
         | SessionEvent::RepoMountHealthChanged(_)

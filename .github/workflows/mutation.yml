@@ -42,14 +42,14 @@ jobs:
       MUTATION_SHARDS: '{"client-sdk": 1, "contracts": 3, "control-plane": 2, "crypto-paseto": 1, "runtime-daemon": 12}'
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.SWEEP_REF }}
           # A pull request's changed files are read against its base commit.
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           # This job runs no install; with pnpm absent, the cache lookup fails.
@@ -81,19 +81,19 @@ jobs:
       matrix: ${{ fromJSON(needs.mutation-plan.outputs.matrix) }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.SWEEP_REF }}
 
       - name: Setup pnpm
         # SHA-pinned; Renovate's pinGitHubActionDigests preset (renovate.json5) keeps it current.
-        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: 10.33.2
           run_install: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: "pnpm"
@@ -115,10 +115,10 @@ jobs:
 
       # The daemon's unit tests load the session search's addon, which its build compiles from
       # Rust. The WebAssembly target `rust-toolchain.toml` lists for the compression module is
-      # installed here, so Cargo finds it installed. SHA-pinned.
+      # installed here, so Cargo finds it installed.
       - name: Set up Rust
         if: matrix.package == 'runtime-daemon'
-        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        uses: ./.github/actions/setup-rust
         with:
           targets: wasm32-unknown-unknown
 
@@ -163,7 +163,7 @@ jobs:
 
       - name: Upload shard results
         if: ${{ github.event_name != 'pull_request' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.package }}--${{ matrix.shard }}
           path: |
@@ -187,12 +187,12 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.SWEEP_REF }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           # This job runs no install; with pnpm absent, the cache lookup fails.
@@ -206,7 +206,7 @@ jobs:
           restore-keys: stryker-incremental-
 
       - name: Download shard results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           # Shard artifacts are named `<package>--<shard>`; the run's other artifacts are not shards.
           pattern: "*--*"

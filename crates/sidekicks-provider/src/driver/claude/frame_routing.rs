@@ -4,13 +4,16 @@
 //! helper its helper-tool call's result, completes it, and the session thread's own handshake,
 //! whole `/` list and compaction boundary are tapped. A thread's usage is the sum of its assistant
 //! messages, each message's last reading counted once, and a lead turn's `result` confirms the
-//! thread's sum: the turn's own `usage` raises it where the messages read short of it.
+//! thread's sum: the turn's own `usage` raises it where the messages read short of it. Each change
+//! names the message whose request it belongs to and what prices that request; a `result`'s names
+//! the turn's last message.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::text::BoundedText;
 use sidekicks_std::port_registration::PortRegistration;
 use tokio::time::Instant;
 
@@ -26,7 +29,9 @@ use crate::driver::claude::handshake_register::{
 use crate::driver::claude::session::state::{
     ClaudeRoutableFrame, ClaudeSessionRoutingBand, ClaudeUsageEstablishment,
 };
-use crate::driver::claude::session::transport::declarations;
+use crate::driver::claude::session::transport::declarations::{
+    self, ClaudeMessageRequestFacts, ClaudeMessageUsageObservation,
+};
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
@@ -38,6 +43,7 @@ use crate::thread_frame_router::{
 };
 use crate::usage_delta_accountant::{
     CumulativeUsageReading, MeteredUsageDelta, ThreadBaseEstablishment, UsageAxisCounts,
+    UsageRequestFacts,
 };
 
 /// What the routing band read off one frame: its route, the helper starts and ends it reports,
@@ -72,13 +78,21 @@ pub(crate) struct ClaudeThreadUsageTally {
     unrouted: Vec<ClaudeMeteredReading>,
 }
 
-// One thread's sum: the messages before the open one, the open one's last reading, and the sum as
-// the thread's last `result` confirmed it.
+// One thread's sum: the messages before the open one, the open one, and the sum as the thread's
+// last `result` confirmed it.
 #[derive(Debug)]
 struct ClaudeThreadMessages {
     finished: UsageAxisCounts,
-    open: Option<(String, UsageAxisCounts)>,
+    open: Option<ClaudeOpenMessage>,
     confirmed: UsageAxisCounts,
+}
+
+// The message a thread is reading: its id, its last counts, and what prices its request so far.
+#[derive(Debug)]
+struct ClaudeOpenMessage {
+    message_id: String,
+    counts: UsageAxisCounts,
+    request: ClaudeMessageRequestFacts,
 }
 
 impl ClaudeThreadMessages {
@@ -94,31 +108,70 @@ impl ClaudeThreadMessages {
     fn total(&self) -> UsageAxisCounts {
         self.open
             .as_ref()
-            .map_or(self.finished, |(_, open)| add_counts(self.finished, *open))
+            .map_or(self.finished, |open| add_counts(self.finished, open.counts))
     }
 
-    // A message's reading: the same message's counts only grow, and another message closes the
-    // one before it.
-    fn observe_message(&mut self, message_id: &str, counts: UsageAxisCounts) -> UsageAxisCounts {
-        match &mut self.open {
-            Some((open_id, open)) if open_id == message_id => *open = larger_counts(*open, counts),
-            _ => {
-                if let Some((_, open)) = self.open.take() {
-                    self.finished = add_counts(self.finished, open);
-                }
-                self.open = Some((message_id.to_owned(), counts));
-            }
+    // A message's reading, with the thread's sum and what prices the change: the same message's
+    // counts only grow, and another message closes the one before it. The change carries the
+    // growth of the longer-lifetime cache write and of the searches since the same message's last
+    // reading, the whole figure for a new message.
+    fn observe_message(
+        &mut self,
+        message: &ClaudeMessageUsageObservation,
+    ) -> (UsageAxisCounts, UsageRequestFacts) {
+        if self
+            .open
+            .as_ref()
+            .is_none_or(|open| open.message_id != message.message_id)
+            && let Some(closed) = self.open.take()
+        {
+            self.finished = add_counts(self.finished, closed.counts);
         }
-        self.total()
+        let open = self.open.get_or_insert_with(|| ClaudeOpenMessage {
+            message_id: message.message_id.clone(),
+            counts: UsageAxisCounts::default(),
+            request: ClaudeMessageRequestFacts::default(),
+        });
+        let read = &message.request;
+        let so_far = &open.request;
+        let request = UsageRequestFacts {
+            cache_write_extended_tokens: growth(
+                so_far.cache_write_extended_tokens,
+                read.cache_write_extended_tokens,
+            ),
+            web_search_requests: growth(so_far.web_search_requests, read.web_search_requests),
+            ..request_selectors(&message.message_id, read)
+        };
+        open.counts = larger_counts(open.counts, message.counts);
+        open.request = ClaudeMessageRequestFacts {
+            cache_write_extended_tokens: combine_count(
+                so_far.cache_write_extended_tokens,
+                read.cache_write_extended_tokens,
+                u64::max,
+            ),
+            web_search_requests: combine_count(
+                so_far.web_search_requests,
+                read.web_search_requests,
+                u64::max,
+            ),
+            ..read.clone()
+        };
+        (self.total(), request)
     }
 
-    // A turn's own usage, which the thread's sum reaches at least.
-    fn confirm_turn(&mut self, turn: UsageAxisCounts) -> UsageAxisCounts {
+    // A turn's own usage, which the thread's sum reaches at least, with the turn's last message's
+    // key and selectors, or none where no message is open.
+    fn confirm_turn(&mut self, turn: UsageAxisCounts) -> (UsageAxisCounts, UsageRequestFacts) {
         let total = larger_counts(self.total(), add_counts(self.confirmed, turn));
+        let request = self
+            .open
+            .take()
+            .map_or_else(UsageRequestFacts::default, |open| {
+                request_selectors(&open.message_id, &open.request)
+            });
         self.finished = total;
-        self.open = None;
         self.confirmed = total;
-        total
+        (total, request)
     }
 }
 
@@ -213,6 +266,23 @@ impl ClaudeFrameRouting {
                     .observe_boundary(&session_id.to_string(), boundary.boundary_position);
             }
         }
+        // A helper a `SendMessage` call wakes runs on past the call's result, whether its start
+        // came before the call or comes after it.
+        for call_id in &observation.message_call_ids {
+            let waiting_helper_id = band
+                .router
+                .child_waiting_on_call(call_id)
+                .map(str::to_owned);
+            if let Some(helper_id) = waiting_helper_id {
+                band.router.stop_waiting_on_child(&helper_id);
+            }
+            band.message_call_ids.insert(call_id.clone());
+        }
+        // A start naming a call answered earlier in the turn waits on nothing, so the ids are kept
+        // until the lead's turn ends.
+        if observation.subagent_id.is_none() && observation.frame_kind == "result" {
+            band.message_call_ids.clear();
+        }
         if let Some(signal) = &observation.subagent_lifecycle
             && signal.signal == ClaudeSubagentSignal::SubagentStart
         {
@@ -261,9 +331,16 @@ impl ClaudeFrameRouting {
         let normalized = normalize_claude_subagent_lifecycle(signal, provider_session_id, |id| {
             band.router.child_attribution_for(id).is_some()
         });
-        let Some(announcement) = normalized.announcement else {
+        let Some(mut announcement) = normalized.announcement else {
             return;
         };
+        if announcement
+            .waiting_call_id
+            .as_ref()
+            .is_some_and(|call_id| band.message_call_ids.contains(call_id))
+        {
+            announcement.waiting_call_id = None;
+        }
         let ChildRegistrationResult::Registered {
             child_thread_id,
             released_frames,
@@ -335,8 +412,8 @@ fn apply_route(
     }
 }
 
-// The change one frame's usage makes to its thread's sum; `None` for a frame that carries none, a
-// thread with no base, or a reading that changes nothing.
+// The change one frame's usage makes to its thread's sum, with what prices its request; `None` for
+// a frame that carries none, a thread with no base, or a reading that changes nothing.
 fn meter(
     band: &mut ClaudeSessionRoutingBand,
     frame: &ClaudeRoutableFrame,
@@ -348,8 +425,8 @@ fn meter(
         .threads
         .entry(frame.thread_id.clone())
         .or_insert_with(|| ClaudeThreadMessages::starting_at(base));
-    let cumulative = match (&observation.message_usage, &observation.cumulative_usage) {
-        (Some(message), _) => messages.observe_message(&message.message_id, message.counts),
+    let (cumulative, request) = match (&observation.message_usage, &observation.cumulative_usage) {
+        (Some(message), _) => messages.observe_message(message),
         (None, Some(turn)) => messages.confirm_turn(turn.cumulative),
         (None, None) => return None,
     };
@@ -358,8 +435,10 @@ fn meter(
         named_turn_id: None,
         cumulative,
         declared_per_turn: None,
+        request,
     })?;
     let axes = &delta.axis_deltas;
+    // A frame whose only change is a search or a longer-lifetime cache write is still metered.
     let is_unchanged = [
         axes.input,
         axes.cached_input,
@@ -367,6 +446,8 @@ fn meter(
         axes.output,
         axes.reasoning_output,
         axes.total,
+        delta.request.cache_write_extended_tokens,
+        delta.request.web_search_requests,
     ]
     .into_iter()
     .all(|count| count.unwrap_or(0) == 0);
@@ -391,10 +472,7 @@ fn combine_counts(
     right: UsageAxisCounts,
     combine: fn(u64, u64) -> u64,
 ) -> UsageAxisCounts {
-    let axis = |left: Option<u64>, right: Option<u64>| match (left, right) {
-        (Some(left), Some(right)) => Some(combine(left, right)),
-        (left, right) => left.or(right),
-    };
+    let axis = |left, right| combine_count(left, right, combine);
     UsageAxisCounts {
         input: axis(left.input, right.input),
         cached_input: axis(left.cached_input, right.cached_input),
@@ -402,6 +480,35 @@ fn combine_counts(
         output: axis(left.output, right.output),
         reasoning_output: axis(left.reasoning_output, right.reasoning_output),
         total: axis(left.total, right.total),
+    }
+}
+
+// One count combined, present where either side carries it.
+fn combine_count(
+    left: Option<u64>,
+    right: Option<u64>,
+    combine: fn(u64, u64) -> u64,
+) -> Option<u64> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(combine(left, right)),
+        (left, right) => left.or(right),
+    }
+}
+
+// How far a message's figure so far grew at this reading, the whole figure where none was read
+// before; absent where this reading carries none.
+fn growth(so_far: Option<u64>, read: Option<u64>) -> Option<u64> {
+    read.map(|read| read.saturating_sub(so_far.unwrap_or(0)))
+}
+
+// The message `message_id`'s request key and selectors, with no count.
+fn request_selectors(message_id: &str, request: &ClaudeMessageRequestFacts) -> UsageRequestFacts {
+    UsageRequestFacts {
+        model_id: request.model_id.clone(),
+        request_key: BoundedText::new(message_id.to_owned()),
+        speed: request.speed.clone(),
+        processing_region: request.processing_region.clone(),
+        ..UsageRequestFacts::default()
     }
 }
 
@@ -478,4 +585,126 @@ fn report<const FIELDS: usize>(
         disposition_reason: disposition_reason.to_owned(),
         details: fields,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+    use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
+    use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
+
+    use crate::driver::claude::session::scripted::{
+        SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle,
+    };
+    use crate::usage_delta_accountant::UsageRequestFacts;
+
+    // An assistant message's frame: `usage` holds its token counts and request selectors.
+    fn message(message_id: &str, model: Option<&str>, usage: &Value) -> Value {
+        let mut message = json!({
+            "id": message_id,
+            "role": "assistant",
+            "content": [{"type": "text", "text": "working"}],
+            "usage": usage,
+        });
+        if let (Some(message), Some(model)) = (message.as_object_mut(), model) {
+            message.insert("model".to_owned(), Value::from(model));
+        }
+        json!({
+            "type": "assistant",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+            "message": message,
+        })
+    }
+
+    fn text(value: &str) -> Option<BoundedText<1, EVENT_FIELD_MAX_LEN>> {
+        BoundedText::new(value.to_owned())
+    }
+
+    // Fails when a row carries the cumulative longer-lifetime cache write or search count of its
+    // message instead of the growth since that message's last reading, when a `result`'s row names
+    // no request though a message was metered before it, when `global` is stored as a region, or
+    // when the model keeps its larger-window mark. Mutations: `growth` returning the figure read;
+    // `confirm_turn` answering no request; the `global` filter dropped; the mark left on the model.
+    #[tokio::test(start_paused = true)]
+    async fn each_row_names_its_message_request_and_the_growth_of_its_priced_counts() {
+        let session = ScriptedSession::new().await;
+        session.hold_lead_turn("lead");
+
+        let first_usage = |extended_tokens: u64, searches: u64| {
+            json!({
+                "input_tokens": 10,
+                "output_tokens": 1,
+                "speed": "fast",
+                "inference_geo": "us",
+                "cache_creation": {"ephemeral_1h_input_tokens": extended_tokens},
+                "server_tool_use": {"web_search_requests": searches},
+            })
+        };
+        session.frame(&message(
+            "m1",
+            Some("claude-opus-5-5[1m]"),
+            &first_usage(100, 1),
+        ));
+        session.frame(&message(
+            "m1",
+            Some("claude-opus-5-5[1m]"),
+            &first_usage(300, 2),
+        ));
+        session.frame(&message(
+            "m2",
+            None,
+            &json!({
+                "input_tokens": 20,
+                "output_tokens": 2,
+                "speed": null,
+                "inference_geo": "global",
+            }),
+        ));
+        session.frame(&json!({
+            "type": "result",
+            "subtype": "success",
+            "is_error": false,
+            "result": "done",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+            "usage": {"input_tokens": 100, "output_tokens": 50},
+        }));
+        settle().await;
+
+        let first = UsageRequestFacts {
+            model_id: FreeFormText::new("claude-opus-5-5".to_owned()).ok(),
+            request_key: text("m1"),
+            speed: text("fast"),
+            processing_region: text("us"),
+            ..UsageRequestFacts::default()
+        };
+        let requests: Vec<UsageRequestFacts> = session
+            .usage
+            .metered()
+            .into_iter()
+            .map(|metered| metered.delta.request)
+            .collect();
+        assert_eq!(
+            requests,
+            [
+                UsageRequestFacts {
+                    cache_write_extended_tokens: Some(100),
+                    web_search_requests: Some(1),
+                    ..first.clone()
+                },
+                UsageRequestFacts {
+                    cache_write_extended_tokens: Some(200),
+                    web_search_requests: Some(1),
+                    ..first
+                },
+                UsageRequestFacts {
+                    request_key: text("m2"),
+                    ..UsageRequestFacts::default()
+                },
+                UsageRequestFacts {
+                    request_key: text("m2"),
+                    ..UsageRequestFacts::default()
+                },
+            ]
+        );
+    }
 }

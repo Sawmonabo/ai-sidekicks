@@ -721,6 +721,7 @@ async fn meter_side_question(
         named_turn_id: None,
         cumulative: observed.cumulative,
         declared_per_turn: None,
+        request: crate::usage_delta_accountant::UsageRequestFacts::default(),
     }) else {
         return;
     };
