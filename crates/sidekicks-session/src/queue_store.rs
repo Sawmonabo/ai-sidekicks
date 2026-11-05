@@ -6,6 +6,8 @@
 pub mod plan_message;
 pub mod send_now;
 pub mod summary;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_items;
 
 use std::borrow::Cow;
 use std::sync::LazyLock;

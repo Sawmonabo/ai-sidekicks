@@ -11,7 +11,6 @@ use sidekicks_contracts::run::queue::{
     AgentQueueItemCanceledPayload, AgentQueueItemCanceledState, QueueItemId,
 };
 use sidekicks_contracts::run::state::RunState;
-use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -23,9 +22,9 @@ use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEvent
 
 use super::running_at;
 use crate::questions::schema::schema_parts;
+use crate::queue_store::test_items::{insert_item, words};
 use crate::queue_store::{
-    NewQueueItem, QueueItemBody, QueueItemExit, QueueItemOutcome, QueueItemRecord,
-    QueueMessageBody, insert_queue_item_statement, leave_queued_statement,
+    QueueItemBody, QueueItemExit, QueueItemOutcome, QueueItemRecord, leave_queued_statement,
 };
 use crate::run::engine::test_fixture::{append, insert_run, stored_run_state, test_engine};
 use crate::run::read::{LiveRun, RunRead};
@@ -115,32 +114,6 @@ fn seeded(case: StopCase) -> Seeded {
     }
 }
 
-// Queues one message for `run_id` through `writer`; the queue crate's writer is not imported, since
-// that crate depends on this one.
-async fn queue_message(writer: &DatabaseWriter, session_id: SessionId, run_id: RunId) {
-    let item = NewQueueItem {
-        id: QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id"),
-        session_id,
-        body: QueueItemBody::Message(QueueMessageBody {
-            content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
-            attachments: None,
-            skills: None,
-            answers_question_id: None,
-            output_speed_for_turn: None,
-            workspace_id: None,
-        }),
-        target_run_id: run_id,
-        device_id: None,
-        client_idempotency_key: None,
-        replaces_queue_item_id: None,
-        now: WireInstant::now(),
-    };
-    writer
-        .write(vec![insert_queue_item_statement(&item)])
-        .await
-        .expect("the test queues its message");
-}
-
 // Each run and queue item event of the session's log, in order, with its payload's `member`.
 fn stored_events_of(database: &TestDatabase, member: &str) -> Vec<(String, Option<String>)> {
     database
@@ -212,7 +185,13 @@ async fn a_stop_ends_a_run_and_its_waiting_messages_in_one_write(#[case] case: S
         1
     };
     for _ in 0..messages {
-        queue_message(&writer, session_id, run_id).await;
+        insert_item(
+            &writer,
+            session_id,
+            run_id,
+            QueueItemBody::Message(words("Look again")),
+        )
+        .await;
     }
     let engine = test_engine(&database, log.service, home.path());
     match case {
@@ -266,7 +245,13 @@ async fn a_stop_ends_a_run_and_its_waiting_messages_in_one_write(#[case] case: S
     match case {
         StopCase::QueuedWithAThirdQueuedMeanwhile
         | StopCase::RunningWithAMessageQueuedMeanwhile => {
-            queue_message(&writer, session_id, run_id).await;
+            insert_item(
+                &writer,
+                session_id,
+                run_id,
+                QueueItemBody::Message(words("Look again")),
+            )
+            .await;
         }
         StopCase::QueuedWhoseMessageLeftMeanwhile => {
             connection

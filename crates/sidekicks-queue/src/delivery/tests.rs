@@ -38,6 +38,7 @@ use sidekicks_provider::process_identity::{
     ProcessStandIn, ProviderProcessIds, TEST_PROVIDER_PROCESS,
 };
 use sidekicks_session::questions::schema::schema_parts;
+use sidekicks_session::queue_store::test_items::{self, words};
 use sidekicks_session::queue_store::{QueueItemBody, QueueItemReader, QueueItemRecord};
 use sidekicks_session::run::engine::test_fixture::insert_run;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -55,7 +56,6 @@ use crate::provider_session::test_opening::{
     OrphanedAnswersStandIn, RecordedResumedRuns, test_provider_sessions,
 };
 use crate::session_lock::QueueSessionLock;
-use crate::test_items::{self, words};
 
 /// The statements the tests' read pool prepares: the delivery's reads and the recorder's.
 const READ_STATEMENT_CAPACITY: usize = 8;

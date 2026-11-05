@@ -15,5 +15,5 @@ pub mod run_token_limit;
 pub(crate) mod send;
 pub mod service;
 pub(crate) mod session_lock;
-#[cfg(any(test, feature = "test-support"))]
-pub mod test_items;
+#[cfg(test)]
+pub(crate) mod test_items;

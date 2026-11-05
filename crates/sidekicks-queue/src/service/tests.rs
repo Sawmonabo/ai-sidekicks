@@ -59,6 +59,7 @@ use sidekicks_provider::runtime_binding::test_store::{
 };
 use sidekicks_session::checkpoints::schema::schema_parts as checkpoint_schema_parts;
 use sidekicks_session::questions::schema::schema_parts;
+use sidekicks_session::queue_store::test_items::{insert_item, words};
 use sidekicks_session::queue_store::{
     QueueItemBody, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
 };
@@ -84,7 +85,7 @@ use crate::provider_session::test_opening::{
     record_first_provider_capabilities, test_provider_sessions,
 };
 use crate::run_token_limit::RunTokenLimitReader;
-use crate::test_items::{Form, insert_form, insert_item, words};
+use crate::test_items::{Form, insert_form};
 
 /// The statements the tests' read pool prepares, every reader's together.
 const READ_STATEMENT_CAPACITY: usize = 32;

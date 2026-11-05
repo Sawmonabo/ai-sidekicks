@@ -50,10 +50,10 @@ use sidekicks_queue::provider_session::resumed_runs::ResumedRunsIngress;
 use sidekicks_queue::provider_session::test_opening::{
     OrphanedAnswersStandIn, test_provider_sessions,
 };
-use sidekicks_queue::test_items::{insert_item, words};
 use sidekicks_session::interventions::service::test_fixture::test_intervention_service;
 use sidekicks_session::questions::service::QuestionsService;
 use sidekicks_session::queue_store::QueueItemBody;
+use sidekicks_session::queue_store::test_items::{insert_item, words};
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::engine::test_fixture::{insert_run, test_engine_with};
 use sidekicks_session::run::live_count::count_live_runs_after_commits;

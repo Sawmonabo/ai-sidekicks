@@ -18,14 +18,14 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::trust_statement::DeviceId;
-use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
 use sidekicks_session::questions::schema::schema_parts;
+use sidekicks_session::queue_store::test_items::{test_queue_item, words};
 use sidekicks_session::queue_store::{
-    NewQueueItem, QueueItemBody, QueueItemOutcome, QueueItemRecord, QueueMessageBody,
+    NewQueueItem, QueueItemBody, QueueItemOutcome, QueueItemRecord,
 };
 use sidekicks_session::run::engine::test_fixture::insert_run;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -97,25 +97,13 @@ fn device_id() -> DeviceId {
 
 /// A message to the fixture's lead run under a fresh key.
 fn new_item(fixture: &Fixture) -> NewQueueItem {
-    NewQueueItem {
-        id: QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id"),
-        session_id: fixture.session_id,
-        body: QueueItemBody::Message(QueueMessageBody {
-            content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
-            attachments: None,
-            skills: None,
-            answers_question_id: None,
-            output_speed_for_turn: None,
-            workspace_id: None,
-        }),
-        target_run_id: fixture.run_id,
-        device_id: Some(device_id()),
-        client_idempotency_key: Some(
-            ClientUuid::new(mint_uuid_v7().to_string()).expect("a minted UUID is a client key"),
-        ),
-        replaces_queue_item_id: None,
-        now: WireInstant::now(),
-    }
+    let mut item = test_queue_item(
+        fixture.session_id,
+        fixture.run_id,
+        QueueItemBody::Message(words("Look again")),
+    );
+    item.device_id = Some(device_id());
+    item
 }
 
 /// Sends `item` into the fixture's live run, retrying `retries` when it is given.
