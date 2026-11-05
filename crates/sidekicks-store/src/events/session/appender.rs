@@ -410,6 +410,21 @@ impl SessionEventAppender {
         Ok(self.event_log.append_held(hold, envelope, options).await?)
     }
 
+    /// Appends each draft of `appends` after its linkage's preceding events, all in one write
+    /// that stores every one or none, each draft of any session at that session's next sequences,
+    /// and returns once it committed, with one receipt per draft in the given order. Fails as
+    /// [`SessionEventAppendError`] says; see [`EventLogService::append_together`].
+    pub async fn append_together(
+        &self,
+        appends: Vec<(SessionEventDraft, SessionEventLinkage)>,
+    ) -> Result<Vec<EventLogAppendReceipt>, SessionEventAppendError> {
+        let envelopes = appends
+            .into_iter()
+            .map(|(draft, linkage)| self.envelope_of(draft, linkage))
+            .collect::<Result<_, _>>()?;
+        Ok(self.event_log.append_together(envelopes).await?)
+    }
+
     fn envelope_of(
         &self,
         mut draft: SessionEventDraft,

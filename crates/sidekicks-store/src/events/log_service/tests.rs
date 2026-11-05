@@ -13,6 +13,7 @@ use super::test_fixture::{TestLog, open_log};
 use super::{
     EventAppendError, EventLogAppendOptions, EventReadAfterCursorRequest, UnsequencedEventEnvelope,
 };
+use crate::database::statement::{StatementBindings, WriteStatement};
 use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
 use crate::events::session::append_lock::SESSION_APPEND_LOCK;
 use crate::events::session::appender::{
@@ -287,6 +288,132 @@ async fn a_command_ending_is_stored_with_a_summary_only_when_it_failed() {
         .query_row("SELECT count(*) FROM session_events", [], |row| row.get(0))
         .expect("the test counts the stored rows");
     assert_eq!(rows, 1);
+    assert_eq!(writer.close(None).await.expect("the writer closes"), 0);
+}
+
+/// A statement that changes no row, refusing its write when `is_guarded` sets the one row it
+/// expects, and passing otherwise.
+fn statement_on_no_row(is_guarded: bool) -> WriteStatement {
+    WriteStatement {
+        sql: "UPDATE session_events SET type = type WHERE 0".into(),
+        bindings: StatementBindings::None,
+        expected_row_count: is_guarded.then_some(1),
+    }
+}
+
+// Killed by the holds taken in the given order (the two writes deadlock), by one session's rows
+// kept when the other's statement refuses, by sequences counted across sessions, and by a refused
+// index counted within its own append.
+#[tokio::test]
+async fn one_write_appends_several_sessions_or_none() {
+    let database = TestDatabase::new(crate::database::schema::schema_parts());
+    let TestLog {
+        writer, service, ..
+    } = open_log(&database, None).await;
+    let mut session_ids = [test_session_id(), test_session_id()];
+    session_ids.sort();
+    let [low, high] = session_ids;
+    let run_id = mint_uuid_v7().to_string();
+    service
+        .append(
+            tool_invoked(&high, &run_id),
+            EventLogAppendOptions::default(),
+        )
+        .await
+        .expect("the high session's first event commits");
+    let stored_rows = || -> i64 {
+        database
+            .reader()
+            .query_row("SELECT count(*) FROM session_events", [], |row| row.get(0))
+            .expect("the test counts the stored rows")
+    };
+
+    let receipts = service
+        .append_together(vec![
+            (
+                tool_invoked(&low, &run_id),
+                EventLogAppendOptions {
+                    transactional_prelude: vec![statement_on_no_row(false)],
+                    ..EventLogAppendOptions::default()
+                },
+            ),
+            (
+                tool_invoked(&high, &run_id),
+                EventLogAppendOptions {
+                    preceding_events: vec![(tool_invoked(&high, &run_id), None)],
+                    ..EventLogAppendOptions::default()
+                },
+            ),
+        ])
+        .await
+        .expect("the write commits");
+    let sequences: Vec<u64> = receipts
+        .iter()
+        .map(|receipt| receipt.sequence.get())
+        .collect();
+    assert_eq!(sequences, [0, 2]);
+    assert_eq!(stored_rows(), 4);
+
+    let refused = service
+        .append_together(vec![
+            (
+                tool_invoked(&low, &run_id),
+                EventLogAppendOptions {
+                    transactional_prelude: vec![statement_on_no_row(false)],
+                    ..EventLogAppendOptions::default()
+                },
+            ),
+            (
+                tool_invoked(&high, &run_id),
+                EventLogAppendOptions {
+                    transactional_prelude: vec![statement_on_no_row(true)],
+                    ..EventLogAppendOptions::default()
+                },
+            ),
+        ])
+        .await
+        .expect_err("the second append's statement refuses the write");
+    let EventAppendError::Write(write) = refused else {
+        panic!("the writer refuses the write: {refused:?}");
+    };
+    assert_eq!(write.refused_statement_index(), Some(1));
+    assert_eq!(stored_rows(), 4);
+
+    // Each write waits behind the test's hold on the low session before it takes either lock.
+    let hold = SESSION_APPEND_LOCK.acquire(low).await;
+    let handles = SESSION_APPEND_LOCK.queue_handle_count(low);
+    let together = |first: SessionId, second: SessionId| {
+        let service = Arc::clone(&service);
+        let run_id = run_id.clone();
+        tokio::spawn(async move {
+            service
+                .append_together(vec![
+                    (
+                        tool_invoked(&first, &run_id),
+                        EventLogAppendOptions::default(),
+                    ),
+                    (
+                        tool_invoked(&second, &run_id),
+                        EventLogAppendOptions::default(),
+                    ),
+                ])
+                .await
+        })
+    };
+    let low_first = together(low, high);
+    SESSION_APPEND_LOCK.wait_for_queue_past(low, handles).await;
+    let joined = SESSION_APPEND_LOCK.queue_handle_count(low);
+    let high_first = together(high, low);
+    SESSION_APPEND_LOCK.wait_for_queue_past(low, joined).await;
+    drop(hold);
+    for write in [low_first, high_first] {
+        tokio::time::timeout(APPEND_WAIT, write)
+            .await
+            .expect("the writes over the same sessions never wait on each other")
+            .expect("the write's task ends")
+            .expect("the write commits");
+    }
+    assert_eq!(stored_rows(), 8);
     assert_eq!(writer.close(None).await.expect("the writer closes"), 0);
 }
 

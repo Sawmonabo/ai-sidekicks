@@ -328,13 +328,12 @@ pub struct EventLogService {
     read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
 }
 
-/// One append's write, composed and checked, ready to queue.
+/// A write of one or more appends, composed and checked, ready to queue.
 struct ComposedWrite {
     job: WriteJob,
-    on_commit: CommitHook,
-    id: FreeFormText<EVENT_FIELD_MAX_LEN>,
-    /// Where the event's own row sits among the write's rows.
-    row_index: usize,
+    /// Each append's event id beside where its own row sits among the write's rows, in the order
+    /// the appends were given.
+    receipts: Vec<(FreeFormText<EVENT_FIELD_MAX_LEN>, usize)>,
 }
 
 impl EventLogService {
@@ -381,6 +380,46 @@ impl EventLogService {
         let queued = self.enqueue(write);
         // Let go once queued, so the commit is awaited outside the lock.
         drop(hold);
+        committed(queued?).await.map(only_receipt)
+    }
+
+    /// Appends each of `appends`, its preceding events before it, in one write that stores all of
+    /// them or none, and returns once it committed, with one receipt per append in the given order.
+    /// Each append may be of another session, its rows at that session's next sequences; every
+    /// session's append lock is held, taken in session-id order whatever the given order, while
+    /// the write is queued. Each append is checked and refused as [`EventLogService::append`]
+    /// says; a refused statement's index counts across the whole write's statements, which keep
+    /// the given order.
+    pub async fn append_together(
+        &self,
+        appends: Vec<(UnsequencedEventEnvelope, EventLogAppendOptions)>,
+    ) -> Result<Vec<EventLogAppendReceipt>, EventAppendError> {
+        let session_ids: Vec<SessionId> = appends
+            .iter()
+            .map(|(envelope, _)| envelope.session_id())
+            .collect();
+        let mut joined = ComposedWrite {
+            job: WriteJob {
+                statements: Vec::new(),
+                events: Vec::new(),
+            },
+            receipts: Vec::with_capacity(appends.len()),
+        };
+        for (envelope, options) in appends {
+            let ComposedWrite { job, receipts } = self.compose_write(envelope, options)?;
+            let row_offset = joined.job.events.len();
+            joined.job.statements.extend(job.statements);
+            joined.job.events.extend(job.events);
+            joined.receipts.extend(
+                receipts
+                    .into_iter()
+                    .map(|(id, row_index)| (id, row_offset + row_index)),
+            );
+        }
+        let holds = SESSION_APPEND_LOCK.acquire_all(session_ids).await;
+        let queued = self.enqueue(joined);
+        // Let go once queued, so the commit is awaited outside the locks.
+        drop(holds);
         committed(queued?).await
     }
 
@@ -399,7 +438,7 @@ impl EventLogService {
             });
         }
         let write = self.compose_write(envelope, options)?;
-        committed(self.enqueue(write)?).await
+        committed(self.enqueue(write)?).await.map(only_receipt)
     }
 
     /// Up to `limit` events after the cursor's position, in sequence order. The session's head is
@@ -623,47 +662,57 @@ impl EventLogService {
                 );
             }
         }
-        let stored_envelopes = rows.iter().map(|row| Arc::clone(&row.envelope)).collect();
         Ok(ComposedWrite {
             job: WriteJob {
                 statements,
                 events: rows,
             },
-            on_commit: publish_on_commit(stored_envelopes, Arc::clone(&self.followers)),
-            id,
-            row_index,
+            receipts: vec![(id, row_index)],
         })
     }
 
-    /// Queues `write` with no await, so a caller holding the session's lock lets it go at once.
+    /// Queues `write` with no await, so a caller holding a session's lock lets it go at once; its
+    /// one commit hook publishes every row the write stores.
     fn enqueue(&self, write: ComposedWrite) -> Result<QueuedAppend, WriteError> {
-        let pending = self.writer.enqueue(write.job, Some(write.on_commit))?;
-        Ok(QueuedAppend {
-            pending,
-            id: write.id,
-            row_index: write.row_index,
-        })
+        let ComposedWrite { job, receipts } = write;
+        let stored_envelopes = job
+            .events
+            .iter()
+            .map(|row| Arc::clone(&row.envelope))
+            .collect();
+        let on_commit = publish_on_commit(stored_envelopes, Arc::clone(&self.followers));
+        let pending = self.writer.enqueue(job, Some(on_commit))?;
+        Ok(QueuedAppend { pending, receipts })
     }
 }
 
-/// An append's write once queued, with the event's id and where its row sits among the write's.
+/// A write once queued, with each append's event id and where its row sits among the write's.
 struct QueuedAppend {
     pending: PendingWrite,
-    id: FreeFormText<EVENT_FIELD_MAX_LEN>,
-    row_index: usize,
+    receipts: Vec<(FreeFormText<EVENT_FIELD_MAX_LEN>, usize)>,
 }
 
-/// The receipt of a queued append once its write committed.
-async fn committed(queued: QueuedAppend) -> Result<EventLogAppendReceipt, EventAppendError> {
+/// Each append's receipt of a queued write once it committed, in the order the appends were given.
+async fn committed(queued: QueuedAppend) -> Result<Vec<EventLogAppendReceipt>, EventAppendError> {
     let committed = queued.pending.await?;
-    let sequence = *committed
-        .sequences
-        .get(queued.row_index)
-        .expect("a committed write has a sequence per row, the event's among them");
-    Ok(EventLogAppendReceipt {
-        id: queued.id,
-        sequence,
-    })
+    Ok(queued
+        .receipts
+        .into_iter()
+        .map(|(id, row_index)| EventLogAppendReceipt {
+            id,
+            sequence: *committed
+                .sequences
+                .get(row_index)
+                .expect("a committed write has a sequence per row, each event's among them"),
+        })
+        .collect())
+}
+
+/// The one receipt of a write of one append.
+fn only_receipt(mut receipts: Vec<EventLogAppendReceipt>) -> EventLogAppendReceipt {
+    receipts
+        .pop()
+        .expect("a write of one append answers one receipt")
 }
 
 /// The commit hook that pairs `stored_envelopes`, the ones the write's rows bound, with the
