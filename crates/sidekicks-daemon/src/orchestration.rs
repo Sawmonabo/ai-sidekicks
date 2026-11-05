@@ -1,5 +1,8 @@
-//! Orchestration: the helpers a provider's own agents may start inside a session, and the move of
-//! a provider's running sessions onto the account made its current one.
+//! Orchestration: the move of a provider's running sessions onto the account made its current one,
+//! the acceptance of a switch of one agent's provider binding, what both switches settle with, and
+//! the setting and clearing of a session's goal.
 
 pub(crate) mod account_switch;
-pub(crate) mod subagent_policy;
+pub(crate) mod binding_switch;
+pub(crate) mod goal_service;
+pub(crate) mod provider_switch;

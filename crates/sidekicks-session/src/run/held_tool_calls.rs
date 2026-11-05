@@ -31,6 +31,10 @@ use crate::run::read::{NEAREST_LINEAGE_BINDING_ORDER_SQL, provider_lineage_sql};
 // The payload member that names why a call ended with no result.
 const END_CAUSE_PAYLOAD_KEY: &str = "endCause";
 
+/// The statements a read connection keeps prepared for the held calls of one session; the sessions
+/// that hold one are read at the start, whose set counts that statement.
+pub const HELD_TOOL_CALLS_STATEMENT_CAPACITY: usize = 1;
+
 // The SQL condition that `close` is a close of the call `held` moved to the background, written
 // after it.
 fn closes_held_call_sql() -> String {

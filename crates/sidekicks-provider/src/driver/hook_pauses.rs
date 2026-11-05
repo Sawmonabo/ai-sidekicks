@@ -10,6 +10,21 @@ use sidekicks_contracts::session::id::SessionId;
 /// The reason a paused lead's denied tool call gives the model, which it reads.
 pub(crate) const PAUSED_REASON: &str = "Paused by you";
 
+/// The reason a tool call aimed at a helper the person paused or interrupted is denied with, which
+/// the calling agent reads.
+pub(crate) const HELD_TARGET_REASON: &str = "The person paused this agent from the console. It \
+    will not take messages on any channel until they resume it. Do not retry another way; \
+    continue with what you can, or wait.";
+
+/// The reason a tool call aimed at a helper is denied with when the daemon could not read whether
+/// that helper takes messages, `cause` saying why.
+pub(crate) fn target_unread_reason(cause: &str) -> String {
+    format!(
+        "Not sent: the daemon could not read whether this agent can take messages, because \
+         {cause}. Continue with what you can, or tell the person."
+    )
+}
+
 /// Whose conversation a pause is on: the session's lead or one of its helpers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PausedRole {
@@ -20,7 +35,7 @@ pub(crate) enum PausedRole {
 }
 
 /// One pause in force on a conversation: its session, its role, what the driver keeps of it, the
-/// calls it holds, and whether it took effect and that was reported.
+/// calls it holds, whether it took effect and that was reported, and whether it lost a held call.
 #[derive(Debug)]
 pub(crate) struct HookPause<Detail, Held> {
     /// The session the conversation belongs to.
@@ -35,6 +50,8 @@ pub(crate) struct HookPause<Detail, Held> {
     has_taken_effect: bool,
     /// Whether the pause's effect has been reported.
     is_effect_reported: bool,
+    /// Whether a call it held was withdrawn, its hook connection gone, so the hold was lost.
+    has_lost_hold: bool,
 }
 
 impl<Detail, Held> HookPause<Detail, Held> {
@@ -52,10 +69,20 @@ impl<Detail, Held> HookPause<Detail, Held> {
     pub(crate) fn detail(&self) -> &Detail {
         &self.detail
     }
+
+    // Ends the pause, handing back what it kept, held and marked.
+    fn end(self) -> EndedHookPause<Detail, Held> {
+        EndedHookPause {
+            detail: self.detail,
+            held: self.held,
+            had_taken_effect: self.has_taken_effect,
+            had_lost_hold: self.has_lost_hold,
+        }
+    }
 }
 
 /// A pause that ended by a continue or a let-go: what the driver kept of it, the calls it held,
-/// which the driver answers, and whether it had taken effect.
+/// which the driver answers, whether it had taken effect, and whether it had lost a held call.
 #[derive(Debug)]
 pub(crate) struct EndedHookPause<Detail, Held> {
     /// What the driver kept of the pause.
@@ -64,6 +91,8 @@ pub(crate) struct EndedHookPause<Detail, Held> {
     pub(crate) held: Vec<Held>,
     /// Whether the pause had stopped the conversation.
     pub(crate) had_taken_effect: bool,
+    /// Whether a call it held was withdrawn while it held, so the hold was lost, not released.
+    pub(crate) had_lost_hold: bool,
 }
 
 /// Every conversation's pause, keyed by how the driver names a conversation.
@@ -97,6 +126,7 @@ impl<Conversation: Eq + Hash, Detail, Held> HookPauses<Conversation, Detail, Hel
             held: Vec::new(),
             has_taken_effect: false,
             is_effect_reported: false,
+            has_lost_hold: false,
         });
     }
 
@@ -171,17 +201,12 @@ impl<Conversation: Eq + Hash, Detail, Held> HookPauses<Conversation, Detail, Hel
         &mut self,
         conversation: &Conversation,
     ) -> Option<EndedHookPause<Detail, Held>> {
-        self.pauses
-            .remove(conversation)
-            .map(|pause| EndedHookPause {
-                detail: pause.detail,
-                held: pause.held,
-                had_taken_effect: pause.has_taken_effect,
-            })
+        self.pauses.remove(conversation).map(HookPause::end)
     }
 
     /// Drops every held call of `session_id` that `is_withdrawn` picks, one the provider withdrew
-    /// or that no longer waits; it is not answered.
+    /// or that no longer waits; it is not answered, and each pause it is dropped from has lost its
+    /// hold.
     pub(crate) fn withdraw_held(
         &mut self,
         session_id: &SessionId,
@@ -192,7 +217,9 @@ impl<Conversation: Eq + Hash, Detail, Held> HookPauses<Conversation, Detail, Hel
             .values_mut()
             .filter(|pause| pause.session_id == *session_id)
         {
+            let held_before = pause.held.len();
             pause.held.retain(|held| !is_withdrawn(held));
+            pause.has_lost_hold |= pause.held.len() < held_before;
         }
     }
 
@@ -210,16 +237,37 @@ impl<Conversation: Eq + Hash, Detail, Held> HookPauses<Conversation, Detail, Hel
             .into_iter()
             .map(
                 |(conversation, pause): (Conversation, HookPause<Detail, Held>)| {
-                    (
-                        conversation,
-                        EndedHookPause {
-                            detail: pause.detail,
-                            held: pause.held,
-                            had_taken_effect: pause.has_taken_effect,
-                        },
-                    )
+                    (conversation, pause.end())
                 },
             )
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{HookPauses, PausedRole};
+    use crate::driver::test_registry::fixed_session_id;
+
+    // A withdrawn held call marks only the pause it held on, and the mark outlives the continue;
+    // a pause that kept its call ends unmarked. Killed by a mark never set, one `resume` sets
+    // itself, or one `withdraw_held` sets on every pause of the session.
+    #[test]
+    fn only_a_pause_whose_held_call_is_withdrawn_ends_with_its_hold_lost() {
+        let session_id = fixed_session_id();
+        let mut pauses = HookPauses::<&str, (), &str>::default();
+        pauses.pause("lost", session_id, PausedRole::Helper, ());
+        pauses.pause("kept", session_id, PausedRole::Helper, ());
+        pauses.hold(&"lost", "withdrawn-call");
+        pauses.hold(&"kept", "waiting-call");
+
+        pauses.withdraw_held(&session_id, |held| *held == "withdrawn-call");
+
+        let lost = pauses.resume(&"lost").expect("the pause was in force");
+        assert!(lost.had_lost_hold);
+        assert_eq!(lost.held, [] as [&str; 0]);
+        let kept = pauses.resume(&"kept").expect("the pause was in force");
+        assert!(!kept.had_lost_hold);
+        assert_eq!(kept.held, ["waiting-call"]);
     }
 }

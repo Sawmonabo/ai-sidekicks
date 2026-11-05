@@ -287,10 +287,12 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         | SessionEventType::AgentRunWaitingForInput
         | SessionEventType::AgentRunPausing
         | SessionEventType::AgentRunRolledBack
+        | SessionEventType::AgentRunParentCorrected
         | SessionEventType::AgentRunProviderInitialized
         | SessionEventType::AgentTurnStarted
         | SessionEventType::AgentTurnCompleted
         | SessionEventType::AgentTurnInterrupted
+        | SessionEventType::AgentChildrenStopped
         | SessionEventType::AgentTurnFailed
         | SessionEventType::AgentRunWorkerShuttingDown
         | SessionEventType::AgentRunStepLimitReached
@@ -309,6 +311,7 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         | SessionEventType::AgentToolCallFailed
         | SessionEventType::AgentSubagentStarted
         | SessionEventType::AgentSubagentCompleted
+        | SessionEventType::AgentSubagentStopped
         | SessionEventType::AgentCommandEnded
         | SessionEventType::AgentQueueItemCreated
         | SessionEventType::AgentQueueItemAdmitted

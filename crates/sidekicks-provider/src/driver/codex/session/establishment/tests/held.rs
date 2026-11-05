@@ -16,7 +16,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_std::mutex_lock::lock;
 
 use super::adopted_helpers::{HELPER_TURN, adopt_with_helpers, helper_run, loaded, unloaded};
-use super::continuation::{
+use super::adoption::{
     ADOPTED_THREAD, AdoptionScript, CONTINUATION_TURN, ROOT_TURN, adopt, cut_turn_end,
     cut_turn_listed, lead_run, page_turn, turn_ends,
 };

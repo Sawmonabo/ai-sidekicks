@@ -3,11 +3,12 @@
 //! item of the session's queue handed to the test, which handles it the way the session's task
 //! does.
 
+mod daemon_turns;
 pub(crate) mod relaunches;
 pub(crate) mod status_sink;
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -21,13 +22,12 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::account::record::{
     CredentialGeneration, ProviderAccountId, ProviderAuthMode,
 };
+use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::record::Record;
-use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use tokio::sync::{mpsc, oneshot};
@@ -90,9 +90,7 @@ use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
-use crate::driver::run_control::{
-    DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver, RunToolBoundary,
-};
+use crate::driver::run_control::{DaemonTurnBindingResolver, RunToolBoundary};
 use crate::driver::schema::schema_parts;
 use crate::driver::session_control::{CreateSessionParams, SessionAccountPin};
 use crate::driver::test_registry::{RecordedQueue, new_agent_id, new_session_id};
@@ -111,6 +109,8 @@ use crate::runtime_binding::test_store::{
 };
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 use crate::spawn_environment::ReservedEnvironmentNames;
+
+pub(crate) use self::daemon_turns::TestDaemonTurnBindings;
 
 /// The conversation a test session starts on.
 pub(crate) const TEST_THREAD: &str = "thread-1";
@@ -602,10 +602,7 @@ pub(crate) async fn open_test_record(
         provider_account_id: test_provider_account_id(),
         turn_boundaries: Vec::new(),
         thread_settings: test_thread_settings(session_id),
-        execution_posture: compose_execution_posture(
-            PermissionLevel::Readonly,
-            FilesystemPath::new("/".to_owned()).expect("the root is a path"),
-        ),
+        execution_posture: test_record_posture(),
         session_mode: SessionMode::Build,
         output_speed_request: None,
         declared_output_speed: None,
@@ -621,6 +618,14 @@ pub(crate) async fn open_test_record(
         )
         .await;
     (record, routing)
+}
+
+/// The posture a test session's record runs at: read-only over the whole disk.
+fn test_record_posture() -> ExecutionPosture {
+    compose_execution_posture(
+        PermissionLevel::Readonly,
+        FilesystemPath::new("/".to_owned()).expect("the root is a path"),
+    )
 }
 
 /// The settings of a test session's conversation at Ask.
@@ -742,47 +747,6 @@ pub(crate) fn turn_completed(thread_id: &str, turn_id: &str, status: &str) -> Va
 /// A `turn/start` reply naming `turn_id`.
 pub(crate) fn turn_reply(turn_id: &str) -> Value {
     json!({"turn": {"id": turn_id, "items": [], "status": "inProgress"}})
-}
-
-/// Opens each turn the daemon starts on the binding the test names, for the session's lead.
-pub(crate) struct TestDaemonTurnBindings {
-    /// The session's lead.
-    pub(crate) agent_id: AgentId,
-    binding_id: Mutex<Option<RuntimeBindingId>>,
-}
-
-impl TestDaemonTurnBindings {
-    /// Opens no turn until [`Self::open_on`] names a binding.
-    pub(crate) fn new(agent_id: AgentId) -> Self {
-        Self {
-            agent_id,
-            binding_id: Mutex::new(None),
-        }
-    }
-
-    /// Opens every later turn on `binding_id`.
-    pub(crate) fn open_on(&self, binding_id: RuntimeBindingId) {
-        *self.lock() = Some(binding_id);
-    }
-
-    fn lock(&self) -> std::sync::MutexGuard<'_, Option<RuntimeBindingId>> {
-        lock(&self.binding_id)
-    }
-}
-
-impl DaemonTurnBindingResolver for TestDaemonTurnBindings {
-    fn open_daemon_turn_binding(
-        &self,
-        _run_id: RunId,
-        session_id: SessionId,
-    ) -> BoxFuture<'_, Result<DaemonTurnBinding, DaemonTurnBindingError>> {
-        let binding = self.lock().clone().map(|binding_id| DaemonTurnBinding {
-            binding_id,
-            agent_id: self.agent_id,
-            step_bound: None,
-        });
-        async move { binding.ok_or(DaemonTurnBindingError::NoConversation { session_id }) }.boxed()
-    }
 }
 
 /// A disposal the tests read none of.

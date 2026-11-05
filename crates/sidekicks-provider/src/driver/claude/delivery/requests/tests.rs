@@ -11,7 +11,7 @@ use super::answers::{ClaudeQuestionRoute, compose_claude_question_refusal};
 use crate::driver::claude::run::controls::claude_dialog_session;
 use crate::driver::claude::session::scripted::channel::ScriptedWrite;
 use crate::driver::claude::session::scripted::daemon_services::PortCall;
-use crate::driver::claude::session::scripted::{ScriptedSession, settle};
+use crate::driver::claude::session::scripted::{ScriptedSession, binding_id, settle};
 use crate::driver::claude::session::tool_server_calls::ClaudeToolServerCalls;
 use crate::driver::contract::params_and_results::ProviderRequestAnswer;
 use crate::port::question::QuestionPort;
@@ -385,4 +385,61 @@ async fn a_question_let_go_before_its_record_failed_is_not_refused() {
         matches!(write, ScriptedWrite::Answer { request_id, .. } if request_id == "question")
     });
     assert!(!has_answer, "a request let go of is not answered");
+}
+
+// A helper's ask, asked while the lead holds its turn.
+fn helper_ask(agent_id: &str) -> Value {
+    json!({
+        "subtype": "can_use_tool",
+        "tool_name": "Bash",
+        "input": {"command": "ls"},
+        "tool_use_id": "call-1",
+        "agent_id": agent_id,
+    })
+}
+
+// A bound helper's ask waits for its card under the helper's own run while the lead holds its
+// turn. Killed by attributing every ask to the lead's run.
+#[tokio::test(start_paused = true)]
+async fn a_helpers_ask_waits_under_its_own_run() {
+    let session = ScriptedSession::new().await;
+    let lead = session.hold_lead_turn("lead");
+    session.bind_helper(lead, "agent-1");
+
+    session.request("ask", &helper_ask("agent-1"));
+    settle().await;
+
+    assert_eq!(session.ports.calls(), [PortCall::Ask("ask".to_owned())]);
+    let asks: Vec<_> = session
+        .engine
+        .deliveries()
+        .into_iter()
+        .filter(|delivery| delivery.kind == "permissionAsk")
+        .map(|delivery| delivery.binding_id)
+        .collect();
+    assert_eq!(asks, [Some(binding_id("helper"))]);
+}
+
+// An ask from a helper no route holds stays pending at Claude Code: no answer, no card, no
+// delivery. Killed by an unknown helper's ask falling back to the lead's run.
+#[tokio::test(start_paused = true)]
+async fn an_unknown_helpers_ask_stays_pending_at_the_provider() {
+    let session = ScriptedSession::new().await;
+    session.hold_lead_turn("lead");
+
+    session.request("ask", &helper_ask("agent-unknown"));
+    settle().await;
+
+    assert_eq!(session.ports.calls(), []);
+    assert!(
+        session
+            .engine
+            .deliveries()
+            .iter()
+            .all(|delivery| delivery.kind != "permissionAsk")
+    );
+    let is_answered = session.channel.writes().into_iter().any(
+        |write| matches!(write, ScriptedWrite::Answer { request_id, .. } if request_id == "ask"),
+    );
+    assert!(!is_answered, "the ask stays pending at the provider");
 }

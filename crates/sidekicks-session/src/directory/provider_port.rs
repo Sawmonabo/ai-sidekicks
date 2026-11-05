@@ -16,7 +16,7 @@ use rusqlite::OptionalExtension;
 use serde_json::Map;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::machine::settings::{
-    MachineSettings, ProviderRowValues, ProviderSettingValues,
+    MachineSettings, ProviderKnobValues, ProviderKnobs, ProviderRowValues, ProviderSettingValues,
 };
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -26,12 +26,13 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::repo::mount::WorkspaceState;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::TextError;
 use sidekicks_mcp::binding::resolver::McpAttributionTable;
 use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_provider::driver::ports::SessionRelaunchListener;
 use sidekicks_provider::driver::session_control::{
-    CreateSessionParams, DriverResumeResult, SessionAccountPin,
+    CreateSessionParams, DriverResumeResult, SessionAccountPin, SubagentPolicy,
 };
 use sidekicks_provider::driver::{
     AccountFoldersError, ProviderAccountFolders, ProviderAccountReader, SessionSpawnContext,
@@ -231,13 +232,14 @@ pub struct SessionDirectoryProviderPort {
     deps: SessionDirectoryProviderPortDeps,
 }
 
-// The session's level's posture, its mode and every provider's row values, as they stand now,
-// and the git folder the posture is built on.
+// The session's level's posture, its mode and every provider's row values and knobs, as they
+// stand now, and the git folder the posture is built on.
 struct StandingOpening {
     git_folder: FilesystemPath,
     execution_posture: ExecutionPosture,
     mode: SessionMode,
     provider_settings: ProviderSettingValues,
+    provider_knobs: ProviderKnobValues,
 }
 
 impl SessionDirectoryProviderPort {
@@ -249,9 +251,10 @@ impl SessionDirectoryProviderPort {
     /// What `session_id`'s provider session opens with on `provider_account_id`'s account: its
     /// lead's provider, the model it runs on now and the effort, output speed, options and larger
     /// window its binding names, at the posture of the level it stands at, in the mode it was last
-    /// moved to, with the row values set in the app for that provider, and each binding's function
-    /// legs. Fails for a session with no lead or no workspace, as the reads, git or the settings
-    /// file fail, and when its project root is no path.
+    /// moved to, with the row values set in the app for that provider, the helper policy of the
+    /// person's `Helpers at once` for it, and each binding's function legs. Fails for a session
+    /// with no lead or no workspace, as the reads, git or the settings file fail, and when its
+    /// project root is no path.
     pub async fn compose_opening(
         &self,
         session_id: SessionId,
@@ -268,6 +271,7 @@ impl SessionDirectoryProviderPort {
             running_model,
         } = lead;
         let row_values = row_values_of(&standing.provider_settings, &binding.provider_name);
+        let helpers_at_once = helpers_at_once_of(&standing.provider_knobs, &binding.provider_name);
         let function_legs_for = self
             .compose_function_legs(session_id, binding.provider_name.clone())
             .await?;
@@ -288,9 +292,13 @@ impl SessionDirectoryProviderPort {
                     .map(|options| options.as_slice().to_vec())
                     .unwrap_or_default(),
                 row_values,
+                // No saved agent definition reaches a spawn yet.
+                subagent_policy: Some(SubagentPolicy::from_helper_limit(
+                    helpers_at_once,
+                    Vec::new(),
+                )),
                 // The session's tool servers and callback tools are bound by their own owners.
                 callback_tools: None,
-                subagent_policy: None,
                 tool_servers: None,
                 output_schema: None,
                 provider_account_id,
@@ -388,7 +396,7 @@ impl SessionDirectoryProviderPort {
 
     // What an opening and a resume take from the session's records and the settings file now: the
     // git folder of the repository its runs work in, the posture of its level there, its mode,
-    // and every provider's row values.
+    // and every provider's row values and knobs.
     async fn read_standing_opening(
         &self,
         session_id: SessionId,
@@ -419,6 +427,7 @@ impl SessionDirectoryProviderPort {
             git_folder,
             mode,
             provider_settings: settings.provider_settings,
+            provider_knobs: settings.provider_knobs,
         })
     }
 
@@ -686,6 +695,14 @@ impl SessionRelaunchListener for SessionDirectoryProviderPort {
 // The row values set in the app on `provider`'s rows, empty where none is set.
 fn row_values_of(settings: &ProviderSettingValues, provider: &ProviderId) -> ProviderRowValues {
     settings.as_map().get(provider).cloned().unwrap_or_default()
+}
+
+// How many helpers `provider` runs at once, `None` for no limit, as for a provider left unset.
+fn helpers_at_once_of(knobs: &ProviderKnobValues, provider: &ProviderId) -> Option<SafeInt<0>> {
+    knobs
+        .as_map()
+        .get(provider)
+        .and_then(ProviderKnobs::helpers_at_once_limit)
 }
 
 #[cfg(test)]

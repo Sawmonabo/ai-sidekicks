@@ -5,7 +5,6 @@ use std::fmt::Write as _;
 
 use rstest::rstest;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
-use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 
@@ -14,7 +13,7 @@ use super::{
     RuntimeBindingStore, mint_runtime_binding_id, read_binding,
 };
 use crate::driver::schema::schema_parts;
-use crate::driver::session_control::{SessionToolServer, SubagentDefinition, SubagentPolicy};
+use crate::driver::session_control::SessionToolServer;
 use crate::left_conversations::LeftConversation;
 use crate::runtime_binding::test_store::{
     binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
@@ -163,25 +162,12 @@ async fn a_stored_column_that_does_not_read_fails_the_read_without_its_value(#[c
 }
 
 #[tokio::test]
-async fn a_binding_with_helpers_and_tool_servers_reads_back_as_recorded() {
+async fn a_binding_with_tool_servers_reads_back_as_recorded() {
     let database = TestDatabase::new(schema_parts());
     let store = open_store(&database).await;
-    let helper = SubagentDefinition {
-        name: "reviewer".to_owned(),
-        prompt: "Review the change.".to_owned(),
-        description: "Reviews a finished change.".to_owned(),
-        model: Some(token("model-a")),
-        tools: Some(vec!["Read".to_owned()]),
-        effort: Some(token("high")),
-        max_turns: Some(SafeInt::new(5).expect("5 is a safe integer")),
-    };
     let created = create(
         &store,
         RuntimeBindingSpawnConfig {
-            subagent_policy: Some(SubagentPolicy::Enabled {
-                helpers_at_once: Some(SafeInt::new(2).expect("2 is a safe integer")),
-                definitions: vec![helper],
-            }),
             tool_servers: Some(vec![SessionToolServer {
                 server_name: FreeFormText::new("docs".to_owned()).expect("a server name"),
                 is_enabled: true,

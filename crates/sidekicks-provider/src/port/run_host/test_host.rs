@@ -4,7 +4,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -26,7 +26,7 @@ use tokio::sync::{Notify, oneshot};
 
 use crate::driver::test_registry::new_run_id;
 use crate::port::inbound_dispatch::InboundDispatch;
-use crate::port::run_host::{RunHost, RunHostError};
+use crate::port::run_host::{DaemonTurnHeld, RunHost, RunHostError};
 use crate::run::delivery::{
     InboundDelivery, InboundOutcome, LateAppendableRow, MachineScopedRow, RunSetupRefusal,
     SessionScopedRow, UnstampedRow,
@@ -58,7 +58,9 @@ pub(crate) struct RecordedDelivery {
     pub(crate) ended_turn_number: Option<SafeInt<1>>,
     /// Whether it is the end of the daemon's own interrupt.
     pub(crate) is_daemon_interrupt_end: bool,
-    /// The run a child run delivery starts beneath.
+    /// The run the delivery names.
+    pub(crate) run_id: Option<RunId>,
+    /// The run a child run delivery starts beneath, or a parent correction moves its run under.
     pub(crate) parent_run_id: Option<RunId>,
     /// The helper a child run delivery is for.
     pub(crate) subagent: Option<crate::run::delivery::ChildRunSubagent>,
@@ -107,6 +109,7 @@ pub(crate) struct RecordingRunEngine {
     daemon_turn_start_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
     turns_numbered: Mutex<HashMap<RunId, u64>>,
     fails_daemon_turns: AtomicBool,
+    daemon_turns_held: AtomicUsize,
     leaves_turns_unnumbered: AtomicBool,
     session_legs: Mutex<HashMap<SessionId, RuntimeBinding>>,
     changed: Notify,
@@ -227,6 +230,12 @@ impl RecordingRunEngine {
         self.fails_daemon_turns.store(true, Ordering::SeqCst);
     }
 
+    /// Refuses the next `count` daemon turns' starts with [`DaemonTurnHeld`], before any run
+    /// exists, as the engine refuses one while the session's turn is held for another run.
+    pub(crate) fn refuse_next_daemon_turns_held(&self, count: usize) {
+        self.daemon_turns_held.store(count, Ordering::SeqCst);
+    }
+
     /// Makes every later turn open with no number, as a turn the engine could not number.
     pub(crate) fn leave_turns_unnumbered(&self) {
         self.leaves_turns_unnumbered.store(true, Ordering::SeqCst);
@@ -285,6 +294,7 @@ impl InboundDispatch for RecordingRunEngine {
             | InboundDelivery::UnstampedRow { .. }
             | InboundDelivery::ThinkingUpdate { .. }
             | InboundDelivery::RunMarker { .. }
+            | InboundDelivery::ChildRunParentCorrected { .. }
             | InboundDelivery::SessionNotice { .. }
             | InboundDelivery::SessionEvent { .. }
             | InboundDelivery::MachineEvent { .. } => (
@@ -396,6 +406,16 @@ impl RunHost for RecordingRunEngine {
         if self.fails_daemon_turns.load(Ordering::SeqCst) {
             return async move { Err(DaemonTurnsRefused { run_id }.into()) }.boxed();
         }
+        let is_held = self
+            .daemon_turns_held
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+                left.checked_sub(1)
+            })
+            .is_ok();
+        if is_held {
+            let session_id = request.session_id;
+            return async move { Err(DaemonTurnHeld { session_id }.into()) }.boxed();
+        }
         self.record(EngineCall::StartDaemonTurn(run_id));
         let hold = lock(&self.daemon_turn_start_holds).pop_front();
         async move {
@@ -447,6 +467,7 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
         turn_end: None,
         ended_turn_number: None,
         is_daemon_interrupt_end: false,
+        run_id: None,
         parent_run_id: None,
         subagent: None,
         row: None,
@@ -472,9 +493,10 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
             recorded.ended_turn_number = turn_end.map(|turn_end| turn_end.turn_number);
             recorded.is_daemon_interrupt_end = *is_daemon_interrupt_end;
         }
-        InboundDelivery::RunContinued { binding, .. } => {
+        InboundDelivery::RunContinued { binding, run_id } => {
             recorded.kind = "runContinued";
             recorded.binding_id = Some(binding.binding_id.clone());
+            recorded.run_id = Some(*run_id);
         }
         InboundDelivery::ChildRun {
             binding,
@@ -485,6 +507,16 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
             recorded.binding_id = Some(binding.binding_id.clone());
             recorded.parent_run_id = Some(*parent_run_id);
             recorded.subagent = Some(subagent.clone());
+        }
+        InboundDelivery::ChildRunParentCorrected {
+            binding,
+            child_run_id,
+            parent_run_id,
+        } => {
+            recorded.kind = "childRunParentCorrected";
+            recorded.binding_id = Some(binding.binding_id.clone());
+            recorded.run_id = Some(*child_run_id);
+            recorded.parent_run_id = Some(*parent_run_id);
         }
         InboundDelivery::RunMarker { binding, .. } => {
             recorded.kind = "runMarker";

@@ -3,10 +3,6 @@
 //! each loss declared. Repairing comes last because it answers what the earlier steps leave; the
 //! order lives only in [`transform_transcript`]. The result is rebuilt on every call, since the
 //! log it comes from moves.
-#![cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the provider switch's hand-over brief")
-)]
 
 use std::collections::{HashMap, HashSet};
 

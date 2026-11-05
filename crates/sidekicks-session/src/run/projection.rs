@@ -13,7 +13,7 @@ use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::run::control::AgentRunRolledBackEvent;
-use sidekicks_contracts::run::events::RunStateChangeState;
+use sidekicks_contracts::run::events::{AgentRunParentCorrectedPayload, RunStateChangeState};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::InterventionType;
 use sidekicks_contracts::run::queued::AgentRunQueuedPayload;
@@ -47,6 +47,13 @@ pub(crate) struct RunStateSwap {
 const INSERT_QUEUED_RUN_SQL: &str = "INSERT INTO runs
     (run_id, session_id, parent_run_id, reached_by, state, run_version)
   VALUES (@run_id, @session_id, @parent_run_id, @reached_by, @state, @run_version)";
+
+/// The column write of a run's parent correction, with no guard: the engine's write adds its
+/// guard clauses after it, and a rebuild folds it as it stands.
+pub(crate) const CORRECT_PARENT_RUN_SQL: &str = "UPDATE runs
+    SET parent_run_id = @parent_run_id
+  WHERE run_id = @run_id
+    AND session_id = @session_id";
 
 // Matches only a row still in the state the change leaves, one version behind it.
 const SWAP_RUN_STATE_SQL: &str = "UPDATE runs
@@ -95,11 +102,12 @@ static ADVANCE_PAST_SKIPPED_VERSIONS_SQL: LazyLock<String> = LazyLock::new(|| {
 
 const DELETE_SESSION_RUNS_SQL: &str = "DELETE FROM runs WHERE session_id = ?";
 
-// Every type the runs fold reads: a run's creation, a skipped range, an intervention's verdict, a
+// Every type the runs fold reads: a run's creation, its parent's correction, a skipped range, an intervention's verdict, a
 // rollback and each state change.
 static RUNS_EVENT_TYPES: LazyLock<Vec<SessionEventType>> = LazyLock::new(|| {
     [
         SessionEventType::AgentRunQueued,
+        SessionEventType::AgentRunParentCorrected,
         DAMAGED_EVENTS_SKIPPED_TYPE,
         SessionEventType::AgentInterventionApplied,
         SessionEventType::AgentInterventionDegraded,
@@ -153,6 +161,22 @@ pub fn insert_queued_run_statement(payload: &AgentRunQueuedPayload) -> WriteStat
                 Cow::Borrowed("@run_version"),
                 Value::Integer(i64::from(run_version)),
             ),
+        ]),
+        expected_row_count: None,
+    }
+}
+
+/// The statement that moves a run under the parent its `agent.run.parentCorrected` payload names,
+/// with no guard and no expected row count, as a rebuild folds it.
+pub(crate) fn correct_parent_run_statement(
+    payload: &AgentRunParentCorrectedPayload,
+) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(CORRECT_PARENT_RUN_SQL),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@run_id", payload.run_id.text().as_str()),
+            text_binding("@session_id", payload.session_id.text().as_str()),
+            text_binding("@parent_run_id", payload.parent_run_id.text().as_str()),
         ]),
         expected_row_count: None,
     }
@@ -294,6 +318,10 @@ impl SessionProjectionFold for RunsFold {
     ) -> Result<(), ProjectionContradiction> {
         if let SessionEvent::AgentRunQueued(payload) = event {
             statements.push(insert_queued_run_statement(payload));
+            return Ok(());
+        }
+        if let SessionEvent::AgentRunParentCorrected(corrected) = event {
+            statements.push(correct_parent_run_statement(corrected));
             return Ok(());
         }
         if let SessionEvent::SessionDamagedEventsSkipped(skipped) = event {
