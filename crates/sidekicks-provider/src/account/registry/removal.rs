@@ -28,7 +28,7 @@ use sidekicks_store::database::statement::{
 use sidekicks_store::database::stored_column::text_column;
 
 use super::{ProviderAccountRegistry, StoredValueRefused, refusal_or_failure};
-use crate::account::credential_home::marks::mark_removed;
+use crate::account::credential_home::marks::{clear_minted_mark, mark_removed};
 use crate::account::errors::ProviderAccountRegistryError;
 use crate::account::home_lock::AccountHomeLock;
 use crate::account::observer::AccountLiveTurns;
@@ -214,11 +214,12 @@ impl ProviderAccountRegistry {
     }
 
     /// Writes a mark naming the provider of `account_id`, whose removal has begun, beside the
-    /// homes, then deletes its row, its quota readings and usage turns going with it; its home
-    /// stays on disk, and the mark keeps it known to the erase. A stop between the two leaves both,
-    /// and the row wins. Fails with [`ProviderAccountRegistryError::NotFound`] when no marked row
-    /// of that id is stored, and with [`ProviderAccountRegistryError::CredentialHome`] when the
-    /// mark cannot be written, the row kept.
+    /// homes and clears any minted mark left beside it, so no start's sweep takes the home, then
+    /// deletes its row, its quota readings and usage turns going with it; its home stays on disk,
+    /// and the mark keeps it known to the erase. A stop between the two leaves both, and the row
+    /// wins. Fails with [`ProviderAccountRegistryError::NotFound`] when no marked row of that id
+    /// is stored, and with [`ProviderAccountRegistryError::RemovedMark`] when the marks cannot be
+    /// written, the row kept.
     pub async fn delete_marked_account(
         &self,
         account_id: &ProviderAccountId,
@@ -242,9 +243,12 @@ impl ProviderAccountRegistry {
             })
             .await?;
         let (data_folder, marked) = (self.data_folder.clone(), account_id.clone());
-        run_on_blocking_thread(move || mark_removed(&data_folder, &marked, &provider))
-            .await
-            .map_err(ProviderAccountRegistryError::CredentialHome)?;
+        run_on_blocking_thread(move || {
+            mark_removed(&data_folder, &marked, &provider)?;
+            clear_minted_mark(&data_folder, &marked)
+        })
+        .await
+        .map_err(ProviderAccountRegistryError::RemovedMark)?;
         self.write(vec![WriteStatement {
             sql: Cow::Borrowed(DELETE_MARKED_ACCOUNT_SQL),
             bindings: StatementBindings::Named(vec![text_binding(

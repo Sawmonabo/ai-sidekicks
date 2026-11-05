@@ -21,7 +21,7 @@ use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
 use super::ProviderAccountRemovalError;
-use crate::account::credential_home::marks::{read_minted_homes, read_removed_homes};
+use crate::account::credential_home::marks::{mark_minted, read_minted_homes, read_removed_homes};
 use crate::account::credential_home::reset_credential_home;
 use crate::account::credential_home::test_legs::RecordedSignOuts;
 use crate::account::home_lock::AccountHomeLock;
@@ -267,9 +267,10 @@ async fn a_held_account_refuses_its_removal_and_keeps_everything(#[case] holder:
 /// its sign-in reads gone at the next one; its removal then destroys the sealed token, read from
 /// the keychain itself, writes a removed mark naming its provider beside the homes, deletes its
 /// row, readings and usage turns, tells each driver to forget it, and leaves its home byte for
-/// byte. Fails when the token is left behind, when the readings outlive the row, when the removal
-/// writes into the home, when no removed mark is written, and when the mark is a minted one, which
-/// the start's sweep would take as a home to delete.
+/// byte, clearing the minted mark its admission failed to clear. Fails when the token is left
+/// behind, when the readings outlive the row, when the removal writes into the home, when no
+/// removed mark is written, when the mark is a minted one, and when the stale minted mark is kept:
+/// either would have the next start's sweep sign the removed home out and delete it.
 #[tokio::test]
 async fn a_removal_shreds_what_the_account_kept_and_leaves_its_home() {
     let fixture = Fixture::new().await;
@@ -298,6 +299,13 @@ async fn a_removal_shreds_what_the_account_kept_and_leaves_its_home() {
     );
     assert_eq!(fixture.readings(), (vec![1], 1));
     fs::write(home.join("settings.json"), b"{\"kept\":true}").expect("the settings are kept");
+    // An admission whose clear of the minted mark failed leaves it beside the row.
+    mark_minted(
+        fixture.data_folder.path(),
+        fixture.account_id(),
+        &fixture.account.provider,
+    )
+    .expect("the stale minted mark is written");
     let home_before = snapshot(&home);
     let mut driver = MockProviderDriver::new();
     let forgotten = fixture.account_id().clone();
@@ -334,12 +342,11 @@ async fn a_removal_shreds_what_the_account_kept_and_leaves_its_home() {
             fixture.account.credential_home.clone(),
         )]
     );
-    assert_eq!(fixture.account.provider.as_str(), "claude");
     assert!(
         read_minted_homes(fixture.data_folder.path())
             .expect("the minted marks read")
             .is_empty(),
-        "the removal marks no minted home"
+        "the removal leaves no minted mark"
     );
     assert_eq!(snapshot(&home), home_before);
 }
