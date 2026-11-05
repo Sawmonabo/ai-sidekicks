@@ -41,7 +41,9 @@ use crate::driver::codex::service::record::{
 };
 use crate::driver::codex::service::start_lock::{CodexStartLock, take_codex_start_lock};
 use crate::driver::codex::service::supervisor::CodexService;
-use crate::driver::codex::service::supervisor::own_record::PublishedRecordFile;
+use crate::driver::codex::service::supervisor::own_record::{
+    EarlierRecordFile, PublishedRecordFile,
+};
 use crate::driver::codex::service::supervisor::start::account::start_account_home_service;
 use crate::driver::codex::service::supervisor::start::kept_records::on_record;
 use crate::driver::codex::service::supervisor::start::terminal::start_terminal_service;
@@ -132,6 +134,9 @@ pub(super) struct StartFailure {
     pub(super) error: CodexError,
     /// What it launched, if anything, boxed so the failure stays small.
     pub(super) process: Option<Box<CodexServiceProcess>>,
+    /// The name the failed launch or join published before its own, which the teardown puts back
+    /// once it stopped `process`, boxed as `process` is; `None` where the failure published none.
+    pub(super) earlier_record_file: Option<Box<EarlierRecordFile>>,
 }
 
 impl From<CodexError> for StartFailure {
@@ -139,6 +144,7 @@ impl From<CodexError> for StartFailure {
         Self {
             error,
             process: None,
+            earlier_record_file: None,
         }
     }
 }
@@ -248,6 +254,7 @@ async fn start_relayed_service(
         Err(error) => Err(StartFailure {
             error,
             process: started.process.map(Box::new),
+            earlier_record_file: None,
         }),
     }
 }
@@ -328,6 +335,7 @@ async fn start_own_child_service(
         Err(error) => Err(StartFailure {
             error,
             process: process.map(Box::new),
+            earlier_record_file: None,
         }),
     }
 }
@@ -361,8 +369,9 @@ pub(super) fn name_lasting_log_file(service: &CodexService) -> Result<PathBuf, S
 /// Launches `process_launch` as a lasting service writing `log_file`, keeps its record under
 /// `locked`, published on `service` first, as launched and, once it answers on `launch_socket`
 /// under the ticket `launch`, with where its socket really is; `cancel` stands the wait down.
-/// Fails as the launch, the connect, the socket's read or a record's write does, the name
-/// published before put back and a launched process handed back for the start's teardown.
+/// Fails as the launch, the connect, the socket's read or a record's write does, a launched
+/// process handed back for the start's teardown with the name published before, which that
+/// teardown puts back once it stopped the process.
 pub(super) async fn launch_lasting_service(
     service: &Arc<CodexService>,
     launch: u64,
@@ -390,6 +399,7 @@ pub(super) async fn launch_lasting_service(
                 service: lasting,
                 record_file,
             })),
+            earlier_record_file: Some(Box::new(published.hand_back())),
         });
     }
     let opened = connect(
@@ -436,6 +446,7 @@ pub(super) async fn launch_lasting_service(
         Err(error) => Err(StartFailure {
             error,
             process: Some(Box::new(process)),
+            earlier_record_file: Some(Box::new(published.hand_back())),
         }),
     }
 }

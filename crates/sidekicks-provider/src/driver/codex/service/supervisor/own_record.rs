@@ -32,9 +32,10 @@ impl CodexService {
     }
 }
 
-/// The record file a launch or a join publishes on its service for as long as it can succeed:
-/// unless it is kept, the name published before it comes back once it fails or is dropped, so a
-/// retire and the next start act on the service's own record.
+/// The record file a launch or a join publishes on its service for as long as it can succeed or
+/// its process lives: unless it is kept or handed back with that process, the name published
+/// before it comes back once it is dropped, so a retire and the next start act on the service's
+/// own record.
 pub(super) struct PublishedRecordFile<'service> {
     service: &'service CodexService,
     // The name before the publish, put back unless the attempt is kept.
@@ -59,6 +60,24 @@ impl<'service> PublishedRecordFile<'service> {
     /// Keeps the published name once the attempt succeeded.
     pub(super) fn keep(mut self) {
         self.is_kept = true;
+    }
+
+    /// Keeps the published name while the process a failed attempt hands back lives, and answers
+    /// the name before it, which the teardown puts back once it stopped that process.
+    pub(super) fn hand_back(mut self) -> EarlierRecordFile {
+        self.is_kept = true;
+        EarlierRecordFile(self.previous.take())
+    }
+}
+
+/// The name a failed launch or join published before its own, held while the process it handed
+/// back lives, so a daemon stop until then leaves that process to the start's teardown alone.
+pub(super) struct EarlierRecordFile(Option<LastingServiceRecordFile>);
+
+impl EarlierRecordFile {
+    /// Puts the name back on `service`, once the handed-back process was stopped.
+    pub(super) fn restore(self, service: &CodexService) {
+        service.set_process_record_file(self.0);
     }
 }
 

@@ -84,6 +84,7 @@ pub(super) async fn start_account_home_service(
         Err(error) => Err(StartFailure {
             error,
             process: Some(Box::new(process)),
+            earlier_record_file: None,
         }),
     }
 }
@@ -130,6 +131,7 @@ async fn join_kept_service(
         Err(error) => Err(StartFailure {
             error,
             process: Some(Box::new(process)),
+            earlier_record_file: None,
         }),
     }
 }

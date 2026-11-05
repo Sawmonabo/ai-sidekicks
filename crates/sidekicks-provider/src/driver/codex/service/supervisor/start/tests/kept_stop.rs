@@ -447,12 +447,16 @@ async fn a_daemon_stop_leaves_a_launch_beside_published_after_it_began_to_its_su
     );
 }
 
-// Fails when a launch beside the home's that fails, here stood down while its dial waits, leaves
-// its record named the service's in place of the home socket's, so the service's retire and its
-// next start act on the failed launch's record. Killed by dropping the failure's restore of the
-// name before the launch.
+// Fails when a launch beside the home's that fails, here stood down while its dial waits, puts the
+// home socket's name back before the start's teardown stopped the process it handed back, so a
+// daemon stop in between ends that process beside the teardown; or when the teardown's put-back
+// leaves the failed launch's record named the service's, so its retire and next start act on it.
+// Killed by putting the name back where the launch returns, and by dropping the put-back.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_failed_launch_beside_leaves_the_home_socket_s_record_the_service_s() {
+async fn a_failed_launch_beside_keeps_its_record_named_until_its_teardown() {
+    if !CAN_SIGNAL_A_STOP {
+        return;
+    }
     let folder = tempfile::tempdir().expect("a scratch folder is made");
     let Some(mut beside) = prepare_beside_launch(folder.path()).await else {
         return;
@@ -466,19 +470,49 @@ async fn a_failed_launch_beside_leaves_the_home_socket_s_record_the_service_s() 
         .await
         .expect("the launch dials within its wait")
         .expect("the dial is accepted");
-    let named_under_way = beside.service.process_record_file();
-
     drop(held);
     cancel.cancel();
     let launched = timeout(Duration::from_secs(10), launching)
         .await
         .expect("the stood-down launch ends")
         .expect("the launch's task ends");
-    let named = beside.service.process_record_file();
-    drop((launched, locked));
-    end_recorded_stand_ins(beside.data_folder).await;
+    let Err(failure) = launched else {
+        panic!("the launch answered on a socket held unanswered");
+    };
+    // The start lets go of the folder's lock before its teardown runs.
+    drop(locked);
 
-    assert_eq!(named_under_way, Some(beside.beside_record));
+    let failures = stop_kept_services(
+        beside.data_folder.clone(),
+        KeptServicesStop::DaemonStop {
+            deadline: Instant::now() + Duration::from_secs(5),
+        },
+        &[Arc::clone(&beside.service)],
+    )
+    .await;
+    let kept = beside
+        .beside_record
+        .lock()
+        .and_then(|locked| locked.read())
+        .expect("the record reads");
+    let is_running = kept.as_ref().is_some_and(|record| {
+        repin_lasting_codex_service(record.process.clone())
+            .expect("the process table reads")
+            .is_some()
+    });
+    // The teardown's stop of the handed-back process, then its put-back of the name.
+    end_recorded_stand_ins(beside.data_folder.clone()).await;
+    failure
+        .earlier_record_file
+        .expect("a failed launch hands back the name before its own")
+        .restore(&beside.service);
+    let named = beside.service.process_record_file();
+
+    assert!(failures.is_empty(), "{failures:?}");
+    assert!(
+        kept.is_some() && is_running,
+        "the kept stop ended a failed launch's process before its teardown"
+    );
     assert_eq!(
         named,
         Some(beside.home_record),

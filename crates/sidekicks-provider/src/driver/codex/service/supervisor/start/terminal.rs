@@ -236,8 +236,8 @@ async fn join_listener(
 /// record is published on `service` from the join's start, and its hooks are compared with the ones
 /// this daemon would start it with. A join the service fails, in its dial and answer, its hook list
 /// or its version, hands it back with the failure, so the start's teardown stops it and removes its
-/// record; a failure on the daemon's own side leaves it running in its record. Either failure puts
-/// back the name published before.
+/// record, and keeps the published name until that teardown puts back the one before; a failure on
+/// the daemon's own side leaves it running in its record and puts that name back at once.
 pub(super) async fn join_former_service(
     service: &Arc<CodexService>,
     launch: u64,
@@ -291,6 +291,7 @@ pub(super) async fn join_former_service(
         Err(error) => Err(StartFailure {
             error,
             process: process.map(Box::new),
+            earlier_record_file: Some(Box::new(published.hand_back())),
         }),
     }
 }
@@ -389,6 +390,7 @@ async fn launch_terminal_service(
         Err(error) => Err(StartFailure {
             error,
             process: Some(Box::new(process)),
+            earlier_record_file: None,
         }),
     }
 }

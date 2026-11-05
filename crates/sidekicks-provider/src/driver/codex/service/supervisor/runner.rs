@@ -27,7 +27,7 @@ use crate::driver::codex::service::socket_link::{clear_socket_link_of, is_listen
 use crate::driver::codex::service::start_lock::{CodexStartLock, take_codex_start_lock};
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::drain::drain_lasting_service;
-use crate::driver::codex::service::supervisor::own_record::retire_own_record;
+use crate::driver::codex::service::supervisor::own_record::{EarlierRecordFile, retire_own_record};
 use crate::driver::codex::service::supervisor::reconnect::reconnect_wait;
 use crate::driver::codex::service::supervisor::refusals::SharedCodexError;
 use crate::driver::codex::service::supervisor::start::{
@@ -102,7 +102,11 @@ impl RunnerInput {
 /// What an outcome left for the runner, under its ticket.
 enum Parked {
     Started(StartedService),
-    Failed(Option<CodexServiceProcess>),
+    Failed {
+        process: Option<CodexServiceProcess>,
+        // The name to put back once `process` is stopped.
+        earlier_record_file: Option<EarlierRecordFile>,
+    },
     Dialed {
         connection: Arc<CodexAppServerConnection>,
         version: Option<SpawnedProviderVersionReading>,
@@ -354,7 +358,12 @@ impl ServiceRunner {
                     },
                     parked: Some((
                         launch,
-                        Parked::Failed(failure.process.map(|process| *process)),
+                        Parked::Failed {
+                            process: failure.process.map(|process| *process),
+                            earlier_record_file: failure
+                                .earlier_record_file
+                                .map(|earlier| *earlier),
+                        },
                     )),
                     exit: None,
                     start_lock: None,
@@ -447,13 +456,22 @@ impl ServiceRunner {
                         clear_home_socket_link(&stopping, Some(started.physical_socket)).await;
                     }
                 }
-                Some(Parked::Failed(Some(process))) => {
-                    stop_process(&stopping, process, end, deadline).await;
+                Some(Parked::Failed {
+                    process,
+                    earlier_record_file,
+                }) => {
+                    if let Some(process) = process {
+                        stop_process(&stopping, process, end, deadline).await;
+                    }
+                    // Only now, so a daemon stop until the process ended left it to this stop.
+                    if let Some(earlier_record_file) = earlier_record_file {
+                        earlier_record_file.restore(&stopping);
+                    }
                 }
                 Some(Parked::Dialed { connection, .. }) => {
                     close_connection(&connection, deadline).await;
                 }
-                Some(Parked::Failed(None)) | None => {}
+                None => {}
             }
             stopping.send(SupervisorEvent::StopDone { ticket });
         });
