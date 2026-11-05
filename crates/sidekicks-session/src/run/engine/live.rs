@@ -140,6 +140,10 @@ pub(super) struct LiveRuns {
     pub(super) helper_runs: HashMap<(RuntimeBindingId, SubagentId), RunId>,
     /// Each session's undo rollback writes in progress, oldest first, each until it ends.
     pub(super) undo_writes: HashMap<SessionId, Vec<Arc<UndoWrite>>>,
+    /// Each stop whose cut a limit row names since that row was written, so the stop keeps its
+    /// cut even where the daemon's stop cuts it before its hand answers; one leaves when its stop
+    /// keeps, withdraws or gives up its cut.
+    pub(super) rowed_cuts: HashSet<u64>,
     /// The identity the next limit stop's cut takes.
     pub(super) next_stop_id: AtomicU64,
 }
@@ -266,7 +270,9 @@ pub(super) struct CutGuard<'engine> {
 impl CutGuard<'_> {
     /// Keeps the cut past the stop, since a pending row names it.
     pub(super) fn keep(mut self) {
-        self.key = None;
+        if self.key.take().is_some() {
+            lock(self.live).rowed_cuts.remove(&self.stop_id);
+        }
     }
 
     /// Withdraws the cut now, where the stop goes on naming no turn. Never called while the live
@@ -277,17 +283,29 @@ impl CutGuard<'_> {
         }
     }
 
-    /// Withdraws the cut now from `live`, the live runs the caller holds locked.
+    /// Withdraws the cut now from `live`, the live runs the caller holds locked, whether or not a
+    /// row names it.
     pub(super) fn withdraw_locked(&mut self, live: &mut LiveRuns) {
         if let Some(key) = self.key.take() {
+            live.rowed_cuts.remove(&self.stop_id);
             live.withdraw_cut(key, self.stop_id);
         }
     }
 }
 
+// A stop dropped before it decided, its task cut by the daemon's stop among them, keeps a cut a
+// written row names and withdraws any other.
 impl Drop for CutGuard<'_> {
     fn drop(&mut self) {
-        self.withdraw();
+        if self.key.is_none() {
+            return;
+        }
+        let mut live = lock(self.live);
+        if live.rowed_cuts.remove(&self.stop_id) {
+            self.key = None;
+        } else {
+            self.withdraw_locked(&mut live);
+        }
     }
 }
 

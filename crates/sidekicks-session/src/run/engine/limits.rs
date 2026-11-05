@@ -447,8 +447,8 @@ impl RunEngine {
             Ok(false) => drop(cut_guard),
             Err(error) => {
                 // A hand that left its row pending keeps the cut that row names; any other
-                // failure leaves no row, so the guard withdraws the cut, the reached event and
-                // the limit kept for the retry.
+                // failure leaves no row, so the cut is withdrawn, the reached event and the limit
+                // kept for the retry.
                 if matches!(
                     error,
                     RunEngineError::LimitInterrupt {
@@ -457,6 +457,8 @@ impl RunEngine {
                     }
                 ) {
                     cut_guard.keep();
+                } else {
+                    cut_guard.withdraw();
                 }
                 return Err(error);
             }
@@ -499,6 +501,20 @@ impl RunEngine {
             set_step_limit_reached(&mut live, &run_id, turn_number, true);
         }
         Ok(true)
+    }
+
+    /// Marks `run_id`'s cut `cut` as named by the limit row its hand has just written, so its stop
+    /// keeps the cut even where the daemon's stop cuts the stop before the hand answers; a cut its
+    /// stop no longer holds is left as it is.
+    pub(crate) fn keep_cut_named_by_row(&self, run_id: RunId, cut: HandedCut) {
+        let mut live = lock(&self.live);
+        let is_held = live
+            .cut_turns
+            .get(&(run_id, cut.turn_number))
+            .is_some_and(|cuts| cuts.iter().any(|held| held.stop_id == cut.stop_id));
+        if is_held {
+            live.rowed_cuts.insert(cut.stop_id);
+        }
     }
 
     /// Forgets what the engine kept for the interrupt of `run_id` at `limit` whose hand no stop

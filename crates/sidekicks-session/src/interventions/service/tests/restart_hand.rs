@@ -2,7 +2,7 @@
 //! harness's running run, and the daemon's stop of the engine's interrupt hands that carry them
 //! and a limit's interrupt out.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -231,8 +231,10 @@ enum StoppedHand {
 
 // Once the daemon's stop has ended the engine's interrupt hands, neither the hand of a limit the
 // run owes nor the restart's hand of a pending interrupt sends the driver anything, and no queue
-// hold is taken. Killed by a bare spawn kept in the restart's hand or on the owed limit's path
-// (the driver is called again), and by a hand spawned on a closed tracker.
+// hold is taken. Killed by a bare spawn kept in the restart's hand (the driver is called), and by
+// every hand on the owed limit's path spawned bare together (the driver is called again); one of
+// those layers spawned bare alone is refused by the layer under it, and the refusal itself is
+// proved by `a_hand_asked_for_after_the_stop_never_runs`.
 #[rstest]
 #[case::an_owed_limit(StoppedHand::OwedLimit)]
 #[case::an_interrupt_pending_at_the_restart(StoppedHand::PendingAtRestart)]
@@ -339,4 +341,67 @@ async fn the_stop_cuts_an_interrupt_hand_held_in_its_driver(#[case] hand: HeldHa
             .expect("the caller's task ends");
         assert!(is_cut, "the caller's answer reads as the stop cut it");
     }
+}
+
+// A hand asked for once the daemon's stop has ended the interrupt hands answers no task and never
+// runs. Killed by the closed check removed (a task is answered).
+#[tokio::test]
+async fn a_hand_asked_for_after_the_stop_never_runs() {
+    let harness = harness(MockProviderDriver::new()).await;
+    harness.engine.stop_interrupt_hands().await;
+    let has_run = Arc::new(AtomicBool::new(false));
+
+    let hand = harness.engine.hand_interrupt(harness.run_id, {
+        let has_run = Arc::clone(&has_run);
+        async move { has_run.store(true, Ordering::SeqCst) }
+    });
+    tokio::time::sleep(DRIVER_HOLD).await;
+
+    assert!(
+        hand.is_none(),
+        "no task is answered once the hands are stopped"
+    );
+    assert!(!has_run.load(Ordering::SeqCst), "the hand never runs");
+}
+
+// A hand that only the token can end, held where it stands, is cut by the daemon's stop within a
+// second, and its task answers that it was cut. Killed by the token not selected (the stop's wait
+// never returns) and by a cut read as a hand run to its end (the task answers `Some`).
+#[tokio::test]
+async fn a_held_hand_is_cut_by_the_token_itself() {
+    let harness = harness(MockProviderDriver::new()).await;
+    let hand = harness
+        .engine
+        .hand_interrupt(harness.run_id, std::future::pending())
+        .expect("a hand is spawned before the stop");
+
+    tokio::time::timeout(HAND_CUT_BOUND, harness.engine.stop_interrupt_hands())
+        .await
+        .expect("the stop cuts the held hand within a second");
+
+    let ended = tokio::time::timeout(HAND_CUT_BOUND, hand)
+        .await
+        .expect("the cut hand's task ends")
+        .expect("the cut hand's task does not panic");
+    assert_eq!(ended, None, "the hand reads as cut by the stop");
+}
+
+// A limit's hand the daemon's stop let none start wrote no row, so it answers a failure that
+// leaves none, on which the engine's stop withdraws its cut. Killed by an unstarted hand read as
+// its row pending (the cut would be kept with no row naming it).
+#[tokio::test]
+async fn a_limit_hand_never_started_answers_no_row() {
+    let harness = harness(MockProviderDriver::new()).await;
+    harness.engine.stop_interrupt_hands().await;
+
+    let handed = harness
+        .service
+        .interrupt_for_limit(harness.run_id, RunLimit::TokenLimit, None)
+        .await;
+
+    assert!(
+        matches!(handed, Err(LimitInterruptFailure::NoRow { .. })),
+        "{handed:?}"
+    );
+    assert!(harness.stored_rows().is_empty(), "no row is written");
 }

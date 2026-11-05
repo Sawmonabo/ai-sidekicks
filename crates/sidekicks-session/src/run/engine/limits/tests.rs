@@ -17,11 +17,11 @@ use super::LimitStop;
 use crate::questions::schema::schema_parts;
 use crate::run::engine::RunEngine;
 use crate::run::engine::errors::RunEngineError;
-use crate::run::engine::live::ContinuingRun;
+use crate::run::engine::live::{ContinuingRun, CutGuard};
 use crate::run::engine::test_fixture::{append, insert_run, stored_run_state, test_engine};
 use crate::run::engine::tests::{
     DRIVER_HOLD, SETTLE_WAIT, continue_request, events, hand_limit_interrupter, held_driver,
-    started_turn, step_stop, stored_events, token_limit, turn, turn_started_at,
+    hold_cut, started_turn, step_stop, stored_events, token_limit, turn, turn_started_at,
 };
 use crate::run::state_change::RunWriteCompanions;
 
@@ -684,4 +684,38 @@ async fn a_failed_stop_keeps_its_cut_only_while_its_row_is_pending(
         is_step,
         "a step stop's limit stays owed for its retry"
     );
+}
+
+// A limit stop dropped before it decides, as when the daemon's stop cuts its hand, keeps the cut
+// its written row names and withdraws a cut no row names, forgetting the row's mark either way.
+// Killed by the drop withdrawing every cut (the written row's turn reads no cut), by the mark
+// ignored or never set (the same), and by the mark left behind (the marks are not empty).
+#[rstest]
+#[case::its_row_written(true)]
+#[case::no_row_written(false)]
+#[tokio::test]
+async fn a_dropped_limit_stop_keeps_only_a_cut_its_row_names(#[case] is_row_written: bool) {
+    let database = TestDatabase::new(schema_parts());
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_run(&database, test_session_id(), run_id, "running");
+    let engine = test_engine(&database, log.service, home.path());
+    let cut = hold_cut(&engine, run_id, turn(1), RunLimit::TokenLimit);
+    let guard = CutGuard {
+        live: &engine.live,
+        key: Some((run_id, turn(1))),
+        stop_id: cut.stop_id,
+    };
+    if is_row_written {
+        engine.keep_cut_named_by_row(run_id, cut);
+    }
+
+    drop(guard);
+
+    assert_eq!(
+        engine.held_cut_limit(run_id, turn(1)),
+        is_row_written.then_some(RunLimit::TokenLimit)
+    );
+    assert!(lock(&engine.live).rowed_cuts.is_empty());
 }

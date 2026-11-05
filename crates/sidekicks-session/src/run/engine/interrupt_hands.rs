@@ -1,6 +1,7 @@
 //! The engine's interrupt hands: the tasks that carry a run's interrupt out apart from the call
 //! that asked for it, owned by the engine so the daemon's stop cuts each where it stands and waits
-//! for it within its bound. A hand cut leaves its row pending, as a failed hand does.
+//! for it within its bound. A cut hand that wrote a row leaves it pending, as a failed hand does,
+//! and a limit stop keeps the cut that row names.
 
 use sidekicks_contracts::run::id::RunId;
 use tokio::task::JoinHandle;
@@ -29,10 +30,7 @@ impl RunEngine {
             tokio::select! {
                 biased;
                 () = stop.cancelled() => {
-                    tracing::info!(
-                        %run_id,
-                        "the daemon's stop cut an interrupt's hand; its row stays pending"
-                    );
+                    tracing::info!(%run_id, "the daemon's stop cut an interrupt's hand");
                     None
                 }
                 () = hand => Some(()),
@@ -44,10 +42,16 @@ impl RunEngine {
         )
     }
 
+    /// Cuts every interrupt hand where it stands, at once, so no hand holds a run's interrupt lock
+    /// past the daemon's stop; [`Self::stop_interrupt_hands`] then waits them out.
+    pub fn cut_interrupt_hands(&self) {
+        self.interrupt_hands_stop.cancel();
+    }
+
     /// Cuts every interrupt hand where it stands and returns once each has ended; no hand is
     /// spawned after.
     pub async fn stop_interrupt_hands(&self) {
-        self.interrupt_hands_stop.cancel();
+        self.cut_interrupt_hands();
         self.interrupt_hands.close();
         self.interrupt_hands.wait().await;
     }

@@ -1,13 +1,13 @@
 //! The daemon's own interrupt of a run the engine stopped at a limit, carried by the one path a
 //! person's takes. Its row is written and accepted at once, since a limit's interrupt is never
 //! refused or outdated, and a second interrupt of one limit is refused while one is pending. The
-//! hand runs on the engine's interrupt hand, which holds the run's interrupt lock and records the
-//! outcome however late it comes, unless the daemon's stop cuts it; the engine's stop waits on it
-//! for a bounded time. A hand the provider
-//! got with no answer back leaves its row pending and the stop's cut kept, for the run's end to
-//! settle: applied when the run ended `interrupted`, else expired with the limit still owed.
-//! A restart's hand carries out once a row the old process left `accepted`, its outcome recorded
-//! as a hand no stop awaits.
+//! hand runs as one of the engine's interrupt hands: it holds the run's interrupt lock and records
+//! the outcome however late it comes, unless the daemon's stop cuts it, and the engine's stop waits
+//! on it for a bounded time. Once its row is written, the stop's cut is kept whatever cuts the
+//! stop. A hand the provider got with no answer back leaves its row pending and the stop's cut
+//! kept, for the run's end to settle: applied when the run ended `interrupted`, else expired with
+//! the limit still owed. A restart's hand carries out once a row the old process left `accepted`,
+//! its outcome recorded as a hand no stop awaits.
 
 use std::pin::Pin;
 use std::time::Duration;
@@ -61,11 +61,18 @@ struct LimitInterruptPending {
     limit: RunLimit,
 }
 
-/// The hand's task ended without an answer, cut or never started by the daemon's stop, or its
-/// runtime shutting down.
+/// The hand's task ended without an answer, cut by the daemon's stop or its runtime shutting
+/// down.
 #[derive(Debug, thiserror::Error)]
 #[error("the hand of run {run_id}'s interrupt at a limit ended without an answer")]
 struct HandCanceled {
+    run_id: RunId,
+}
+
+/// The daemon's stop came before the hand started, so no row was written.
+#[derive(Debug, thiserror::Error)]
+#[error("the daemon is stopping, so run {run_id}'s interrupt at a limit was not handed")]
+struct HandNotStarted {
     run_id: RunId,
 }
 
@@ -96,8 +103,7 @@ impl LimitInterrupter for InterventionService {
             let hand = self.engine.hand_interrupt(run_id, async move {
                 // The hold lasts until the outcome is recorded, a late one included.
                 let _hold = service.interrupt_lock.acquire(run_id).await;
-                let cut_turn = cut.map(|cut| cut.turn_number);
-                let handed = service.hand_limit_interrupt(run_id, limit, cut_turn).await;
+                let handed = service.hand_limit_interrupt(run_id, limit, cut).await;
                 // A failed send is an answer past the bound, which the stop no longer awaits.
                 if let Err(late) = answer_sender.send(handed) {
                     service
@@ -105,6 +111,9 @@ impl LimitInterrupter for InterventionService {
                         .await;
                 }
             });
+            let Some(hand) = hand else {
+                return Err(no_row(HandNotStarted { run_id }));
+            };
             if let Some(received) = wait_within(Pin::new(&mut answer), LIMIT_HAND_BOUND, None).await
             {
                 return match received {
@@ -119,9 +128,7 @@ impl LimitInterrupter for InterventionService {
                 Ok(handed) => handed,
                 // Once closed, the channel reads closed with no answer whether the hand goes on or
                 // has ended, so only a finished hand is awaited.
-                Err(_) if hand.as_ref().is_none_or(JoinHandle::is_finished) => {
-                    Err(ended_without_answer(run_id, hand).await)
-                }
+                Err(_) if hand.is_finished() => Err(ended_without_answer(run_id, hand).await),
                 Err(_) => Err(LimitInterruptFailure::RowPending {
                     source: Box::new(HandPastBound { run_id }),
                 }),
@@ -132,18 +139,13 @@ impl LimitInterrupter for InterventionService {
 
 // The failure of a hand that gave the stop no answer: a hand that panics within the bound is
 // re-raised in the stop, while one that panics past it reaches only the panic hook; a hand the
-// daemon's stop cut or let none start, or a task canceled by the runtime's shutdown, leaves
-// whatever row it wrote pending, and a hand that ran to its end after the stop's close has
-// recorded its outcome late.
+// daemon's stop cut, or a task canceled by the runtime's shutdown, leaves whatever row it wrote
+// pending, and a hand that ran to its end after the stop's close has recorded its outcome late.
 async fn ended_without_answer(
     run_id: RunId,
-    hand: Option<JoinHandle<Option<()>>>,
+    hand: JoinHandle<Option<()>>,
 ) -> LimitInterruptFailure {
-    let ended = match hand {
-        Some(hand) => hand.await,
-        None => Ok(None),
-    };
-    match ended {
+    match hand.await {
         Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
         Err(_) | Ok(None) => LimitInterruptFailure::RowPending {
             source: Box::new(HandCanceled { run_id }),
@@ -155,14 +157,16 @@ async fn ended_without_answer(
 }
 
 impl InterventionService {
-    // Records and accepts the interrupt of `run_id` at `limit` in one write, then carries it out;
-    // the caller holds the run's interrupt lock.
+    // Records and accepts the interrupt of `run_id` at `limit`, its row naming the turn of `cut`,
+    // in one write, has the engine keep that cut once the row is written, then carries it out; the
+    // caller holds the run's interrupt lock.
     async fn hand_limit_interrupt(
         &self,
         run_id: RunId,
         limit: RunLimit,
-        cut_turn: Option<SafeInt<1>>,
+        cut: Option<HandedCut>,
     ) -> Result<(), LimitInterruptFailure> {
+        let cut_turn = cut.map(|cut| cut.turn_number);
         let run = self.require_run(run_id).await.map_err(no_row)?;
         let accepted = AcceptedLimitInterrupt {
             target: InterventionTarget {
@@ -210,6 +214,9 @@ impl InterventionService {
                 Some(PENDING_GUARD_INDEX) => no_row(LimitInterruptPending { run_id, limit }),
                 _ => no_row(error),
             });
+        }
+        if let Some(cut) = cut {
+            self.engine.keep_cut_named_by_row(run_id, cut);
         }
         self.carry_out_limit_interrupt(&accepted).await
     }
