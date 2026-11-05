@@ -37,7 +37,7 @@ const SHA256_A: &str = "33333333333333333333333333333333333333333333333333333333
 const SHA256_B: &str = "4444444444444444444444444444444444444444444444444444444444444444";
 
 // A command capture of the checkout `repository`, owned by `owner`.
-fn command_in(repository: &Path, owner: &Path) -> CommandCaptureInput {
+pub(super) fn command_in(repository: &Path, owner: &Path) -> CommandCaptureInput {
     CommandCaptureInput {
         owner_folder: owner.to_path_buf(),
         execution_root: repository.to_path_buf(),
@@ -55,7 +55,7 @@ fn write_sized(path: &Path, size: u64) {
 }
 
 // Writes each `(path, text)` under `folder`, making its parent folders.
-fn write_files(folder: &Path, files: &[(&str, &str)]) {
+pub(super) fn write_files(folder: &Path, files: &[(&str, &str)]) {
     for (path, text) in files {
         let path = folder.join(path);
         std::fs::create_dir_all(path.parent().expect("a file has a parent"))

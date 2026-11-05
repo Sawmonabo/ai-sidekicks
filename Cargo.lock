@@ -9255,6 +9255,7 @@ name = "sidekicks-workspace"
 version = "0.0.0"
 dependencies = [
  "base16ct 1.0.0",
+ "bytes",
  "futures",
  "getrandom 0.4.3",
  "icu_collator",

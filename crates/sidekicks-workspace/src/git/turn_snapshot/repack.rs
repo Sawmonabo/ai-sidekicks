@@ -5,9 +5,9 @@
 //! reaches any more, and skips a folder whose refs, packs and loose objects are as its last pass
 //! left them.
 //!
-//! - Every call against a capture folder runs with `--git-dir` alone; only the pack of a capture's
-//!   objects attaches the repository, since `prune-packed` and the fold with it attached would
-//!   take a loose object only the repository's packs hold.
+//! - Every packing call against a capture folder runs with `--git-dir` alone; of the packing's own
+//!   calls only the pack of a capture's objects attaches the repository, since `prune-packed` and
+//!   the fold with it attached would take a loose object only the repository's packs hold.
 //! - One lock per capture folder orders its packs, folds and sweep passes.
 
 use std::collections::{HashMap, HashSet};
@@ -91,6 +91,11 @@ impl CapturedCommit {
     /// The capture's commit.
     pub fn commit(&self) -> &GitObjectId {
         &self.commit
+    }
+
+    /// The capture folder the commit was written into.
+    pub(crate) fn capture_folder(&self) -> &CaptureFolder {
+        &self.capture_folder
     }
 }
 

@@ -143,8 +143,8 @@ impl CaptureFolder {
         self.folder.join(INDEXES_SEGMENT)
     }
 
-    /// The variables of a write that must see the repository's history: its objects go to this
-    /// folder's object folder and the repository's is attached.
+    /// The variables of a call in this folder that must see the repository's history, a write or a
+    /// read: its objects go to this folder's object folder and the repository's is attached.
     pub(crate) fn write_environment(&self) -> [(&'static str, &OsStr); 2] {
         [
             (OBJECT_FOLDER_VARIABLE, self.objects.as_os_str()),

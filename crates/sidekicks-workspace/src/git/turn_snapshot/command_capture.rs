@@ -1,6 +1,7 @@
 //! A command's two captures: one before the command runs and one after it ends, each staged into
 //! the checkout's kept index and committed into the owner's capture folder, the after-capture
-//! answering what changed between the two trees.
+//! answering what changed between the two trees and the before-capture's blobs read back as the
+//! changed files' before-images.
 //!
 //! - Each capture lists the tracked and untracked files under the tree's own `.gitignore` rules,
 //!   plus the ignored files outside an ignored folder; an ignored folder is named, never staged.
@@ -34,6 +35,8 @@ use crate::git::turn_snapshot::held_checkout::{CaptureRoots, CaptureStartFailure
 use crate::git::turn_snapshot::kept_index::{KeptIndex, open_kept_index};
 use crate::git::turn_snapshot::refs::USE_REPLACE_REFS_PIN;
 use crate::git::turn_snapshot::repack::CapturedCommit;
+
+pub mod before_images;
 
 /// What one of a command's captures records, every field resolved by the caller.
 #[derive(Clone, Debug)]
