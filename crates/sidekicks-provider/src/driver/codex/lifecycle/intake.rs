@@ -292,6 +292,7 @@ impl CodexSessionIntake {
                 record,
                 routing: &mut self.routing,
                 waiters: &mut self.waiters,
+                context_readings: &self.context_readings,
             },
             &parts.calls.runs,
             &parts.self_started,
@@ -480,6 +481,7 @@ impl CodexSessionInboundHandler for CodexSessionIntake {
                     record,
                     routing: &mut self.routing,
                     waiters: &mut self.waiters,
+                    context_readings: &self.context_readings,
                 },
                 &parts.calls,
             ))

@@ -582,6 +582,7 @@ impl SessionDirectoryProviderPort {
                 session_id,
                 provider_account_id: predecessor.spawn_config.provider_account_id.clone(),
                 conversation_id: handle.clone(),
+                runtime_metadata: predecessor.runtime_metadata.clone(),
             })
             .into_iter()
             .collect();

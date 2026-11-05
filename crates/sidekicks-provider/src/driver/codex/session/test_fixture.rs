@@ -3,6 +3,7 @@
 //! item of the session's queue handed to the test, which handles it the way the session's task
 //! does.
 
+pub(crate) mod one_folder;
 pub(crate) mod relaunches;
 pub(crate) mod status_sink;
 
@@ -11,18 +12,14 @@ use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
-use secrecy::SecretString;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::free_form_string::FilesystemPath;
-use sidekicks_contracts::provider::account::record::{
-    CredentialGeneration, ProviderAccountId, ProviderAuthMode,
-};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
-use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
@@ -35,6 +32,7 @@ use tokio::time::Instant;
 use tokio_util::task::TaskTracker;
 
 use crate::compaction_wait::PendingCompactionRegistry;
+use crate::driver::PROVIDERS;
 use crate::driver::attachments::{AttachmentResolver, ProviderAttachment};
 use crate::driver::codex::commands::CodexProviderCommandCache;
 use crate::driver::codex::delivery::frames::{
@@ -70,6 +68,9 @@ use crate::driver::codex::service::supervisor::test_service::{
 use crate::driver::codex::session::calls::{
     CodexSessionCallDependencies, CodexSessionTask, run_codex_session_call,
 };
+use crate::driver::codex::session::context_reading::{
+    CodexFixedStart, CodexSessionContextReadings,
+};
 use crate::driver::codex::session::establishment::answer_steer::{
     CodexAnswerSteerDependencies, CodexAnswerSteers,
 };
@@ -96,10 +97,6 @@ use crate::driver::run_control::{
 use crate::driver::schema::schema_parts;
 use crate::driver::session_control::{CreateSessionParams, SessionAccountPin};
 use crate::driver::test_registry::{RecordedQueue, new_agent_id, new_session_id};
-use crate::driver::{
-    AccountFoldersError, CurrentProviderAccount, PROVIDERS, ProviderAccountFolders,
-    ProviderAccountReader, SessionSpawnContext, SessionSpawnContextResolver,
-};
 use crate::port::question::ProviderQuestion;
 use crate::port::run_host::RunHost;
 use crate::port::run_host::test_host::RecordingRunEngine;
@@ -163,6 +160,7 @@ pub(crate) struct TestCodexTask {
     /// How each let-go the driver asked of the record said it stopped being its session's.
     pub(crate) let_go_exits: Vec<CodexRecordExit>,
     items: mpsc::UnboundedReceiver<CodexSessionInbound>,
+    context_readings: CodexSessionContextReadings,
 }
 
 impl TestCodexSession {
@@ -280,6 +278,8 @@ impl TestCodexSession {
             continued_messages: Arc::clone(&ports.continued_messages),
             tasks: TaskTracker::new(),
         }));
+        let context_readings =
+            CodexSessionContextReadings::new(session_id, CodexFixedStart::FirstRequest);
         Self {
             scripted,
             task: TestCodexTask {
@@ -294,6 +294,7 @@ impl TestCodexSession {
                 run_control,
                 let_go_exits: Vec::new(),
                 items,
+                context_readings,
             },
             bindings,
             engine,
@@ -336,7 +337,7 @@ impl TestCodexSession {
     pub(crate) fn establishment(&self, folder: &Path) -> CodexSessionEstablishment {
         CodexSessionEstablishment::new(CodexSessionEstablishmentDependencies {
             services: CodexServiceRegistry::holding(&self.scripted),
-            spawn_contexts: one_folder_spawn_contexts(folder.join("work")),
+            spawn_contexts: one_folder::one_folder_spawn_contexts(folder.join("work")),
             execution_postures: Arc::new(ExecutionPostureService::new(
                 folder,
                 folder.join("session-token"),
@@ -359,104 +360,6 @@ impl TestCodexSession {
     }
 }
 
-/// The spawn-context port with [`OneFolder`] over `folder` registered on it.
-pub(super) fn one_folder_spawn_contexts(
-    folder: PathBuf,
-) -> Arc<PortRegistration<Arc<dyn SessionSpawnContextResolver>>> {
-    let spawn_contexts = DriverPorts::new().spawn_contexts;
-    spawn_contexts
-        .register(Arc::new(OneFolder(folder)) as Arc<dyn SessionSpawnContextResolver>)
-        .expect("a fresh port registers");
-    spawn_contexts
-}
-
-/// Every session runs in one folder on the test's one account, whose home sits beside the folder
-/// and whose generation is never read.
-pub(crate) struct OneFolder(pub(crate) PathBuf);
-
-impl OneFolder {
-    // The test account's folders, both its Codex home beside the working folder.
-    fn account_folders(&self) -> ProviderAccountFolders {
-        let codex_home = self.0.with_file_name("codex-home");
-        ProviderAccountFolders {
-            configuration_folder: codex_home.clone(),
-            credential_store_folder: codex_home,
-        }
-    }
-}
-
-impl SessionSpawnContextResolver for OneFolder {
-    fn resolve_spawn_context(
-        &self,
-        _session_id: SessionId,
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<SessionSpawnContext, Box<dyn std::error::Error + Send + Sync>>> {
-        let working_directory = self.0.clone();
-        let account_folders = self.account_folders();
-        async move {
-            Ok(SessionSpawnContext {
-                working_directory,
-                git_common_folder: None,
-                every_project_rows: Vec::new(),
-                project_rows: Vec::new(),
-                account_folders,
-                step_bound: None,
-                advisor_model: None,
-            })
-        }
-        .boxed()
-    }
-
-    fn resolve_run_folder(
-        &self,
-        _session_id: SessionId,
-    ) -> BoxFuture<'_, Result<PathBuf, Box<dyn std::error::Error + Send + Sync>>> {
-        let run_folder = self.0.clone();
-        async move { Ok(run_folder) }.boxed()
-    }
-}
-
-impl ProviderAccountReader for OneFolder {
-    fn resolve_account_folders(
-        &self,
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<ProviderAccountFolders, AccountFoldersError>> {
-        let account_folders = self.account_folders();
-        async move { Ok(account_folders) }.boxed()
-    }
-
-    fn current_account(
-        &self,
-        _provider_id: ProviderId,
-    ) -> BoxFuture<'_, Result<CurrentProviderAccount, Box<dyn std::error::Error + Send + Sync>>>
-    {
-        async { Ok(CurrentProviderAccount::Current(test_provider_account_id())) }.boxed()
-    }
-
-    fn read_credential_generation(
-        &self,
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn std::error::Error + Send + Sync>>> {
-        async { Err("the test reads no generation".into()) }.boxed()
-    }
-
-    fn read_observed_auth_mode(
-        &self,
-
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn std::error::Error + Send + Sync>>>
-    {
-        async { Ok(None) }.boxed()
-    }
-
-    fn read_sealed_token(
-        &self,
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn std::error::Error + Send + Sync>>> {
-        async { Ok(None) }.boxed()
-    }
-}
-
 impl TestCodexTask {
     /// What the session's task holds, beside what its calls act through.
     pub(super) fn split(&mut self) -> (CodexSessionTask<'_>, &CodexSessionCallDependencies) {
@@ -465,6 +368,7 @@ impl TestCodexTask {
                 record: &mut self.record,
                 routing: &mut self.routing,
                 waiters: &mut self.waiters,
+                context_readings: &self.context_readings,
             },
             &self.calls,
         )
@@ -497,6 +401,7 @@ impl TestCodexTask {
                         record: &mut self.record,
                         routing: &mut self.routing,
                         waiters: &mut self.waiters,
+                        context_readings: &self.context_readings,
                     },
                     &self.calls.runs,
                     &self.self_started,
@@ -519,6 +424,7 @@ impl TestCodexTask {
                         record: &mut self.record,
                         routing: &mut self.routing,
                         waiters: &mut self.waiters,
+                        context_readings: &self.context_readings,
                     },
                     &self.calls,
                 ))
