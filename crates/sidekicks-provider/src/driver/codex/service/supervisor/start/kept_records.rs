@@ -7,10 +7,12 @@
 //! With nothing joined, a drain on the home's own socket is launched beside where the home's path
 //! is a link, and waited for where it is the socket itself. An account home's start joins the one
 //! service its record keeps running. A daemon stop that ends work in flight stops every service a
-//! record still keeps. The erase of the daemon's data, with no daemon running, ends every service
-//! a record names, a draining one too, and answers every failure rather than logging it. Ending
-//! the turns a restart kept only reads where a kept service listens.
+//! record still keeps that none of its live services holds. The erase of the daemon's data, with
+//! no daemon running, ends every service a record names, a draining one too, and answers every
+//! failure rather than logging it. Ending the turns a restart kept only reads where a kept service
+//! listens.
 
+use std::collections::HashSet;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -298,12 +300,9 @@ pub(crate) async fn read_running_kept_service(
     service: &CodexService,
 ) -> Result<Option<RunningKeptService>, CodexError> {
     let read = async {
-        let record_file = LastingServiceRecordFile::of_socket(
-            &service.dependencies().data_folder,
-            &service.home().codex_home,
-            service.socket_path(),
-        )
-        .map_err(|error| start_failed("The Codex service's record could not be named.", error))?;
+        let record_file = socket_record_file(service).map_err(|error| {
+            start_failed("The Codex service's record could not be named.", error)
+        })?;
         let locked = lock_record(record_file).await?;
         let Some(record) = read_record(&locked).await? else {
             return Ok(None);
@@ -338,7 +337,8 @@ pub(crate) enum KeptServicesStop {
 }
 
 /// Stops every lasting service a record under `data_folder` still keeps: for the daemon's stop,
-/// beside its own services' stops, and for the erase, with no daemon running. One a former daemon
+/// beside its own services' stops, and for the erase, with no daemon running. A record in
+/// `live_records`, which a live service's supervisor stops, is left to it. One a former daemon
 /// kept is stopped and its record removed, what an ended one left is ended, and one draining is
 /// left to its drain under [`KeptServicesStop::DaemonStop`] and stopped under
 /// [`KeptServicesStop::Erase`]. All are stopped together, so the stop takes one grace whatever the
@@ -350,28 +350,36 @@ pub(crate) enum KeptServicesStop {
 pub(crate) async fn stop_kept_services(
     data_folder: PathBuf,
     stop: KeptServicesStop,
+    live_records: HashSet<LastingServiceRecordFile>,
 ) -> Vec<CodexError> {
     let deadline = match stop {
         KeptServicesStop::DaemonStop { deadline } => Some(deadline),
         KeptServicesStop::Erase => None,
     };
-    run_until(deadline, stop_every_kept_service(data_folder, stop))
-        .await
-        .unwrap_or_else(|cut| {
-            vec![
-                start_failed(
-                    "The Codex services kept in records were still stopping when the daemon's \
+    run_until(
+        deadline,
+        stop_every_kept_service(data_folder, stop, &live_records),
+    )
+    .await
+    .unwrap_or_else(|cut| {
+        vec![
+            start_failed(
+                "The Codex services kept in records were still stopping when the daemon's \
                      stop ran out.",
-                    io::Error::new(io::ErrorKind::TimedOut, cut),
-                )
-                .error,
-            ]
-        })
+                io::Error::new(io::ErrorKind::TimedOut, cut),
+            )
+            .error,
+        ]
+    })
 }
 
-// Stops every lasting service a record under `data_folder` still keeps, all folders together, as
-// `stop_kept_services` does, with no bound of its own.
-async fn stop_every_kept_service(data_folder: PathBuf, stop: KeptServicesStop) -> Vec<CodexError> {
+// Stops every lasting service a record under `data_folder` still keeps but `live_records`, all
+// folders together, as `stop_kept_services` does, with no bound of its own.
+async fn stop_every_kept_service(
+    data_folder: PathBuf,
+    stop: KeptServicesStop,
+    live_records: &HashSet<LastingServiceRecordFile>,
+) -> Vec<CodexError> {
     let listed = tokio::task::spawn_blocking(move || one_recorded_file_per_folder(&data_folder))
         .await
         .map_err(io::Error::other)
@@ -387,7 +395,7 @@ async fn stop_every_kept_service(data_folder: PathBuf, stop: KeptServicesStop) -
     join_all(
         files
             .into_iter()
-            .map(|file| stop_folder_kept_services(file, stop)),
+            .map(|file| stop_folder_kept_services(file, stop, live_records)),
     )
     .await
     .into_iter()
@@ -395,12 +403,13 @@ async fn stop_every_kept_service(data_folder: PathBuf, stop: KeptServicesStop) -
     .collect()
 }
 
-// Stops every service the records of `file`'s Codex folder keep, all together under the one hold
-// of the folder's lock, so no retire waits on another's hold; answers each record's failures, or
-// the lock's or the listing's failure.
+// Stops every service the records of `file`'s Codex folder keep but `live_records`, all together
+// under the one hold of the folder's lock, so no retire waits on another's hold; answers each
+// record's failures, or the lock's or the listing's failure.
 async fn stop_folder_kept_services(
     file: LastingServiceRecordFile,
     stop: KeptServicesStop,
+    live_records: &HashSet<LastingServiceRecordFile>,
 ) -> Vec<CodexError> {
     let held = async {
         let locked = lock_record(file).await?;
@@ -420,11 +429,17 @@ async fn stop_folder_kept_services(
         Ok(records) => records,
         Err(failure) => return vec![failure.error],
     };
-    join_all(records.iter().map(|locked| stop_kept_record(locked, stop)))
-        .await
-        .into_iter()
-        .flatten()
-        .collect()
+    // A live service's record is its supervisor's to stop, so no second stopper signals it.
+    join_all(
+        records
+            .iter()
+            .filter(|locked| !live_records.contains(locked.file()))
+            .map(|locked| stop_kept_record(locked, stop)),
+    )
+    .await
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 // Stops the service the record `locked` holds still keeps, through the one end a start's retire
@@ -472,6 +487,16 @@ pub(crate) fn report_kept_service_unstopped(error: &(dyn std::error::Error + 'st
     );
 }
 
+/// The record file of the lasting service on the socket `service` dials, where a start of it
+/// records the process it launches. Fails as [`LastingServiceRecordFile::of_socket`] does.
+pub(crate) fn socket_record_file(service: &CodexService) -> io::Result<LastingServiceRecordFile> {
+    LastingServiceRecordFile::of_socket(
+        &service.dependencies().data_folder,
+        &service.home().codex_home,
+        service.socket_path(),
+    )
+}
+
 /// Retires the record of the process `service`'s last start brought up, else of its own socket,
 /// once that process has ended and nothing starts it again. Fails as the record's lock or its
 /// retire does.
@@ -479,12 +504,7 @@ pub(in super::super) async fn retire_own_record(service: &CodexService) -> Resul
     let socket = service.socket_path().to_owned();
     let record_file = match service.process_record_file() {
         Some(record_file) => record_file,
-        None => LastingServiceRecordFile::of_socket(
-            &service.dependencies().data_folder,
-            &service.home().codex_home,
-            &socket,
-        )
-        .map_err(|error| CodexError::Transport {
+        None => socket_record_file(service).map_err(|error| CodexError::Transport {
             detail: "The Codex service's record could not be named.".to_owned(),
             cause: Some(Box::new(error)),
         })?,

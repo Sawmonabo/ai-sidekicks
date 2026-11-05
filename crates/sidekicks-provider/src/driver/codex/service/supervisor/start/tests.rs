@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
@@ -356,6 +357,7 @@ async fn an_account_start_adds_the_relay_environment_before_it_answers() {
         KeptServicesStop::DaemonStop {
             deadline: Instant::now() + Duration::from_secs(60),
         },
+        HashSet::new(),
     )
     .await;
 
@@ -428,7 +430,12 @@ async fn an_erase_takes_the_home_link_off_a_gone_service_s_socket() {
         })
         .expect("the record is written");
 
-    let failures = stop_kept_services(folder.path().to_owned(), KeptServicesStop::Erase).await;
+    let failures = stop_kept_services(
+        folder.path().to_owned(),
+        KeptServicesStop::Erase,
+        HashSet::new(),
+    )
+    .await;
 
     assert!(failures.is_empty(), "{failures:?}");
     assert_eq!(
@@ -445,32 +452,12 @@ async fn a_daemon_stop_ends_a_kept_service_that_ignores_its_stop_by_the_deadline
         return;
     }
     let folder = tempfile::tempdir().expect("a scratch folder is made");
-    let mut child = shell_line_command(Path::new(POSIX_SHELL), "trap '' TERM; echo; exec sleep 60")
-        .stdout(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .expect("the stand-in starts");
-    // Its first byte says the stop's signal is ignored, so the signal cannot win the race.
-    let mut ready = [0_u8];
-    child
-        .stdout
-        .take()
-        .expect("the stand-in's output is piped")
-        .read_exact(&mut ready)
-        .await
-        .expect("the stand-in ignores the stop's signal");
-    let process = pin_child_process(child.id().expect("the stand-in runs"))
-        .expect("the stand-in pins")
-        .record()
-        .expect("the record reads")
-        .expect("the stand-in runs");
-    let socket = folder.path().join("codex.sock");
-    LastingServiceRecordFile::of_socket(folder.path(), folder.path(), &socket)
-        .expect("the record file is named")
-        .lock()
-        .expect("the records lock")
-        .write(&LastingServiceRecord::launched(process, socket))
-        .expect("the record is written");
+    let (mut child, _record_file) = recorded_stand_in(
+        folder.path(),
+        "trap '' TERM; echo; exec sleep 60",
+        "codex.sock",
+    )
+    .await;
     let deadline = Instant::now() + Duration::from_millis(300);
 
     let stopped = timeout(
@@ -478,6 +465,7 @@ async fn a_daemon_stop_ends_a_kept_service_that_ignores_its_stop_by_the_deadline
         stop_kept_services(
             folder.path().to_owned(),
             KeptServicesStop::DaemonStop { deadline },
+            HashSet::new(),
         ),
     )
     .await;
@@ -488,6 +476,90 @@ async fn a_daemon_stop_ends_a_kept_service_that_ignores_its_stop_by_the_deadline
         .expect("the stand-in still runs a second after the stop")
         .expect("the stand-in's end reads");
     assert!(status.code().is_none(), "{status:?}");
+}
+
+// Fails when the daemon's stop of the records kept also stops a service of its own, which that
+// service's supervisor stops beside it, or leaves a former daemon's service in the same Codex
+// folder running. Killed by dropping the skip of the live records.
+#[tokio::test]
+async fn a_daemon_stop_of_kept_records_leaves_a_live_service_s_record_to_its_supervisor() {
+    if !CAN_SIGNAL_A_STOP {
+        return;
+    }
+    let folder = tempfile::tempdir().expect("a scratch folder is made");
+    let (mut live, live_record) =
+        recorded_stand_in(folder.path(), "echo; exec sleep 60", "live.sock").await;
+    let (mut former, former_record) =
+        recorded_stand_in(folder.path(), "echo; exec sleep 60", "former.sock").await;
+
+    let failures = stop_kept_services(
+        folder.path().to_owned(),
+        KeptServicesStop::DaemonStop {
+            deadline: Instant::now() + Duration::from_secs(5),
+        },
+        HashSet::from([live_record.clone()]),
+    )
+    .await;
+    let former_end = timeout(Duration::from_secs(5), former.wait()).await;
+    let live_exit = live.try_wait().expect("the live stand-in's state reads");
+    let read_record = |file: &LastingServiceRecordFile| {
+        file.lock()
+            .and_then(|locked| locked.read())
+            .expect("the record reads")
+    };
+
+    assert!(failures.is_empty(), "{failures:?}");
+    assert!(
+        former_end.is_ok(),
+        "the former daemon's service still runs after the stop"
+    );
+    assert_eq!(read_record(&former_record), None);
+    assert!(
+        live_exit.is_none(),
+        "the kept stop ended a live service: {live_exit:?}"
+    );
+    assert!(
+        read_record(&live_record).is_some(),
+        "the kept stop removed a live service's record"
+    );
+}
+
+// A shell stand-in running `script`, which writes one byte once it is ready, recorded as the
+// lasting service on `socket_name` of the Codex folder `folder`, in `folder` as the data folder;
+// ended when the answered child drops.
+async fn recorded_stand_in(
+    folder: &Path,
+    script: &str,
+    socket_name: &str,
+) -> (tokio::process::Child, LastingServiceRecordFile) {
+    let mut child = shell_line_command(Path::new(POSIX_SHELL), script)
+        .stdout(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .expect("the stand-in starts");
+    // Its first byte says the script's set-up ran, so a stop's signal cannot race it.
+    let mut ready = [0_u8];
+    child
+        .stdout
+        .take()
+        .expect("the stand-in's output is piped")
+        .read_exact(&mut ready)
+        .await
+        .expect("the stand-in is ready");
+    let process = pin_child_process(child.id().expect("the stand-in runs"))
+        .expect("the stand-in pins")
+        .record()
+        .expect("the record reads")
+        .expect("the stand-in runs");
+    let socket = folder.join(socket_name);
+    let record_file = LastingServiceRecordFile::of_socket(folder, folder, &socket)
+        .expect("the record file is named");
+    record_file
+        .lock()
+        .expect("the records lock")
+        .write(&LastingServiceRecord::launched(process, socket))
+        .expect("the record is written");
+    (child, record_file)
 }
 
 // Killed by any service's launch left without the person's privacy choices, the capability read's

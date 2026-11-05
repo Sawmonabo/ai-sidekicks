@@ -12,8 +12,8 @@
 pub(crate) mod personal_folder_read;
 pub(crate) mod terminal_sessions;
 
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -37,7 +37,7 @@ use crate::driver::codex::service::home::{
 use crate::driver::codex::service::record::recorded_home_keys;
 use crate::driver::codex::service::socket_link::{is_listening, point_socket_link_at_service};
 use crate::driver::codex::service::supervisor::start::kept_records::{
-    KeptServicesStop, report_kept_service_unstopped, stop_kept_services,
+    KeptServicesStop, report_kept_service_unstopped, socket_record_file, stop_kept_services,
 };
 #[cfg(any(test, feature = "test-support"))]
 use crate::driver::codex::service::supervisor::test_service::ScriptedCodexService;
@@ -518,10 +518,10 @@ impl CodexServiceRegistry {
     /// Shuts every service down for good, the replaced ones included, and answers once every one
     /// has: the daemon's own are stopped, a joined one only disconnected, under `Restart` every
     /// lasting service, the terminal service and each account home's, keeps running in its record
-    /// for the next start to join, and under `Stop` every service a record still keeps is stopped
-    /// at the same time, one a former daemon kept that this one never joined among them; every
-    /// drain's wait is called off, its service draining on by itself. Each service's stop ends by
-    /// `deadline` and reports its own failure.
+    /// for the next start to join, and under `Stop` every service a record still keeps that none
+    /// of these holds is stopped at the same time, one a former daemon kept that this one never
+    /// joined among them; every drain's wait is called off, its service draining on by itself.
+    /// Each service's stop ends by `deadline` and reports its own failure.
     pub(crate) async fn shutdown(&self, intent: DaemonStopIntent, deadline: Instant) {
         // A stop never waits on a drain: each drains on by itself, its record left marked.
         self.dependencies.drains.call_off();
@@ -546,8 +546,24 @@ impl CodexServiceRegistry {
             // Beside the live services' stops, so a kept service gets the whole deadline too.
             DaemonStopIntent::Stop => {
                 let data_folder = self.dependencies.data_folder.clone();
-                let kept_stop =
-                    stop_kept_services(data_folder, KeptServicesStop::DaemonStop { deadline });
+                // Each of these records is its service's supervisor's to stop, the one a start
+                // still under way writes on the service's socket among them; a record whose Codex
+                // folder no longer resolves cannot be named, so the kept stop takes it.
+                let live_records: HashSet<_> = services
+                    .iter()
+                    .flat_map(|service| {
+                        [
+                            service.process_record_file(),
+                            socket_record_file(service).ok(),
+                        ]
+                    })
+                    .flatten()
+                    .collect();
+                let kept_stop = stop_kept_services(
+                    data_folder,
+                    KeptServicesStop::DaemonStop { deadline },
+                    live_records,
+                );
                 let (_stopped, failures) = tokio::join!(live_stops, kept_stop);
                 for failure in failures {
                     report_kept_service_unstopped(&failure);

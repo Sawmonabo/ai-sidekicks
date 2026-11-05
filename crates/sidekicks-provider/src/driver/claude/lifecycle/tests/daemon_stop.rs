@@ -203,9 +203,18 @@ async fn stop_while_establishing() {
         None,
         "no process stops while the bring-up's slot is unsettled"
     );
+    // The bring-up's sandbox check answers from the spawner's own thread, which the paused clock
+    // never waits on, so a blocking wait alive keeps the clock off the stop's deadline until the
+    // create is answered.
+    let (end_hold, hold_ended) = std::sync::mpsc::channel::<()>();
+    let hold = tokio::task::spawn_blocking(move || hold_ended.recv());
     release_start.send(()).expect("the start is held");
-    shutdown.await.expect("the stop's task ends");
     let _create_answer = create.await.expect("the create's task ends");
+    end_hold.send(()).expect("the clock's hold waits");
+    hold.await
+        .expect("the hold finishes")
+        .expect("the hold is ended");
+    shutdown.await.expect("the stop's task ends");
     settle().await;
 
     assert!(!parts.slots().holds_slot(session_id));

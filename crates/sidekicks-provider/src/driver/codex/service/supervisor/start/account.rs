@@ -13,7 +13,7 @@ use crate::driver::codex::service::process::LastingCodexService;
 use crate::driver::codex::service::record::LastingServiceRecordFile;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::start::kept_records::{
-    lock_record, take_kept_service,
+    lock_record, socket_record_file, take_kept_service,
 };
 use crate::driver::codex::service::supervisor::start::{
     CodexServiceProcess, LaunchedLastingService, StartFailure, StartedService, compose_launch,
@@ -32,14 +32,9 @@ pub(super) async fn start_account_home_service(
     cancel: &CancellationToken,
     executable: &ResolvedProviderExecutable,
 ) -> Result<StartedService, StartFailure> {
-    let dependencies = service.dependencies();
     let socket = service.socket_path().to_owned();
-    let record_file = LastingServiceRecordFile::of_socket(
-        &dependencies.data_folder,
-        &service.home().codex_home,
-        &socket,
-    )
-    .map_err(|error| start_failed("The Codex service's record could not be named.", error))?;
+    let record_file = socket_record_file(service)
+        .map_err(|error| start_failed("The Codex service's record could not be named.", error))?;
     let locked = lock_record(record_file).await?;
     let log_file = name_lasting_log_file(service)?;
     if let Some((lasting, physical_socket)) = take_kept_service(&locked, &socket).await? {
