@@ -24,6 +24,8 @@ pub enum CaptureCall {
     Began(usize, bool),
     /// The window was closed as its command ended.
     Close(usize, CommandWindowEnd),
+    /// A command that ran with no window was recorded as run uncovered.
+    Uncovered(CommandWindowStart),
 }
 
 /// A capture whose opens settle as the test sets `opens`: held while it reads `None`, then each
@@ -78,6 +80,13 @@ impl CommandCapture for HeldCapture {
         let window = window.as_str().parse().expect("an open's ordinal");
         self.calls
             .send(CaptureCall::Close(window, end))
+            .unwrap_or_default();
+        async {}.boxed()
+    }
+
+    fn record_uncovered_command(&self, start: CommandWindowStart) -> BoxFuture<'_, ()> {
+        self.calls
+            .send(CaptureCall::Uncovered(start))
             .unwrap_or_default();
         async {}.boxed()
     }

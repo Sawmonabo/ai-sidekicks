@@ -6,6 +6,7 @@ use std::time::{Duration, SystemTime};
 use rstest::rstest;
 use sidekicks_contracts::event::envelope::{SourceEpoch, SourcePosition};
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::restore::SnapshotId;
@@ -31,7 +32,7 @@ use sidekicks_workspace::git::worktree::test_rows::{RunContextRow, insert_worktr
 use sidekicks_workspace::test_rows::insert_held_managed_mount;
 use tempfile::TempDir;
 
-use super::{COMMAND_WINDOWS_STATEMENT_CAPACITY, CommandWindows, CommandWindowsDeps};
+use super::{COMMAND_WINDOWS_STATEMENT_CAPACITY, CommandWindows, CommandWindowsDeps, bare_opening};
 use crate::checkpoints::copies::CopyStore;
 use crate::checkpoints::schema::{
     CheckpointVersionContent, CheckpointVersionLeg, CopyMode, NotKeptReason, schema_parts,
@@ -40,9 +41,8 @@ use crate::checkpoints::store::shadows::{
     Shadow, ShadowContent, ShadowId, insert_current_shadow_statement, link_window_shadow_statement,
 };
 use crate::checkpoints::store::{
-    Checkpoint, CheckpointVersion, CommandWindowId, CommandWindowOpening,
-    insert_checkpoint_statement, insert_version_statement, open_command_window_statement,
-    uncovered_commands, versions_after,
+    Checkpoint, CheckpointVersion, CommandWindowId, insert_checkpoint_statement,
+    insert_version_statement, open_command_window_statement, uncovered_commands, versions_after,
 };
 use crate::run::engine::test_fixture::insert_running_run;
 
@@ -63,28 +63,31 @@ struct Fixture {
 }
 
 impl Fixture {
-    /// A run bound to a repository whose files `files` names are committed.
+    /// A run bound to a repository whose files `files` names are committed; with none, the
+    /// repository keeps only its empty commit, since git refuses a commit with nothing to commit.
     async fn with_repository(files: &[(&str, &str)]) -> Self {
         let root = tempfile::tempdir().expect("the test makes its folder");
         let git = test_git_runner();
         let repository = make_test_repository(&git, root.path(), "repository").await;
-        for (name, text) in files {
-            std::fs::write(repository.join(name), text).expect("the test writes a file");
+        if !files.is_empty() {
+            for (name, text) in files {
+                std::fs::write(repository.join(name), text).expect("the test writes a file");
+            }
+            git_in(&git, &repository, &["add", "--all"]).await;
+            git_in(
+                &git,
+                &repository,
+                &[
+                    "-c",
+                    "commit.gpgSign=false",
+                    "commit",
+                    "--quiet",
+                    "-m",
+                    "files",
+                ],
+            )
+            .await;
         }
-        git_in(&git, &repository, &["add", "--all"]).await;
-        git_in(
-            &git,
-            &repository,
-            &[
-                "-c",
-                "commit.gpgSign=false",
-                "commit",
-                "--quiet",
-                "-m",
-                "files",
-            ],
-        )
-        .await;
         let fixture = Self::open(root, git, repository.clone()).await;
         let run_id = fixture.insert_run();
         let rows = fixture.database.reader();
@@ -637,17 +640,11 @@ async fn windows_a_stop_left_open_are_settled_uncovered_at_start() {
         .log
         .writer
         .write(vec![
-            open_command_window_statement(&CommandWindowOpening {
+            open_command_window_statement(&bare_opening(
                 window_id,
-                checkpoint_id: fixture.checkpoint_id.clone(),
-                tree_before: None,
-                head_before: None,
-                commit_before: None,
-                git_common_dir: None,
-                ignored_folders: Vec::new(),
-                command: "npm test".to_owned(),
-                tool_call_id: None,
-            }),
+                fixture.checkpoint_id.clone(),
+                fixture.start(),
+            )),
             insert_current_shadow_statement(&shadow),
             link_window_shadow_statement(window_id, shadow.shadow_id),
         ])
@@ -673,4 +670,59 @@ async fn windows_a_stop_left_open_are_settled_uncovered_at_start() {
         )
         .expect("the links count");
     assert_eq!(links, 0);
+}
+
+// Killed by no row, by the tool call dropped, by the window left open, and by a row written with no
+// checkpoint.
+#[rstest]
+#[case::under_the_checkpoint(true)]
+#[case::no_checkpoint(false)]
+#[tokio::test]
+async fn a_command_no_window_covered_is_recorded_uncovered(#[case] has_checkpoint: bool) {
+    let fixture = if has_checkpoint {
+        Fixture::with_repository(&[]).await
+    } else {
+        let root = tempfile::tempdir().expect("the test makes its folder");
+        let checkout = root.path().join("checkout");
+        Fixture::open(root, test_git_runner(), checkout).await
+    };
+    let tool_call_id = ToolCallId::new("toolu_1".to_owned()).expect("a call id");
+
+    fixture
+        .windows
+        .record_uncovered_command(CommandWindowStart {
+            tool_call_id: Some(tool_call_id.clone()),
+            ..fixture.start()
+        })
+        .await;
+    fixture.windows.stop().await;
+
+    let rows: i64 = fixture
+        .database
+        .reader()
+        .query_row("SELECT COUNT(*) FROM checkpoint_commands", [], |row| {
+            row.get(0)
+        })
+        .expect("the windows count");
+    assert_eq!(rows, i64::from(has_checkpoint));
+    let uncovered = uncovered_commands(
+        &fixture.database.reader(),
+        fixture.session_id,
+        SafeInt::ZERO,
+    )
+    .expect("the uncovered commands read");
+    let named: Vec<_> = uncovered
+        .iter()
+        .map(|command| (command.command.as_str(), command.tool_call_id.as_ref()))
+        .collect();
+    let expected = if has_checkpoint {
+        vec![("npm test", Some(&tool_call_id))]
+    } else {
+        Vec::new()
+    };
+    assert_eq!(named, expected);
+    for command in &uncovered {
+        let window = PortWindowId::new(command.window_id.text().as_str().to_owned());
+        assert_eq!(fixture.covered(&window), Some(0));
+    }
 }

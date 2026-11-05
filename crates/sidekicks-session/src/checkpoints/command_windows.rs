@@ -304,6 +304,24 @@ impl CommandCapture for CommandWindows {
         }
         async {}.boxed()
     }
+
+    /// Made by a leg whose command ran with no window: starts the record on a task the stop waits
+    /// for and answers at once. A record the stop already passed is not written.
+    fn record_uncovered_command(&self, start: CommandWindowStart) -> BoxFuture<'_, ()> {
+        let recorder = &self.recorder;
+        let _spawning = recorder.tasks.token();
+        if recorder.tasks.is_closed() {
+            tracing::warn!(
+                session_id = %start.session_id,
+                "a command that ran with no window was named past the stop, so it is not recorded"
+            );
+        } else {
+            recorder
+                .tasks
+                .spawn(Arc::clone(recorder).record_uncovered_command(start));
+        }
+        async {}.boxed()
+    }
 }
 
 impl WindowRecorder {
@@ -337,17 +355,7 @@ impl WindowRecorder {
             }
         };
         let window_id = CommandWindowId::mint();
-        let opening = CommandWindowOpening {
-            window_id,
-            checkpoint_id: checkpoint_id.clone(),
-            tree_before: None,
-            head_before: None,
-            commit_before: None,
-            git_common_dir: None,
-            ignored_folders: Vec::new(),
-            command: start.command,
-            tool_call_id: start.tool_call_id,
-        };
+        let opening = bare_opening(window_id, checkpoint_id.clone(), start);
         let input = CommandCaptureInput {
             owner_folder: session_storage_folder(&self.data_folder, &session_id),
             execution_root: checkout.execution_root.clone(),
@@ -375,18 +383,7 @@ impl WindowRecorder {
         let absent_before = match written {
             Ok(absent_before) => absent_before,
             Err(failure) => {
-                let uncovered = vec![
-                    open_command_window_statement(&opening),
-                    close_command_window_statement(&uncovered_closing(window_id, false)),
-                ];
-                if let Err(unwritten) = self.writer.write(uncovered).await {
-                    tracing::warn!(
-                        session_id = %session_id,
-                        error = &unwritten as &(dyn std::error::Error + 'static),
-                        "a command could not be recorded as run uncovered"
-                    );
-                    self.mark_failed(session_id);
-                }
+                self.write_run_uncovered(session_id, &opening).await;
                 return Err(capture_failed(failure));
             }
         };
@@ -417,6 +414,59 @@ impl WindowRecorder {
             },
         );
         Ok(window_id)
+    }
+
+    // Records `start`'s command, which ran with no window, as a window opened and closed
+    // uncovered under the session's newest checkpoint: nothing where an open would be refused, and
+    // the session marked failed where no row can name the command.
+    async fn record_uncovered_command(self: Arc<Self>, start: CommandWindowStart) {
+        let session_id = start.session_id;
+        let apart_run = start.apart_run;
+        let found = self
+            .pool
+            .read(ReadLength::Short, move |reader| {
+                read_window_place(reader, session_id, apart_run)
+            })
+            .await;
+        let checkpoint_id = match found {
+            Ok(WindowPlace::Found { checkpoint_id, .. }) => checkpoint_id,
+            Ok(WindowPlace::Refused(refusal)) => {
+                tracing::debug!(
+                    %session_id,
+                    %refusal,
+                    "a command that ran with no window has nothing to be recorded against"
+                );
+                return;
+            }
+            Err(failure) => {
+                tracing::warn!(
+                    %session_id,
+                    error = &failure as &(dyn std::error::Error + 'static),
+                    "a command that ran with no window could not be recorded as run uncovered"
+                );
+                self.mark_failed(session_id);
+                return;
+            }
+        };
+        let opening = bare_opening(CommandWindowId::mint(), checkpoint_id, start);
+        self.write_run_uncovered(session_id, &opening).await;
+    }
+
+    // Writes `opening`'s window opened and closed uncovered in one write, marking `session_id`'s
+    // capture failed where the write fails.
+    async fn write_run_uncovered(&self, session_id: SessionId, opening: &CommandWindowOpening) {
+        let uncovered = vec![
+            open_command_window_statement(opening),
+            close_command_window_statement(&uncovered_closing(opening.window_id, false)),
+        ];
+        if let Err(unwritten) = self.writer.write(uncovered).await {
+            tracing::warn!(
+                %session_id,
+                error = &unwritten as &(dyn std::error::Error + 'static),
+                "a command could not be recorded as run uncovered"
+            );
+            self.mark_failed(session_id);
+        }
     }
 
     // Writes the open of `session_id`'s window whose before-capture `capture` was taken at
@@ -617,6 +667,25 @@ fn read_window_place(
         },
         _ => WindowPlace::Refused(CommandWindowRefusal::NoCheckout),
     })
+}
+
+// The opening of `window_id` under `checkpoint_id` for `start`'s command, with no before-capture.
+fn bare_opening(
+    window_id: CommandWindowId,
+    checkpoint_id: SnapshotId,
+    start: CommandWindowStart,
+) -> CommandWindowOpening {
+    CommandWindowOpening {
+        window_id,
+        checkpoint_id,
+        tree_before: None,
+        head_before: None,
+        commit_before: None,
+        git_common_dir: None,
+        ignored_folders: Vec::new(),
+        command: start.command,
+        tool_call_id: start.tool_call_id,
+    }
 }
 
 // The store's id of the port's `window`, `None`, logged, for one no open of this service named.
