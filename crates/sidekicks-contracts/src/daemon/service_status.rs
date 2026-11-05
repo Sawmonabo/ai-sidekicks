@@ -101,8 +101,8 @@ impl DaemonStopStep {
     pub const fn phrase(self) -> &'static str {
         match self {
             Self::Gateway => "closing the connection to the app",
-            Self::CapabilityRefresh => "finishing a check of what each provider offers",
-            Self::ToolServers => "disconnecting the sidekicks' tools",
+            Self::CapabilityRefresh => "finishing a check of what the sidekicks can do",
+            Self::ToolServers => "disconnecting the MCP servers",
             Self::RunQueue => "pausing the queued messages",
             Self::RepositoryAttachments => "ending the repositories' background work",
             Self::AttentionDecisions => "finishing the notifications under way",
@@ -115,8 +115,8 @@ impl DaemonStopStep {
             Self::Scheduler => "stopping the background jobs",
             Self::FolderWatch => "stopping the watch on the repositories' folders",
             Self::SearchIndex => "closing the search index",
-            Self::Providers => "stopping the providers",
-            Self::LiveRunsDrain => "ending the sidekicks' turns still running",
+            Self::Providers => "stopping the sidekicks",
+            Self::LiveRunsDrain => "ending the turns still running",
             Self::TurnCaptures => "saving the file changes of the last turns",
             Self::GitTrees => "cleaning up after git",
             Self::WorkspaceWorkSettle => "finishing the workspace cleanup",
