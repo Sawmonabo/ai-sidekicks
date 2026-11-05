@@ -411,7 +411,8 @@ async fn a_wake_resumes_a_sleeping_session_once_with_its_kept_schedules() {
 // the copy runs under no binding of the session's; only the queue's own relaunch opens the legs of
 // the binding it hands its process. A leg opened by the compose would be retired by its drop,
 // taking the woken process's leg on the same binding with it. Killed by the compose opening the
-// legs of the binding it composes for.
+// legs of the binding it composes for. The stored resume's opening takes the set its leg stored, so
+// it waits on no first fill of the tool-server table; killed by a resume that composes its own.
 #[tokio::test]
 async fn only_a_relaunch_opens_status_legs_and_a_composed_resume_opens_none() {
     let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |_, _| {}).await;
@@ -426,6 +427,11 @@ async fn only_a_relaunch_opens_status_legs_and_a_composed_resume_opens_none() {
         .compose_resume(opening.session_id, &leg, mint_runtime_binding_id())
         .await
         .expect("the stored resume composes");
+    assert_eq!(
+        lock(&opening.stored_sets).last(),
+        Some(&Some(leg.spawn_config.tool_servers.clone())),
+        "the stored resume's opening takes its leg's set"
+    );
     let side_question = opening
         .sessions
         .side_question_source(opening.session_id)

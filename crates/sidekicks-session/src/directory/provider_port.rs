@@ -197,7 +197,7 @@ pub enum SessionGitFolder {
 }
 
 /// Where an opening's tool servers come from.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug)]
 pub enum OpeningToolServers {
     /// The person's set at the session's project root, composed once the table's first fill of
     /// the provider ended, where the provider's driver takes a set.
@@ -272,9 +272,9 @@ impl SessionDirectoryProviderPort {
     /// window its binding names, at the posture of the level it stands at, in the mode it was last
     /// moved to, with the row values set in the app for that provider, the helper policy of the
     /// person's `Helpers at once` for it, the tool servers `tool_servers` names, and each binding's
-    /// function legs over them. Fails for a session with no
-    /// lead or no workspace, as the reads, git or the settings file fail, when its project root is
-    /// no path, and as its set cannot be composed.
+    /// function legs over them. Fails for a session with no lead or no workspace, as the reads, git
+    /// or the settings file fail, when its project root is no path, and, for a composed set, as it
+    /// cannot be composed.
     pub async fn compose_opening(
         &self,
         session_id: SessionId,

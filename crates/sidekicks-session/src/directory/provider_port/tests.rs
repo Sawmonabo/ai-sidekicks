@@ -405,10 +405,10 @@ async fn a_relaunch_resolves_the_set_its_binding_stored() {
 // driver that takes a set waits on the attribution table's first fill, then sends the person's
 // `user` binding on, the project's own binding of that root off as the daemon's switch keeps it,
 // and leaves another project's binding out; a driver that takes no set gets none, with no wait.
-// Killed by an opening that sends no set, by one composed before the
-// fill, by a set that keeps every project's bindings, by a set that ignores the store's switch,
-// by a set composed for a driver that takes none, and by a resume's opening that composes a set
-// or waits on the fill in place of sending the set its leg stored.
+// Killed by an opening that sends no set, by one composed before the fill, by a set that keeps
+// every project's bindings, by a set that ignores the store's switch, by a set composed for a
+// driver that takes none, and by a resume's opening that composes a set or waits on the fill in
+// place of sending the set its leg stored.
 #[rstest]
 #[case::taking_a_set(true)]
 #[case::taking_none(false)]
@@ -496,7 +496,7 @@ async fn an_opening_sends_the_persons_servers_at_its_root(#[case] takes_tool_ser
         is_enabled: true,
     }];
     let resumed = tokio::time::timeout(
-        HELD_BOUND,
+        SETTLE_BOUND,
         port.compose_opening(
             session_id,
             test_provider_account_id(),

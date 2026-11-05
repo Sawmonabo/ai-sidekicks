@@ -622,6 +622,10 @@ async fn stop_mcp_settle(
     bound: Duration,
 ) -> Option<DaemonStopFailure> {
     let mutations = process.mcp_mutations.take()?;
+    process
+        .stop_record
+        .write_step(DaemonStopStep::McpSettle)
+        .await;
     tokio::time::timeout(bound, mutations.stop())
         .await
         .is_err()

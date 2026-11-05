@@ -92,12 +92,13 @@ enum Relaunch {
 
 impl ProviderSessions {
     /// The resume of `session_id`'s conversation from its stored `leg` under `binding_id`,
-    /// composed from the session's lead as it stands now on the account the leg ran on, with the
-    /// tool servers the leg stored, so it never waits on the tool-server table's first fill, at the
+    /// composed from the session's lead as it stands now on the account the leg ran on, at the
     /// level it stands at, in the mode it was last moved to, with the timed fires the idle sleep
     /// stored for it and its live runs as its log names them, under `binding_id`, with no function
-    /// legs. Fails as the composition, the posture or the read of the mode, the timed fires or the
-    /// live runs fails, and with
+    /// legs. Its opening takes the tool servers the leg stored, the set the resume sends, so no set
+    /// is composed afresh, nothing waits on the tool-server table's first fill, and the legs it
+    /// opens later report status for that stored set. Fails as the composition, the posture or the
+    /// read of the mode, the timed fires or the live runs fails, and with
     /// [`ProviderSessionError::NotResumable`] for a leg with no conversation.
     pub async fn compose_resume(
         &self,
