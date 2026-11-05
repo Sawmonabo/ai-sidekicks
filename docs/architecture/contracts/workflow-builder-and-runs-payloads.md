@@ -400,6 +400,7 @@ interface WorkflowNodeKindSpec {
     cancelable: boolean;
     resumable: boolean;
     sideEffects: "none" | "local" | "external";
+    repository: boolean; // true where a run of the kind needs a project's repository
   };
 }
 interface WorkflowKindListResponse {
