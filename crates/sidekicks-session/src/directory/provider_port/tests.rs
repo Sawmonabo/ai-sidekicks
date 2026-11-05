@@ -9,11 +9,16 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use rstest::rstest;
 use rusqlite::{Connection, params};
+use secrecy::SecretString;
 use serde_json::{Value, json};
 use sidekicks_contracts::machine::settings::MachineSettings;
 use sidekicks_contracts::project::ProjectId;
+use sidekicks_contracts::provider::account::record::{
+    CredentialGeneration, ProviderAccountId, ProviderAuthMode,
+};
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceState};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -21,9 +26,12 @@ use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_mcp::binding::resolver::McpAttributionTable;
 use sidekicks_mcp::status::open_test_tracker;
 use sidekicks_platforms::Spawner;
-use sidekicks_provider::driver::SessionSpawnContextResolver;
 use sidekicks_provider::driver::ports::SessionRelaunchListener;
 use sidekicks_provider::driver::session_control::DriverResumeResult;
+use sidekicks_provider::driver::{
+    AccountFoldersError, CurrentProviderAccount, ProviderAccountFolders, ProviderAccountReader,
+    SessionSpawnContextResolver,
+};
 use sidekicks_provider::left_conversations::read_left_conversations;
 use sidekicks_provider::runtime_binding::store::{
     CreateRuntimeBindingInput, mint_runtime_binding_id,
@@ -36,6 +44,7 @@ use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_run_id, test_session_id};
+use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use sidekicks_workspace::git::process::{GitLimits, GitRunner, test_git_runner};
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
 use sidekicks_workspace::project::records::{
@@ -47,6 +56,7 @@ use super::{
     GitFolderUnavailable, SESSION_DIRECTORY_PROVIDER_PORT_STATEMENT_CAPACITY,
     SessionDirectoryProviderPort, SessionDirectoryProviderPortDeps, SessionGitFolder,
 };
+use crate::console_state::auto_memory_change_statement;
 use crate::run::binding_cursors::{RUN_BINDING_CURSORS_STATEMENT_CAPACITY, RunBindingCursors};
 use crate::run::engine::test_fixture::insert_running_run;
 use crate::run::epochs::ExecutionEpochs;
@@ -74,12 +84,59 @@ impl MachineSettingsReader for Unread {
     }
 }
 
-// A port over a session whose leg runs on `conversation-1`.
+// An accounts reader answering every account's folders under one folder; a spawn context reads
+// nothing else of it.
+struct FoldersUnder(PathBuf);
+
+impl ProviderAccountReader for FoldersUnder {
+    fn resolve_account_folders(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<ProviderAccountFolders, AccountFoldersError>> {
+        let folders = ProviderAccountFolders {
+            configuration_folder: self.0.join("configuration"),
+            credential_store_folder: self.0.join("credentials"),
+        };
+        async move { Ok(folders) }.boxed()
+    }
+
+    fn current_account(
+        &self,
+        _provider_id: ProviderId,
+    ) -> BoxFuture<'_, Result<CurrentProviderAccount, Box<dyn Error + Send + Sync>>> {
+        async { Err("the test reads no current account".into()) }.boxed()
+    }
+
+    fn read_credential_generation(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn Error + Send + Sync>>> {
+        async { Err("the test reads no credential generation".into()) }.boxed()
+    }
+
+    fn read_observed_auth_mode(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn Error + Send + Sync>>> {
+        async { Err("the test reads no sign-in mode".into()) }.boxed()
+    }
+
+    fn read_sealed_token(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn Error + Send + Sync>>> {
+        async { Err("the test reads no sealed token".into()) }.boxed()
+    }
+}
+
+// A port over a session whose leg runs on `conversation-1`, its accounts port registered by the
+// test that reads an account.
 struct PortOverLeg {
     port: SessionDirectoryProviderPort,
     pool: Arc<DatabaseReadPool>,
     epochs: Arc<Mutex<ExecutionEpochs>>,
     leg_id: RuntimeBindingId,
+    provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
 }
 
 async fn port_over_a_leg(
@@ -119,6 +176,7 @@ async fn port_over_a_leg(
         .expect("the leg is recorded");
     // The session is in no project, so its relaunch's leg attributes at no root.
     let (mcp_status, _subscriber, _first_observations) = open_test_tracker().await;
+    let provider_accounts = Arc::new(PortRegistration::new("provider accounts"));
     let port = SessionDirectoryProviderPort::new(SessionDirectoryProviderPortDeps {
         pool: Arc::clone(&pool),
         read_damaged_from_sequence: Arc::new(|_: &SessionId| None),
@@ -126,7 +184,7 @@ async fn port_over_a_leg(
         git,
         settings: Arc::new(Unread),
         project_records: Arc::new(ProjectRecords::new(Arc::clone(&pool), Arc::new(Unread))),
-        provider_accounts: Arc::new(PortRegistration::new("provider accounts")),
+        provider_accounts: Arc::clone(&provider_accounts),
         mcp_status,
         mcp_attribution: Arc::new(McpAttributionTable::default()),
     });
@@ -135,6 +193,7 @@ async fn port_over_a_leg(
         pool,
         epochs,
         leg_id,
+        provider_accounts,
     }
 }
 
@@ -211,6 +270,7 @@ async fn a_relaunch_that_records_nothing_forgets_its_opened_cursor(#[case] is_an
         pool,
         epochs,
         leg_id,
+        ..
     } = port_over_a_leg(&database, session_id, test_git_runner()).await;
     let opened_id = mint_runtime_binding_id();
 
@@ -358,6 +418,62 @@ async fn a_git_folder_that_is_gone_or_not_named_is_unavailable(
     if unavailable.is_none() {
         assert!(read.is_err(), "{read:?}");
     }
+}
+
+// A spawn context carries the session's own `Auto memory` switch, unset where the person never set
+// it. Killed by the switch left off the read (every case reads unset) and by a fixed value.
+#[rstest]
+#[case::never_set(None)]
+#[case::off(Some(false))]
+#[case::on(Some(true))]
+#[tokio::test]
+async fn a_spawn_context_carries_the_sessions_memory_switch(#[case] auto_memory: Option<bool>) {
+    let database = TestDatabase::new(schema_parts());
+    let session_id = test_session_id();
+    let PortOverLeg {
+        port,
+        provider_accounts,
+        ..
+    } = port_over_a_leg(&database, session_id, test_git_runner()).await;
+    let connection = database.reader();
+    store_session_and_mount(&connection, session_id);
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let fs_root = folder.path().to_string_lossy().into_owned();
+    insert_workspace(
+        &connection,
+        session_id,
+        "live",
+        WorkspaceState::Ready,
+        Some(&fs_root),
+        &json!({}),
+        "2026-10-14T09:30:00.000Z",
+    );
+    let accounts: Arc<dyn ProviderAccountReader> =
+        Arc::new(FoldersUnder(folder.path().to_path_buf()));
+    provider_accounts
+        .register(accounts)
+        .expect("the accounts reader registers");
+    // Git refuses a removed folder, so the git folder reads as none.
+    folder.close().expect("the folder is removed");
+    if let Some(is_enabled) = auto_memory {
+        DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
+            .await
+            .expect("the writer opens")
+            .write(vec![auto_memory_change_statement(
+                &session_id,
+                is_enabled,
+                "2026-10-14T09:30:00.000Z",
+            )])
+            .await
+            .expect("the switch is written");
+    }
+
+    let context = port
+        .resolve_spawn_context(session_id, test_provider_account_id())
+        .await
+        .expect("the spawn context resolves");
+
+    assert_eq!(context.auto_memory, auto_memory);
 }
 
 // Stores `session_id`'s row and the project mount its workspaces are of.
