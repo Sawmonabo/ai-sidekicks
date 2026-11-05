@@ -42,12 +42,14 @@ use sidekicks_provider::driver::contract::params_and_results::{
     CompactContextParams, ListModelsParams, ListModesParams, ListProviderCommandsParams,
 };
 use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::pricing::store::HeldPriceList;
 use sidekicks_session::directory::lookups::session_exists;
 use sidekicks_session::run::agent::{SessionLead, read_session_lead};
 use sidekicks_session::run::live_bindings::{
     AgentBindingResolution, RunBindingResolution, resolve_agent_bindings, resolve_run_binding,
 };
 use sidekicks_session::run::refusals::RunRefusal;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -66,6 +68,8 @@ pub(crate) struct DriverMethodSources {
     pub(crate) providers: Arc<ProviderRegistry>,
     /// Where each session's log reads stop while its history is damaged.
     pub(crate) read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
+    /// The held price list, on which every model a provider lists is marked in use.
+    pub(crate) price_list: Arc<PortRegistration<Arc<HeldPriceList>>>,
 }
 
 /// Why a driver method's read of a session did not answer: a refusal the caller reads by its code,
@@ -178,7 +182,8 @@ fn declaration_text(text: &'static str) -> ProviderDeclarationText {
 // Each installed provider's catalog, the session's own provider first and read against its bound
 // account, every other one against its default account; a provider whose bare command name no
 // search found is not installed and is left out, and one whose read failed, a typed command path
-// with nothing runnable at it among them, carries its failure.
+// with nothing runnable at it among them, carries its failure. Every model listed is marked in use
+// on the held price list, so its prices are read from then on.
 async fn list_models(
     sources: &DriverMethodSources,
     session_id: SessionId,
@@ -191,8 +196,17 @@ async fn list_models(
         });
         async move { (provider.clone(), read.await) }
     });
-    let providers = join_all(reads)
-        .await
+    let reads = join_all(reads).await;
+    if let Some(price_list) = sources.price_list.port() {
+        let model_ids: Vec<&str> = reads
+            .iter()
+            .filter_map(|(_, read)| read.as_ref().ok())
+            .flatten()
+            .map(|model| model.id.as_str())
+            .collect();
+        price_list.mark_in_use(&model_ids).await;
+    }
+    let providers = reads
         .into_iter()
         .filter_map(|(provider_name, read)| {
             provider_outcome(
