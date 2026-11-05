@@ -77,7 +77,7 @@ impl CodexDriver {
                 // Drops the ending's sender, so the ending reads cut.
                 () = stop.cancelled() => {}
                 () = end_turns_holding_session(&slots, &registry, params, held) => {
-                    // The daemon no longer waits only once its stop came.
+                    // The send fails only once the pass has stopped waiting, at its stop.
                     let _unheard = ended.send(());
                 }
             }
