@@ -751,6 +751,9 @@ refusal_codes! {
     /// in the session's own repository, so nothing runs.
     WorkflowRunProjectOnProjectSession = "workflow.run.projectOnProjectSession"
         (InvalidArgument, 422);
+    /// A start, or a node run (`workflow.node.execute`), of a workflow that holds a step running in
+    /// a provider's sandbox and names no provider.
+    WorkflowRunProviderRequired = "workflow.run.providerRequired" (InvalidArgument, 422);
     /// Frozen-definition re-pin refused: a step of the run is still in flight.
     WorkflowRunRepairAttemptInFlight = "workflow.run.repairAttemptInFlight"
         (FailedPrecondition, 409);

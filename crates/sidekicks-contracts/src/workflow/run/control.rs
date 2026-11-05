@@ -45,6 +45,9 @@ ts_constants! {
     /// A start or a node run that works in no project's repository, of a version holding a Git,
     /// Read a repo diff or Run tests step. Nothing runs.
     WORKFLOW_RUN_REPOSITORY_REQUIRED_CODE = RefusalCode::WorkflowRunRepositoryRequired;
+    /// A start or a node run of a workflow that names no provider, of a version holding a step
+    /// that runs in a provider's sandbox: Run a command, or a full-tier Code step. Nothing runs.
+    WORKFLOW_RUN_PROVIDER_REQUIRED_CODE = RefusalCode::WorkflowRunProviderRequired;
     /// A start that leaves a required input of the workflow unfilled, or gives an input a value
     /// that does not fit it. Nothing runs.
     WORKFLOW_RUN_INPUT_REQUIRED_CODE = RefusalCode::WorkflowRunInputRequired;
@@ -609,6 +612,14 @@ pub struct WorkflowRunRepositoryRequiredDetails {
     pub node_ids: BoundedVec<WorkflowNodeId, 1, { usize::MAX }>,
 }
 
+/// The provider refusal's details: the steps that run in a provider's sandbox.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WorkflowRunProviderRequiredDetails {
+    /// The nodes, at least one.
+    pub node_ids: BoundedVec<WorkflowNodeId, 1, { usize::MAX }>,
+}
+
 /// The missing-input refusal's details: the inputs the start left unfilled or filled with a value
 /// that does not fit, by name.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -659,6 +670,7 @@ methods! {
                 WorkflowRunStartDenied,
                 WorkflowRunProjectOnProjectSession,
                 WorkflowRunRepositoryRequired,
+                WorkflowRunProviderRequired,
                 WorkflowRunInputRequired,
                 WorkflowCodePackagesNotLocked,
                 WorkflowRunIdempotencyConflict,
@@ -714,6 +726,7 @@ methods! {
                 ProjectNotFound,
                 WorkflowVersionNotFound,
                 WorkflowRunRepositoryRequired,
+                WorkflowRunProviderRequired,
             ],
         },
         /// Posts a finished run's results into the session that asks.
@@ -770,6 +783,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowResultsPostRequest>().checked(),
         Definition::read::<WorkflowResultsPostResponse>().checked(),
         Definition::read::<WorkflowRunRepositoryRequiredDetails>().checked(),
+        Definition::read::<WorkflowRunProviderRequiredDetails>().checked(),
         Definition::read::<WorkflowRunInputRequiredDetails>().checked(),
         Definition::read::<WorkflowCodePackagesNotLockedDetails>().checked(),
         Definition::read::<WorkflowRunStillRunningReason>(),
