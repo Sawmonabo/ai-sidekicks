@@ -52,6 +52,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::run::delivery::{RunMarker, RunSetupRefusal};
 use sidekicks_provider::run::posture::ExecutionPostureService;
+use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
 use sidekicks_provider::runtime_binding::store::read_binding;
 use sidekicks_std::mutex_lock::lock;
@@ -405,7 +406,9 @@ impl RunEngine {
     /// waits on its own run's change. A change for a run being continued waits for its continue
     /// the same way, but a terminal before its next turn started belongs to the turn that ended it
     /// and is refused at once; a resume that comes after this change has passed that check waits
-    /// for it to be written. A send's re-open of an ended run is the daemon's, never a provider's.
+    /// for it to be written. A send's re-open of an ended run is the daemon's, never a provider's,
+    /// and so is a move from `running` back to `paused`: a pause that expects no state is taken
+    /// only from `pausing`, and refused with [`RunRefusal::InvalidTransition`] from any other.
     /// A turn the provider ended any other way than interrupted expires, in the change's write,
     /// each interrupt left on the run with no outcome, which did not take, and lets go the run
     /// queue's hold of a person's. Once a turn's end is written with the change, a step limit's
@@ -414,9 +417,14 @@ impl RunEngine {
     /// owes, each failure returned beside the run as the change left it.
     pub async fn apply_provider_state_change(
         self: &Arc<Self>,
-        change: RunStateChange,
+        mut change: RunStateChange,
         turn_end: Option<ProviderTurnEnd>,
     ) -> Result<WriteWithResend<RunRead>, RunEngineError> {
+        // A provider pauses a run only by ending the pause the daemon asked for; the table's
+        // `running -> paused` row is the daemon's own move back after a failed continue.
+        if matches!(change.entry, RunStateEntry::Paused) && change.expected_state.is_none() {
+            change.expected_state = Some(RunState::Pausing);
+        }
         let run_id = change.run_id;
         let to_state = change.entry.state();
         let settling = lock(&self.live)

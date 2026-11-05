@@ -557,8 +557,8 @@ async fn inbound_fails_a_piece_of_a_run_with_no_row() {
 
 // Killed by a late `paused` or `running` report on a run a resume already set running surfaced as
 // a failure on the event path, or by any row written for it; and by the engine taking a pause
-// report that expects no state from `running` (`Next::Paused` added to `running`'s row in
-// `transitions.rs`, which kills `a_late_pause_expecting_no_state`) or refusing one from `pausing`
+// report that expects no state from `running` (the provider change's `pausing` expectation
+// dropped, which kills `a_late_pause_expecting_no_state`) or refusing one from `pausing`
 // (`Next::Paused` dropped from `pausing`'s row).
 #[rstest]
 #[case::a_late_pause(
