@@ -27,7 +27,9 @@ pub enum CheckpointVersionLeg {
     Command,
 }
 
-/// Why no copy of a path's content was kept, as the `not_kept_reason` columns hold it.
+/// Why no copy of a path's content was kept, as the `not_kept_reason` columns hold it: a file over
+/// 10 MiB no clone could hold, a path that was no regular file before the change, or a failed read
+/// or clone.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, VariantArray, IntoStaticStr)]
 #[serde(rename_all = "camelCase")]
 #[strum(serialize_all = "camelCase")]
@@ -37,17 +39,24 @@ pub enum NotKeptReason {
     /// A file over 10 MiB whose checkout is its volume's top, so no place on that volume could hold
     /// its clone.
     NoPlaceOnVolume,
+    /// The path was a symbolic link before the change.
+    SymbolicLink,
+    /// The path was a pipe, a socket, a device or a folder before the change.
+    NotARegularFile,
     /// The file's read or clone failed for another reason.
     Failed,
 }
 
 impl NotKeptReason {
-    /// The skip an undo names for a path a command changed that kept no copy for this reason;
-    /// `None` for a failed read or clone, which the undo names under its failed files instead.
+    /// The skip an undo names for a path that kept no copy for this reason: a large file no clone
+    /// held, or a path that was no regular file. `None` for a failed read or clone, which the undo
+    /// names under its failed files instead.
     pub fn skip_reason(self) -> Option<SessionRestoreSkipReason> {
         match self {
             Self::TooLarge => Some(SessionRestoreSkipReason::TooLarge),
             Self::NoPlaceOnVolume => Some(SessionRestoreSkipReason::NoPlaceOnVolume),
+            Self::SymbolicLink => Some(SessionRestoreSkipReason::SymbolicLink),
+            Self::NotARegularFile => Some(SessionRestoreSkipReason::NotARegularFile),
             Self::Failed => None,
         }
     }
@@ -69,9 +78,9 @@ pub enum CheckpointVersionContent {
     Copy {
         /// The copy's SHA-256, which names its file under the capture folder.
         hash: Sha256Hex,
-        /// The file's permission bits when copied, which an undo puts back: copies of one content
-        /// are shared, so the copy's own mode is the first copier's.
-        mode: u32,
+        /// The mode an undo puts back with the bytes: copies of one content are shared, so the
+        /// copy's own mode is the first copier's.
+        mode: CopyMode,
     },
     /// The path was absent before the change, so an undo deletes it.
     Created,
@@ -86,6 +95,17 @@ pub enum CheckpointVersionContent {
         /// The shadow whose clone holds the content.
         shadow_id: ShadowId,
     },
+}
+
+/// The mode a copy is put back with: the executable bit alone, all a command's capture tree holds,
+/// or the permission bits (`mode & 0o7777`) an edit's copy reads from the file. An undo puts either
+/// back with the bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CopyMode {
+    /// Whether the file was executable, as git keeps it.
+    Executable(bool),
+    /// The file's permission bits.
+    Permissions(u32),
 }
 
 /// The runs' list and the checkpoint tables' own part.
@@ -118,26 +138,37 @@ CREATE TABLE session_checkpoints (
 -- One row per command window: the captures before and after a command the agent ran, and
 -- whether its before-capture was taken before it ran.
 CREATE TABLE checkpoint_commands (
-  window_id      TEXT PRIMARY KEY,
-  checkpoint_id  TEXT NOT NULL REFERENCES session_checkpoints(checkpoint_id),
-  tree_before    TEXT,                          -- NULL when the before-capture failed
-  head_before    TEXT,
-  -- The captures' commits, whose trailers name the paths each left out; NULL when it failed, and
-  -- the after's until the window closes.
-  commit_before  TEXT,
-  tree_after     TEXT,                          -- NULL until it closes, or when that capture failed
-  head_after     TEXT,
-  commit_after   TEXT,
+  window_id        TEXT PRIMARY KEY,
+  checkpoint_id    TEXT NOT NULL REFERENCES session_checkpoints(checkpoint_id),
+  -- The before-capture's tree, its commit, the repository's common git folder it went into, and
+  -- a JSON array of the folders the project ignored then, each an absolute path: all four NULL
+  -- exactly when the before-capture failed.
+  tree_before      TEXT,
+  head_before      TEXT,
+  -- The captures' commits, whose trailers name the paths each left out; the after's is NULL until
+  -- the window closes, or when that capture failed.
+  commit_before    TEXT,
+  git_common_dir   TEXT,
+  ignored_folders  TEXT,
+  tree_after       TEXT,                        -- NULL until it closes, or when that capture failed
+  head_after       TEXT,
+  commit_after     TEXT,
   -- Set as it closes; false names it in the dry run's uncovered commands.
-  covered        INTEGER CHECK(covered IN (0, 1)),
-  command        TEXT NOT NULL,
-  tool_call_id   TEXT,                          -- the provider's tool call, NULL when none ran it
-  started_at     TEXT NOT NULL,
-  ended_at       TEXT,
-  CHECK((ended_at IS NULL) = (covered IS NULL))
+  covered          INTEGER CHECK(covered IN (0, 1)),
+  command          TEXT NOT NULL,
+  tool_call_id     TEXT,                        -- the provider's tool call, NULL when none ran it
+  started_at       TEXT NOT NULL,
+  ended_at         TEXT,
+  CHECK((ended_at IS NULL) = (covered IS NULL)),
+  CHECK((tree_before IS NULL) = (commit_before IS NULL)
+        AND (commit_before IS NULL) = (git_common_dir IS NULL)
+        AND (git_common_dir IS NULL) = (ignored_folders IS NULL))
 ) STRICT;
 
 CREATE INDEX idx_checkpoint_commands_checkpoint ON checkpoint_commands(checkpoint_id);
+-- The windows a stop left open, which the next start settles.
+CREATE INDEX idx_checkpoint_commands_open ON checkpoint_commands(checkpoint_id)
+  WHERE ended_at IS NULL;
 
 -- One row per shadow of a file over 10 MiB, which is never hashed: its clone, or why none was
 -- kept, and the facts a later capture compares to tell whether the file changed. A path holds one
@@ -195,14 +226,20 @@ CREATE TABLE checkpoint_versions (
   leg               TEXT NOT NULL CHECK(leg IN ({legs})),
   kind              TEXT NOT NULL CHECK(kind IN ({kinds})),
   copy_hash         TEXT,                       -- the copy's SHA-256, present exactly on a copy
-  mode              INTEGER CHECK(mode BETWEEN 0 AND 4095), -- the file's permission bits, on a copy
+  -- A copy's mode, exactly one of the two: the executable bit a command's capture tree holds, or
+  -- the permission bits an edit's copy read.
+  is_executable     INTEGER CHECK(is_executable IN (0, 1)),
+  permissions       INTEGER CHECK(permissions BETWEEN 0 AND 4095),
   not_kept_reason   TEXT CHECK(not_kept_reason IN ({not_kept_reasons})),
   parent_real_path  TEXT NOT NULL,              -- the parent folder's real path when recorded
   window_id         TEXT REFERENCES checkpoint_commands(window_id), -- NULL on an edit
   shadow_id         TEXT REFERENCES checkpoint_shadows(shadow_id), -- present exactly on a shadow
+  tool_call_id      TEXT,                       -- the provider's tool call that made an edit version
   PRIMARY KEY (checkpoint_id, sequence),
   CHECK((kind = '{copy}') = (copy_hash IS NOT NULL)),
-  CHECK((kind = '{copy}') = (mode IS NOT NULL)),
+  CHECK(CASE WHEN kind = '{copy}' THEN (is_executable IS NULL) <> (permissions IS NULL)
+             ELSE is_executable IS NULL AND permissions IS NULL END),
+  CHECK(window_id IS NULL OR tool_call_id IS NULL),
   CHECK((kind = '{not_kept}') = (not_kept_reason IS NOT NULL)),
   CHECK((kind = '{shadow}') = (shadow_id IS NOT NULL))
 ) STRICT;

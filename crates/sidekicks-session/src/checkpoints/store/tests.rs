@@ -1,13 +1,15 @@
 //! The checkpoint store's tests: the version an undo puts back per path, each kind of version as
-//! recorded, a path's one current shadow and the shadows a window stands on, a session's volume
-//! folders, and an undo's outcome saved once under its key.
+//! recorded, a window's repository and ignored folders, a path's one current shadow and the shadows
+//! a window stands on, a session's volume folders, and an undo's outcome saved once under its key.
 
 use std::time::Duration;
 
 use rusqlite::ffi;
 use sidekicks_contracts::event::envelope::{SourceEpoch, SourcePosition};
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::release_manifest::Sha256Hex;
+use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::restore::{
@@ -34,7 +36,7 @@ use super::{
     open_command_window_statement, read_restore, versions_after,
 };
 use crate::checkpoints::schema::{
-    CheckpointVersionContent, CheckpointVersionLeg, NotKeptReason, schema_parts,
+    CheckpointVersionContent, CheckpointVersionLeg, CopyMode, NotKeptReason, schema_parts,
 };
 
 /// A database on the checkpoint schema, the writer every write of the test goes through, which
@@ -118,7 +120,34 @@ fn version(path: &str, content: CheckpointVersionContent) -> CheckpointVersion {
         content,
         parent_real_path: FilesystemPath::new("/repo".to_owned()).expect("a test path"),
         window_id: None,
+        tool_call_id: None,
     }
+}
+
+/// A command window of `checkpoint_id` whose before-capture failed.
+fn uncaptured_window(
+    window_id: CommandWindowId,
+    checkpoint_id: &SnapshotId,
+) -> CommandWindowOpening {
+    CommandWindowOpening {
+        window_id,
+        checkpoint_id: checkpoint_id.clone(),
+        tree_before: None,
+        head_before: None,
+        commit_before: None,
+        git_common_dir: None,
+        ignored_folders: Vec::new(),
+        command: "make".to_owned(),
+        tool_call_id: None,
+    }
+}
+
+fn test_path(path: &str) -> FilesystemPath {
+    FilesystemPath::new(path.to_owned()).expect("a test path")
+}
+
+fn tool_call(id: &str) -> ToolCallId {
+    ToolCallId::new(id.to_owned()).expect("a test tool call id")
 }
 
 /// A current shadow of `path` in `session_id` holding `content` and `facts`.
@@ -147,11 +176,11 @@ fn failed() -> ShadowContent {
     }
 }
 
-/// A copy whose hash is `digit` repeated.
-fn copy(digit: char) -> CheckpointVersionContent {
+/// A copy whose hash is `digit` repeated, put back with `mode`.
+fn copy(digit: char, mode: CopyMode) -> CheckpointVersionContent {
     CheckpointVersionContent::Copy {
         hash: Sha256Hex::new(digit.to_string().repeat(64)).expect("a test hash"),
-        mode: 0o755,
+        mode,
     }
 }
 
@@ -167,13 +196,31 @@ fn extended_code(error: &WriteError) -> Option<i32> {
 async fn an_undo_puts_back_the_earliest_version_after_the_point() {
     let fixture = Fixture::new().await;
     fixture
-        .record(2, &[version("/repo/a.txt", copy('a'))])
+        .record(
+            2,
+            &[version(
+                "/repo/a.txt",
+                copy('a', CopyMode::Executable(false)),
+            )],
+        )
         .await;
     let second = fixture
-        .record(6, &[version("/repo/a.txt", copy('b'))])
+        .record(
+            6,
+            &[version(
+                "/repo/a.txt",
+                copy('b', CopyMode::Executable(false)),
+            )],
+        )
         .await;
     fixture
-        .record(10, &[version("/repo/a.txt", copy('c'))])
+        .record(
+            10,
+            &[version(
+                "/repo/a.txt",
+                copy('c', CopyMode::Executable(false)),
+            )],
+        )
         .await;
     let reader = fixture.database.reader();
 
@@ -183,19 +230,22 @@ async fn an_undo_puts_back_the_earliest_version_after_the_point() {
             .expect("the versions read");
         assert_eq!(versions.len(), 1, "one version per path");
         assert_eq!(versions[0].checkpoint_id, second);
-        assert_eq!(versions[0].version.content, copy('b'));
+        assert_eq!(
+            versions[0].version.content,
+            copy('b', CopyMode::Executable(false))
+        );
     }
 }
 
-// Kills: a reason or kind word mapped to another, and the shadow id or a copy's mode dropped on
-// write or read.
+// Kills: a reason or kind word mapped to another, the shadow id, either mode column or the tool
+// call dropped on write or read, and the CHECK that keeps a tool call off a command's version.
 #[tokio::test]
 async fn each_kind_of_version_comes_back_as_recorded() {
     let fixture = Fixture::new().await;
     let large = shadow(fixture.session_id, "/repo/large.bin", failed(), None);
     let not_kept = |reason| CheckpointVersionContent::NotKept { reason };
     let recorded = [
-        ("/repo/copied.txt", copy('a')),
+        ("/repo/executable.sh", copy('a', CopyMode::Executable(true))),
         ("/repo/failed.bin", not_kept(NotKeptReason::Failed)),
         (
             "/repo/large.bin",
@@ -203,28 +253,111 @@ async fn each_kind_of_version_comes_back_as_recorded() {
                 shadow_id: large.shadow_id,
             },
         ),
+        ("/repo/link", not_kept(NotKeptReason::SymbolicLink)),
         ("/repo/new.txt", CheckpointVersionContent::Created),
         (
             "/repo/no-place.bin",
             not_kept(NotKeptReason::NoPlaceOnVolume),
         ),
+        ("/repo/pipe", not_kept(NotKeptReason::NotARegularFile)),
+        ("/repo/private.txt", copy('b', CopyMode::Permissions(0o640))),
         ("/repo/too-large.bin", not_kept(NotKeptReason::TooLarge)),
     ];
-    let versions: Vec<_> = recorded
+    let mut versions: Vec<_> = recorded
         .iter()
         .map(|(path, content)| version(path, content.clone()))
         .collect();
+    // The edit whose copy failed names its tool call.
+    versions[1].tool_call_id = Some(tool_call("call-failed"));
     fixture
         .record_after(vec![insert_current_shadow_statement(&large)], 2, &versions)
         .await;
 
     let read = versions_after(&fixture.database.reader(), fixture.session_id, sequence(0))
         .expect("the versions read");
-    let contents: Vec<_> = read
-        .iter()
-        .map(|stored| (stored.version.path.as_str(), stored.version.content.clone()))
-        .collect();
-    assert_eq!(contents, recorded);
+    let read: Vec<_> = read.into_iter().map(|stored| stored.version).collect();
+    assert_eq!(read, versions);
+
+    let window_id = CommandWindowId::mint();
+    let checkpoint = fixture.checkpoint(4);
+    let command_version = CheckpointVersion {
+        leg: CheckpointVersionLeg::Command,
+        window_id: Some(window_id),
+        tool_call_id: Some(tool_call("call-command")),
+        ..version("/repo/built.txt", CheckpointVersionContent::Created)
+    };
+    let refusal = fixture
+        .writer
+        .write(vec![
+            insert_checkpoint_statement(&checkpoint),
+            open_command_window_statement(&uncaptured_window(window_id, &checkpoint.checkpoint_id)),
+            insert_version_statement(&checkpoint.checkpoint_id, &command_version),
+        ])
+        .await
+        .expect_err("a command's version naming a tool call is refused");
+    assert_eq!(refusal.failed_statement().map(|(index, _)| index), Some(2));
+    assert_eq!(extended_code(&refusal), Some(ffi::SQLITE_CONSTRAINT_CHECK));
+}
+
+// Kills: the CHECK that ties the repository and the ignored folders to the before-capture dropped,
+// and the folders not bound or bound as anything but their JSON array.
+#[tokio::test]
+async fn a_window_names_its_repository_exactly_when_its_before_capture_was_taken() {
+    let fixture = Fixture::new().await;
+    let checkpoint = fixture.checkpoint(2);
+    let object = |digit: &str| GitObjectId::new(digit.repeat(40)).expect("a test object id");
+    let captured_id = CommandWindowId::mint();
+    let uncaptured_id = CommandWindowId::mint();
+    let captured = CommandWindowOpening {
+        tree_before: Some(object("a")),
+        commit_before: Some(object("b")),
+        git_common_dir: Some(test_path("/repo/.git")),
+        ignored_folders: vec![test_path("/repo/node_modules"), test_path("/repo/target")],
+        ..uncaptured_window(captured_id, &checkpoint.checkpoint_id)
+    };
+    fixture
+        .writer
+        .write(vec![
+            insert_checkpoint_statement(&checkpoint),
+            open_command_window_statement(&captured),
+            open_command_window_statement(&uncaptured_window(
+                uncaptured_id,
+                &checkpoint.checkpoint_id,
+            )),
+        ])
+        .await
+        .expect("both windows are written");
+
+    let reader = fixture.database.reader();
+    let read = |window_id: CommandWindowId| -> (Option<String>, Option<String>) {
+        reader
+            .query_row(
+                "SELECT git_common_dir, ignored_folders FROM checkpoint_commands
+                  WHERE window_id = ?1",
+                [window_id.text().as_str()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("the window reads")
+    };
+    assert_eq!(
+        read(captured_id),
+        (
+            Some("/repo/.git".to_owned()),
+            Some(r#"["/repo/node_modules","/repo/target"]"#.to_owned())
+        )
+    );
+    assert_eq!(read(uncaptured_id), (None, None));
+
+    let half = CommandWindowOpening {
+        git_common_dir: Some(test_path("/repo/.git")),
+        ..uncaptured_window(CommandWindowId::mint(), &checkpoint.checkpoint_id)
+    };
+    let refusal = fixture
+        .writer
+        .write(vec![open_command_window_statement(&half)])
+        .await
+        .expect_err("a repository without the before-capture's tree is refused");
+    assert_eq!(extended_code(&refusal), Some(ffi::SQLITE_CONSTRAINT_CHECK));
 }
 
 // Kills: the partial unique index dropped, the retire matching another session, facts that are
@@ -261,13 +394,8 @@ async fn a_path_keeps_one_current_shadow_and_an_open_window_the_one_it_linked() 
         .write(vec![
             insert_checkpoint_statement(&checkpoint),
             open_command_window_statement(&CommandWindowOpening {
-                window_id,
-                checkpoint_id: checkpoint.checkpoint_id.clone(),
-                tree_before: None,
-                head_before: None,
-                commit_before: None,
                 command: "make large.bin".to_owned(),
-                tool_call_id: None,
+                ..uncaptured_window(window_id, &checkpoint.checkpoint_id)
             }),
             insert_current_shadow_statement(&first),
             insert_current_shadow_statement(&others),

@@ -213,7 +213,7 @@ pub fn link_window_shadow_statement(
     WriteStatement {
         sql: Cow::Borrowed(LINK_WINDOW_SHADOW_SQL),
         bindings: StatementBindings::Named(vec![
-            text_binding("@windowId", window_id.0.text().as_str()),
+            text_binding("@windowId", window_id.text().as_str()),
             text_binding("@shadowId", shadow_id.text().as_str()),
         ]),
         expected_row_count: Some(1),
@@ -227,7 +227,7 @@ pub fn unlink_window_shadows_statement(window_id: CommandWindowId) -> WriteState
         sql: Cow::Borrowed(UNLINK_WINDOW_SHADOWS_SQL),
         bindings: StatementBindings::Named(vec![text_binding(
             "@windowId",
-            window_id.0.text().as_str(),
+            window_id.text().as_str(),
         )]),
         expected_row_count: None,
     }
@@ -275,7 +275,7 @@ pub fn window_shadows(
     connection
         .prepare_cached(WINDOW_SHADOWS_SQL)?
         .query_map(
-            named_params! { "@windowId": window_id.0.text().as_str() },
+            named_params! { "@windowId": window_id.text().as_str() },
             shadow_of,
         )?
         .collect()

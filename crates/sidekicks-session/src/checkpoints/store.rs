@@ -42,7 +42,7 @@ use sidekicks_store::database::stored_column::{
 };
 
 use crate::checkpoints::schema::{
-    CheckpointVersionContent, CheckpointVersionKind, CheckpointVersionLeg,
+    CheckpointVersionContent, CheckpointVersionKind, CheckpointVersionLeg, CopyMode,
 };
 use crate::checkpoints::store::shadows::ShadowId;
 use crate::run::superseded::{
@@ -62,21 +62,21 @@ static INSERT_CHECKPOINT_SQL: LazyLock<String> = LazyLock::new(|| {
 
 // The version takes the checkpoint's next sequence, so the order recorded is the order kept.
 const INSERT_VERSION_SQL: &str = "INSERT INTO checkpoint_versions
-  (checkpoint_id, sequence, path, leg, kind, copy_hash, mode, not_kept_reason, parent_real_path,
-   window_id, shadow_id)
+  (checkpoint_id, sequence, path, leg, kind, copy_hash, is_executable, permissions,
+   not_kept_reason, parent_real_path, window_id, shadow_id, tool_call_id)
   VALUES (@checkpointId,
           (SELECT COALESCE(MAX(sequence) + 1, 0) FROM checkpoint_versions
             WHERE checkpoint_id = @checkpointId),
-          @path, @leg, @kind, @copyHash, @mode, @notKeptReason, @parentRealPath, @windowId,
-          @shadowId)";
+          @path, @leg, @kind, @copyHash, @isExecutable, @permissions, @notKeptReason,
+          @parentRealPath, @windowId, @shadowId, @toolCallId)";
 
 static OPEN_WINDOW_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO checkpoint_commands
-  (window_id, checkpoint_id, tree_before, head_before, commit_before, command, tool_call_id,
-   started_at)
-  VALUES (@windowId, @checkpointId, @treeBefore, @headBefore, @commitBefore, @command, @toolCallId,
-          {DATABASE_NOW_SQL})"
+  (window_id, checkpoint_id, tree_before, head_before, commit_before, git_common_dir,
+   ignored_folders, command, tool_call_id, started_at)
+  VALUES (@windowId, @checkpointId, @treeBefore, @headBefore, @commitBefore, @gitCommonDir,
+          @ignoredFolders, @command, @toolCallId, {DATABASE_NOW_SQL})"
     )
 });
 
@@ -122,7 +122,8 @@ const CHECKPOINTS_OF_SESSION_SQL: &str =
 // Per path, the earliest version of the checkpoints at or past the point: the earliest checkpoint,
 // then the earliest sequence in it. Every kind is kept, so a path with no copy is still named.
 const VERSIONS_AFTER_SQL: &str = "SELECT checkpoint_id, sequence, path, leg, kind, copy_hash,
-       not_kept_reason, parent_real_path, window_id, shadow_id, mode
+       not_kept_reason, parent_real_path, window_id, shadow_id, is_executable, permissions,
+       tool_call_id
   FROM (SELECT versions.*,
                ROW_NUMBER() OVER (PARTITION BY versions.path
                                   ORDER BY checkpoints.message_sequence, versions.sequence)
@@ -155,6 +156,16 @@ impl CommandWindowId {
     /// A fresh window id.
     pub fn mint() -> Self {
         Self(UuidTextForm::from(mint_uuid_v7()))
+    }
+
+    /// Its lowercase UUID text, as the rows keep it.
+    pub fn text(&self) -> UuidText {
+        self.0.text()
+    }
+
+    /// Reads a stored window id back; refuses anything but the UUID text form.
+    pub fn parse(text: &str) -> Result<Self, IdError> {
+        UuidTextForm::new(text).map(Self)
     }
 }
 
@@ -195,6 +206,9 @@ pub struct CheckpointVersion {
     pub parent_real_path: FilesystemPath,
     /// The command window it fell in, `None` on an edit.
     pub window_id: Option<CommandWindowId>,
+    /// The provider's tool call that made an edit version, `None` on a command's, whose window
+    /// names its tool call; SQLite refuses one beside a window.
+    pub tool_call_id: Option<ToolCallId>,
 }
 
 /// A version as its row holds it, with the checkpoint it belongs to and its order there.
@@ -221,6 +235,11 @@ pub struct CommandWindowOpening {
     pub head_before: Option<GitObjectId>,
     /// The before-capture's commit, `None` when it failed.
     pub commit_before: Option<GitObjectId>,
+    /// The repository's common git folder the before-capture went into, `None` when it failed.
+    pub git_common_dir: Option<FilesystemPath>,
+    /// The folders the project ignored at the before-capture, each an absolute path; kept only
+    /// when the before-capture's tree is.
+    pub ignored_folders: Vec<FilesystemPath>,
     /// The command's text.
     pub command: String,
     /// The provider's tool call that ran it, `None` when no tool call did.
@@ -309,7 +328,8 @@ pub fn insert_checkpoint_statement(checkpoint: &Checkpoint) -> WriteStatement {
 }
 
 /// The row of `version`, recorded in `checkpoint_id` after every version it already holds.
-/// Refused by SQLite when the checkpoint, the window or the shadow has no row.
+/// Refused by SQLite when the checkpoint, the window or the shadow has no row, or when a version
+/// names both a window and a tool call.
 pub fn insert_version_statement(
     checkpoint_id: &SnapshotId,
     version: &CheckpointVersion,
@@ -323,7 +343,12 @@ pub fn insert_version_statement(
         CheckpointVersionContent::Shadow { shadow_id } => (None, None, Some(shadow_id.text())),
     };
     let kind = CheckpointVersionKind::from(&version.content);
-    let window_id = version.window_id.map(|window_id| window_id.0.text());
+    let window_id = version.window_id.as_ref().map(CommandWindowId::text);
+    let (is_executable, permissions) = match copy.map(|(_, mode)| mode) {
+        Some(CopyMode::Executable(is_executable)) => (Some(i64::from(is_executable)), None),
+        Some(CopyMode::Permissions(permissions)) => (None, Some(i64::from(permissions))),
+        None => (None, None),
+    };
     WriteStatement {
         sql: Cow::Borrowed(INSERT_VERSION_SQL),
         bindings: StatementBindings::Named(vec![
@@ -333,27 +358,35 @@ pub fn insert_version_statement(
             text_binding("@kind", kind.into()),
             nullable_text_binding("@copyHash", copy.map(|(hash, _)| hash)),
             (
-                Cow::Borrowed("@mode"),
-                copy.map_or(SqlValue::Null, |(_, mode)| {
-                    SqlValue::Integer(i64::from(mode))
-                }),
+                Cow::Borrowed("@isExecutable"),
+                SqlValue::from(is_executable),
             ),
+            (Cow::Borrowed("@permissions"), SqlValue::from(permissions)),
             nullable_text_binding("@notKeptReason", not_kept_reason),
             text_binding("@parentRealPath", version.parent_real_path.as_str()),
             nullable_text_binding("@windowId", window_id.as_ref().map(UuidText::as_str)),
             nullable_text_binding("@shadowId", shadow_id.as_ref().map(UuidText::as_str)),
+            nullable_text_binding(
+                "@toolCallId",
+                version.tool_call_id.as_ref().map(ToolCallId::as_str),
+            ),
         ]),
         expected_row_count: Some(1),
     }
 }
 
-/// The open of a command window, before its command runs. Refused by SQLite when the window is
-/// already kept or its checkpoint has no row.
+/// The open of a command window, before its command runs, its ignored folders kept as a JSON array
+/// beside the before-capture's tree. Refused by SQLite when the window is already kept, its
+/// checkpoint has no row, or the before-capture's tree, commit and common git folder are not all
+/// present or all absent.
 pub fn open_command_window_statement(opening: &CommandWindowOpening) -> WriteStatement {
+    let ignored_folders = opening.tree_before.is_some().then(|| {
+        serde_json::to_string(&opening.ignored_folders).expect("a list of paths writes as JSON")
+    });
     WriteStatement {
         sql: Cow::Borrowed(OPEN_WINDOW_SQL.as_str()),
         bindings: StatementBindings::Named(vec![
-            text_binding("@windowId", opening.window_id.0.text().as_str()),
+            text_binding("@windowId", opening.window_id.text().as_str()),
             text_binding("@checkpointId", opening.checkpoint_id.as_str()),
             nullable_text_binding(
                 "@treeBefore",
@@ -367,6 +400,11 @@ pub fn open_command_window_statement(opening: &CommandWindowOpening) -> WriteSta
                 "@commitBefore",
                 opening.commit_before.as_ref().map(GitObjectId::as_str),
             ),
+            nullable_text_binding(
+                "@gitCommonDir",
+                opening.git_common_dir.as_ref().map(FilesystemPath::as_str),
+            ),
+            nullable_text_binding("@ignoredFolders", ignored_folders.as_deref()),
             text_binding("@command", &opening.command),
             nullable_text_binding(
                 "@toolCallId",
@@ -383,7 +421,7 @@ pub fn close_command_window_statement(closing: &CommandWindowClosing) -> WriteSt
     WriteStatement {
         sql: Cow::Borrowed(CLOSE_WINDOW_SQL.as_str()),
         bindings: StatementBindings::Named(vec![
-            text_binding("@windowId", closing.window_id.0.text().as_str()),
+            text_binding("@windowId", closing.window_id.text().as_str()),
             nullable_text_binding(
                 "@treeAfter",
                 closing.tree_after.as_ref().map(GitObjectId::as_str),
@@ -565,7 +603,7 @@ pub fn uncovered_commands(
             },
             |row| {
                 Ok(UncoveredCommand {
-                    window_id: text_column(row, 0, |text| window_id(&text))?,
+                    window_id: text_column(row, 0, |text| CommandWindowId::parse(&text))?,
                     command: row.get(1)?,
                     tool_call_id: optional_text_column(row, 2, ToolCallId::new)?,
                     started_at: text_column(row, 3, WireInstant::try_from)?,
@@ -598,10 +636,6 @@ fn integer_binding(name: &'static str, value: SafeInt<0>) -> (Cow<'static, str>,
     (Cow::Borrowed(name), SqlValue::Integer(i64::from(value)))
 }
 
-fn window_id(text: &str) -> Result<CommandWindowId, IdError> {
-    UuidTextForm::new(text).map(CommandWindowId)
-}
-
 fn snapshot_id(text: String) -> Result<SnapshotId, StoredCheckpointMemberInvalid> {
     SnapshotId::new(text).ok_or(StoredCheckpointMemberInvalid("checkpoint id"))
 }
@@ -630,7 +664,10 @@ fn stored_version_of(row: &Row<'_>) -> rusqlite::Result<StoredCheckpointVersion>
             hash: text_column(row, 5, |text| {
                 Sha256Hex::new(text).ok_or(StoredCheckpointMemberInvalid("copy hash"))
             })?,
-            mode: row.get(10)?,
+            mode: match row.get::<_, Option<bool>>(10)? {
+                Some(is_executable) => CopyMode::Executable(is_executable),
+                None => CopyMode::Permissions(row.get(11)?),
+            },
         },
         CheckpointVersionKind::Created => CheckpointVersionContent::Created,
         CheckpointVersionKind::NotKept => CheckpointVersionContent::NotKept {
@@ -648,7 +685,8 @@ fn stored_version_of(row: &Row<'_>) -> rusqlite::Result<StoredCheckpointVersion>
             leg: text_column(row, 3, closed_word)?,
             content,
             parent_real_path: text_column(row, 7, FilesystemPath::new)?,
-            window_id: optional_text_column(row, 8, |text| window_id(&text))?,
+            window_id: optional_text_column(row, 8, |text| CommandWindowId::parse(&text))?,
+            tool_call_id: optional_text_column(row, 12, ToolCallId::new)?,
         },
     })
 }
