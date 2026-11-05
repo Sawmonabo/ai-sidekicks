@@ -1,7 +1,7 @@
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use rstest::rstest;
 use sidekicks_contracts::event::envelope::{SourceEpoch, SourcePosition};
@@ -260,10 +260,15 @@ fn write_large(path: &Path, byte: u8) {
     std::fs::write(path, vec![byte; LARGE_FILE_BYTES]).expect("the test writes a large file");
 }
 
-// Waits past a coarse file system's time precision, so a shadow taken now does not read a file
-// written just before as racy.
-async fn let_times_settle() {
-    tokio::time::sleep(Duration::from_millis(1_100)).await;
+// Sets `path`'s modified time two seconds back, so a shadow taken now does not read the file the
+// test just wrote as racy.
+fn backdate(path: &Path) {
+    std::fs::File::options()
+        .write(true)
+        .open(path)
+        .expect("the file opens")
+        .set_modified(SystemTime::now() - Duration::from_secs(2))
+        .expect("the file's modified time is set");
 }
 
 // Killed by copying the after bytes, by recording under another checkpoint, by leaving `covered`
@@ -464,9 +469,10 @@ async fn a_window_closes_uncovered_when_it_could_not_capture(#[case] case: Uncap
 #[tokio::test]
 async fn a_large_file_a_command_changes_keeps_its_shadow_and_takes_a_fresh_one() {
     let fixture = Fixture::with_repository(&[]).await;
-    write_large(&fixture.checkout.join("big.bin"), b'a');
-    write_large(&fixture.checkout.join("still.bin"), b's');
-    let_times_settle().await;
+    for (name, byte) in [("big.bin", b'a'), ("still.bin", b's')] {
+        write_large(&fixture.checkout.join(name), byte);
+        backdate(&fixture.checkout.join(name));
+    }
     let window = fixture.open_window().await;
     let first = fixture.shadows_of("big.bin");
     assert_eq!(first.len(), 1, "the open shadows the large file: {first:?}");
@@ -580,7 +586,7 @@ async fn a_chats_command_is_captured_in_its_managed_workspace() {
 async fn two_windows_of_one_session_share_its_large_files() {
     let fixture = Fixture::with_repository(&[]).await;
     write_large(&fixture.checkout.join("big.bin"), b'a');
-    let_times_settle().await;
+    backdate(&fixture.checkout.join("big.bin"));
     let (first, second) = tokio::join!(
         fixture.windows.open_window(fixture.start()),
         fixture.windows.open_window(fixture.start())
