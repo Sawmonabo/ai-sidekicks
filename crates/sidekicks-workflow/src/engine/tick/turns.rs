@@ -32,10 +32,12 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::task::{JoinError, JoinSet};
 
+use super::branch_cancellation::{BranchCancelReason, BranchLoser, cancel_branches};
 use super::commit::{ReportedStep, RunTurnCommit, RunTurnCommitFailure};
 use super::dispatch::{StepDispatch, fill_step_failure};
 use super::live_runs::{LiveRun, LiveStep};
 use super::node_settings::main_inputs;
+use super::step_failure::{RunSibling, SiblingState};
 use super::walk::{WalkReady, WalkTurn};
 use super::{ReadyStep, RunSnapshot, StepReport, StepReportKind, StepSettlement};
 use crate::engine::event_record::{EngineFault, EngineRecorder};
@@ -138,6 +140,8 @@ enum ReadiedNext {
     Retry(Duration),
     /// Its input could not be stored, so it fails at once with these reports.
     Fail(Vec<StepReport>),
+    /// It was canceled in this turn without running, and keeps no live step.
+    Canceled,
 }
 
 /// Why the workflows' levels could not be read.
@@ -409,6 +413,7 @@ impl EngineTick {
                             });
                         }
                         ReadiedNext::Fail(reports) => live.next_batch.extend(reports),
+                        ReadiedNext::Canceled => continue,
                     }
                     live.steps.insert(
                         ready.step.execution_index.get(),
@@ -541,7 +546,12 @@ impl EngineTick {
         walked: WalkTurn,
         (readying_event, at): (usize, WireInstant),
     ) {
-        let WalkTurn { ready, skipped, .. } = walked;
+        let WalkTurn {
+            ready,
+            skipped,
+            wins,
+            canceled,
+        } = walked;
         let mut skip_events: Vec<(u64, usize)> = Vec::with_capacity(skipped.len());
         for skip in &skipped {
             let (input_ref, output_ref) = match skip.reason {
@@ -568,7 +578,13 @@ impl EngineTick {
             skip_events.push((skip.step.execution_index.get(), index));
             turn.last_readying_event = Some((index, at.clone()));
         }
-        for ready in ready {
+        // A stopped run starts nothing new; the walk left the steps it canceled itself.
+        let is_stopped = live.stop.is_some();
+        let readied = ready
+            .into_iter()
+            .map(|ready| (ready, is_stopped, is_stopped))
+            .chain(canceled.into_iter().map(|ready| (ready, true, false)));
+        for (ready, is_canceled, is_walk_live) in readied {
             let event = ready
                 .sources
                 .iter()
@@ -584,8 +600,15 @@ impl EngineTick {
             let inputs = live
                 .walk
                 .ready_inputs(&ready.step, &ready.sources, &live.outputs);
-            let (input_ref, next) = match self.store_input(live, &ready.step, &inputs).await {
+            let stored = self.store_input(live, &ready.step, &inputs).await;
+            let (input_ref, next) = match stored {
+                Ok(input_ref) if is_canceled => (input_ref, ReadiedNext::Canceled),
                 Ok(input_ref) => (input_ref, ReadiedNext::Dispatch),
+                // As a skip's, a canceled step's input that cannot be stored is left empty.
+                Err(_) if is_canceled => (
+                    WorkflowPayloadRef::Inline { items: Vec::new() },
+                    ReadiedNext::Canceled,
+                ),
                 Err(message) => {
                     let failure = step_failure(live, &ready.step, StepFailure::Failed, message);
                     (
@@ -595,12 +618,49 @@ impl EngineTick {
                 }
             };
             turn.commit.readied(&ready, input_ref.clone(), event);
+            if is_canceled {
+                turn.commit.canceled_unrun(&ready.step, &at);
+                if is_walk_live {
+                    live.walk.drop_step(&ready.step);
+                }
+            }
             turn.readied.push(TurnReadied {
                 ready,
                 inputs,
                 input_ref,
                 next,
             });
+        }
+        // A stopped run's own wave already holds every running step, so its wins are not
+        // followed.
+        if is_stopped {
+            return;
+        }
+        for win in wins {
+            let losers = reports::sort_losers(live, turn, win.losers, &at).await;
+            let mut branch_losers = Vec::with_capacity(losers.len());
+            for RunSibling { step, state } in losers {
+                match state {
+                    SiblingState::Running(cancel) => branch_losers.push(BranchLoser {
+                        step,
+                        is_running: true,
+                        cancel,
+                    }),
+                    SiblingState::Held(cancel) => branch_losers.push(BranchLoser {
+                        step,
+                        is_running: false,
+                        cancel,
+                    }),
+                    SiblingState::Waiting => reports::cancel_now(live, turn, step, &at).await,
+                }
+            }
+            let (cancelings, wave) = cancel_branches(
+                win.deciding,
+                BranchCancelReason::FirstToArrive,
+                branch_losers,
+            );
+            turn.follow_ups.extend(cancelings);
+            live.waves.extend(wave);
         }
     }
 

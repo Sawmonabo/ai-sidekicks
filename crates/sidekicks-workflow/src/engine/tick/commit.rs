@@ -428,6 +428,18 @@ impl RunTurnCommit {
         Ok(None)
     }
 
+    /// Cancels `step`, readied in this turn and never run, at `at`: its row and
+    /// `workflow.step.canceled` with nothing readied, its count moved from `pending`.
+    pub(crate) fn canceled_unrun(&mut self, step: &WorkflowStepKey, at: &WireInstant) {
+        self.cancel(
+            step.clone(),
+            at,
+            0,
+            false,
+            (WorkflowStepStatus::Pending, None),
+        );
+    }
+
     /// Writes `workflow.parallelJoin.branchesCanceled` on `step` at `at`, whose turn canceled
     /// `count` of its run's running branches for `reason`, and records the decision. The step
     /// need not be live: the deciding step may have settled before its wave did.

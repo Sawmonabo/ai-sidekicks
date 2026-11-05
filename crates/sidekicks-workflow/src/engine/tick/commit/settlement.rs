@@ -167,40 +167,57 @@ impl RunTurnCommit {
             } => {
                 let pool_wait_ms =
                     held_milliseconds(hold_started_at.as_ref(), reported.last_hold_report_at, at);
-                self.statements.push(cancel_step(&step, at, pool_wait_ms));
-                let session_id = self.keys.session_id;
-                if is_sibling_failure {
-                    self.push(
-                        at,
-                        SessionEvent::WorkflowPhaseFailed(step_payload!(
-                            WorkflowPhaseFailedPayload,
-                            session_id,
-                            step,
-                            cancellation_reason: Some(
-                                WorkflowPhaseCancellationReason::SiblingFailure
-                            ),
-                        )),
-                    );
-                }
-                self.push(
+                let readying_event = self.cancel(
+                    step,
                     at,
-                    SessionEvent::WorkflowStepCanceled(step_payload!(
-                        WorkflowStepCanceledPayload,
-                        session_id,
-                        step,
-                        readied: Vec::new(),
-                    )),
+                    pool_wait_ms,
+                    is_sibling_failure,
+                    reported.standing(),
                 );
-                let readying_event = self.events.len() - 1;
-                self.counts.moved(
-                    Some(reported.standing()),
-                    (WorkflowStepStatus::Canceled, None),
-                );
-                self.moves
-                    .push((step, StepMove::Settled(StepEnding::Canceled)));
                 Ok(SettlementAnswer::Canceled { readying_event })
             }
         }
+    }
+
+    /// Writes the cancel of `step`, standing as `standing` before it, at `at` with `pool_wait_ms`
+    /// added to its pool wait: its row, `workflow.phase.failed` `siblingFailure` where a sibling's
+    /// failure canceled it, then `workflow.step.canceled`, whose index it answers.
+    pub(super) fn cancel(
+        &mut self,
+        step: WorkflowStepKey,
+        at: &WireInstant,
+        pool_wait_ms: u64,
+        is_sibling_failure: bool,
+        standing: (WorkflowStepStatus, Option<WorkflowWaitCause>),
+    ) -> usize {
+        self.statements.push(cancel_step(&step, at, pool_wait_ms));
+        let session_id = self.keys.session_id;
+        if is_sibling_failure {
+            self.push(
+                at,
+                SessionEvent::WorkflowPhaseFailed(step_payload!(
+                    WorkflowPhaseFailedPayload,
+                    session_id,
+                    step,
+                    cancellation_reason: Some(WorkflowPhaseCancellationReason::SiblingFailure),
+                )),
+            );
+        }
+        self.push(
+            at,
+            SessionEvent::WorkflowStepCanceled(step_payload!(
+                WorkflowStepCanceledPayload,
+                session_id,
+                step,
+                readied: Vec::new(),
+            )),
+        );
+        let readying_event = self.events.len() - 1;
+        self.counts
+            .moved(Some(standing), (WorkflowStepStatus::Canceled, None));
+        self.moves
+            .push((step, StepMove::Settled(StepEnding::Canceled)));
+        readying_event
     }
 
     /// Stores a completed step's outputs, log and cost, and each run variable it keeps for later

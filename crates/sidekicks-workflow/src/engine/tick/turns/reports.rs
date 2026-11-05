@@ -15,7 +15,10 @@ use crate::engine::event_record::EngineFault;
 use crate::engine::ports::AgentStepRun;
 use crate::engine::tick::branch_cancellation::WaveSettle;
 use crate::engine::tick::commit::{RunTurnCommit, SettlementAnswer, SettlementWriteFailure};
-use crate::engine::tick::live_runs::LiveRun;
+use crate::engine::tick::live_runs::{LiveRun, LiveStep};
+use crate::engine::tick::step_failure::{
+    RunSibling, RunStop, SiblingState, SiblingStop, stop_siblings,
+};
 use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
 use crate::kinds::StepFailure;
 
@@ -146,9 +149,10 @@ impl EngineTick {
     }
 
     /// Follows the settlement of `step` at `at`: a completion or a pass-on settles the walk and
-    /// records the outputs, a retry readies the next attempt, a cancel drops the step. What
-    /// follows a park, an end, a person wait or a spent account is the run's wave or wait, which
-    /// keeps the step live, failed or waiting.
+    /// records the outputs; a retry readies the next attempt, canceled unrun in a stopped run; a
+    /// cancel drops the step. A park or an end keeps the step live and failed and stops the run's
+    /// other steps; a person wait or a spent account keeps it waiting, a spent account's agent run
+    /// kept on it.
     async fn follow_settlement(
         &self,
         live: &mut LiveRun,
@@ -184,16 +188,21 @@ impl EngineTick {
                     .remove(&step.execution_index.get())
                     .expect("a retried step is live");
                 turn.commit.retried(&next, failed.input_ref.clone());
+                // A stopped run starts nothing new; with no wait, the attempt goes out this turn.
+                let follows = if live.stop.is_some() {
+                    turn.commit.canceled_unrun(&next.step, &at);
+                    live.walk.drop_step(&next.step);
+                    ReadiedNext::Canceled
+                } else if wait.is_zero() {
+                    ReadiedNext::Dispatch
+                } else {
+                    ReadiedNext::Retry(wait)
+                };
                 turn.readied.push(TurnReadied {
                     ready: next,
                     inputs: failed.inputs,
                     input_ref: failed.input_ref,
-                    // With no wait, the attempt goes out this turn.
-                    next: if wait.is_zero() {
-                        ReadiedNext::Dispatch
-                    } else {
-                        ReadiedNext::Retry(wait)
-                    },
+                    next: follows,
                 });
             }
             SettlementAnswer::Canceled { readying_event } => {
@@ -201,9 +210,8 @@ impl EngineTick {
                 live.steps.remove(&step.execution_index.get());
                 turn.last_readying_event = Some((readying_event, at));
             }
-            SettlementAnswer::Park | SettlementAnswer::End => {
-                live.move_step(step.execution_index.get(), WorkflowStepStatus::Failed, None);
-            }
+            SettlementAnswer::Park => self.stop_run(live, turn, step, &at, RunStop::Park).await,
+            SettlementAnswer::End => self.stop_run(live, turn, step, &at, RunStop::End).await,
             SettlementAnswer::PersonWait { opened, .. } => {
                 live.move_step(
                     step.execution_index.get(),
@@ -211,16 +219,146 @@ impl EngineTick {
                     Some(opened.cause),
                 );
             }
-            SettlementAnswer::AccountSpent { .. } => {
+            SettlementAnswer::AccountSpent { run } => {
+                let execution_index = step.execution_index.get();
                 let account = Some(WorkflowWaitCause::Account);
-                live.move_step(
-                    step.execution_index.get(),
-                    WorkflowStepStatus::Waiting,
-                    account,
-                );
+                live.move_step(execution_index, WorkflowStepStatus::Waiting, account);
+                live.steps
+                    .get_mut(&execution_index)
+                    .expect("a step the turn moved is live")
+                    .parked_agent_run = Some(run);
             }
         }
     }
+
+    /// Fails `step` of `live`, whose failure stops its run as `stop` at `at`, an end replacing a
+    /// park: every other live step and every step this turn readied stops as its sibling, the
+    /// running ones winding down as one wave and an end's waits canceled now.
+    async fn stop_run(
+        &self,
+        live: &mut LiveRun,
+        turn: &mut RunTurn,
+        step: &WorkflowStepKey,
+        at: &WireInstant,
+        stop: RunStop,
+    ) {
+        live.move_step(step.execution_index.get(), WorkflowStepStatus::Failed, None);
+        let stop = if live.stop == Some(RunStop::End) {
+            RunStop::End
+        } else {
+            stop
+        };
+        live.stop = Some(stop);
+        let mut others: Vec<&LiveStep> = live
+            .steps
+            .values()
+            .filter(|live_step| live_step.step != *step)
+            .collect();
+        others.sort_by_key(|live_step| live_step.step.execution_index.get());
+        let others: Vec<WorkflowStepKey> = others
+            .into_iter()
+            .map(|live_step| live_step.step.clone())
+            .chain(
+                turn.readied
+                    .iter()
+                    .map(|readied| readied.ready.step.clone()),
+            )
+            .collect();
+        let siblings = sort_losers(live, turn, others, at).await;
+        let SiblingStop {
+            reports,
+            wave,
+            canceled_waits,
+        } = stop_siblings(step.clone(), stop, siblings);
+        turn.follow_ups.extend(reports);
+        live.waves.extend(wave);
+        for waiting in canceled_waits {
+            cancel_now(live, turn, waiting, at).await;
+        }
+    }
+}
+
+/// Sorts `steps`, which a cancel of `live` at `at` names, by how each stops. A step readied
+/// earlier in this turn is canceled unrun and leaves the walk; an undispatched `pending` step is
+/// canceled now; a step winding down, or one that settled, is left as it is. Answers each running
+/// step with its cancel, each dispatched one the entry line or the memory gate holds with its
+/// cancel, whose driver reports its own cancel, and each waiting one, which the caller stops.
+pub(super) async fn sort_losers(
+    live: &mut LiveRun,
+    turn: &mut RunTurn,
+    steps: Vec<WorkflowStepKey>,
+    at: &WireInstant,
+) -> Vec<RunSibling> {
+    let mut siblings = Vec::new();
+    for step in steps {
+        if let Some(readied) = turn
+            .readied
+            .iter_mut()
+            .find(|readied| readied.ready.step == step)
+        {
+            if !matches!(readied.next, ReadiedNext::Canceled) {
+                readied.next = ReadiedNext::Canceled;
+                turn.commit.canceled_unrun(&step, at);
+                live.walk.drop_step(&step);
+            }
+            continue;
+        }
+        let Some(live_step) = live.steps.get_mut(&step.execution_index.get()) else {
+            continue;
+        };
+        if live_step.is_winding_down {
+            continue;
+        }
+        let state = match (live_step.status, &live_step.cancel) {
+            (WorkflowStepStatus::Running, Some(cancel)) => {
+                // Marked now, so a second cancel in this turn never puts it in a second wave.
+                live_step.is_winding_down = true;
+                SiblingState::Running(cancel.clone())
+            }
+            (WorkflowStepStatus::Pending | WorkflowStepStatus::WaitingMemory, Some(cancel)) => {
+                SiblingState::Held(cancel.clone())
+            }
+            (WorkflowStepStatus::Pending, None) => {
+                cancel_now(live, turn, step, at).await;
+                continue;
+            }
+            (WorkflowStepStatus::Waiting, _) => SiblingState::Waiting,
+            (
+                WorkflowStepStatus::Running
+                | WorkflowStepStatus::WaitingMemory
+                | WorkflowStepStatus::Succeeded
+                | WorkflowStepStatus::Failed
+                | WorkflowStepStatus::Skipped
+                | WorkflowStepStatus::Canceled,
+                _,
+            ) => continue,
+        };
+        siblings.push(RunSibling { step, state });
+    }
+    siblings
+}
+
+/// Cancels the live `step` of `live` at `at` without a driver: its cancel queued on the turn's
+/// follow-ups, and the agent run a spent account parked on it stopped.
+pub(super) async fn cancel_now(
+    live: &mut LiveRun,
+    turn: &mut RunTurn,
+    step: WorkflowStepKey,
+    at: &WireInstant,
+) {
+    let parked = live
+        .steps
+        .get_mut(&step.execution_index.get())
+        .and_then(|live_step| live_step.parked_agent_run.take());
+    stop_agent_run(live, &step, parked).await;
+    turn.follow_ups.push_back(StepReport {
+        step,
+        at: at.clone(),
+        kind: StepReportKind::Settled(StepSettlement::Canceled {
+            hold_started_at: None,
+            is_sibling_failure: false,
+        }),
+    });
 }
 
 /// Offers `report` to each wave of `live` in order: a member's settlement is held by its wave,
