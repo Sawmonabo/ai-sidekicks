@@ -370,6 +370,8 @@ impl DaemonProcess {
         let accept_stop = self.accept_stop();
         let stop_work_step = self.stop_work_step();
         let close_data_folder_step = self.close_data_folder_step();
+        let daemon_started_at =
+            WireInstant::from_timestamp(self.started_at).expect("the clock reads after year 0000");
         let database = self.database.insert(
             open_database_file(DatabaseFileStart {
                 database_path: data_folder.join(DAEMON_DATABASE_FILE_NAME),
@@ -378,8 +380,7 @@ impl DaemonProcess {
                 shell: &shell,
                 copier: &copier,
                 now: Timestamp::now(),
-                daemon_started_at: WireInstant::from_timestamp(self.started_at)
-                    .expect("the clock reads after year 0000"),
+                daemon_started_at,
                 backup_folder,
                 run_folder,
                 secure_defaults: &secure_defaults,
