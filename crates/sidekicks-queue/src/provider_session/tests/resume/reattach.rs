@@ -78,6 +78,8 @@ fn insert_helper(
         name: None,
         role: None,
         provider_path: None,
+        model_id: None,
+        effort: None,
         start_call_id: None,
         own_run_id: run_id,
         started_at: WireInstant::now(),

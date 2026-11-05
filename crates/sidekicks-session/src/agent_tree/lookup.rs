@@ -324,6 +324,8 @@ mod tests {
             name: name.map(str::to_owned),
             role: None,
             provider_path: provider_path.map(str::to_owned),
+            model_id: None,
+            effort: None,
             start_call_id: None,
             own_run_id,
             started_at: instant(started_at),
