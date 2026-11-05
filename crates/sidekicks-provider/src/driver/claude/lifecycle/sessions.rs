@@ -180,6 +180,10 @@ impl ClaudeDriver {
         task_services.inboxes.release(session_id);
         parts.session_controls.forget_session(session_id).await;
         parts.reviewer.forget_session(session_id);
+        parts
+            .establishment
+            .inspector_reads
+            .forget_session(session_id);
         loop {
             match parts.slots().begin_close(session_id) {
                 ClaudeCloseStart::Empty => break,
@@ -435,6 +439,12 @@ impl ClaudeDriver {
         let sources = &self.sources;
         let session_id = params.session_id;
         self.close_command_channel(session_id).await;
+        if let Some(parts) = self.composed_parts() {
+            parts
+                .establishment
+                .inspector_reads
+                .forget_session(session_id);
+        }
         // The session's folder is the same on every account it ran on.
         let Some(first) = params.conversations.first() else {
             return Ok(());

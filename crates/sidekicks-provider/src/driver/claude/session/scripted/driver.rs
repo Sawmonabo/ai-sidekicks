@@ -124,6 +124,7 @@ impl SessionSpawnContextResolver for FolderContexts {
                 account_folders,
                 step_bound,
                 advisor_model,
+                auto_memory: None,
             })
         }
         .boxed()
@@ -537,7 +538,19 @@ impl ScriptedDriver {
         }
     }
 
-    /// Opens a session on `channel` through the driver's create.
+    /// Waits until `channel` holds the hooks listing its process's start sends.
+    pub(crate) async fn wait_for_hooks_listing(channel: &ScriptedChannel) {
+        Self::wait_for(|| {
+            channel
+                .control_requests()
+                .iter()
+                .any(|request| request["subtype"] == "get_hooks_listing")
+        })
+        .await;
+    }
+
+    /// Opens a session on `channel` through the driver's create, once its start's hooks listing
+    /// is written.
     pub(crate) async fn create(&self, channel: &Arc<ScriptedChannel>) -> SessionId {
         let session_id = new_session_id();
         self.starts.script_session(Arc::clone(channel));
@@ -545,6 +558,7 @@ impl ScriptedDriver {
             .create_session(create_params(session_id))
             .await
             .expect("the session opens");
+        Self::wait_for_hooks_listing(channel).await;
         session_id
     }
 

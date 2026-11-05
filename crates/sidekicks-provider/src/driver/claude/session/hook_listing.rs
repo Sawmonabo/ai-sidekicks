@@ -2,13 +2,6 @@
 //! inspector's listing by event: each hook in Claude Code's own words with the settings file it
 //! came from, the settings files it skipped, and what managed settings do to the hooks. The reply
 //! is untrusted, so each member is read leniently and a row naming no hook is skipped.
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the inspector's hooks listing reads each reply after a spawn and at each opening"
-    )
-)]
 
 use std::path::{Path, PathBuf};
 
