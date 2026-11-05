@@ -59,9 +59,13 @@ pub(super) const QUIET: Duration = Duration::from_millis(300);
 enum Script {
     /// Fails its first try uncoded, then outputs one item.
     Flaky,
-    /// Waits for its cancel, wakes the test, waits for the test's release, then passes its inputs
-    /// on.
+    /// Wakes the test once it runs, waits for its cancel, wakes the test, waits for the test's
+    /// release, then passes its inputs on.
     Linger,
+    /// Waits for the test's go, then passes its inputs on.
+    Gated,
+    /// Waits for the test's go, then fails uncoded.
+    GatedFailure,
     /// Passes its inputs on, readied on its first main input with items.
     First,
     /// Outputs one empty list.
@@ -88,6 +92,10 @@ pub(super) struct Signals {
     pub(super) reached: Notify,
     /// Woken by the test to release a waiting step.
     pub(super) release: Notify,
+    /// Woken when a lingering step runs, so the test lets a cancel land only on a running step.
+    pub(super) running: Notify,
+    /// Woken by the test to let a gated step settle.
+    pub(super) go: Notify,
 }
 
 impl NodeExecutor for ScriptedExecutor {
@@ -107,12 +115,23 @@ impl NodeExecutor for ScriptedExecutor {
                     vec![vec![item(json!({ "attempt": context.step.attempt }))]]
                 }
                 Script::Linger => {
+                    self.signal.running.notify_one();
                     context.cancel.cancelled().await;
                     self.signal.reached.notify_one();
                     self.signal.release.notified().await;
                     inputs
                 }
                 Script::First => inputs,
+                Script::Gated => {
+                    self.signal.go.notified().await;
+                    inputs
+                }
+                Script::GatedFailure => {
+                    self.signal.go.notified().await;
+                    return Err(StepFailure::Failed(Box::new(uncoded_step_error(
+                        "the gated step fails".to_owned(),
+                    ))));
+                }
                 Script::Empty => vec![Vec::new()],
                 Script::Large => {
                     self.signal.release.notified().await;
@@ -204,6 +223,8 @@ fn kinds(signal: &Arc<Signals>) -> Arc<NodeKindTable> {
             scripted("test.flaky", 1, Script::Flaky),
             scripted("test.linger", 1, Script::Linger),
             scripted("test.first", 2, Script::First),
+            scripted("test.gated", 1, Script::Gated),
+            scripted("test.gatedFailure", 1, Script::GatedFailure),
         ])
         .expect("the test's kinds build a table"),
     )

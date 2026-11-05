@@ -109,9 +109,9 @@ async fn a_retry_runs_its_next_attempt_after_its_wait(#[case] is_run_canceled: b
     );
 }
 
-/// M takes A's items first while B still runs. Mutations: the wave written before B settles; B's
-/// own completion written; a `siblingFailure` on a merge loser; the wave's event dropped because
-/// M settled first.
+/// M takes A's items first while B still runs: A settles only once B runs, so the cancel lands on
+/// a running step. Mutations: the wave written before B settles; B's own completion written; a
+/// `siblingFailure` on a merge loser; the wave's event dropped because M settled first.
 #[tokio::test]
 async fn a_won_merge_cancels_its_running_loser_in_one_wave() {
     let mut harness = Harness::new(None).await;
@@ -119,7 +119,7 @@ async fn a_won_merge_cancels_its_running_loser_in_one_wave() {
         .start(
             vec![
                 node("trigger", "test.trigger", 0, None),
-                node("A", "test.step", 1, None),
+                node("A", "test.gated", 1, None),
                 node("B", "test.linger", 2, None),
                 node("M", "test.first", 3, None),
             ],
@@ -133,6 +133,10 @@ async fn a_won_merge_cancels_its_running_loser_in_one_wave() {
             |_| {},
         )
         .await;
+    timeout(WAIT, harness.signal.running.notified())
+        .await
+        .expect("B runs");
+    harness.signal.go.notify_one();
     harness
         .wait_until(|rows| step_column(rows, "M", "status").as_deref() == Some("succeeded"))
         .await;
@@ -247,8 +251,9 @@ async fn a_step_on_a_losing_branch_readied_with_the_win_never_runs() {
     );
 }
 
-/// F fails with no error route, so it parks its run while B runs. Mutations: B's absorbed
-/// completion readying C; no `siblingFailure` on B; the wave written before B settles.
+/// F fails with no error route, so it parks its run while B runs: F fails only once B runs, so
+/// the cancel lands on a running step. Mutations: B's absorbed completion readying C; no
+/// `siblingFailure` on B; the wave written before B settles.
 #[tokio::test]
 async fn a_park_winds_down_its_running_sibling_and_starts_nothing_after_it() {
     let mut harness = Harness::new(None).await;
@@ -257,7 +262,7 @@ async fn a_park_winds_down_its_running_sibling_and_starts_nothing_after_it() {
         .start(
             vec![
                 node("trigger", "test.trigger", 0, None),
-                node("F", "test.flaky", 1, None),
+                node("F", "test.gatedFailure", 1, None),
                 node("B", "test.linger", 2, None),
                 node("C", "test.step", 3, None),
             ],
@@ -270,6 +275,10 @@ async fn a_park_winds_down_its_running_sibling_and_starts_nothing_after_it() {
             |_| {},
         )
         .await;
+    timeout(WAIT, harness.signal.running.notified())
+        .await
+        .expect("B runs");
+    harness.signal.go.notify_one();
     harness
         .wait_until(|rows| step_column(rows, "F", "status").as_deref() == Some("failed"))
         .await;
