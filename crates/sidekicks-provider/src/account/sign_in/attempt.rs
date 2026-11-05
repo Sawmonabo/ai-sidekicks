@@ -71,16 +71,18 @@ impl Reservation {
     ) {
         let home_lock = Arc::clone(&self.services.home_lock);
         let stopping = self.services.stopping.clone();
+        // The stop is checked first, so a start that arrives after it starts nothing.
         let hold = tokio::select! {
-            hold = home_lock.hold(self.account_id.clone()) => hold,
-            () = answer.closed() => {
-                self.release(false).await;
-                return;
-            }
+            biased;
             () = stopping.cancelled() => {
                 self.release(false).await;
                 return;
             }
+            () = answer.closed() => {
+                self.release(false).await;
+                return;
+            }
+            hold = home_lock.hold(self.account_id.clone()) => hold,
         };
         self.signing_in = Some(home_lock.mark_signing_in(self.account_id.clone()));
         if self.minted.is_none() {
