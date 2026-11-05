@@ -66,12 +66,12 @@ use crate::driver::run_control::{
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
     CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverHandoverBriefResult,
-    DriverResumeResult, EndKeptTurnsParams, ExportHandoverBriefParams, MoveSessionToForkParams,
-    MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderCommandsListener,
-    ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
-    SessionCommandAnswer, SetSessionGoalParams, SettleHeldToolCallsParams, StartingLevel,
-    StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
-    UpdateSessionModeParams,
+    DriverResumeResult, EndKeptTurnsParams, ExportHandoverBriefParams, KeptTurnsEnding,
+    MoveSessionToForkParams, MoveSessionToForkResult, NameSessionParams, ProviderBuildChange,
+    ProviderCommandsListener, ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams,
+    RevokeRuleParams, SessionCommandAnswer, SetSessionGoalParams, SettleHeldToolCallsParams,
+    StartingLevel, StartingLevelParams, SubscribeProviderCommandsParams,
+    UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::driver::{
@@ -368,8 +368,8 @@ impl ProviderDriver for ClaudeDriver {
     fn end_kept_turns(
         &self,
         _params: EndKeptTurnsParams,
-    ) -> BoxFuture<'_, Result<(), DriverError>> {
-        ready(Ok(())).boxed()
+    ) -> BoxFuture<'_, Result<KeptTurnsEnding, DriverError>> {
+        ready(Ok(KeptTurnsEnding::ended_now())).boxed()
     }
 
     fn settle_session(&self, session_id: SessionId) -> BoxFuture<'_, Result<(), DriverError>> {

@@ -13,6 +13,7 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
 use sidekicks_provider::driver::run_control::{FindTakenMessagesParams, TakenMessages};
+use sidekicks_provider::driver::session_control::KeptTurnsEnding;
 use sidekicks_session::queue_store::{QueueItemReader, RecordedQueueItemState};
 use sidekicks_session::run::engine::test_fixture::stored_run_state;
 use sidekicks_std::mutex_lock::lock;
@@ -50,6 +51,10 @@ enum Case {
     DamagedNamed,
     // An intent whose session's settle is refused: a message is queued for its run at each try.
     SettleRefused,
+    // A whole intent over a kept turn whose interrupt answers once the pass has ended.
+    KeptTurnAnsweredAfterPass,
+    // A whole intent over a kept turn whose interrupt is unanswered when the pass's stop comes.
+    KeptTurnCutAtStop,
 }
 
 // The intent's names, written as the pass writes them: whole, then named.
@@ -110,7 +115,9 @@ fn assert_ended_by_the_stop(fixture: &PassFixture, session_id: SessionId, run_id
 // sent or failed with its run (it is not canceled, or the draft is empty), by a crash's waiting
 // message held back or ended (it is not left waiting for its queued run), by a named session with
 // nothing left not marked (it takes calls at the pause), by a drop held to the names the pass read
-// (the mid-pass drop leaves the other names), and by a damaged or refused session's name dropped.
+// (the mid-pass drop leaves the other names), by a damaged or refused session's name dropped, by
+// the name dropped before the kept turns' interrupts have answered (the name is gone and the
+// session takes calls once the pass ends), and by a tail the stop cut that drops the name anyway.
 #[rstest]
 #[case::a_whole_intent(Case::Whole)]
 #[case::a_whole_intent_over_a_queued_message(Case::WholeQueuedMessage)]
@@ -122,6 +129,8 @@ fn assert_ended_by_the_stop(fixture: &PassFixture, session_id: SessionId, run_id
 #[case::a_name_dropped_mid_pass(Case::NameDroppedMidPass)]
 #[case::a_damaged_named_session(Case::DamagedNamed)]
 #[case::a_named_session_whose_settle_is_refused(Case::SettleRefused)]
+#[case::a_kept_turn_answered_after_the_pass(Case::KeptTurnAnsweredAfterPass)]
+#[case::a_kept_turn_unanswered_at_the_stop(Case::KeptTurnCutAtStop)]
 #[tokio::test]
 async fn a_pass_under_the_stop_intent_settles_named_sessions_by_the_stop(#[case] case: Case) {
     // The first provider's runs are never resumed; the second keeps a turn the Stop ends, or
@@ -137,10 +146,26 @@ async fn a_pass_under_the_stop_intent_settles_named_sessions_by_the_stop(#[case]
         | Case::StoppedBeforeSettle
         | Case::WholeWrittenMidPass
         | Case::NameDroppedMidPass
-        | Case::SettleRefused => MockProviderDriver::new(),
+        | Case::SettleRefused
+        | Case::KeptTurnAnsweredAfterPass
+        | Case::KeptTurnCutAtStop => MockProviderDriver::new(),
     };
-    let kept_ends = match case {
-        Case::Whole => Some(expect_kept_turns_ended(&mut second)),
+    // The ends recorded of the kept turns, and the answer of their interrupts a case holds.
+    let (kept_ends, kept_answer) = match case {
+        Case::Whole => (
+            Some(expect_kept_turns_ended(
+                &mut second,
+                KeptTurnsEnding::ended_now(),
+            )),
+            None,
+        ),
+        Case::KeptTurnAnsweredAfterPass | Case::KeptTurnCutAtStop => {
+            let (ending, answer) = KeptTurnsEnding::waiting();
+            (
+                Some(expect_kept_turns_ended(&mut second, ending)),
+                Some(answer),
+            )
+        }
         Case::WholeQueuedMessage
         | Case::NoIntentQueuedMessage
         | Case::NamesOneOfTwo
@@ -149,7 +174,7 @@ async fn a_pass_under_the_stop_intent_settles_named_sessions_by_the_stop(#[case]
         | Case::WholeWrittenMidPass
         | Case::NameDroppedMidPass
         | Case::DamagedNamed
-        | Case::SettleRefused => None,
+        | Case::SettleRefused => (None, None),
     };
     let fixture = PassFixture::over_drivers(vec![
         Arc::new(MockProviderDriver::new()) as Arc<dyn ProviderDriver>,
@@ -168,8 +193,14 @@ async fn a_pass_under_the_stop_intent_settles_named_sessions_by_the_stop(#[case]
                 .open_turn(kept_session, kept_run, Some("turn-kept"))
                 .await;
             intent.write_whole().await.expect("the Stop writes");
+            let pass = fixture.pass(Arc::clone(&fixture.status));
 
-            run_pass(&fixture, &stop).await;
+            tokio::time::timeout(SETTLE_WAIT, pass.run(&stop))
+                .await
+                .expect("the pass ends");
+            tokio::time::timeout(SETTLE_WAIT, pass.stop())
+                .await
+                .expect("the name drops end");
 
             assert_ended_by_the_stop(&fixture, first_session, first_run);
             assert_ended_by_the_stop(&fixture, kept_session, kept_run);
@@ -179,6 +210,55 @@ async fn a_pass_under_the_stop_intent_settles_named_sessions_by_the_stop(#[case]
                 vec![kept_turn(kept_run, "turn-kept", true)]
             );
             assert_eq!(intent.read().await, None);
+        }
+        Case::KeptTurnAnsweredAfterPass | Case::KeptTurnCutAtStop => {
+            let (kept_session, kept_run, _) = fixture.running_session(1).await;
+            fixture
+                .open_turn(kept_session, kept_run, Some("turn-kept"))
+                .await;
+            intent.write_whole().await.expect("the Stop writes");
+            let pass = fixture.pass(Arc::clone(&fixture.status));
+            let is_refused = || {
+                refuse_call_naming_session(&fixture.status, &kept_session, "session.pin").is_err()
+            };
+
+            tokio::time::timeout(SETTLE_WAIT, pass.run(&stop))
+                .await
+                .expect("the pass ends");
+
+            assert_ended_by_the_stop(&fixture, kept_session, kept_run);
+            let named = Some(StopIntent::Sessions(BTreeSet::from([kept_session])));
+            assert_eq!(
+                intent.read().await,
+                named,
+                "the name waits for the interrupts"
+            );
+            assert!(
+                is_refused(),
+                "the session refuses calls until its name drops"
+            );
+            let answer = kept_answer.expect("the case holds the interrupts' answer");
+            if matches!(case, Case::KeptTurnAnsweredAfterPass) {
+                answer
+                    .send(())
+                    .expect("the name's drop waits for the answer");
+            } else {
+                stop.cancel();
+            }
+            tokio::time::timeout(SETTLE_WAIT, pass.stop())
+                .await
+                .expect("the name drops end");
+
+            if matches!(case, Case::KeptTurnAnsweredAfterPass) {
+                assert_eq!(intent.read().await, None);
+                assert!(!is_refused(), "the session takes calls once its name drops");
+            } else {
+                assert_eq!(
+                    intent.read().await,
+                    named,
+                    "the next start sends them again"
+                );
+            }
         }
         Case::WholeQueuedMessage | Case::NoIntentQueuedMessage => {
             let session_id = fixture.new_session();

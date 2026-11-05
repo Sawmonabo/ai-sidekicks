@@ -11,8 +11,10 @@
 //! starts, and a lead the person paused kept paused; the questions the tool-server client asked,
 //! whose requests the restart ended, are withdrawn. A session the person's Stop left in the stop
 //! intent is not opened: its runs end as the Stop ends them, and its name is dropped from the
-//! intent only once that settle has committed and the sweep of the tool call receipts the stop left
-//! in flight has begun, before it takes calls. No write is taken until the pass has listed the
+//! intent only once that settle has committed, the sweep of the tool call receipts the stop left in
+//! flight has begun and the interrupts of the turns a provider kept running for it have answered,
+//! before it takes calls; a name whose interrupts have yet to answer when the service stops stays
+//! for the next start, which sends them again. No write is taken until the pass has listed the
 //! sessions it rebuilds and those whose runs it ends; from then each listed session alone refuses
 //! the calls that name it until it is rebuilt and settled, so every other session takes its writes
 //! while the pass goes on. A session whose rebuild fails is healed: the store's files are copied
@@ -53,6 +55,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_mcp::client::dispatch::restart_sweep::{McpRestartSweep, McpRestartSweepError};
 use sidekicks_provider::driver::contract::error::bound_failure_detail;
+use sidekicks_provider::driver::session_control::KeptTurnsEnding;
 use sidekicks_queue::provider_session::ProviderSessions;
 use sidekicks_session::interventions::store::read_pending_retries;
 use sidekicks_session::interventions::unresolved::read_ended_runs_with_unresolved;
@@ -73,6 +76,8 @@ use sidekicks_store::events::session::appender::{
 };
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
+use tracing::Instrument as _;
 
 use crate::damaged_history::{DamagedHistory, DamagedHistoryError};
 use crate::database_file::aside_copy::AsideCopyError;
@@ -159,6 +164,9 @@ pub struct StartupRecoveryDeps {
 /// Runs the recovery pass a start makes before the daemon takes writes.
 pub struct StartupRecovery {
     deps: StartupRecoveryDeps,
+    // Each drop of a name the person's Stop left that waits, past the pass, for the session's kept
+    // turns to end.
+    name_drops: TaskTracker,
 }
 
 // What one pass did: the events its rebuilds read, the bindings its resumes recorded, and the
@@ -216,7 +224,17 @@ struct PassListing {
 impl StartupRecovery {
     /// The pass over `deps`.
     pub fn new(deps: StartupRecoveryDeps) -> Self {
-        Self { deps }
+        Self {
+            deps,
+            name_drops: TaskTracker::new(),
+        }
+    }
+
+    /// Returns once each name drop waiting on a session's kept turns has ended, none starting
+    /// after; the pass's stop, canceled first, ends each wait with the name kept.
+    pub async fn stop(&self) {
+        self.name_drops.close();
+        self.name_drops.wait().await;
     }
 
     /// Runs the pass and returns once it has ended, either way; the recovery state then says how
@@ -330,14 +348,16 @@ impl StartupRecovery {
                 .await
                 .map_err(PassFailure::StopIntent)?;
         }
-        // The sessions settled under the intent, whose names outlive their settles.
+        // The sessions settled under the intent, whose names outlive their settles, each with the
+        // ending of its kept turns' interrupts where a driver took them.
         let mut stopped = Vec::new();
         for &session_id in &settled {
             let is_under_stop = is_named(&session_id);
-            self.settle_session(session_id, is_under_stop, tally, stop)
+            let ending = self
+                .settle_session(session_id, is_under_stop, tally, stop)
                 .await?;
             if is_under_stop {
-                stopped.push(session_id);
+                stopped.push((session_id, ending));
             }
         }
         let mut heal = heal::HealState::default();
@@ -359,10 +379,11 @@ impl StartupRecovery {
                     .await;
             }
             let is_under_stop = is_named(&session_id);
-            self.settle_session(session_id, is_under_stop, tally, stop)
+            let ending = self
+                .settle_session(session_id, is_under_stop, tally, stop)
                 .await?;
             if is_under_stop {
-                stopped.push(session_id);
+                stopped.push((session_id, ending));
             }
         }
 
@@ -385,13 +406,17 @@ impl StartupRecovery {
             .await?;
         // Only once the sweep has begun, so a pass cut before leaves each name for the next pass
         // to sweep its receipts as stopped; the session takes calls only after.
-        for session_id in stopped {
-            self.deps
-                .stop_intent
-                .drop_named(&session_id)
-                .await
-                .map_err(PassFailure::StopIntent)?;
-            self.deps.status.mark_session_healthy(&session_id);
+        for (session_id, ending) in stopped {
+            if let Some(ending) = ending {
+                self.drop_name_once_ended(session_id, ending, stop);
+            } else {
+                self.deps
+                    .stop_intent
+                    .drop_named(&session_id)
+                    .await
+                    .map_err(PassFailure::StopIntent)?;
+                self.deps.status.mark_session_healthy(&session_id);
+            }
         }
 
         if is_any_damaged {
@@ -460,6 +485,48 @@ impl StartupRecovery {
             current_listed,
             holding_tool_calls,
         })
+    }
+
+    // Drops `session_id`'s name from the stop intent, then lets the session take calls, once
+    // `ending` reads that its kept turns' interrupts have answered, on a task of the pass's own, so
+    // a provider that never answers holds up no other session. Where the work was cut, or `stop`
+    // came first, the name stays and the next start sends the interrupts again; a failed drop is
+    // logged and leaves the name and the session refusing calls, as a failed settle does.
+    fn drop_name_once_ended(
+        &self,
+        session_id: SessionId,
+        ending: KeptTurnsEnding,
+        stop: &CancellationToken,
+    ) {
+        let stop = stop.clone();
+        let stop_intent = Arc::clone(&self.deps.stop_intent);
+        let status = Arc::clone(&self.deps.status);
+        let drop_once_ended = async move {
+            let has_ended = tokio::select! {
+                biased;
+                () = stop.cancelled() => false,
+                has_ended = ending.ended() => has_ended,
+            };
+            if !has_ended {
+                tracing::info!(
+                    %session_id,
+                    "the stop came before the kept turns' interrupts of a session the Stop named \
+                     had answered, so its name stays for the next start"
+                );
+                return;
+            }
+            match stop_intent.drop_named(&session_id).await {
+                Ok(()) => status.mark_session_healthy(&session_id),
+                Err(error) => tracing::error!(
+                    %session_id,
+                    error = &error as &(dyn Error + 'static),
+                    "the name of a session the Stop named could not be dropped once its kept \
+                     turns ended, so it refuses calls until the next start"
+                ),
+            }
+        };
+        self.name_drops
+            .spawn(drop_once_ended.instrument(tracing::Span::current()));
     }
 
     // Settles the calls `session_id` held in the background through the provider sessions, as the

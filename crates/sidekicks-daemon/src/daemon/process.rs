@@ -52,6 +52,7 @@ use sidekicks_provider::command::channel::remove_channel_folders;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
 use sidekicks_recovery::database_file::sqlite_shell::SqliteShell;
 use sidekicks_recovery::restart_settle::RestartSettle;
+use sidekicks_recovery::startup::StartupRecovery;
 use sidekicks_recovery::stop_intent::StopIntentFile;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::run::turn_capture::TurnCapturing;
@@ -205,6 +206,9 @@ pub(crate) struct DaemonProcess {
     pub(crate) session_attachments: Option<SessionAttachments>,
     /// The turn-end capture's follow, ended by the stop once the drivers can end no more turns.
     pub(crate) turn_capturing: Option<TurnCapturing>,
+    /// The start's recovery pass, kept past it so the stop waits out the name drops it left
+    /// waiting on a session's kept turns.
+    pub(crate) recovery: Option<StartupRecovery>,
     /// The attention service's decision task, which ends with the work's stop and is waited out.
     pub(crate) attention: Option<JoinHandle<()>>,
     /// The provider accounts' background observer, ended by the stop before the scheduler.
@@ -287,6 +291,7 @@ impl DaemonProcess {
             restart_settle: None,
             session_attachments: None,
             turn_capturing: None,
+            recovery: None,
             attention: None,
             provider_accounts: None,
             web_address_sender: None,
@@ -618,7 +623,7 @@ impl DaemonProcess {
             },
         )
         .await?;
-        let recovery = inputs.recovery;
+        self.recovery = Some(inputs.recovery);
         let attention = inputs.attention;
         let web_address_sender = inputs.web_address_sender;
         self.project_list_feed = Some(inputs.project_list_feed);
@@ -699,7 +704,11 @@ impl DaemonProcess {
         self.turn_capturing = Some(session.turn_capture.start(&followers));
         // Settles what the last stop left before any other follow of the log or any folder watch
         // starts.
-        recovery.run(&self.work_stop).await;
+        self.recovery
+            .as_ref()
+            .expect("the recovery pass is built with the start's inputs")
+            .run(&self.work_stop)
+            .await;
         // Right after the recovery pass, so the sweep reads what the last stop left before the
         // session services' follows begin.
         self.attention = Some(attention.start(self.work_stop.clone()).await?);

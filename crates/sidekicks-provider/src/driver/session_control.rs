@@ -328,7 +328,9 @@ impl KeptTurnsEnding {
     /// An ending with nothing to wait on: the turns ended with the process that ran them.
     pub fn ended_now() -> Self {
         let (ending, sender) = Self::waiting();
-        let _ = sender.send(());
+        sender
+            .send(())
+            .expect("the ending holds the receiver it was made with");
         ending
     }
 

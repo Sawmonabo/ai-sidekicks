@@ -380,7 +380,10 @@ impl ProviderDriver for CodexDriver {
         self.resume_session(params).boxed()
     }
 
-    fn end_kept_turns(&self, params: EndKeptTurnsParams) -> BoxFuture<'_, Result<(), DriverError>> {
+    fn end_kept_turns(
+        &self,
+        params: EndKeptTurnsParams,
+    ) -> BoxFuture<'_, Result<crate::driver::session_control::KeptTurnsEnding, DriverError>> {
         self.end_kept_turns(params).map(Ok).boxed()
     }
 
