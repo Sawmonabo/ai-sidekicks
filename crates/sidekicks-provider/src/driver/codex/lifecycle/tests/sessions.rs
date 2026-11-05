@@ -34,15 +34,13 @@ use crate::driver::codex::session::state::CodexTurnMessage;
 use crate::driver::codex::session::test_fixture::relaunches::{
     RefusedRelaunchStep, TakenRelaunches,
 };
-use crate::driver::codex::session::test_fixture::{
-    TEST_THREAD, open_test_record, turn_completed, turn_reply,
-};
+use crate::driver::codex::session::test_fixture::{TEST_THREAD, turn_completed, turn_reply};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::ports::{ProcessGoneListener, SessionRelaunchListener};
 use crate::driver::session_control::{CloseSessionParams, SessionCloseCause};
-use crate::driver::test_registry::{new_agent_id, new_run_id, new_session_id};
+use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::port::run_host::test_host::EngineCall;
 use crate::runtime_binding::resume::ResumeFunctionLegs;
 
@@ -629,7 +627,7 @@ enum JoinedStop {
 async fn a_daemon_stop_interrupts_open_turns_only_on_a_joined_codex_service(
     #[case] joined_stop: JoinedStop,
 ) {
-    let mut scripted = match joined_stop {
+    let scripted = match joined_stop {
         JoinedStop::JoinedUnderStop | JoinedStop::JoinedUnderRestart => {
             start_scripted_joined_service()
         }
@@ -639,32 +637,11 @@ async fn a_daemon_stop_interrupts_open_turns_only_on_a_joined_codex_service(
         JoinedStop::JoinedUnderStop | JoinedStop::DaemonsOwnUnderStop => DaemonStopIntent::Stop,
         JoinedStop::JoinedUnderRestart => DaemonStopIntent::Restart,
     };
-    let folder = tempfile::tempdir().expect("the test makes a folder");
-    let driver = driver_holding(&scripted, folder.path());
-    let parts = Arc::clone(driver.parts().expect("the driver composes"));
-    let session_id = new_session_id();
-    // No task reads the record's inbox, so the stop's let-go of it answers at once.
-    let (inbound, _) = codex_session_inbound(session_id);
-    let (mut record, _routing) = open_test_record(
-        &scripted,
-        session_id,
-        new_agent_id(),
-        inbound.clone(),
-        &parts.delivery,
-        parts.pending_compactions.clone(),
-    )
-    .await;
-    let run_id = new_run_id();
-    for turn_id in ["turn-1", "turn-2"] {
-        record.add_active_turn(turn_id.to_owned(), run_id);
-    }
-    driver.views.show(&record);
-    parts
-        .slots
-        .claim_establishing(session_id)
-        .await
-        .expect("the session's slot is free")
-        .install(inbound);
+    let turns = [TEST_TURN, "turn-2"];
+    let mut live = LiveCodexSession::on_held_service(scripted, &turns).await;
+    let LiveCodexSession {
+        driver, scripted, ..
+    } = &mut live;
 
     let shutdown = driver.shutdown(intent, Instant::now() + CLOSE_BOUND);
     tokio::pin!(shutdown);
@@ -687,7 +664,7 @@ async fn a_daemon_stop_interrupts_open_turns_only_on_a_joined_codex_service(
 
     let expected = match joined_stop {
         JoinedStop::JoinedUnderStop => vec![
-            (json!({"threadId": TEST_THREAD, "turnId": "turn-1"}), true),
+            (json!({"threadId": TEST_THREAD, "turnId": TEST_TURN}), true),
             (json!({"threadId": TEST_THREAD, "turnId": "turn-2"}), true),
         ],
         JoinedStop::DaemonsOwnUnderStop | JoinedStop::JoinedUnderRestart => Vec::new(),
