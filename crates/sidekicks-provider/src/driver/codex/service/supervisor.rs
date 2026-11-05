@@ -249,6 +249,7 @@ impl CodexService {
             routed_dial: AtomicU64::new(0),
             threads: Arc::new(Mutex::new(CodexServiceThreads::new(
                 CODEX_THREAD_FRAME_ROUTER_CONFIG.max_pending_hold_frames,
+                CODEX_THREAD_FRAME_ROUTER_CONFIG.pending_registration_timeout,
                 Arc::new(|unclaimed| {
                     for frame in unclaimed {
                         CodexTransportDiagnostic::UnroutedThreadFrame {

@@ -217,29 +217,42 @@ fn spawn_item(is_v1: bool) -> Value {
 }
 
 // A helper a spawn item on a session's conversation names is that session's on the service, so the
-// helper's own frames reach the session's queue; a frame on the session's conversation sent last
-// marks where the reader has routed to. Killed by the service registering a helper only on
-// `thread/started`: the helper's `turn/started` is reported unrouted and dropped.
+// helper's own frames reach the session's queue, one sent ahead of the item too; a frame on the
+// session's conversation sent last marks where the reader has routed to. Killed by the service
+// registering a helper only on `thread/started` and, for the frame ahead of the item, by the reader
+// not holding it: the helper's `turn/started` is reported unrouted and dropped.
 #[rstest]
-#[case::v1(true)]
-#[case::v2(false)]
+#[case::v1(true, false)]
+#[case::v2(false, false)]
+#[case::child_frame_before_the_item(false, true)]
 #[tokio::test]
-async fn a_spawned_helpers_frames_reach_its_parents_session(#[case] is_v1: bool) {
+async fn a_spawned_helpers_frames_reach_its_parents_session(
+    #[case] is_v1: bool,
+    #[case] is_child_frame_first: bool,
+) {
     let mut session = TestCodexSession::start().await;
     let script = &session.scripted.script;
     let send = |method: &str, params: Value| {
         script.send(&json!({"jsonrpc": "2.0", "method": method, "params": params}));
     };
+    let send_spawn_item = || {
+        send(
+            "item/completed",
+            json!({"threadId": TEST_THREAD, "turnId": "turn-1", "item": spawn_item(is_v1)}),
+        );
+    };
 
-    send(
-        "item/completed",
-        json!({"threadId": TEST_THREAD, "turnId": "turn-1", "item": spawn_item(is_v1)}),
-    );
+    if !is_child_frame_first {
+        send_spawn_item();
+    }
     send(
         "turn/started",
         json!({"threadId": SPAWNED_HELPER,
             "turn": {"id": "turn-helper", "items": [], "status": "inProgress"}}),
     );
+    if is_child_frame_first {
+        send_spawn_item();
+    }
     send(
         "thread/status/changed",
         json!({"threadId": TEST_THREAD, "status": {"type": "idle"}}),

@@ -2,8 +2,8 @@
 //! order: a frame naming a conversation to the session that holds it, the helpers a spawn item
 //! names registered under its parent's session first, a frame naming none to every session on the
 //! service, and the frames of a conversation a session moved off only while its commands still
-//! run. A frame whose conversation a start or fork in flight is about to claim is held until the
-//! claim lands, within a bound.
+//! run. A frame naming a conversation not registered yet, a start's or a fork's in flight or a
+//! spawned helper's ahead of its spawn item, is held until it is, within a bound and a timeout.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -13,6 +13,7 @@ use serde_json::Value;
 use serde_json::value::RawValue;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
+use tokio::time::Instant;
 
 use crate::driver::codex::event_normalizer::{
     CODEX_ITEM_COMPLETED_METHOD, CODEX_ITEM_METHOD_PREFIX, CODEX_ITEM_STARTED_METHOD,
@@ -21,7 +22,7 @@ use crate::driver::codex::event_normalizer::{
 use crate::driver::codex::service::config_warnings::CodexConfigWarnings;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::rate_limit_readings::CodexRateLimitReadings;
-use crate::driver::codex::service::threads::{CodexHeldThreadFrame, CodexThreadFrameHold};
+use crate::driver::codex::service::threads::{CodexHeldThreadFrame, CodexServiceThreads};
 use crate::driver::codex::session::inbound::{CodexSessionInbound, CodexSessionInboundSender};
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::codex::usage_limit_signal::CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD;
@@ -45,11 +46,6 @@ pub(crate) const CODEX_COLLAB_AGENT_TOOL_CALL_ITEM_TYPE: &str = "collabAgentTool
 
 /// The v1 helper tool that spawns a helper.
 pub(crate) const CODEX_SPAWN_AGENT_TOOL: &str = "spawnAgent";
-
-/// Lifecycle broadcasts every connection sees for every conversation on the service, the person's
-/// own and a throwaway title conversation among them; never a fault when no session holds it.
-const CODEX_UNHELD_THREAD_BROADCASTS: [&str; 2] =
-    [CODEX_THREAD_STARTED_METHOD, CODEX_THREAD_CLOSED_METHOD];
 
 /// What one service's routing keeps beside its thread index: each session's queue, the waits on a
 /// conversation's unload, the config warnings and the account's rate-limit readings.
@@ -292,11 +288,14 @@ enum FrameAudience {
 
 impl CodexService {
     /// Routes one notification the connection `dial` read: called on its reader, so every
-    /// decision here is made in arrival order and nothing awaits.
+    /// decision here is made in arrival order and nothing awaits. Each one first reports the held
+    /// frames past their timeout.
     pub(super) fn route(self: &Arc<Self>, dial: u64, method: &str, params: Box<RawValue>) {
         if !self.is_routed_dial(dial) {
             return;
         }
+        let now = Instant::now();
+        CodexServiceThreads::report_expired(&self.threads, now);
         let CodexFrameThreads {
             thread_id,
             spawned_helpers,
@@ -343,29 +342,20 @@ impl CodexService {
             self.deliver_thread_frame(&session_id, &thread_id, method, params);
             return;
         }
-        let held = self.lock_threads().hold(CodexHeldThreadFrame {
-            method: method.to_owned(),
-            params,
-            thread_id,
-        });
-        match held {
-            CodexThreadFrameHold::Held => {}
-            CodexThreadFrameHold::NotHeld(frame) => {
-                if !CODEX_UNHELD_THREAD_BROADCASTS.contains(&frame.method.as_str()) {
-                    CodexTransportDiagnostic::UnroutedThreadFrame {
-                        method: frame.method,
-                        thread_id: frame.thread_id,
-                    }
-                    .report();
-                }
+        let pushed_out = self.lock_threads().hold(
+            CodexHeldThreadFrame {
+                method: method.to_owned(),
+                params,
+                thread_id,
+            },
+            now,
+        );
+        if let Some(frame) = pushed_out {
+            CodexTransportDiagnostic::PendingThreadFrameDropped {
+                method: frame.method,
+                thread_id: frame.thread_id,
             }
-            CodexThreadFrameHold::PushedOut(frame) => {
-                CodexTransportDiagnostic::PendingThreadFrameDropped {
-                    method: frame.method,
-                    thread_id: frame.thread_id,
-                }
-                .report();
-            }
+            .report();
         }
     }
 
