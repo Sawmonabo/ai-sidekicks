@@ -1,7 +1,7 @@
 //! The state kept beside a workflow's versions, which saves no new version: the enabled switch, the
-//! canvas layout, the tags, the permission level, the background-browser pick, pinned test data,
-//! the builder's unsaved draft, the expression preview, and the webhook token and listener. The
-//! definition methods' table lists these methods.
+//! canvas layout, the tags, the permission level, the background-browser pick, the provider pick,
+//! pinned test data, the builder's unsaved draft, the expression preview, and the webhook token and
+//! listener. The definition methods' table lists these methods.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -10,6 +10,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 use strum::{IntoStaticStr, VariantArray};
 
+use crate::provider::id::ProviderId;
 use crate::session::controls::methods::PermissionLevel;
 use crate::tag::TagList;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -29,7 +30,7 @@ ts_constants! {
 }
 
 // Settings kept beside a version: enabled, layout, tags, permission level, background browser,
-// pinned data.
+// provider, pinned data.
 
 /// The `workflow.enabled.update` input: arm or disarm every trigger of one workflow. A trigger that
 /// cannot be armed refuses the switch with `workflow.trigger.unarmable`, and nothing turns on.
@@ -183,6 +184,30 @@ pub struct WorkflowBackgroundBrowserUpdateResponse {
     pub definition_id: WorkflowDefinitionId,
     /// The pick.
     pub pick: WorkflowBackgroundBrowser,
+}
+
+/// The `workflow.provider.update` input: the provider whose sandbox and shell every run of the
+/// workflow uses for its command steps, read when a run starts. The pick sits outside the hashed
+/// body, so a change mints no version.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct WorkflowProviderUpdateRequest {
+    /// The workflow.
+    pub definition_id: WorkflowDefinitionId,
+    /// The provider.
+    pub provider: ProviderId,
+}
+
+/// The provider the workflow's runs now start with.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct WorkflowProviderUpdateResponse {
+    /// The workflow.
+    pub definition_id: WorkflowDefinitionId,
+    /// The provider.
+    pub provider: ProviderId,
 }
 
 /// The `workflow.pinData.update` input: pin items onto one node as test data, or unpin with `null`,
@@ -528,8 +553,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "workflow/definition/builder",
     doc: "The state kept beside a workflow's versions, which saves no new version: the enabled \
           switch, the canvas layout, the tags, the permission level, the background-browser pick, \
-          pinned test data, the builder's unsaved draft, the expression preview, and the webhook \
-          token and listener.",
+          the provider pick, pinned test data, the builder's unsaved draft, the expression \
+          preview, and the webhook token and listener.",
     definitions: &[
         Definition::read::<WorkflowEnabledUpdateRequest>().checked(),
         Definition::read::<WorkflowEnabledUpdateResponse>().checked(),
@@ -541,6 +566,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowBackgroundBrowser>(),
         Definition::read::<WorkflowBackgroundBrowserUpdateRequest>().checked(),
         Definition::read::<WorkflowBackgroundBrowserUpdateResponse>().checked(),
+        Definition::read::<WorkflowProviderUpdateRequest>().checked(),
+        Definition::read::<WorkflowProviderUpdateResponse>().checked(),
         Definition::read::<WorkflowPinDataUpdateRequest>().checked(),
         Definition::read::<WorkflowPinDataUpdateResponse>().checked(),
         Definition::read::<SavedWorkflowDraftUpdateRequest>(),

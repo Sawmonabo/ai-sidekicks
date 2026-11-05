@@ -9,6 +9,7 @@ use strum::{IntoStaticStr, VariantArray};
 use crate::free_form_string::FilesystemPath;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
+use crate::provider::id::ProviderId;
 use crate::session::controls::methods::PermissionLevel;
 use crate::tag::TagList;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -24,7 +25,8 @@ use crate::workflow::definition::builder::{
     WorkflowExpressionPreviewRequest, WorkflowExpressionPreviewResponse,
     WorkflowLayoutUpdateRequest, WorkflowPermissionLevelUpdateRequest,
     WorkflowPermissionLevelUpdateResponse, WorkflowPinDataUpdateRequest,
-    WorkflowPinDataUpdateResponse, WorkflowTagsUpdateRequest, WorkflowWebhookListenerReadResponse,
+    WorkflowPinDataUpdateResponse, WorkflowProviderUpdateRequest, WorkflowProviderUpdateResponse,
+    WorkflowTagsUpdateRequest, WorkflowWebhookListenerReadResponse,
     WorkflowWebhookTokenRotateRequest, WorkflowWebhookTokenRotateResponse,
 };
 use crate::workflow::definition::document::{
@@ -189,6 +191,15 @@ macro_rules! workflow_definition_read {
             /// The browser the workflow's runs use in the background, which the builder's browser
             /// pill reads; a new workflow reads `settingsDefault`.
             pub background_browser: WorkflowBackgroundBrowser,
+            /// The provider whose sandbox and shell the workflow's command steps run in; absent
+            /// until one is chosen.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "ProviderId")]
+            pub provider: Option<ProviderId>,
             /// When the workflow was made.
             #[garde(dive)]
             pub created_at: WireInstant,
@@ -672,6 +683,13 @@ methods! {
             mutating: true,
             params: WorkflowBackgroundBrowserUpdateRequest,
             result: WorkflowBackgroundBrowserUpdateResponse,
+            refusals: [WorkflowDefinitionNotFound],
+        },
+        /// Sets the provider every later run of the workflow starts with, without a new version.
+        WorkflowProviderUpdate = mutation "workflow.provider.update" {
+            mutating: true,
+            params: WorkflowProviderUpdateRequest,
+            result: WorkflowProviderUpdateResponse,
             refusals: [WorkflowDefinitionNotFound],
         },
         /// Pins or unpins a node's test data without a new version.
