@@ -266,6 +266,7 @@ pub(crate) fn test_codex_service_dependencies(
         exec_relay,
         switching: Arc::new(CodexSwitchingAccount::new(Arc::clone(&provider_accounts))),
         provider_accounts,
+        telemetry_target: Arc::new(PortRegistration::new("telemetry target")),
     })
 }
 

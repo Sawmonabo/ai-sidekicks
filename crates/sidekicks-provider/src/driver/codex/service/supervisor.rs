@@ -81,6 +81,7 @@ use crate::driver::codex::transport::socket::{CodexSocketWait, dial_codex_servic
 use crate::driver::codex::version::CODEX_CLIENT_NAME;
 use crate::driver::contract::error::DriverError;
 use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::pricing::receiver::TelemetryTarget;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::spawned_version::{ResolvedProviderExecutable, SpawnedProviderVersionReading};
@@ -146,6 +147,9 @@ pub(crate) struct CodexServiceDependencies {
     pub(crate) switching: Arc<CodexSwitchingAccount>,
     /// The accounts reader, which an API-key account's key is read through at each start.
     pub(crate) provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
+    /// Where the account and switching services export, read at each launch, so a launch before
+    /// it is registered sets every exporter off.
+    pub(crate) telemetry_target: Arc<PortRegistration<Arc<TelemetryTarget>>>,
 }
 
 /// The socket one service listens on.
