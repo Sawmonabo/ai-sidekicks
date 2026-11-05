@@ -310,17 +310,30 @@ async fn a_resume_starts_at_its_conversations_turn_count_and_fails_on_an_unreada
     }
 }
 
-// Killed by keeping a process's handshake past its end: a resume that reuses the conversation's
-// id would read the old process's declaration before its new process declares one.
+// A resumed conversation reuses its id, so the commands it lists before its first message are its
+// new process's, from that process's `initialize` reply, never its old process's `system/init`,
+// until the new process's own `system/init` replaces them. Killed by the `initialize` commands not
+// held (none is listed), and by the old process's handshake kept in their place (its command is).
 #[tokio::test(start_paused = true)]
-async fn a_resumed_conversation_reads_no_handshake_until_its_new_process_declares_one() {
+async fn a_resumed_conversation_reads_only_its_new_process_handshake() {
     let fixture = ScriptedDriver::new();
     let session_id = new_session_id();
     let parts = fixture.driver.composed_parts().expect("composed");
     let (routes, handshakes) = (&parts.run_start.routes, &parts.run_start.handshakes);
     let handle = resume_params(session_id).resume_handle;
-    let init =
-        json!({"type": "system", "subtype": "init", "session_id": SCRIPTED_PROVIDER_SESSION_ID});
+    let init_listing = |command: &str| {
+        json!({
+            "type": "system",
+            "subtype": "init",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+            "slash_commands": [command],
+        })
+    };
+    let listed = || {
+        handshakes
+            .held_handshake_for(session_id, &handle)
+            .map(|held| held.declaration.slash_commands)
+    };
     let resume = async || {
         fixture
             .starts
@@ -334,8 +347,13 @@ async fn a_resumed_conversation_reads_no_handshake_until_its_new_process_declare
         fixture.next_start().await
     };
     let first = resume().await;
-    hand_scripted_frame(&*first.listener, routes, session_id, &init);
-    assert!(handshakes.held_handshake_for(session_id, &handle).is_some());
+    hand_scripted_frame(
+        &*first.listener,
+        routes,
+        session_id,
+        &init_listing("old-command"),
+    );
+    assert_eq!(listed(), Some(vec!["old-command".to_owned()]));
     fixture
         .driver
         .close_session(CloseSessionParams {
@@ -348,9 +366,18 @@ async fn a_resumed_conversation_reads_no_handshake_until_its_new_process_declare
 
     let second = resume().await;
 
-    assert!(handshakes.held_handshake_for(session_id, &handle).is_none());
-    hand_scripted_frame(&*second.listener, routes, session_id, &init);
-    assert!(handshakes.held_handshake_for(session_id, &handle).is_some());
+    assert_eq!(
+        listed(),
+        Some(Vec::new()),
+        "the new process's initialize lists none"
+    );
+    hand_scripted_frame(
+        &*second.listener,
+        routes,
+        session_id,
+        &init_listing("new-command"),
+    );
+    assert_eq!(listed(), Some(vec!["new-command".to_owned()]));
 }
 
 // Killed by starting every process in its level's own mode, which drops a stored Plan until a
