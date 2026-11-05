@@ -86,6 +86,7 @@ use crate::port::running_command_publisher::{
     RunningCommandParams, WriteCommandInputParams, command_act_unsupported,
 };
 use crate::port::session_inbox_address::SessionInboxAddresser;
+use crate::pricing::rule::RequestPricer;
 
 mod account;
 mod account_home_logs;
@@ -114,6 +115,7 @@ mod native_program;
 mod notification_routing;
 mod output_speed;
 mod permission_level;
+mod pricing;
 mod privacy;
 mod rate_limits;
 mod release_notes;
@@ -830,5 +832,9 @@ impl ProviderDriver for CodexDriver {
 
     fn remove_left_sign_in_folders(&self) -> BoxFuture<'_, Result<(), DriverError>> {
         self.remove_left_sign_in_folders().boxed()
+    }
+
+    fn request_pricer(&self) -> Option<Arc<dyn RequestPricer>> {
+        Some(Arc::new(pricing::CodexRequestPricer))
     }
 }

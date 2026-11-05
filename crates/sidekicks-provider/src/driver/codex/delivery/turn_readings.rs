@@ -33,7 +33,7 @@ struct CodexTurnReading {
 
 impl CodexTurnReadings {
     /// Adds `output_tokens`, one metered round's output delta, to the turn `turn_id`, answering
-    /// the turn's tokens so far. A resent reading meters to a zero delta, so it adds nothing.
+    /// the turn's tokens so far. A resent reading meters to no delta, so it never reaches here.
     pub(crate) fn add_output_tokens(&mut self, turn_id: &str, output_tokens: u64) -> u64 {
         let reading = self.by_turn_id.entry(turn_id.to_owned()).or_default();
         reading.tokens_received = reading.tokens_received.saturating_add(output_tokens);
@@ -196,7 +196,7 @@ mod tests {
     }
 
     // Each turn's tokens are its rounds' output summed: a second round adds its own output, a
-    // resent reading adds nothing, and the next turn counts from its own first round.
+    // resent reading meters to no delta, and the next turn counts from its own first round.
     #[test]
     fn sums_each_turns_rounds_and_adds_nothing_for_a_resent_reading() {
         let mut accountant = UsageDeltaAccountant::new(DESCRIPTOR.provider_id());
@@ -209,9 +209,9 @@ mod tests {
             ("turn-1", 100),
             ("turn-2", 130),
         ] {
-            let delta = accountant
-                .meter_reading(reading(turn_id, cumulative_output))
-                .expect("the thread is established");
+            let Some(delta) = accountant.meter_reading(reading(turn_id, cumulative_output)) else {
+                continue;
+            };
             let turn_id = delta
                 .attributed_turn_id
                 .expect("the reading names its turn");
@@ -221,7 +221,7 @@ mod tests {
                 .expect("the reading carries output");
             received.push(readings.add_output_tokens(&turn_id, output));
         }
-        assert_eq!(received, [40, 100, 100, 30]);
+        assert_eq!(received, [40, 100, 30]);
     }
 
     // Each row of an `update_plan` call reseeds the list from its input, which replaces the list

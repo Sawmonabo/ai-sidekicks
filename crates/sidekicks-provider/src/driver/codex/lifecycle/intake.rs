@@ -14,6 +14,7 @@
 //! write of the session would. Its inbound queue stays unbounded, since the connection's reader
 //! serves every session of the service, and is logged as it grows past each depth mark.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures::FutureExt as _;
@@ -43,6 +44,7 @@ use crate::driver::codex::notification_routing::{
     CodexContextWindowReading, CodexRoutedFrames, CodexSessionRouting,
 };
 use crate::driver::codex::output_speed::observe_codex_output_speed_frame;
+use crate::driver::codex::pricing::CodexRecorderPricing;
 use crate::driver::codex::run::control::CodexRunControl;
 use crate::driver::codex::run::routes::CodexRunRoutes;
 use crate::driver::codex::run::self_started_turns::open_codex_self_started_turn;
@@ -53,6 +55,7 @@ use crate::driver::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnEndW
 use crate::driver::codex::server_requests::{
     CodexInboundServerRequest, CodexServerRequestDecision,
 };
+use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::calls::{CodexSessionTask, run_codex_session_call};
 use crate::driver::codex::session::context_reading::{
     CodexFixedStart, CodexSessionContextReadings,
@@ -109,10 +112,11 @@ pub(crate) struct CodexSessionIntake {
     usage_recorder: Option<mpsc::Sender<UsageRecorderItem>>,
 }
 
-// What the session's usage recorder takes, in metering order: spend, or a move of the session's
-// bindings onto another account, made once the spend before it is recorded.
+// What the session's usage recorder takes, in metering order: spend, with the service and folder
+// whose region prices it, or a move of the session's bindings onto another account, made once the
+// spend before it is recorded.
 enum UsageRecorderItem {
-    Usage(Vec<MeteredUsage>),
+    Usage(Vec<MeteredUsage>, Arc<CodexService>, PathBuf),
     AccountMove(CodexBindingMove),
 }
 
@@ -208,15 +212,14 @@ impl CodexSessionIntake {
             let report = report.clone();
             let bindings = Arc::clone(&self.parts.runtime_bindings);
             let account_moves = Arc::clone(&self.parts.ports.session_account_moves);
+            let mut pricing = CodexRecorderPricing::new(&self.parts.ports);
             self.parts.tasks.spawn(async move {
                 while let Some(item) = items.recv().await {
                     match item {
-                        UsageRecorderItem::Usage(batch) => {
-                            for metered in batch {
-                                if let Err(error) = sink.record_metered(metered).await {
-                                    report(error);
-                                }
-                            }
+                        UsageRecorderItem::Usage(batch, service, folder) => {
+                            pricing
+                                .record(&*sink, batch, &service, &folder, &report)
+                                .await;
                         }
                         UsageRecorderItem::AccountMove(binding_move) => {
                             binding_move.land(&*bindings, &account_moves).await;
@@ -229,9 +232,11 @@ impl CodexSessionIntake {
         let Some(recorder) = &self.usage_recorder else {
             return;
         };
-        if let Err(refused) = recorder.send(UsageRecorderItem::Usage(usage)).await {
+        let folder = record.thread_settings.working_directory.clone();
+        let item = UsageRecorderItem::Usage(usage, Arc::clone(&record.service), folder);
+        if let Err(refused) = recorder.send(item).await {
             let lost = match refused.0 {
-                UsageRecorderItem::Usage(batch) => batch.len(),
+                UsageRecorderItem::Usage(batch, ..) => batch.len(),
                 UsageRecorderItem::AccountMove(_) => 0,
             };
             report(Box::new(UsageRecorderEnded { lost }));
