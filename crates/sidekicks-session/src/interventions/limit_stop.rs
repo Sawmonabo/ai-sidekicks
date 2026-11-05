@@ -441,8 +441,8 @@ enum LimitDispatch {
     Cut,
 }
 
-// A fresh key for a request the daemon makes itself, which no one retries.
-fn mint_client_key() -> ClientUuid {
+/// A fresh key for a request the daemon makes itself, which no one retries.
+pub(crate) fn mint_client_key() -> ClientUuid {
     ClientUuid::new(mint_uuid_v7().to_string()).expect("a minted UUID is a client UUID")
 }
 
@@ -459,4 +459,4 @@ fn row_pending(source: impl std::error::Error + Send + Sync + 'static) -> LimitI
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

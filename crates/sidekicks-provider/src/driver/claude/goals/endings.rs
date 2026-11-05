@@ -6,8 +6,6 @@
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::io;
-use std::path::PathBuf;
 use std::sync::Mutex;
 
 use sidekicks_contracts::agent::definition::AgentId;
@@ -19,9 +17,9 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 
-use super::records::{GoalStatusRecord, read_goal_status_tail};
+use super::file::{ClaudeProcessGoal, read_new_records};
+use super::records::GoalStatusRecord;
 use crate::driver::claude::delivery::system::{ClaudeProviderWords, read_provider_words};
-use crate::driver::claude::session::conversation_file::conversation_file_of;
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 
 // The lead's line once `/goal <condition>` set or replaced the goal.
@@ -321,24 +319,15 @@ pub(crate) struct ClaudeGoalEndings {
 }
 
 impl ClaudeGoalEndings {
-    /// Takes the goal a session's process comes up with, as the daemon stored it: `None`, or a
-    /// final status, leaves none active.
-    #[expect(
-        dead_code,
-        reason = "the session bring-up that seeds the goal the daemon stored"
-    )]
-    pub(crate) fn seed(&self, session_id: SessionId, goal: Option<(String, SessionGoalStatus)>) {
+    /// Takes the goal a session's process restored from its conversation file as it came up: the
+    /// condition of the active goal, or `None`, which leaves none active.
+    pub(crate) fn seed(&self, session_id: SessionId, restored_condition: Option<String>) {
         let mut active = lock(&self.active_by_session);
-        match goal {
-            Some((condition, status))
-                if !matches!(
-                    status,
-                    SessionGoalStatus::Complete | SessionGoalStatus::Impossible
-                ) =>
-            {
+        match restored_condition {
+            Some(condition) => {
                 active.insert(session_id, condition);
             }
-            Some(_) | None => {
+            None => {
                 active.remove(&session_id);
             }
         }
@@ -408,94 +397,6 @@ pub(crate) struct ClaudeGoalFileEndings {
     pub(crate) has_record: bool,
 }
 
-/// What one process's goal is read against: the session's lead, whose goal it is, and the
-/// conversation file its outcomes are written to.
-pub(crate) struct ClaudeProcessGoal {
-    /// The session's lead.
-    pub(crate) agent_id: AgentId,
-    /// The conversation file, which only the session's task reads.
-    pub(crate) file: Mutex<ClaudeGoalFile>,
-}
-
-/// One process's conversation file as the goal reads follow it: where Claude Code keeps it, once
-/// found, and the offset the next read starts from.
-#[derive(Debug)]
-pub(crate) struct ClaudeGoalFile {
-    spawn_environment: Vec<(String, String)>,
-    provider_session_id: String,
-    path: Option<PathBuf>,
-    end: u64,
-}
-
-impl ClaudeGoalFile {
-    /// The file of conversation `provider_session_id` in the Claude Code home `spawn_environment`
-    /// names, followed from its length as the process comes up, so what an earlier process wrote
-    /// is never read again; one not yet written is followed from its start once it appears. A
-    /// home that cannot be listed is logged, and the file looked for again at the next read.
-    pub(crate) async fn open(
-        spawn_environment: &[(String, String)],
-        provider_session_id: &str,
-    ) -> Self {
-        let mut file = Self {
-            spawn_environment: spawn_environment.to_vec(),
-            provider_session_id: provider_session_id.to_owned(),
-            path: None,
-            end: 0,
-        };
-        let found = match conversation_file_of(spawn_environment, provider_session_id).await {
-            Ok(found) => found,
-            Err(error) => {
-                report_unlocated(provider_session_id, &error);
-                None
-            }
-        };
-        if let Some(path) = found {
-            match tokio::fs::metadata(&path).await {
-                Ok(metadata) => {
-                    file.end = metadata.len();
-                    file.path = Some(path);
-                }
-                Err(error) => report_unlocated(provider_session_id, &error),
-            }
-        }
-        file
-    }
-}
-
-fn report_unlocated(provider_session_id: &str, error: &io::Error) {
-    tracing::warn!(
-        provider_session_id,
-        error = error as &(dyn Error + 'static),
-        "Claude Code's conversation file could not be located for the goal reads"
-    );
-}
-
-// The records `file` gained since its last read, its offset moved past them; the lock is never
-// held across the read.
-async fn read_new_records(file: &Mutex<ClaudeGoalFile>) -> io::Result<Vec<GoalStatusRecord>> {
-    let (path, from, spawn_environment, provider_session_id) = {
-        let file = lock(file);
-        (
-            file.path.clone(),
-            file.end,
-            file.spawn_environment.clone(),
-            file.provider_session_id.clone(),
-        )
-    };
-    let path = match path {
-        Some(path) => path,
-        None => match conversation_file_of(&spawn_environment, &provider_session_id).await? {
-            Some(path) => path,
-            None => return Ok(Vec::new()),
-        },
-    };
-    let tail = read_goal_status_tail(&path, from).await?;
-    let mut file = lock(file);
-    file.path = Some(path);
-    file.end = tail.end;
-    Ok(tail.records)
-}
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -509,6 +410,7 @@ mod tests {
         ClaudeSessionGoal, GoalEnding, GoalEndingInput, GoalTurnEnd, classify_goal_ending,
     };
     use crate::driver::claude::goals::records::GoalStatusRecord;
+    use crate::driver::claude::goals::records::tests::record;
     use crate::driver::test_registry::{new_agent_id, new_session_id};
 
     // What Claude Code wrote, owned so a case can hold it.
@@ -530,21 +432,6 @@ mod tests {
         Cleared,
         NotMet,
         CheckUnfinished,
-    }
-
-    fn record(
-        is_met: bool,
-        is_failed: bool,
-        is_sentinel: bool,
-        condition: Option<&str>,
-    ) -> GoalStatusRecord {
-        GoalStatusRecord {
-            is_met,
-            is_failed,
-            is_sentinel,
-            condition: condition.map(str::to_owned),
-            reason: None,
-        }
     }
 
     fn updated(

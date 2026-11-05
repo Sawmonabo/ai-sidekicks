@@ -9,6 +9,7 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use secrecy::SecretString;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
+use sidekicks_contracts::agent::provider_binding::AgentBindingSwitchBoundary;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::mcp::server::config::{
@@ -18,6 +19,7 @@ use sidekicks_contracts::provider::account::record::{
     CredentialGeneration, ProviderAccountId, ProviderAuthMode,
 };
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::run::children::ChildStoppedState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::voice::VoiceKind;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -52,6 +54,7 @@ use crate::spawn_environment::ReservedEnvironmentNames;
 use crate::tool_server_name::McpServerNameRule;
 
 pub mod attachments;
+pub mod binding_switch;
 pub mod callback_tool;
 pub mod capabilities;
 pub mod child_records;
@@ -117,10 +120,16 @@ pub struct ProviderDescriptor {
     /// The provider's own word for standard output speed, as its declared state reads it; a run
     /// that carried another level and settles on another state is told fast output is unavailable.
     pub standard_output_speed: &'static str,
+    /// How the provider's stop leaves a child, which the flow row of a stop of every agent a
+    /// session dispatched reads as its word, whatever each reached child's own end.
+    pub stop_all_row_word: ChildStoppedState,
     /// The output-speed levels a person may request, for a provider that lists none per model;
     /// `None` where the provider lists them on each model of its catalog, so the two never both
     /// apply.
     pub(crate) output_speed_levels: Option<&'static [&'static str]>,
+    /// Where a switch of each axis that settles in place applies on the provider: the next turn,
+    /// or the end of the run in flight where the axis takes a new process.
+    pub(crate) switch_boundaries: ProviderSwitchBoundaries,
     /// The variables the app sets on every one of the provider's processes, each with its value,
     /// over anything the base or a person's row sets; the auto-update opt-out is among them.
     pub(crate) process_environment: &'static [(&'static str, &'static str)],
@@ -191,6 +200,21 @@ pub struct ProviderDescriptor {
     /// The command a person types in a terminal to pick up one of the provider's sessions typed
     /// there again.
     pub(crate) terminal_resume_command: &'static str,
+}
+
+/// Where a switch of each in-place axis applies on one provider, as its driver takes the axis; a
+/// provider move is not among them, since it always starts a different program.
+pub(crate) struct ProviderSwitchBoundaries {
+    /// The model.
+    pub(crate) model_id: AgentBindingSwitchBoundary,
+    /// The reasoning effort.
+    pub(crate) effort: AgentBindingSwitchBoundary,
+    /// The output speed.
+    pub(crate) output_speed: AgentBindingSwitchBoundary,
+    /// The session options.
+    pub(crate) options: AgentBindingSwitchBoundary,
+    /// The model's larger context window.
+    pub(crate) larger_window: AgentBindingSwitchBoundary,
 }
 
 /// A provider's contract with the command wrapper's link when it prefixes every shell command it

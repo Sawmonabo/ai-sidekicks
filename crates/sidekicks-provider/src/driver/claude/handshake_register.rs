@@ -125,6 +125,28 @@ impl ClaudeHandshakeRegister {
         self.settle_run_output_speed(session_id, provider_session_id)
     }
 
+    /// Holds `commands`, the list the `initialize` reply of the process under
+    /// `provider_session_id` declared, as its handshake's invocable commands, so the process lists
+    /// them before its first message brings `system/init`, whose declaration then replaces it.
+    pub(crate) fn hold_initialize_commands(
+        &self,
+        session_id: SessionId,
+        provider_session_id: &str,
+        commands: &[String],
+    ) {
+        lock(&self.sessions)
+            .entry(session_id)
+            .or_default()
+            .handshake = Some(ClaudeHeldHandshake {
+            provider_session_id: provider_session_id.to_owned(),
+            invocable_command_names: commands.iter().cloned().collect(),
+            declaration: ClaudeHandshakeDeclaration {
+                slash_commands: commands.to_vec(),
+                ..ClaudeHandshakeDeclaration::default()
+            },
+        });
+    }
+
     /// Takes `commands`, a whole `/` list Claude Code sent again, in place of the commands the
     /// held declaration of the process under `provider_session_id` listed; a list from another
     /// process, or before any declaration, changes nothing.

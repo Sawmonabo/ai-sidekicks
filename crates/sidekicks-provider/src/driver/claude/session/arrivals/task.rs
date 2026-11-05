@@ -31,7 +31,7 @@ use crate::driver::claude::goals::ClaudeGoalCommands;
 use crate::driver::claude::goals::endings::ClaudeGoalEndings;
 use crate::driver::claude::hooks::callbacks::{
     ClaudeRequestRoute, answer_background_work_check, answer_claude_request, route_claude_request,
-    route_helper_start,
+    route_helper_start, route_helper_wake, route_message_target,
 };
 use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
@@ -54,6 +54,7 @@ use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::tool_server_calls::ClaudeToolServerCalls;
 use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
 use crate::driver::delivery_dispatch::dispatch_delivery;
+use crate::port::agent_tree_lookup::AgentTreeLookup;
 use crate::port::in_process_tool_servers::InProcessToolServers;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery};
@@ -99,6 +100,9 @@ pub(crate) struct ClaudeSessionTaskServices {
     pub(crate) background_work: Arc<BackgroundWorkForms>,
     /// The in-process tool servers, once registered.
     pub(crate) tool_servers: Arc<PortRegistration<Arc<dyn InProcessToolServers>>>,
+    /// The session's agent tree, once registered, which the message-target check reads a
+    /// helper's stored stop from and the helper-wake check whether it has ended.
+    pub(crate) agent_tree_lookup: Arc<PortRegistration<Arc<dyn AgentTreeLookup>>>,
     /// Which process runs each session, each removed at its exit.
     pub(crate) processes: Arc<ProviderProcessRegistry>,
     /// The restarts of a process that ended on its own, and the build moves a turn held back.
@@ -182,9 +186,13 @@ impl ClaudeSessionTask {
                 live.report_mcp_servers(servers, frame_kind);
             }
         }
-        // A helper's end frees the starts the helper limit held behind it.
-        let admitted =
-            lock(&services.helpers).observe_lifecycle(&session_id, &routed.routed.helper_lifecycle);
+        // A helper's end, or a counted call answered with no helper started, frees the starts the
+        // helper limit held behind it.
+        let admitted = lock(&services.helpers).observe_lifecycle(
+            &session_id,
+            &routed.routed.helper_lifecycle,
+            &observation.answered_call_ids,
+        );
         for request_id in admitted {
             answer_claude_request(
                 &*live.channel,
@@ -231,8 +239,8 @@ impl ClaudeSessionTask {
         self.take_route(route, level).await;
     }
 
-    // Answers, holds or hands on one request as its route says; a helper start's check settles
-    // into an answer or a hold, which is taken in its turn.
+    // Answers, holds or hands on one request as its route says; a helper start's, a message
+    // target's or a helper wake's check settles into an answer or a hold, taken in its turn.
     async fn take_route(&mut self, route: ClaudeRequestRoute, level: Option<PermissionLevel>) {
         let services = Arc::clone(&self.services);
         let live = &self.live;
@@ -250,6 +258,41 @@ impl ClaudeSessionTask {
                     &session_id,
                     request_id,
                     agent_id,
+                )
+                .await;
+                Box::pin(self.take_route(settled, level)).await;
+            }
+            ClaudeRequestRoute::CheckMessageTarget {
+                request_id,
+                agent_id,
+                to,
+            } => {
+                let settled = route_message_target(
+                    services.agent_tree_lookup.port().cloned(),
+                    &services.pauses,
+                    &session_id,
+                    request_id,
+                    agent_id,
+                    to,
+                )
+                .await;
+                Box::pin(self.take_route(settled, level)).await;
+            }
+            ClaudeRequestRoute::CheckHelperWake {
+                request_id,
+                agent_id,
+                tool_use_id,
+                to,
+            } => {
+                let settled = route_helper_wake(
+                    services.agent_tree_lookup.port().cloned(),
+                    &services.pauses,
+                    &services.helpers,
+                    &session_id,
+                    request_id,
+                    agent_id.as_deref(),
+                    &tool_use_id,
+                    &to,
                 )
                 .await;
                 Box::pin(self.take_route(settled, level)).await;

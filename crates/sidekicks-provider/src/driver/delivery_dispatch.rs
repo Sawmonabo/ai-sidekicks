@@ -59,6 +59,7 @@ pub(crate) fn dispatch_delivery<'d>(
         InboundDelivery::RunLifecycle { binding, .. }
         | InboundDelivery::RunContinued { binding, .. }
         | InboundDelivery::ChildRun { binding, .. }
+        | InboundDelivery::ChildRunParentCorrected { binding, .. }
         | InboundDelivery::RunMarker { binding, .. }
         | InboundDelivery::LiveRunState { binding, .. }
         | InboundDelivery::ThinkingUpdate { binding, .. }

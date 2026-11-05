@@ -1,12 +1,11 @@
 //! The routing facts of one stream frame Claude Code writes on its output: its kind, the helper it
 //! came from, a helper's start, move to the background and end, the tool calls a `user` frame's
-//! results answer, an assistant message's usage with what prices its request and a turn's own
-//! usage, the `system/init`
-//! declaration with its MCP servers' readings and a later whole `/` list, the compaction boundary,
-//! and a start-up hook's start or end. The frame is untrusted, so it is read once into a struct
-//! naming only these members, each leniently: an absent or malformed one reads as absent, and
-//! every other member is skipped unread. `modelUsage`, the process's sum over every thread, is
-//! never read.
+//! results answer, the `SendMessage` calls an assistant frame makes, an assistant message's usage
+//! with what prices its request and a turn's own usage, the `system/init` declaration with its MCP
+//! servers' readings and a later whole `/` list, the compaction boundary, and a start-up hook's
+//! start or end. The frame is untrusted, so it is read once into a struct naming only these
+//! members, each leniently: an absent or malformed one reads as absent, and every other member is
+//! skipped unread. `modelUsage`, the process's sum over every thread, is never read.
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -19,6 +18,7 @@ use crate::driver::claude::event_normalizer::{
     ClaudeSubagentLifecycleSignal, ClaudeSubagentSignal, compose_claude_wire_frame_kind,
     is_claude_result_frame_kind,
 };
+use crate::driver::claude::hooks::registration::CLAUDE_MESSAGE_TOOL_NAME;
 use crate::driver::claude::session::transport::declarations::{
     ClaudeCompactionBoundaryObservation, ClaudeCumulativeUsageObservation,
     ClaudeFastModeDeclaration, ClaudeHandshakeDeclaration, ClaudeInboundFrameObservation,
@@ -106,15 +106,19 @@ struct ClaudeFrameMessage {
     #[serde(default, deserialize_with = "read_lenient")]
     usage: Option<ClaudeTokenUsage>,
     #[serde(default, deserialize_with = "read_lenient")]
-    content: Option<LenientList<ClaudeResultBlock>>,
+    content: Option<LenientList<ClaudeContentBlock>>,
 }
 
-// A content block, read only for a tool result's call; the result's own content is skipped
-// unread, since it can be a whole file.
+// A content block, read only for a tool call's id and tool and a tool result's call; the result's
+// own content and the call's input are skipped unread, since either can be a whole file.
 #[derive(Deserialize)]
-struct ClaudeResultBlock {
+struct ClaudeContentBlock {
     #[serde(rename = "type", default, deserialize_with = "read_lenient")]
     block_type: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    id: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    name: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     tool_use_id: Option<String>,
 }
@@ -171,7 +175,7 @@ struct ClaudeChangedCommand {
 lenient_object!(
     ClaudeStreamFrameRead,
     ClaudeFrameMessage,
-    ClaudeResultBlock,
+    ClaudeContentBlock,
     ClaudeTaskPatch,
     ClaudeTokenUsage,
     ClaudeCacheCreation,
@@ -265,6 +269,21 @@ impl ClaudeStreamFrameRead {
                     .collect()
             })
             .unwrap_or_default();
+        let message_call_ids = (frame_kind == "assistant")
+            .then(|| self.message.as_ref()?.content.as_ref())
+            .flatten()
+            .map(|content| {
+                content
+                    .0
+                    .iter()
+                    .filter(|block| {
+                        block.block_type.as_deref() == Some("tool_use")
+                            && block.name.as_deref() == Some(CLAUDE_MESSAGE_TOOL_NAME)
+                    })
+                    .filter_map(|block| filter_non_empty(block.id.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
         let backgrounded_helper_id = (frame_kind == "system/task_updated"
             && self.patch.as_ref().and_then(|patch| patch.is_backgrounded) == Some(true))
         .then(|| filter_non_empty(self.task_id.clone()))
@@ -288,6 +307,7 @@ impl ClaudeStreamFrameRead {
             subagent_lifecycle,
             backgrounded_helper_id,
             answered_call_ids,
+            message_call_ids,
             handshake,
             compaction_boundary,
         }

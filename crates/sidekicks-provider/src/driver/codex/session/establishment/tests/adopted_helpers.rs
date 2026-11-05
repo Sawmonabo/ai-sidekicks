@@ -7,7 +7,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::run::subagent::SubagentId;
 
-use super::continuation::{
+use super::adoption::{
     ADOPTED_THREAD, Adoption, AdoptionScript, CUT_TURN, HelperScript, ROOT_TURN, adopt, lead_run,
     page_turn,
 };
