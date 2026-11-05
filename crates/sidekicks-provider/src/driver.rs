@@ -619,6 +619,9 @@ pub struct SessionSpawnContext {
     /// The session's own advisor: `None` where it has none of its own, `Some(None)` where it is
     /// off.
     pub advisor_model: Option<Option<String>>,
+    /// The session's own `Auto memory` switch: `None` where the person never set it, so the
+    /// provider's own settings decide.
+    pub auto_memory: Option<bool>,
 }
 
 /// The folders of an account's home, which the app manages for every account, each absolute: the

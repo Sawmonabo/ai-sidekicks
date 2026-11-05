@@ -7,7 +7,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_provider::driver::registry::test_provider;
-use sidekicks_session::conversation_purge::ConversationPurgeError;
+use sidekicks_session::conversations::purge::ConversationPurgeError;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::database::writer::test_file::session_event_row;
 

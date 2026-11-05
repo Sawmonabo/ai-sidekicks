@@ -124,6 +124,7 @@ impl SessionSpawnContextResolver for FolderContexts {
                 account_folders,
                 step_bound,
                 advisor_model,
+                auto_memory: None,
             })
         }
         .boxed()

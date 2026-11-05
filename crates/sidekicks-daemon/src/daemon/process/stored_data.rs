@@ -19,7 +19,7 @@ use sidekicks_recovery::damaged_history::{
 };
 use sidekicks_recovery::projection_rebuild::ProjectionRebuildService;
 use sidekicks_recovery::restart_settle::RestartSettle;
-use sidekicks_session::conversation_purge::ConversationPurge;
+use sidekicks_session::conversations::purge::ConversationPurge;
 use sidekicks_shell::table::ShellTable;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::writer::repack::RepackJobDeps;

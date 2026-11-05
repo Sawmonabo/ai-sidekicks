@@ -569,16 +569,16 @@ pub struct ProviderBuildChange {
     pub(crate) to_version: String,
 }
 
-/// One provider conversation a session opened, by the handle it was resumed from, the account it
-/// ran on, and the recovery data its binding kept, which names the home holding it where the
-/// provider keeps that apart from the account's.
+/// One provider conversation a session opened, by handle and account, and the recovery data kept
+/// with it, which names the home holding it where the provider keeps that apart from the account's.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionConversation {
     /// The handle the conversation was resumed from.
     pub resume_handle: String,
     /// The account it ran on.
     pub provider_account_id: ProviderAccountId,
-    /// The provider's own recovery data its binding kept, handed over as stored.
+    /// The provider's own recovery data, its binding's or, for a conversation the session left, the
+    /// leg's it was left from, handed over as stored.
     pub runtime_metadata: Map<String, Value>,
 }
 

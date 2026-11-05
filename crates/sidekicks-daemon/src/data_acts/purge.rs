@@ -58,7 +58,7 @@ use sidekicks_mcp::client::McpClient;
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_recovery::damaged_history::DamagedSessionPurge;
 use sidekicks_recovery::status::RecoveryStatusTracker;
-use sidekicks_session::conversation_purge::{ConversationPurge, ConversationPurgeError};
+use sidekicks_session::conversations::purge::{ConversationPurge, ConversationPurgeError};
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::questions::service::QuestionsService;
 use sidekicks_session::readings::context::ContextReadings;
