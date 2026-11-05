@@ -1,7 +1,10 @@
 //! The settings every outbound HTTP client of the daemon shares: an idle-connection cap per host
 //! and a user agent naming the app with no version. No total timeout is set, since a long event
 //! stream would be cut, and connection tracing is never on, since it writes raw bytes, paths and
-//! headers included; each caller adds its own redirect policy and builds its own client.
+//! headers included; each caller adds its own redirect policy and builds its own client. Also the
+//! download checked against its digest before anything reads it.
+
+pub mod download;
 
 use sidekicks_contracts::app_identity::APP_DISPLAY_NAME;
 
