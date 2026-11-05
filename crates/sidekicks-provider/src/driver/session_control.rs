@@ -582,9 +582,9 @@ pub struct SessionConversation {
     pub runtime_metadata: Map<String, Value>,
 }
 
-/// Params of `purge_session`: every conversation the session's own bindings opened, newest first,
-/// so a fork comes before the conversation it was forked from. A conversation the person started
-/// in a terminal is never one of them.
+/// Params of `purge_session`: every conversation the session ran on, its bindings' and the ones it
+/// left, newest first, so a fork comes before the one it was forked from. A conversation the
+/// person started in a terminal is never one of them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PurgeSessionParams {
     /// The session.

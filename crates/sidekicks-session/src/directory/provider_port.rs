@@ -606,9 +606,9 @@ impl SessionDirectoryProviderPort {
 impl SessionSpawnContextResolver for SessionDirectoryProviderPort {
     /// The session's newest ready workspace's root, its repository's common git folder (`None`
     /// outside one), the machine's and the project's environment rows, the account's folders, and
-    /// the session's own step bound, advisor and `Auto memory` switch. Fails for a session with no workspace ready to
-    /// run in, while the accounts port is unregistered, and as the reads,
-    /// git, the settings file or the accounts port fail.
+    /// the session's own step bound, advisor and `Auto memory` switch. Fails for a session with no
+    /// workspace ready to run in, while the accounts port is unregistered, and as the reads, git,
+    /// the settings file or the accounts port fail.
     fn resolve_spawn_context(
         &self,
         session_id: SessionId,
