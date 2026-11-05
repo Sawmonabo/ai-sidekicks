@@ -23,6 +23,7 @@ use crate::driver::codex::run::turn_end_waiters::{
     CodexTurnEndDeadline, CodexTurnEndWaiters, CodexTurnWait,
 };
 use crate::driver::codex::service::supervisor::CodexService;
+use crate::driver::codex::session::context_reading::CodexSessionContextReadings;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::establishment::helpers::restore_reattached_codex_helper;
 use crate::driver::codex::session::fork::config_change::run_codex_config_fork;
@@ -38,8 +39,8 @@ use crate::driver::codex::session::rewind::{
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 
-/// What a session's task holds beside its queue: the record, its routing band and the waits on
-/// its turns.
+/// What a session's task holds beside its queue: the record, its routing band, the waits on its
+/// turns and its context readings.
 pub(crate) struct CodexSessionTask<'task> {
     /// The session's record.
     pub(crate) record: &'task mut CodexSessionRecord,
@@ -47,6 +48,9 @@ pub(crate) struct CodexSessionTask<'task> {
     pub(crate) routing: &'task mut CodexSessionRouting,
     /// The waits on the session's turns, settled after each frame and call.
     pub(crate) waiters: &'task mut CodexTurnEndWaiters,
+    /// The session's context readings, whose fixed start each binding and each left conversation
+    /// keeps.
+    pub(crate) context_readings: &'task CodexSessionContextReadings,
 }
 
 /// What the calls act through beside the session's task, shared by every session of the driver.

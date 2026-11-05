@@ -45,8 +45,9 @@ use crate::driver::codex::service::supervisor::test_service::{
 use crate::driver::codex::session::context_reading::CodexFixedStart;
 use crate::driver::codex::session::inbound::codex_session_inbound;
 use crate::driver::codex::session::state::{CodexTurnInput, CodexTurnMessage};
+use crate::driver::codex::session::test_fixture::one_folder::OneFolder;
 use crate::driver::codex::session::test_fixture::{
-    OneFolder, TEST_THREAD, TestDaemonTurnBindings, open_test_record, turn_completed,
+    TEST_THREAD, TestDaemonTurnBindings, open_test_record, turn_completed,
 };
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::driver::schema::schema_parts;
