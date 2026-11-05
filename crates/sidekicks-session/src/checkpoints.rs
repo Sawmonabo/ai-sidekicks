@@ -3,6 +3,7 @@
 //! only names, hashes and paths. The copies themselves sit in one folder, each named for its
 //! content's hash, and a file over 10 MiB is shadowed by a clone compared at each capture.
 
+pub mod command_windows;
 pub mod copies;
 pub mod schema;
 pub mod shadows;

@@ -147,17 +147,31 @@ impl ShadowPlaces {
         let file = match files.open(checkout, relative) {
             Ok(RegularFileOpen::Opened(file)) => file,
             Ok(RegularFileOpen::Gone) => return Placement::Gone,
-            Ok(RegularFileOpen::Link | RegularFileOpen::SpecialFile) => {
+            Ok(RegularFileOpen::Link) => {
                 log_failure(
                     relative,
                     "open",
                     &io::Error::new(
                         ErrorKind::InvalidInput,
-                        "the path names a link or a special file, not a regular file",
+                        "the path names a link, not a regular file",
                     ),
                 );
                 return not_kept(
-                    NotKeptReason::Failed,
+                    NotKeptReason::SymbolicLink,
+                    files.facts_at(&checkout.join(relative)).ok(),
+                );
+            }
+            Ok(RegularFileOpen::SpecialFile) => {
+                log_failure(
+                    relative,
+                    "open",
+                    &io::Error::new(
+                        ErrorKind::InvalidInput,
+                        "the path names a special file, not a regular file",
+                    ),
+                );
+                return not_kept(
+                    NotKeptReason::NotARegularFile,
                     files.facts_at(&checkout.join(relative)).ok(),
                 );
             }
@@ -480,9 +494,9 @@ fn clone_into(
     Ok(recorded)
 }
 
-// `path` as a row records it, refused with `InvalidInput` when no row can hold it, a path that is
-// not UTF-8 among them.
-fn recorded_path(path: &Path) -> io::Result<FilesystemPath> {
+/// `path` as a row records it, refused with `InvalidInput` when no row can hold it, a path that is
+/// not UTF-8 or past the length bound among them.
+pub(crate) fn recorded_path(path: &Path) -> io::Result<FilesystemPath> {
     let text = path
         .to_str()
         .ok_or_else(|| io::Error::new(ErrorKind::InvalidInput, "a recorded path is not UTF-8"))?;

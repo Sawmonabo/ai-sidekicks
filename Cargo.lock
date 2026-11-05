@@ -8676,6 +8676,7 @@ dependencies = [
  "ed25519-dalek",
  "ferriki-textmate",
  "ferroni",
+ "flate2",
  "flexi_logger",
  "futures",
  "getrandom 0.4.3",
