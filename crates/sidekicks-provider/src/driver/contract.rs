@@ -50,12 +50,12 @@ use crate::driver::run_control::{
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
     CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverHandoverBriefResult,
-    DriverResumeResult, EndKeptTurnsParams, ExportHandoverBriefParams, MoveSessionToForkParams,
-    MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderCommandsListener,
-    ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
-    SessionCommandAnswer, SetSessionGoalParams, SettleHeldToolCallsParams, StartingLevel,
-    StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
-    UpdateSessionModeParams,
+    DriverResumeResult, EndKeptTurnsParams, ExportHandoverBriefParams, KeptTurnsEnding,
+    MoveSessionToForkParams, MoveSessionToForkResult, NameSessionParams, ProviderBuildChange,
+    ProviderCommandsListener, ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams,
+    RevokeRuleParams, SessionCommandAnswer, SetSessionGoalParams, SettleHeldToolCallsParams,
+    StartingLevel, StartingLevelParams, SubscribeProviderCommandsParams,
+    UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
@@ -89,8 +89,12 @@ pub trait ProviderDriver: Send + Sync {
 
     /// Ends on the provider each turn a restart kept running in a session the start does not
     /// resume. Answers once the driver holds the session for the work, which then runs on the
-    /// driver's own tasks under `params.stop`, each turn's outcome logged.
-    fn end_kept_turns(&self, params: EndKeptTurnsParams) -> BoxFuture<'_, Result<(), DriverError>>;
+    /// driver's own tasks under `params.stop`, each turn's outcome logged; the ending answered
+    /// resolves once that work has ended.
+    fn end_kept_turns(
+        &self,
+        params: EndKeptTurnsParams,
+    ) -> BoxFuture<'_, Result<KeptTurnsEnding, DriverError>>;
 
     /// Waits until the session's process no longer comes back on its own, so a run's binding is
     /// opened on the leg it settles on: answers once the process is live, and fails
@@ -317,7 +321,8 @@ pub trait ProviderDriver: Send + Sync {
     fn close_session(&self, params: CloseSessionParams) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// Settles the tool calls a session held in the background while no process of it runs, after
-    /// a restart of the daemon: each ends as the provider kept it or as the restart ended it, and
+    /// a restart or the person's Stop of the daemon: each ends as the provider kept it or as the
+    /// restart or Stop ended it, one its record keeps under a Stop waits for the next resume, and
     /// every one of a closed session ends.
     fn settle_held_tool_calls(
         &self,

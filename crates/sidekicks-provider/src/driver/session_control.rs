@@ -42,6 +42,7 @@ use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_policy::ask_rule::ProviderAskRule;
 use sidekicks_std::text_cut::cut_to_code_points;
+use tokio::sync::oneshot;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
@@ -311,6 +312,33 @@ pub struct EndKeptTurnsParams {
     pub stop: CancellationToken,
 }
 
+/// The end of the work a driver took to end a session's kept turns, which the daemon waits on
+/// before it forgets that the session's turns were left to end.
+#[derive(Debug)]
+pub struct KeptTurnsEnding(oneshot::Receiver<()>);
+
+impl KeptTurnsEnding {
+    /// An ending whose work goes on, with the sender the driver sends on once the work has ended;
+    /// a sender dropped unsent reads as the work cut short.
+    pub fn waiting() -> (Self, oneshot::Sender<()>) {
+        let (sender, receiver) = oneshot::channel();
+        (Self(receiver), sender)
+    }
+
+    /// An ending with nothing to wait on: the turns ended with the process that ran them.
+    pub fn ended_now() -> Self {
+        let (ending, sender) = Self::waiting();
+        let _ = sender.send(());
+        ending
+    }
+
+    /// Waits for the work to end: `true` once each interrupt has answered, failed or passed its
+    /// deadline, `false` when the stop cut the work first.
+    pub async fn ended(self) -> bool {
+        self.0.await.is_ok()
+    }
+}
+
 /// What the provider holds of one run's turn after a resume.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProviderTurnAnswer {
@@ -380,8 +408,21 @@ pub struct SettleHeldToolCallsParams {
     pub conversation: String,
     /// The provider's own recovery data the leg's binding kept, handed back as stored.
     pub runtime_metadata: Map<String, Value>,
-    /// Whether the session is closed, so no later resume restores a call it held.
-    pub is_closed: bool,
+    /// How the session's held calls are settled.
+    pub settle: HeldCallsSettle,
+}
+
+/// How a session's held tool calls are settled after the daemon's restart or stop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HeldCallsSettle {
+    /// The session is closed: no later resume restores a call, so every one ends.
+    Closed,
+    /// The daemon restarted: a later resume may restore a call its record keeps, and one kept
+    /// nowhere ends with the restart.
+    Restarted,
+    /// The person stopped the service: a call kept nowhere ends with the Stop, and one its record
+    /// keeps waits for the next resume.
+    Stopped,
 }
 
 /// Params of `name_session`: the session, where it runs, and its first exchange, the reply cut
