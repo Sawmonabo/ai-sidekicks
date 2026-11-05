@@ -26,7 +26,7 @@ use crate::daemon::process::providers::Providers;
 use crate::daemon::process::stop::TaskStopFailure;
 use crate::price_list_seed::price_list_seed;
 
-/// LiteLLM's price list on its main branch, the one list the daemon prices requests from.
+/// The public model price list, read from its main branch: the one list requests are priced from.
 const PRICE_LIST_URL: &str =
     "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
 
