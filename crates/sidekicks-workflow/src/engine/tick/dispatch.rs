@@ -515,7 +515,7 @@ pub(super) fn error_members(
 /// `failure` as the step settles with it: its node `node_id` where it names none, and its message
 /// and a coded failure's details scrubbed through `redaction`. A decline passes through.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-fn fill_step_failure(
+pub(super) fn fill_step_failure(
     mut failure: StepFailure,
     node_id: &WorkflowNodeId,
     redaction: &RunRedaction,
@@ -584,15 +584,17 @@ fn test_dispatch(
 ) -> (StepDispatch, mpsc::Receiver<StepReport>) {
     let ports = crate::engine::ports::refusing_engine_ports();
     let recorder = Arc::new(EngineRecorder::new(Arc::clone(&ports.records)));
+    let kinds = Arc::new(NodeKindTable::new(kinds).expect("the test's kinds build a table"));
     test_dispatch_recording(database, ports, kinds, recorder)
 }
 
-/// A dispatch as [`test_dispatch`] builds one, over `ports`, recording in `recorder`.
+/// A dispatch as [`test_dispatch`] builds one, over `ports` and the table `kinds`, recording in
+/// `recorder`.
 #[cfg(test)]
-fn test_dispatch_recording(
+pub(super) fn test_dispatch_recording(
     database: &sidekicks_store::database::writer::test_file::TestDatabase,
     ports: EnginePorts,
-    kinds: Vec<crate::kinds::NodeKind>,
+    kinds: Arc<NodeKindTable>,
     recorder: Arc<EngineRecorder>,
 ) -> (StepDispatch, mpsc::Receiver<StepReport>) {
     let (reports, received) = mpsc::channel(16);
@@ -607,7 +609,7 @@ fn test_dispatch_recording(
             crate::secrets::store::ScriptedKeychain::holding(&[], false),
         )),
         reqwest::Client::new(),
-        Arc::new(NodeKindTable::new(kinds).expect("the test's kinds build a table")),
+        kinds,
         reports,
         recorder,
     );
@@ -647,7 +649,7 @@ fn test_ready_step(
     }
 }
 
-/// A snapshot of a run in which `node` has not run and no run variable is set.
+/// A snapshot of a run in which `node` has not run and no run variable is set, at `Ask`.
 #[cfg(test)]
 fn test_run_snapshot(
     node: &sidekicks_contracts::workflow::definition::document::WorkflowNode,
@@ -658,5 +660,6 @@ fn test_run_snapshot(
             node.name.as_str().to_owned(),
         )])),
         run_variables: Arc::new(serde_json::Map::new()),
+        permission_level: sidekicks_contracts::session::controls::methods::PermissionLevel::Ask,
     }
 }

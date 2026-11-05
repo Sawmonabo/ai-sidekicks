@@ -49,7 +49,7 @@ fn first_to_arrive_wins_on_items_and_cancels_only_its_losing_branch() {
         },
     );
     assert_eq!(
-        walk.ready_inputs(&a_turn.ready[0], &outputs),
+        walk.ready_inputs(&a_turn.ready[0].step, &a_turn.ready[0].sources, &outputs),
         [Vec::new(), a_items, Vec::new(), Vec::new()]
     );
     assert_eq!(

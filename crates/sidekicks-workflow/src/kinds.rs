@@ -185,8 +185,9 @@ pub(crate) enum StepFailure {
     /// The step failed; its node's `onError` decides what follows. Boxed, so a result that may
     /// carry it stays small.
     Failed(Box<WorkflowStepError>),
-    /// The step failed on purpose to end its run, as `Stop and error` does: it is never retried,
-    /// its node's `onError` does not apply, and the run ends.
+    /// The step failed in a way that ends its run: on purpose, as `Stop and error` does, or when
+    /// the output its node's `onError` passes on cannot be stored either. It is never retried, its
+    /// node's `onError` does not apply, and the run ends.
     EndsRun(Box<WorkflowStepError>),
     /// The person declined the step's own card: the step fails and is never retried.
     Declined {

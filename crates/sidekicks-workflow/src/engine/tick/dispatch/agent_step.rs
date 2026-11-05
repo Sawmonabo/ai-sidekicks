@@ -187,7 +187,7 @@ impl StepDispatch {
                             let started_kind = StepReportKind::Started {
                                 input_ref: input_ref.take().expect("a run starts once"),
                                 permission_level: (start.permission_level
-                                    != scope.permission_level)
+                                    != snapshot.permission_level)
                                     .then_some(start.permission_level),
                             };
                             if self.report(&step, &cancel, started_kind).await {
@@ -437,7 +437,7 @@ mod tests {
                 session_id: scope.session_id,
                 step: step.clone(),
                 node_key: WorkflowNodeKey::new(scope.workflow_id, &node.id),
-                permission_level: scope.permission_level,
+                permission_level: test_run_snapshot(&node).permission_level,
                 params,
             }]
         );
@@ -761,6 +761,7 @@ mod tests {
                     .map(|node| (node.id.clone(), node.name.as_str().to_owned())),
             )),
             run_variables: Arc::new(Map::new()),
+            permission_level: PermissionLevel::Ask,
         };
         let readied = [&agent_node, &quick_node]
             .map(|node| test_ready_step(&scope, node, vec![vec![json!({ "name": "Ada" })]]));

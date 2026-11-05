@@ -59,7 +59,7 @@ mod settlement;
 
 /// One run's events and row statements for this turn, in the order handed: each event typed,
 /// with its instant, until the append drafts it, since a readied step adds to an event held.
-#[cfg_attr(not(test), expect(dead_code, reason = "the tick's loop"))]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct RunTurnCommit {
     /// The run's session, whose log takes the write, its definition and the version it pins.
     keys: RunEventKeys,
@@ -117,7 +117,7 @@ enum StepMove {
 }
 
 /// What the tick knows of a reporting step, which the commit reads and never keeps.
-#[cfg_attr(not(test), expect(dead_code, reason = "the tick's loop"))]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct ReportedStep<'tick> {
     /// The sequence of the event whose write readied the step, which every hold report names.
     pub(crate) readying_sequence: SafeInt<0>,
@@ -135,7 +135,7 @@ pub(crate) struct ReportedStep<'tick> {
 
 /// What a settled step hands back to the tick, moved, never copied: what follows and what the
 /// tick keeps of it.
-#[cfg_attr(not(test), expect(dead_code, reason = "the tick's loop"))]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum SettlementAnswer {
     /// The step completed; its successors ride `workflow.step.completed`.
     Completed {
@@ -198,27 +198,19 @@ pub(crate) enum SettlementAnswer {
 /// Why a settlement was not added to the turn: a payload it stores could not be written. Nothing
 /// of the settlement is in the turn; the rest of the turn still commits.
 #[derive(Debug)]
-#[cfg_attr(not(test), expect(dead_code, reason = "the tick's loop"))]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct SettlementWriteFailure {
     /// The payload write that failed.
-    #[cfg_attr(
-        test,
-        expect(dead_code, reason = "the tick's loop, which fails the step")
-    )]
     pub(crate) error: StepPayloadWriteError,
     /// Each artifact the settlement wrote before the failure, which no record names, for the tick
     /// to delete through the payload store.
-    #[cfg_attr(
-        test,
-        expect(dead_code, reason = "the tick's loop, which deletes them")
-    )]
     pub(crate) artifact_ids: Vec<ArtifactId>,
 }
 
 /// What a committed turn answers: each event's sequence, in write order, and the readying
 /// sequence of each step whose `pending` row the write stored.
 #[derive(Debug, Default, PartialEq)]
-#[cfg_attr(not(test), expect(dead_code, reason = "the tick's loop"))]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct RunTurnCommitted {
     /// Each event's sequence, in write order.
     pub(crate) event_sequences: Vec<SafeInt<0>>,
@@ -229,7 +221,7 @@ pub(crate) struct RunTurnCommitted {
 
 /// Why a turn's write was not kept; none of it is stored.
 #[derive(Debug)]
-#[cfg_attr(not(test), expect(dead_code, reason = "the tick's loop"))]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct RunTurnCommitFailure {
     /// The event that would not draft, or the append that was not kept.
     pub(crate) error: SessionEventEmitError,
@@ -238,7 +230,7 @@ pub(crate) struct RunTurnCommitFailure {
     pub(crate) artifact_ids: Vec<ArtifactId>,
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "the tick's loop"))]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 impl RunTurnCommit {
     /// An empty turn of the run whose events name `keys`, storing a payload above the inline cap
     /// through `payloads`.

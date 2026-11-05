@@ -5,9 +5,11 @@ mod admission;
 mod branch_cancellation;
 mod commit;
 mod dispatch;
+mod live_runs;
 pub(crate) mod node_settings;
 pub(crate) mod run_status;
 mod step_failure;
+mod turns;
 mod walk;
 
 pub(crate) use self::branch_cancellation::BranchCancelReason;
@@ -29,7 +31,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::record::{JsonRecord, Record};
 use sidekicks_contracts::workflow::definition::document::{
-    WorkflowDefinitionId, WorkflowName, WorkflowNode, WorkflowNodeId,
+    WorkflowDefinitionId, WorkflowName, WorkflowNode, WorkflowNodeId, WorkflowVersionId,
 };
 use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowPinnedItem};
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
@@ -56,6 +58,8 @@ pub(crate) struct RunScope {
     pub(crate) run_id: WorkflowRunId,
     /// The workflow the run runs.
     pub(crate) workflow_id: WorkflowDefinitionId,
+    /// The version of the workflow the run pins.
+    pub(crate) workflow_version_id: WorkflowVersionId,
     /// The workflow's name, as the run's expressions read it.
     pub(crate) workflow_name: WorkflowName,
     /// How the run was started.
@@ -80,8 +84,6 @@ pub(crate) struct RunScope {
     pub(crate) project: Option<ProjectId>,
     /// The folder the run's steps work in.
     pub(crate) working_folder: PathBuf,
-    /// The level the run's steps run at.
-    pub(crate) permission_level: PermissionLevel,
     /// The workflow's provider as the run started, whose sandbox and shell its command steps use;
     /// `None` when the workflow names none, which a start allows only when no step runs in a
     /// sandbox.
@@ -93,8 +95,8 @@ pub(crate) struct RunScope {
 }
 
 /// A run's scope for a test: the run, workflow and start instant of the test expression
-/// bindings, started in `mode` over `nodes`, in UTC with no project or pins, working in
-/// `/workspace` at `Ask` on the provider `test-provider`.
+/// bindings, pinning a fixed version, started in `mode` over `nodes`, in UTC with no project or
+/// pins, working in `/workspace` on the provider `test-provider`.
 #[cfg(test)]
 pub(crate) fn test_run_scope(mode: WorkflowRunMode, nodes: Vec<WorkflowNode>) -> RunScope {
     let bindings =
@@ -104,6 +106,8 @@ pub(crate) fn test_run_scope(mode: WorkflowRunMode, nodes: Vec<WorkflowNode>) ->
             .expect("the test's session id is a UUID"),
         run_id: bindings.run_id,
         workflow_id: bindings.workflow_id,
+        workflow_version_id: WorkflowVersionId::new("0190a2b4-7c3d-7e5f-8a1b-2c3d4e5f6a7c")
+            .expect("the test's version id is a UUID"),
         workflow_name: bindings.workflow_name,
         mode,
         trigger: bindings.run_trigger,
@@ -124,7 +128,6 @@ pub(crate) fn test_run_scope(mode: WorkflowRunMode, nodes: Vec<WorkflowNode>) ->
         kept_values: Arc::new([]),
         project: None,
         working_folder: PathBuf::from("/workspace"),
-        permission_level: PermissionLevel::Ask,
         provider: Some(
             ProviderId::new("test-provider".to_owned()).expect("the test's provider id"),
         ),
@@ -142,6 +145,9 @@ pub(crate) struct RunSnapshot {
     pub(crate) outputs: Arc<StepOutputs>,
     /// The values the run set with `Set variables`.
     pub(crate) run_variables: Arc<Map<String, Value>>,
+    /// The level the steps run at, the workflow's as the turn read it, so a change reaches a live
+    /// run from its next step.
+    pub(crate) permission_level: PermissionLevel,
 }
 
 /// A step the walk readied: its key, its loop's run index and its input.

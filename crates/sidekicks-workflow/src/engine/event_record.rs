@@ -188,13 +188,7 @@ pub(crate) enum EngineDeadline {
 }
 
 /// A failure the engine met where no caller can answer it, recorded with its error chain.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the tick's dispatch and the run start, which record what no caller answers"
-    )
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum EngineFault {
     /// The stop of an agent step's run could not be sent; the run's outcome still ends the step.
     AgentRunStopFailed,
@@ -202,6 +196,13 @@ pub(crate) enum EngineFault {
     SecretReadFailed,
     /// A start held on its chain could not remove the run's own folder or its stored trigger input.
     HeldStartLeftBehind,
+    /// A run's turn was not written; the run left the live set, and the restart settles what the
+    /// log holds.
+    TurnWriteFailed,
+    /// An artifact a failed turn or settlement wrote, which no record names, could not be deleted.
+    TurnPayloadLeftBehind,
+    /// A payload of a step could not be stored; the step failed in its place.
+    SettlementWriteFailed,
 }
 
 /// An intent recorded and not yet answered; its outcome names it by `sequence`.
@@ -456,13 +457,7 @@ impl RunEngineRecord {
 
     /// Records `fault`, on `step` where one is named, with `error`'s message and each of its
     /// sources' in order.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the tick's dispatch and the run start, which record what no caller answers"
-        )
-    )]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) async fn fault(
         &self,
         step: Option<&WorkflowStepKey>,
@@ -485,6 +480,21 @@ impl RunEngineRecord {
                 &mut line,
                 "heldStartLeftBehind",
                 "A start held on its chain left its folder or its stored input behind.",
+            ),
+            EngineFault::TurnWriteFailed => says(
+                &mut line,
+                "turnWriteFailed",
+                "A turn of the run was not written; the run left the live set.",
+            ),
+            EngineFault::TurnPayloadLeftBehind => says(
+                &mut line,
+                "turnPayloadLeftBehind",
+                "A stored payload no record names could not be deleted.",
+            ),
+            EngineFault::SettlementWriteFailed => says(
+                &mut line,
+                "settlementWriteFailed",
+                "A payload of the step could not be stored; the step failed in its place.",
             ),
         }
         line.insert("error".to_owned(), json!(error_chain(error)));

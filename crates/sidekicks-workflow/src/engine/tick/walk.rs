@@ -828,20 +828,21 @@ impl RunWalk {
 }
 
 impl RunWalk {
-    /// The input lists the step `ready` runs on, one per input of its kind's spec in spec order: a
-    /// main slot's list is its source output's items, cloned once, and a tool input's or an unfed
-    /// slot's list is empty. A disabled skip's first output reads as the feed of its first slot,
-    /// through any chain of them, and its other outputs as empty; every other source is a step
-    /// `outputs` recorded.
+    /// The input lists `step`, readied or skipped with `sources`, runs on, one per input of its
+    /// kind's spec in spec order: a main slot's list is its source output's items, cloned once,
+    /// and a tool input's or an unfed slot's list is empty. A disabled skip's first output reads
+    /// as the feed of its first slot, through any chain of them, and its other outputs as empty;
+    /// every other source is a step `outputs` recorded.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn ready_inputs(
         &self,
-        ready: &WalkReady,
+        step: &WorkflowStepKey,
+        sources: &[Option<WorkflowStepSource>],
         outputs: &StepOutputs,
     ) -> Vec<Vec<WorkflowItem>> {
-        let node = self.graph.node(self.graph.place(&ready.step.node_id));
+        let node = self.graph.node(self.graph.place(&step.node_id));
         let mut inputs = vec![Vec::new(); node.input_count];
-        for (slot, source) in node.slots.iter().zip(&ready.sources) {
+        for (slot, source) in node.slots.iter().zip(sources) {
             let mut source = source.as_ref();
             while let Some((skip, passed)) = source
                 .and_then(|skip| Some((skip, self.passed_on.get(&skip.execution_index.get())?)))

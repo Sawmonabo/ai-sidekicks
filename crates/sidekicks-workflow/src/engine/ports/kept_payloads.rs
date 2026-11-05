@@ -26,14 +26,16 @@ pub(crate) struct KeptPayload {
     pub(crate) artifact_id: ArtifactId,
 }
 
-/// A payload store that keeps what each write was given and answers a fresh artifact, reads each
-/// kept artifact's bytes back, and keeps each artifact deleted, or refuses every delete once told
-/// to.
+/// A payload store that keeps what each write was given and answers a fresh artifact, or refuses
+/// every write past a count once told to, reads each kept artifact's bytes back, and keeps each
+/// artifact deleted, or refuses every delete once told to.
 #[derive(Default)]
 pub(crate) struct KeptPayloads {
     writes: Mutex<Vec<KeptPayload>>,
     deletes: Mutex<Vec<ArtifactId>>,
     is_refusing_deletes: AtomicBool,
+    /// How many writes it keeps in all before refusing the rest; `None` keeps every one.
+    write_limit: Mutex<Option<usize>>,
 }
 
 impl KeptPayloads {
@@ -57,6 +59,11 @@ impl KeptPayloads {
     pub(crate) fn refuse_deletes(&self) {
         self.is_refusing_deletes.store(true, Ordering::SeqCst);
     }
+
+    /// Keeps `count` writes in all, those already kept among them, and refuses every one past them.
+    pub(crate) fn refuse_writes_past(&self, count: usize) {
+        *self.write_limit.lock().expect("the test's payloads lock") = Some(count);
+    }
 }
 
 impl StepPayloadArtifacts for KeptPayloads {
@@ -69,16 +76,18 @@ impl StepPayloadArtifacts for KeptPayloads {
     ) -> BoxFuture<'call, Result<ArtifactId, PortError>> {
         let artifact_id =
             ArtifactId::try_from(mint_uuid_v7()).expect("a minted UUID is an artifact id");
-        self.writes
-            .lock()
-            .expect("the test's payloads lock")
-            .push(KeptPayload {
-                session_id,
-                step: step.clone(),
-                bytes,
-                item_count,
-                artifact_id,
-            });
+        let limit = *self.write_limit.lock().expect("the test's payloads lock");
+        let mut writes = self.writes.lock().expect("the test's payloads lock");
+        if limit.is_some_and(|limit| writes.len() >= limit) {
+            return Box::pin(async { Err(REFUSED_PORT_CALL.into()) });
+        }
+        writes.push(KeptPayload {
+            session_id,
+            step: step.clone(),
+            bytes,
+            item_count,
+            artifact_id,
+        });
         Box::pin(async move { Ok(artifact_id) })
     }
 

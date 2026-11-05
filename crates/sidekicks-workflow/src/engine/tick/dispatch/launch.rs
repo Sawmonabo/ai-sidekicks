@@ -100,7 +100,7 @@ impl StepDispatch {
             node_key: WorkflowNodeKey::new(scope.workflow_id, &node.id),
             node_name: node.name.clone(),
             run_index: ready.run_index,
-            permission_level: scope.permission_level,
+            permission_level: snapshot.permission_level,
             working_folder: scope.working_folder.clone(),
             provider: scope.provider.clone(),
             secrets,
@@ -141,7 +141,7 @@ mod tests {
     };
     use crate::engine::tick::{RunScope, test_run_scope};
     use crate::kinds::step_context::StepContext;
-    use crate::kinds::{NodeKind, PassThroughExecutor, StepFailure, test_kind};
+    use crate::kinds::{NodeKind, NodeKindTable, PassThroughExecutor, StepFailure, test_kind};
     use crate::schema::schema_parts;
     use crate::secrets::resolution::STEP_SECRET_STATEMENT_CAPACITY;
 
@@ -294,8 +294,12 @@ mod tests {
                 &std::io::Error::other("the start's line"),
             )
             .await;
-        let (mut dispatch, _reports) =
-            test_dispatch_recording(&database, refusing_engine_ports(), Vec::new(), recorder);
+        let (mut dispatch, _reports) = test_dispatch_recording(
+            &database,
+            refusing_engine_ports(),
+            Arc::new(NodeKindTable::new(Vec::new()).expect("an empty table builds")),
+            recorder,
+        );
         dispatch.reads = Arc::new(DatabaseReadPool::new(
             database.path().with_file_name("missing.sqlite3"),
             STEP_SECRET_STATEMENT_CAPACITY,

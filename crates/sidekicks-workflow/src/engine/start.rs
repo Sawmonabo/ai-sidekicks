@@ -22,7 +22,6 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -61,7 +60,7 @@ use crate::engine::tick::{RunGraph, RunScope};
 use crate::kinds::NodeKindTable;
 use crate::runs::creation::{
     CHAIN_COUNT_STATEMENT_INDEX, CHAIN_ROOT_CHECK_STATEMENT_INDEX, WorkflowRunCreation,
-    workflow_run_creation_statements,
+    trigger_step_key, workflow_run_creation_statements,
 };
 use crate::runs::deletion::remove_run_folder;
 use crate::runs::step_payload::{StepPayloadWriteError, write_step_payload};
@@ -70,8 +69,8 @@ use crate::secrets::redaction::RunRedaction;
 pub(crate) use self::errors::WorkflowRunStartError;
 
 /// The statements a start prepares on a read connection: the pinned version by its id, the
-/// session's working folder, the workflow's level, pins and provider, its project's environment
-/// rows and the session's project.
+/// session's working folder, the workflow's pins and provider, its project's environment rows and
+/// the session's project.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the engine's run start handlers")
@@ -128,7 +127,8 @@ pub(crate) struct WorkflowRunStart {
 }
 
 /// A run the start wrote: the scope its steps share, which holds the folder it works in, the graph
-/// of its pinned version and the input its trigger step starts on.
+/// of its pinned version, the input its trigger step starts on, as stored and as items, and the
+/// sequence of the write that stored the trigger step's `pending` row.
 #[derive(Clone)]
 #[cfg_attr(
     not(test),
@@ -138,10 +138,13 @@ pub(crate) struct StartedRun {
     /// What the run's steps share, built once here.
     pub(crate) scope: Arc<RunScope>,
     /// The graph of its pinned version, built once by the start's checks.
-    #[cfg_attr(test, expect(dead_code, reason = "the tick's loop, which walks it"))]
     pub(crate) graph: Arc<RunGraph>,
     /// The input its trigger step starts on.
     pub(crate) trigger_input: WorkflowPayloadRef,
+    /// The items of that input, kept so the run reads back no artifact the start just wrote.
+    pub(crate) trigger_items: Vec<WorkflowItem>,
+    /// The sequence of `workflow.run.started`, whose write readied the trigger step.
+    pub(crate) started_sequence: SafeInt<0>,
 }
 
 impl fmt::Debug for StartedRun {
@@ -152,6 +155,7 @@ impl fmt::Debug for StartedRun {
             .field("workflow_run_id", &self.scope.run_id)
             .field("working_folder", &self.scope.working_folder)
             .field("trigger_input", &self.trigger_input)
+            .field("started_sequence", &self.started_sequence)
             .finish_non_exhaustive()
     }
 }
@@ -173,8 +177,8 @@ pub(crate) enum WorkflowStartOutcome {
     },
 }
 
-/// What a start's checks read: the workflow with its level, stored pins and provider, its
-/// version's body as the run needs it, and the session's working folder.
+/// What a start's checks read: the workflow with its stored pins and provider, its version's body
+/// as the run needs it, and the session's working folder.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the engine's run start handlers")
@@ -188,7 +192,6 @@ struct CheckedStart {
     graph: Arc<RunGraph>,
     start_items: Vec<WorkflowItem>,
     session: SessionWorkingFolder,
-    permission_level: PermissionLevel,
     pin_data_json: Option<String>,
     provider: Option<ProviderId>,
 }
@@ -515,12 +518,7 @@ impl WorkflowRunStarter {
         } = start;
         let workflow_run_id = prepared.workflow_run_id;
         let scope_reads = self.read_scope(session_id, mode, &checked).await?;
-        let trigger_step = WorkflowStepKey {
-            workflow_run_id,
-            node_id: checked.trigger_node.node_id.clone(),
-            attempt: SafeInt::new(1).expect("one is a first attempt"),
-            execution_index: SafeInt::ZERO,
-        };
+        let trigger_step = trigger_step_key(workflow_run_id, &checked.trigger_node);
         let trigger_input = self
             .trigger_input(session_id, &trigger_step, &checked.start_items)
             .await?;
@@ -543,6 +541,7 @@ impl WorkflowRunStarter {
             execution_context: None,
             provider: checked.provider.clone(),
             started_at: prepared.started_at.clone(),
+            trigger_input: trigger_input.clone(),
         };
         let draft = SessionEventDraft::of_session(
             session_id,
@@ -574,7 +573,7 @@ impl WorkflowRunStarter {
             )
             .await;
         match (appended, chain) {
-            (Ok(_receipt), _) => {
+            (Ok(receipt), _) => {
                 let node_params = checked
                     .nodes
                     .iter()
@@ -584,6 +583,7 @@ impl WorkflowRunStarter {
                     session_id,
                     run_id: workflow_run_id,
                     workflow_id: checked.definition_id,
+                    workflow_version_id,
                     workflow_name: checked.workflow_name,
                     mode,
                     trigger: checked.trigger_node,
@@ -599,7 +599,6 @@ impl WorkflowRunStarter {
                     kept_values: Arc::from(scope_reads.kept_values),
                     project: scope_reads.project,
                     working_folder: prepared.folder.path().to_path_buf(),
-                    permission_level: checked.permission_level,
                     provider: checked.provider,
                     redaction: Arc::new(RunRedaction::new(&[])),
                     cancel: CancellationToken::new(),
@@ -608,6 +607,8 @@ impl WorkflowRunStarter {
                     scope: Arc::new(scope),
                     graph: checked.graph,
                     trigger_input,
+                    trigger_items: checked.start_items,
+                    started_sequence: receipt.sequence,
                 }))
             }
             (

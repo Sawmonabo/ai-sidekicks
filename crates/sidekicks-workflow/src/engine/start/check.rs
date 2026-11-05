@@ -6,7 +6,6 @@ use std::sync::Arc;
 use rusqlite::Connection;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::list::{BoundedVec, UniqueList};
 use sidekicks_contracts::wire::text::NonEmptyText;
@@ -30,7 +29,7 @@ use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_policy::authorizer::PolicyDecision;
 use sidekicks_policy::workflow_start::{WorkflowStart, check_workflow_start};
 use sidekicks_store::database::connection::read_pool::ReadLength;
-use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::database::stored_column::{closed_word, optional_text_column};
 use sidekicks_workspace::working_folder::read_working_folder;
 
 use super::{
@@ -41,13 +40,13 @@ use crate::definitions::versions::history::WorkflowVersions;
 use crate::engine::tick::{RunGraph, RunGraphError};
 use crate::kinds::NodeKindTable;
 
-// The level every run of the workflow runs at, its pinned test items and its provider.
+// The workflow's pinned test items and its provider.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the engine's run start handlers")
 )]
 const DEFINITION_SCOPE_SQL: &str =
-    "SELECT permission_level, pin_data_json, provider FROM workflow_definitions WHERE id = ?1";
+    "SELECT pin_data_json, provider FROM workflow_definitions WHERE id = ?1";
 
 impl WorkflowRunStarter {
     // The checks, in order, before anything is made: a trigger's fire under the workflow start
@@ -86,7 +85,7 @@ impl WorkflowRunStarter {
             })
             .await?;
         let (version, definition) = version?;
-        let (permission_level, pin_data_json, provider) = definition?;
+        let (pin_data_json, provider) = definition?;
         if let Some(owner) = judged_owner {
             let decision = check_workflow_start(
                 &self.authorizer,
@@ -206,14 +205,13 @@ impl WorkflowRunStarter {
             graph: Arc::new(graph),
             start_items,
             session,
-            permission_level,
             pin_data_json,
             provider,
         })
     }
 }
 
-// The workflow's level, its stored pins and its provider.
+// The workflow's stored pins and its provider.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the engine's run start handlers")
@@ -221,17 +219,12 @@ impl WorkflowRunStarter {
 fn read_definition_scope(
     connection: &Connection,
     definition_id: WorkflowDefinitionId,
-) -> rusqlite::Result<(PermissionLevel, Option<String>, Option<ProviderId>)> {
-    connection.prepare_cached(DEFINITION_SCOPE_SQL)?.query_row(
-        [definition_id.text().as_str()],
-        |row| {
-            Ok((
-                text_column(row, 0, closed_word)?,
-                row.get(1)?,
-                optional_text_column(row, 2, closed_word)?,
-            ))
-        },
-    )
+) -> rusqlite::Result<(Option<String>, Option<ProviderId>)> {
+    connection
+        .prepare_cached(DEFINITION_SCOPE_SQL)?
+        .query_row([definition_id.text().as_str()], |row| {
+            Ok((row.get(0)?, optional_text_column(row, 1, closed_word)?))
+        })
 }
 
 /// The refusal of a start the workflow start rule denied, with the rule's errors when it gave

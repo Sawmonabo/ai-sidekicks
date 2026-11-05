@@ -646,7 +646,10 @@ fn a_disabled_skips_successor_reads_the_items_it_passed_on() {
         },
     );
 
-    assert_eq!(walk.ready_inputs(s_ready, &outputs), [items]);
+    assert_eq!(
+        walk.ready_inputs(&s_ready.step, &s_ready.sources, &outputs),
+        [items]
+    );
 }
 
 /// A retry readies the next attempt under the next execution index with the run index and sources

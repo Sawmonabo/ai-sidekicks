@@ -13,7 +13,6 @@ use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceState};
-use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::{SessionId, UserId};
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::AnyValue;
@@ -601,17 +600,16 @@ async fn a_started_run_records_its_trigger_chain_and_input_and_works_in_its_fold
     }
 }
 
-/// Mutations: pins taken for a trigger run, or dropped for a manual one; the session's level, or
-/// the column's default, in place of the workflow's; the trigger left out of the nodes or the
-/// version's nodes dropped; the scope's start read from the clock apart from the event's instant;
-/// the provider read from anywhere but the workflow, or the run's row or started event left
-/// without it; a start with no provider refused though no step runs in a sandbox; kept values not
-/// read.
+/// Mutations: pins taken for a trigger run, or dropped for a manual one; the trigger left out of
+/// the nodes or the version's nodes dropped; the scope's start read from the clock apart from the
+/// event's instant; the provider read from anywhere but the workflow, or the run's row or started
+/// event left without it; a start with no provider refused though no step runs in a sandbox; kept
+/// values not read.
 #[rstest]
 #[case::a_manual_run(WorkflowStartArrival::Person, true, Some("test-provider"))]
 #[case::a_trigger_run(WorkflowStartArrival::Trigger, false, None)]
 #[tokio::test]
-async fn the_start_scope_holds_the_pinned_version_the_workflows_level_and_its_pins(
+async fn the_start_scope_holds_the_pinned_version_and_its_pins(
     #[case] arrival: WorkflowStartArrival,
     #[case] has_pins: bool,
     #[case] provider: Option<&str>,
@@ -628,16 +626,10 @@ async fn the_start_scope_holds_the_pinned_version_the_workflows_level_and_its_pi
     fixture
         .rows
         .execute(
-            "UPDATE workflow_definitions SET permission_level = ?1, pin_data_json = ?2, \
-             provider = ?3 WHERE id = ?4",
-            params![
-                <&'static str>::from(PermissionLevel::Ask),
-                pins.to_string(),
-                provider,
-                DEFINITION_ID
-            ],
+            "UPDATE workflow_definitions SET pin_data_json = ?1, provider = ?2 WHERE id = ?3",
+            params![pins.to_string(), provider, DEFINITION_ID],
         )
-        .expect("the test sets the workflow's level, pins and provider");
+        .expect("the test sets the workflow's pins and provider");
     fixture
         .rows
         .execute(
@@ -667,7 +659,6 @@ async fn the_start_scope_holds_the_pinned_version_the_workflows_level_and_its_pi
         serde_json::to_value(&scope.pin_data).expect("pins write as JSON"),
         if has_pins { pins } else { Value::Null }
     );
-    assert_eq!(scope.permission_level, PermissionLevel::Ask);
     assert_eq!(scope.provider, provider.map(|_| test_provider()));
     let row_provider: Option<String> = fixture
         .rows
