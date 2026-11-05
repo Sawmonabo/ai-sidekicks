@@ -369,6 +369,49 @@ async fn each_result_prices_the_spend_it_states_since_the_previous_result() {
     );
 }
 
+// A lead `result` stating `input` and `output` tokens on Opus 5.5 at `cost_usd`, naming the steers
+// `steers` settles.
+fn opus_result(input: u64, output: u64, cost_usd: f64, steers: &[&str]) -> Value {
+    result(&json!({
+        "user_message_uuids": steers,
+        "model_usage_since_last_result": {"claude-opus-5-5": {"inputTokens": input,
+            "outputTokens": output, "costUSD": cost_usd, "costBasis": "list"}},
+    }))
+}
+
+// Killed by pricing only at the turn-ending `result`, which leaves a steer's mid-turn result's
+// figure untaken (one request, 25,000 and 25,000).
+#[tokio::test]
+async fn a_steers_mid_turn_result_prices_the_spend_it_states() {
+    let scratch = tempfile::tempdir().expect("a scratch folder is made");
+    let stop = CancellationToken::new();
+    let session = ScriptedSession::new().await;
+    register_price_list(&session, &scratch, &stop).await;
+    session.hold_lead_turn("lead");
+    session.stream.mark_now_steer("now-steer");
+
+    session.frame(&init());
+    session.frame(&priced_message("message-1", "claude-opus-5-5", 1_000, 500));
+    session.frame(&opus_result(1_000, 500, 0.10, &[]));
+    ScriptedDriver::wait_for(|| session.usage.priced().len() == 1).await;
+    session.frame(&priced_message("message-2", "claude-opus-5-5", 1_000, 500));
+    session.frame(&opus_result(1_000, 500, 0.05, &["now-steer"]));
+    ScriptedDriver::wait_for(|| session.usage.priced().len() == 2).await;
+    stop.cancel();
+
+    let account = test_provider_account_id().as_str().to_owned();
+    assert_eq!(
+        priced(&session.usage.priced()),
+        [
+            (
+                UsageCostSource::ProviderReported,
+                vec![(account.clone(), 100_000)]
+            ),
+            (UsageCostSource::ProviderReported, vec![(account, 50_000)]),
+        ]
+    );
+}
+
 // Killed by leaving a turn's rows unpriced until a restart when its process ends before its
 // `result`: they are priced from the price list as the process ends.
 #[tokio::test]

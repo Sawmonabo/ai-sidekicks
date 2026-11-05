@@ -1,12 +1,12 @@
 //! Claude Code's requests priced: its rule for pricing a request from the price list, and the
-//! rows each turn recorded, kept by model until the turn's `result` or the process's end prices
-//! them.
+//! rows its process recorded, kept by model until the process's next lead `result` or its end
+//! prices them.
 //!
 //! - **The rule.** A request is its message's rows, priced at the model's exact row, at the
 //!   standard rates or `fast`'s, in no region or `us`, with every rate at the long-context tier
 //!   when the whole request's input passes the row's threshold, the cache writes split by lifetime
 //!   and the web searches at the row's per-search rate.
-//! - **A turn's rows.** At a `result` stating each model's cost since the process's previous result,
+//! - **A result's rows.** At a lead `result` stating each model's cost since the process's previous result,
 //!   a model whose entry reads `list` or `managed` with a cost takes that cost, shared over the
 //!   model's rows; any other model is priced from the price list. A `result` stating no figures
 //!   leaves the rows for the next one, and the rows still kept when the process ends are priced
@@ -129,9 +129,9 @@ impl RequestPricer for ClaudeRequestPricer {
     }
 }
 
-/// One process's turn rows waiting for their price, by model.
+/// One process's rows waiting for their price, by model.
 #[derive(Default)]
-pub(crate) struct ClaudeTurnPricing {
+pub(crate) struct ClaudeResultPricing {
     kept: Vec<ClaudeModelRows>,
     // The `costBasis` words already logged on this process.
     basis_reports: OnceReportedDiagnostics,
@@ -148,8 +148,8 @@ pub(crate) struct ClaudeModelRows {
     pub(crate) provider_figure_usd_micros: Option<f64>,
 }
 
-impl ClaudeTurnPricing {
-    /// Keeps `row`, recorded on `model_id`, until the turn's `result` or the process's end.
+impl ClaudeResultPricing {
+    /// Keeps `row`, recorded on `model_id`, until the process's next lead `result` or its end.
     pub(crate) fn keep(&mut self, model_id: ModelId, row: LiveUsageRow) {
         match self.kept.iter_mut().find(|kept| kept.model_id == model_id) {
             Some(kept) => kept.rows.push(row),
@@ -210,8 +210,9 @@ impl ClaudeTurnPricing {
             provider_account_id: Some(provider_account_id.clone()),
             kind: DriverDiagnosticKind::UnmappedWireKind,
             raw_wire_type: Some(basis.to_owned()),
-            disposition_reason: "a `model_usage_since_last_result` entry's `costBasis` is not one the driver knows, \
-                                 so the model's requests are priced from the price list"
+            disposition_reason: "a `model_usage_since_last_result` entry's `costBasis` is not one \
+                                 the driver knows, so the model's requests are priced from the \
+                                 price list"
                 .to_owned(),
             details: Map::from_iter([
                 ("sessionId".to_owned(), Value::from(session_id.to_string())),

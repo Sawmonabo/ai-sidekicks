@@ -366,7 +366,6 @@ impl ClaudeDeliveryStream {
                         is_reviewed,
                     )
                     .await;
-                self.price_turn(session, &frame.observation).await;
             }
             return after;
         }
