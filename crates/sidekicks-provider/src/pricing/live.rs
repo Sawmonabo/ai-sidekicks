@@ -25,7 +25,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 use sidekicks_std::port_registration::PortRegistration;
 
-use crate::account::errors::ProviderAccountRegistryError;
+use crate::account::errors::is_account_not_found;
 use crate::account::usage_turns::unpriced::{UnpricedRequest, UnpricedUsageKey, UnpricedUsageRow};
 use crate::driver::ProviderAccountReader;
 use crate::driver::ports::{DriverPorts, HeldRequest, RequestHeldListener};
@@ -223,7 +223,7 @@ impl LivePricing {
         let sign_in_kind = if self.pricer.needs_sign_in_kind() {
             match self.read_sign_in_kind(&key.account_id).await {
                 Ok(sign_in_kind) => sign_in_kind,
-                Err(error) if is_account_gone(&error) => {
+                Err(error) if is_account_not_found(&*error) => {
                     set_key(row_pricings, RowPricing::Released);
                     return;
                 }
@@ -398,14 +398,6 @@ fn recorded_usage(live: &LiveUsageRow) -> RecordedUsage {
         provider_account_id: live.key.account_id.clone(),
         subagent_id: live.row.subagent_id.clone(),
     }
-}
-
-// Whether `error` says the account is not registered, its rows gone with its removal.
-fn is_account_gone(error: &BoxedError) -> bool {
-    matches!(
-        error.downcast_ref::<ProviderAccountRegistryError>(),
-        Some(ProviderAccountRegistryError::NotFound)
-    )
 }
 
 #[cfg(test)]
