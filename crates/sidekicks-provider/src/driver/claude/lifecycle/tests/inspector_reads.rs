@@ -2,7 +2,7 @@
 //! context read, kept past the process until the session closes or is purged, and answered to the
 //! inspector's Memory and Hooks reads without starting a process.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -165,7 +165,7 @@ fn memory_entry(path: &str, kind: SessionMemoryEntryKind) -> SessionMemoryEntry 
 #[tokio::test]
 async fn a_spawn_keeps_its_stores_and_listing_and_each_read_refreshes_the_files() {
     let fixture = ScriptedDriver::new();
-    let store = PathBuf::from("/memory/store");
+    let store = filesystem_path(Path::new("/memory/store"));
     fixture
         .starts
         .script_initialize(ClaudeInitializeDeclaration {
@@ -191,14 +191,14 @@ async fn a_spawn_keeps_its_stores_and_listing_and_each_read_refreshes_the_files(
         Some(vec!["audit.sh"])
     );
     let kept = reads.kept_memory(session_id).expect("the spawn is kept");
-    assert_eq!(kept.files, Vec::<PathBuf>::new());
+    assert_eq!(kept.files, Vec::<FilesystemPath>::new());
     assert_eq!(kept.stores, vec![store.clone()]);
 
     fixture.end_turn(&start, session_id);
     ScriptedDriver::wait_for(|| {
         reads
             .kept_memory(session_id)
-            .is_some_and(|kept| kept.files == [PathBuf::from("b")])
+            .is_some_and(|kept| kept.files == [filesystem_path(Path::new("b"))])
     })
     .await;
     settle().await;
@@ -206,7 +206,7 @@ async fn a_spawn_keeps_its_stores_and_listing_and_each_read_refreshes_the_files(
     assert_eq!(
         reads.kept_memory(session_id),
         Some(ClaudeKeptMemory {
-            files: vec![PathBuf::from("b")],
+            files: vec![filesystem_path(Path::new("b"))],
             stores: vec![store],
             auto_memory: None,
         })
@@ -310,7 +310,7 @@ async fn a_gone_process_answers_its_kept_rows_and_starts_nothing() {
     fixture
         .starts
         .script_initialize(ClaudeInitializeDeclaration {
-            memory_stores: vec![PathBuf::from("/memory/store")],
+            memory_stores: vec![filesystem_path(Path::new("/memory/store"))],
             ..ClaudeInitializeDeclaration::default()
         });
     let channel = Arc::new(ScriptedChannel::default());
@@ -329,7 +329,7 @@ async fn a_gone_process_answers_its_kept_rows_and_starts_nothing() {
     ScriptedDriver::wait_for(|| {
         reads
             .kept_memory(session_id)
-            .is_some_and(|kept| kept.files == [PathBuf::from("a")])
+            .is_some_and(|kept| kept.files == [filesystem_path(Path::new("a"))])
     })
     .await;
     settle().await;

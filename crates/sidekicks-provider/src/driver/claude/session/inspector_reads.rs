@@ -3,9 +3,9 @@
 //! `Auto memory` value its last process ran with, and the hooks that process listed.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::inspector::SessionHookListResponse;
 use sidekicks_std::mutex_lock::lock;
@@ -24,9 +24,9 @@ use crate::process_identity::ProviderProcessIdentity;
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ClaudeKeptMemory {
     /// The memory files the last context read named.
-    pub(crate) files: Vec<PathBuf>,
+    pub(crate) files: Vec<FilesystemPath>,
     /// The memory store folders the last process declared.
-    pub(crate) stores: Vec<PathBuf>,
+    pub(crate) stores: Vec<FilesystemPath>,
     /// The last process's `Auto memory` value.
     pub(crate) auto_memory: Option<bool>,
 }
@@ -159,7 +159,7 @@ impl ClaudeInspectorReads {
 
     /// Keeps the memory files a context read of `session_id` named; with no entry, the session
     /// closed or no process was adopted, it keeps nothing.
-    pub(crate) fn keep_memory_files(&self, session_id: SessionId, files: Vec<PathBuf>) {
+    pub(crate) fn keep_memory_files(&self, session_id: SessionId, files: Vec<FilesystemPath>) {
         if let Some(kept) = lock(&self.sessions).get_mut(&session_id) {
             kept.memory.files = files;
         }

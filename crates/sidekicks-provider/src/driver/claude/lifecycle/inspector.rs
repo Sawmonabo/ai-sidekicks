@@ -101,10 +101,9 @@ impl ClaudeDriver {
                     .map(|store| (store, SessionMemoryEntryKind::Folder));
                 files.chain(stores)
             })
-            // A path the contract cannot carry is skipped, as a lenient read of a reply skips it.
-            .filter_map(|(path, kind)| {
-                let path = FilesystemPath::new(path.to_string_lossy().into_owned()).ok()?;
-                Some(SessionMemoryEntry { path, kind })
+            .map(|(path, kind)| SessionMemoryEntry {
+                path: path.clone(),
+                kind,
             })
             .collect();
         Ok(SessionMemoryReadResponse {

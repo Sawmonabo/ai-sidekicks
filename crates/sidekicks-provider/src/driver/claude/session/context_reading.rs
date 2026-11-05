@@ -7,7 +7,6 @@
 //! turn too long for the window files a row marked exceeded with no counts. A helper gets no row.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -15,6 +14,7 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 use sidekicks_contracts::context_window::ContextWindowSource;
 use sidekicks_contracts::event::usage::UsageContextWindowUpdatedPayload;
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::inspector::{
@@ -137,8 +137,8 @@ pub(crate) struct ClaudeContextRead {
     pub(crate) reading: SessionContextReading,
     /// The model Claude Code read it on.
     pub(crate) model: Option<String>,
-    /// The memory files the read named.
-    pub(crate) memory_files: Vec<PathBuf>,
+    /// The memory files the read named, each a filesystem path carries.
+    pub(crate) memory_files: Vec<FilesystemPath>,
 }
 
 // What one session's reads hold: the last read; the read task under way, by its number, with
@@ -480,7 +480,7 @@ pub(crate) fn compose_claude_context_read(
         files
             .0
             .iter()
-            .filter_map(|file| file.path.clone().map(PathBuf::from))
+            .filter_map(|file| FilesystemPath::new(file.path.clone()?).ok())
             .collect()
     });
     Some(ClaudeContextRead {

@@ -4,7 +4,8 @@
 //! inbound frame.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+
+use sidekicks_contracts::free_form_string::FilesystemPath;
 
 use crate::driver::claude::event_normalizer::ClaudeSubagentLifecycleSignal;
 use crate::driver::mcp_server::status::McpServerStatusIngestResult;
@@ -68,8 +69,9 @@ pub(crate) struct ClaudeInitializeDeclaration {
     /// The output style the process runs with, where the reply names one.
     pub(crate) output_style: Option<String>,
     /// The folders of Claude Code's auto-memory and team-memory stores, each kept where the reply
-    /// names it as an absolute path, the auto-memory store first when it is kept.
-    pub(crate) memory_stores: Vec<PathBuf>,
+    /// names it as an absolute path a filesystem path carries, the auto-memory store first when it
+    /// is kept.
+    pub(crate) memory_stores: Vec<FilesystemPath>,
 }
 
 impl ClaudeInitializeDeclaration {
