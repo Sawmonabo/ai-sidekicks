@@ -79,7 +79,6 @@ mod tests {
     };
     use crate::driver::claude::session::scripted::{ScriptedSession, settle};
     use crate::driver::contract::error::DriverError;
-    use crate::driver::test_registry::new_session_id;
     use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 
     // Writes to the lead of a session whose last run released its turn and on whose turn the run
@@ -193,11 +192,22 @@ mod tests {
         );
     }
 
-    // Killed by admitting a narration on a session with no live process, which starts a run and
-    // opens a process to tell no one.
+    // A narration on a session whose process exited, which the queue has not yet forgotten, is
+    // refused before any run exists. Killed by skipping the start's own live read, so the run
+    // starts, binds on the process the queue still holds and fails as a fault.
     #[tokio::test(start_paused = true)]
-    async fn a_narration_with_no_live_process_starts_no_run() {
+    async fn a_narration_after_its_process_exited_starts_no_run() {
         let session = ScriptedSession::new().await;
+        session.exit();
+        settle().await;
+        assert!(
+            session
+                .start
+                .slots
+                .live_session(session.session_id)
+                .is_none(),
+            "the driver no longer reports the process live"
+        );
         let opening = ClaudeDaemonTurnOpening::Narration {
             text: OutboundText {
                 text: "The user stopped `sleep 100`.".to_owned(),
@@ -207,10 +217,10 @@ mod tests {
         };
         let refused = session
             .start
-            .start_daemon_turn(new_session_id(), opening)
+            .start_daemon_turn(session.session_id, opening)
             .await
             .expect_err("a narration with no live process is refused");
-        assert!(is_unavailable_for(&refused, NoLiveSession));
+        assert!(is_unavailable_for(&refused, NoLiveSession), "{refused:?}");
         assert_eq!(session.engine.first_daemon_turn_run(), None);
     }
 
