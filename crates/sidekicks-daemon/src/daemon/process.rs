@@ -610,6 +610,7 @@ impl DaemonProcess {
             clock: wall_clock,
             data_folder: &data_folder,
             daemon_started_at,
+            account_notices: inputs.provider_accounts.account_notices(),
         })
         .await?;
         let recovery = inputs.recovery;

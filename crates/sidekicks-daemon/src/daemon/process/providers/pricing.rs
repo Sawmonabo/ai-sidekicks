@@ -1,12 +1,14 @@
 //! The pricing at the daemon's start: the held price list and the repricing of held requests,
 //! opened and registered on the drivers' ports once the owners behind them stand, and their tasks
-//! started once the recovery pass has run, each ending with the work's stop.
+//! started once the recovery pass has run, each ending with the work's stop: the list's fetch,
+//! the repricing, and the follow of the account notices that wake the repricing.
 
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 
 use reqwest::Url;
+use sidekicks_contracts::provider::account::record::ProviderAccountNotification;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::WallClock;
 use sidekicks_provider::pricing::held::{HeldRequestRepricing, HeldRequestRepricingDependencies};
@@ -14,6 +16,8 @@ use sidekicks_provider::pricing::store::{HeldPriceList, PriceListConfig};
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::DatabaseWriter;
+use tokio::sync::broadcast;
+use tokio::sync::broadcast::error::RecvError;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -45,18 +49,23 @@ pub(crate) struct PricingStart<'a> {
     pub(crate) data_folder: &'a Path,
     /// The daemon's start in the stored form, as the live projection writes it on each row.
     pub(crate) daemon_started_at: WireInstant,
+    /// The account notices, subscribed before the repricing's start pass so no change during the
+    /// pass is missed.
+    pub(crate) account_notices: broadcast::Receiver<ProviderAccountNotification>,
 }
 
 /// The held price list and the repricing, registered on the drivers' ports and not yet started.
 pub(crate) struct Pricing {
     price_list: Arc<HeldPriceList>,
     repricing: Arc<HeldRequestRepricing>,
+    account_notices: broadcast::Receiver<ProviderAccountNotification>,
 }
 
 /// The pricing's running tasks, which the work's stop ends and the daemon's stop waits out.
 pub(crate) struct PricingTasks {
     fetch: JoinHandle<()>,
     repricing: JoinHandle<()>,
+    account_notices: JoinHandle<()>,
 }
 
 /// Opens the held price list with no model in use yet, which the repricing's start pass, the
@@ -72,6 +81,7 @@ pub(crate) async fn build_pricing(start: PricingStart<'_>) -> Result<Pricing, Me
         clock,
         data_folder,
         daemon_started_at,
+        account_notices,
     } = start;
     let ports = &providers.ports;
     let provider_accounts = Arc::clone(ports.provider_accounts.require_port()?);
@@ -110,16 +120,22 @@ pub(crate) async fn build_pricing(start: PricingStart<'_>) -> Result<Pricing, Me
     Ok(Pricing {
         price_list,
         repricing,
+        account_notices,
     })
 }
 
 impl Pricing {
-    /// Starts the list's fetch task, which fetches at once, and the repricing's task, which runs
-    /// its start pass first; each ends with `stop`.
+    /// Starts the list's fetch task, which fetches at once, the repricing's task, which runs its
+    /// start pass first, and the follow of the account notices; each ends with `stop`.
     pub(crate) fn start(self, stop: &CancellationToken) -> PricingTasks {
         PricingTasks {
             fetch: self.price_list.start(stop.clone()),
             repricing: self.repricing.start(stop.clone()),
+            account_notices: tokio::spawn(follow_account_notices(
+                self.repricing,
+                self.account_notices,
+                stop.clone(),
+            )),
         }
     }
 }
@@ -127,13 +143,44 @@ impl Pricing {
 impl PricingTasks {
     /// Waits for each task, which the work's stop ends; answers each one that ended abnormally.
     pub(crate) async fn wait(self) -> Vec<TaskStopFailure> {
-        let (fetch, repricing) = tokio::join!(self.fetch, self.repricing);
+        let (fetch, repricing, account_notices) =
+            tokio::join!(self.fetch, self.repricing, self.account_notices);
         [
             ("price list fetch", fetch),
             ("held requests' repricing", repricing),
+            ("repricing's account notices", account_notices),
         ]
         .into_iter()
         .filter_map(|(task, ended)| ended.err().map(|error| TaskStopFailure { task, error }))
         .collect()
+    }
+}
+
+// Wakes the repricing for each account a notice changed or removed, and for every held account
+// when notices were missed, until the broadcast closes or `stop`.
+async fn follow_account_notices(
+    repricing: Arc<HeldRequestRepricing>,
+    mut notices: broadcast::Receiver<ProviderAccountNotification>,
+    stop: CancellationToken,
+) {
+    loop {
+        let Some(notice) = stop.run_until_cancelled(notices.recv()).await else {
+            return;
+        };
+        match notice {
+            Ok(ProviderAccountNotification::AccountChanged { account }) => {
+                repricing.account_changed(account.account_id());
+            }
+            Ok(ProviderAccountNotification::AccountRemoved { account_id }) => {
+                repricing.account_changed(&account_id);
+            }
+            Ok(
+                ProviderAccountNotification::SignInCodeRequested { .. }
+                | ProviderAccountNotification::SignInCompleted { .. }
+                | ProviderAccountNotification::UsageWindowUpdated { .. },
+            ) => {}
+            Err(RecvError::Lagged(_)) => repricing.recheck_held_accounts(),
+            Err(RecvError::Closed) => return,
+        }
     }
 }

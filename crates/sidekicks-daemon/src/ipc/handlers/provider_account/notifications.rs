@@ -36,6 +36,12 @@ impl ProviderAccountNotifications {
             sender: broadcast::Sender::new(NOTIFICATIONS_HELD),
         }
     }
+
+    /// A subscription that reads every notification published from this call on, missing the
+    /// oldest once it falls further behind than the broadcast holds.
+    pub(crate) fn subscribe(&self) -> broadcast::Receiver<ProviderAccountNotification> {
+        self.sender.subscribe()
+    }
 }
 
 impl ProviderAccountNotificationPublisher for ProviderAccountNotifications {
@@ -61,7 +67,7 @@ pub(super) fn register_provider_account_subscribe(
     registry.register_subscription::<ProviderAccountSubscribe, _>(
         move |_request: EmptyPayload, _context: HandlerContext, subscription_id: SubscriptionId| {
             // Taken when the call is, so a change published right after the acknowledgment is read.
-            let notifications = subscribing.publisher.sender.subscribe();
+            let notifications = subscribing.publisher.subscribe();
             async move {
                 let feed: Box<dyn Feed<Emission = ProviderAccountNotification>> =
                     Box::new(NotificationFeed { notifications });
