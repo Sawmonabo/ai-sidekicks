@@ -166,24 +166,27 @@ pub(crate) fn person_wait_after(
             Some(RunStatusChange::Resumed | RunStatusChange::FailedPark)
         );
     match &before.since {
-        Some(since) if closes => {
-            let elapsed_ms = since
-                .unix_millisecond()
-                .zip(at.unix_millisecond())
-                .map_or(0, |(opened, closed)| {
-                    u64::try_from(closed.saturating_sub(opened)).unwrap_or(0)
-                });
-            RunPersonWait {
-                since: None,
-                total_ms: before.total_ms.saturating_add(elapsed_ms),
-            }
-        }
+        Some(since) if closes => RunPersonWait {
+            since: None,
+            total_ms: before
+                .total_ms
+                .saturating_add(whole_milliseconds_between(since, at)),
+        },
         None if change == Some(RunStatusChange::Waiting) && account_waits == 0 => RunPersonWait {
             since: Some(at.clone()),
             total_ms: before.total_ms,
         },
         _ => before.clone(),
     }
+}
+
+/// The whole milliseconds from `from` to `to`; 0 where `to` is earlier or either does not read.
+pub(crate) fn whole_milliseconds_between(from: &WireInstant, to: &WireInstant) -> u64 {
+    from.unix_millisecond()
+        .zip(to.unix_millisecond())
+        .map_or(0, |(from, to)| {
+            u64::try_from(to.saturating_sub(from)).unwrap_or(0)
+        })
 }
 
 #[cfg(test)]

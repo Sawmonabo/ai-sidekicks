@@ -119,9 +119,12 @@ pub(crate) enum EngineDecision<'report> {
 }
 
 /// What a step's report did to it, as the record carries it: the typed values only.
-#[expect(
-    dead_code,
-    reason = "the engine's tick and waits, which record every report that moves a step"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the engine's tick and waits, which record every report that moves a step"
+    )
 )]
 pub(crate) enum StepTransition<'report> {
     /// The memory gate holds the step.
