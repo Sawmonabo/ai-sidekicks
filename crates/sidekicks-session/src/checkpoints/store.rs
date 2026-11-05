@@ -1,9 +1,9 @@
 //! The checkpoint rows' writes, each a statement built from plain values for the caller's own
-//! write, and the reads an undo, its dry run and the command windows take: a checkpoint by the
-//! point a request names, a session's checkpoints and its newest, the paths one checkpoint holds,
-//! per path the version an undo puts back, the commands no capture covered and the edits whose copy
-//! failed, the windows a stop left open, and a saved undo outcome by its key. The shadow rows of
-//! files over 10 MiB are in [`shadows`].
+//! write, and the reads an undo, its dry run, the command windows and the edits take: a checkpoint
+//! by the point a request names, a session's checkpoints and its newest, the paths one checkpoint
+//! holds and whether it holds one, per path the version an undo puts back, the commands no capture
+//! covered and the edits whose copy failed, the windows a stop left open, and a saved undo outcome
+//! by its key. The shadow rows of files over 10 MiB are in [`shadows`].
 //! A checkpoint whose turn a later undo cut away stands in history that no longer exists, so the
 //! list leaves it out and a read of it refuses.
 //!
@@ -126,6 +126,10 @@ const NEWEST_CHECKPOINT_SQL: &str =
 
 const RECORDED_PATHS_SQL: &str =
     "SELECT DISTINCT path FROM checkpoint_versions WHERE checkpoint_id = @checkpointId";
+
+// One probe of the checkpoint's versions by path, on their index.
+const HOLDS_PATH_SQL: &str = "SELECT EXISTS (SELECT 1 FROM checkpoint_versions
+  WHERE checkpoint_id = @checkpointId AND path = @path)";
 
 // Per path, the earliest version of the checkpoints at or past the point: the earliest checkpoint,
 // then the earliest sequence in it. Every kind is kept, so a path with no copy is still named.
@@ -710,6 +714,21 @@ pub fn recorded_paths(
         .collect()
 }
 
+/// Whether a version of `checkpoint_id` names `path`. Fails as SQLite does.
+pub fn holds_path(
+    connection: &Connection,
+    checkpoint_id: &SnapshotId,
+    path: &FilesystemPath,
+) -> rusqlite::Result<bool> {
+    connection.prepare_cached(HOLDS_PATH_SQL)?.query_row(
+        named_params! {
+            "@checkpointId": checkpoint_id.as_str(),
+            "@path": path.as_str(),
+        },
+        |row| row.get(0),
+    )
+}
+
 /// Every command window still open, with its checkpoint's session: the windows a stop left open,
 /// which the next start settles. Fails as SQLite does, or when a stored column does not read.
 pub fn open_windows(
@@ -806,4 +825,4 @@ fn stored_version_of(row: &Row<'_>) -> rusqlite::Result<StoredCheckpointVersion>
 
 pub mod shadows;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

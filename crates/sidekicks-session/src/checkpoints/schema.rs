@@ -1,7 +1,8 @@
 //! The checkpoint tables of the daemon's one schema: one checkpoint per turn-starting prompt, the
 //! versions each path took in it, the command windows its commands ran in, the shadows of files
-//! over 10 MiB with the windows that stand on them and the session's folders on other volumes, and
-//! each undo's saved outcome by its request's key.
+//! over 10 MiB with the windows that stand on them and the session's folders on other volumes, the
+//! folders a purge still owes on volumes that were absent, and each undo's saved outcome by its
+//! request's key.
 //!
 //! These rows are their own truth, written as the turn runs and never rebuilt from the log. A
 //! version names its copy by hash or its shadow by id; the bytes sit on disk, never in a row.
@@ -215,6 +216,13 @@ CREATE TABLE checkpoint_volume_folders (
   folder      TEXT NOT NULL,
   volume_id   TEXT NOT NULL,
   PRIMARY KEY (session_id, folder)
+) STRICT;
+
+-- A purged session's folder on another volume that was absent when the purge ran; removed,
+-- and its row deleted, once that volume is back.
+CREATE TABLE checkpoint_owed_folders (
+  folder     TEXT PRIMARY KEY,   -- `<user folder>/<session id>`, as the session's row held it
+  volume_id  TEXT NOT NULL
 ) STRICT;
 
 -- One row per change a turn recorded to a path, in the order recorded. Per path an undo puts back

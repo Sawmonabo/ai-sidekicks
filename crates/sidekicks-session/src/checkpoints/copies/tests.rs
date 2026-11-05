@@ -14,13 +14,14 @@ use super::{CopyStore, FileCopyError, FileCopyOutcome};
 /// The SHA-256 of `abc`.
 const ABC_SHA256: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
 
-fn abc_hash() -> Sha256Hex {
+/// The hash of `abc`, which [`write_read_only_source`] writes.
+pub(crate) fn abc_hash() -> Sha256Hex {
     Sha256Hex::new(ABC_SHA256.to_owned()).expect("a SHA-256 in lowercase hex")
 }
 
-// Writes `abc` to `path` and makes it read-only, so its mode is no file's default and no copy's,
-// and answers that mode as the file reads it, whatever the umask left.
-fn write_read_only_source(path: &Path) -> u32 {
+/// Writes `abc` to `path` and makes it read-only, so its mode is no file's default and no copy's,
+/// and answers that mode as the file reads it, whatever the umask left.
+pub(crate) fn write_read_only_source(path: &Path) -> u32 {
     fs::write(path, b"abc").expect("the source is written");
     let mut permissions = fs::metadata(path).expect("the source reads").permissions();
     permissions.set_readonly(true);
@@ -69,7 +70,8 @@ fn a_content_is_kept_once_under_its_hash() {
 
 fn leave_nothing(_owner: &Path, _path: &Path) {}
 
-fn make_link_to_folder(owner: &Path, path: &Path) {
+/// Makes a folder `linked` in `owner` and a link to it at `path`.
+pub(crate) fn make_link_to_folder(owner: &Path, path: &Path) {
     let folder = owner.join("linked");
     fs::create_dir(&folder).expect("the linked folder is made");
     make_folder_link(&folder, path).expect("the link is made");

@@ -5,6 +5,7 @@
 //! outcome saved once under its key.
 
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::time::Duration;
 
 use rusqlite::ffi;
@@ -29,9 +30,9 @@ use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions, W
 
 use super::shadows::{
     Shadow, ShadowContent, ShadowId, VolumeFolder, current_shadows, delete_unused_shadow_statement,
-    insert_current_shadow_statement, insert_volume_folder_statement, link_window_shadow_statement,
-    retire_current_shadow_statement, unlink_window_shadows_statement, unused_shadows,
-    volume_folders, window_shadows,
+    every_volume_folder, insert_current_shadow_statement, insert_volume_folder_statement,
+    link_window_shadow_statement, retire_current_shadow_statement, unlink_window_shadows_statement,
+    unused_shadows, volume_folders, window_shadows,
 };
 use super::{
     Checkpoint, CheckpointVersion, CommandWindowClosing, CommandWindowId, CommandWindowOpening,
@@ -45,19 +46,25 @@ use crate::checkpoints::schema::{
 
 /// A database on the checkpoint schema, the writer every write of the test goes through, which
 /// holds the schema's references, and the session and run its checkpoints name.
-struct Fixture {
-    database: TestDatabase,
-    writer: DatabaseWriter,
-    session_id: SessionId,
+pub(crate) struct Fixture {
+    /// The database file.
+    pub(crate) database: TestDatabase,
+    /// The writer of every write.
+    pub(crate) writer: Arc<DatabaseWriter>,
+    /// The session the checkpoints name.
+    pub(crate) session_id: SessionId,
     run_id: RunId,
 }
 
 impl Fixture {
-    async fn new() -> Self {
+    /// A fresh database with its writer open, and a session and run of its own.
+    pub(crate) async fn new() -> Self {
         let database = TestDatabase::new(schema_parts());
-        let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
-            .await
-            .expect("the writer opens its database");
+        let writer = Arc::new(
+            DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
+                .await
+                .expect("the writer opens its database"),
+        );
         let session_id = test_session_id();
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
         Self {
@@ -84,7 +91,11 @@ impl Fixture {
 
     /// Writes a checkpoint before the prompt at `message_sequence` holding `versions`, in order,
     /// and returns its id.
-    async fn record(&self, message_sequence: u64, versions: &[CheckpointVersion]) -> SnapshotId {
+    pub(crate) async fn record(
+        &self,
+        message_sequence: u64,
+        versions: &[CheckpointVersion],
+    ) -> SnapshotId {
         self.record_after(Vec::new(), message_sequence, versions)
             .await
     }
@@ -662,7 +673,8 @@ async fn open_windows_and_failed_edits_read_what_they_name() {
     );
 }
 
-// Kills: a missing `ON CONFLICT` and the session filter dropped.
+// Kills: a missing `ON CONFLICT`, the session filter dropped, and every session's read filtered to
+// one session.
 #[tokio::test]
 async fn a_volume_folder_is_kept_once_per_session() {
     let fixture = Fixture::new().await;
@@ -673,6 +685,7 @@ async fn a_volume_folder_is_kept_once_per_session() {
             .expect("a test path"),
     };
     let own = folder("own");
+    let other = folder("other");
     for _ in 0..2 {
         fixture
             .writer
@@ -685,16 +698,20 @@ async fn a_volume_folder_is_kept_once_per_session() {
     }
     fixture
         .writer
-        .write(vec![insert_volume_folder_statement(
-            other_session,
-            &folder("other"),
-        )])
+        .write(vec![insert_volume_folder_statement(other_session, &other)])
         .await
         .expect("another session's folder is written");
 
+    let reader = fixture.database.reader();
     assert_eq!(
-        volume_folders(&fixture.database.reader(), fixture.session_id).expect("the folders read"),
-        [own]
+        volume_folders(&reader, fixture.session_id).expect("the folders read"),
+        std::slice::from_ref(&own)
+    );
+    let mut every = vec![(fixture.session_id, own), (other_session, other)];
+    every.sort_by(|left, right| left.0.text().as_str().cmp(right.0.text().as_str()));
+    assert_eq!(
+        every_volume_folder(&reader).expect("every session's folders read"),
+        every
     );
 }
 
