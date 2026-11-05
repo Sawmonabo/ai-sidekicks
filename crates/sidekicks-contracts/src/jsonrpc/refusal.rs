@@ -735,6 +735,9 @@ refusal_codes! {
     /// posting the results of an unfinished run, or opening a fix session on a step that did not
     /// fail.
     WorkflowInvalidTransition = "workflow.invalidTransition" (FailedPrecondition, 409);
+    /// A start of a version with an edge naming a main handle its node's kind does not declare,
+    /// so nothing runs.
+    WorkflowRunHandleUndeclared = "workflow.run.handleUndeclared" (FailedPrecondition, 409);
     /// A `workflow.run.start`, `workflow.run.retry` or `workflow.run.rerun` reused a
     /// `clientIdempotencyKey` with a differing payload; the run the key first answered is
     /// untouched. A resend with the same payload is not refused: it answers that run.
@@ -742,6 +745,9 @@ refusal_codes! {
     /// A start that leaves a required input its workflow declares unfilled, or gives an input a
     /// value that does not fit it.
     WorkflowRunInputRequired = "workflow.run.inputRequired" (InvalidArgument, 422);
+    /// A start of a version holding a node whose kind the daemon does not list at the version the
+    /// node records, so nothing runs.
+    WorkflowRunNodeKindUnavailable = "workflow.run.nodeKindUnavailable" (FailedPrecondition, 409);
     /// `workflow.run.cancel` refused because the run has ended, so there is nothing to cancel and
     /// reporting success would misinform the person about what their action did.
     WorkflowRunNotCancelable = "workflow.run.notCancelable" (FailedPrecondition, 409);

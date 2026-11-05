@@ -48,6 +48,12 @@ ts_constants! {
     /// A start or a node run of a workflow that names no provider, of a version holding a step
     /// that runs in a provider's sandbox: Run a command, or a full-tier Code step. Nothing runs.
     WORKFLOW_RUN_PROVIDER_REQUIRED_CODE = RefusalCode::WorkflowRunProviderRequired;
+    /// A start of a version holding nodes whose kind the daemon does not list at the version each
+    /// records. Nothing runs.
+    WORKFLOW_RUN_NODE_KIND_UNAVAILABLE_CODE = RefusalCode::WorkflowRunNodeKindUnavailable;
+    /// A start of a version with edges naming main handles their nodes' kinds do not declare.
+    /// Nothing runs.
+    WORKFLOW_RUN_HANDLE_UNDECLARED_CODE = RefusalCode::WorkflowRunHandleUndeclared;
     /// A start that leaves a required input of the workflow unfilled, or gives an input a value
     /// that does not fit it. Nothing runs.
     WORKFLOW_RUN_INPUT_REQUIRED_CODE = RefusalCode::WorkflowRunInputRequired;
@@ -620,6 +626,26 @@ pub struct WorkflowRunProviderRequiredDetails {
     pub node_ids: BoundedVec<WorkflowNodeId, 1, { usize::MAX }>,
 }
 
+/// The unavailable-kind refusal's details: the nodes whose kind the daemon does not list at the
+/// version each records.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WorkflowRunNodeKindUnavailableDetails {
+    /// The nodes, at least one.
+    pub node_ids: BoundedVec<WorkflowNodeId, 1, { usize::MAX }>,
+}
+
+/// The undeclared-handle refusal's details: each edge end naming a main handle its node's kind
+/// does not declare, as a node and its handle at one index of the two lists.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WorkflowRunHandleUndeclaredDetails {
+    /// The node of each end, at least one.
+    pub node_ids: BoundedVec<WorkflowNodeId, 1, { usize::MAX }>,
+    /// The handle of each end as its edge names it, at the same index as its node.
+    pub handles: BoundedVec<NonEmptyText, 1, { usize::MAX }>,
+}
+
 /// The missing-input refusal's details: the inputs the start left unfilled or filled with a value
 /// that does not fit, by name.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -671,6 +697,8 @@ methods! {
                 WorkflowRunProjectOnProjectSession,
                 WorkflowRunRepositoryRequired,
                 WorkflowRunProviderRequired,
+                WorkflowRunNodeKindUnavailable,
+                WorkflowRunHandleUndeclared,
                 WorkflowRunInputRequired,
                 WorkflowCodePackagesNotLocked,
                 WorkflowRunIdempotencyConflict,
@@ -784,6 +812,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowResultsPostResponse>().checked(),
         Definition::read::<WorkflowRunRepositoryRequiredDetails>().checked(),
         Definition::read::<WorkflowRunProviderRequiredDetails>().checked(),
+        Definition::read::<WorkflowRunNodeKindUnavailableDetails>().checked(),
+        Definition::read::<WorkflowRunHandleUndeclaredDetails>().checked(),
         Definition::read::<WorkflowRunInputRequiredDetails>().checked(),
         Definition::read::<WorkflowCodePackagesNotLockedDetails>().checked(),
         Definition::read::<WorkflowRunStillRunningReason>(),
