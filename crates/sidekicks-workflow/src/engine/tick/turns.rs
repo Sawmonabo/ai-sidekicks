@@ -278,6 +278,7 @@ impl EngineTick {
             ready.step.execution_index.get(),
             LiveStep {
                 step: ready.step.clone(),
+                run_index: ready.run_index,
                 status: WorkflowStepStatus::Pending,
                 wait_cause: None,
                 sources: trigger.sources,
@@ -285,6 +286,9 @@ impl EngineTick {
                 input_ref: trigger_input,
                 readying_sequence: started_sequence,
                 last_hold_report_at: None,
+                cancel: None,
+                is_winding_down: false,
+                parked_agent_run: None,
             },
         );
         self.runs.insert(run_id, live);
@@ -359,6 +363,7 @@ impl EngineTick {
                         ready.step.execution_index.get(),
                         LiveStep {
                             step: ready.step,
+                            run_index: ready.run_index,
                             status: WorkflowStepStatus::Pending,
                             wait_cause: None,
                             sources: ready.sources,
@@ -366,6 +371,9 @@ impl EngineTick {
                             input_ref,
                             readying_sequence,
                             last_hold_report_at: None,
+                            cancel: None,
+                            is_winding_down: false,
+                            parked_agent_run: None,
                         },
                     );
                 }
@@ -589,7 +597,18 @@ impl EngineTick {
                         run_variables: Arc::clone(&live.run_variables),
                         permission_level: levels[&live.scope.workflow_id],
                     };
-                    for dispatched in self.dispatch.dispatch(&live.scope, &snapshot, readied) {
+                    let execution_indices: Vec<u64> = readied
+                        .iter()
+                        .map(|ready| ready.step.execution_index.get())
+                        .collect();
+                    // The dispatch answers each step in the order it was handed.
+                    let answered = self.dispatch.dispatch(&live.scope, &snapshot, readied);
+                    for (execution_index, dispatched) in execution_indices.into_iter().zip(answered)
+                    {
+                        live.steps
+                            .get_mut(&execution_index)
+                            .expect("a dispatched step is live")
+                            .cancel = Some(dispatched.cancel);
                         live.next_batch.extend(dispatched.reports);
                     }
                 }
