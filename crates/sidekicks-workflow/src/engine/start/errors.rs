@@ -20,7 +20,8 @@ use crate::engine::ports::PortError;
 /// Why a start did not end in an outcome; nothing of the run was written.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WorkflowRunStartError {
-    /// The start was refused: `workflow.run.startDenied` or `workflow.run.inputRequired`.
+    /// The start was refused: `workflow.run.startDenied`, `workflow.run.inputRequired` or
+    /// `workflow.run.repositoryRequired`.
     #[error(transparent)]
     Refused(#[from] DomainError),
     /// The version did not read; `workflow.version.notFound` when no saved version has its id.

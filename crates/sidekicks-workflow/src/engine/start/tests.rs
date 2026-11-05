@@ -59,6 +59,7 @@ use crate::engine::ports::{
     ChainAskAfterReader, EngineRecordSink, KeptEngineRecords, PortError, REFUSED_PORT_CALL,
     RunProviderReader, StepPayloadArtifacts,
 };
+use crate::kinds::{NodeKindTable, git_test_kind};
 use crate::schema::schema_parts;
 use crate::test_rows::{TEST_SESSION_ID, insert_run, insert_workflow_version_body};
 
@@ -197,8 +198,8 @@ enum TestSession {
 }
 
 /// The starter over a test database holding the store's, workspace and workflow tables, the
-/// workflow's version 1 with `body`, the payloads it stored, and `provider` as the run's provider,
-/// none failing its read.
+/// workflow's version 1 with `body`, the payloads it stored, `provider` as the run's provider,
+/// none failing its read, and the git kind, which needs a project's repository.
 struct Fixture {
     database: TestDatabase,
     rows: Connection,
@@ -261,6 +262,7 @@ impl Fixture {
             chain_ask_after: Arc::new(AskAfter(chain_ask_after)),
             provider: Arc::new(TestRunProvider(provider)),
             kept_values,
+            kinds: Arc::new(NodeKindTable::new(vec![git_test_kind()]).expect("the kinds build")),
             data_folder: test_folder(&database).join("data"),
             recorder: Arc::new(EngineRecorder::new(
                 Arc::clone(&records) as Arc<dyn EngineRecordSink>
@@ -379,8 +381,8 @@ fn store_session(rows: &Connection, session: TestSession, folder: &Path) {
     }
 }
 
-// A version body whose trigger declares `inputs`, or none.
-fn body(inputs: Option<Value>) -> Value {
+// A version body whose trigger declares `inputs`, or none, holding `nodes`.
+fn body(inputs: Option<Value>, nodes: Value) -> Value {
     let mut trigger = json!({
         "id": "start", "kind": "trigger.manual", "kindVersion": 1, "name": "Start", "order": 0,
         "params": {}
@@ -388,7 +390,15 @@ fn body(inputs: Option<Value>) -> Value {
     if let Some(inputs) = inputs {
         trigger["inputs"] = inputs;
     }
-    json!({ "name": "Nightly", "trigger": trigger, "nodes": [], "edges": [] })
+    json!({ "name": "Nightly", "trigger": trigger, "nodes": nodes, "edges": [] })
+}
+
+// A step `git` of the git kind, which needs a project's repository.
+fn git_node() -> Value {
+    json!({
+        "id": "git", "kind": "developer.git", "kindVersion": 1, "name": "Git", "order": 0,
+        "params": {}
+    })
 }
 
 fn item(json: Value) -> WorkflowItem {
@@ -498,7 +508,7 @@ async fn a_trigger_start_passes_the_rules_and_a_persons_or_agents_does_not(
     #[case] is_started: bool,
 ) {
     let fixture = Fixture::new(
-        &body(None),
+        &body(None, json!([])),
         TestSession::WithoutFolder,
         None,
         Some(test_provider()),
@@ -548,14 +558,16 @@ enum WrittenStart {
     /// A trigger's start joining a chain, in a session with no folder, its trigger declaring an
     /// optional input with a default and the start giving none.
     TriggerJoiningAChain,
-    /// A person's start in a session working in its own folder, given an input above the cap.
+    /// A person's start in a session working in a project's folder, given an input above the cap,
+    /// its version holding a step that needs a project's repository.
     ManualWithALargeInput,
 }
 
 /// Mutations: a member left off the started event; a declared input's default dropped; the run's
 /// own folder named without its id, or not made; a large input carried inline (its event refused,
 /// or no artifact); the folder made for a session that has one; the row's start and the event's
-/// instant read from the clock apart (killed when the two readings fall in different milliseconds).
+/// instant read from the clock apart (killed when the two readings fall in different milliseconds);
+/// a step that needs a repository refused in a project's folder.
 #[rstest]
 #[case::a_trigger_joining_a_chain(WrittenStart::TriggerJoiningAChain)]
 #[case::a_manual_start_with_a_large_input(WrittenStart::ManualWithALargeInput)]
@@ -567,7 +579,7 @@ async fn a_started_run_records_its_trigger_chain_and_input_and_works_in_its_fold
         WrittenStart::TriggerJoiningAChain => {
             let declared = json!([{ "type": "string", "name": "branch", "default": "main" }]);
             let fixture = Fixture::new(
-                &body(Some(declared)),
+                &body(Some(declared), json!([])),
                 TestSession::WithoutFolder,
                 WorkflowChainAskAfterRuns::new(25),
                 Some(test_provider()),
@@ -613,7 +625,7 @@ async fn a_started_run_records_its_trigger_chain_and_input_and_works_in_its_fold
         }
         WrittenStart::ManualWithALargeInput => {
             let fixture = Fixture::new(
-                &body(None),
+                &body(None, json!([git_node()])),
                 TestSession::WithFolder,
                 None,
                 Some(test_provider()),
@@ -680,11 +692,13 @@ async fn the_start_scope_holds_the_pinned_version_the_workflows_level_and_its_pi
     #[case] arrival: WorkflowStartArrival,
     #[case] has_pins: bool,
 ) {
-    let mut version_body = body(None);
-    version_body["nodes"] = json!([{
-        "id": "review", "kind": "human.approval", "kindVersion": 1, "name": "Review", "order": 0,
-        "params": { "note": "check the draft" }
-    }]);
+    let version_body = body(
+        None,
+        json!([{
+            "id": "review", "kind": "human.approval", "kindVersion": 1, "name": "Review",
+            "order": 0, "params": { "note": "check the draft" }
+        }]),
+    );
     let fixture = Fixture::new(
         &version_body,
         TestSession::WithFolder,
@@ -762,7 +776,13 @@ async fn the_start_scope_holds_the_pinned_version_the_workflows_level_and_its_pi
 /// large input is stored).
 #[tokio::test]
 async fn a_failed_scope_read_writes_no_run() {
-    let fixture = Fixture::new(&body(None), TestSession::WithoutFolder, None, None).await;
+    let fixture = Fixture::new(
+        &body(None, json!([])),
+        TestSession::WithoutFolder,
+        None,
+        None,
+    )
+    .await;
     let large = item(json!({ "note": "x".repeat(70 * 1024) }));
 
     let outcome = fixture

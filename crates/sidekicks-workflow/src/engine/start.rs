@@ -1,5 +1,6 @@
 //! Starting a run: the checks a start passes before anything is written (a trigger's fire under
-//! the workflow start rule, the pinned version, the session and the trigger's declared inputs),
+//! the workflow start rule, the pinned version, the session, the trigger's declared inputs and a
+//! project's repository for the steps that need one),
 //! the folder the run works in, the scope its steps share and the input its trigger step starts
 //! on, and the one write of the run's row with its `workflow.run.started`, which holds a run
 //! joining a chain at its limit.
@@ -28,14 +29,17 @@ use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::list::UniqueList;
+use sidekicks_contracts::wire::list::{BoundedVec, UniqueList};
 use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::workflow::definition::document::{
     WorkflowDefinitionId, WorkflowEdge, WorkflowName, WorkflowNode, WorkflowNodeId,
     WorkflowVersionId,
 };
 use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowPinnedItem};
-use sidekicks_contracts::workflow::run::control::fill_workflow_trigger_inputs;
+use sidekicks_contracts::workflow::definition::refusals::repository_needing_nodes;
+use sidekicks_contracts::workflow::run::control::{
+    WorkflowRunRepositoryRequiredDetails, fill_workflow_trigger_inputs,
+};
 use sidekicks_contracts::workflow::run::events::WorkflowRunStartedPayload;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::step::record::{
@@ -69,6 +73,7 @@ use crate::definitions::versions::history::WorkflowVersions;
 use crate::engine::event_record::{EngineFault, EngineRecorder};
 use crate::engine::ports::{ChainAskAfterReader, RunProviderReader, StepPayloadArtifacts};
 use crate::engine::tick::RunScope;
+use crate::kinds::NodeKindTable;
 use crate::runs::creation::{
     CHAIN_COUNT_STATEMENT_INDEX, CHAIN_ROOT_CHECK_STATEMENT_INDEX, WorkflowRunCreation,
     workflow_run_creation_statements,
@@ -278,6 +283,8 @@ pub(crate) struct WorkflowRunStarterDependencies {
     pub(crate) provider: Arc<dyn RunProviderReader>,
     /// The values each workflow keeps, which its runs read.
     pub(crate) kept_values: Arc<WorkflowKeptValueStore>,
+    /// The kinds a start reads its steps' needs from.
+    pub(crate) kinds: Arc<NodeKindTable>,
     /// The data folder a run's own folder is made in.
     pub(crate) data_folder: PathBuf,
     /// The engine's record, which takes what a held start could not clean up.
@@ -299,6 +306,7 @@ pub(crate) struct WorkflowRunStarter {
     chain_ask_after: Arc<dyn ChainAskAfterReader>,
     provider: Arc<dyn RunProviderReader>,
     kept_values: Arc<WorkflowKeptValueStore>,
+    kinds: Arc<NodeKindTable>,
     data_folder: PathBuf,
     recorder: Arc<EngineRecorder>,
 }
@@ -319,6 +327,7 @@ impl WorkflowRunStarter {
             chain_ask_after,
             provider,
             kept_values,
+            kinds,
             data_folder,
             recorder,
         } = dependencies;
@@ -331,6 +340,7 @@ impl WorkflowRunStarter {
             chain_ask_after,
             provider,
             kept_values,
+            kinds,
             data_folder,
             recorder,
         }
@@ -340,7 +350,8 @@ impl WorkflowRunStarter {
     /// builds its trigger input, then writes its row and its `workflow.run.started` together, the
     /// event's instant the row's start and the scope's. A run joining a chain at its limit is held,
     /// with nothing written. Fails with [`WorkflowRunStartError::Refused`]
-    /// (`workflow.run.startDenied`, `workflow.run.inputRequired`),
+    /// (`workflow.run.startDenied`, `workflow.run.inputRequired`,
+    /// `workflow.run.repositoryRequired`),
     /// [`WorkflowRunStartError::Version`] (`workflow.version.notFound`) or
     /// [`WorkflowRunStartError::Session`] (`session.notFound`) before anything is made, and with
     /// the other variants when a read, the provider, the folder, the payload store or the write
@@ -418,7 +429,8 @@ impl WorkflowRunStarter {
     }
 
     // The checks, in order, before anything is made: a trigger's fire under the workflow start
-    // rule, the version, the session, the trigger's declared inputs.
+    // rule, the version, the session, the trigger's declared inputs, then a project's repository
+    // for the steps that need one.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")
@@ -482,8 +494,30 @@ impl WorkflowRunStarter {
                 error: None,
             }]
         };
+        let trigger_node = WorkflowNode::from(&body.trigger);
+        // A step that needs a repository runs only in a project's; a chat's own folder is none.
+        let is_in_project = session
+            .repository
+            .as_ref()
+            .is_some_and(|repository| repository.is_project);
+        if !is_in_project {
+            let node_handles: HashMap<WorkflowNodeId, _> = std::iter::once(&trigger_node)
+                .chain(&body.nodes)
+                .filter_map(|node| Some((node.id.clone(), self.kinds.kind_rules(node)?.handles)))
+                .collect();
+            let needing = repository_needing_nodes(Some(&trigger_node), &body.nodes, &node_handles);
+            if let Some(node_ids) = BoundedVec::new(needing) {
+                return Err(DomainError::new(
+                    "The workflow holds a step that needs a project's repository, and this start \
+                     works in none.",
+                    RefusalCode::WorkflowRunRepositoryRequired,
+                )
+                .with_detail(WorkflowRunRepositoryRequiredDetails { node_ids })
+                .into());
+            }
+        }
         // The run's nodes are its trigger's and its version's.
-        let nodes = std::iter::once(WorkflowNode::from(&body.trigger))
+        let nodes = std::iter::once(trigger_node)
             .chain(body.nodes)
             .map(|node| (node.id.clone(), node))
             .collect();
