@@ -55,6 +55,7 @@ use crate::driver::claude::inbox::address::ClaudeRegisteredPlacesAddresser;
 use crate::driver::claude::inbox::listener::ClaudeSessionInboxes;
 use crate::driver::claude::intervention::ClaudeInterventions;
 use crate::driver::claude::mcp::connectors::organization_mark::ClaudeOrganizationMarks;
+use crate::driver::claude::pricing::ClaudeRequestPricer;
 use crate::driver::claude::rate_limit_windows::ClaudeUsageProbeModels;
 use crate::driver::claude::run::controls::ClaudeRunControls;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
@@ -84,6 +85,7 @@ use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::repository_reader::RepositoryReading;
 use crate::port::run_host::RunHost;
 use crate::port::session_inbox_address::SessionInboxAddresser;
+use crate::pricing::live::LivePricing;
 
 /// The Claude Code driver: what it stores when built, and the session pieces it composes once.
 pub(crate) struct ClaudeDriver {
@@ -380,6 +382,11 @@ impl ClaudeDriver {
             tool_call_statuses: Arc::clone(&ports.tool_call_statuses),
             goal_endings: Arc::clone(&goal_endings),
             session_message_readings: Arc::clone(&ports.session_message_readings),
+            pricing: Arc::new(LivePricing::new(
+                DESCRIPTOR.provider_id(),
+                Arc::new(ClaudeRequestPricer),
+                ports,
+            )),
         }));
         let goals = Arc::new(ClaudeGoalCommands::default());
         let cuts = Arc::new(ClaudeConversationCuts {

@@ -467,13 +467,6 @@ pub(crate) fn compose_one_turn_spend(
 /// request's rows by `row_weights`; else the request takes what `derive`, its pricer, answers: a
 /// `derivedExact` figure, or a hold for a price or a sign-in kind. A held request is never given a
 /// made-up or zero cost.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the pricing step sets each request's cost and its source through this ladder"
-    )
-)]
 pub(crate) fn resolve_cost_update_provenance(
     provider: ProviderId,
     provider_reported_cost_usd_micros: Option<f64>,
@@ -511,13 +504,6 @@ pub(crate) fn resolve_cost_update_provenance(
 // A finite, non-negative figure rounded half to even to whole micro-dollars, `None` when it is not
 // one or rounds past what the wire's integer holds. The sign is checked before rounding, since a
 // figure just above -0.5 rounds to -0.0, which compares as not negative.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the pricing step sets each request's cost and its source through this ladder"
-    )
-)]
 fn whole_usd_micros(usd_micros: f64) -> Option<UsdMicros> {
     if !usd_micros.is_finite() || usd_micros < 0.0 {
         return None;

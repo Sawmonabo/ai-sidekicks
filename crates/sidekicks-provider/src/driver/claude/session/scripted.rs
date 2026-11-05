@@ -23,6 +23,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_workspace::git::process::test_git_runner;
@@ -69,6 +70,7 @@ use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::session_control::CreateSessionParams;
 use crate::driver::test_registry::{new_agent_id, new_run_id, new_session_id};
 use crate::port::run_host::test_host::RecordingRunEngine;
+use crate::pricing::store::HeldPriceList;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::run::posture::compose_execution_posture;
 use crate::runtime_binding::test_store::{spawned_build, test_provider_account_id};
@@ -199,6 +201,8 @@ pub(crate) struct ScriptedSession {
     pub(crate) helper_steers: Arc<Mutex<ClaudeHelperSteers>>,
     /// The wall clock the driver's scheduler runs on, which a test moves.
     pub(crate) wall_clock: Arc<TestWallClock>,
+    /// Where a test registers the price list the driver's pricing reads.
+    pub(crate) price_list: Arc<PortRegistration<Arc<HeldPriceList>>>,
     listener: Arc<dyn ClaudeProcessListener>,
     control_frames: Mutex<ClaudeControlFrameReader>,
     // The home, working folder and database the session's start read from.
@@ -228,6 +232,7 @@ impl ScriptedSession {
             wall_clock,
             folder,
             database,
+            services: driver_services,
             ..
         } = ScriptedDriver::new();
         // The process offers the session's model, so its start sets none.
@@ -277,6 +282,7 @@ impl ScriptedSession {
             interventions: Arc::clone(&parts.interventions),
             helper_steers: Arc::clone(&services.helper_steers),
             wall_clock,
+            price_list: Arc::clone(&driver_services.ports.price_list),
             parts,
             listener: started.listener,
             control_frames: Mutex::new(control_frames),

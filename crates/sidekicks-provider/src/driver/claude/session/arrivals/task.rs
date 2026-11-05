@@ -390,6 +390,9 @@ impl ClaudeSessionTask {
             .process_exit
             .get_or_init(|| claude_process_exit_of(end))
             .clone();
+        if !services.restarts.is_stopped() {
+            services.delivery.price_process_end(&self.stream).await;
+        }
         let is_superseded = slots
             .live_session(session_id)
             .is_some_and(|held| !Arc::ptr_eq(&held.channel, &self.live.channel));

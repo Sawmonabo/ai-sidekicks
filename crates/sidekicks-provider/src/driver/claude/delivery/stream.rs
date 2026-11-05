@@ -84,6 +84,7 @@ use crate::port::session_message_reading_publisher::SessionMessageReadingPublish
 use crate::port::tool_call_status_publisher::ToolCallStatusPublisher;
 use crate::port::turn_reading_publisher::TurnReadingPublisher;
 use crate::port::usage_sink::UsageSink;
+use crate::pricing::live::LivePricing;
 use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow, RunMarker};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
@@ -126,6 +127,8 @@ pub(crate) struct ClaudeStreamDependencies {
     /// Where the messages other sessions sent, and a refused one, are published once registered.
     pub(crate) session_message_readings:
         Arc<PortRegistration<Arc<dyn SessionMessageReadingPublisher>>>,
+    /// Claude's live pricing, which prices each turn's rows and marks a rerouted model in use.
+    pub(crate) pricing: Arc<LivePricing>,
 }
 
 /// What a frame left for the session's task to do beyond its deliveries.
@@ -362,6 +365,7 @@ impl ClaudeDeliveryStream {
                         is_reviewed,
                     )
                     .await;
+                self.price_turn(session, &frame.observation).await;
             }
             return after;
         }

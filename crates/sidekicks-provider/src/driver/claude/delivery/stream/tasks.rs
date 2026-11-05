@@ -2,7 +2,8 @@
 //! them ended: a helper's end moves its child run, a shell or Monitor task becomes a row of the
 //! session's running commands on the run that started it, and a tool server's background call
 //! stays open until its own notification closes it, its progress the status line under it. Also
-//! the usage routing metered off a frame, recorded on the run whose thread spent it, and the move
+//! the usage routing metered off a frame, recorded on the run whose thread spent it and priced at
+//! its turn's `result` or its process's end, and the move
 //! of the session's bindings onto another account, made in its place among those frames.
 
 mod exit_settle;
@@ -20,6 +21,7 @@ use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::tool_call_status::TOOL_CALL_STATUS_MAX_LEN;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::text_cut::cut_to_code_points;
 
 use super::{ClaudeDeliveryStream, ClaudeSessionStream, report_engine_failure};
@@ -29,13 +31,16 @@ use crate::driver::claude::delivery::messages::{ClaudeOpenToolCall, close_opened
 use crate::driver::claude::delivery::run_readings::{ClaudeRow, ClaudeRowDelivery};
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::frame_routing::ClaudeMeteredReading;
+use crate::driver::claude::pricing::ClaudeModelRows;
 use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::driver::claude::session::conversation_home::ClaudeConversationHomeKeep;
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
+use crate::driver::claude::session::transport::declarations::ClaudeInboundFrameObservation;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::reorder_buffer::{ReorderBufferedEvent, ReorderPairingRole};
 use crate::port::held_tool_calls::HeldToolCall;
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner};
+use crate::pricing::live::LiveUsageRow;
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 /// Why usage Claude Code reported is not recorded: no run holds the session's thread, no helper's
@@ -132,7 +137,8 @@ impl ClaudeDeliveryStream {
     /// Records each metered reading on the run whose thread spent it: the session's own on
     /// `lead`'s binding, a helper's as the helper's, which the record counts toward the helper's
     /// own run, on its child route's binding, else the lead's. A reading no route names goes on the
-    /// binding the session runs on now; one no binding can carry is recorded as a diagnostic.
+    /// binding the session runs on now; one no binding can carry is recorded as a diagnostic. Each
+    /// row recorded on a model is kept for its turn's price.
     pub(super) async fn record_metered(
         &self,
         session: &ClaudeSessionStream,
@@ -175,15 +181,61 @@ impl ClaudeDeliveryStream {
                 );
                 continue;
             };
+            // A row with no model has no rates; the next start's pass reads it.
+            let priced = (reading.delta.request.model_id.clone())
+                .map(|model_id| (model_id, reading.delta.clone()));
             let metered = MeteredUsage {
                 session_id: session.session_id,
                 binding_id,
                 owner,
                 delta: reading.delta,
             };
-            if let Err(error) = sink.record_metered(metered).await {
-                report_engine_failure(session, "metered usage", &*error);
+            match sink.record_metered(metered).await {
+                Ok(Some(recorded)) => {
+                    if let Some((model_id, delta)) = priced {
+                        let row = LiveUsageRow::new(&recorded, session.session_id, &delta);
+                        lock(&session.turn_pricing).keep(model_id, row);
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => report_engine_failure(session, "metered usage", &*error),
             }
+        }
+    }
+
+    /// Prices the rows the turn kept at its `result`, read as `result`, which reports each model's
+    /// cost.
+    pub(super) async fn price_turn(
+        &self,
+        session: &ClaudeSessionStream,
+        result: &ClaudeInboundFrameObservation,
+    ) {
+        let account = session.provider_account_id();
+        let models = lock(&session.turn_pricing).take_at_result(
+            &result.model_costs,
+            session.session_id,
+            &account,
+        );
+        self.price_models(session, models).await;
+    }
+
+    /// Prices the rows `session`'s process kept with no `result` to price them, from the price list.
+    pub(crate) async fn price_process_end(&self, session: &ClaudeSessionStream) {
+        let models = lock(&session.turn_pricing).take_all();
+        self.price_models(session, models).await;
+    }
+
+    async fn price_models(&self, session: &ClaudeSessionStream, models: Vec<ClaudeModelRows>) {
+        for model in models {
+            let pricing = &self.dependencies.pricing;
+            pricing
+                .price(
+                    session.session_id,
+                    &model.model_id,
+                    model.rows,
+                    model.provider_figure_usd_micros,
+                )
+                .await;
         }
     }
 

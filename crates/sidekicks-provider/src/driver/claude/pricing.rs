@@ -1,17 +1,42 @@
-//! Claude Code's rule for pricing its requests from the price list: a request is its message's
-//! rows, priced at the model's exact row, at the standard rates or `fast`'s, in no region or `us`,
-//! with every rate at the long-context tier when the whole request's input passes the row's
-//! threshold, the cache writes split by lifetime and the web searches at the row's per-search rate.
+//! Claude Code's requests priced: its rule for pricing a request from the price list, and the
+//! rows each turn recorded, kept by model until the turn's `result` or the process's end prices
+//! them.
+//!
+//! - **The rule.** A request is its message's rows, priced at the model's exact row, at the
+//!   standard rates or `fast`'s, in no region or `us`, with every rate at the long-context tier
+//!   when the whole request's input passes the row's threshold, the cache writes split by lifetime
+//!   and the web searches at the row's per-search rate.
+//! - **A turn's rows.** At the `result`, a model whose `modelUsage` entry reads `list` or `managed`
+//!   with a cost takes that cost less the last the process reported for it, shared over the model's
+//!   rows; any other model is priced from the price list. The rows still kept when the process ends
+//!   are priced from the price list.
 
+use std::collections::HashMap;
+
+use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::UsageCostSource;
-use sidekicks_contracts::provider::account::record::ProviderAuthMode;
+use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
+use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::BoundedText;
+use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 
 use crate::account::usage_turns::unpriced::{UnpricedRequest, UnpricedUsageKey, UnpricedUsageRow};
+use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::session::transport::declarations::ClaudeModelCost;
+use crate::driver::diagnostics::{
+    DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics,
+};
 use crate::pricing::list::PriceTable;
+use crate::pricing::live::LiveUsageRow;
 use crate::pricing::quote::{RequestTokenCounts, RequestUsage, quote_request_rows};
 use crate::pricing::rule::{RequestPricer, RequestPricing};
+
+// A model id as a usage row carries it.
+type ModelId = FreeFormText<EVENT_FIELD_MAX_LEN>;
+
+// The micro-dollars in a dollar, the unit `costUSD` is reported in.
+const MICRO_DOLLARS_PER_DOLLAR: f64 = 1_000_000.0;
 
 /// The region words a Claude message names that the price list's rows carry a multiplier for.
 const CLAUDE_REGION_WORDS: &[&str] = &["us"];
@@ -102,6 +127,110 @@ impl RequestPricer for ClaudeRequestPricer {
             },
             Err(_refusal) => RequestPricing::HeldForPrice,
         }
+    }
+}
+
+/// One process's turn rows waiting for their price, by model, and what it last reported each
+/// model cost.
+#[derive(Default)]
+pub(crate) struct ClaudeTurnPricing {
+    kept: Vec<ClaudeModelRows>,
+    // The `costUSD` each model's entry last reported on this process, in dollars.
+    last_taken_usd: HashMap<ModelId, f64>,
+    // The `costBasis` words already logged on this process.
+    basis_reports: OnceReportedDiagnostics,
+}
+
+/// One model's rows to price, with the provider's own figure for them in micro-dollars where it
+/// reported one.
+pub(crate) struct ClaudeModelRows {
+    /// The model.
+    pub(crate) model_id: ModelId,
+    /// The rows, in the order they were recorded.
+    pub(crate) rows: Vec<LiveUsageRow>,
+    /// The provider's figure, `None` where the price list's rates price them.
+    pub(crate) provider_figure_usd_micros: Option<f64>,
+}
+
+impl ClaudeTurnPricing {
+    /// Keeps `row`, recorded on `model_id`, until the turn's `result` or the process's end.
+    pub(crate) fn keep(&mut self, model_id: ModelId, row: LiveUsageRow) {
+        match self.kept.iter_mut().find(|kept| kept.model_id == model_id) {
+            Some(kept) => kept.rows.push(row),
+            None => self.kept.push(ClaudeModelRows {
+                model_id,
+                rows: vec![row],
+                provider_figure_usd_micros: None,
+            }),
+        }
+    }
+
+    /// Takes every kept model's rows at a `result` reporting `model_costs`: a model whose entry
+    /// reads `list` or `managed` with a cost takes that cost less the last taken, which the entry's
+    /// cost then becomes; any other takes none. A basis the driver does not know is logged once per
+    /// process on `session_id` and `provider_account_id`.
+    pub(crate) fn take_at_result(
+        &mut self,
+        model_costs: &[ClaudeModelCost],
+        session_id: SessionId,
+        provider_account_id: &ProviderAccountId,
+    ) -> Vec<ClaudeModelRows> {
+        let mut taken = std::mem::take(&mut self.kept);
+        for model in &mut taken {
+            let Some(entry) = model_costs
+                .iter()
+                .find(|entry| entry.model_id == model.model_id)
+            else {
+                continue;
+            };
+            model.provider_figure_usd_micros = match (entry.cost_basis.as_deref(), entry.cost_usd) {
+                (Some("list" | "managed"), Some(cost_usd)) => {
+                    let last_taken_usd = self.take_last(&model.model_id, cost_usd);
+                    Some((cost_usd - last_taken_usd) * MICRO_DOLLARS_PER_DOLLAR)
+                }
+                (Some("list" | "managed" | "unknown") | None, _) => None,
+                (Some(basis), _) => {
+                    self.report_basis(basis, &model.model_id, session_id, provider_account_id);
+                    None
+                }
+            };
+        }
+        taken
+    }
+
+    /// Takes every kept model's rows, each to be priced from the price list.
+    pub(crate) fn take_all(&mut self) -> Vec<ClaudeModelRows> {
+        std::mem::take(&mut self.kept)
+    }
+
+    // Sets `model_id`'s last taken cost to `cost_usd` and answers the one before it, 0 on a model
+    // this process has not reported.
+    fn take_last(&mut self, model_id: &ModelId, cost_usd: f64) -> f64 {
+        self.last_taken_usd
+            .insert(model_id.clone(), cost_usd)
+            .unwrap_or(0.0)
+    }
+
+    fn report_basis(
+        &mut self,
+        basis: &str,
+        model_id: &ModelId,
+        session_id: SessionId,
+        provider_account_id: &ProviderAccountId,
+    ) {
+        self.basis_reports.report(&DriverDiagnosticRecord {
+            provider: DESCRIPTOR.provider_id(),
+            provider_account_id: Some(provider_account_id.clone()),
+            kind: DriverDiagnosticKind::UnmappedWireKind,
+            raw_wire_type: Some(basis.to_owned()),
+            disposition_reason: "a `modelUsage` entry's `costBasis` is not one the driver knows, \
+                                 so the model's requests are priced from the price list"
+                .to_owned(),
+            details: Map::from_iter([
+                ("sessionId".to_owned(), Value::from(session_id.to_string())),
+                ("modelId".to_owned(), Value::from(model_id.as_str())),
+            ]),
+        });
     }
 }
 

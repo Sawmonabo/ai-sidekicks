@@ -1,19 +1,30 @@
 //! What a Claude Code session's usage frames write: retries announced and spent, the account's
 //! quota windows, and the spend of the lead and its helpers.
 
+use std::sync::Arc;
+
+use axum::http::StatusCode;
 use jiff::Timestamp;
 use rstest::rstest;
 use serde_json::{Value, json};
-use sidekicks_contracts::event::usage::{ApiRetryErrorKind, UsageApiRequestRetriedPayload};
+use sidekicks_contracts::event::usage::{
+    ApiRetryErrorKind, UsageApiRequestRetriedPayload, UsageCostSource,
+};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
+use tempfile::TempDir;
+use tokio_util::sync::CancellationToken;
 
 use super::{helper_started, init, result};
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::session::scripted::driver::ScriptedDriver;
 use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
 };
-use crate::port::usage_sink::{MeteredUsageOwner, ProviderQuotaWindow};
+use crate::port::usage_sink::{MeteredUsageOwner, PricedRequest, ProviderQuotaWindow};
+use crate::pricing::test_fixture::{ListServer, open_held, serve};
 use crate::run::delivery::LateAppendableRow;
 use crate::run::state_entry::RunStateEntry;
 use crate::runtime_binding::test_store::test_provider_account_id;
@@ -253,5 +264,143 @@ async fn a_turn_too_long_for_the_window_files_an_exceeded_row_with_no_counts() {
     assert_eq!(
         (window.window_used_tokens, window.window_max_tokens),
         (None, None)
+    );
+}
+
+// The list's copy: the fixture's two models kept, and Opus 5.5 at its input and output rates.
+const OPUS_COPY: &[u8] = br#"{"m1": {"input_cost_per_token": 3e-06},
+    "seed-only": {"input_cost_per_token": 2e-06},
+    "claude-opus-5-5": {"input_cost_per_token": 4e-06, "output_cost_per_token": 2e-05}}"#;
+
+// A price list in `scratch` that took `OPUS_COPY` from its stand-in server, registered for
+// `session`'s pricing; it runs until `stop`.
+async fn register_price_list(
+    session: &ScriptedSession,
+    scratch: &TempDir,
+    stop: &CancellationToken,
+) -> Arc<ListServer> {
+    let server = Arc::new(ListServer::default());
+    let clock = Arc::new(TestWallClock::default());
+    let price_list = open_held(
+        &scratch.path().join("price-list"),
+        serve(&server).await,
+        &clock,
+    )
+    .await;
+    let mut table_watch = price_list.subscribe();
+    server.script(StatusCode::OK, Some(r#"W/"opus""#), OPUS_COPY);
+    drop(price_list.start(stop.clone()));
+    table_watch
+        .changed()
+        .await
+        .expect("the list sends the copy it took");
+    session
+        .price_list
+        .register(price_list)
+        .expect("the price list registers once");
+    server
+}
+
+// An assistant message on `model` of `input` and `output` tokens.
+fn priced_message(message_id: &str, model: &str, input: u64, output: u64) -> Value {
+    json!({
+        "type": "assistant",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        "message": {
+            "id": message_id,
+            "model": model,
+            "role": "assistant",
+            "content": [{"type": "text", "text": "working"}],
+            "usage": {"input_tokens": input, "output_tokens": output},
+        },
+    })
+}
+
+// Each priced request's source and its rows' accounts with their shares.
+fn priced(requests: &[PricedRequest]) -> Vec<(UsageCostSource, Vec<(String, u64)>)> {
+    requests
+        .iter()
+        .map(|request| {
+            let rows = request.rows.iter().map(|priced| {
+                (
+                    priced.row.provider_account_id.as_str().to_owned(),
+                    priced.cost_usd_micros.0.get(),
+                )
+            });
+            (request.cost_source, rows.collect())
+        })
+        .collect()
+}
+
+// Killed by taking the process's cumulative `costUSD` again at the second result (250,000), by
+// pricing in dollars rather than micro-dollars, by keeping the larger-window mark on a
+// `modelUsage` model (each turn priced from the table instead), and by charging a turn's rows to
+// one account after its account moved. The record writes one cost event per account a priced
+// request's rows name.
+#[tokio::test]
+async fn each_result_prices_its_turn_at_the_cost_the_process_added() {
+    let scratch = tempfile::tempdir().expect("a scratch folder is made");
+    let stop = CancellationToken::new();
+    let session = ScriptedSession::new().await;
+    register_price_list(&session, &scratch, &stop).await;
+    let opus = "claude-opus-5-5[1m]";
+    let list_cost = |cost_usd: f64| {
+        result(&json!({"modelUsage": {opus: {"costUSD": cost_usd, "costBasis": "list"}}}))
+    };
+
+    session.hold_lead_turn("lead");
+    session.frame(&init());
+    session.frame(&priced_message("message-1", opus, 1_000, 500));
+    session.frame(&list_cost(0.10));
+    ScriptedDriver::wait_for(|| session.usage.priced().len() == 1).await;
+    session.hold_lead_turn("lead");
+    session.frame(&priced_message("message-2", opus, 1_000, 500));
+    ScriptedDriver::wait_for(|| session.usage.metered().len() == 2).await;
+    let moved = ProviderAccountId::new("moved-account".to_owned()).expect("an account id");
+    session.usage.charge_to(moved.clone());
+    session.frame(&priced_message("message-3", opus, 1_000, 500));
+    session.frame(&list_cost(0.25));
+    ScriptedDriver::wait_for(|| session.usage.priced().len() == 2).await;
+    stop.cancel();
+
+    let first = test_provider_account_id().as_str().to_owned();
+    assert_eq!(
+        priced(&session.usage.priced()),
+        [
+            (
+                UsageCostSource::ProviderReported,
+                vec![(first.clone(), 100_000)]
+            ),
+            (
+                UsageCostSource::ProviderReported,
+                vec![(first, 75_000), (moved.as_str().to_owned(), 75_000)]
+            ),
+        ]
+    );
+}
+
+// Killed by leaving a turn's rows unpriced until a restart when its process ends before its
+// `result`: they are priced from the price list as the process ends.
+#[tokio::test]
+async fn a_process_that_ends_before_its_result_prices_its_rows_from_the_list() {
+    let scratch = tempfile::tempdir().expect("a scratch folder is made");
+    let stop = CancellationToken::new();
+    let session = ScriptedSession::new().await;
+    register_price_list(&session, &scratch, &stop).await;
+
+    session.hold_lead_turn("lead");
+    session.frame(&init());
+    session.frame(&priced_message("message-1", "claude-opus-5-5", 1_000, 500));
+    ScriptedDriver::wait_for(|| session.usage.metered().len() == 1).await;
+    session.exit();
+    ScriptedDriver::wait_for(|| session.usage.priced().len() == 1).await;
+    stop.cancel();
+
+    assert_eq!(
+        priced(&session.usage.priced()),
+        [(
+            UsageCostSource::DerivedExact,
+            vec![(test_provider_account_id().as_str().to_owned(), 14_000)]
+        )]
     );
 }

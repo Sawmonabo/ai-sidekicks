@@ -61,6 +61,7 @@ use crate::port::usage_sink::{
     MeteredUsage, PricedRequest, ProviderQuotaWindow, RecordedUsage, UsageSink,
 };
 use crate::runtime_binding::store::RuntimeBindingRebind;
+use crate::runtime_binding::test_store::test_provider_account_id;
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
@@ -246,12 +247,16 @@ pub(super) fn register_scripted_ports(ports: &DriverPorts, recording: &Arc<Recor
         .expect("the message readings register once");
 }
 
-/// A usage record that keeps each metered delta and each set of quota windows, and answers one set
-/// of sums as every thread's already reported ones.
+/// A usage record that keeps each metered delta, each priced request and each set of quota
+/// windows, answers each delta a row of its own charged to the account it is set to, and answers
+/// one set of sums as every thread's already reported ones.
 #[derive(Default)]
 pub(crate) struct RecordingUsage {
     reported: Mutex<UsageAxisCounts>,
     metered: Mutex<Vec<MeteredUsage>>,
+    priced: Mutex<Vec<PricedRequest>>,
+    // The account each row is charged to, the test account until a test moves it.
+    account: Mutex<Option<ProviderAccountId>>,
     quota_windows: Mutex<Vec<(ProviderAccountId, Vec<ProviderQuotaWindow>)>>,
 }
 
@@ -270,6 +275,16 @@ impl RecordingUsage {
     pub(crate) fn metered(&self) -> Vec<MeteredUsage> {
         lock(&self.metered).clone()
     }
+
+    /// Every request priced so far, in order.
+    pub(crate) fn priced(&self) -> Vec<PricedRequest> {
+        lock(&self.priced).clone()
+    }
+
+    /// Charges every later row to `account`.
+    pub(crate) fn charge_to(&self, account: ProviderAccountId) {
+        *lock(&self.account) = Some(account);
+    }
 }
 
 impl UsageSink for RecordingUsage {
@@ -277,15 +292,26 @@ impl UsageSink for RecordingUsage {
         &self,
         metered: MeteredUsage,
     ) -> BoxFuture<'_, Result<Option<RecordedUsage>, Box<dyn Error + Send + Sync>>> {
-        lock(&self.metered).push(metered);
-        ready(Ok(None)).boxed()
+        let mut all_metered = lock(&self.metered);
+        all_metered.push(metered);
+        let recorded = RecordedUsage {
+            event_id: FreeFormText::new(format!("row-{}", all_metered.len()))
+                .expect("a row id fits"),
+            run_id: None,
+            provider_account_id: lock(&self.account)
+                .clone()
+                .unwrap_or_else(test_provider_account_id),
+            subagent_id: None,
+        };
+        ready(Ok(Some(recorded))).boxed()
     }
 
     fn record_cost(
         &self,
-        _request: PricedRequest,
+        request: PricedRequest,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        ready(Err("the scripted usage record prices no request".into())).boxed()
+        lock(&self.priced).push(request);
+        ready(Ok(())).boxed()
     }
 
     fn read_prior_emitted(
