@@ -81,15 +81,17 @@ pub(crate) fn claude_dialog_session<'a>(
 /// What a choice Claude Code holds a run on is settled for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ClaudeChoiceSettling {
-    /// An interrupt or an undo is about to go.
+    /// An interrupt or an undo is about to go, a refusal's end recorded by the dialogs.
     Interrupt,
+    /// A person's interrupt is about to go, a refusal's end written by the run engine with it.
+    PersonInterrupt,
     /// A message the person sent is about to go.
     QueuedMessage,
 }
 
-/// Settles the choice `run_id` is held on before an interrupt or a message goes; what the
-/// settlement delivers keeps its place among the session's frames. Answers whether that ended the
-/// run. Fails as the dialogs' cancel fails.
+/// Settles the choice `run_id` is held on before an interrupt or a message goes, what it delivers
+/// in its place among the session's frames; answers whether a refusal's cancel took the place of
+/// what goes, its end the run engine's on a person's interrupt. Fails as the dialogs' cancel fails.
 pub(crate) async fn settle_claude_choice(
     dialogs: &ClaudeProviderDialogs<ClaudeStreamDialogPorts>,
     live: &LiveClaudeSession,
@@ -99,7 +101,12 @@ pub(crate) async fn settle_claude_choice(
     let running_model = lock(&live.settings).running_model.clone();
     let session = claude_dialog_session(live, &running_model);
     match settling {
-        ClaudeChoiceSettling::Interrupt => dialogs.settle_for_interrupt(&session, run_id).await,
+        ClaudeChoiceSettling::Interrupt => {
+            dialogs.settle_for_interrupt(&session, run_id, true).await
+        }
+        ClaudeChoiceSettling::PersonInterrupt => {
+            dialogs.settle_for_interrupt(&session, run_id, false).await
+        }
         ClaudeChoiceSettling::QueuedMessage => {
             dialogs.settle_for_queued_message(&session, run_id).await
         }
@@ -169,7 +176,8 @@ impl ClaudeRunControls {
     /// Continues a run with the messages that waited for it. A helper's held calls are answered,
     /// with the messages as the person's words when there are any, each file a line naming its
     /// path; the lead's waiting messages go as user messages with their files, the first starting
-    /// its next turn when its last one ended on the pause. Fails `NoLiveSession`,
+    /// its next turn when its last one ended on the pause, after Claude Code's continuation words
+    /// where the continue owes them. Fails `NoLiveSession`,
     /// `SessionTurnInFlight` while another turn holds the session, as the files' read fails before
     /// anything is sent, with the run's refusal for a lead's picture Claude Code refuses,
     /// `session.message.resetRefused` with nothing written for a lead's message that would reset
@@ -237,7 +245,7 @@ impl ClaudeRunControls {
             .routes
             .lead_run_on(session_id)
             .is_some_and(|lead| lead.run_id == params.run_id);
-        if !params.messages.is_empty() && !is_lead {
+        if (params.is_continuation_owed || !params.messages.is_empty()) && !is_lead {
             self.start
                 .routes
                 .hold_turn_again(params.run_id)
@@ -250,6 +258,9 @@ impl ClaudeRunControls {
                 })?;
         }
         let is_hold_lost = lock(&self.pauses).resume_lead(&session_id);
+        if params.is_continuation_owed {
+            self.write_continuation_words(&live, params.run_id).await?;
+        }
         for (message, attachment_blocks) in params.messages.into_iter().zip(blocks) {
             self.write_message(
                 &live,
@@ -573,7 +584,7 @@ impl ClaudeRunControls {
 
     /// Writes one message for `run_id`, a steer into its running turn or not, recorded before the
     /// write since Claude Code may report it taken first; a write that never left is dropped again.
-    async fn write_message(
+    pub(super) async fn write_message(
         &self,
         live: &LiveClaudeSession,
         run_id: RunId,

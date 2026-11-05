@@ -1,8 +1,10 @@
 //! The recovery pass over the pass fixture; the resume of a session's conversation is in
-//! `resume`, and the settle of the calls each session held in the background in `held_calls`.
+//! `resume`, the settle of the calls each session held in the background in `held_calls`, and the
+//! settle of the sessions the person's Stop left in the stop intent in `stop_intent`.
 
 mod held_calls;
 mod resume;
+mod stop_intent;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -17,7 +19,7 @@ use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::port::plan::{ProviderPlan, mint_plan_id};
 use sidekicks_provider::port::question::mint_tool_server_request_id;
-use sidekicks_session::run::engine::test_fixture::{insert_running_run, stored_run_state};
+use sidekicks_session::run::engine::test_fixture::{insert_run, stored_run_state};
 use sidekicks_store::database::writer::test_file::test_run_id;
 use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
 use tokio_util::sync::CancellationToken;
@@ -105,7 +107,7 @@ async fn a_pass_settles_what_a_restart_left_in_a_session_in_order() {
         )
         .expect("the run ended before the restart");
     let running_run = test_run_id();
-    insert_running_run(&fixture.store.database, session_id, running_run);
+    insert_run(&fixture.store.database, session_id, running_run, "running");
     let running_ask = fixture.record_pending_ask(session_id, running_run);
     let sent_retry = fixture.record_intervention(running_run, "fasterModelRetry", "accepted", "{}");
     let unsent_retry =

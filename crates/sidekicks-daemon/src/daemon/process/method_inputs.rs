@@ -5,6 +5,7 @@
 //! them; it hands back the parts the start runs next and the stop ends.
 
 mod recovery;
+mod worktree;
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -17,6 +18,7 @@ use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::process_identity::ProcessIdentity;
 use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_contracts::trust_statement::DeviceId;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::{BoundedText, TextError};
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
 use sidekicks_ipc::presence::PresenceRegister;
@@ -36,7 +38,6 @@ use sidekicks_platforms::{
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::account::credential_home::{ACCOUNT_SIGN_OUT_BOUND, sign_out_every_home};
-use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::port::run_pause::ContinuedMessages;
 use sidekicks_provider::port::session_wake::SessionWaker;
 use sidekicks_queue::memory_gate::{
@@ -45,7 +46,9 @@ use sidekicks_queue::memory_gate::{
 use sidekicks_queue::run_token_limit::RunTokenLimitReader;
 use sidekicks_queue::service::answer_continue::HaltedRunRecord;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
+use sidekicks_recovery::restart_settle::RestartSettle;
 use sidekicks_recovery::startup::StartupRecovery;
+use sidekicks_recovery::stop_intent::StopIntentFile;
 use sidekicks_session::agent_tree::controls::ChildRunControls;
 use sidekicks_session::agent_tree::lookup::StoredAgentTreeLookup;
 use sidekicks_session::attention::banner_launcher::BannerLauncher;
@@ -57,7 +60,6 @@ use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::groups::service::SessionGroupService;
 use sidekicks_session::interventions::service::InterventionService;
 use sidekicks_session::plan_holds::PlanHolds;
-use sidekicks_session::run::folders::SessionLiveRunFolders;
 use sidekicks_session::run::held_tool_calls::StoredHeldToolCalls;
 use sidekicks_session::search::index::live::LiveIndex;
 use sidekicks_shell::orphan::guard::OrphanGuard;
@@ -72,9 +74,8 @@ use sidekicks_store::machine::local::LocalMachine;
 use sidekicks_workspace::clone::service::{CloneAttachedListener, CloneService, CloneServiceDeps};
 use sidekicks_workspace::folder::list::FolderListService;
 use sidekicks_workspace::git::process::GitRunner;
-use sidekicks_workspace::git::worktree::creation::{WorktreeCreator, WorktreeCreatorDeps};
-use sidekicks_workspace::git::worktree::naming::WorktreeNaming;
-use sidekicks_workspace::git::worktree::setup::{WorktreeSetupRunner, WorktreeSetupRunnerDeps};
+use sidekicks_workspace::git::worktree::creation::WorktreeCreator;
+use sidekicks_workspace::git::worktree::setup::WorktreeSetupRunner;
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
 use sidekicks_workspace::managed::service::managed_workspaces_folder;
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
@@ -94,6 +95,9 @@ use crate::daemon::process::database::DatabaseFile;
 use crate::daemon::process::method_inputs::recovery::{
     RecoveryServiceStart, RecoveryServices, build_recovery_services,
 };
+use crate::daemon::process::method_inputs::worktree::{
+    WorktreeServiceStart, WorktreeServices, build_worktree_services,
+};
 use crate::daemon::process::method_tables::{MethodTableServices, register_method_tables};
 use crate::daemon::process::provider_accounts::{
     ProviderAccountObservation, ProviderAccountPlaneStart, build_provider_account_plane,
@@ -111,12 +115,12 @@ use crate::daemon::process::session_services::{
 use crate::daemon::process::shell_table::{
     ShellTableStart, ShellTableStartError, build_shell_table,
 };
+use crate::daemon::process::stop::DaemonStopReason;
 use crate::daemon::process::supervision::ProcessStateTracker;
 use crate::daemon::process::workspace_services::{
     ExecutionRootStart, WorkspaceServiceStart, WorkspaceWork, build_execution_root_services,
     build_workspace_services,
 };
-use crate::daemon::process::worktree_sources::WorktreeSources;
 use crate::daemon::process_tree_usage::ProcessTreeUsageReader;
 use crate::daemon::status_methods::StatusMethodsDeps;
 use crate::data_acts::erase::{DataErase, DataEraseDeps, EraseStep};
@@ -200,8 +204,10 @@ pub(crate) struct MethodInputsStart<'start> {
     pub(crate) process_state: Arc<ProcessStateTracker>,
     /// The serving socket's record of mutating calls, set once its gate chain is built.
     pub(crate) in_flight: Arc<OnceLock<Arc<InFlightMutations>>>,
-    /// Starts the daemon's stop for the intent given.
-    pub(crate) accept_stop: Arc<dyn Fn(DaemonStopIntent) + Send + Sync>,
+    /// Starts the daemon's stop for the reason given.
+    pub(crate) accept_stop: Arc<dyn Fn(DaemonStopReason) + Send + Sync>,
+    /// The intent the person's Stop writes, which the recovery pass reads and a purge drops from.
+    pub(crate) stop_intent: Arc<StopIntentFile>,
     /// The erase's step that ends the daemon's work as the stop does.
     pub(crate) stop_work: EraseStep,
     /// The erase's step that closes everything that holds a file in the data folder.
@@ -214,6 +220,8 @@ pub(crate) struct MethodInputs {
     pub(crate) session: SessionServices,
     /// The recovery pass, run once the socket is bound and before any follow of the log begins.
     pub(crate) recovery: StartupRecovery,
+    /// The restart's settle, which the person's Stop drains the live runs through.
+    pub(crate) restart_settle: Arc<RestartSettle>,
     /// The live projects list, closed at the stop.
     pub(crate) project_list_feed: Arc<ProjectListFeed>,
     /// The clone service, which owns the askpass broker and closes it at the stop; `None` when it
@@ -326,6 +334,7 @@ pub(crate) async fn register_method_inputs(
         process_state,
         in_flight,
         accept_stop,
+        stop_intent,
         stop_work,
         close_data_folder,
     } = start;
@@ -371,34 +380,23 @@ pub(crate) async fn register_method_inputs(
         attribution: mcp_attribution,
         probe_gate: Arc::new(McpMachineProbeGate::default()),
     }));
-    let worktree_sources = Arc::new(WorktreeSources {
-        reads: Arc::clone(&reads),
-        records: Arc::clone(&port.project_records),
-        worktrees: Arc::clone(&repo.worktrees),
-        settings: Arc::clone(&settings_reader),
-        base_environment: Arc::clone(&base_environment),
-        reserved_names: Arc::clone(&providers.reserved_names),
-    });
-    let worktree_setup = Arc::new(WorktreeSetupRunner::new(WorktreeSetupRunnerDeps {
+    let WorktreeServices {
+        setup: worktree_setup,
+        live_run_folders,
+        creator: worktree_creator,
+    } = build_worktree_services(WorktreeServiceStart {
+        reads: &reads,
+        writer: &writer,
+        repo,
+        records: &port.project_records,
+        settings: &settings_reader,
+        base_environment: &base_environment,
+        reserved_names: &providers.reserved_names,
         git: git.clone(),
         spawner: spawner.clone(),
-        watcher: Arc::clone(&repo.folder_watch),
-        sources: Arc::clone(&worktree_sources) as _,
-    }));
-    let live_run_folders = Arc::new(SessionLiveRunFolders::new(Arc::clone(&reads)));
+    });
     // The creator's, the run setup gate's around a run's context write, and the turn snapshots'.
     let checkout_lock = Arc::clone(&repo.checkout_lock);
-    let worktree_creator = Arc::new(WorktreeCreator::new(WorktreeCreatorDeps {
-        git: git.clone(),
-        reads: Arc::clone(&reads),
-        writer: Arc::clone(&writer),
-        events: Arc::clone(&repo.worktree_events),
-        naming: WorktreeNaming::new(repo.worktrees_folder.clone(), worktree_sources),
-        worktrees: Arc::clone(&repo.worktrees),
-        setup: Arc::clone(&worktree_setup),
-        live_run_folders: Arc::clone(&live_run_folders) as _,
-        checkout_lock: Arc::clone(&checkout_lock),
-    }));
     let attention = Arc::new(AttentionService::new(AttentionServiceDependencies {
         writer: Arc::clone(&writer),
         pool: Arc::clone(&reads),
@@ -471,6 +469,7 @@ pub(crate) async fn register_method_inputs(
         plan_holds,
         payloads: Arc::clone(&artifacts.payloads),
         publisher: Arc::clone(&artifacts.publisher),
+        attachments: Arc::clone(&artifacts.attachments),
         spool_folder: artifacts.spool_folder.clone(),
         workspaces_folder: managed_workspaces_folder(home_folder),
         workspace_writes: repo
@@ -507,6 +506,9 @@ pub(crate) async fn register_method_inputs(
         provider_sessions: Arc::clone(&session.provider_sessions),
         appender: Arc::clone(&session.appender),
         read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
+        request_held: Arc::clone(&providers.ports.request_held),
+        daemon_started_at: WireInstant::from_timestamp(started_at)
+            .expect("the clock reads after year 0000"),
     })
     .await;
     let mcp_client = Arc::new(McpClient::new(
@@ -633,7 +635,11 @@ pub(crate) async fn register_method_inputs(
         }),
         Err(unavailable) => Err(unavailable),
     };
-    let RecoveryServices { stored, recovery } = build_recovery_services(RecoveryServiceStart {
+    let RecoveryServices {
+        stored,
+        recovery,
+        restart_settle,
+    } = build_recovery_services(RecoveryServiceStart {
         database,
         reads: &reads,
         writer,
@@ -653,6 +659,7 @@ pub(crate) async fn register_method_inputs(
         accept_stop: &accept_stop,
         data_folder,
         copier,
+        stop_intent,
         mcp_dispatch,
     })?;
     let driver_methods = Arc::new(DriverMethodSources {
@@ -728,7 +735,7 @@ pub(crate) async fn register_method_inputs(
                         async move { sign_ins.stop(ACCOUNT_SIGN_OUT_BOUND).await }.boxed()
                     }),
                     close_data_folder,
-                    end_process: Arc::new(move || accept_stop(DaemonStopIntent::Stop)),
+                    end_process: Arc::new(move || accept_stop(DaemonStopReason::Erase)),
                 })),
             },
             data_folder: data_folder.to_path_buf(),
@@ -838,6 +845,7 @@ pub(crate) async fn register_method_inputs(
     Ok(MethodInputs {
         session,
         recovery,
+        restart_settle,
         project_list_feed,
         clones: clones.ok(),
         worktree_setup,

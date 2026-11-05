@@ -784,8 +784,12 @@ impl ProviderDriver for ClaudeDriver {
         self.subscribe_provider_commands(&params, listener)
     }
 
-    fn shutdown(&self, intent: DaemonStopIntent) -> BoxFuture<'_, Result<(), DriverError>> {
-        self.shutdown(intent).boxed()
+    fn shutdown(
+        &self,
+        intent: DaemonStopIntent,
+        deadline: tokio::time::Instant,
+    ) -> BoxFuture<'_, ()> {
+        self.shutdown(intent, deadline).boxed()
     }
 
     fn session_inbox_addresser(&self) -> Option<Arc<dyn SessionInboxAddresser>> {

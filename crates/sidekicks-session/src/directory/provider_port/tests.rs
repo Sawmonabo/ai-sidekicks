@@ -1,4 +1,5 @@
-//! The port's relaunch record, its run folder, its git folder and an opening's helper policy.
+//! The port's relaunch record, its run folder, its git folder, a spawn context's memory switch and
+//! an opening's helper policy.
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -29,7 +30,10 @@ use sidekicks_mcp::status::open_test_tracker;
 use sidekicks_platforms::Spawner;
 use sidekicks_provider::driver::ports::SessionRelaunchListener;
 use sidekicks_provider::driver::session_control::{DriverResumeResult, SubagentPolicy};
-use sidekicks_provider::driver::{PROVIDERS, SessionSpawnContextResolver};
+use sidekicks_provider::driver::test_registry::TestProviderAccounts;
+use sidekicks_provider::driver::{
+    CurrentProviderAccount, PROVIDERS, ProviderAccountReader, SessionSpawnContextResolver,
+};
 use sidekicks_provider::left_conversations::read_left_conversations;
 use sidekicks_provider::runtime_binding::store::{
     CreateRuntimeBindingInput, mint_runtime_binding_id,
@@ -42,6 +46,7 @@ use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_run_id, test_session_id};
+use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use sidekicks_workspace::git::process::{GitCall, GitLimits, GitRunner, test_git_runner};
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
 use sidekicks_workspace::project::records::{
@@ -54,8 +59,9 @@ use super::{
     SessionDirectoryProviderPort, SessionDirectoryProviderPortDeps, SessionGitFolder,
 };
 use crate::agents::projection::test_fixture::{binding, write_log_row};
+use crate::console_state::auto_memory_change_statement;
 use crate::run::binding_cursors::{RUN_BINDING_CURSORS_STATEMENT_CAPACITY, RunBindingCursors};
-use crate::run::engine::test_fixture::insert_running_run;
+use crate::run::engine::test_fixture::insert_run;
 use crate::run::epochs::ExecutionEpochs;
 use crate::run::schema::schema_parts;
 use crate::run::stored_leg::read_session_leg;
@@ -107,12 +113,14 @@ impl MachineSettingsReader for HelpersAtOnce {
     }
 }
 
-// A port over a session whose leg runs on `conversation-1`.
+// A port over a session whose leg runs on `conversation-1`, its accounts port registered by the
+// test that reads an account.
 struct PortOverLeg {
     port: SessionDirectoryProviderPort,
     pool: Arc<DatabaseReadPool>,
     epochs: Arc<Mutex<ExecutionEpochs>>,
     leg_id: RuntimeBindingId,
+    provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
 }
 
 async fn port_over_a_leg(
@@ -123,7 +131,7 @@ async fn port_over_a_leg(
 ) -> PortOverLeg {
     let store = open_store(database).await;
     let run_id = test_run_id();
-    insert_running_run(database, session_id, run_id);
+    insert_run(database, session_id, run_id, "running");
     let pool = Arc::new(DatabaseReadPool::new(
         database.path(),
         SESSION_DIRECTORY_PROVIDER_PORT_STATEMENT_CAPACITY
@@ -153,6 +161,7 @@ async fn port_over_a_leg(
         .expect("the leg is recorded");
     // The session is in no project, so its relaunch's leg attributes at no root.
     let (mcp_status, _subscriber, _first_observations) = open_test_tracker().await;
+    let provider_accounts = Arc::new(PortRegistration::new("provider accounts"));
     let port = SessionDirectoryProviderPort::new(SessionDirectoryProviderPortDeps {
         pool: Arc::clone(&pool),
         read_damaged_from_sequence: Arc::new(|_: &SessionId| None),
@@ -160,7 +169,7 @@ async fn port_over_a_leg(
         git,
         settings,
         project_records: Arc::new(ProjectRecords::new(Arc::clone(&pool), Arc::new(Unread))),
-        provider_accounts: Arc::new(PortRegistration::new("provider accounts")),
+        provider_accounts: Arc::clone(&provider_accounts),
         mcp_status,
         mcp_attribution: Arc::new(McpAttributionTable::default()),
     });
@@ -169,6 +178,7 @@ async fn port_over_a_leg(
         pool,
         epochs,
         leg_id,
+        provider_accounts,
     }
 }
 
@@ -245,6 +255,7 @@ async fn a_relaunch_that_records_nothing_forgets_its_opened_cursor(#[case] is_an
         pool,
         epochs,
         leg_id,
+        ..
     } = port_over_a_leg(&database, session_id, test_git_runner(), Arc::new(Unread)).await;
     let opened_id = mint_runtime_binding_id();
 
@@ -394,6 +405,64 @@ async fn a_git_folder_that_is_gone_or_not_named_is_unavailable(
     if unavailable.is_none() {
         assert!(read.is_err(), "{read:?}");
     }
+}
+
+// A spawn context carries the session's own `Auto memory` switch, unset where the person never set
+// it. Killed by the switch left off the read (every case reads unset) and by a fixed value.
+#[rstest]
+#[case::never_set(None)]
+#[case::off(Some(false))]
+#[case::on(Some(true))]
+#[tokio::test]
+async fn a_spawn_context_carries_the_sessions_memory_switch(#[case] auto_memory: Option<bool>) {
+    let database = TestDatabase::new(schema_parts());
+    let session_id = test_session_id();
+    let PortOverLeg {
+        port,
+        provider_accounts,
+        ..
+    } = port_over_a_leg(&database, session_id, test_git_runner(), Arc::new(Unread)).await;
+    let connection = database.reader();
+    store_session_and_mount(&connection, session_id);
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let fs_root = folder.path().to_string_lossy().into_owned();
+    insert_workspace(
+        &connection,
+        session_id,
+        "live",
+        WorkspaceState::Ready,
+        Some(&fs_root),
+        &json!({}),
+        "2026-10-14T09:30:00.000Z",
+    );
+    let accounts: Arc<dyn ProviderAccountReader> = Arc::new(TestProviderAccounts::holding_folder(
+        CurrentProviderAccount::Current(test_provider_account_id()),
+        Some(folder.path().to_path_buf()),
+    ));
+    provider_accounts
+        .register(accounts)
+        .expect("the accounts reader registers");
+    // Git refuses a removed folder, so the git folder reads as none.
+    folder.close().expect("the folder is removed");
+    if let Some(is_enabled) = auto_memory {
+        DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
+            .await
+            .expect("the writer opens")
+            .write(vec![auto_memory_change_statement(
+                &session_id,
+                is_enabled,
+                "2026-10-14T09:30:00.000Z",
+            )])
+            .await
+            .expect("the switch is written");
+    }
+
+    let context = port
+        .resolve_spawn_context(session_id, test_provider_account_id())
+        .await
+        .expect("the spawn context resolves");
+
+    assert_eq!(context.auto_memory, auto_memory);
 }
 
 // An opening carries the helper policy of `Helpers at once` as set for the lead's provider: unset

@@ -11,24 +11,10 @@ use crate::driver::contract::params_and_results::SessionProcessState;
 pub(crate) const CLAUDE_AUTO_MEMORY_SETTING: &str = "autoMemoryEnabled";
 
 /// The variable that turns auto memory off at `1` and on at `0`, over every settings file.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's memory read and switch call it"
-    )
-)]
 pub(crate) const CLAUDE_AUTO_MEMORY_VARIABLE: &str = "CLAUDE_CODE_DISABLE_AUTO_MEMORY";
 
 /// The value one process runs with: the variable it was spawned with where that is `1` (off) or
 /// `0` (on), since it wins over every file, else `effective`, the value its settings resolve to.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's memory read and switch call it"
-    )
-)]
 pub(crate) fn read_claude_process_auto_memory(
     spawn_environment: &[(String, String)],
     effective: Option<bool>,
@@ -100,7 +86,7 @@ pub(crate) fn read_claude_auto_memory(sources: &ClaudeAutoMemorySources<'_>) -> 
     not(test),
     expect(
         dead_code,
-        reason = "the Claude driver's memory read and switch call it"
+        reason = "the press of the Claude driver's memory switch calls it"
     )
 )]
 pub(crate) fn claude_auto_memory_applies_at(

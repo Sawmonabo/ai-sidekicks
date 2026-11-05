@@ -25,13 +25,9 @@ use crate::driver::session_control::SettleHeldToolCallsParams;
 pub(super) const HELD_TASK_STOP_BOUND: Duration = Duration::from_secs(2);
 
 /// Sends Claude Code's `stop_task` for each of `task_ids` on `channel`, all at once, and waits for
-/// their answers at most `bound`. A refused or failed stop is logged; one still waiting at the
-/// bound is dropped, which withdraws it.
-pub(super) async fn stop_held_tasks(
-    channel: &dyn ClaudeProcessChannel,
-    task_ids: Vec<String>,
-    bound: Duration,
-) {
+/// their answers; the caller bounds the wait, and dropping it withdraws the stops still waiting. A
+/// refused or failed stop is logged.
+pub(super) async fn stop_held_tasks(channel: &dyn ClaudeProcessChannel, task_ids: Vec<String>) {
     let stops = task_ids.into_iter().map(|task_id| async move {
         let stop = ClaudeControlRequest::StopTask {
             task_id: task_id.clone(),
@@ -44,12 +40,7 @@ pub(super) async fn stop_held_tasks(
             );
         }
     });
-    if tokio::time::timeout(bound, join_all(stops)).await.is_err() {
-        tracing::warn!(
-            "Claude Code had not answered every stop of a closed session's surviving tasks by the \
-             close's bound, so the stops still waiting are withdrawn"
-        );
-    }
+    join_all(stops).await;
 }
 
 impl ClaudeDriver {

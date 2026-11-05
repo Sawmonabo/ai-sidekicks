@@ -59,7 +59,8 @@ use sidekicks_workspace::row_guards::{BOUND_ROOT_METADATA_PATH, CHECKOUT_ROOT_ME
 use sidekicks_workspace::working_folder::{WorkingFolderReadError, read_working_folder};
 
 use crate::console_state::{
-    read_session_advisor_model, read_session_max_steps_per_turn, read_session_mode,
+    read_session_advisor_model, read_session_auto_memory, read_session_max_steps_per_turn,
+    read_session_mode,
 };
 use crate::permission_level::read_session_permission_level;
 use crate::run::agent::{SessionLead, read_session_lead};
@@ -69,9 +70,9 @@ use crate::run::stored_leg::read_session_leg;
 use self::function_legs::SessionFunctionLegsFor;
 
 /// The statements the port prepares on a pooled connection: the lead, the working folder, the run
-/// folder, the level, the mode, the step bound, the advisor, and the session's run ids and their
-/// bindings for its leg.
-pub const SESSION_DIRECTORY_PROVIDER_PORT_STATEMENT_CAPACITY: usize = 9;
+/// folder, the level, the mode, the step bound, the advisor, the auto-memory switch, and the
+/// session's run ids and their bindings for its leg.
+pub const SESSION_DIRECTORY_PROVIDER_PORT_STATEMENT_CAPACITY: usize = 10;
 
 // The place the session works in and the folder its runs work in: its newest live workspace's
 // prepared root, else, before its first run prepares one, the folder that workspace was bound to,
@@ -476,7 +477,7 @@ impl SessionDirectoryProviderPort {
         session_id: SessionId,
         provider_account_id: ProviderAccountId,
     ) -> Result<SessionSpawnContext, SessionDirectoryProviderPortError> {
-        let (working_folder, step_bound, advisor_model) = self
+        let (working_folder, step_bound, advisor_model, auto_memory) = self
             .deps
             .pool
             .read(ReadLength::Short, move |reader| {
@@ -484,6 +485,7 @@ impl SessionDirectoryProviderPort {
                     read_working_folder(reader, &session_id)?,
                     read_session_max_steps_per_turn(reader, &session_id)?,
                     read_session_advisor_model(reader, &session_id)?,
+                    read_session_auto_memory(reader, &session_id)?,
                 ))
             })
             .await?;
@@ -517,6 +519,7 @@ impl SessionDirectoryProviderPort {
             account_folders,
             step_bound,
             advisor_model,
+            auto_memory,
         })
     }
 
@@ -591,6 +594,7 @@ impl SessionDirectoryProviderPort {
                 session_id,
                 provider_account_id: predecessor.spawn_config.provider_account_id.clone(),
                 conversation_id: handle.clone(),
+                runtime_metadata: predecessor.runtime_metadata.clone(),
             })
             .into_iter()
             .collect();
@@ -611,9 +615,9 @@ impl SessionDirectoryProviderPort {
 impl SessionSpawnContextResolver for SessionDirectoryProviderPort {
     /// The session's newest ready workspace's root, its repository's common git folder (`None`
     /// outside one), the machine's and the project's environment rows, the account's folders, and
-    /// the session's own step bound and advisor. Fails for a session with no workspace ready to
-    /// run in, while the accounts port is unregistered, and as the reads,
-    /// git, the settings file or the accounts port fail.
+    /// the session's own step bound, advisor and `Auto memory` switch. Fails for a session with no
+    /// workspace ready to run in, while the accounts port is unregistered, and as the reads, git,
+    /// the settings file or the accounts port fail.
     fn resolve_spawn_context(
         &self,
         session_id: SessionId,

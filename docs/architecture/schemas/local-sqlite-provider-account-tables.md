@@ -209,7 +209,17 @@ CREATE TABLE provider_account_usage_turns (
   cache_read_tokens     INTEGER,
   cache_write_tokens    INTEGER,
   reasoning_tokens      INTEGER,  -- the five counts, each NULL where the provider reported none. NULL is NOT zero: a provider may report fewer than five (Codex reports all five per turn, Claude Code what its per-model usage block carries), so coalescing an unreported count to zero would present a partial reading as a complete one. Taken from the carrier that is complete on each leg -- on the Claude leg the result frame's PER-MODEL block, never its top-level one, which counts the outer loop alone and undercounts as soon as helper conversations run.
-  cost_usd_micros INTEGER,  -- integer micro-dollars; NULL = no figure yet, which is a different fact from a cost of zero and renders as no figure at all. Every turn is priced: from the provider's own figure where it reports one with a known cost basis (Claude Code's, where its basis reads list or managed), and otherwise from the daemon's price table, matched by the model's exact id (Codex, which reports no cost, and a Claude Code model whose basis reads unknown). A row lands with its exact tokens and no figure, and its figure and `cost_source` are set once when the price table prices it, never repriced; a turn on a model the price table does not carry yet keeps its tokens with no figure until a fetch carries that model
+  request_key     TEXT,  -- the provider's id of the request the turn belongs to, shared by every row of that request: Claude Code's `message.id`, and on a turn's confirming row the turn's last message's. NULL where the provider names none, and then the row is its own request. A request seen again after a restart is looked up by this key
+  speed           TEXT,  -- the speed tier the request ran at, in the provider's word, kept as given; NULL where it gave none, which prices at the standard rates
+  processing_region TEXT,  -- the region the request was processed in, in the driver's region word; NULL where it ran in no named region (Claude Code's `inference_geo` `global`, null or absent), which takes no region multiplier
+  cache_write_extended_tokens INTEGER,  -- the part of `cache_write_tokens` written at the longer cache lifetime, which prices at its own rate; NULL where the provider gave no split
+  web_search_requests INTEGER,  -- the web searches the request ran, each priced at the model's per-search rate; NULL where the provider reported none
+  thread_speed    TEXT,  -- the speed tier the turn's thread declared when the reading was taken, which prices the requests of helpers that thread spawned; NULL where none was declared
+  subagent_id     TEXT,  -- the provider's own id of the helper the turn is attributed to, so a helper's request is priced and shown on the agent it belongs to; NULL for the lead's own turns
+  is_held         INTEGER NOT NULL DEFAULT 0
+                  CHECK(is_held IN (0, 1)),  -- set once the turn's driver left its request unpriced and handed it to the repricing, and on a window-start turn no session owns, which is a whole request when written. The repricing reads a row only once it is marked or when another daemon start wrote it (`daemon_started_at`), so a request the live path is still metering is never priced twice; a row an earlier start wrote needs no mark, since no live path holds it any more
+  daemon_started_at TEXT,  -- the start of the daemon whose live append or observer wrote the row, in the stored form, compared by equality and never by order, so a clock step cannot move a row across it; NULL only on a row a projection rebuild wrote, which the repricing reads as another start's
+  cost_usd_micros INTEGER,  -- integer micro-dollars; NULL = no figure yet, which is a different fact from a cost of zero and renders as no figure at all. Every turn is priced: from the provider's own figure where it reports one with a known cost basis (Claude Code's, where its basis reads list or managed), and otherwise from the daemon's price table, matched by the model's exact id (Codex, which reports no cost, and a Claude Code model whose basis reads unknown). A row lands with its exact tokens and no figure, and its figure and `cost_source` are set once when the price table prices it, never repriced; a turn on a model the price table does not carry yet keeps its tokens with no figure until a fetch carries that model, and a turn whose provider's rule reads the account's sign-in kind keeps it until that kind is known
   cost_source     TEXT
                   CHECK(cost_source IS NULL OR cost_source IN ('providerReported', 'derivedExact')),  -- where the figure came from: the provider's own figure, or the daemon's price table by exact model id; the same vocabulary the source event carries. Provenance is REUSED and not re-enumerated here: a second spelling of where a number came from is a second answer to one question
   observed_credential_generation INTEGER NOT NULL
@@ -218,11 +228,20 @@ CREATE TABLE provider_account_usage_turns (
   CHECK (run_id IS NULL OR session_id IS NOT NULL)  -- a run belongs to a session, so a row naming a run and no session describes a turn that cannot exist
 ) STRICT;
 
--- The two slices the account surface draws, and nothing else reads this table by any other shape.
+-- Five reads, each served by its own index, and nothing reads this table by any other shape: the account surface's slices by day and by model, a request's rows by its key, a session's rows by time, and the held requests' rows no figure names yet.
 CREATE INDEX idx_provider_account_usage_turns_account_day
   ON provider_account_usage_turns(account_id, occurred_at);
 CREATE INDEX idx_provider_account_usage_turns_account_model
   ON provider_account_usage_turns(account_id, model_id);
+-- A request's rows by its key, so a request seen again after a restart is found without a scan.
+CREATE INDEX idx_provider_account_usage_turns_account_request
+  ON provider_account_usage_turns(account_id, request_key);
+-- A session's rows by time, so the thread tier live when a helper's request ran is found without a scan; the account indexes miss a session that moved accounts.
+CREATE INDEX idx_provider_account_usage_turns_session_time
+  ON provider_account_usage_turns(session_id, occurred_at);
+-- The held requests' reads: the distinct keys of the rows no figure names, read from the index alone at start, and one key's rows a page at a time in request order. The figure leads so both reads stay inside the index.
+CREATE INDEX idx_provider_account_usage_turns_unpriced
+  ON provider_account_usage_turns(cost_usd_micros, provider, account_id, model_id, speed, processing_region, request_key, turn_id);
 ```
 
-Rows are appended; an unpriced row's cost and its source are set once when the price table prices it, and nothing else on a row changes. A provider's own usage history, where it publishes one, is drawn **beside** this table with the vendor named and is never reconciled into it: two accountants counting the same tokens differently is what one source of truth exists to prevent.
+Rows are appended, each live append's and each window-start turn's with its daemon start; an unpriced row's held mark is set once when its driver hands its request over (a window-start turn's at its write), its cost and its source once when the price table prices it, and nothing else on a row changes. A provider's own usage history, where it publishes one, is drawn **beside** this table with the vendor named and is never reconciled into it: two accountants counting the same tokens differently is what one source of truth exists to prevent.

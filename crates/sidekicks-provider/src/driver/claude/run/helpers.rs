@@ -136,30 +136,16 @@ mod tests {
         })
     }
 
-    // The answer written to the request `request_id`, if any.
-    fn answer_to(session: &ScriptedSession, request_id: &str) -> Option<String> {
-        session
-            .channel
-            .writes()
-            .into_iter()
-            .find_map(|write| match write {
-                ScriptedWrite::Answer {
-                    request_id: answered,
-                    answer,
-                } if answered == request_id => Some(answer.to_string()),
-                ScriptedWrite::Answer { .. }
-                | ScriptedWrite::Control(_)
-                | ScriptedWrite::User(_)
-                | ScriptedWrite::Terminate => None,
-            })
-    }
-
     // Whether the answer to `request_id` denies the tool use with the console stop's sentence.
     fn is_denied_as_stopped(session: &ScriptedSession, request_id: &str) -> bool {
-        answer_to(session, request_id).is_some_and(|answer| {
-            answer.contains(r#""permissionDecision":"deny""#)
-                && answer.contains(&HelperStopReason::StopAll.sentence())
-        })
+        session
+            .channel
+            .written_answer(request_id)
+            .is_some_and(|answer| {
+                let answer = answer.to_string();
+                answer.contains(r#""permissionDecision":"deny""#)
+                    && answer.contains(&HelperStopReason::StopAll.sentence())
+            })
     }
 
     // Killed by a token limit that leaves the helper's next tool use allowed, by one that stops
@@ -179,12 +165,19 @@ mod tests {
         session.request("lead-tool", &before_tool(None));
         settle().await;
 
-        let helper_answer = answer_to(&session, "helper-tool").expect("the hook is answered");
+        let helper_answer = session
+            .channel
+            .written_answer("helper-tool")
+            .expect("the hook is answered")
+            .to_string();
         assert!(helper_answer.contains(r#""permissionDecision":"deny""#));
         assert!(helper_answer.contains(&HelperStopReason::TokenLimit.sentence()));
         assert!(
-            !answer_to(&session, "lead-tool")
+            !session
+                .channel
+                .written_answer("lead-tool")
                 .expect("the hook is answered")
+                .to_string()
                 .contains("deny")
         );
     }
@@ -211,7 +204,7 @@ mod tests {
             outcome.expect("the stop is answered"),
             HelperStopOutcome::Stopped
         );
-        let requests = session.channel.control_requests();
+        let requests = session.control_requests_after_start();
         assert_eq!(requests.len(), 1, "{requests:?}");
         assert_eq!(requests[0]["subtype"], "stop_task");
         assert_eq!(requests[0]["task_id"], "helper");
@@ -263,7 +256,7 @@ mod tests {
         session.request("next-tool", &before_tool(Some("helper")));
         settle().await;
         assert!(is_denied_as_stopped(&session, "next-tool"));
-        assert_eq!(answer_to(&session, "held-tool"), None);
+        assert_eq!(session.channel.written_answer("held-tool"), None);
         let still_held = lock(pauses).resume_helper(&session.session_id, "helper", None);
         assert_eq!(
             !still_held.released.is_empty(),

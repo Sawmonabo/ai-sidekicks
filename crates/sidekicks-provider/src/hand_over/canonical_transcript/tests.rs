@@ -20,7 +20,7 @@ use sidekicks_store::events::test_log::SessionTestLog;
 use super::{
     CanonicalToolResultOutcome, CanonicalToolResultProvenance, CanonicalTranscriptProjection,
     CanonicalTranscriptRole, CanonicalTranscriptSegment, CanonicalTranscriptTurn,
-    TranscriptExportBound, fold_canonical_transcript,
+    TranscriptExportBound, fold_canonical_transcript, shown_tool_result_body,
 };
 use crate::driver::schema::schema_parts;
 use crate::hand_over::transform_pipeline::transform_transcript;
@@ -334,4 +334,30 @@ fn a_held_call_answers_with_its_stand_in_until_a_close_follows(#[case] do_closes
             .contains(&DeclaredLossKind::ToolCallHistoryRepaired),
         "a held call's one result needs no repair"
     );
+}
+
+// Killed by the two service labels swapped (`daemon_restart`, `daemon_stop`), by the hand-over
+// line dropped from a service cause or added to `Stopped` or `Process exited`, and by a cause's
+// label shown over a body the call kept (`*_with_a_body`).
+#[rstest]
+#[case::stopped(ToolCallEndCause::Stopped, "", "Stopped")]
+#[case::process_exit(ToolCallEndCause::ProcessExit, "", "Process exited")]
+#[case::daemon_restart(
+    ToolCallEndCause::DaemonRestart,
+    "",
+    "Service restarted: outcome unknown; check before redoing"
+)]
+#[case::daemon_stop(
+    ToolCallEndCause::DaemonStop,
+    "",
+    "Service stopped: outcome unknown; check before redoing"
+)]
+#[case::stopped_with_a_body(ToolCallEndCause::Stopped, "denied", "denied")]
+#[case::daemon_stop_with_a_body(ToolCallEndCause::DaemonStop, "denied", "denied")]
+fn a_tool_call_end_cause_shows_its_label(
+    #[case] end_cause: ToolCallEndCause,
+    #[case] body: &str,
+    #[case] shown: &str,
+) {
+    assert_eq!(shown_tool_result_body(body, Some(end_cause)), shown);
 }

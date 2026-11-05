@@ -35,7 +35,7 @@ use sidekicks_provider::driver::contract::params_and_results::{ListModelsParams,
 use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
 use sidekicks_provider::driver::error_causes::ExecutableUnresolvable;
 use sidekicks_provider::driver::test_registry::registry_of_first_providers;
-use sidekicks_session::run::engine::test_fixture::insert_running_run;
+use sidekicks_session::run::engine::test_fixture::insert_run;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
@@ -411,7 +411,7 @@ async fn every_binding_is_admitted_before_any_command_list_is_read() {
 // Writes a live run of `agent_id`, queued for it, bound to the table's provider at `index`.
 fn live_run_of_agent(fixture: &Fixture, agent_id: &AgentId, index: usize) {
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&fixture.database, fixture.session_id, run_id);
+    insert_run(&fixture.database, fixture.session_id, run_id, "running");
     let connection = fixture.database.reader();
     connection
         .execute(

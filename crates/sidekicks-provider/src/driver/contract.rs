@@ -24,6 +24,7 @@ use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedStat
 use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::controls::methods::TerminalProviderSession;
 use sidekicks_contracts::session::id::SessionId;
+use tokio::time::Instant;
 
 use crate::driver::contract::account::ProviderAccountLegs;
 use crate::driver::contract::error::DriverError;
@@ -59,6 +60,8 @@ use crate::driver::session_control::{
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 use crate::port::session_inbox_address::SessionInboxAddresser;
+use crate::pricing::receiver::TelemetryExportReader;
+use crate::pricing::rule::RequestPricer;
 
 pub mod account;
 pub mod error;
@@ -194,6 +197,18 @@ pub trait ProviderDriver: Send + Sync {
     /// of a message's files checks each picture against: a fixed fact of the driver, like
     /// [`message_handing`](Self::message_handing); `None` where the provider sets no limit.
     fn picture_base64_size_limit(&self) -> Option<u64> {
+        None
+    }
+
+    /// The reader of the telemetry the provider's processes export, which the daemon hands the
+    /// receiver under the provider's id; `None` where the provider exports none.
+    fn telemetry_export_reader(&self) -> Option<Arc<dyn TelemetryExportReader>> {
+        None
+    }
+
+    /// The rule that prices this provider's requests, which its live pricing and the repricing of
+    /// held requests both call; `None` where the driver prices none.
+    fn request_pricer(&self) -> Option<Arc<dyn RequestPricer>> {
         None
     }
 
@@ -576,8 +591,9 @@ pub trait ProviderDriver: Send + Sync {
 
     /// Stops every provider process this driver started; under `Restart` a service that outlives
     /// the daemon is only disconnected. The daemon calls it once while it stops; a service the
-    /// person runs themselves is never stopped.
-    fn shutdown(&self, intent: DaemonStopIntent) -> BoxFuture<'_, Result<(), DriverError>>;
+    /// person runs themselves is never stopped. Every wait inside ends by `deadline`, the one
+    /// instant the whole stop shares.
+    fn shutdown(&self, intent: DaemonStopIntent, deadline: Instant) -> BoxFuture<'_, ()>;
 
     /// The inbox addresses the daemon holds for every session, where this provider's sessions
     /// must answer them; `None` for a provider whose sessions answer no inbox.

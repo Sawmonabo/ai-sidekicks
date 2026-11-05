@@ -32,7 +32,10 @@ use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::account::credentials::{
     CONFIG_FOLDER_VARIABLE, CUSTOM_SIGN_IN_HOST_VARIABLE,
 };
-use crate::driver::claude::session::rules::compose_claude_tool_server_name;
+use crate::driver::claude::session::rules::{
+    CLAUDE_SHARED_SETTINGS_FILE, CLAUDE_USER_SETTINGS_FILE, compose_claude_tool_server_name,
+    local_settings_path, settings_path,
+};
 use crate::driver::claude::session::settings_file::{
     ClaudeSettingsReadError, find_claude_setting, is_unreadable_path, list_managed_settings_files,
     read_claude_settings_file,
@@ -109,7 +112,7 @@ impl ClaudePersonConfigFiles {
             } else {
                 person_config
             },
-            user_settings: config_folder.join("settings.json"),
+            user_settings: config_folder.join(CLAUDE_USER_SETTINGS_FILE),
         }
     }
 }
@@ -258,9 +261,9 @@ pub(crate) async fn read_claude_mcp_config(
         let project_file: ClaudeMcpServersFile = read_json_file(&root.folder.join(SERVERS_FILE))
             .await?
             .unwrap_or_default();
-        let settings_folder = root.folder.join(".claude");
-        let project_settings = read_settings(&settings_folder.join("settings.json")).await?;
-        let local_settings = read_settings(&settings_folder.join("settings.local.json")).await?;
+        let project_settings =
+            read_settings(&settings_path(&root.folder, CLAUDE_SHARED_SETTINGS_FILE)).await?;
+        let local_settings = read_settings(&local_settings_path(&root.folder)).await?;
 
         // Claude Code's approval of a `.mcp.json` server rejects one the merged settings'
         // `disabledMcpjsonServers` name, and otherwise approves it by the settings or leaves it

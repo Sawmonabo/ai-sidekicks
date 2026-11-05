@@ -2,13 +2,6 @@
 //! inspector's listing by event: each hook in Claude Code's own words with the settings file it
 //! came from, the settings files it skipped, and what managed settings do to the hooks. The reply
 //! is untrusted, so each member is read leniently and a row naming no hook is skipped.
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the inspector's hooks listing reads each reply after a spawn and at each opening"
-    )
-)]
 
 use std::path::{Path, PathBuf};
 
@@ -186,7 +179,7 @@ pub(crate) async fn read_claude_hook_listing(
     };
     let local_files = if lists_tier(&listed, LOCAL_SETTINGS_SOURCE) {
         let files = list_claude_local_settings_files(
-            sources.project_folder,
+            &sources.project_folder,
             sources.home_folder,
             sources.path_rules,
         );
@@ -376,7 +369,9 @@ mod tests {
 
     use super::{ClaudeHookListing, read_claude_hook_listing};
     use crate::driver::claude::DESCRIPTOR;
-    use crate::driver::claude::session::rules::{ClaudeProjectFolder, ClaudeRepository};
+    use crate::driver::claude::session::rules::{
+        CLAUDE_USER_SETTINGS_FILE, ClaudeProjectFolder, ClaudeRepository, local_settings_path,
+    };
     use crate::driver::claude::session::settings_file::ClaudeSettingsSources;
 
     // The folders a listing is read against, all in one scratch folder: the account's settings
@@ -397,7 +392,10 @@ mod tests {
             let scratch = tempfile::tempdir().expect("a scratch folder");
             let repository_root = scratch.path().join("repository");
             Self {
-                account_settings_file: scratch.path().join("account").join("settings.json"),
+                account_settings_file: scratch
+                    .path()
+                    .join("account")
+                    .join(CLAUDE_USER_SETTINGS_FILE),
                 home_folder: scratch.path().join("home"),
                 working_folder: repository_root.join("work"),
                 repository_root,
@@ -424,7 +422,7 @@ mod tests {
             };
             let sources = ClaudeSettingsSources {
                 managed_settings_folder: Some(&self.managed_folder),
-                project_folder: &project_folder,
+                project_folder,
                 home_folder: &self.home_folder,
                 account_settings_file: &self.account_settings_file,
                 path_rules: self.path_rules,
@@ -483,18 +481,12 @@ mod tests {
                                       "headers": {"Authorization": "Bearer stored"}});
         write_settings(&tree.account_settings_file, &json!({"hooks": {}}));
         write_settings(
-            &tree
-                .repository_root
-                .join(".claude")
-                .join("settings.local.json"),
+            &local_settings_path(&tree.repository_root),
             &json!({"hooks": {"PreToolUse": [
                 {"matcher": "Bash", "hooks": [{"type": "command", "command": "./other.sh"}]}
             ]}}),
         );
-        let working_local_settings = tree
-            .working_folder
-            .join(".claude")
-            .join("settings.local.json");
+        let working_local_settings = local_settings_path(&tree.working_folder);
         write_settings(
             &working_local_settings,
             &json!({"hooks": {
@@ -673,15 +665,9 @@ mod tests {
         tree.working_folder = tree.scratch.path().join("work");
         tree.path_rules = PathRules::Posix;
         let stored_hook = json!({"type": "command", "command": "./check.sh"});
-        let root_local_settings = tree
-            .repository_root
-            .join(".claude")
-            .join("settings.local.json");
+        let root_local_settings = local_settings_path(&tree.repository_root);
         write_settings(
-            &tree
-                .working_folder
-                .join(".claude")
-                .join("settings.local.json"),
+            &local_settings_path(&tree.working_folder),
             &json!({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [stored_hook]}]}}),
         );
         let reply = json!({

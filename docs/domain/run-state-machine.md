@@ -62,7 +62,7 @@ The run state machine defines the lifecycle semantics of execution.
 | `paused` | The run has been intentionally suspended and can later continue with the same run id. |
 | `completed` | The run finished successfully. |
 | `interrupted` | The run's turn was cut by an interrupt — the person's, or one the daemon made itself at the step limit or the spend limit, because a workflow phase was canceled, or because a restart ended a child held in a pause or the turn of a run whose conversation the resume brought back, which carries its `trigger` — and the run rests until a send continues it on the same run id, or a newer run of the same agent supersedes it and it keeps `interrupted` as its last word. |
-| `stopped` | The run was ended by a stop before its work was done, and it is final: a child that `Interrupt everything` or `Stop all running` reached on Claude Code, where the CLI refuses every later message to it, or any run at its token limit, which carries `trigger: tokenLimit`. A send to that agent starts its next run, where the provider takes one. |
+| `stopped` | The run was ended by a stop before its work was done, and it is final: a child that `Interrupt everything` or `Stop all running` reached on Claude Code, where the CLI refuses every later message to it, any run at its token limit, which carries `trigger: tokenLimit`, or a queued run that never started, ended by the person's stop of the service, `trigger: daemonStop`, or by the person removing every message it was queued for, `trigger: messagesRemoved`. A send to that agent starts its next run, where the provider takes one. |
 | `failed` | The run ended because of an unrecovered error. |
 
 Primary allowed transitions:
@@ -75,6 +75,7 @@ Primary allowed transitions:
 - `running -> waitingForInput` (an agent's question recorded: the question handler that holds the provider's request open appends `question.asked` and moves the run in the same step — a Claude Code question, a Codex user-input request or a tool server's own MCP elicitation alike, while one marked `_meta.codex_approval_kind: "mcp_tool_call"` is Codex's approval of the call and goes to the approval card; or Claude Code's retry-or-edit choice on a refused turn, recorded as `agent.run.refusalChoice.requested`; or Claude Code's switch-or-credits choice when a Fable turn needs usage credits, recorded as `agent.run.usageCreditsChoice.requested`)
 - `running -> pausing` (the pause toggle; the step already in flight is still finishing)
 - `pausing -> paused` (the step in flight landed)
+- `running -> paused` (a paused helper the person continued under a lead the restart still holds, or that held lead itself, whose continue of the lead failed: each goes back to its pause, its waiting messages left for the person's next continue, which tries again; or, at a start, a lead a person's continue moved to `running` before any turn started, whose continue the restart lost)
 - `waitingForInput -> paused` (the restart question answered `keepProvider` or `continueProvider` on a run that was `paused` or `pausing` when the daemon stopped: it comes back paused, as the person left it)
 - `pausing -> running` (the pause toggle pressed again, or a send, before the step in flight landed)
 - `pausing -> interrupted` (an interrupt while the step in flight is finishing, or the session's spend limit, `trigger: spendLimit`)
@@ -88,6 +89,7 @@ Primary allowed transitions:
 - `paused -> running` (the pause toggle pressed again — `agent.run.resume` — or a send)
 - `paused -> interrupted`
 - `interrupted -> running` (a send, or the messages that were waiting going as the next turn)
+- `queued -> stopped` (the person's stop of the service before the run started, `trigger: daemonStop`, or the person removing every message the run was queued for, `trigger: messagesRemoved`)
 - `running -> stopped` and `interrupted -> stopped` (a Claude Code child, on `Interrupt everything` or `Stop all running`; the same press interrupts a Codex child)
 - `running -> stopped`, `pausing -> stopped`, `paused -> stopped`, `waitingForApproval -> stopped` and `waitingForInput -> stopped` (the run's token limit, `trigger: tokenLimit`)
 - `waitingForApproval -> failed` (provider or transport failure while waiting)
@@ -133,6 +135,7 @@ The following table lists every allowed run state transition. It includes primar
 | `running` | `waitingForInput` | Input requested | Run requires user input or structured answers, or Claude Code's retry-or-edit choice on a refused turn waits on the person (`agent.run.refusalChoice.requested`), or its switch-or-credits choice when a Fable turn needs usage credits does (`agent.run.usageCreditsChoice.requested`) |
 | `running` | `pausing` | Pause toggle pressed | The step already in flight is still finishing and nothing new starts ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)) |
 | `pausing` | `paused` | The step in flight landed | Nothing is running; the run continues later from exactly where it stopped, with nothing repeated |
+| `running` | `paused` | A held lead's continue failed | A paused helper the person continued under a lead the restart still holds, or that held lead itself, moved to `running`, and the lead's continue carrying their words failed: each goes back to its pause with its waiting messages left for the next continue, the failure is halted in the recovery status, and the person's next continue tries again |
 | `waitingForInput` | `paused` | Restart question answered `keepProvider` or `continueProvider` | The run was `paused` or `pausing` when the daemon stopped, so the answer returns it paused, as the person left it, and it goes on only by the pause toggle or a send ([Spec-013 §Fallback Behavior](../specs/013-persistence-and-recovery.md#fallback-behavior)) |
 | `pausing` | `running` | The pause toggle pressed again, or a send | Pressed before the step in flight landed; the run goes on from where it is, with nothing repeated ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)) |
 | `pausing` | `interrupted` | Interrupt intervention | User-initiated stop while the step in flight is finishing — an interrupt stays available throughout a pause — or an undo ending the turn (§Rollback Transitions) |
@@ -160,6 +163,8 @@ The following table lists every allowed run state transition. It includes primar
 | `paused` | `interrupted` | Interrupt intervention | User-initiated stop while paused, or an undo (§Rollback Transitions) |
 | `paused` | `failed` | Resume failure | Resume handle lost or recovery exhausted |
 | `interrupted` | `running` | Send into the interrupted run | A user message — or the messages that were waiting going as the next turn — returns the run to `running` with everything it knew; nothing is rewound and no turn is marked superseded ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)). A helper's interrupted run is continued this way only when its own parent run carries the send; a send through a new parent run starts the helper's next run |
+| `queued` | `stopped` | The person's stop of the service | The run had not started when the person stopped the service; it never starts and carries `trigger: daemonStop` |
+| `queued` | `stopped` | Every message removed | The person removed every message the run was queued for before it started; it never starts and carries `trigger: messagesRemoved` |
 | `running` | `stopped` | A stop that reaches several agents | A Claude Code child reached by `Interrupt everything` or `Stop all running`: `stop_task`, after which the CLI refuses every later message to it. The same press is `turn/interrupt` on a Codex child, which rests `interrupted` |
 | `interrupted` | `stopped` | A stop that reaches several agents | The same stop reaching a Claude Code child already interrupted; the interruption and its cause stay in the record and the stop is a new event of its own |
 | `running` | `stopped` | Token limit reached | The first usage report past the run's `Tokens per run`; the run carries `trigger: tokenLimit`, its turn ends `agent.turn.interrupted` with `cause: tokenLimit` and what it wrote kept ([Spec-014 §Budget Policies](../specs/014-multi-agent-orchestration.md#budget-policies)) |
@@ -168,6 +173,7 @@ The following table lists every allowed run state transition. It includes primar
 | `waitingForApproval` | `stopped` | Token limit reached | The same while the run waits on an approval, which is canceled with the run's end |
 | `waitingForInput` | `stopped` | Token limit reached | The same while the run waits on the person's input, which is canceled with the run's end |
 | `queued` | `failed` | Startup reconciliation | Recovery fails |
+| `running` | `paused` | Startup reconciliation | A lead a person's continue moved from `paused` to `running` before any turn started, whose continue the restart lost: it reads paused again, its session is not opened for it, and the person's next continue sends its waiting messages |
 | `starting` | `failed` | Startup reconciliation | Recovery fails with no stop pending |
 | `starting` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
 | `starting` | `running` | Startup reconciliation | Resume succeeds (`DriverResumeResult.status: 'resumed'`) and the provider's record agrees with the daemon's, compared by provider id at the grain of each step — the agreeing attach in the pre-`running` crash window: provider and workspace re-confirmed ready, initialization resumes and completes |

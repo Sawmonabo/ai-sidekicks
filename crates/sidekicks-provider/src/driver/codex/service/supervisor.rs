@@ -10,6 +10,7 @@
 pub(crate) mod connection_events;
 pub(crate) mod drain;
 pub(crate) mod events;
+pub(crate) mod own_record;
 mod rate_limit_readings;
 mod reconnect;
 pub(crate) mod refusals;
@@ -198,7 +199,7 @@ pub(crate) struct CodexService {
     // is cleared against once that process ends.
     physical_socket: Mutex<Option<PathBuf>>,
     // The record file of the lasting process the last start brought up, which a former daemon's
-    // service joined keeps under its own socket's name.
+    // service joined keeps under its own socket's name; a launch publishes it before writing it.
     process_record_file: Mutex<Option<LastingServiceRecordFile>>,
     // The log of the lasting process a start named, which the diagnostic-log expiry leaves alone
     // while the service runs.
@@ -279,12 +280,6 @@ impl CodexService {
     /// it was dialed through, or the path itself where that is no link; `None` before any start.
     pub(crate) fn physical_socket(&self) -> Option<PathBuf> {
         self.lock_physical_socket().clone()
-    }
-
-    /// The record file of the lasting process the last start brought up; `None` before any start
-    /// and for a service with no lasting process.
-    pub(crate) fn process_record_file(&self) -> Option<LastingServiceRecordFile> {
-        self.lock_process_record_file().clone()
     }
 
     /// The log of the lasting process a start named; `None` before any such start.
@@ -586,11 +581,17 @@ impl CodexService {
         .await;
     }
 
-    /// Shuts the service down for good as the daemon stops or restarts, and answers once it has;
-    /// under a restart a lasting service is only disconnected and keeps running in its record.
-    pub(crate) async fn shutdown(&self, intent: DaemonStopIntent) {
-        self.send(SupervisorEvent::Shutdown { intent });
-        self.when_shut_down().await;
+    /// Shuts the service down for good as the daemon stops or restarts, every stop of it ending by
+    /// `deadline`, and answers once it has or the deadline passed; under a restart a lasting
+    /// service is only disconnected and keeps running in its record.
+    pub(crate) async fn shutdown(&self, intent: DaemonStopIntent, deadline: tokio::time::Instant) {
+        self.send_input(RunnerInput::shutdown(intent, deadline));
+        if tokio::time::timeout_at(deadline, self.when_shut_down())
+            .await
+            .is_err()
+        {
+            tracing::debug!("a Codex service's shutdown was cut at the daemon's stop deadline");
+        }
     }
 
     /// The person's restart of a service left down: forgets the crash window and starts it.
@@ -853,10 +854,6 @@ impl CodexService {
 
     fn lock_physical_socket(&self) -> MutexGuard<'_, Option<PathBuf>> {
         lock(&self.physical_socket)
-    }
-
-    fn lock_process_record_file(&self) -> MutexGuard<'_, Option<LastingServiceRecordFile>> {
-        lock(&self.process_record_file)
     }
 
     fn lock_lasting_log_file(&self) -> MutexGuard<'_, Option<PathBuf>> {

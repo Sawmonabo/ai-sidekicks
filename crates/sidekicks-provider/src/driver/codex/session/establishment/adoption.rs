@@ -52,7 +52,7 @@ use crate::driver::codex::session::inbound::codex_session_inbound;
 use crate::driver::codex::session::owed_turn_ends::is_codex_turn_in_progress;
 use crate::driver::codex::session::slots::let_go_codex_thread;
 use crate::driver::codex::session::state::{CodexEstablishedConversation, CodexSessionRecord};
-use crate::driver::codex::thread::settings::compose_codex_bare_thread_resume_params;
+use crate::driver::codex::thread::settings::memories::compose_codex_bare_thread_resume_with_memory_switch;
 use crate::driver::codex::thread::view::CodexThreadStatus;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::session_control::{
@@ -270,7 +270,8 @@ impl CodexSessionEstablishment {
         let deadline = Instant::now() + CODEX_UNLOAD_TIMEOUT;
         loop {
             let reply = if is_loaded {
-                request_bare_thread_resume(connection, &record.thread_id).await
+                // Codex applies no setting to a loaded conversation, so none is sent.
+                request_bare_thread_resume(connection, &record.thread_id, None).await
             } else {
                 self.request_resume_with_settings(record, connection).await
             };
@@ -341,13 +342,16 @@ impl CodexSessionEstablishment {
     }
 }
 
-/// `thread/resume` of `thread_id` as it stands, with no setting, asking for its newest turn, and
-/// the reply. Fails as the request does, and when the reply names another conversation.
+/// `thread/resume` of `thread_id` as it stands, with no setting but the session's memory switch
+/// where `auto_memory` is set, asking for its newest turn, and the reply. Fails as the request
+/// does, and when the reply names another conversation.
 pub(super) async fn request_bare_thread_resume(
     connection: &CodexAppServerConnection,
     thread_id: &str,
+    auto_memory: Option<bool>,
 ) -> Result<Box<RawValue>, CodexError> {
-    let mut bare = compose_codex_bare_thread_resume_params(thread_id.to_owned());
+    let mut bare =
+        compose_codex_bare_thread_resume_with_memory_switch(thread_id.to_owned(), auto_memory);
     bare.initial_turns_page = Some(compose_codex_newest_turn_page());
     request_thread_resume(connection, thread_id, &bare).await
 }
@@ -490,7 +494,8 @@ async fn read_helper_newest_turns(
     for helper in helpers {
         let thread_id = helper.subagent_id.as_str();
         let read = if helper.is_loaded {
-            reopen_codex_helper(connection, thread_id).await
+            // Codex applies no setting to a loaded conversation, so none is sent.
+            reopen_codex_helper(connection, thread_id, None).await
         } else {
             read_codex_newest_turn(connection, thread_id).await
         };

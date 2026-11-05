@@ -12,6 +12,7 @@ use crate::driver::codex::service::home::CodexServiceKind;
 use crate::driver::codex::service::process::LastingCodexService;
 use crate::driver::codex::service::record::LastingServiceRecordFile;
 use crate::driver::codex::service::supervisor::CodexService;
+use crate::driver::codex::service::supervisor::own_record::socket_record_file;
 use crate::driver::codex::service::supervisor::start::kept_records::{
     lock_record, take_kept_service,
 };
@@ -32,14 +33,9 @@ pub(super) async fn start_account_home_service(
     cancel: &CancellationToken,
     executable: &ResolvedProviderExecutable,
 ) -> Result<StartedService, StartFailure> {
-    let dependencies = service.dependencies();
     let socket = service.socket_path().to_owned();
-    let record_file = LastingServiceRecordFile::of_socket(
-        &dependencies.data_folder,
-        &service.home().codex_home,
-        &socket,
-    )
-    .map_err(|error| start_failed("The Codex service's record could not be named.", error))?;
+    let record_file = socket_record_file(service)
+        .map_err(|error| start_failed("The Codex service's record could not be named.", error))?;
     let locked = lock_record(record_file).await?;
     let log_file = name_lasting_log_file(service)?;
     if let Some((lasting, physical_socket)) = take_kept_service(&locked, &socket).await? {
@@ -66,6 +62,7 @@ pub(super) async fn start_account_home_service(
         connection,
         reply,
         physical_socket,
+        earlier_record_file,
     } = launch_lasting_service(
         service,
         launch,
@@ -76,6 +73,7 @@ pub(super) async fn start_account_home_service(
         &socket,
     )
     .await?;
+    let earlier_record_file = Some(Box::new(earlier_record_file));
     match read_service_version(&reply, executable) {
         Ok(version) => Ok(StartedService {
             kind: CodexServiceKind::Account,
@@ -84,10 +82,12 @@ pub(super) async fn start_account_home_service(
             version,
             physical_socket,
             is_restart_owed: false,
+            earlier_record_file,
         }),
         Err(error) => Err(StartFailure {
             error,
             process: Some(Box::new(process)),
+            earlier_record_file,
         }),
     }
 }
@@ -130,10 +130,12 @@ async fn join_kept_service(
             version,
             physical_socket,
             is_restart_owed: false,
+            earlier_record_file: None,
         }),
         Err(error) => Err(StartFailure {
             error,
             process: Some(Box::new(process)),
+            earlier_record_file: None,
         }),
     }
 }

@@ -36,6 +36,20 @@ fn observation(state: ProviderAccountHealthState) -> HealthObservation {
     }
 }
 
+/// Makes the workflow crate's steps table in `database`, cut to the columns the removal mark's
+/// guard reads, which the provider schema does not hold.
+pub(crate) fn create_workflow_steps_table(database: &TestDatabase) {
+    rusqlite::Connection::open(database.path())
+        .expect("the test opens the database")
+        .execute(
+            "CREATE TABLE workflow_steps (
+               workflow_run_id TEXT, wait_account_id TEXT, status TEXT, wait_cause TEXT
+             )",
+            [],
+        )
+        .expect("the test makes the workflow steps' table");
+}
+
 /// Mints a `provider_id` account and admits it signed in.
 pub(crate) async fn register(
     registry: &ProviderAccountRegistry,

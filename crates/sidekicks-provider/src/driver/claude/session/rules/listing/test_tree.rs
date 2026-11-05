@@ -13,6 +13,9 @@ use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use super::{ClaudeRuleAccountHome, ClaudeRuleHome, ClaudeRuleListingSources, ClaudeRuleProject};
+use crate::driver::claude::session::rules::{
+    CLAUDE_SHARED_SETTINGS_FILE, local_settings_path, settings_path,
+};
 
 const PROJECT_ID: &str = "0190f3c4-5b6a-7c8d-9e0f-1a2b3c4d5e6f";
 
@@ -37,7 +40,7 @@ impl Tree {
 
     /// The settings file of the home `home`.
     pub(crate) fn home_settings(&self, home: &str) -> PathBuf {
-        self.path(home).join(".claude").join("settings.json")
+        settings_path(&self.path(home), CLAUDE_SHARED_SETTINGS_FILE)
     }
 
     /// The managed settings' base file.
@@ -47,14 +50,12 @@ impl Tree {
 
     /// The project's shared settings file.
     pub(crate) fn shared_settings(&self) -> PathBuf {
-        self.path("project").join(".claude").join("settings.json")
+        settings_path(&self.path("project"), CLAUDE_SHARED_SETTINGS_FILE)
     }
 
     /// The project's local settings file.
     pub(crate) fn local_settings(&self) -> PathBuf {
-        self.path("project")
-            .join(".claude")
-            .join("settings.local.json")
+        local_settings_path(&self.path("project"))
     }
 }
 

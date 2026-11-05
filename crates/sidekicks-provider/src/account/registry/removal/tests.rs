@@ -26,7 +26,7 @@ use crate::account::credential_home::reset_credential_home;
 use crate::account::credential_home::test_legs::RecordedSignOuts;
 use crate::account::home_lock::AccountHomeLock;
 use crate::account::observer::AccountLiveTurns;
-use crate::account::registry::tests::register;
+use crate::account::registry::tests::{create_workflow_steps_table, register};
 use crate::account::registry::{ProviderAccountRegistry, RegisteredAccount, open_test_registry};
 use crate::account::token_custody::ProviderTokenCustody;
 use crate::account::token_custody::tests::{ScriptedKeychain, snapshot};
@@ -81,14 +81,7 @@ impl Fixture {
             home_lock: AccountHomeLock::default(),
             account,
         };
-        // The workflow crate's table, cut to the columns the guard reads.
-        fixture
-            .run(
-                "CREATE TABLE workflow_steps (
-                   workflow_run_id TEXT, wait_account_id TEXT, status TEXT, wait_cause TEXT
-                 )",
-            )
-            .await;
+        create_workflow_steps_table(&fixture.database);
         fixture
             .keychain
             .write(fixture.account_id().as_str(), &SecretString::from("token"))

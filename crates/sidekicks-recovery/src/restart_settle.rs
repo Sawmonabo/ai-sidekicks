@@ -1,6 +1,7 @@
 //! What a restart left in one session, settled in an order no later step undoes: the faster-model
-//! retries still pending, before the run ends that would expire an accepted one; the runs still in
-//! progress, past their queue and not paused, a pausing run among them, re-armed from the log
+//! retries still pending, before the run ends that would expire an accepted one; a lead a person's
+//! continue left running before any turn, moved back to `paused`, its continue lost; the runs still
+//! in progress, past their queue and not paused, a pausing run among them, re-armed from the log
 //! before a resume of the session's conversation, with the paused runs beside them; the runs still
 //! live that no resume took, failed as no provider session came back, or with the provider's own
 //! words where it refused the resume, a lead the person paused or was pausing kept paused, each
@@ -12,6 +13,7 @@
 //! pass settles each session it finds so, and `Continue from here` settles a damaged one.
 
 use std::collections::BTreeSet;
+use std::error::Error;
 use std::sync::Arc;
 
 use rusqlite::Connection;
@@ -19,17 +21,26 @@ use sidekicks_approval::service::{ApprovalService, ApprovalServiceError};
 use sidekicks_approval::store::ApprovalRequestReader;
 use sidekicks_artifact::plans::service::{PlanError, PlansService};
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::run_control::{FindTakenMessagesParams, TakenMessages};
+use sidekicks_provider::run::state_entry::RunStateEntry;
+use sidekicks_queue::delivery::run_end::stop_message_ends_with_taken;
+use sidekicks_session::driver_resolution::{LiveRunDriverError, read_run_driver};
 use sidekicks_session::interventions::store::{read_pending_retries, settle_retry_after_restart};
+use sidekicks_session::queue_store::QueueItemReader;
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::engine::errors::RunEngineError;
+use sidekicks_session::run::pause::read_is_continued_with_no_turn;
 use sidekicks_session::run::provider_choice::run_end::{
     read_ended_runs_with_open_choices, settle_open_choices_of_ended_run,
 };
-use sidekicks_session::run::read::{LiveRun, RunStateReader, SessionRun};
+use sidekicks_session::run::read::{LiveRun, RunRead, RunStateReader, SessionRun};
 use sidekicks_session::run::restart::{read_has_own_stop, read_is_run_stopping};
-use sidekicks_std::settle_all::SettleFailures;
+use sidekicks_session::run::state_change::{RunStateChange, RunWriteCompanions};
+use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -37,7 +48,10 @@ use sidekicks_store::events::session::append_lock::SessionAppendHold;
 use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraftError, SessionEventLinkage,
 };
+use tokio::time::{Instant, timeout_at};
 use tokio_util::sync::CancellationToken;
+
+use crate::resumed_runs::waiting_message_ids;
 
 /// The provider failure detail a run the restart left live ends `failed` with.
 pub(crate) const RESTART_FAILURE_DETAIL: &str =
@@ -45,9 +59,12 @@ pub(crate) const RESTART_FAILURE_DETAIL: &str =
 
 /// The statements the settle's own reads run: the one-session listings of its live runs, its
 /// pending retries, and its ended runs with an open turn, with a pending ask and with an open
-/// choice, and an ended run's choice settle (its row, the newest request of each dialog and whether
-/// it was settled since), and the row of a run a resume took that has ended since.
-pub const RESTART_SETTLE_STATEMENT_CAPACITY: usize = 9;
+/// choice, an ended run's choice settle (its row, the newest request of each dialog and whether it
+/// was settled since), the row of a run a resume took that has ended since, whether a running
+/// lead's newest move is a continue, and the messages waiting for a lead the person's stop of the
+/// service ends with the provider it runs on; the every-session listing of the live runs that stop
+/// settles is the start's, counted there.
+pub const RESTART_SETTLE_STATEMENT_CAPACITY: usize = 12;
 
 /// What the restart settle reads and writes through.
 pub struct RestartSettleDeps {
@@ -61,6 +78,9 @@ pub struct RestartSettleDeps {
     pub approvals: Arc<ApprovalService>,
     /// The reopening of the plans a restart's lost requests held.
     pub plans: Arc<PlansService>,
+    /// The drivers, found by the provider each run is bound to, whose record of a run's
+    /// conversation says which of its waiting messages it took before the person's Stop.
+    pub providers: Arc<ProviderRegistry>,
 }
 
 /// Settles what a restart left in one session.
@@ -126,6 +146,17 @@ pub(crate) struct RearmedRuns {
     pub(crate) paused_run_ids: Vec<RunId>,
 }
 
+/// How a settle ends the live runs no resume took.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum LiveRunsEnd<'detail> {
+    /// After a restart, a `failed` end carrying these words.
+    AfterRestart(&'detail str),
+    /// At the person's stop of the service: no run fails with words, and the messages waiting for
+    /// each run end in its write, one its provider took admitted into it and a lead message
+    /// carrying only words put back into the draft.
+    AtStop,
+}
+
 /// What a settle of a session's live runs did: its tally, and the runs it ended `failed`.
 #[derive(Debug, Default)]
 pub(crate) struct LiveSettlement {
@@ -158,6 +189,10 @@ pub enum RestartSettleError {
     /// A run, its turns, its interventions or its choices could not be settled.
     #[error("a run the restart left could not be settled")]
     Run(#[from] RunEngineError),
+    /// Runs the settle at the person's stop of the service could not end; every other run it
+    /// reached was settled.
+    #[error("runs live at the stop could not be settled")]
+    RunsAtStop(#[from] SettleFailures<RunEngineError>),
     /// An ended run's pending asks could not be canceled.
     #[error("an ended run's pending asks could not be canceled")]
     Approvals(#[from] SettleFailures<ApprovalServiceError>),
@@ -172,14 +207,12 @@ impl RestartSettle {
         Self { deps }
     }
 
-    /// Settles `session_id`'s pending faster-model retries, then re-arms each run of it still in
-    /// progress, live past its queue and not paused, a pausing run among them, from the log, as the
-    /// engine held it before the restart, so a resume of the session's conversation finds them
-    /// armed, and beside any such run the paused ones too; answers the runs in progress, none where
-    /// nothing of the session was in progress, with those a pending stop of their own wins over,
-    /// which are re-armed too so the settle that follows ends them by their stops, beside the
-    /// paused runs. Reads `stop` before each step. Fails at the first read or write that fails, or
-    /// with `Stopped`.
+    /// Settles `session_id`'s pending faster-model retries and moves back to `paused` each lead a
+    /// person's continue left running before any turn, whose continue the restart lost, then
+    /// re-arms each run still in progress, a pausing run among them, from the log, and beside any
+    /// such run the paused ones too, answering the runs in progress, those a pending stop of their
+    /// own wins over, and the paused runs. Fails at the first read or write that fails, or with
+    /// `Stopped`, `stop` read before each step.
     pub(crate) async fn rearm_live(
         &self,
         session_id: SessionId,
@@ -191,9 +224,31 @@ impl RestartSettle {
         let live_runs = self
             .read(move |reader| RunStateReader::new(reader).list_live_runs(Some(&session_id)))
             .await?;
+        let running_leads: Vec<RunId> = live_runs
+            .iter()
+            .filter(|live_run| live_run.is_lead() && live_run.run.state == RunState::Running)
+            .map(|live_run| live_run.run_id)
+            .collect();
+        // Such a lead kept its continue's messages only in memory, so it reads paused again and
+        // the person's next continue sends them.
+        let held_leads = self
+            .read_runs_where(running_leads, read_is_continued_with_no_turn)
+            .await?;
         let mut rearmed = RearmedRuns::default();
         let mut paused = Vec::new();
-        for live_run in live_runs {
+        for mut live_run in live_runs {
+            if held_leads.contains(&live_run.run_id) {
+                check_stop(Some(stop))?;
+                let back_to_paused = RunStateChange {
+                    expected_state: Some(RunState::Running),
+                    ..RunStateChange::new(live_run.run_id, RunStateEntry::Paused)
+                };
+                live_run.run = self
+                    .deps
+                    .run_engine
+                    .transition(back_to_paused, RunWriteCompanions::default())
+                    .await?;
+            }
             match live_run.run.state {
                 // A queued run waits for the queue's own delivery; no live run is a terminal one.
                 RunState::Queued
@@ -217,7 +272,7 @@ impl RestartSettle {
             }
         }
         let in_progress: Vec<RunId> = rearmed.in_progress.iter().map(|run| run.run_id).collect();
-        rearmed.stopping = self.read_stopping(in_progress, read_has_own_stop).await?;
+        rearmed.stopping = self.read_runs_where(in_progress, read_has_own_stop).await?;
         // A paused run is re-armed beside a run in progress, so a limit it owes is handed again at
         // its continue.
         if !rearmed.in_progress.is_empty() {
@@ -230,11 +285,13 @@ impl RestartSettle {
     }
 
     /// Settles `session_id`'s pending faster-model retries, then ends each run of it still live
-    /// that `resumed` does not name as [`RunEngine::settle_run_after_restart`] decides, a `failed`
-    /// end carrying `failure_detail`, writing under `hold` where the caller holds the session's
-    /// appends and reading `stop`, where the caller has one, before each step. Whether a stop wins
-    /// over each run is read for all of them before the first settles, since a lead's own end
-    /// discharges the stop its helper waits on, so the order the runs settle in decides nothing.
+    /// that `resumed` does not name by `end`: after a restart as
+    /// [`RunEngine::settle_run_after_restart`] decides, a `failed` end carrying its words, and at
+    /// the person's stop of the service as [`RunEngine::settle_run_at_stop`] decides, writing under
+    /// `hold` where the caller holds the session's appends and reading `stop`, where the caller has
+    /// one, before each step. After a restart, whether a stop wins over each run is read for all of
+    /// them before the first settles, since a lead's own end discharges the stop its helper waits
+    /// on, so the order the runs settle in decides nothing.
     /// A run `resumed` names is counted resumed while it is live and not paused, a pausing run
     /// among them since its pause is still to land, nowhere while it is paused, and by its end
     /// where the resume's finalize ended it. Fails at the first read or write that fails, or with
@@ -243,7 +300,7 @@ impl RestartSettle {
         &self,
         session_id: SessionId,
         resumed: &BTreeSet<RunId>,
-        failure_detail: &str,
+        end: LiveRunsEnd<'_>,
         hold: Option<&SessionAppendHold>,
         stop: Option<&CancellationToken>,
     ) -> Result<LiveSettlement, RestartSettleError> {
@@ -253,14 +310,22 @@ impl RestartSettle {
         let live_runs = self
             .read(move |reader| RunStateReader::new(reader).list_live_runs(Some(&session_id)))
             .await?;
-        let unsettled: Vec<RunId> = live_runs
-            .iter()
-            .filter(|live_run| {
-                live_run.run.state != RunState::Queued && !resumed.contains(&live_run.run_id)
-            })
-            .map(|live_run| live_run.run_id)
-            .collect();
-        let stopping = self.read_stopping(unsettled, read_is_run_stopping).await?;
+        // The Stop's table reads no run's own stop, so no stopping set is read for it.
+        let stopping = match end {
+            LiveRunsEnd::AfterRestart(_) => {
+                let unsettled: Vec<RunId> = live_runs
+                    .iter()
+                    .filter(|live_run| {
+                        live_run.run.state != RunState::Queued
+                            && !resumed.contains(&live_run.run_id)
+                    })
+                    .map(|live_run| live_run.run_id)
+                    .collect();
+                self.read_runs_where(unsettled, read_is_run_stopping)
+                    .await?
+            }
+            LiveRunsEnd::AtStop => BTreeSet::new(),
+        };
         let mut settlement = LiveSettlement::default();
         for live_run in &live_runs {
             if resumed.contains(&live_run.run_id) {
@@ -272,14 +337,7 @@ impl RestartSettle {
             }
             check_stop(stop)?;
             let settled = self
-                .deps
-                .run_engine
-                .settle_run_after_restart(
-                    live_run,
-                    stopping.contains(&live_run.run_id),
-                    failure_detail,
-                    hold,
-                )
+                .settle_run(live_run, end, stopping.contains(&live_run.run_id), hold)
                 .await?;
             if settled.state == RunState::Failed {
                 settlement.failed_run_ids.push(live_run.run_id);
@@ -306,6 +364,34 @@ impl RestartSettle {
             }
         }
         Ok(settlement)
+    }
+
+    /// Settles every live run at the person's stop of the service, session by session, each in
+    /// one write as [`RunEngine::settle_run_at_stop`] decides, its waiting messages ending in it,
+    /// until `deadline`; a run cut there, every run after it and every run whose settle failed are
+    /// left to the next start. Fails as the listing's read fails, or with every run's failure once
+    /// the rest are settled.
+    pub async fn settle_at_stop(&self, deadline: Instant) -> Result<(), RestartSettleError> {
+        let mut live_runs = self
+            .read(|reader| RunStateReader::new(reader).list_live_runs(None))
+            .await?;
+        live_runs.sort_by_key(|live_run| live_run.run.session_id);
+        let mut settled_runs = Vec::new();
+        for live_run in &live_runs {
+            // A spent bound settles nothing more, so no settle starts inside the timer's last tick;
+            // what is left stays live for the next start.
+            if Instant::now() >= deadline {
+                break;
+            }
+            let settle = self.settle_run(live_run, LiveRunsEnd::AtStop, false, None);
+            let Ok(settled) = timeout_at(deadline, settle).await else {
+                break;
+            };
+            // A refused write, a damaged session's among them, holds back no other session.
+            settled_runs.push(settled);
+        }
+        settle_all(settled_runs, "settling the live runs at the stop")?;
+        Ok(())
     }
 
     /// Settles what `session_id`'s runs that had ended left open: their open turns, then their
@@ -357,6 +443,96 @@ impl RestartSettle {
         Ok(())
     }
 
+    // Ends `live_run` by `end`, after a restart with `is_stopping` saying whether a stop of its own
+    // wins over it, under `hold` where the caller holds the run's session.
+    async fn settle_run(
+        &self,
+        live_run: &LiveRun,
+        end: LiveRunsEnd<'_>,
+        is_stopping: bool,
+        hold: Option<&SessionAppendHold>,
+    ) -> Result<RunRead, RunEngineError> {
+        let engine = &self.deps.run_engine;
+        match end {
+            LiveRunsEnd::AfterRestart(failure_detail) => {
+                engine
+                    .settle_run_after_restart(live_run, is_stopping, failure_detail, hold)
+                    .await
+            }
+            LiveRunsEnd::AtStop => {
+                let taken = self.read_taken_at_stop(live_run).await?;
+                engine
+                    .settle_run_at_stop(live_run, stop_message_ends_with_taken, &taken, hold)
+                    .await
+            }
+        }
+    }
+
+    // The messages waiting for `live_run` that its provider took, by its own record of the
+    // conversation, so the Stop admits them rather than put them back into the draft. None for a
+    // helper or a queued run, whose waiting messages no conversation was handed, nor where none
+    // waits; none either, as though the provider took nothing, where it cannot be asked: no driver
+    // answers the run, or its record cannot be read, as with no process to read it through. Fails
+    // as a read fails.
+    async fn read_taken_at_stop(
+        &self,
+        live_run: &LiveRun,
+    ) -> Result<Vec<QueueItemId>, RunEngineError> {
+        if !live_run.is_lead() || live_run.run.state == RunState::Queued {
+            return Ok(Vec::new());
+        }
+        let (session_id, run_id) = (live_run.run.session_id, live_run.run_id);
+        let message_ids = self
+            .deps
+            .reads
+            .read(ReadLength::Short, move |reader| {
+                let waiting = QueueItemReader::new(reader).list_waiting_for_run(&run_id)?;
+                Ok::<_, RunEngineError>(waiting_message_ids(waiting))
+            })
+            .await?;
+        if message_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let driver =
+            match read_run_driver::<TakenAskError>(&self.deps.reads, &self.deps.providers, run_id)
+                .await
+            {
+                Ok(driver) => driver,
+                Err(TakenAskError::Driver(unasked)) => {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        run_id = %run_id,
+                        error = &unasked as &(dyn Error + 'static),
+                        "no driver answers a run the Stop ends; its waiting messages end as though \
+                         the provider took none"
+                    );
+                    return Ok(Vec::new());
+                }
+                Err(TakenAskError::Read(failure)) => return Err(failure.into()),
+                Err(TakenAskError::Pool(failure)) => return Err(failure.into()),
+            };
+        let found = driver
+            .find_taken_messages(FindTakenMessagesParams {
+                session_id,
+                run_id,
+                message_ids,
+            })
+            .await;
+        match found {
+            Ok(TakenMessages { taken }) => Ok(taken),
+            Err(unread) => {
+                tracing::warn!(
+                    session_id = %session_id,
+                    run_id = %run_id,
+                    error = &unread as &(dyn Error + 'static),
+                    "the provider's record of a run the Stop ends could not be read; its waiting \
+                     messages end as though the provider took none"
+                );
+                Ok(Vec::new())
+            }
+        }
+    }
+
     // Each pending retry's settlement in one write of its own; a retry that moved since its read
     // refuses the write and is left as it now is.
     async fn settle_pending_retries(
@@ -403,23 +579,35 @@ impl RestartSettle {
             .await
     }
 
-    // Those of `run_ids` a stop wins over, as `is_stopping` reads it, read in one go.
-    async fn read_stopping(
+    // Those of `run_ids` that `is_matching` answers true for, read in one go.
+    async fn read_runs_where(
         &self,
         run_ids: Vec<RunId>,
-        is_stopping: fn(&Connection, &RunId) -> rusqlite::Result<bool>,
+        is_matching: fn(&Connection, &RunId) -> rusqlite::Result<bool>,
     ) -> Result<BTreeSet<RunId>, RestartSettleError> {
         self.read(move |reader| {
-            let mut stopping = BTreeSet::new();
+            let mut matching = BTreeSet::new();
             for run_id in run_ids {
-                if is_stopping(reader, &run_id)? {
-                    stopping.insert(run_id);
+                if is_matching(reader, &run_id)? {
+                    matching.insert(run_id);
                 }
             }
-            Ok(stopping)
+            Ok(matching)
         })
         .await
     }
+}
+
+// Why the driver of a run the Stop ends was not found: its binding's read failed, or no driver
+// answers the run, which the Stop meets by asking no provider.
+#[derive(Debug, thiserror::Error)]
+enum TakenAskError {
+    #[error("the run's provider could not be read")]
+    Read(#[from] rusqlite::Error),
+    #[error("the run's provider could not be read")]
+    Pool(#[from] DatabaseReadError),
+    #[error("no driver answers the run")]
+    Driver(#[from] LiveRunDriverError),
 }
 
 // The stop's word before a step, where the caller has a stop: a step past it would write what the

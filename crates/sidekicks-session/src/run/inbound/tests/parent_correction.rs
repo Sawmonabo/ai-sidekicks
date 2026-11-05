@@ -4,13 +4,13 @@ use sidekicks_provider::driver::test_registry::new_run_id;
 use sidekicks_provider::run::delivery::{InboundDelivery, InboundOutcome};
 
 use super::Harness;
-use crate::run::engine::test_fixture::{insert_running_run, parent_of};
+use crate::run::engine::test_fixture::{insert_run, parent_of};
 
 impl Harness {
     // A run of the harness's session under its run, in `state`.
     fn insert_child_run(&self, state: RunState) -> RunId {
         let run_id = new_run_id();
-        insert_running_run(&self.database, self.session_id(), run_id);
+        insert_run(&self.database, self.session_id(), run_id, "running");
         self.database
             .reader()
             .execute(

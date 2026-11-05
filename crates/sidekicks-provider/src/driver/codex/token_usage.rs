@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 
 use crate::driver::codex::transport::connection::read_codex_object;
-use crate::usage_delta_accountant::{CumulativeUsageReading, UsageAxisCounts};
+use crate::usage_delta_accountant::{CumulativeUsageReading, UsageAxisCounts, UsageRequestFacts};
 
 /// The frame's members the reading takes.
 #[derive(Deserialize)]
@@ -63,5 +63,6 @@ pub(crate) fn read_codex_token_usage(params: &RawValue) -> Option<CumulativeUsag
         named_turn_id: frame.turn_id.filter(|turn_id| !turn_id.is_empty()),
         cumulative: usage.total?.into(),
         declared_per_turn: usage.last.map(UsageAxisCounts::from),
+        request: UsageRequestFacts::default(),
     })
 }

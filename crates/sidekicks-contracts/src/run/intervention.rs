@@ -150,7 +150,8 @@ intervention_interrupt_request! {
             #[schemars(with = "QueueItemId")]
             deliver_first: Option<QueueItemId>,
         },
-        /// The waiting messages return to the draft.
+        /// The waiting messages return to the draft; a message with files, a review or a plan
+        /// message ends not delivered instead.
         ReturnToDraft {
             /// Never present: a message delivered first goes as the next turn.
             #[serde(
@@ -217,7 +218,8 @@ pub enum PersonInterruptRecord {
         #[schemars(with = "Never")]
         limit: Option<Never>,
     },
-    /// The waiting messages return to the draft.
+    /// The waiting messages return to the draft; a message with files, a review or a plan
+    /// message ends not delivered instead.
     ReturnToDraft {
         /// Never present: a message delivered first goes as the next turn.
         #[serde(

@@ -45,8 +45,9 @@ use crate::driver::codex::service::supervisor::test_service::{
 use crate::driver::codex::session::context_reading::CodexFixedStart;
 use crate::driver::codex::session::inbound::codex_session_inbound;
 use crate::driver::codex::session::state::{CodexTurnInput, CodexTurnMessage};
+use crate::driver::codex::session::test_fixture::one_folder::OneFolder;
 use crate::driver::codex::session::test_fixture::{
-    OneFolder, TEST_THREAD, TestDaemonTurnBindings, open_test_record, turn_completed,
+    TEST_THREAD, TestDaemonTurnBindings, open_test_record, turn_completed,
 };
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::driver::schema::schema_parts;
@@ -64,7 +65,7 @@ use crate::runtime_binding::test_store::{
 pub(super) const TEST_TURN: &str = "turn-1";
 
 /// A session live in the composed driver and its run, running on [`TEST_TURN`] unless the session
-/// opened idle.
+/// opened idle or on turns of its own.
 pub(super) struct LiveCodexSession {
     pub(super) driver: CodexDriver,
     pub(super) session_id: SessionId,
@@ -83,31 +84,45 @@ pub(super) struct LiveCodexSession {
 impl LiveCodexSession {
     /// The session with `steers` sent into its turn and not yet echoed.
     pub(super) async fn start(steers: &[QueueItemId]) -> Self {
-        Self::open(Some(steers), &[], false).await
+        Self::open(None, &[TEST_TURN], steers, &[], false).await
     }
 
     /// The session with `steers` sent into its turn and not yet echoed, and the turn's input
     /// kept, so a faster-model retry can stop the turn and send that input again.
     pub(super) async fn retriable(steers: &[QueueItemId]) -> Self {
-        Self::open(Some(steers), &[], true).await
+        Self::open(None, &[TEST_TURN], steers, &[], true).await
     }
 
     /// The session with no turn running, its run bound but not started.
     pub(super) async fn idle() -> Self {
-        Self::open(None, &[], false).await
+        Self::open(None, &[], &[], &[], false).await
     }
 
     /// The session running on [`TEST_TURN`] with `released`, notifications Codex sent before its
     /// task ran, routed as one batch its task applies first.
     pub(super) async fn with_released(released: &[Value]) -> Self {
-        Self::open(Some(&[]), released, false).await
+        Self::open(None, &[TEST_TURN], &[], released, false).await
     }
 
-    // The session, its run on a turn with `steers` unechoed in it where they are given, that turn's
-    // input kept for a retry where `is_retriable`, and `released` routed for its task to apply
-    // first.
-    async fn open(steers: Option<&[QueueItemId]>, released: &[Value], is_retriable: bool) -> Self {
-        let scripted = start_scripted_codex_service();
+    /// The session on `scripted`'s service, which the driver's registry holds as the daemon's
+    /// stop finds it, its run open on each of `turns`.
+    pub(super) async fn on_held_service(scripted: ScriptedCodexService, turns: &[&str]) -> Self {
+        Self::open(Some(scripted), turns, &[], &[], false).await
+    }
+
+    // The session on `held`'s service, which the driver's registry holds, or else on a scripted
+    // service of its own; its run open on each of `turns` with `steers` unechoed in [`TEST_TURN`],
+    // that turn's input kept for a retry where `is_retriable`, and `released` routed for its task
+    // to apply first.
+    async fn open(
+        held: Option<ScriptedCodexService>,
+        turns: &[&str],
+        steers: &[QueueItemId],
+        released: &[Value],
+        is_retriable: bool,
+    ) -> Self {
+        let is_held = held.is_some();
+        let scripted = held.unwrap_or_else(start_scripted_codex_service);
         let database = TestDatabase::new(schema_parts());
         let engine = Arc::new(RecordingRunEngine::default());
         let session_id = new_session_id();
@@ -136,7 +151,11 @@ impl LiveCodexSession {
         assert!(ports.message_given_back.register(queue.clone()).is_ok());
         assert!(ports.continue_given_back.register(queue.clone()).is_ok());
         let questions = Arc::clone(&ports.questions);
-        let driver = CodexDriver::new(&services);
+        let mut driver = CodexDriver::new(&services);
+        if is_held {
+            // Before the driver composes, whose parts dial through the registry.
+            driver.registry = CodexServiceRegistry::holding(&scripted);
+        }
         let parts = Arc::clone(driver.parts().expect("the driver composes"));
 
         let run_id = new_run_id();
@@ -176,17 +195,19 @@ impl LiveCodexSession {
         .await;
         // As the run's turn start adopts its binding.
         record.binding_id = Some(binding_id.clone());
-        if let Some(steers) = steers {
-            record.add_active_turn(TEST_TURN.to_owned(), run_id);
+        for turn_id in turns {
+            record.add_active_turn((*turn_id).to_owned(), run_id);
+        }
+        if !turns.is_empty() {
             parts.run_routes.bind_run(run_id, session_id);
-            if !steers.is_empty() {
-                let unechoed = record
-                    .unechoed_steers_by_turn_id
-                    .entry(TEST_TURN.to_owned())
-                    .or_default();
-                for steer in steers {
-                    unechoed.register(*steer);
-                }
+        }
+        if !steers.is_empty() {
+            let unechoed = record
+                .unechoed_steers_by_turn_id
+                .entry(TEST_TURN.to_owned())
+                .or_default();
+            for steer in steers {
+                unechoed.register(*steer);
             }
         }
         if is_retriable {
@@ -202,6 +223,8 @@ impl LiveCodexSession {
                     }],
                     client_message_ids: vec!["message-1".to_owned()],
                     output_speed_for_turn: None,
+                    sent_output_speed_for_turn: None,
+                    model: "gpt-5.5".to_owned(),
                 },
             );
         }
@@ -300,7 +323,7 @@ pub(super) fn driver_holding(scripted: &ScriptedCodexService, folder: &Path) -> 
     services
         .ports
         .provider_accounts
-        .register(one_folder)
+        .register(Arc::new(one_folder.accounts()))
         .expect("the provider accounts register once");
     services.execution_postures = Arc::new(ExecutionPostureService::new(
         folder,

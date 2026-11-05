@@ -30,7 +30,6 @@ use sidekicks_provider::account::registry::{
 use sidekicks_provider::account::sign_in::ProviderAccountNotificationPublisher;
 use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
 use sidekicks_provider::driver::contract::account::ProviderAccountLegs;
-use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::test_registry::test_driver_services;
 use sidekicks_std::mutex_lock::lock;
@@ -48,7 +47,7 @@ use crate::daemon::process::provider_accounts::{
     collect_provider_account_legs, follow_usage_event, publish_usage_window,
     start_minted_home_sweep,
 };
-use crate::daemon::process::stop::{DaemonStopFailure, end_start_tasks};
+use crate::daemon::process::stop::{DaemonStopFailure, DaemonStopReason, end_start_tasks};
 use crate::daemon::schema::schema_parts;
 
 // The stored account's id.
@@ -107,7 +106,7 @@ async fn a_client_lists_the_provider_accounts_the_registry_holds() {
         .await;
     client.close().await;
     daemon
-        .stop(DaemonStopIntent::Stop)
+        .stop(DaemonStopReason::Stop)
         .await
         .expect("the daemon's stop fails nothing");
 

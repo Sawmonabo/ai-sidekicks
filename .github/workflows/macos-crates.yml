@@ -36,14 +36,14 @@ jobs:
       CARGO_BUILD_WARNINGS: deny
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.SWEEP_REF }}
 
       # The newest stable Rust, with the WebAssembly target `rust-toolchain.toml` lists for the
-      # compression module, so Cargo finds it installed; SHA-pinned.
+      # compression module, so Cargo finds it installed.
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        uses: ./.github/actions/setup-rust
         with:
           targets: wasm32-unknown-unknown
 
@@ -60,24 +60,16 @@ jobs:
       CARGO_BUILD_WARNINGS: deny
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.SWEEP_REF }}
 
-      # The same Rust set-up as `ci.yml`'s `test` job; SHA-pinned.
+      # The same Rust set-up as `ci.yml`'s `test` job, cargo-nextest included.
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        uses: ./.github/actions/setup-rust
         with:
           targets: wasm32-unknown-unknown
-
-      # nextest's prebuilt macOS binary, one exact release, checked against its pinned SHA-256
-      # before it is unpacked.
-      - name: Install cargo-nextest
-        run: |
-          ASSET="cargo-nextest-0.9.148-universal-apple-darwin.tar.gz"
-          curl -fsSL "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.148/${ASSET}" -o "/tmp/${ASSET}"
-          echo "6c23b7fb4ca82c571fc8dfedbab45bfa773d45918f933170c85d21cd7f4b852b  /tmp/${ASSET}" | shasum -a 256 -c -
-          tar -xzf "/tmp/${ASSET}" -C "${CARGO_HOME:-$HOME/.cargo}/bin"
+          nextest: "true"
 
       - name: Test the operating-system crate
         run: cargo nextest run -p sidekicks-platforms --locked

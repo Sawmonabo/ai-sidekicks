@@ -34,7 +34,6 @@ use sidekicks_provider::driver::capabilities::writer::{
     CapabilityHydration, DriverCapabilitiesWriter,
 };
 use sidekicks_provider::driver::child_records::DaemonChildRecords;
-use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
@@ -579,21 +578,20 @@ pub(crate) fn register_providers(
     }
 }
 
-/// Ends every driver's work for `intent`, all at once, and answers each driver's failure, in the
-/// table's order.
+/// Ends every driver's work for `intent`, all at once, each by the one deadline `remaining` from
+/// now.
 pub(crate) async fn shut_down_drivers(
     registry: &ProviderRegistry,
     intent: DaemonStopIntent,
-) -> Vec<DriverError> {
+    remaining: Duration,
+) {
+    let deadline = tokio::time::Instant::now() + remaining;
     futures::future::join_all(
         registry
             .drivers()
-            .map(|(_, driver)| driver.shutdown(intent)),
+            .map(|(_, driver)| driver.shutdown(intent, deadline)),
     )
-    .await
-    .into_iter()
-    .filter_map(Result::err)
-    .collect()
+    .await;
 }
 
 #[cfg(test)]

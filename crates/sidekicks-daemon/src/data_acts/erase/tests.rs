@@ -103,13 +103,16 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
     let calls: CallLog = Arc::default();
     let mut driver = MockProviderDriver::new();
     let shutdown_calls = Arc::clone(&calls);
-    driver.expect_shutdown().times(1).returning(move |intent| {
-        record(
-            &shutdown_calls,
-            format!("provider services end ({intent:?})"),
-        );
-        async { Ok(()) }.boxed()
-    });
+    driver
+        .expect_shutdown()
+        .times(1)
+        .returning(move |intent, _deadline| {
+            record(
+                &shutdown_calls,
+                format!("provider services end ({intent:?})"),
+            );
+            async {}.boxed()
+        });
     let providers = Arc::new(registry_of_first_provider(Arc::new(driver)));
     let ended = Arc::new(Notify::new());
     let (stop_calls, sign_in_calls, sign_out_calls, close_calls, end_calls) = (

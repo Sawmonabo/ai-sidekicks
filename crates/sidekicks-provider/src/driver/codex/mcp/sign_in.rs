@@ -267,7 +267,7 @@ async fn read_person_server_entry(
     let read = registry
         .read_on_personal_folder(PersonalFolderRead::Config, |service| async move {
             let connection = service.connection()?;
-            read_codex_config::<Map<String, Value>>(&connection, cwd, false).await
+            read_codex_config::<Map<String, Value>>(&connection, Some(cwd), false).await
         })
         .await?;
     Ok(read

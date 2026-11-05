@@ -643,6 +643,9 @@ pub struct SessionSpawnContext {
     /// The session's own advisor: `None` where it has none of its own, `Some(None)` where it is
     /// off.
     pub advisor_model: Option<Option<String>>,
+    /// The session's own `Auto memory` switch: `None` where the person never set it, so the
+    /// provider's own settings decide.
+    pub auto_memory: Option<bool>,
 }
 
 /// The folders of an account's home, which the app manages for every account, each absolute: the
@@ -695,7 +698,8 @@ pub trait ProviderAccountReader: Send + Sync {
 
     /// The current credential generation of `provider_account_id`'s account, from the accounts
     /// store, which a reading of the account carries so one from before a sign-in again reads as
-    /// stale. Fails when the account cannot be read.
+    /// stale. Fails with the boxed `ProviderAccountRegistryError::NotFound` when the account is not
+    /// registered, and otherwise when it cannot be read.
     fn read_credential_generation(
         &self,
         provider_account_id: ProviderAccountId,
@@ -703,8 +707,9 @@ pub trait ProviderAccountReader: Send + Sync {
 
     /// How `provider_account_id`'s account signs in, as the provider last reported it; `None` where
     /// no reading was stored. A pasted token's account reads `OauthToken` and a pasted API key's
-    /// `ApiKey`, and only those accounts have a credential sealed to read. Fails when the account
-    /// is not registered or cannot be read.
+    /// `ApiKey`, and only those accounts have a credential sealed to read. Fails with the boxed
+    /// `ProviderAccountRegistryError::NotFound` when the account is not registered, and otherwise
+    /// when it cannot be read.
     fn read_observed_auth_mode(
         &self,
         provider_account_id: ProviderAccountId,

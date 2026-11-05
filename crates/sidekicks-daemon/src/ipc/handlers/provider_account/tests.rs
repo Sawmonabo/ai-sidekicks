@@ -39,6 +39,7 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::web_address::HttpsAddress;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::call_fixtures::{context, request};
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
@@ -79,6 +80,7 @@ use sidekicks_provider::port::usage_sink::{
 };
 use sidekicks_provider::usage_delta_accountant::UsageAxisCounts;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use sidekicks_store::credential_store::{KeychainRefusal, SecretKeychain};
@@ -422,6 +424,7 @@ impl MethodInputs {
         let account_reader: Arc<dyn ProviderAccountReader> = Arc::new(ProviderAccounts::new(
             Arc::clone(&reads),
             Arc::clone(&keychain),
+            accounts.observed_auth_modes(),
         ));
         let token_custody = Arc::new(ProviderTokenCustody::new(
             Arc::clone(&accounts),
@@ -457,6 +460,8 @@ impl MethodInputs {
             wall_clock: clock,
             wake_helper: Some(Arc::clone(&wake_helper)),
             publisher: Arc::clone(&publisher) as _,
+            request_held: Arc::new(PortRegistration::new("request held")),
+            daemon_started_at: WireInstant::now(),
         }));
         let providers = Arc::new(registry_of_first_provider(Arc::new(
             MockProviderDriver::new(),

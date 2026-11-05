@@ -1,9 +1,11 @@
 //! Writes a file so that a crash at any moment leaves it whole or as it was, never half written: a
 //! temporary file beside it is written and flushed to disk, then renamed over the target, or linked
-//! to the target's name only where no file stands there. In a folder a sweep of leftovers covers,
-//! the temporary file is held locked from its creation until it takes the target's name, so the
-//! sweep never takes a live write's. Flushing the folder, which makes the rename or link itself
-//! durable, is the caller's.
+//! to the target's name only where no file stands there. A write for a record that lives only while
+//! its process does skips the flush, so a process crash still leaves the file whole or as it was,
+//! while a system crash or power loss may leave it empty or partial. In a folder a sweep of
+//! leftovers covers, the temporary file is held locked from its creation until it takes the
+//! target's name, so the sweep never takes a live write's. Flushing the folder, which makes the
+//! rename or link itself durable, is the caller's.
 
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -49,8 +51,35 @@ pub fn replace_file_atomically(
     mode: u32,
     sweep: LeftoverSweep,
 ) -> Result<(), AtomicWriteError> {
-    let (held, temporary_path) =
-        write_temporary(target, contents, mode, sweep, <File as Write>::write_all)?;
+    let (held, temporary_path) = write_temporary(
+        target,
+        contents,
+        mode,
+        sweep,
+        true,
+        <File as Write>::write_all,
+    )?;
+    rename_over_target(held, temporary_path, target)
+}
+
+/// Replaces `target` with `contents` as [`replace_file_atomically`] does, but with no flush of the
+/// temporary file: a process crash still leaves the target whole or as it was, but a system crash
+/// or power loss may leave it empty or partial, so its readers take bytes that do not parse as no
+/// record. Blocks; a failure removes the temporary file and leaves the old file in place.
+pub fn replace_file_atomically_without_flush(
+    target: &Path,
+    contents: &[u8],
+    mode: u32,
+    sweep: LeftoverSweep,
+) -> Result<(), AtomicWriteError> {
+    let (held, temporary_path) = write_temporary(
+        target,
+        contents,
+        mode,
+        sweep,
+        false,
+        <File as Write>::write_all,
+    )?;
     rename_over_target(held, temporary_path, target)
 }
 
@@ -73,7 +102,7 @@ pub fn replace_file_atomically_while(
         .permissions();
     // Made private to the owner first, then given the target's permissions before any byte lands.
     let (held, temporary_path) =
-        write_temporary(target, contents, 0o600, sweep, |file, contents| {
+        write_temporary(target, contents, 0o600, sweep, true, |file, contents| {
             file.set_permissions(permissions)?;
             file.write_all(contents)
         })?;
@@ -164,7 +193,7 @@ fn create_file_atomically_through(
     sweep: LeftoverSweep,
     write: impl FnOnce(&mut File, &[u8]) -> io::Result<()>,
 ) -> Result<(), AtomicWriteError> {
-    let (held, temporary_path) = write_temporary(target, contents, mode, sweep, write)?;
+    let (held, temporary_path) = write_temporary(target, contents, mode, sweep, true, write)?;
     match temporary_path.persist_noclobber(target) {
         Ok(()) => {
             release(held);
@@ -220,14 +249,15 @@ fn temporary_place(target: &Path) -> (&Path, String) {
     (folder, format!("{}.", file_name.to_string_lossy()))
 }
 
-// A temporary file beside `target` filled with `contents` by `write` and flushed to disk, with its
-// handle still open and locked where `sweep` covers the folder, closed elsewhere; a failure removes
-// it.
+// A temporary file beside `target` filled with `contents` by `write` and, where `should_flush`,
+// flushed to disk, with its handle still open and locked where `sweep` covers the folder, closed
+// elsewhere; a failure removes it.
 fn write_temporary(
     target: &Path,
     contents: &[u8],
     mode: u32,
     sweep: LeftoverSweep,
+    should_flush: bool,
     write: impl FnOnce(&mut File, &[u8]) -> io::Result<()>,
 ) -> Result<(Option<File>, TempPath), AtomicWriteError> {
     let (folder, prefix) = temporary_place(target);
@@ -245,7 +275,14 @@ fn write_temporary(
             removal_failure: None,
         })?,
     };
-    match write(&mut file, contents).and_then(|()| flush_open_file(&file)) {
+    let written = write(&mut file, contents).and_then(|()| {
+        if should_flush {
+            flush_open_file(&file)
+        } else {
+            Ok(())
+        }
+    });
+    match written {
         Ok(()) => Ok((
             (sweep == LeftoverSweep::Swept).then_some(file),
             temporary_path,

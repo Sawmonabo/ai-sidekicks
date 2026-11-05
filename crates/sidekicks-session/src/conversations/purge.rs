@@ -1,28 +1,18 @@
-//! Deleting each provider's own copy of the conversations a session ran on, for the whole-session
-//! purge: the conversation each of its bindings names and each one it left, handed to the driver
-//! that ran it, newest first, so a fork goes before the conversation it was forked from.
+//! Deleting each provider's own copy of a session's conversations, for the whole-session purge:
+//! the conversation each of its bindings names and each one it left, handed to the driver that ran
+//! it, newest first, so a fork goes before the conversation it was forked from.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
-use rusqlite::Connection;
-use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_provider::driver::session_control::{PurgeSessionParams, SessionConversation};
-use sidekicks_provider::left_conversations::read_left_conversations;
+use sidekicks_provider::driver::session_control::PurgeSessionParams;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
-
-use crate::run::stored_leg::read_session_bindings;
-
-/// The statements the purge's read prepares on a read connection: the session's runs, their
-/// bindings and the conversations the session left.
-pub const CONVERSATION_PURGE_STATEMENT_CAPACITY: usize = 3;
 
 /// Why a session's provider conversations were not all deleted.
 #[derive(Debug, thiserror::Error)]
@@ -67,7 +57,9 @@ impl ConversationPurge {
         let conversations = self
             .reads
             .read(ReadLength::Long, move |reader| {
-                Ok::<_, ConversationPurgeError>(read_conversations(reader, session_id)?)
+                Ok::<_, ConversationPurgeError>(super::read_session_conversations(
+                    reader, session_id,
+                )?)
             })
             .await?;
         let mut purges = Vec::with_capacity(conversations.len());
@@ -94,80 +86,6 @@ impl ConversationPurge {
     }
 }
 
-// Each provider's conversations, newest first, in one read snapshot: the ones the bindings name,
-// latest write first, then the ones the session left, latest left first. A conversation is listed
-// once, and the providers keep the order each was first met in. A bound conversation carries its
-// binding's recovery data, and a left one its provider's latest binding's, the session's leg it
-// was left from.
-fn read_conversations(
-    reader: &Connection,
-    session_id: SessionId,
-) -> rusqlite::Result<Vec<(ProviderId, Vec<SessionConversation>)>> {
-    let snapshot = reader.unchecked_transaction()?;
-    let mut bound: Vec<_> = read_session_bindings(&snapshot, session_id)?
-        .into_iter()
-        .filter_map(|binding| {
-            let resume_handle = binding.resume_handle.filter(|handle| !handle.is_empty())?;
-            Some((
-                binding.updated_at,
-                binding.provider_name,
-                resume_handle,
-                binding.spawn_config.provider_account_id,
-                binding.runtime_metadata,
-            ))
-        })
-        .collect();
-    bound.sort_by(|first, second| second.0.cmp(&first.0));
-    let latest_recovery_data = |provider: &ProviderId| {
-        bound
-            .iter()
-            .find(|(_, bound_provider, ..)| bound_provider == provider)
-            .map(|(.., runtime_metadata)| runtime_metadata.clone())
-            .unwrap_or_default()
-    };
-    let mut left = read_left_conversations(&snapshot, &session_id)?;
-    left.reverse();
-    let left: Vec<_> = left
-        .into_iter()
-        .map(|record| {
-            let runtime_metadata = latest_recovery_data(&record.provider_name);
-            (
-                record.provider_name,
-                record.conversation.conversation_id,
-                record.conversation.provider_account_id,
-                runtime_metadata,
-            )
-        })
-        .collect();
-
-    let mut by_provider: Vec<(ProviderId, Vec<SessionConversation>)> = Vec::new();
-    let mut listed: HashSet<(ProviderId, String)> = HashSet::new();
-    let conversations = bound
-        .into_iter()
-        .map(|(_, provider, resume_handle, account, runtime_metadata)| {
-            (provider, resume_handle, account, runtime_metadata)
-        })
-        .chain(left);
-    for (provider, resume_handle, provider_account_id, runtime_metadata) in conversations {
-        if !listed.insert((provider.clone(), resume_handle.clone())) {
-            continue;
-        }
-        let conversation = SessionConversation {
-            resume_handle,
-            provider_account_id,
-            runtime_metadata,
-        };
-        match by_provider
-            .iter_mut()
-            .find(|(listed, _)| *listed == provider)
-        {
-            Some((_, conversations)) => conversations.push(conversation),
-            None => by_provider.push((provider, vec![conversation])),
-        }
-    }
-    Ok(by_provider)
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -184,7 +102,8 @@ mod tests {
     use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
     use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
-    use super::{CONVERSATION_PURGE_STATEMENT_CAPACITY, ConversationPurge, ConversationPurgeError};
+    use super::{ConversationPurge, ConversationPurgeError};
+    use crate::conversations::SESSION_CONVERSATIONS_STATEMENT_CAPACITY;
     use crate::run::schema::schema_parts;
 
     // A binding row of `run_id` on `provider` naming `resume_handle`.
@@ -240,7 +159,7 @@ mod tests {
         let purge = ConversationPurge::new(
             Arc::new(DatabaseReadPool::new(
                 database.path(),
-                CONVERSATION_PURGE_STATEMENT_CAPACITY,
+                SESSION_CONVERSATIONS_STATEMENT_CAPACITY,
             )),
             Arc::new(ProviderRegistry::register_from(&table, &services)),
         );

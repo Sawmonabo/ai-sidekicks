@@ -12,5 +12,6 @@ share_workspace_root = true
 # Linux container's VM exports `MBX_SCHEDULER_MEMORY=6GiB`, which wins over this file.
 reserve_cpus = 1
 memory = "10GiB"
-# nextest tests take permits one at a time, so several suites at once cannot start a thread storm.
-tests = true
+# A test binary takes no permit: a test queued behind compilers counts the wait toward nextest's
+# two-minute limit and is ended as hung. nextest bounds each run's own parallelism.
+tests = false

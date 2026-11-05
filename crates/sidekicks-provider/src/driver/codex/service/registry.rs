@@ -25,6 +25,7 @@ use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::mutex_lock::lock;
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
+use tokio::time::Instant;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::account::{
@@ -517,10 +518,11 @@ impl CodexServiceRegistry {
     /// Shuts every service down for good, the replaced ones included, and answers once every one
     /// has: the daemon's own are stopped, a joined one only disconnected, under `Restart` every
     /// lasting service, the terminal service and each account home's, keeps running in its record
-    /// for the next start to join, and under `Stop` every service a record still keeps is stopped
-    /// too, one a former daemon kept that this one never joined among them; every drain's wait is
-    /// called off, its service draining on by itself. Each stop reports its own failure.
-    pub(crate) async fn shutdown(&self, intent: DaemonStopIntent) {
+    /// for the next start to join, and under `Stop` every service a record still keeps that none
+    /// of these holds is stopped at the same time, one a former daemon kept that this one never
+    /// joined among them; every drain's wait is called off, its service draining on by itself.
+    /// Each service's stop ends by `deadline` and reports its own failure.
+    pub(crate) async fn shutdown(&self, intent: DaemonStopIntent, deadline: Instant) {
         // A stop never waits on a drain: each drains on by itself, its record left marked.
         self.dependencies.drains.call_off();
         let services: Vec<Arc<CodexService>> = {
@@ -535,15 +537,28 @@ impl CodexServiceRegistry {
                 .chain(transient)
                 .collect()
         };
-        join_all(services.iter().map(|service| service.shutdown(intent))).await;
+        let live_stops = join_all(
+            services
+                .iter()
+                .map(|service| service.shutdown(intent, deadline)),
+        );
         match intent {
+            // Beside the live services' stops, so a kept service gets the whole deadline too.
             DaemonStopIntent::Stop => {
                 let data_folder = self.dependencies.data_folder.clone();
-                for failure in stop_kept_services(data_folder, KeptServicesStop::DaemonStop).await {
+                let kept_stop = stop_kept_services(
+                    data_folder,
+                    KeptServicesStop::DaemonStop { deadline },
+                    &services,
+                );
+                let (_stopped, failures) = tokio::join!(live_stops, kept_stop);
+                for failure in failures {
                     report_kept_service_unstopped(&failure);
                 }
             }
-            DaemonStopIntent::Restart => {}
+            DaemonStopIntent::Restart => {
+                live_stops.await;
+            }
         }
     }
 

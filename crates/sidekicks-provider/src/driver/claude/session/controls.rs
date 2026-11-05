@@ -401,9 +401,14 @@ impl ClaudeSessionControls {
         self.finish_review(session_id).await;
     }
 
-    /// Forgets a closed session's review and followers.
-    pub(crate) async fn forget_session(&self, session_id: SessionId) {
-        self.finish_review(session_id).await;
+    /// Forgets a closed session's review and followers: the review finished first where
+    /// `finishes_review`, else dropped unfinished, as one the daemon's stop cut.
+    pub(crate) async fn forget_session(&self, session_id: SessionId, finishes_review: bool) {
+        if finishes_review {
+            self.finish_review(session_id).await;
+        } else {
+            self.lock().reviews.remove(&session_id);
+        }
         self.lock().followers.remove(&session_id);
     }
 
@@ -716,6 +721,7 @@ async fn meter_side_question(
         named_turn_id: None,
         cumulative: observed.cumulative,
         declared_per_turn: None,
+        request: crate::usage_delta_accountant::UsageRequestFacts::default(),
     }) else {
         return;
     };

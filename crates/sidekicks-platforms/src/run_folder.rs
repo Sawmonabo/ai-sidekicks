@@ -37,8 +37,8 @@ pub struct DaemonRunFolder {
     pub socket_path: PathBuf,
     /// The session token file, rewritten with a new token at every daemon start.
     pub token_path: PathBuf,
-    /// The service status file, which records why the daemon's last start failed, for the clients
-    /// to read with no daemon to ask; a start that succeeds removes it.
+    /// The service status file, which records one of three facts for the clients to read with no
+    /// daemon to ask: why its last start failed, the stop under way or why its last stop failed.
     pub status_path: PathBuf,
 }
 
