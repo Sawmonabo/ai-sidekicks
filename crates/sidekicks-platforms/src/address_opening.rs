@@ -13,15 +13,17 @@ use crate::macos::address_opening::can_reach_display;
 #[cfg(target_os = "windows")]
 use crate::windows::address_opening::can_reach_display;
 
-/// A program the `BROWSER` variable can name that opens nothing and does not fail, so a program
-/// that opens its addresses through that variable opens no browser on this machine.
+/// A program the `BROWSER` variable can name that opens nothing, so a program that opens its
+/// addresses through that variable opens no browser on this machine; whether it runs and how it
+/// exits is not relied on.
 #[cfg(unix)]
 pub const NO_BROWSER_OPENER: &str = "/usr/bin/true";
 
 /// A program the `BROWSER` variable can name that opens nothing, so a program that opens its
-/// addresses through that variable opens no browser on this machine: Windows ships no program
-/// that does nothing, so this is a name no Windows system folder holds, whose start fails and
-/// opens nothing.
+/// addresses through that variable opens no browser on this machine. Windows ships no program
+/// that does nothing, so this is a name no Windows system folder holds: with none of that name on
+/// the path nothing starts, and one a tool kit put there does nothing; whether it runs and how it
+/// exits is not relied on.
 #[cfg(windows)]
 pub const NO_BROWSER_OPENER: &str = "true";
 
@@ -57,7 +59,7 @@ fn is_ssh_login(environment: &[(String, String)]) -> bool {
 }
 
 #[cfg(test)]
-mod reach_tests {
+mod tests {
     use super::can_open_browser;
 
     // Killed by any one of the three variables dropped; the display beside it, and the SSH rule
@@ -78,18 +80,12 @@ mod reach_tests {
             );
         }
     }
-}
 
-#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
-mod tests {
-    use std::io::ErrorKind;
-
-    use crate::open_address;
-
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn an_address_no_application_claims_answers_not_found() {
-        let error = open_address("sidekicks-unclaimed-scheme-test://nothing")
+        let error = crate::open_address("sidekicks-unclaimed-scheme-test://nothing")
             .expect_err("no application claims the made-up scheme");
-        assert_eq!(error.kind(), ErrorKind::NotFound, "{error}");
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound, "{error}");
     }
 }

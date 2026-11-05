@@ -98,3 +98,27 @@ pub(crate) fn can_reach_display(_environment: &[(String, String)]) -> bool {
 fn has_visible_display(flags: u32) -> bool {
     flags & WSF_VISIBLE.cast_unsigned() != 0
 }
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use windows_sys::Win32::UI::WindowsAndMessaging::WSF_VISIBLE;
+
+    use super::has_visible_display;
+
+    const VISIBLE: u32 = WSF_VISIBLE.cast_unsigned();
+
+    // Killed by a mask that reads another bit as the visible one, or that misses the visible bit
+    // among others.
+    #[rstest]
+    #[case::visible(VISIBLE, true)]
+    #[case::none(0, false)]
+    #[case::every_other_bit(!VISIBLE, false)]
+    #[case::visible_among_others(VISIBLE | 0x0100, true)]
+    fn a_windows_station_opens_a_browser_only_with_a_visible_display(
+        #[case] flags: u32,
+        #[case] opens: bool,
+    ) {
+        assert_eq!(has_visible_display(flags), opens);
+    }
+}
