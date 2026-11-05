@@ -47,8 +47,8 @@ sidekicks-terminal = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true
 
 [features]
-# Helpers other crates' tests use: a shell table with no shells behind it.
-test-support = ["dep:tempfile"]
+# Helpers other crates' tests use: a shell table with no shells behind it, and no capture.
+test-support = ["dep:tempfile", "sidekicks-provider/test-support"]
 
 [lints]
 workspace = true
