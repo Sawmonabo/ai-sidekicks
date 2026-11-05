@@ -26,7 +26,7 @@ use prost::Message as _;
 use sidekicks_contracts::provider::id::ProviderId;
 use tokio::sync::Semaphore;
 
-use crate::bearer_token::BearerToken;
+use crate::bearer_token::{BEARER_PREFIX, BearerToken};
 use crate::port::raw_provider_messages::RawProviderMessages;
 
 /// What every provider's telemetry path starts with.
@@ -83,6 +83,12 @@ impl TelemetryTarget {
     /// The token an export presents, as `Bearer <token>` in its `Authorization` header.
     pub fn bearer(&self) -> &BearerToken {
         &self.bearer
+    }
+
+    /// The OTLP exporters' headers setting that presents the token, `authorization=Bearer <token>`,
+    /// which an exporter splits at its first `=`; Claude's settings file takes the same value.
+    pub(crate) fn exporter_headers(&self) -> String {
+        format!("authorization={BEARER_PREFIX}{}", self.bearer.text())
     }
 }
 

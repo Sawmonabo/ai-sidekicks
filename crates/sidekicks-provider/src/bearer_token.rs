@@ -9,7 +9,7 @@ use zeroize::Zeroizing;
 const TOKEN_BYTES: usize = 32;
 
 /// What opens the header value a client presents its token in.
-const BEARER_PREFIX: &str = "Bearer ";
+pub(crate) const BEARER_PREFIX: &str = "Bearer ";
 
 /// One start's token.
 pub struct BearerToken(Zeroizing<String>);
