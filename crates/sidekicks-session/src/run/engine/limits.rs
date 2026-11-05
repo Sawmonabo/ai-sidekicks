@@ -29,7 +29,6 @@ use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::events::session::appender::SessionEventDraft;
 use tokio::sync::oneshot;
-use tracing::Instrument as _;
 
 use crate::driver_resolution::{LiveRunDriverError, read_run_driver};
 use crate::interventions::store::is_limit_interrupt_pending;
@@ -242,14 +241,15 @@ impl RunEngine {
         }
     }
 
-    /// The daemon's own stop of a live run at a limit, run as a task of its own so it finishes
-    /// whatever its caller does: it cuts a turn (a step stop's own, else the newest open turn, its
-    /// cut held beside any other stop's of that turn), writes the limit's reached event where it
-    /// has one, and hands the interrupt naming that turn to the interventions service unless the
-    /// limit's interrupt of the run is pending or another step hand is in flight, a stop that
-    /// stops nothing or whose hand leaves no pending row withdrawing its cut, since that row is the
-    /// cut's one mark. Fails with [`RunEngineError::LimitInterrupterGone`] when no live
-    /// interventions service is held or the daemon's shutdown ends the stop's task, else with
+    /// The daemon's own stop of a live run at a limit, run as an interrupt hand of its own so it
+    /// finishes whatever its caller does, unless the daemon's stop cuts it: it cuts a turn (a step
+    /// stop's own, else the newest open turn, its cut held beside any other stop's of that turn),
+    /// writes the limit's reached event where it has one, and hands the interrupt naming that turn
+    /// to the interventions service unless the limit's interrupt of the run is pending or another
+    /// step hand is in flight, a stop that stops nothing or whose hand leaves no pending row
+    /// withdrawing its cut, since that row is the cut's one mark. Fails with
+    /// [`RunEngineError::LimitInterrupterGone`] when no live interventions service is held or the
+    /// daemon's stop or shutdown ends the stop's task, else with
     /// [`RunEngineError::LimitInterrupt`] or the read or write that failed, the reached event and
     /// the limit kept for the stop's retry.
     pub(super) async fn stop_at_limit(
@@ -272,7 +272,6 @@ impl RunEngine {
         }
         let engine = Arc::clone(self);
         let limit = stop.limit();
-        let span = tracing::Span::current();
         // The task sends the stop's result to this future's receiver, whose guard logs an error
         // its caller's drop leaves unread.
         let (sender, receiver) = oneshot::channel::<Result<(), RunEngineError>>();
@@ -280,32 +279,29 @@ impl RunEngine {
             receiver,
             run_id,
             limit,
-            span: span.clone(),
+            span: tracing::Span::current(),
         };
-        let stopping = tokio::spawn(
-            async move {
-                let stopped = engine.run_limit_stop(run_id, stop).await;
-                // A caller gone has closed its receiver, so the send hands the result back and the
-                // task logs an error; only a panic after the caller dropped is left to the panic
-                // hook.
-                if let Err(Err(error)) = sender.send(stopped) {
-                    log_unread_limit_stop_failure(&tracing::Span::current(), run_id, limit, &error);
-                }
+        let stopping = self.hand_interrupt(run_id, async move {
+            let stopped = engine.run_limit_stop(run_id, stop).await;
+            // A caller gone has closed its receiver, so the send hands the result back and the
+            // task logs an error; only a panic after the caller dropped is left to the panic hook.
+            if let Err(Err(error)) = sender.send(stopped) {
+                log_unread_limit_stop_failure(&tracing::Span::current(), run_id, limit, &error);
             }
-            .instrument(span),
-        );
+        });
         match (&mut answer.receiver).await {
             Ok(stopped) => stopped,
-            // The task sends before it returns, so it ended without sending only by a panic or a
-            // cancel.
-            Err(_unsent) => match stopping.await {
-                Ok(()) => unreachable!("the task sends before it returns"),
-                Err(error) => match error.try_into_panic() {
-                    Ok(panic) => std::panic::resume_unwind(panic),
-                    // Only the runtime's shutdown cancels the task, and no caller then waits on it.
-                    Err(_canceled) => Err(RunEngineError::LimitInterrupterGone { run_id }),
-                },
-            },
+            // The task sends before it returns, so it ended without sending only by a panic, the
+            // daemon's stop, which cut it or let none start, or the runtime's shutdown.
+            Err(_unsent) => {
+                if let Some(stopping) = stopping
+                    && let Err(error) = stopping.await
+                    && let Ok(panic) = error.try_into_panic()
+                {
+                    std::panic::resume_unwind(panic);
+                }
+                Err(RunEngineError::LimitInterrupterGone { run_id })
+            }
         }
     }
 
@@ -558,7 +554,7 @@ impl RunEngine {
             })
     }
 
-    /// Hands the interventions service again, on a task of its own carrying the caller's span, the
+    /// Hands the interventions service again, on an interrupt hand carrying the caller's span, the
     /// interrupt of each limit `run_id` owes, once its provider runs again after a wait or a
     /// pause, where no step or usage report comes to hand it; a failure is logged, the next step,
     /// usage report or restart handing the limit once more. A person's call that returned the run
@@ -566,16 +562,13 @@ impl RunEngine {
     /// no interrupt reaches a provider before its resume.
     pub(crate) fn hand_owed_limit_interrupts(self: &Arc<Self>, run_id: RunId) {
         let engine = Arc::clone(self);
-        tokio::spawn(
-            async move {
-                WriteWithResend {
-                    written: (),
-                    resend_failure: engine.stop_at_owed_limits(run_id).await.err(),
-                }
-                .log_resend_failure(run_id);
+        self.hand_interrupt(run_id, async move {
+            WriteWithResend {
+                written: (),
+                resend_failure: engine.stop_at_owed_limits(run_id).await.err(),
             }
-            .instrument(tracing::Span::current()),
-        );
+            .log_resend_failure(run_id);
+        });
     }
 
     /// Hands the interventions service again the interrupt of each limit `run_id` owes, as its

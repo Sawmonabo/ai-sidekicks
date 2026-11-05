@@ -229,17 +229,17 @@ pub(crate) enum CrashMonitorEndFailure {
 /// land after the stop's end record, are the waits `bound` does not cut; then the stop token, so
 /// the work under way ends; then, within what is left of `bound`, the socket, so no new call comes,
 /// the mutating calls under way, the machine keys' background read, the capability refresh, the
-/// providers' registration, the tool servers' client, the run queue, the worktree cleanup's
-/// requests and the start's background tasks, the clone service with its askpass broker, the
-/// worktrees' setup commands, the repository services' background work, the attention decisions,
-/// the session services' follows with the chats' write watch and file recount, whose watermark a
-/// clean end stores, the renames' name pushes, the highlighter, the terminals, the provider
-/// accounts' sign-ins, the start's sweep of new accounts' homes and the account observer, the
-/// scheduler, the working-folder watch, the projects list, the search index, the drivers, the
-/// person's Stop's drain of the live runs, the turn end captures under way, the git trees a failed
-/// call left and, last, the kept worktrees' reads. The drivers are told `reason`'s intent, once a
-/// stop the person asked for over the socket since has replaced a restart, which writes the intent
-/// there. Answers each step's failure, every step having run.
+/// providers' registration, the tool servers' client, the engine's interrupt hands, cut where they
+/// stand, the run queue, the worktree cleanup's requests and the start's background tasks, the
+/// clone service with its askpass broker, the worktrees' setup commands, the repository services'
+/// background work, the attention decisions, the session services' follows with the chats' write
+/// watch and file recount, whose watermark a clean end stores, the renames' name pushes, the
+/// highlighter, the terminals, the provider accounts' sign-ins, the start's sweep of new accounts'
+/// homes and the account observer, the scheduler, the working-folder watch, the projects list, the
+/// search index, the drivers, the person's Stop's drain of the live runs, the turn end captures
+/// under way, the git trees a failed call left and, last, the kept worktrees' reads. The drivers
+/// are told `reason`'s intent, once a stop the person asked for over the socket since has replaced
+/// a restart, which writes the intent there. Answers each step's failure, every step having run.
 pub(crate) async fn stop_work(
     process: &mut DaemonProcess,
     reason: DaemonStopReason,
@@ -345,6 +345,16 @@ pub(crate) async fn stop_work(
             .stop_record
             .write_step(DaemonStopStep::RunQueue)
             .await;
+        // Before the queue's stop, so a hand the token cuts never meets a stopped queue.
+        if let Err(failure) = wait_within(
+            remaining(),
+            "interrupt hands",
+            session.engine.stop_interrupt_hands(),
+        )
+        .await
+        {
+            failures.push(failure);
+        }
         if let Err(failure) = wait_within(remaining(), "run queue", session.queue.stop()).await {
             failures.push(failure);
         }

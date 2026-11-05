@@ -14,6 +14,7 @@ mod continued_lead;
 mod ending;
 pub mod errors;
 mod host;
+mod interrupt_hands;
 mod limits;
 mod live;
 mod parent_correction;
@@ -68,6 +69,8 @@ use sidekicks_store::events::session::read::{DamagedFromSequenceReader, session_
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_workspace::run_setup_gates::{RunSetupGate, RunSetupGates};
 use tokio::sync::{SetOnce, SetOnceError};
+use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 
 use crate::interventions::interrupt_queue::InterruptQueue;
 use crate::interventions::store::run_at_version_statement;
@@ -193,6 +196,10 @@ pub struct RunEngine {
     // weakly, as that source reaches the engine through the drivers' ports.
     session_postures: SetOnce<Weak<dyn SessionPostureSource>>,
     live: Mutex<LiveRuns>,
+    // The tasks that carry a run's interrupt out apart from the call that asked for it, and the
+    // daemon's stop that cuts them.
+    interrupt_hands: TaskTracker,
+    interrupt_hands_stop: CancellationToken,
     // Where a test holds a limit stop once its cut is in and before it reads whether its turn is
     // still open.
     #[cfg(test)]
@@ -241,6 +248,8 @@ impl RunEngine {
             interrupt_queue: SetOnce::new(),
             session_postures: SetOnce::new(),
             live: Mutex::new(LiveRuns::default()),
+            interrupt_hands: TaskTracker::new(),
+            interrupt_hands_stop: CancellationToken::new(),
             #[cfg(test)]
             cut_pause: PausePoint::default(),
             #[cfg(test)]

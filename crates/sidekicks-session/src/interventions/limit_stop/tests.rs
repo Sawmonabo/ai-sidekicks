@@ -88,7 +88,7 @@ fn record_accepted_row(
 }
 
 // Hands the harness's engine its service, as the daemon's start does.
-fn hand_service_to_engine(harness: &Harness) {
+pub(crate) fn hand_service_to_engine(harness: &Harness) {
     let interrupter: Arc<dyn LimitInterrupter> = harness.service.clone();
     let interrupter: Weak<dyn LimitInterrupter> = Arc::downgrade(&interrupter);
     assert!(harness.engine.set_limit_interrupter(interrupter).is_ok());
@@ -530,7 +530,7 @@ fn driver_failing_once() -> (MockProviderDriver, oneshot::Receiver<()>) {
 
 // Puts the harness's run in `state` and has its token limit's first hand fail there, so the run
 // owes that limit.
-async fn owe_token_limit(harness: &Harness, state: &str) {
+pub(crate) async fn owe_token_limit(harness: &Harness, state: &str) {
     harness.set_run(state, 1);
     let stopped = harness
         .engine

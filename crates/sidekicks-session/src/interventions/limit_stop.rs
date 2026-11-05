@@ -1,8 +1,9 @@
 //! The daemon's own interrupt of a run the engine stopped at a limit, carried by the one path a
 //! person's takes. Its row is written and accepted at once, since a limit's interrupt is never
 //! refused or outdated, and a second interrupt of one limit is refused while one is pending. The
-//! hand runs on its own task, which holds the run's interrupt lock and records the outcome
-//! however late it comes; the engine's stop waits on it for a bounded time. A hand the provider
+//! hand runs on the engine's interrupt hand, which holds the run's interrupt lock and records the
+//! outcome however late it comes, unless the daemon's stop cuts it; the engine's stop waits on it
+//! for a bounded time. A hand the provider
 //! got with no answer back leaves its row pending and the stop's cut kept, for the run's end to
 //! settle: applied when the run ended `interrupted`, else expired with the limit still owed.
 //! A restart's hand carries out once a row the old process left `accepted`, its outcome recorded
@@ -25,7 +26,7 @@ use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::run_control::{InterruptPayload, InterruptPendingChoice};
 use sidekicks_std::bounded_wait::wait_within;
 use tokio::sync::oneshot;
-use tracing::Instrument as _;
+use tokio::task::JoinHandle;
 
 use crate::interventions::interrupt_queue::InterruptCause;
 use crate::interventions::service::errors::DispatchError;
@@ -60,7 +61,8 @@ struct LimitInterruptPending {
     limit: RunLimit,
 }
 
-/// The hand's task ended without an answer, its runtime shutting down.
+/// The hand's task ended without an answer, cut or never started by the daemon's stop, or its
+/// runtime shutting down.
 #[derive(Debug, thiserror::Error)]
 #[error("the hand of run {run_id}'s interrupt at a limit ended without an answer")]
 struct HandCanceled {
@@ -91,21 +93,18 @@ impl LimitInterrupter for InterventionService {
         let service = self.clone();
         Box::pin(async move {
             let (answer_sender, mut answer) = oneshot::channel();
-            let hand = tokio::spawn(
-                async move {
-                    // The hold lasts until the outcome is recorded, a late one included.
-                    let _hold = service.interrupt_lock.acquire(run_id).await;
-                    let cut_turn = cut.map(|cut| cut.turn_number);
-                    let handed = service.hand_limit_interrupt(run_id, limit, cut_turn).await;
-                    // A failed send is an answer past the bound, which the stop no longer awaits.
-                    if let Err(late) = answer_sender.send(handed) {
-                        service
-                            .record_unawaited_hand(run_id, limit, cut, late)
-                            .await;
-                    }
+            let hand = self.engine.hand_interrupt(run_id, async move {
+                // The hold lasts until the outcome is recorded, a late one included.
+                let _hold = service.interrupt_lock.acquire(run_id).await;
+                let cut_turn = cut.map(|cut| cut.turn_number);
+                let handed = service.hand_limit_interrupt(run_id, limit, cut_turn).await;
+                // A failed send is an answer past the bound, which the stop no longer awaits.
+                if let Err(late) = answer_sender.send(handed) {
+                    service
+                        .record_unawaited_hand(run_id, limit, cut, late)
+                        .await;
                 }
-                .instrument(tracing::Span::current()),
-            );
+            });
             if let Some(received) = wait_within(Pin::new(&mut answer), LIMIT_HAND_BOUND, None).await
             {
                 return match received {
@@ -120,7 +119,9 @@ impl LimitInterrupter for InterventionService {
                 Ok(handed) => handed,
                 // Once closed, the channel reads closed with no answer whether the hand goes on or
                 // has ended, so only a finished hand is awaited.
-                Err(_) if hand.is_finished() => Err(ended_without_answer(run_id, hand).await),
+                Err(_) if hand.as_ref().is_none_or(JoinHandle::is_finished) => {
+                    Err(ended_without_answer(run_id, hand).await)
+                }
                 Err(_) => Err(LimitInterruptFailure::RowPending {
                     source: Box::new(HandPastBound { run_id }),
                 }),
@@ -130,19 +131,24 @@ impl LimitInterrupter for InterventionService {
 }
 
 // The failure of a hand that gave the stop no answer: a hand that panics within the bound is
-// re-raised in the stop, while one that panics past it reaches only the panic hook; a task
-// canceled by the runtime's shutdown leaves whatever row it wrote pending, and a hand that ran to
-// its end after the stop's close has recorded its outcome late.
+// re-raised in the stop, while one that panics past it reaches only the panic hook; a hand the
+// daemon's stop cut or let none start, or a task canceled by the runtime's shutdown, leaves
+// whatever row it wrote pending, and a hand that ran to its end after the stop's close has
+// recorded its outcome late.
 async fn ended_without_answer(
     run_id: RunId,
-    hand: tokio::task::JoinHandle<()>,
+    hand: Option<JoinHandle<Option<()>>>,
 ) -> LimitInterruptFailure {
-    match hand.await {
+    let ended = match hand {
+        Some(hand) => hand.await,
+        None => Ok(None),
+    };
+    match ended {
         Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
-        Err(_) => LimitInterruptFailure::RowPending {
+        Err(_) | Ok(None) => LimitInterruptFailure::RowPending {
             source: Box::new(HandCanceled { run_id }),
         },
-        Ok(()) => LimitInterruptFailure::RowPending {
+        Ok(Some(())) => LimitInterruptFailure::RowPending {
             source: Box::new(HandPastBound { run_id }),
         },
     }

@@ -1,18 +1,36 @@
 //! The interrupts a restart found pending, a person's and a limit's, handed again over the
-//! harness's running run.
+//! harness's running run, and the daemon's stop of the engine's interrupt hands that carry them
+//! and a limit's interrupt out.
 
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use futures::FutureExt as _;
 use rstest::rstest;
 use rusqlite::{OptionalExtension as _, params};
+use sidekicks_contracts::run::intervention::RunLimit;
+use sidekicks_contracts::session::cost::TokensPerRun;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::run_control::InterruptPendingChoice;
 use sidekicks_store::database::statement::DATABASE_NOW_SQL;
+use tokio::sync::oneshot;
 
 use super::{Harness, applied, harness};
+use crate::interventions::limit_stop::tests::{hand_service_to_engine, owe_token_limit};
+use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::test_fixture::stored_run_state;
+use crate::run::engine::tests::{DRIVER_HOLD, SETTLE_WAIT};
+use crate::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
+
+/// How long the daemon's stop may take to cut an interrupt hand held in its driver.
+const HAND_CUT_BOUND: Duration = Duration::from_secs(1);
+
+/// A person's interrupt pending at the restart, as its stored record reads.
+const PENDING_PERSON_RECORD: &str = r#"{"pending":"nextTurn"}"#;
 
 impl Harness {
     // Records an interrupt of the run left in `state` with its stored `record`, asked at version 1
@@ -172,4 +190,153 @@ async fn a_row_carried_out_while_the_hand_waited_is_sent_once() {
 
     assert_eq!(harness.intervention_state(&person), "applied");
     assert_eq!(harness.holds_taken.load(Ordering::SeqCst), 0);
+}
+
+// A driver whose every interrupt fails, counting each call.
+fn driver_failing_every_interrupt(calls: &Arc<AtomicUsize>) -> MockProviderDriver {
+    let calls = Arc::clone(calls);
+    let mut driver = MockProviderDriver::new();
+    driver.expect_apply_intervention().returning(move |_| {
+        calls.fetch_add(1, Ordering::SeqCst);
+        async { Err(DriverError::Internal("the provider's socket closed".into())) }.boxed()
+    });
+    driver
+}
+
+// A driver whose interrupt never answers, the call sent to the receiver once made.
+fn driver_holding_its_interrupt() -> (MockProviderDriver, oneshot::Receiver<()>) {
+    let (reached, reaching) = oneshot::channel();
+    let reached = Mutex::new(Some(reached));
+    let mut driver = MockProviderDriver::new();
+    driver
+        .expect_apply_intervention()
+        .times(1)
+        .returning(move |_| {
+            if let Some(reached) = reached.lock().expect("the signal is not poisoned").take() {
+                reached.send(()).expect("the test waits for the call");
+            }
+            std::future::pending().boxed()
+        });
+    (driver, reaching)
+}
+
+/// The engine's interrupt hand a test hands after the daemon's stop.
+#[derive(Clone, Copy, Debug)]
+enum StoppedHand {
+    /// The limit a run owes once its provider runs again.
+    OwedLimit,
+    /// A person's interrupt pending at the restart.
+    PendingAtRestart,
+}
+
+// Once the daemon's stop has ended the engine's interrupt hands, neither the hand of a limit the
+// run owes nor the restart's hand of a pending interrupt sends the driver anything, and no queue
+// hold is taken. Killed by a bare spawn kept in the restart's hand or on the owed limit's path
+// (the driver is called again), and by a hand spawned on a closed tracker.
+#[rstest]
+#[case::an_owed_limit(StoppedHand::OwedLimit)]
+#[case::an_interrupt_pending_at_the_restart(StoppedHand::PendingAtRestart)]
+#[tokio::test]
+async fn a_stopped_engine_hands_no_interrupt(#[case] hand: StoppedHand) {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let harness = harness(driver_failing_every_interrupt(&calls)).await;
+    hand_service_to_engine(&harness);
+    let calls_before = match hand {
+        StoppedHand::OwedLimit => {
+            owe_token_limit(&harness, "running").await;
+            1
+        }
+        StoppedHand::PendingAtRestart => {
+            harness.record_pending_interrupt("accepted", PENDING_PERSON_RECORD, Some("device-1"));
+            0
+        }
+    };
+    assert_eq!(calls.load(Ordering::SeqCst), calls_before);
+
+    harness.engine.stop_interrupt_hands().await;
+    match hand {
+        StoppedHand::OwedLimit => harness.engine.hand_owed_limit_interrupts(harness.run_id),
+        StoppedHand::PendingAtRestart => {
+            harness
+                .service
+                .hand_pending_interrupts_again(harness.run_id);
+        }
+    }
+    tokio::time::sleep(DRIVER_HOLD).await;
+
+    assert_eq!(calls.load(Ordering::SeqCst), calls_before);
+    assert_eq!(harness.holds_taken.load(Ordering::SeqCst), 0);
+}
+
+/// The engine's interrupt hand a test holds in its driver when the daemon's stop comes.
+#[derive(Clone, Copy, Debug)]
+enum HeldHand {
+    /// The restart's hand of a person's interrupt pending at the restart.
+    PendingAtRestart,
+    /// The engine's stop of a run at its token limit.
+    LimitStop,
+    /// The interventions service's hand of a limit's interrupt.
+    LimitHand,
+}
+
+// The daemon's stop cuts an interrupt hand held in its driver within a second, whichever hand it
+// is: the restart's, the engine's limit stop, which then answers that no interventions service
+// interrupts the run, and the service's limit hand, which answers its row pending well within its
+// own bound. Killed by a bare spawn kept in any of the three (the stop's wait returns with the
+// hand still held, or the caller's answer waits on the hand's own bound), and by the token not
+// selected (the stop's wait never returns).
+#[rstest]
+#[case::the_restarts_hand(HeldHand::PendingAtRestart)]
+#[case::the_engines_limit_stop(HeldHand::LimitStop)]
+#[case::the_services_limit_hand(HeldHand::LimitHand)]
+#[tokio::test]
+async fn the_stop_cuts_an_interrupt_hand_held_in_its_driver(#[case] hand: HeldHand) {
+    let (driver, reaching) = driver_holding_its_interrupt();
+    let harness = harness(driver).await;
+    hand_service_to_engine(&harness);
+    let (engine, service, run_id) = (
+        Arc::clone(&harness.engine),
+        Arc::clone(&harness.service),
+        harness.run_id,
+    );
+    // Whether the caller's answer reads as the stop cut it, for a hand a caller waits on.
+    let answer = match hand {
+        HeldHand::PendingAtRestart => {
+            harness.record_pending_interrupt("accepted", PENDING_PERSON_RECORD, Some("device-1"));
+            service.hand_pending_interrupts_again(run_id);
+            None
+        }
+        HeldHand::LimitStop => Some(tokio::spawn(async move {
+            let token_limit =
+                TokensPerRun(SafeInt::new(500_000).expect("the test's limit is a safe integer"));
+            matches!(
+                engine.stop_at_token_limit(run_id, token_limit).await,
+                Err(RunEngineError::LimitInterrupterGone { .. })
+            )
+        })),
+        HeldHand::LimitHand => Some(tokio::spawn(async move {
+            matches!(
+                service
+                    .interrupt_for_limit(run_id, RunLimit::TokenLimit, None)
+                    .await,
+                Err(LimitInterruptFailure::RowPending { .. })
+            )
+        })),
+    };
+    tokio::time::timeout(SETTLE_WAIT, reaching)
+        .await
+        .expect("the hand reaches the driver")
+        .expect("the driver signals its call");
+
+    tokio::time::timeout(HAND_CUT_BOUND, harness.engine.stop_interrupt_hands())
+        .await
+        .expect("the stop cuts the held hand within a second");
+
+    if let Some(answer) = answer {
+        let is_cut = tokio::time::timeout(HAND_CUT_BOUND, answer)
+            .await
+            .expect("the caller answers once the hand is cut")
+            .expect("the caller's task ends");
+        assert!(is_cut, "the caller's answer reads as the stop cut it");
+    }
 }
