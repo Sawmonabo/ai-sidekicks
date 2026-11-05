@@ -32,7 +32,9 @@ use crate::driver::codex::service::socket_link::{
 };
 use crate::driver::codex::service::start_lock::CodexStartLock;
 use crate::driver::codex::service::supervisor::CodexService;
-use crate::driver::codex::service::supervisor::own_record::socket_record_file;
+use crate::driver::codex::service::supervisor::own_record::{
+    PublishedRecordFile, socket_record_file,
+};
 use crate::driver::codex::service::supervisor::start::kept_records::{
     KeptRecordsOutcome, lock_record, reconcile_kept_records, retire_kept_record, settle_own_records,
 };
@@ -229,13 +231,14 @@ async fn join_listener(
     })
 }
 
-// A lasting service a former daemon left, joined on `physical_socket`, where its record says its
-// socket really is, so the join reaches that record's service whatever the home's link names; its
-// hooks are compared with the ones this daemon would start it with. A join the service fails, in
-// its dial and answer, its hook list or its version, hands it back with the failure, so the
-// start's teardown stops it and removes its record; a failure on the daemon's own side leaves it
-// running in its record.
-async fn join_former_service(
+/// A lasting service a former daemon left, joined on `physical_socket`, where its record says its
+/// socket really is, so the join reaches that record's service whatever the home's link names; its
+/// record is published on `service` from the join's start, and its hooks are compared with the ones
+/// this daemon would start it with. A join the service fails, in its dial and answer, its hook list
+/// or its version, hands it back with the failure, so the start's teardown stops it and removes its
+/// record; a failure on the daemon's own side leaves it running in its record. Either failure puts
+/// back the name published before.
+pub(super) async fn join_former_service(
     service: &Arc<CodexService>,
     launch: u64,
     cancel: &CancellationToken,
@@ -244,6 +247,8 @@ async fn join_former_service(
     record_file: LastingServiceRecordFile,
     physical_socket: PathBuf,
 ) -> Result<StartedService, StartFailure> {
+    // Published first, so a daemon stop under way leaves the joined record to this service.
+    let published = PublishedRecordFile::publish(service, record_file.clone());
     let dependencies = service.dependencies();
     let hooks = read_terminal_service_hooks(
         dependencies.dispatches_hook_mode,
@@ -272,14 +277,17 @@ async fn join_former_service(
         record_file,
     });
     match joined {
-        Ok((connection, version, is_restart_owed)) => Ok(StartedService {
-            kind: CodexServiceKind::Terminal,
-            process,
-            connection,
-            version,
-            physical_socket,
-            is_restart_owed,
-        }),
+        Ok((connection, version, is_restart_owed)) => {
+            published.keep();
+            Ok(StartedService {
+                kind: CodexServiceKind::Terminal,
+                process,
+                connection,
+                version,
+                physical_socket,
+                is_restart_owed,
+            })
+        }
         Err(error) => Err(StartFailure {
             error,
             process: process.map(Box::new),

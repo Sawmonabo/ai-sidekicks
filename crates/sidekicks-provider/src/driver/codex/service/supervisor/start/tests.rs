@@ -24,6 +24,7 @@ use tokio_util::sync::CancellationToken;
 use super::kept_records::{
     KeptServicesStop, lock_record, retire_former_service, stop_kept_services,
 };
+use super::terminal::join_former_service;
 use super::{
     StartFailure, StartedService, compose_launch, launch_lasting_service, name_lasting_log_file,
     start_codex_service,
@@ -485,35 +486,106 @@ async fn a_daemon_stop_ends_a_kept_service_that_ignores_its_stop_by_the_deadline
     assert!(status.code().is_none(), "{status:?}");
 }
 
-// Fails when the daemon's stop of the records kept also stops a service of its own, which that
-// service's supervisor stops beside it, or leaves a former daemon's service in the same Codex
-// folder running. Killed by dropping the skip of the live records.
-#[tokio::test]
+// Fails when the daemon's stop of the records kept also stops a service of its own, here a former
+// daemon's service a join under way publishes, which that service's supervisor stops beside it,
+// or leaves a former daemon's service in the same Codex folder running. Killed by dropping the
+// skip of the live records and by dropping the join's publish of its record file.
+#[tokio::test(flavor = "multi_thread")]
 async fn a_daemon_stop_of_kept_records_leaves_a_live_service_s_record_to_its_supervisor() {
     if !CAN_SIGNAL_A_STOP {
         return;
     }
     let folder = tempfile::tempdir().expect("a scratch folder is made");
+    let physical_socket = folder.path().join("live-physical.sock");
+    // Held unanswered, so the join is under way once its dial is accepted.
+    let Some(listener) = bind_test_listener(&physical_socket) else {
+        return;
+    };
     let (mut live, live_record) =
         recorded_stand_in(folder.path(), "echo; exec sleep 60", "live.sock").await;
     let (mut former, former_record) =
         recorded_stand_in(folder.path(), "echo; exec sleep 60", "former.sock").await;
+    let read_record = |file: &LastingServiceRecordFile| {
+        file.lock()
+            .and_then(|locked| locked.read())
+            .expect("the record reads")
+    };
+    let lasting = repin_lasting_codex_service(
+        read_record(&live_record)
+            .expect("the live stand-in is recorded")
+            .process,
+    )
+    .expect("the process table reads")
+    .expect("the live stand-in runs");
+    let dependencies = test_codex_service_dependencies(
+        folder.path(),
+        Arc::new(TestCodexProgram {
+            program: write_failing_codex(folder.path()),
+            environment: Vec::new(),
+        }),
+        Arc::new(UnheardEvents),
+        Arc::new(UnrecordedChildren),
+    );
+    let home_socket = folder.path().join("home.sock");
+    let service = CodexService::new(
+        CodexServiceHome {
+            codex_home: folder.path().to_owned(),
+            kind: CodexHomeKind::PersonalFolder,
+        },
+        CodexServiceSocket {
+            path: home_socket.clone(),
+            home_socket,
+        },
+        CodexServiceKind::Terminal,
+        Arc::clone(&dependencies),
+        Vec::new(),
+    );
+    let executable = dependencies
+        .program
+        .resolve(service.home())
+        .await
+        .expect("the test program resolves");
+    let cancel = CancellationToken::new();
+    let joining = tokio::spawn({
+        let (service, cancel, live_record) =
+            (Arc::clone(&service), cancel.clone(), live_record.clone());
+        async move {
+            join_former_service(
+                &service,
+                1,
+                &cancel,
+                &executable,
+                lasting,
+                live_record,
+                physical_socket,
+            )
+            .await
+            .map(|_started| ())
+            .map_err(|failure| failure.error)
+        }
+    });
+    let held = timeout(Duration::from_secs(10), listener.accept())
+        .await
+        .expect("the join dials within its wait")
+        .expect("the dial is accepted");
 
     let failures = stop_kept_services(
         folder.path().to_owned(),
         KeptServicesStop::DaemonStop {
             deadline: Instant::now() + Duration::from_secs(5),
         },
-        HashSet::from([live_record.clone()]),
+        live_record_files(&[Arc::clone(&service)]),
     )
     .await;
     let former_end = timeout(Duration::from_secs(5), former.wait()).await;
     let live_exit = live.try_wait().expect("the live stand-in's state reads");
-    let read_record = |file: &LastingServiceRecordFile| {
-        file.lock()
-            .and_then(|locked| locked.read())
-            .expect("the record reads")
-    };
+    let live_kept = read_record(&live_record);
+    drop((held, listener));
+    cancel.cancel();
+    let joined = timeout(Duration::from_secs(10), joining)
+        .await
+        .expect("the stood-down join ends")
+        .expect("the join's task ends");
 
     assert!(failures.is_empty(), "{failures:?}");
     assert!(
@@ -526,8 +598,12 @@ async fn a_daemon_stop_of_kept_records_leaves_a_live_service_s_record_to_its_sup
         "the kept stop ended a live service: {live_exit:?}"
     );
     assert!(
-        read_record(&live_record).is_some(),
+        live_kept.is_some(),
         "the kept stop removed a live service's record"
+    );
+    assert!(
+        joined.is_err(),
+        "the join answered on a socket held unanswered"
     );
 }
 
