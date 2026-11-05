@@ -224,10 +224,7 @@ impl ClaudeContextReadings {
     /// memory files. Returns once that read is held or failed, or the session is forgotten.
     #[cfg_attr(
         not(test),
-        expect(
-            dead_code,
-            reason = "the driver interface's memory and hooks reads call it"
-        )
+        expect(dead_code, reason = "the driver interface's memory read calls it")
     )]
     pub(crate) async fn read_for_opening(self: &Arc<Self>, live: &Arc<LiveClaudeSession>) {
         let (opening, read) = oneshot::channel();

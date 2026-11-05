@@ -29,7 +29,7 @@ pub(crate) fn read_claude_process_auto_memory(
     not(test),
     expect(
         dead_code,
-        reason = "the Claude driver's memory read and switch call it"
+        reason = "the press of the Claude driver's memory switch calls it"
     )
 )]
 pub(crate) struct ClaudeAutoMemorySources<'a> {
@@ -55,7 +55,7 @@ pub(crate) struct ClaudeAutoMemorySources<'a> {
     not(test),
     expect(
         dead_code,
-        reason = "the Claude driver's memory read and switch call it"
+        reason = "the press of the Claude driver's memory switch calls it"
     )
 )]
 pub(crate) fn read_claude_auto_memory(sources: &ClaudeAutoMemorySources<'_>) -> SessionAutoMemory {
@@ -86,7 +86,7 @@ pub(crate) fn read_claude_auto_memory(sources: &ClaudeAutoMemorySources<'_>) -> 
     not(test),
     expect(
         dead_code,
-        reason = "the Claude driver's memory read and switch call it"
+        reason = "the press of the Claude driver's memory switch calls it"
     )
 )]
 pub(crate) fn claude_auto_memory_applies_at(

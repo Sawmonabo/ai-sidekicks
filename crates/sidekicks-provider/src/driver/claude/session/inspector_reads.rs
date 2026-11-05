@@ -34,7 +34,10 @@ pub(crate) struct ClaudeKeptMemory {
 /// The hooks a session's last process listed.
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "the inspector's memory and hooks reads call it")
+    expect(
+        dead_code,
+        reason = "the driver interface's memory and hooks reads call it"
+    )
 )]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ClaudeKeptHookListing {
@@ -166,7 +169,10 @@ impl ClaudeInspectorReads {
     /// since the daemon started.
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "the inspector's memory and hooks reads call it")
+        expect(
+            dead_code,
+            reason = "the driver interface's memory and hooks reads call it"
+        )
     )]
     pub(crate) fn kept_memory(&self, session_id: SessionId) -> Option<ClaudeKeptMemory> {
         lock(&self.sessions)
@@ -178,7 +184,10 @@ impl ClaudeInspectorReads {
     /// way, which the control request's deadline bounds; it never sends a listing.
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "the inspector's memory and hooks reads call it")
+        expect(
+            dead_code,
+            reason = "the driver interface's memory and hooks reads call it"
+        )
     )]
     pub(crate) async fn kept_hook_listing(&self, session_id: SessionId) -> ClaudeKeptHookListing {
         loop {
@@ -190,10 +199,10 @@ impl ClaudeInspectorReads {
             };
             // A closed sender means the session was forgotten or a later process took its place,
             // so the entry is looked up again.
-            if let Ok(settled) = listing.wait_for(Option::is_some).await
-                && let Some(settled) = settled.clone()
-            {
-                return settled;
+            if let Ok(settled) = listing.wait_for(Option::is_some).await {
+                return settled
+                    .clone()
+                    .expect("the wait answers only a settled listing");
             }
         }
     }
