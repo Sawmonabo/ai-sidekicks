@@ -719,3 +719,49 @@ async fn a_dropped_limit_stop_keeps_only_a_cut_its_row_names(#[case] is_row_writ
     );
     assert!(lock(&engine.live).rowed_cuts.is_empty());
 }
+
+/// How a kept cut leaves its turn's list in a test.
+#[derive(Clone, Copy, Debug)]
+enum CutLeaving {
+    /// Its turn's end is written.
+    TurnEnd,
+    /// The late failure of a hand no stop awaits withdraws it.
+    UnawaitedFailure,
+}
+
+// A row's mark set after its stop kept the cut, as when a hand past its bound writes its row
+// late, leaves once the cut leaves its turn's list, so the marks stay bounded by the cuts.
+// Killed by either way out leaving the mark behind (the marks are not empty).
+#[rstest]
+#[case::its_turn_ends(CutLeaving::TurnEnd)]
+#[case::an_unawaited_hand_fails(CutLeaving::UnawaitedFailure)]
+#[tokio::test]
+async fn a_late_rows_mark_leaves_with_its_kept_cut(#[case] leaving: CutLeaving) {
+    let database = TestDatabase::new(schema_parts());
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_run(&database, test_session_id(), run_id, "running");
+    let engine = test_engine(&database, log.service, home.path());
+    let cut = hold_cut(&engine, run_id, turn(1), RunLimit::TokenLimit);
+    CutGuard {
+        live: &engine.live,
+        key: Some((run_id, turn(1))),
+        stop_id: cut.stop_id,
+    }
+    .keep();
+    engine.keep_cut_named_by_row(run_id, cut);
+    assert!(lock(&engine.live).rowed_cuts.contains(&cut.stop_id));
+
+    match leaving {
+        CutLeaving::TurnEnd => engine.forget_cut_turn(&run_id, turn(1)),
+        CutLeaving::UnawaitedFailure => engine
+            .forget_unawaited_hand(run_id, RunLimit::TokenLimit, Some(cut))
+            .await
+            .expect("the run reads"),
+    }
+
+    let live = lock(&engine.live);
+    assert!(live.cut_turns.is_empty());
+    assert!(live.rowed_cuts.is_empty());
+}

@@ -142,7 +142,7 @@ pub(super) struct LiveRuns {
     pub(super) undo_writes: HashMap<SessionId, Vec<Arc<UndoWrite>>>,
     /// Each stop whose cut a limit row names since that row was written, so the stop keeps its
     /// cut even where the daemon's stop cuts it before its hand answers; one leaves when its stop
-    /// keeps, withdraws or gives up its cut.
+    /// keeps its cut or the cut leaves its turn's list, so the marks are bounded by the cuts.
     pub(super) rowed_cuts: HashSet<u64>,
     /// The identity the next limit stop's cut takes.
     pub(super) next_stop_id: AtomicU64,
@@ -206,8 +206,9 @@ impl LiveRuns {
     }
 
     /// Withdraws the cut the stop `stop_id` made of the turn `key` names, wherever it sits among
-    /// that turn's cuts, and forgets the turn once it holds none.
+    /// that turn's cuts, with its row's mark, and forgets the turn once it holds none.
     pub(super) fn withdraw_cut(&mut self, key: (RunId, SafeInt<1>), stop_id: u64) {
+        self.rowed_cuts.remove(&stop_id);
         if let Some(cuts) = self.cut_turns.get_mut(&key) {
             cuts.retain(|cut| cut.stop_id != stop_id);
             if cuts.is_empty() {
@@ -287,7 +288,6 @@ impl CutGuard<'_> {
     /// row names it.
     pub(super) fn withdraw_locked(&mut self, live: &mut LiveRuns) {
         if let Some(key) = self.key.take() {
-            live.rowed_cuts.remove(&self.stop_id);
             live.withdraw_cut(key, self.stop_id);
         }
     }
