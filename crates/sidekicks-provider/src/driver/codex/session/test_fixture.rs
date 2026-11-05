@@ -548,6 +548,7 @@ pub(crate) fn test_thread_settings(session_id: SessionId) -> CodexThreadSettings
         helper_roles: Vec::new(),
         tool_servers: Vec::new(),
         base_instructions: None,
+        auto_memory: None,
     }
 }
 

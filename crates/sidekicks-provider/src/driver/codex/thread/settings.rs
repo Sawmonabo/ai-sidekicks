@@ -1,13 +1,15 @@
 //! The settings every Codex conversation is started, resumed and forked with: its folder, model,
 //! permission level and profile, base instructions, and a `config` carrying its model's window, the
 //! features it runs with, its tool servers, its connectors' defaults, its commands' environment,
-//! its helper limit and its helpers' role files. A resume and a fork send them all again, so a
-//! conversation never falls back to what Codex persisted; a resume that joins a conversation the
-//! service holds loaded sends none, since Codex applies none there. A start and every turn select
-//! the daemon's executor relay as the conversation's environment. Also the `turn/start` and
-//! `thread/settings/update` params, whose members carry absent, `null` and a value as three
-//! meanings, the Build or Plan collaboration mode they carry, and the item-injection method a
-//! loaded conversation takes changed instructions through.
+//! its helper limit, its helpers' role files and the session's memory switch. A resume and a fork
+//! send them all again, so a conversation never falls back to what Codex persisted; a resume that
+//! joins a conversation the service holds loaded sends none, since Codex applies none there. A
+//! start and every turn select the daemon's executor relay as the conversation's environment. Also
+//! the `turn/start` and `thread/settings/update` params, whose members carry absent, `null` and a
+//! value as three meanings, the Build or Plan collaboration mode they carry, and the
+//! item-injection method a loaded conversation takes changed instructions through.
+
+pub(crate) mod memories;
 
 use std::path::{Path, PathBuf};
 
@@ -67,6 +69,9 @@ pub(crate) struct CodexThreadSettings {
     pub(crate) tool_servers: Vec<SessionToolServer>,
     /// The instructions the conversation runs under; sent on every start, resume and fork.
     pub(crate) base_instructions: Option<String>,
+    /// The session's `Auto memory` switch, sent as Codex's two memory keys on every start, resume
+    /// and fork; `None` where the person never set it, which sends neither.
+    pub(crate) auto_memory: Option<bool>,
 }
 
 /// The members `thread/start`, `thread/resume` and `thread/fork` all carry.
@@ -408,6 +413,7 @@ fn compose_thread_config(
         settings.level,
         &settings.profile_folders,
     ));
+    config.extend(memories::compose_codex_memory_config(settings.auto_memory));
     config
 }
 
@@ -557,6 +563,7 @@ mod tests {
             helper_roles: Vec::new(),
             tool_servers: Vec::new(),
             base_instructions: None,
+            auto_memory: None,
         }
     }
 

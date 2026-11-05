@@ -177,6 +177,7 @@ mod tests {
             helper_roles: Vec::new(),
             tool_servers: Vec::new(),
             base_instructions: None,
+            auto_memory: None,
         }
     }
 
