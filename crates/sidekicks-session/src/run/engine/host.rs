@@ -1,6 +1,6 @@
 //! The run engine as the drivers' run host: each call a driver makes through its port, its
-//! failure handed over whole but a daemon turn refused for a held turn, which reaches the driver
-//! typed, and the stored leg a driver reads read through the engine's pool.
+//! failure handed over whole but a daemon turn refused for a held turn or by its binding, which
+//! reaches the driver typed, and the stored leg a driver reads read through the engine's pool.
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -11,6 +11,7 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_provider::driver::run_control::DaemonTurnBindingError;
 use sidekicks_provider::port::run_host::{DaemonTurnHeld, RunHost, RunHostError};
 use sidekicks_provider::run::start_request::DaemonTurnStartRequest;
 use sidekicks_provider::run::turn_end::{ProviderTurnEnd, StartedTurn, TurnOutcome};
@@ -115,7 +116,8 @@ impl RunHost for RunEngine {
 }
 
 // A daemon turn refused because the session's turn is held reaches the driver as
-// [`DaemonTurnHeld`], so it can tell that refusal from a failure; any other error goes whole.
+// [`DaemonTurnHeld`], and one its binding refused as that [`DaemonTurnBindingError`], so it can
+// tell either refusal from a failure; any other error goes whole.
 fn daemon_turn_failure(error: RunEngineError) -> RunHostError {
     if let RunEngineError::DaemonTurn(queue_error) = &error
         && let DaemonTurnQueueError::Refused(RunRefusal::SessionTurnHeld { session_id, .. }) =
@@ -125,15 +127,31 @@ fn daemon_turn_failure(error: RunEngineError) -> RunHostError {
             session_id: *session_id,
         });
     }
-    Box::new(error)
+    let RunEngineError::Driver { run_id, source } = error else {
+        return Box::new(error);
+    };
+    match source.downcast::<DaemonTurnBindingError>() {
+        Ok(binding) if matches!(*binding, DaemonTurnBindingError::Refused { .. }) => {
+            binding as RunHostError
+        }
+        Ok(binding) => Box::new(RunEngineError::Driver {
+            run_id,
+            source: binding,
+        }),
+        Err(source) => Box::new(RunEngineError::Driver { run_id, source }),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::io;
 
+    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_ipc::domain_error::DomainError;
+    use sidekicks_provider::driver::run_control::DaemonTurnBindingError;
+    use sidekicks_provider::driver::test_registry::new_run_id;
     use sidekicks_provider::port::run_host::DaemonTurnHeld;
 
     use super::daemon_turn_failure;
@@ -141,10 +159,11 @@ mod tests {
     use crate::run::engine::errors::RunEngineError;
     use crate::run::refusals::RunRefusal;
 
-    // Killed by handing the held refusal over as the engine's own error, which the driver can
-    // only read as a failure, and by typing any other error as held.
+    // Killed by handing the held refusal or the binding's over as the engine's own error, which
+    // the driver can only read as a failure, by typing any other error as held, and by handing a
+    // binding's fault over bare.
     #[test]
-    fn a_daemon_turn_refused_for_a_held_turn_reaches_the_driver_typed() {
+    fn a_daemon_turn_refused_for_a_held_turn_or_by_its_binding_reaches_the_driver_typed() {
         let session_id =
             SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
         let held =
@@ -168,6 +187,34 @@ mod tests {
         assert!(matches!(
             unread.downcast_ref::<RunEngineError>(),
             Some(RunEngineError::Read(_))
+        ));
+
+        let closed = daemon_turn_failure(RunEngineError::Driver {
+            run_id: new_run_id(),
+            source: Box::new(DaemonTurnBindingError::Refused {
+                session_id,
+                refusal: Box::new(DomainError::new(
+                    "the session is closed",
+                    RefusalCode::SessionAlreadyClosed,
+                )),
+            }),
+        });
+        assert!(matches!(
+            closed.downcast_ref::<DaemonTurnBindingError>(),
+            Some(DaemonTurnBindingError::Refused { refusal, .. })
+                if refusal.code == RefusalCode::SessionAlreadyClosed
+        ));
+
+        let unadmitted = daemon_turn_failure(RunEngineError::Driver {
+            run_id: new_run_id(),
+            source: Box::new(DaemonTurnBindingError::NotAdmitted {
+                session_id,
+                source: Box::new(io::Error::other("no place at the memory gate")),
+            }),
+        });
+        assert!(matches!(
+            unadmitted.downcast_ref::<RunEngineError>(),
+            Some(RunEngineError::Driver { .. })
         ));
     }
 }
