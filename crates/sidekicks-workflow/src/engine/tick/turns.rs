@@ -9,6 +9,7 @@ mod tests;
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use rusqlite::Connection;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
@@ -29,6 +30,7 @@ use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
+use tokio::task::{JoinError, JoinSet};
 
 use super::commit::{ReportedStep, RunTurnCommit, RunTurnCommitFailure};
 use super::dispatch::{StepDispatch, fill_step_failure};
@@ -103,6 +105,9 @@ pub(crate) struct EngineTick {
     runs: HashMap<WorkflowRunId, LiveRun>,
     /// The runs holding a next batch, in the order the batches were made.
     batched: Vec<WorkflowRunId>,
+    /// One timer per retry attempt waiting out its wait, answering the attempt once it is due, or
+    /// `None` when its run is canceled first. Dropping the tick drops them.
+    retries: JoinSet<Option<WorkflowStepKey>>,
 }
 
 /// One run's share of a turn while it is gathered: its write, what it readied and the last event
@@ -126,8 +131,8 @@ struct TurnReadied {
 enum ReadiedNext {
     /// It is dispatched this turn.
     Dispatch,
-    /// It is a failed step's next attempt, which runs after its retry's wait.
-    Retry,
+    /// It is a failed step's next attempt, which runs once this wait is over.
+    Retry(Duration),
     /// Its input could not be stored, so it fails at once with these reports.
     Fail(Vec<StepReport>),
 }
@@ -171,19 +176,25 @@ impl EngineTick {
             inbox,
             runs: HashMap::new(),
             batched: Vec::new(),
+            retries: JoinSet::new(),
         }
     }
 
-    /// Runs turns until the inbox closes: waits for a report or an input unless a run holds a
-    /// next batch, takes what is queued up to the turn's bound, and runs the turn.
+    /// Runs turns until the inbox closes: waits for a report, a retry come due or an input unless
+    /// a run holds a next batch, takes what is queued up to the turn's bound and every retry come
+    /// due, and runs the turn.
     pub(crate) async fn run(mut self) {
         let mut reports = Vec::with_capacity(TURN_REPORT_LIMIT);
         let mut started = Vec::new();
+        let mut due = Vec::new();
         loop {
             // A pinned step or an at-once failure has no driver to wake the loop.
             if self.batched.is_empty() {
                 tokio::select! {
                     _ = self.reports.recv_many(&mut reports, TURN_REPORT_LIMIT) => {}
+                    Some(timer) = self.retries.join_next(), if !self.retries.is_empty() => {
+                        due.extend(retry_due(timer));
+                    }
                     input = self.inbox.recv() => match input {
                         Some(input) => started.push(input),
                         None => return,
@@ -202,15 +213,27 @@ impl EngineTick {
                     Err(TryRecvError::Disconnected) => return,
                 }
             }
-            self.turn(std::mem::take(&mut started), std::mem::take(&mut reports))
-                .await;
+            while let Some(timer) = self.retries.try_join_next() {
+                due.extend(retry_due(timer));
+            }
+            self.turn(
+                std::mem::take(&mut started),
+                std::mem::take(&mut reports),
+                std::mem::take(&mut due),
+            )
+            .await;
         }
     }
 
-    /// One turn: each run's share in arrival order, its next batch first, committed in one write
-    /// per run; then one read of the dispatching runs' levels, their dispatch, and one weigh of
-    /// the memory gate.
-    async fn turn(&mut self, started: Vec<EngineTickInput>, reports: Vec<StepReport>) {
+    /// One turn: each run's share in arrival order, its next batch first and its retries come
+    /// `due` with it, committed in one write per run; then one read of the dispatching runs'
+    /// levels, their dispatch, and one weigh of the memory gate.
+    async fn turn(
+        &mut self,
+        started: Vec<EngineTickInput>,
+        reports: Vec<StepReport>,
+        due: Vec<WorkflowStepKey>,
+    ) {
         let mut order = std::mem::take(&mut self.batched);
         let mut dispatching: Vec<(WorkflowRunId, Vec<ReadyStep>)> = Vec::new();
         for EngineTickInput::Started(run) in started {
@@ -224,9 +247,18 @@ impl EngineTick {
             }
             arrived.entry(run_id).or_default().push(report);
         }
+        let mut due_by_run: HashMap<WorkflowRunId, Vec<WorkflowStepKey>> = HashMap::new();
+        for step in due {
+            let run_id = step.workflow_run_id;
+            if !order.contains(&run_id) {
+                order.push(run_id);
+            }
+            due_by_run.entry(run_id).or_default().push(step);
+        }
         for run_id in order {
             let reports = arrived.remove(&run_id).unwrap_or_default();
-            if let Some(readied) = self.run_turn(run_id, reports).await
+            let due = due_by_run.remove(&run_id).unwrap_or_default();
+            if let Some(readied) = self.run_turn(run_id, reports, due).await
                 && !readied.is_empty()
             {
                 dispatching.push((run_id, readied));
@@ -297,12 +329,15 @@ impl EngineTick {
 
     /// The share of the run `run_id` in this turn: its next batch, then `reports`, each through
     /// the run's commit, the walk's answers added, a quiet run flushed, all in one write. Answers
-    /// the steps to dispatch, or `None` when the run is not live. A run left with no live step is
-    /// over and leaves the live set; a run whose write fails leaves it with its steps canceled.
+    /// the steps to dispatch, the retry attempts come `due` among them while they are still live,
+    /// `pending` and undispatched, or `None` when the run is not live. A run left with no live
+    /// step is over and leaves the live set; a run whose write fails leaves it with its steps
+    /// canceled.
     async fn run_turn(
         &mut self,
         run_id: WorkflowRunId,
         reports: Vec<StepReport>,
+        due: Vec<WorkflowStepKey>,
     ) -> Option<Vec<ReadyStep>> {
         let mut live = self.runs.remove(&run_id)?;
         let keys = RunEventKeys {
@@ -356,7 +391,16 @@ impl EngineTick {
                             inputs: inputs.clone(),
                             input_ref: input_ref.clone(),
                         }),
-                        ReadiedNext::Retry => {}
+                        ReadiedNext::Retry(wait) => {
+                            let cancel = live.scope.cancel.clone();
+                            let attempt = ready.step.clone();
+                            self.retries.spawn(async move {
+                                tokio::select! {
+                                    () = tokio::time::sleep(wait) => Some(attempt),
+                                    () = cancel.cancelled() => None,
+                                }
+                            });
+                        }
                         ReadiedNext::Fail(reports) => live.next_batch.extend(reports),
                     }
                     live.steps.insert(
@@ -376,6 +420,19 @@ impl EngineTick {
                             parked_agent_run: None,
                         },
                     );
+                }
+                for step in due {
+                    if let Some(live_step) = live.steps.get(&step.execution_index.get())
+                        && live_step.status == WorkflowStepStatus::Pending
+                        && live_step.cancel.is_none()
+                    {
+                        dispatched.push(ReadyStep {
+                            step,
+                            run_index: live_step.run_index,
+                            inputs: live_step.inputs.clone(),
+                            input_ref: live_step.input_ref.clone(),
+                        });
+                    }
                 }
                 if live.steps.is_empty() {
                     self.recorder.end_run(run_id);
@@ -694,6 +751,15 @@ fn failed_at_once(step: &WorkflowStepKey, failure: StepFailure) -> Vec<StepRepor
             }),
         },
     ]
+}
+
+/// The attempt a retry's `timer` answers come due, `None` when its run was canceled first. A
+/// timer's panic is raised again here, since nothing aborts a timer while the tick lives.
+fn retry_due(timer: Result<Option<WorkflowStepKey>, JoinError>) -> Option<WorkflowStepKey> {
+    match timer {
+        Ok(due) => due,
+        Err(error) => std::panic::resume_unwind(error.into_panic()),
+    }
 }
 
 /// The level of each workflow of `workflow_ids`, one indexed query each.

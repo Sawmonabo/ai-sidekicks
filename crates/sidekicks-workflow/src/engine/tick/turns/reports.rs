@@ -159,7 +159,7 @@ impl EngineTick {
                 self.settle_step(live, turn, step, (readying_event, at), outputs)
                     .await;
             }
-            SettlementAnswer::Retry { wait: _ } => {
+            SettlementAnswer::Retry { wait } => {
                 let next = live.walk.retry(step);
                 let failed = live
                     .steps
@@ -170,7 +170,12 @@ impl EngineTick {
                     ready: next,
                     inputs: failed.inputs,
                     input_ref: failed.input_ref,
-                    next: ReadiedNext::Retry,
+                    // With no wait, the attempt goes out this turn.
+                    next: if wait.is_zero() {
+                        ReadiedNext::Dispatch
+                    } else {
+                        ReadiedNext::Retry(wait)
+                    },
                 });
             }
             SettlementAnswer::Canceled { readying_event } => {
