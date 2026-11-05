@@ -1,7 +1,10 @@
 //! The checkpoint store's tests: the version an undo puts back per path, each kind of version as
-//! recorded, a window's repository and ignored folders, a path's one current shadow and the shadows
-//! a window stands on, a session's volume folders, and an undo's outcome saved once under its key.
+//! recorded, a window's repository and ignored folders, the newest checkpoint and one checkpoint's
+//! paths, the open windows and the failed edits, a path's one current shadow and the shadows a
+//! window stands on, the delete of an unused shadow, a session's volume folders, and an undo's
+//! outcome saved once under its key.
 
+use std::collections::HashSet;
 use std::time::Duration;
 
 use rusqlite::ffi;
@@ -25,15 +28,16 @@ use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
 
 use super::shadows::{
-    Shadow, ShadowContent, ShadowId, VolumeFolder, current_shadows,
+    Shadow, ShadowContent, ShadowId, VolumeFolder, current_shadows, delete_unused_shadow_statement,
     insert_current_shadow_statement, insert_volume_folder_statement, link_window_shadow_statement,
-    retire_current_shadow_statement, unlink_window_shadows_statement, volume_folders,
-    window_shadows,
+    retire_current_shadow_statement, unlink_window_shadows_statement, unused_shadows,
+    volume_folders, window_shadows,
 };
 use super::{
-    Checkpoint, CheckpointVersion, CommandWindowId, CommandWindowOpening,
-    insert_checkpoint_statement, insert_restore_statement, insert_version_statement,
-    open_command_window_statement, read_restore, versions_after,
+    Checkpoint, CheckpointVersion, CommandWindowClosing, CommandWindowId, CommandWindowOpening,
+    FailedEdit, close_command_window_statement, failed_edits, insert_checkpoint_statement,
+    insert_restore_statement, insert_version_statement, newest_checkpoint,
+    open_command_window_statement, open_windows, read_restore, recorded_paths, versions_after,
 };
 use crate::checkpoints::schema::{
     CheckpointVersionContent, CheckpointVersionLeg, CopyMode, NotKeptReason, schema_parts,
@@ -448,6 +452,214 @@ async fn a_path_keeps_one_current_shadow_and_an_open_window_the_one_it_linked() 
             .expect("the window's shadows read")
             .is_empty(),
         "the window's links are gone"
+    );
+}
+
+// Kills: the oldest checkpoint answered for the newest, another session's answered, and a path set
+// read across the session rather than from the one checkpoint.
+#[tokio::test]
+async fn the_newest_checkpoint_and_one_checkpoints_paths() {
+    let fixture = Fixture::new().await;
+    let created = |path| version(path, CheckpointVersionContent::Created);
+    fixture.record(2, &[created("/repo/a.txt")]).await;
+    fixture.record(6, &[created("/repo/b.txt")]).await;
+    let newest = fixture
+        .record(
+            10,
+            &[
+                created("/repo/a.txt"),
+                created("/repo/c.txt"),
+                created("/repo/c.txt"),
+            ],
+        )
+        .await;
+    let other_session = Checkpoint {
+        session_id: SessionId::try_from(mint_uuid_v7()).expect("a session id"),
+        ..fixture.checkpoint(20)
+    };
+    fixture
+        .writer
+        .write(vec![insert_checkpoint_statement(&other_session)])
+        .await
+        .expect("another session's checkpoint is written");
+
+    let reader = fixture.database.reader();
+    let read = newest_checkpoint(&reader, fixture.session_id)
+        .expect("the newest checkpoint reads")
+        .expect("the session holds checkpoints");
+    assert_eq!(read.checkpoint.checkpoint_id, newest);
+    assert_eq!(
+        recorded_paths(&reader, &newest).expect("the paths read"),
+        HashSet::from([test_path("/repo/a.txt"), test_path("/repo/c.txt")])
+    );
+}
+
+// Kills: any of the delete's three guards or the read's dropped, and the retire left writing
+// nothing when the path has no current shadow.
+#[tokio::test]
+async fn a_retired_shadow_is_deleted_only_while_nothing_uses_it() {
+    let fixture = Fixture::new().await;
+    let checkpoint = fixture.checkpoint(2);
+    let window_id = CommandWindowId::mint();
+    let current = shadow(fixture.session_id, "/repo/current.bin", failed(), None);
+    let linked = shadow(fixture.session_id, "/repo/linked.bin", failed(), None);
+    let versioned = shadow(fixture.session_id, "/repo/versioned.bin", failed(), None);
+    let unused = shadow(fixture.session_id, "/repo/unused.bin", failed(), None);
+    let versioned_version = version(
+        "/repo/versioned.bin",
+        CheckpointVersionContent::Shadow {
+            shadow_id: versioned.shadow_id,
+        },
+    );
+    let mut statements = vec![
+        insert_checkpoint_statement(&checkpoint),
+        open_command_window_statement(&uncaptured_window(window_id, &checkpoint.checkpoint_id)),
+    ];
+    statements.extend(
+        [&current, &linked, &versioned, &unused]
+            .into_iter()
+            .map(insert_current_shadow_statement),
+    );
+    statements.push(link_window_shadow_statement(window_id, linked.shadow_id));
+    statements.push(insert_version_statement(
+        &checkpoint.checkpoint_id,
+        &versioned_version,
+    ));
+    statements.extend(
+        [&linked, &versioned, &unused]
+            .into_iter()
+            .map(|retired| retire_current_shadow_statement(fixture.session_id, &retired.path)),
+    );
+    fixture
+        .writer
+        .write(statements)
+        .await
+        .expect("the shadows are written and three retired");
+
+    let reader = fixture.database.reader();
+    assert_eq!(
+        unused_shadows(&reader, fixture.session_id).expect("the unused shadows read"),
+        [unused.clone()]
+    );
+    for used in [&current, &linked, &versioned] {
+        let refusal = fixture
+            .writer
+            .write(vec![delete_unused_shadow_statement(used.shadow_id)])
+            .await
+            .expect_err("a shadow still in use is not deleted");
+        assert_eq!(
+            refusal.refused_statement_index(),
+            Some(0),
+            "{}",
+            used.path.as_str()
+        );
+    }
+    fixture
+        .writer
+        .write(vec![delete_unused_shadow_statement(unused.shadow_id)])
+        .await
+        .expect("the unused shadow is deleted");
+    assert!(
+        unused_shadows(&reader, fixture.session_id)
+            .expect("the unused shadows read")
+            .is_empty()
+    );
+
+    let refusal = fixture
+        .writer
+        .write(vec![retire_current_shadow_statement(
+            fixture.session_id,
+            &test_path("/repo/never-shadowed.bin"),
+        )])
+        .await
+        .expect_err("a retire with no current shadow is refused");
+    assert_eq!(refusal.refused_statement_index(), Some(0));
+}
+
+// Kills: a closed window listed as open, and a command's version, another kind or reason, an edit
+// with no tool call or a checkpoint before the point listed among the failed edits.
+#[tokio::test]
+async fn open_windows_and_failed_edits_read_what_they_name() {
+    let fixture = Fixture::new().await;
+    let failed_edit = |path, id| CheckpointVersion {
+        tool_call_id: Some(tool_call(id)),
+        ..version(
+            path,
+            CheckpointVersionContent::NotKept {
+                reason: NotKeptReason::Failed,
+            },
+        )
+    };
+    fixture
+        .record(2, &[failed_edit("/repo/early.txt", "call-early")])
+        .await;
+
+    let checkpoint = fixture.checkpoint(6);
+    let open_id = CommandWindowId::mint();
+    let closed_id = CommandWindowId::mint();
+    let versions = [
+        failed_edit("/repo/late.txt", "call-late"),
+        CheckpointVersion {
+            leg: CheckpointVersionLeg::Command,
+            window_id: Some(closed_id),
+            ..version(
+                "/repo/built.txt",
+                CheckpointVersionContent::NotKept {
+                    reason: NotKeptReason::Failed,
+                },
+            )
+        },
+        CheckpointVersion {
+            content: CheckpointVersionContent::NotKept {
+                reason: NotKeptReason::TooLarge,
+            },
+            ..failed_edit("/repo/large.bin", "call-large")
+        },
+        CheckpointVersion {
+            content: CheckpointVersionContent::Created,
+            ..failed_edit("/repo/new.txt", "call-new")
+        },
+        version(
+            "/repo/unnamed.txt",
+            CheckpointVersionContent::NotKept {
+                reason: NotKeptReason::Failed,
+            },
+        ),
+    ];
+    let mut statements = vec![
+        insert_checkpoint_statement(&checkpoint),
+        open_command_window_statement(&uncaptured_window(open_id, &checkpoint.checkpoint_id)),
+        open_command_window_statement(&uncaptured_window(closed_id, &checkpoint.checkpoint_id)),
+        close_command_window_statement(&CommandWindowClosing {
+            window_id: closed_id,
+            tree_after: None,
+            head_after: None,
+            commit_after: None,
+            is_covered: false,
+        }),
+    ];
+    statements.extend(
+        versions
+            .iter()
+            .map(|version| insert_version_statement(&checkpoint.checkpoint_id, version)),
+    );
+    fixture
+        .writer
+        .write(statements)
+        .await
+        .expect("the windows and versions are written");
+
+    let reader = fixture.database.reader();
+    assert_eq!(
+        open_windows(&reader).expect("the open windows read"),
+        [(open_id, fixture.session_id)]
+    );
+    assert_eq!(
+        failed_edits(&reader, fixture.session_id, sequence(3)).expect("the failed edits read"),
+        [FailedEdit {
+            path: test_path("/repo/late.txt"),
+            tool_call_id: tool_call("call-late"),
+        }]
     );
 }
 

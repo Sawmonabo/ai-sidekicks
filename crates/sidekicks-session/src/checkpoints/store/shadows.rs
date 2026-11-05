@@ -1,7 +1,8 @@
 //! The shadow rows of files over 10 MiB, which are never hashed: each shadow's clone or why none
 //! was kept with the facts a later capture compares, the shadows an open window's before-capture
-//! stood on, and the session's own folders on other volumes. Each write is a statement for the
-//! caller's own write; the clones' bytes sit on disk, never in a row.
+//! stood on, the retired shadows nothing uses any more, and the session's own folders on other
+//! volumes. Each write is a statement for the caller's own write; the clones' bytes sit on disk,
+//! never in a row.
 
 use std::borrow::Cow;
 use std::time::Duration;
@@ -32,6 +33,24 @@ const INSERT_CURRENT_SHADOW_SQL: &str = "INSERT INTO checkpoint_shadows
 const RETIRE_CURRENT_SHADOW_SQL: &str = "UPDATE checkpoint_shadows SET is_current = 0
   WHERE session_id = @sessionId AND path = @path AND is_current = 1";
 
+/// The condition a shadow row, named `shadows`, meets while it is retired, linked to no window and
+/// named by no version.
+macro_rules! unused_shadow {
+    () => {
+        "shadows.is_current = 0
+   AND NOT EXISTS (SELECT 1 FROM checkpoint_window_shadows AS links
+                    WHERE links.shadow_id = shadows.shadow_id)
+   AND NOT EXISTS (SELECT 1 FROM checkpoint_versions AS versions
+                    WHERE versions.shadow_id = shadows.shadow_id)"
+    };
+}
+
+// The guard sits in the statement itself, so a shadow that became used is refused, never deleted.
+const DELETE_UNUSED_SHADOW_SQL: &str = concat!(
+    "DELETE FROM checkpoint_shadows AS shadows WHERE shadows.shadow_id = @shadowId AND ",
+    unused_shadow!()
+);
+
 const LINK_WINDOW_SHADOW_SQL: &str =
     "INSERT INTO checkpoint_window_shadows (window_id, shadow_id) VALUES (@windowId, @shadowId)";
 
@@ -44,16 +63,16 @@ const INSERT_VOLUME_FOLDER_SQL: &str =
   VALUES (@sessionId, @folder, @volumeId)
   ON CONFLICT DO NOTHING";
 
-/// A select of the shadow columns [`shadow_of`] reads, in its order, with `$tail`.
+/// A select of the shadow columns [`shadow_of`] reads, in its order, with `$tail` joined on.
 macro_rules! select_shadows {
-    ($tail:literal) => {
+    ($($tail:tt)+) => {
         concat!(
             "SELECT shadows.shadow_id, shadows.session_id, shadows.path, shadows.clone_path,
        shadows.volume_id, shadows.not_kept_reason, shadows.identity, shadows.size,
        shadows.link_count, shadows.modified, shadows.changed, shadows.taken_at,
        shadows.time_precision
   FROM checkpoint_shadows AS shadows ",
-            $tail
+            $($tail)+
         )
     };
 }
@@ -66,6 +85,12 @@ const WINDOW_SHADOWS_SQL: &str = select_shadows!(
     "JOIN checkpoint_window_shadows AS links ON links.shadow_id = shadows.shadow_id
  WHERE links.window_id = @windowId
  ORDER BY shadows.path"
+);
+
+const UNUSED_SHADOWS_SQL: &str = select_shadows!(
+    "WHERE shadows.session_id = @sessionId AND ",
+    unused_shadow!(),
+    " ORDER BY shadows.path"
 );
 
 const VOLUME_FOLDERS_SQL: &str = "SELECT folder, volume_id FROM checkpoint_volume_folders
@@ -189,7 +214,8 @@ pub fn insert_current_shadow_statement(shadow: &Shadow) -> WriteStatement {
 }
 
 /// The retire of `session_id`'s current shadow of `path`, which stays while a window or a version
-/// names it. Writes nothing when the path holds no current shadow in that session.
+/// names it. Refused when the path holds no current shadow in that session, since its caller reads
+/// the current shadows first.
 pub fn retire_current_shadow_statement(
     session_id: SessionId,
     path: &FilesystemPath,
@@ -200,7 +226,20 @@ pub fn retire_current_shadow_statement(
             text_binding("@sessionId", session_id.text().as_str()),
             text_binding("@path", path.as_str()),
         ]),
-        expected_row_count: None,
+        expected_row_count: Some(1),
+    }
+}
+
+/// The delete of the row of `shadow_id` while it is retired, linked to no window and named by no
+/// version; refused otherwise, as when the shadow became used since it was read.
+pub fn delete_unused_shadow_statement(shadow_id: ShadowId) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(DELETE_UNUSED_SHADOW_SQL),
+        bindings: StatementBindings::Named(vec![text_binding(
+            "@shadowId",
+            shadow_id.text().as_str(),
+        )]),
+        expected_row_count: Some(1),
     }
 }
 
@@ -276,6 +315,22 @@ pub fn window_shadows(
         .prepare_cached(WINDOW_SHADOWS_SQL)?
         .query_map(
             named_params! { "@windowId": window_id.text().as_str() },
+            shadow_of,
+        )?
+        .collect()
+}
+
+/// `session_id`'s shadows that are retired, linked to no window and named by no version, by path.
+/// The caller removes each one's clone only after its delete committed, so a row never names a
+/// clone that is gone. Fails as SQLite does, or when a stored column does not read.
+pub fn unused_shadows(
+    connection: &Connection,
+    session_id: SessionId,
+) -> rusqlite::Result<Vec<Shadow>> {
+    connection
+        .prepare_cached(UNUSED_SHADOWS_SQL)?
+        .query_map(
+            named_params! { "@sessionId": session_id.text().as_str() },
             shadow_of,
         )?
         .collect()

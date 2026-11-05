@@ -1,7 +1,9 @@
 //! The checkpoint rows' writes, each a statement built from plain values for the caller's own
-//! write, and the reads an undo and its dry run take: a checkpoint by the point a request names, a
-//! session's checkpoints, per path the version an undo puts back, the commands no capture covered,
-//! and a saved undo outcome by its key. The shadow rows of files over 10 MiB are in [`shadows`].
+//! write, and the reads an undo, its dry run and the command windows take: a checkpoint by the
+//! point a request names, a session's checkpoints and its newest, the paths one checkpoint holds,
+//! per path the version an undo puts back, the commands no capture covered and the edits whose copy
+//! failed, the windows a stop left open, and a saved undo outcome by its key. The shadow rows of
+//! files over 10 MiB are in [`shadows`].
 //! A checkpoint whose turn a later undo cut away stands in history that no longer exists, so the
 //! list leaves it out and a read of it refuses.
 //!
@@ -9,8 +11,8 @@
 //! `before_sequence`, so every checkpoint whose prompt sits at or past it lies after the point.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 use rusqlite::types::Value as SqlValue;
@@ -42,7 +44,7 @@ use sidekicks_store::database::stored_column::{
 };
 
 use crate::checkpoints::schema::{
-    CheckpointVersionContent, CheckpointVersionKind, CheckpointVersionLeg, CopyMode,
+    CheckpointVersionContent, CheckpointVersionKind, CheckpointVersionLeg, CopyMode, NotKeptReason,
 };
 use crate::checkpoints::store::shadows::ShadowId;
 use crate::run::superseded::{
@@ -119,6 +121,12 @@ const CHECKPOINT_BY_MESSAGE_SQL: &str =
 const CHECKPOINTS_OF_SESSION_SQL: &str =
     select_checkpoints!("WHERE session_id = @sessionId ORDER BY message_sequence");
 
+const NEWEST_CHECKPOINT_SQL: &str =
+    select_checkpoints!("WHERE session_id = @sessionId ORDER BY message_sequence DESC LIMIT 1");
+
+const RECORDED_PATHS_SQL: &str =
+    "SELECT DISTINCT path FROM checkpoint_versions WHERE checkpoint_id = @checkpointId";
+
 // Per path, the earliest version of the checkpoints at or past the point: the earliest checkpoint,
 // then the earliest sequence in it. Every kind is kept, so a path with no copy is still named.
 const VERSIONS_AFTER_SQL: &str = "SELECT checkpoint_id, sequence, path, leg, kind, copy_hash,
@@ -144,6 +152,30 @@ const UNCOVERED_COMMANDS_SQL: &str = "SELECT commands.window_id, commands.comman
    AND checkpoints.message_sequence >= @beforeSequence
    AND commands.covered = 0
  ORDER BY checkpoints.message_sequence, commands.rowid";
+
+// The edits whose copy failed, named by their tool call, in the order `UNCOVERED_COMMANDS_SQL`
+// keeps.
+static FAILED_EDITS_SQL: LazyLock<String> = LazyLock::new(|| {
+    let edit = <&'static str>::from(CheckpointVersionLeg::Edit);
+    let not_kept = <&'static str>::from(CheckpointVersionKind::NotKept);
+    let failed = <&'static str>::from(NotKeptReason::Failed);
+    format!(
+        "SELECT versions.path, versions.tool_call_id
+  FROM checkpoint_versions AS versions
+  JOIN session_checkpoints AS checkpoints ON checkpoints.checkpoint_id = versions.checkpoint_id
+ WHERE checkpoints.session_id = @sessionId
+   AND checkpoints.message_sequence >= @beforeSequence
+   AND versions.leg = '{edit}' AND versions.kind = '{not_kept}'
+   AND versions.not_kept_reason = '{failed}' AND versions.tool_call_id IS NOT NULL
+ ORDER BY checkpoints.message_sequence, versions.sequence"
+    )
+});
+
+const OPEN_WINDOWS_SQL: &str = "SELECT commands.window_id, checkpoints.session_id
+  FROM checkpoint_commands AS commands
+  JOIN session_checkpoints AS checkpoints ON checkpoints.checkpoint_id = commands.checkpoint_id
+ WHERE commands.ended_at IS NULL
+ ORDER BY commands.rowid";
 
 const RESTORE_SQL: &str = "SELECT outcome FROM session_restores
   WHERE client_idempotency_key = @key AND session_id = @sessionId";
@@ -273,6 +305,16 @@ pub struct UncoveredCommand {
     pub tool_call_id: Option<ToolCallId>,
     /// When it started.
     pub started_at: WireInstant,
+}
+
+/// An edit whose copy failed before its write, which a dry run names among the uncovered by its
+/// tool call.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FailedEdit {
+    /// The file the edit wrote.
+    pub path: FilesystemPath,
+    /// The provider's tool call that made the edit.
+    pub tool_call_id: ToolCallId,
 }
 
 /// Why a checkpoint could not be read for an undo's target.
@@ -610,6 +652,77 @@ pub fn uncovered_commands(
                 })
             },
         )?
+        .collect()
+}
+
+/// The edits of `session_id` in the checkpoints at or past the log event at `before_sequence` whose
+/// copy failed, each by its tool call, oldest first. Fails as SQLite does, or when a stored column
+/// does not read.
+pub fn failed_edits(
+    connection: &Connection,
+    session_id: SessionId,
+    before_sequence: SafeInt<0>,
+) -> rusqlite::Result<Vec<FailedEdit>> {
+    connection
+        .prepare_cached(FAILED_EDITS_SQL.as_str())?
+        .query_map(
+            named_params! {
+                "@sessionId": session_id.text().as_str(),
+                "@beforeSequence": i64::from(before_sequence),
+            },
+            |row| {
+                Ok(FailedEdit {
+                    path: text_column(row, 0, FilesystemPath::new)?,
+                    tool_call_id: text_column(row, 1, ToolCallId::new)?,
+                })
+            },
+        )?
+        .collect()
+}
+
+/// `session_id`'s checkpoint of its newest prompt, `None` when it holds none. Fails as SQLite does,
+/// or when a stored column does not read.
+pub fn newest_checkpoint(
+    connection: &Connection,
+    session_id: SessionId,
+) -> rusqlite::Result<Option<StoredCheckpoint>> {
+    connection
+        .prepare_cached(NEWEST_CHECKPOINT_SQL)?
+        .query_row(
+            named_params! { "@sessionId": session_id.text().as_str() },
+            stored_checkpoint_of,
+        )
+        .optional()
+}
+
+/// Every path a version of `checkpoint_id` names. Fails as SQLite does, or when a stored path does
+/// not read.
+pub fn recorded_paths(
+    connection: &Connection,
+    checkpoint_id: &SnapshotId,
+) -> rusqlite::Result<HashSet<FilesystemPath>> {
+    connection
+        .prepare_cached(RECORDED_PATHS_SQL)?
+        .query_map(
+            named_params! { "@checkpointId": checkpoint_id.as_str() },
+            |row| text_column(row, 0, FilesystemPath::new),
+        )?
+        .collect()
+}
+
+/// Every command window still open, with its checkpoint's session: the windows a stop left open,
+/// which the next start settles. Fails as SQLite does, or when a stored column does not read.
+pub fn open_windows(
+    connection: &Connection,
+) -> rusqlite::Result<Vec<(CommandWindowId, SessionId)>> {
+    connection
+        .prepare_cached(OPEN_WINDOWS_SQL)?
+        .query_map([], |row| {
+            Ok((
+                text_column(row, 0, |text| CommandWindowId::parse(&text))?,
+                text_column(row, 1, |text| SessionId::new(&text))?,
+            ))
+        })?
         .collect()
 }
 
