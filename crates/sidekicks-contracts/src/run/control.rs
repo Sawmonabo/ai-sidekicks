@@ -679,14 +679,19 @@ methods! {
             mutating: true,
             params: AgentChildRunPausedUpdateRequest,
             result: AgentChildRunPausedUpdateResponse,
-            refusals: [AgentRunNotFound, AgentChildRunNotFound, AgentChildRunControlRefused],
+            refusals: [
+                AgentRunNotFound,
+                AgentRunVersionStale,
+                AgentChildRunNotFound,
+                AgentChildRunControlRefused,
+            ],
         },
-        /// Stops every live child of a run.
+        /// Stops every live agent a session dispatched, at every depth.
         AgentChildRunStopAll = mutation "agent.childRun.stopAll" {
             mutating: true,
             params: AgentChildRunStopAllRequest,
             result: AgentChildRunStopAllResponse,
-            refusals: [AgentRunNotFound],
+            refusals: [SessionNotFound],
         },
         /// Answers the recovery question a restart left a run halted on.
         AgentRunRecoveryResolve = mutation "agent.run.recovery.resolve" {

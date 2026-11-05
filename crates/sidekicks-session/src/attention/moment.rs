@@ -472,6 +472,7 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         | SessionEvent::AgentTurnStarted(_)
         | SessionEvent::AgentTurnCompleted(_)
         | SessionEvent::AgentTurnInterrupted(_)
+        | SessionEvent::AgentChildrenStopped(_)
         | SessionEvent::AgentTurnFailed(_)
         | SessionEvent::AgentRunWorkerShuttingDown(_)
         | SessionEvent::SessionProviderStatusReported(_)

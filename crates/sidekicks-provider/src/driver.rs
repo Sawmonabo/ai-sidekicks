@@ -19,6 +19,7 @@ use sidekicks_contracts::provider::account::record::{
     CredentialGeneration, ProviderAccountId, ProviderAuthMode,
 };
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::run::children::ChildStoppedState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::voice::VoiceKind;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -119,6 +120,9 @@ pub struct ProviderDescriptor {
     /// The provider's own word for standard output speed, as its declared state reads it; a run
     /// that carried another level and settles on another state is told fast output is unavailable.
     pub standard_output_speed: &'static str,
+    /// How the provider's stop leaves a child, which the flow row of a stop of every agent a
+    /// session dispatched reads as its word, whatever each reached child's own end.
+    pub stop_all_row_word: ChildStoppedState,
     /// The output-speed levels a person may request, for a provider that lists none per model;
     /// `None` where the provider lists them on each model of its catalog, so the two never both
     /// apply.

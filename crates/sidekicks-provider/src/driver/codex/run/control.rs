@@ -54,7 +54,8 @@ use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::contract::error::{DriverError, bound_failure_detail};
 use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::driver::run_control::{
-    InterruptRunRequest, PauseRunParams, ResumeRunParams, SteerTurnEndedError, WaitingMessage,
+    InterruptRunRequest, PauseRunParams, ResumeRunOutcome, ResumeRunParams, SteerTurnEndedError,
+    WaitingMessage,
 };
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_pause::{ContinuedMessages, RunPauses};
@@ -175,8 +176,12 @@ impl CodexRunControl {
     /// interrupt is on its way continues once that turn ended, and a paused run starts its next
     /// turn with them, after Codex's continuation words where the daemon's restart cut the run's
     /// turn while it was pausing, so the cut work is taken up first. Fails as the steer or the
-    /// turn's start fails.
-    pub(crate) async fn resume_run(&self, params: ResumeRunParams) -> Result<(), DriverError> {
+    /// turn's start fails. No hold is lost: the run paused at its boundary interrupt, holding no
+    /// hook call.
+    pub(crate) async fn resume_run(
+        &self,
+        params: ResumeRunParams,
+    ) -> Result<ResumeRunOutcome, DriverError> {
         let session_id = params.session_id;
         self.dependencies.config_forks.join(session_id).await;
         let inbound = self.dependencies.slots.require_live(session_id)?;
@@ -184,7 +189,7 @@ impl CodexRunControl {
             CodexSessionCall::RunControl(CodexRunControlCall::PlaceContinue { params, reply })
         })
         .await?;
-        match place {
+        let continued = match place {
             CodexContinuePlace::SteerInto { turn_id, params } => {
                 self.steer_waiting(&inbound, &turn_id, params).await
             }
@@ -202,7 +207,10 @@ impl CodexRunControl {
             CodexContinuePlace::StartTurn(params) => {
                 Ok(self.continue_run(&inbound, params).await?)
             }
-        }
+        };
+        continued.map(|()| ResumeRunOutcome {
+            is_hold_lost: false,
+        })
     }
 
     /// Acts on the end of a step of the turn `turn_id`, on the session's task: a pause waiting

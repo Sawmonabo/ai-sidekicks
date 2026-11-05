@@ -113,6 +113,7 @@ async fn a_picture_past_the_limit_refuses_the_run_in_claude_codes_own_words(
                 is_continuation_owed: false,
             })
             .await
+            .map(drop)
     };
 
     let Err(DriverError::RunRefused(refusal)) = refused else {
@@ -187,6 +188,7 @@ async fn a_reset_word_with_files_writes_and_records_nothing(#[case] write: Reset
                     is_continuation_owed: false,
                 })
                 .await
+                .map(drop)
         }
         ResetWrite::Steer => {
             let run_id = session.hold_lead_turn("lead");

@@ -265,6 +265,9 @@ mod tests {
         assert!(is_denied_as_stopped(&session, "next-tool"));
         assert_eq!(answer_to(&session, "held-tool"), None);
         let still_held = lock(pauses).resume_helper(&session.session_id, "helper", None);
-        assert_eq!(!still_held.is_empty(), is_paused && expected.is_none());
+        assert_eq!(
+            !still_held.released.is_empty(),
+            is_paused && expected.is_none()
+        );
     }
 }

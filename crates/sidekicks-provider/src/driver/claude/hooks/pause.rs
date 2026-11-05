@@ -135,6 +135,16 @@ pub(crate) struct ClaudeReleasedCallback {
     pub(crate) answer: ClaudeHookAnswer,
 }
 
+/// What a helper's continue answers: the held callbacks it releases, and whether its pause lost a
+/// held callback Claude Code withdrew, which no answer reaches.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct ClaudeResumedHelper {
+    /// The callbacks to answer.
+    pub(crate) released: Vec<ClaudeReleasedCallback>,
+    /// Whether the pause lost a held callback.
+    pub(crate) had_lost_hold: bool,
+}
+
 /// The renewal job standing for one held helper, with the id that tells it from a later one.
 struct HoldRenewal {
     id: u64,
@@ -307,19 +317,23 @@ impl ClaudeRunPauses {
         self.lead_pauses.reported(session_id)
     }
 
-    /// Continues the lead; a pause that had not yet stopped a turn is dropped.
-    pub(crate) fn resume_lead(&mut self, session_id: &SessionId) {
-        self.lead_pauses.resume(session_id);
+    /// Continues the lead, answering whether its pause lost a held call; a pause that had not yet
+    /// stopped a turn is dropped.
+    pub(crate) fn resume_lead(&mut self, session_id: &SessionId) -> bool {
+        self.lead_pauses
+            .resume(session_id)
+            .is_some_and(|ended| ended.had_lost_hold)
     }
 
     /// Continues one helper and answers the callbacks it was held on: with no decision, or denied
-    /// with `steer` as the reason, which the helper reads as the person's words.
+    /// with `steer` as the reason, which the helper reads as the person's words. Also answers
+    /// whether its pause lost a callback Claude Code withdrew while it held.
     pub(crate) fn resume_helper(
         &mut self,
         session_id: &SessionId,
         agent_id: &str,
         steer: Option<&str>,
-    ) -> Vec<ClaudeReleasedCallback> {
+    ) -> ClaudeResumedHelper {
         if let Some(renewal) = self.renewals.remove(&(*session_id, agent_id.to_owned())) {
             renewal.job.cancel();
         }
@@ -327,7 +341,7 @@ impl ClaudeRunPauses {
             .helper_pauses
             .resume(&(*session_id, agent_id.to_owned()))
         else {
-            return Vec::new();
+            return ClaudeResumedHelper::default();
         };
         let answer = match steer {
             Some(steer) => ClaudeHookAnswer::Deny {
@@ -335,14 +349,17 @@ impl ClaudeRunPauses {
             },
             None => ClaudeHookAnswer::Pass,
         };
-        ended
-            .held
-            .into_iter()
-            .map(|request_id| ClaudeReleasedCallback {
-                request_id,
-                answer: answer.clone(),
-            })
-            .collect()
+        ClaudeResumedHelper {
+            released: ended
+                .held
+                .into_iter()
+                .map(|request_id| ClaudeReleasedCallback {
+                    request_id,
+                    answer: answer.clone(),
+                })
+                .collect(),
+            had_lost_hold: ended.had_lost_hold,
+        }
     }
 
     /// Whether a renewal stands for the helper `agent_id`'s held calls.
@@ -449,8 +466,8 @@ mod tests {
     use tokio::sync::watch;
 
     use super::{
-        ClaudeHookAnswer, ClaudePauseAnswer, ClaudeReleasedCallback, ClaudeRunPauses,
-        HELD_HELPER_RENEWAL_REASON,
+        ClaudeHookAnswer, ClaudePauseAnswer, ClaudeReleasedCallback, ClaudeResumedHelper,
+        ClaudeRunPauses, HELD_HELPER_RENEWAL_REASON,
     };
     use crate::driver::test_registry::fixed_session_id;
 
@@ -513,7 +530,9 @@ mod tests {
             reason: "check the tests first".to_owned(),
         };
         assert_eq!(
-            pauses.resume_helper(&session_id, "helper-a", Some("check the tests first")),
+            pauses
+                .resume_helper(&session_id, "helper-a", Some("check the tests first"))
+                .released,
             [
                 ClaudeReleasedCallback {
                     request_id: "r1".to_owned(),
@@ -534,11 +553,36 @@ mod tests {
             }
         );
         assert_eq!(
-            pauses.resume_helper(&session_id, "helper-a", None),
+            pauses.resume_helper(&session_id, "helper-a", None).released,
             [ClaudeReleasedCallback {
                 request_id: "r4".to_owned(),
                 answer: ClaudeHookAnswer::Pass,
             }]
+        );
+    }
+
+    // A callback Claude Code withdrew from a held helper is lost, not released: the continue
+    // answers the rest and reports the lost hold. Killed by the mark dropped between the store and
+    // the continue.
+    #[test]
+    fn a_continue_after_a_withdrawn_callback_answers_the_lost_hold() {
+        let session_id = fixed_session_id();
+        let mut pauses = ClaudeRunPauses::default();
+        pauses.pause_helper(&session_id, "helper");
+        pauses.answer_before_tool(&session_id, Some("helper"), "r1");
+        pauses.answer_before_tool(&session_id, Some("helper"), "r2");
+
+        pauses.withdraw_callback(&session_id, "r1");
+
+        assert_eq!(
+            pauses.resume_helper(&session_id, "helper", None),
+            ClaudeResumedHelper {
+                released: vec![ClaudeReleasedCallback {
+                    request_id: "r2".to_owned(),
+                    answer: ClaudeHookAnswer::Pass,
+                }],
+                had_lost_hold: true,
+            }
         );
     }
 

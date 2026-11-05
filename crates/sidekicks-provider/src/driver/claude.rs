@@ -15,6 +15,7 @@ use sidekicks_contracts::provider::driver::capabilities::{ProviderMode, Provider
 use sidekicks_contracts::provider::driver::commands::ProviderCommandBindingGroup;
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
+use sidekicks_contracts::run::children::ChildStoppedState;
 use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::voice::VoiceKind;
@@ -59,8 +60,8 @@ use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
     FindTakenMessagesParams, HelperStopOutcome, HelperStopParams, InterruptRunRequest,
-    OverrideDenialParams, PauseRunParams, PickedSkill, ResumeRunParams, TakenMessages,
-    WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
+    OverrideDenialParams, PauseRunParams, PickedSkill, ResumeRunOutcome, ResumeRunParams,
+    TakenMessages, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
@@ -183,6 +184,8 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         conversation_bytes: None,
     },
     standard_output_speed: "off",
+    // Its `stop_task` ends a child for good; it refuses every later message to that child.
+    stop_all_row_word: ChildStoppedState::Stopped,
     // Its declared state has a third value, which the provider enters after a rate limit and no
     // request asks for.
     output_speed_levels: Some(&["off", "on"]),
@@ -427,7 +430,10 @@ impl ProviderDriver for ClaudeDriver {
         ready(self.pause_run(&params)).boxed()
     }
 
-    fn resume_run(&self, params: ResumeRunParams) -> BoxFuture<'_, Result<(), DriverError>> {
+    fn resume_run(
+        &self,
+        params: ResumeRunParams,
+    ) -> BoxFuture<'_, Result<ResumeRunOutcome, DriverError>> {
         self.resume_run(params).boxed()
     }
 

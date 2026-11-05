@@ -50,7 +50,7 @@ use crate::driver::contract::params_and_results::RespondToRequestParams;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, OverrideDenialParams, PauseRunParams,
-    ResumeRunParams, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
+    ResumeRunOutcome, ResumeRunParams, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
 use crate::lenient_json::{lenient_object, read_lenient};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
@@ -173,8 +173,12 @@ impl ClaudeRunControls {
     /// `SessionTurnInFlight` while another turn holds the session, as the files' read fails before
     /// anything is sent, with the run's refusal for a lead's picture Claude Code refuses,
     /// `session.message.resetRefused` with nothing written for a lead's message that would reset
-    /// the session, and as a write fails.
-    pub(crate) async fn resume_run(&self, params: ResumeRunParams) -> Result<(), DriverError> {
+    /// the session, and as a write fails. Answers whether the run's pause lost a held call, `false`
+    /// where the run was not held.
+    pub(crate) async fn resume_run(
+        &self,
+        params: ResumeRunParams,
+    ) -> Result<ResumeRunOutcome, DriverError> {
         let live = self.start.live_session(params.session_id)?;
         let session_id = params.session_id;
         let attachments = &*self.start.attachments;
@@ -195,9 +199,9 @@ impl ClaudeRunControls {
                 Ok(words) if !words.is_empty() => Some(words.join("\n\n")),
                 Ok(_) | Err(_) => None,
             };
-            let released =
+            let resumed =
                 lock(&self.pauses).resume_helper(&session_id, &route.agent_id, steer.as_deref());
-            for callback in released {
+            for callback in resumed.released {
                 answer_claude_request(
                     &*live.channel,
                     &session_id,
@@ -208,7 +212,9 @@ impl ClaudeRunControls {
                 .await;
             }
             words.map_err(DriverError::Internal)?;
-            return Ok(());
+            return Ok(ResumeRunOutcome {
+                is_hold_lost: resumed.had_lost_hold,
+            });
         }
         // A waiting message that would reset the session refuses the continue before any of them
         // is written, so none lands ahead of the refusal.
@@ -243,7 +249,7 @@ impl ClaudeRunControls {
                     ))
                 })?;
         }
-        lock(&self.pauses).resume_lead(&session_id);
+        let is_hold_lost = lock(&self.pauses).resume_lead(&session_id);
         for (message, attachment_blocks) in params.messages.into_iter().zip(blocks) {
             self.write_message(
                 &live,
@@ -258,7 +264,7 @@ impl ClaudeRunControls {
             )
             .await?;
         }
-        Ok(())
+        Ok(ResumeRunOutcome { is_hold_lost })
     }
 
     /// Continues, on the session's live process, the turn of a lead the restart held on the person:

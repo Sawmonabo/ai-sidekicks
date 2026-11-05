@@ -7,6 +7,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::agent::tree::AgentTreeMember;
 use crate::event::envelope::SourcePosition;
 use crate::orchestration::InterruptReason;
 use crate::provider::driver::capabilities::ExecutionPosture;
@@ -14,6 +15,7 @@ use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
 use crate::provider::driver::recovery::RecoveryCondition;
 use crate::provider::id::ProviderId;
+use crate::run::children::ChildStoppedState;
 use crate::run::control::{ProcessExit, RunFailureCategory, StopTrigger};
 use crate::run::failure_cause::RunFailureCause;
 use crate::run::id::RunId;
@@ -418,6 +420,18 @@ pub struct AgentRunParentCorrectedPayload {
     pub parent_run_id: RunId,
 }
 
+/// The `agent.children.stopped` payload: the flow row of one stop of every agent a session
+/// dispatched, its word the session's provider's and its names the agents the stop reached.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AgentChildrenStoppedPayload {
+    /// How the session's provider stops a child, whatever each reached child's own end.
+    pub word: ChildStoppedState,
+    /// The agents the stop reached, in dispatch order; one whose stop failed or that had already
+    /// ended is left out.
+    pub reached: Vec<AgentTreeMember>,
+}
+
 literal! {
     /// The actor of an intervention the daemon made itself, such as a stop at a spend limit.
     pub enum DaemonInterventionActor = const "daemon";
@@ -582,6 +596,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<TurnEndCause>(),
         Definition::read::<AgentTurnCompletedPayload>().checked(),
         Definition::read::<AgentTurnInterruptedPayload>().checked(),
+        Definition::read::<AgentChildrenStoppedPayload>().checked(),
         Definition::read::<AgentTurnFailedPayload>().checked(),
         Definition::read::<AgentRunWorkerShuttingDownPayload>().checked(),
         Definition::read::<AgentRunParentCorrectedPayload>().checked(),
@@ -618,39 +633,42 @@ mod tests {
     }
 
     #[rstest]
-    #[case::turn_started_under_the_provider_turn_id(
+    #[case::turn_started_under_the_provider_turn_id(run_event(
         "agent.turn.started",
-        json!({ "turnNumber": 1, "providerTurnId": "019a-turn-7" })
-    )]
-    #[case::turn_completed("agent.turn.completed", json!({ "turnNumber": 1 }))]
-    #[case::turn_interrupted_by_the_provider(
+        &json!({ "turnNumber": 1, "providerTurnId": "019a-turn-7" })
+    ))]
+    #[case::turn_completed(run_event("agent.turn.completed", &json!({ "turnNumber": 1 })))]
+    #[case::turn_interrupted_by_the_provider(run_event(
         "agent.turn.interrupted",
-        json!({ "turnNumber": 2, "origin": "provider" })
-    )]
-    #[case::turn_interrupted_at_the_token_limit(
+        &json!({ "turnNumber": 2, "origin": "provider" })
+    ))]
+    #[case::turn_interrupted_at_the_token_limit(run_event(
         "agent.turn.interrupted",
-        json!({ "turnNumber": 2, "origin": "daemon", "cause": "tokenLimit" })
-    )]
-    #[case::turn_failed_by_the_provider(
+        &json!({ "turnNumber": 2, "origin": "daemon", "cause": "tokenLimit" })
+    ))]
+    #[case::turn_failed_by_the_provider(run_event(
         "agent.turn.failed",
-        json!({ "turnNumber": 4, "origin": "provider" })
-    )]
-    #[case::turn_failed_on_a_process_exit(
+        &json!({ "turnNumber": 4, "origin": "provider" })
+    ))]
+    #[case::turn_failed_on_a_process_exit(run_event(
         "agent.turn.failed",
-        json!({ "turnNumber": 4, "origin": "daemon", "cause": "processExit" })
-    )]
-    #[case::run_stopped_at_the_token_limit(
+        &json!({ "turnNumber": 4, "origin": "daemon", "cause": "processExit" })
+    ))]
+    #[case::run_stopped_at_the_token_limit(run_event(
         "agent.run.stopped",
-        json!({ "previousState": "running", "newState": "stopped", "trigger": "tokenLimit" })
-    )]
-    fn a_turn_event_and_a_token_limit_stop_round_trip(
-        #[case] event_type: &str,
-        #[case] members: Value,
-    ) {
-        let stored = run_event(event_type, &members);
+        &json!({ "previousState": "running", "newState": "stopped", "trigger": "tokenLimit" })
+    ))]
+    #[case::children_stopped_naming_no_run(json!({
+        "type": "agent.children.stopped",
+        "payload": {
+            "word": "interrupted",
+            "reached": [{ "kind": "agent", "agentId": "0190f2a0-0000-7000-8000-000000000002" }],
+        },
+    }))]
+    fn a_stored_event_round_trips_under_its_wire_name(#[case] stored: Value) {
         let event: SessionEvent =
             serde_json::from_value(stored.clone()).expect("the stored event reads");
-        assert_eq!(event.event_type().as_str(), event_type);
+        assert_eq!(event.event_type().as_str(), stored["type"]);
         assert_eq!(
             serde_json::to_value(&event).expect("the event writes"),
             stored

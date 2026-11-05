@@ -634,7 +634,6 @@ interface AgentChildRunPausedUpdateRequest {
   childHandle: ChildHandle;
   paused: boolean;
   expectedRunVersion: number;
-  clientIdempotencyKey: string; // a UUID
 }
 interface AgentChildRunPausedUpdateResponse {
   childHandle: ChildHandle;

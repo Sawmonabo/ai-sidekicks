@@ -214,6 +214,14 @@ pub struct ResumeRunParams {
     pub is_continuation_owed: bool,
 }
 
+/// What `resume_run` answers once the provider has the continue.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ResumeRunOutcome {
+    /// Set where a call the run's pause held was withdrawn while it held, its hook connection
+    /// gone, so the hold was lost rather than released by this continue.
+    pub is_hold_lost: bool,
+}
+
 /// Params of `find_taken_messages`: messages a resume of the run sent with no answer back, by the
 /// ids they went under, to look up in the provider's own record of the conversation.
 #[derive(Clone, Debug, PartialEq, Eq)]

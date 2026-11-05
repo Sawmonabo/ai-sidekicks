@@ -98,6 +98,7 @@ session_event_types! {
         AgentTurnStarted = "agent.turn.started",
         AgentTurnCompleted = "agent.turn.completed",
         AgentTurnInterrupted = "agent.turn.interrupted",
+        AgentChildrenStopped = "agent.children.stopped",
         AgentTurnFailed = "agent.turn.failed",
         AgentRunWorkerShuttingDown = "agent.run.workerShuttingDown",
         AgentRunStepLimitReached = "agent.run.stepLimit.reached",
