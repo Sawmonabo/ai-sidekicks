@@ -517,11 +517,10 @@ fn into_object(members: &impl Serialize) -> Map<String, Value> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
     use rstest::rstest;
     use serde_json::{Value, json};
-    use sidekicks_contracts::session::controls::methods::PermissionLevel;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_platforms::PathRules;
@@ -536,7 +535,7 @@ mod tests {
     use crate::driver::PROVIDERS;
     use crate::driver::codex::DESCRIPTOR;
     use crate::driver::codex::app_server_protocol::{ModeKind, Settings, TextUserInputType};
-    use crate::driver::codex::permission_level::CodexProfileFolders;
+    use crate::driver::codex::session::test_fixture::test_thread_settings;
     use crate::driver::codex::vendored_schema::vendored_schema_file;
     use crate::driver::session_control::SubagentPolicy;
     use crate::spawn_environment::{
@@ -546,24 +545,10 @@ mod tests {
 
     fn settings_with(subagent_policy: Option<SubagentPolicy>) -> CodexThreadSettings {
         CodexThreadSettings {
-            session_id: SessionId::new("0192f3a4-5b6c-7d8e-9f01-23456789abcd")
-                .expect("the text is a UUID"),
-            working_directory: PathBuf::from("/work/repository"),
-            model: "gpt-5".to_owned(),
-            model_context_window: None,
-            level: PermissionLevel::Ask,
-            profile_folders: CodexProfileFolders {
-                working_directory: PathBuf::from("/work/repository"),
-                git_common_folder: None,
-                deny_paths: Vec::new(),
-                command_channel_folder: PathBuf::from("/data/command-channels/session"),
-            },
-            command_environment: Vec::new(),
             subagent_policy,
-            helper_roles: Vec::new(),
-            tool_servers: Vec::new(),
-            base_instructions: None,
-            auto_memory: None,
+            ..test_thread_settings(
+                SessionId::new("0192f3a4-5b6c-7d8e-9f01-23456789abcd").expect("the text is a UUID"),
+            )
         }
     }
 
