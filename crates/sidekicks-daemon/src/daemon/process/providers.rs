@@ -85,6 +85,7 @@ use tokio_util::task::AbortOnDropHandle;
 use crate::daemon::process::session_services::stored_resumes::StoredSessionResumes;
 use crate::program::dispatches_hook_mode;
 
+pub(crate) mod pricing;
 pub(crate) mod stored_rows;
 #[cfg(test)]
 mod test_start;

@@ -97,6 +97,7 @@ use crate::daemon::process::method_inputs::{
 };
 use crate::daemon::process::method_tables::gate_chain;
 use crate::daemon::process::provider_accounts::ProviderAccountObservation;
+use crate::daemon::process::providers::pricing::{PricingStart, PricingTasks, build_pricing};
 use crate::daemon::process::providers::stored_rows::apply_stored_rows;
 use crate::daemon::process::providers::{
     ProviderStart, Providers, ProvidersRegistration, build_providers, hydrate_capabilities,
@@ -198,6 +199,8 @@ pub(crate) struct DaemonProcess {
     pub(crate) provider_accounts: Option<ProviderAccountObservation>,
     /// The web address's sender, which ends with the work's stop and is waited out.
     pub(crate) web_address_sender: Option<JoinHandle<()>>,
+    /// The price list's fetch and the repricing, which end with the work's stop and are waited out.
+    pub(crate) pricing: Option<PricingTasks>,
     /// The clone service, which owns the askpass broker; the stop closes it.
     pub(crate) clones: Option<Arc<CloneService>>,
     /// The live projects list, closed by the stop.
@@ -269,6 +272,7 @@ impl DaemonProcess {
             attention: None,
             provider_accounts: None,
             web_address_sender: None,
+            pricing: None,
             clones: None,
             project_list_feed: None,
             worktree_setup: None,
@@ -370,6 +374,8 @@ impl DaemonProcess {
         let accept_stop = self.accept_stop();
         let stop_work_step = self.stop_work_step();
         let close_data_folder_step = self.close_data_folder_step();
+        let daemon_started_at =
+            WireInstant::from_timestamp(self.started_at).expect("the clock reads after year 0000");
         let database = self.database.insert(
             open_database_file(DatabaseFileStart {
                 database_path: data_folder.join(DAEMON_DATABASE_FILE_NAME),
@@ -378,8 +384,7 @@ impl DaemonProcess {
                 shell: &shell,
                 copier: &copier,
                 now: Timestamp::now(),
-                daemon_started_at: WireInstant::from_timestamp(self.started_at)
-                    .expect("the clock reads after year 0000"),
+                daemon_started_at: daemon_started_at.clone(),
                 backup_folder,
                 run_folder,
                 secure_defaults: &secure_defaults,
@@ -566,7 +571,7 @@ impl DaemonProcess {
                 machine_device_id,
                 scheduler: Arc::clone(&scheduler),
                 search_index: Arc::clone(&search_index),
-                clock: wall_clock,
+                clock: Arc::clone(&wall_clock),
                 spawner: self.spawner.clone(),
                 git,
                 base_environment,
@@ -595,6 +600,18 @@ impl DaemonProcess {
                 close_data_folder: close_data_folder_step,
             },
         )
+        .await?;
+        // Before the recovery pass and any session start, so every held request reaches it.
+        let pricing = build_pricing(PricingStart {
+            providers: &providers,
+            reads: Arc::clone(&reads),
+            writer: Arc::clone(&writer),
+            scheduler: Arc::clone(&scheduler),
+            clock: wall_clock,
+            data_folder: &data_folder,
+            daemon_started_at,
+            account_notices: inputs.provider_accounts.account_notices(),
+        })
         .await?;
         let recovery = inputs.recovery;
         let attention = inputs.attention;
@@ -683,6 +700,8 @@ impl DaemonProcess {
         // After the pass, so no read or window start meets a run the last stop left live.
         provider_accounts.start(&followers).await?;
         self.provider_accounts = Some(provider_accounts);
+        // After the pass too, so the repricing's start pass meets no run the last stop left live.
+        self.pricing = Some(pricing.start(&self.work_stop));
         // After the sweep, so a delivery the stop left pending is decided before it is sent.
         let send_settings = settings
             .watch()
