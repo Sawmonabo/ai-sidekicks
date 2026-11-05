@@ -15,7 +15,7 @@ use sidekicks_contracts::transcript::content::{
 use sidekicks_store::transcript::whole_patch::WholePatchFile;
 
 use crate::driver::unified_diff::{count_unified_diff, mark_every_line};
-use crate::record_readers::{read_count, read_non_empty_string};
+use crate::record_readers::{filter_non_empty, read_count, read_non_empty_string};
 
 // The tools whose result is one file's change.
 const CLAUDE_FILE_CHANGING_TOOL_NAMES: [&str; 4] = ["Edit", "MultiEdit", "Write", "NotebookEdit"];
@@ -23,6 +23,15 @@ const CLAUDE_FILE_CHANGING_TOOL_NAMES: [&str; 4] = ["Edit", "MultiEdit", "Write"
 /// Whether a tool's result is one file's change, read for its patch.
 pub(crate) fn is_claude_file_changing_tool(tool_name: &str) -> bool {
     CLAUDE_FILE_CHANGING_TOOL_NAMES.contains(&tool_name)
+}
+
+/// The file a file-changing call's input names: its `file_path`, else its `notebook_path`, each
+/// only when it has at least one character.
+pub(crate) fn select_claude_edit_path<'path>(
+    file_path: Option<&'path str>,
+    notebook_path: Option<&'path str>,
+) -> Option<&'path str> {
+    filter_non_empty(file_path).or_else(|| filter_non_empty(notebook_path))
 }
 
 /// The patch one file-changing call's result carries, read in this order: `gitDiff`, a created

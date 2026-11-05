@@ -9,7 +9,7 @@ pub(super) mod commands;
 pub(super) mod dialogs;
 pub(super) mod mcp_tasks;
 pub(super) mod messages;
-mod patches;
+pub(super) mod patches;
 mod peer_arrival;
 pub(super) mod requests;
 pub(super) mod reviewer;

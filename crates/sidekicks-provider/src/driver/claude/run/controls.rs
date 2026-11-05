@@ -13,6 +13,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 
 use crate::driver::attachments::{compose_message_text, resolve_message_attachments};
 use crate::driver::claude::ClaudeDriver;
@@ -22,7 +23,7 @@ use crate::driver::claude::delivery::dialogs::{ClaudeDialogSession, ClaudeProvid
 use crate::driver::claude::delivery::requests::ClaudeInboundRequests;
 use crate::driver::claude::delivery::reviewer::compose_claude_override_sentence;
 use crate::driver::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
-use crate::driver::claude::hooks::callbacks::answer_claude_request;
+use crate::driver::claude::hooks::callbacks::answer_released_callbacks;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::driver::claude::intervention::{
@@ -54,6 +55,7 @@ use crate::driver::run_control::{
 };
 use crate::lenient_json::{lenient_object, read_lenient};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
+use crate::port::edit_checkpoint::EditCheckpoint;
 use crate::port::running_command_publisher::RunningCommandParams;
 
 #[derive(Default, serde::Deserialize)]
@@ -123,6 +125,8 @@ pub(crate) struct ClaudeRunControls {
     /// Every session's command channels, which find a command run by a process apart from the
     /// session's own.
     pub(crate) command_channels: Arc<ClaudeCommandChannels>,
+    /// The copy kept before each edit a continued helper's held call makes, once registered.
+    pub(crate) edit_checkpoint: Arc<PortRegistration<Arc<dyn EditCheckpoint>>>,
 }
 
 impl ClaudeRunControls {
@@ -201,16 +205,14 @@ impl ClaudeRunControls {
             };
             let resumed =
                 lock(&self.pauses).resume_helper(&session_id, &route.agent_id, steer.as_deref());
-            for callback in resumed.released {
-                answer_claude_request(
-                    &*live.channel,
-                    &session_id,
-                    &live.admitted_provider_account_id(),
-                    callback.request_id,
-                    &callback.answer,
-                )
-                .await;
-            }
+            answer_released_callbacks(
+                self.edit_checkpoint.port(),
+                &*live.channel,
+                &session_id,
+                &live.admitted_provider_account_id(),
+                resumed.released,
+            )
+            .await;
             words.map_err(DriverError::Internal)?;
             return Ok(ResumeRunOutcome {
                 is_hold_lost: resumed.had_lost_hold,
