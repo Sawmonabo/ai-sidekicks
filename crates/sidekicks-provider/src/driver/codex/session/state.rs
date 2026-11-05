@@ -59,15 +59,21 @@ pub(crate) struct CodexTurnMessage {
     pub(crate) attachments: Vec<ProviderAttachment>,
 }
 
-/// What a turn was sent with, kept so a faster-model retry can send it again, files and all.
+/// What a turn was sent with, kept so a faster-model retry can send it again, files and all, with
+/// the level it was sent at alone, after the catalog check, and the model it runs on, which its
+/// readings price.
 #[derive(Clone, Debug)]
 pub(crate) struct CodexTurnInput {
     /// The messages.
     pub(crate) messages: Vec<CodexTurnMessage>,
     /// The ids they went under.
     pub(crate) client_message_ids: Vec<String>,
-    /// The level the turn alone ran at, which a resend of the turn keeps.
+    /// The level the turn alone asked for, which a resend of the turn keeps.
     pub(crate) output_speed_for_turn: Option<String>,
+    /// The level the turn alone was sent at, after the catalog check.
+    pub(crate) sent_output_speed_for_turn: Option<String>,
+    /// The model the turn was sent at, until a reroute moves it.
+    pub(crate) model: String,
 }
 
 /// A run whose turn is accepted and whose settled output speed is not yet reported.

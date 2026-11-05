@@ -1,7 +1,8 @@
 //! The receiver of the providers' OTLP/HTTP telemetry and its hand-off to each provider's reader:
 //! each export is admitted by the start's token and its headers before its body is read, read
 //! within a cap and a bound on bodies read at once, decoded, kept whole as OTLP JSON while raw
-//! messages are recorded, and handed to the reader of the provider its path names.
+//! messages are recorded, and handed to the reader of the provider its path names. Also the target
+//! a provider's exporter is set to.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -54,6 +55,35 @@ const IDENTITY_ENCODING: &[u8] = b"identity";
 /// with [`LOGS_PATH_SUFFIX`] or [`TRACES_PATH_SUFFIX`].
 pub fn telemetry_base_path(provider: &ProviderId) -> String {
     format!("{TELEMETRY_PATH_PREFIX}/{}", provider.as_str())
+}
+
+/// Where every provider process exports its telemetry: the receiver on the loopback listener's
+/// port, and the start's token each export presents.
+pub struct TelemetryTarget {
+    port: u16,
+    bearer: Arc<BearerToken>,
+}
+
+impl TelemetryTarget {
+    /// The receiver on `port` of `127.0.0.1`, admitting exports that present `bearer`.
+    pub fn new(port: u16, bearer: Arc<BearerToken>) -> Self {
+        Self { port, bearer }
+    }
+
+    /// The address `provider`'s exporter is set to, `http://127.0.0.1:<port>/telemetry/<id>`,
+    /// which it extends with [`LOGS_PATH_SUFFIX`] or [`TRACES_PATH_SUFFIX`].
+    pub fn base_endpoint(&self, provider: &ProviderId) -> String {
+        format!(
+            "http://127.0.0.1:{}{}",
+            self.port,
+            telemetry_base_path(provider)
+        )
+    }
+
+    /// The token an export presents, as `Bearer <token>` in its `Authorization` header.
+    pub fn bearer(&self) -> &BearerToken {
+        &self.bearer
+    }
 }
 
 /// One decoded export, as the receiver hands it to its provider's reader.

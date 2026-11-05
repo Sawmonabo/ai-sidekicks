@@ -1,4 +1,4 @@
-# Third-party files kept byte for byte from their releases (SQLite's shell, Codex's protocol
-# bundle); each crate's `build.rs` checks their hashes.
+# Third-party files kept byte for byte from upstream (SQLite's shell, Codex's protocol bundle,
+# LiteLLM's price list); each crate's `build.rs` checks their hashes.
 crates/sidekicks-daemon/vendor/** -text linguist-vendored
 crates/sidekicks-provider/vendor/** -text linguist-vendored
