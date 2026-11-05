@@ -34,9 +34,9 @@ use crate::driver::contract::account::{
 use crate::driver::contract::error::bound_provider_words;
 
 /// An account's sign-in slot and its listed attempt, held from the start until the attempt
-/// settles. Every path that ends it before a row took its minted home has that home signed out,
-/// where its provider ran there, and removed first, and dropped, it unlists the attempt and frees
-/// the slot, so a failed or abandoned start leaves none of them.
+/// settles. Every path that ends it before a row took its minted home has that home removed
+/// first, signed out before where its flow showed an address, and dropped, it unlists the attempt
+/// and frees the slot, so a failed or abandoned start leaves none of them.
 pub(super) struct Reservation {
     /// The account held in flight until the attempt settles.
     pub(super) _in_flight_guard: InFlightGuard,
@@ -75,11 +75,11 @@ impl Reservation {
         let hold = tokio::select! {
             biased;
             () = stopping.cancelled() => {
-                self.release(false).await;
+                self.release().await;
                 return;
             }
             () = answer.closed() => {
-                self.release(false).await;
+                self.release().await;
                 return;
             }
             hold = home_lock.hold(self.account_id.clone()) => hold,
@@ -90,7 +90,7 @@ impl Reservation {
             match read {
                 Ok(account) => self.started_generation = Some(account.credential_generation),
                 Err(error) => {
-                    self.release(false).await;
+                    self.release().await;
                     drop(hold);
                     let _unheard = answer.send(Err(error.into()));
                     return;
@@ -112,8 +112,9 @@ impl Reservation {
         } = match started {
             Ok(handle) => handle,
             Err(error) => {
-                // Freed first, so the caller finds no slot and no minted home left.
-                self.release(true).await;
+                // Freed first, so the caller finds no slot and no minted home left. A start that
+                // failed showed no address, so no sign-in reached the home and none is signed out.
+                self.release().await;
                 let _unheard = answer.send(Err(error.into()));
                 return;
             }
@@ -138,12 +139,11 @@ impl Reservation {
         publisher.publish(ended);
     }
 
-    // Has the minted home no row took signed out, where `is_flow_begun` and so its provider ran
-    // there, and removed, then unlists the attempt and frees the slot.
-    pub(super) async fn release(mut self, is_flow_begun: bool) {
+    // Removes the minted home no row took with no sign-out, since no flow showed its address, then
+    // unlists the attempt and frees the slot.
+    pub(super) async fn release(mut self) {
         if let Some(minted) = self.minted.take() {
-            let legs = is_flow_begun.then_some(&*self.services.account_legs);
-            abandon(&self.services.registry, minted, legs).await;
+            abandon(&self.services.registry, minted, None).await;
         }
     }
 
@@ -267,9 +267,9 @@ impl Attempt {
     }
 
     // Takes the status read after a finished flow and writes what it found; a new account that
-    // ends any other way has its minted home signed out, where its provider ran there, and
-    // removed. A failed flow's reason is the provider's own words
-    // where it gave any, every address, code and credential in them replaced first.
+    // ends any other way has its minted home signed out and removed, as its flow showed an address.
+    // A failed flow's reason is the provider's own words where it gave any, every address, code
+    // and credential in them replaced first.
     async fn settle(
         &mut self,
         legs: &dyn ProviderSignInLegs,
@@ -434,7 +434,7 @@ impl Attempt {
 }
 
 /// Has the home of an account no sign-in admitted signed out through its provider's entry in
-/// `legs`, where its provider ran there, and removed, keeping a failure in the service log.
+/// `legs`, where they are given, and removed, keeping a failure in the service log.
 pub(super) async fn abandon(
     registry: &ProviderAccountRegistry,
     minted: MintedAccount,
