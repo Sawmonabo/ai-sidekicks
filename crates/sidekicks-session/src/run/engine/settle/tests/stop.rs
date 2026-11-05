@@ -115,7 +115,8 @@ fn seeded(case: StopCase) -> Seeded {
     }
 }
 
-// Queues one message for `run_id` through `writer`.
+// Queues one message for `run_id` through `writer`; the queue crate's writer is not imported, since
+// that crate depends on this one.
 async fn queue_message(writer: &DatabaseWriter, session_id: SessionId, run_id: RunId) {
     let item = NewQueueItem {
         id: QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id"),
