@@ -63,7 +63,8 @@ pub(crate) struct CodexSessionCallDependencies {
 
 /// What a goal's turn, a rewind, `Allow once`, a helper's reopen and a message's delivery read of
 /// a session: the service and connection its conversation is on, the conversation, the state of
-/// its turns, and the posture and account a turn the daemon starts on it runs at.
+/// its turns, the posture and account a turn the daemon starts on it runs at, and its memory
+/// switch.
 pub(crate) struct CodexSessionReading {
     /// The service, which a reopened helper is registered on.
     pub(crate) service: Arc<CodexService>,
@@ -98,6 +99,9 @@ pub(crate) struct CodexSessionReading {
         )
     )]
     pub(crate) provider_account_id: ProviderAccountId,
+    /// The session's `Auto memory` switch, which a conversation the service loads again starts
+    /// under.
+    pub(crate) auto_memory: Option<bool>,
 }
 
 /// Runs `call` on the session's task, answering on the call's own reply, and settles the waits
@@ -328,5 +332,6 @@ fn read_codex_session(task: &CodexSessionTask<'_>, thread_id: Option<&str>) -> C
         }),
         execution_posture: record.execution_posture.clone(),
         provider_account_id: record.provider_account_id.clone(),
+        auto_memory: record.thread_settings.auto_memory,
     }
 }

@@ -635,7 +635,8 @@ async fn find_started_continuation(
     connection: &CodexAppServerConnection,
     listed_turns: &[CodexListedTurn],
 ) -> Result<Option<String>, CodexError> {
-    let reply = request_bare_thread_resume(connection, &record.thread_id).await?;
+    // Codex applies no setting to a loaded conversation, so none is sent.
+    let reply = request_bare_thread_resume(connection, &record.thread_id, None).await?;
     Ok(read_codex_resumed_newest_turn(&reply)
         .map(|newest| newest.id)
         .filter(|turn_id| !listed_turns.iter().any(|listed| listed.id == *turn_id)))
