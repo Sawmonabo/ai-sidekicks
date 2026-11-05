@@ -501,6 +501,7 @@ pub(crate) async fn register_method_inputs(
         provider_sessions: Arc::clone(&session.provider_sessions),
         appender: Arc::clone(&session.appender),
         read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
+        request_held: Arc::clone(&providers.ports.request_held),
     })
     .await;
     let mcp_client = Arc::new(McpClient::new(

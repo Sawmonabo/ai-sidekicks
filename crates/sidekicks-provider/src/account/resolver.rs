@@ -31,6 +31,7 @@ use sidekicks_store::database::stored_column::{closed_word, text_column};
 use crate::account::credential_home::{
     CredentialHome, CredentialHomeCondition, classify_credential_home,
 };
+use crate::account::errors::ProviderAccountRegistryError;
 use crate::account::observed_auth_modes::{ObservedAuthModeRead, ObservedAuthModes};
 use crate::account::registry::record::query_registered_account;
 use crate::account::token_custody::read_sealed_token;
@@ -222,9 +223,9 @@ impl ProviderAccountReader for ProviderAccounts {
                     .read(
                         ReadLength::Short,
                         move |connection| -> Result<_, Box<dyn Error + Send + Sync>> {
-                            query_registered_account(connection, &read_account_id)?
-                                .map(|account| account.observed_auth_mode)
-                                .ok_or_else(|| "the account is not registered".into())
+                            Ok(query_registered_account(connection, &read_account_id)?
+                                .ok_or(ProviderAccountRegistryError::NotFound)?
+                                .observed_auth_mode)
                         },
                     )
                     .await?;
@@ -481,8 +482,17 @@ mod tests {
             .expect("the kind is read");
         assert_eq!(first, None);
 
-        Connection::open(database.path())
-            .expect("the test opens the database")
+        let connection = Connection::open(database.path()).expect("the test opens the database");
+        // The workflow crate's table, cut to the columns the removal mark's guard reads.
+        connection
+            .execute(
+                "CREATE TABLE workflow_steps (
+                   workflow_run_id TEXT, wait_account_id TEXT, status TEXT, wait_cause TEXT
+                 )",
+                [],
+            )
+            .expect("the test makes the workflow steps' table");
+        connection
             .execute(
                 "UPDATE provider_accounts SET observed_auth_mode = ?1 WHERE account_id = ?2",
                 [

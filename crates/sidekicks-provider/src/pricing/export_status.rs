@@ -113,7 +113,11 @@ impl ExportStatusTracker {
                         let mut state = lock(&shared);
                         if state.check.as_ref().is_some_and(|check| check.id == id) {
                             state.check = None;
-                            state.status.send_replace(Some(ExportStatus::Stopped));
+                            state.status.send_if_modified(|status| {
+                                let was_stopped = *status == Some(ExportStatus::Stopped);
+                                *status = Some(ExportStatus::Stopped);
+                                !was_stopped
+                            });
                         }
                     }
                     Ok(())

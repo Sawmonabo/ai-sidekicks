@@ -50,9 +50,11 @@ use crate::account::observer::{
     ObserverShared, ProviderAccountObserverError, READ_BOUND, ladder, log_read_failure,
 };
 use crate::account::registry::{RegisteredAccount, refusal_or_failure};
-use crate::account::usage_turns::sessionless_usage_turn_statement;
+use crate::account::usage_turns::unpriced::UnpricedUsageKey;
+use crate::account::usage_turns::{mint_sessionless_turn_id, sessionless_usage_turn_statement};
 use crate::account::wake_helper::MachineWakeHelper;
 use crate::driver::contract::account::{ProviderWindowTurnLegs, WindowTurnAnswer, WindowTurnSpend};
+use crate::driver::ports::HeldRequest;
 
 // How long after a window-start turn a window with no stored reset still counts as started: the
 // longest a window that turn started runs before it resets.
@@ -404,7 +406,7 @@ impl ObserverShared {
         .await
         {
             Ok(Ok(WindowTurnAnswer::Spent(spend))) => {
-                self.record_window_turn(&account.account_id, &spend).await?;
+                self.record_window_turn(&account, &spend).await?;
             }
             Ok(Ok(WindowTurnAnswer::Refused)) => {
                 tracing::warn!("the provider refused an account's window-start turn");
@@ -420,18 +422,21 @@ impl ObserverShared {
         Ok(())
     }
 
-    /// Writes a turn that starts `provider_account_id`'s closed windows: its usage row, with no
-    /// session, and its time on the account's row, in one write. Fails with
-    /// [`ProviderAccountRegistryError::NotFound`] for an account not registered, keeping neither.
+    /// Writes a turn that starts `account`'s closed windows: its usage row, held and with no
+    /// session, and its time on the account's row, in one write, then hands the row's request to
+    /// the repricing. Fails with [`ProviderAccountRegistryError::NotFound`] for an account not
+    /// registered, keeping neither; a hand-off that fails leaves the held row to the next start.
     pub(super) async fn record_window_turn(
         &self,
-        provider_account_id: &ProviderAccountId,
+        account: &RegisteredAccount,
         spend: &WindowTurnSpend,
     ) -> Result<(), ProviderAccountObserverError> {
+        let provider_account_id = &account.account_id;
         let sent_at = ladder::wire_instant(self.wall_clock.now());
+        let turn_id = mint_sessionless_turn_id();
         self.database_writer
             .write(vec![
-                sessionless_usage_turn_statement(provider_account_id, &sent_at, spend),
+                sessionless_usage_turn_statement(&turn_id, provider_account_id, &sent_at, spend),
                 WriteStatement {
                     sql: std::borrow::Cow::Borrowed(RECORD_WINDOW_START_SQL.as_str()),
                     bindings: StatementBindings::Named(vec![
@@ -443,6 +448,25 @@ impl ObserverShared {
             ])
             .await
             .map_err(refusal_or_failure)?;
+        let Some(repricing) = self.request_held.port() else {
+            return Ok(());
+        };
+        let held = HeldRequest {
+            key: UnpricedUsageKey {
+                provider: account.provider.clone(),
+                account_id: provider_account_id.clone(),
+                model_id: spend.model_id.clone(),
+                speed: None,
+                processing_region: None,
+            },
+            row_ids: vec![turn_id],
+        };
+        if let Err(error) = repricing.request_held(held).await {
+            tracing::warn!(
+                error = &*error as &(dyn std::error::Error + 'static),
+                "a window-start turn was not handed over for pricing; it waits for the next start"
+            );
+        }
         Ok(())
     }
 }
@@ -537,10 +561,10 @@ mod tests {
     }
 
     // Every closed window, of either length on either provider, takes one turn, written as one
-    // usage row with no session, and a second look spends none; a running window takes none and
-    // arms the timer for its reset. Killed by a running window read as closed (a turn on the
-    // running cases), by a weekly window skipped (none on the weekly cases), and by a turn sent
-    // again for one reset (two).
+    // usage row with no session, handed to the repricing, and a second look spends none; a running
+    // window takes none and arms the timer for its reset. Killed by a running window read as closed
+    // (a turn on the running cases), by a weekly window skipped (none on the weekly cases), by a
+    // turn sent again for one reset (two), and by a row never handed over.
     #[rstest]
     #[case::a_passed_five_hour_reset_on_claude_code(claude(), FIVE_HOURS, Reset::Passed, 1)]
     #[case::a_passed_weekly_reset_on_claude_code(claude(), WEEK, Reset::Passed, 1)]
@@ -590,6 +614,10 @@ mod tests {
         assert_eq!(
             usage_rows(&database, &account),
             vec![(None::<String>, 1_i64); turns]
+        );
+        assert_eq!(
+            fixture.held_requests.handed_over(),
+            vec![(provider.clone(), account.account_id.clone()); turns]
         );
         assert_eq!(
             fixture

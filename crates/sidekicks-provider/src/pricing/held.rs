@@ -9,7 +9,11 @@
 //!   not already held for; a key it cannot price waits, its rows unread.
 //! - **Triggers** queue keys or accounts and wake one task, which runs what is queued as one pass:
 //!   a new copy passes over every key held for a price, an account's changed sign-in kind over its
-//!   keys, and a request its driver handed over over its key. Nothing is polled.
+//!   keys, and a request its driver or the observer handed over over its key. Nothing is polled; a
+//!   start read that failed is tried again at the next trigger.
+//! - **After a new copy** each model a held key still waits on is reported missing again, so the
+//!   list fetches once more under the new tag.
+//! - **A removed account** releases its keys, whether they waited on a price or on its kind.
 //!
 //! Memory holds keys and accounts only; which rows are priced lives in the store.
 
@@ -35,6 +39,7 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+use crate::account::errors::ProviderAccountRegistryError;
 use crate::account::usage_turns::sessionless_usage_cost_statement;
 use crate::account::usage_turns::unpriced::{
     UnpricedPage, UnpricedPageCursor, UnpricedRequest, UnpricedUsageKey, held_mark_statement,
@@ -70,9 +75,9 @@ pub struct HeldRequestRepricingDependencies {
     pub usage: Arc<dyn UsageSink>,
     /// Each provider's pricer, as its driver hands it over; a provider without one prices nothing.
     pub pricers: HashMap<ProviderId, Arc<dyn RequestPricer>>,
-    /// When the daemon started, taken before any provider process started, in the stored form: a
-    /// row written since is read only once its driver handed its request over.
-    pub started_at: WireInstant,
+    /// The daemon's start in the stored form, as the live projection writes it on each row: a row
+    /// this start wrote is read only once its request was handed over.
+    pub daemon_started_at: WireInstant,
 }
 
 /// The one task that prices held requests, and the intake of the triggers that wake it.
@@ -83,11 +88,11 @@ pub struct HeldRequestRepricing {
     provider_accounts: Arc<dyn ProviderAccountReader>,
     usage: Arc<dyn UsageSink>,
     pricers: HashMap<ProviderId, Arc<dyn RequestPricer>>,
-    started_at: WireInstant,
-    // Never held across an await.
-    held_keys: Mutex<HeldKeys>,
+    daemon_started_at: WireInstant,
+    // Never held across an await; shared with a hand-off's own task.
+    held_keys: Arc<Mutex<HeldKeys>>,
     // Told by a queued key or account; it only wakes the task.
-    wake: Notify,
+    wake: Arc<Notify>,
 }
 
 // What waits, and the work queued since the task last ran.
@@ -101,6 +106,8 @@ struct HeldKeys {
     unpriceable: HashSet<UnpricedUsageKey>,
     queued_keys: HashSet<UnpricedUsageKey>,
     queued_accounts: HashSet<ProviderAccountId>,
+    // The start's key read failed, so the next pass reads the keys again.
+    are_start_keys_unread: bool,
 }
 
 // The sign-in kind an account's keys were held under, and those keys.
@@ -128,7 +135,7 @@ impl HeldRequestRepricing {
             provider_accounts,
             usage,
             pricers,
-            started_at,
+            daemon_started_at,
         } = dependencies;
         Arc::new(Self {
             reads,
@@ -137,9 +144,9 @@ impl HeldRequestRepricing {
             provider_accounts,
             usage,
             pricers,
-            started_at,
-            held_keys: Mutex::default(),
-            wake: Notify::new(),
+            daemon_started_at,
+            held_keys: Arc::default(),
+            wake: Arc::default(),
         })
     }
 
@@ -149,15 +156,15 @@ impl HeldRequestRepricing {
         tokio::spawn(Arc::clone(self).run(stop))
     }
 
-    /// Tells that `account_id`'s account changed: an account held for its sign-in kind has its
-    /// kind read again, and its keys passed over where it differs; any other account reads nothing.
+    /// Tells that `account_id`'s account changed: an account held for its sign-in kind when the
+    /// task runs has its kind read again, and its keys passed over where it differs; any other
+    /// account reads nothing. Queued whether or not it is held now, so a change during a pass that
+    /// holds it is not lost.
     pub fn account_changed(&self, account_id: &ProviderAccountId) {
-        let mut held_keys = lock(&self.held_keys);
-        if held_keys.kind_held.contains_key(account_id) {
-            held_keys.queued_accounts.insert(account_id.clone());
-            drop(held_keys);
-            self.wake.notify_one();
-        }
+        lock(&self.held_keys)
+            .queued_accounts
+            .insert(account_id.clone());
+        self.wake.notify_one();
     }
 
     /// Reads every held account's sign-in kind again, as when account notices were missed.
@@ -180,12 +187,19 @@ impl HeldRequestRepricing {
             () = self.start_pass() => {}
         }
         loop {
+            // `changed` marks the copy seen; a wake marks it only when it read a new one, so a
+            // copy sent after that read is passed next.
             let is_table_new = tokio::select! {
                 () = stop.cancelled() => return,
                 Ok(()) = table_watch.changed() => true,
-                () = self.wake.notified() => table_watch.has_changed().unwrap_or(false),
+                () = self.wake.notified() => {
+                    let is_table_new = table_watch.has_changed().unwrap_or(false);
+                    if is_table_new {
+                        table_watch.mark_unchanged();
+                    }
+                    is_table_new
+                }
             };
-            table_watch.mark_unchanged();
             tokio::select! {
                 () = stop.cancelled() => return,
                 () = self.run_queued(is_table_new) => {}
@@ -195,6 +209,12 @@ impl HeldRequestRepricing {
 
     // The start's keys, their models marked in use at once, then a pass over each.
     async fn start_pass(&self) {
+        self.pass_over_start_keys().await;
+        self.report_requests_held();
+    }
+
+    // The start's keys read and passed over; a failed read is flagged for the next pass.
+    async fn pass_over_start_keys(&self) {
         let keys = self
             .reads
             .read(ReadLength::Long, |connection| -> Result<_, BoxedError> {
@@ -206,8 +226,9 @@ impl HeldRequestRepricing {
             Err(error) => {
                 tracing::warn!(
                     error = &*error as &(dyn Error + 'static),
-                    "the held requests' keys were not read, so they wait for the next start"
+                    "the held requests' keys were not read, so they are read at the next trigger"
                 );
+                lock(&self.held_keys).are_start_keys_unread = true;
                 return;
             }
         };
@@ -220,11 +241,15 @@ impl HeldRequestRepricing {
         for key in keys {
             self.pass_over_key(key).await;
         }
-        self.report_requests_held();
     }
 
-    // One pass over what is queued, and every key held for a price when `is_table_new`.
+    // One pass over what is queued, and every key held for a price when `is_table_new`, after the
+    // start's keys when their read failed; then each model a key still waits on is reported.
     async fn run_queued(&self, is_table_new: bool) {
+        let are_start_keys_unread = mem::take(&mut lock(&self.held_keys).are_start_keys_unread);
+        if are_start_keys_unread {
+            self.pass_over_start_keys().await;
+        }
         let (mut keys, accounts) = {
             let mut held_keys = lock(&self.held_keys);
             let mut keys = mem::take(&mut held_keys.queued_keys);
@@ -239,11 +264,31 @@ impl HeldRequestRepricing {
         for key in keys {
             self.pass_over_key(key).await;
         }
+        if is_table_new {
+            self.report_models_still_missing();
+        }
         self.report_requests_held();
     }
 
+    // Each model a key held for a price waits on that the copy just taken still lacks, so the list
+    // fetches for it under the new tag.
+    fn report_models_still_missing(&self) {
+        let table = self.price_list.table();
+        let models: HashSet<String> = lock(&self.held_keys)
+            .price_held
+            .iter()
+            .filter_map(|key| key.model_id.as_ref())
+            .filter(|model_id| table.row(model_id.as_str()).is_none())
+            .map(|model_id| model_id.as_str().to_owned())
+            .collect();
+        for model_id in &models {
+            self.price_list.report_missing(model_id);
+        }
+    }
+
     // The keys of `account_id`, let go when its sign-in kind now reads other than the one they
-    // were held under; none for an account not held.
+    // were held under; none for an account not held, and none, its entry dropped, for an account
+    // no longer registered, whose rows its removal took.
     async fn recheck_account(&self, account_id: ProviderAccountId) -> HashSet<UnpricedUsageKey> {
         let held_kind = lock(&self.held_keys)
             .kind_held
@@ -263,6 +308,10 @@ impl HeldRequestRepricing {
                 .map(|account| account.keys)
                 .unwrap_or_default(),
             Ok(_) => HashSet::new(),
+            Err(error) if is_account_gone(&error) => {
+                lock(&self.held_keys).kind_held.remove(&account_id);
+                HashSet::new()
+            }
             Err(error) => {
                 tracing::warn!(
                     error = &*error as &(dyn Error + 'static),
@@ -305,6 +354,7 @@ impl HeldRequestRepricing {
                 .await
             {
                 Ok(sign_in_kind) => sign_in_kind,
+                Err(error) if is_account_gone(&error) => return KeyOutcome::Released,
                 Err(error) => {
                     log_held_key(key, &error, "the account's sign-in kind was not read");
                     return KeyOutcome::HeldForPrice;
@@ -364,7 +414,7 @@ impl HeldRequestRepricing {
         after: Option<UnpricedPageCursor>,
     ) -> Result<UnpricedPage, BoxedError> {
         let key = key.clone();
-        let started_at = self.started_at.clone();
+        let daemon_started_at = self.daemon_started_at.clone();
         self.reads
             .read(
                 ReadLength::Long,
@@ -372,7 +422,7 @@ impl HeldRequestRepricing {
                     Ok(read_unpriced_page(
                         connection,
                         &key,
-                        &started_at,
+                        &daemon_started_at,
                         after.as_ref(),
                         PAGE_ROWS,
                     )?)
@@ -469,17 +519,30 @@ impl HeldRequestRepricing {
 }
 
 impl RequestHeldListener for HeldRequestRepricing {
+    // The mark and the queuing run as one task of their own, so a caller that stops waiting
+    // never leaves rows marked and their key unqueued.
     fn request_held(&self, held: HeldRequest) -> BoxFuture<'_, Result<(), BoxedError>> {
-        async move {
-            self.writer
+        let writer = Arc::clone(&self.writer);
+        let held_keys = Arc::clone(&self.held_keys);
+        let wake = Arc::clone(&self.wake);
+        let hand_off = tokio::spawn(async move {
+            writer
                 .write(vec![held_mark_statement(&held.row_ids)])
                 .await?;
-            lock(&self.held_keys).queued_keys.insert(held.key);
-            self.wake.notify_one();
-            Ok(())
-        }
-        .boxed()
+            lock(&held_keys).queued_keys.insert(held.key);
+            wake.notify_one();
+            Ok::<(), BoxedError>(())
+        });
+        async move { hand_off.await? }.boxed()
     }
+}
+
+// Whether `error` says the account is not registered, its rows gone with its removal.
+fn is_account_gone(error: &BoxedError) -> bool {
+    matches!(
+        error.downcast_ref::<ProviderAccountRegistryError>(),
+        Some(ProviderAccountRegistryError::NotFound)
+    )
 }
 
 fn log_held_key(key: &UnpricedUsageKey, error: &BoxedError, message: &'static str) {

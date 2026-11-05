@@ -16,6 +16,7 @@
 use std::collections::HashSet;
 use std::error::Error;
 use std::io;
+use std::mem;
 use std::path::{Path, PathBuf};
 use std::str::Utf8Error;
 use std::sync::{Arc, Mutex};
@@ -111,6 +112,8 @@ struct FetchState {
     // The keys found missing since the held tag was taken.
     misses: HashSet<String>,
     is_passing: bool,
+    // A key found missing after the fetch under way was answered, which its pass's end fetches for.
+    is_missed_after_answer: bool,
     are_requests_held: bool,
     last_attempt: Option<SystemTime>,
     next_fetch: Option<SystemTime>,
@@ -179,7 +182,7 @@ impl HeldPriceList {
             let seed = HeldSource::Seed(config.seed);
             let decoded = decode_source(seed.clone(), in_use.clone())
                 .await
-                .expect("the built-in copy decodes, as the program's build checks");
+                .expect("the built-in copy decodes, as the release job's decode check proves");
             let held_copy = HeldCopy {
                 source: seed,
                 etag: None,
@@ -221,9 +224,10 @@ impl HeldPriceList {
     }
 
     /// Adds `model_ids` to the models in use. When any is new, the held copy is read again for
-    /// them, each new id is logged once, and an id the copy lacks is reported missing.
+    /// them, each new id is logged once, the rows are sent when the copy prices one of them, and an
+    /// id the copy lacks is reported missing.
     pub async fn mark_in_use(&self, model_ids: &[&str]) {
-        let (added, in_use) = {
+        let added = {
             let mut fetch_state = lock(&self.fetch_state);
             let mut added = Vec::new();
             for &model_id in model_ids {
@@ -231,7 +235,7 @@ impl HeldPriceList {
                     added.push(model_id);
                 }
             }
-            (added, fetch_state.in_use.clone())
+            added
         };
         if added.is_empty() {
             return;
@@ -240,6 +244,8 @@ impl HeldPriceList {
             tracing::info!(model_id, "a model's prices are read from now on");
         }
         let held_copy = self.held_copy.lock().await;
+        // Read under the copy's lock, so the rows sent last hold every model marked before them.
+        let in_use = lock(&self.fetch_state).in_use.clone();
         let decoded = match decode_source(held_copy.source.clone(), in_use).await {
             Ok(decoded) => decoded,
             Err(error) => {
@@ -252,10 +258,13 @@ impl HeldPriceList {
         };
         log_refused_fields(&decoded.refused_fields);
         let lacking: Vec<&str> = added
-            .into_iter()
+            .iter()
+            .copied()
             .filter(|model_id| decoded.table.row(model_id).is_none())
             .collect();
-        self.table.send_replace(Arc::new(decoded.table));
+        if lacking.len() < added.len() {
+            self.table.send_replace(Arc::new(decoded.table));
+        }
         drop(held_copy);
         for model_id in lacking {
             self.report_missing(model_id);
@@ -263,13 +272,15 @@ impl HeldPriceList {
     }
 
     /// Reports a key in use that the held copy lacks: it wakes the task for one fetch, unless the
-    /// key was already missed under the held tag or a fetch under way covers it. A newly taken
-    /// copy forgets every miss.
+    /// key was already missed under the held tag or a fetch under way covers it; a miss reported
+    /// once that fetch was answered is fetched for when its pass ends. A newly taken copy forgets
+    /// every miss.
     pub fn report_missing(&self, key: &str) {
         let mut fetch_state = lock(&self.fetch_state);
-        if !fetch_state.misses.contains(key) {
-            fetch_state.misses.insert(key.to_owned());
-            if !fetch_state.is_passing {
+        if fetch_state.misses.insert(key.to_owned()) {
+            if fetch_state.is_passing {
+                fetch_state.is_missed_after_answer = true;
+            } else {
                 self.wake.notify_one();
             }
         }
@@ -309,7 +320,10 @@ impl HeldPriceList {
         let attempt = self.clock.now();
         lock(&self.fetch_state).is_passing = true;
         let etag = self.held_copy.lock().await.etag.clone();
-        match self.fetch_once(etag.as_deref()).await {
+        let fetched = self.fetch_once(etag.as_deref()).await;
+        // Every miss reported until now is covered by this answer.
+        lock(&self.fetch_state).is_missed_after_answer = false;
+        match fetched {
             Ok(FetchedPriceList::NotModified) => {
                 if let Err(error) = self.save_state(etag, attempt).await {
                     log_unsaved_state(&error);
@@ -325,6 +339,9 @@ impl HeldPriceList {
         }
         let mut fetch_state = lock(&self.fetch_state);
         fetch_state.is_passing = false;
+        if mem::take(&mut fetch_state.is_missed_after_answer) {
+            self.wake.notify_one();
+        }
         fetch_state.last_attempt = Some(attempt);
         let next = attempt + fetch_delay(fetch_state.are_requests_held);
         fetch_state.next_fetch = Some(next);

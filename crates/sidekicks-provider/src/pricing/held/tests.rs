@@ -9,19 +9,16 @@ use axum::http::StatusCode;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use rusqlite::params;
-use secrecy::SecretString;
 use serde_json::json;
-use sidekicks_contracts::event::envelope::EventOccurredAt;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::event::usage::UsageCostSource;
-use sidekicks_contracts::provider::account::record::{
-    CredentialGeneration, ProviderAccountId, ProviderAuthMode,
-};
+use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
+use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::cost::UsdMicros;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
+use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::armed_instant::InstantJob as _;
 use sidekicks_std::scheduler::test_wall_clock::{TEST_CLOCK_START, TestWallClock};
@@ -38,15 +35,17 @@ use super::{
     HELD_REQUEST_REPRICING_STATEMENT_CAPACITY, HeldRequestRepricing,
     HeldRequestRepricingDependencies,
 };
+use crate::account::usage_turns::tests::{
+    EARLIER_START, Turn, append, instant, rebuild, recorded_with, turn_id,
+};
 use crate::account::usage_turns::unpriced::{UnpricedRequest, UnpricedUsageKey};
 use crate::account::usage_turns::{
-    sessionless_usage_turn_statement, usage_turn_projection_statements,
+    mint_sessionless_turn_id, sessionless_usage_turn_statement, usage_turn_projection_statements,
 };
+use crate::driver::CurrentProviderAccount;
 use crate::driver::contract::account::WindowTurnSpend;
 use crate::driver::ports::{HeldRequest, RequestHeldListener as _};
-use crate::driver::{
-    AccountFoldersError, CurrentProviderAccount, ProviderAccountFolders, ProviderAccountReader,
-};
+use crate::driver::test_registry::TestProviderAccounts;
 use crate::port::usage_sink::{
     MeteredUsage, PricedRequest, ProviderQuotaWindow, RecordedUsage, UsageSink,
 };
@@ -59,9 +58,8 @@ use crate::usage_delta_accountant::UsageAxisCounts;
 // The tests' copy once it prices `late`, a model the built-in copy lacks.
 const LATE_COPY: &[u8] = br#"{"m1": {"input_cost_per_token": 1e-06},
     "seed-only": {"input_cost_per_token": 2e-06}, "late": {"input_cost_per_token": 1e-06}}"#;
-// A start after every row a test writes unless it names another.
-const AFTER_EVERY_ROW: &str = "9999-12-31T23:59:59.999Z";
-const BEFORE_START: &str = "2026-10-14T09:00:00.000Z";
+// The start the repricing runs as; a row a live append wrote under it is still being metered.
+const THIS_START: &str = "2026-10-14T09:00:00.000Z";
 
 type Failure = Box<dyn std::error::Error + Send + Sync>;
 type BoxedAnswer<'a, T> = BoxFuture<'a, Result<T, Failure>>;
@@ -107,7 +105,7 @@ impl RequestPricer for TestPricer {
 }
 
 // The usage record's cost write: each request recorded, and its rows' figures set through the
-// projection of the cost event it appends.
+// projection of the cost event it appends. No other usage double writes a cost.
 struct CostRecord {
     writer: Arc<DatabaseWriter>,
     recorded: Mutex<Vec<PricedRequest>>,
@@ -136,7 +134,10 @@ impl UsageSink for CostRecord {
             }))?;
             let envelope = test_envelope(request.session_id, &event);
             self.writer
-                .write(usage_turn_projection_statements(&envelope)?)
+                .write(usage_turn_projection_statements(
+                    &envelope,
+                    &instant(THIS_START),
+                )?)
                 .await?;
             lock(&self.recorded).push(request);
             Ok(())
@@ -171,45 +172,6 @@ impl UsageSink for CostRecord {
     }
 }
 
-// Every account's sign-in kind, as the test sets it.
-#[derive(Default)]
-struct SignInKind(Mutex<Option<ProviderAuthMode>>);
-
-impl ProviderAccountReader for SignInKind {
-    fn resolve_account_folders(
-        &self,
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<ProviderAccountFolders, AccountFoldersError>> {
-        async { Err(AccountFoldersError::NotFound) }.boxed()
-    }
-
-    fn current_account(&self, _provider_id: ProviderId) -> BoxedAnswer<'_, CurrentProviderAccount> {
-        async { Err("the test reads only sign-in kinds".into()) }.boxed()
-    }
-
-    fn read_credential_generation(
-        &self,
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxedAnswer<'_, CredentialGeneration> {
-        async { Err("the test reads only sign-in kinds".into()) }.boxed()
-    }
-
-    fn read_observed_auth_mode(
-        &self,
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxedAnswer<'_, Option<ProviderAuthMode>> {
-        let sign_in_kind = *lock(&self.0);
-        async move { Ok(sign_in_kind) }.boxed()
-    }
-
-    fn read_sealed_token(
-        &self,
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxedAnswer<'_, Option<SecretString>> {
-        async { Err("the test reads only sign-in kinds".into()) }.boxed()
-    }
-}
-
 // A session log beside the accounts `account-a` of `table-rule` and `account-b` of
 // `kind-rule`, the list's stand-in server, and the doubles a repricing is built on.
 struct Bench {
@@ -220,7 +182,7 @@ struct Bench {
     table_pricer: Arc<TestPricer>,
     kind_pricer: Arc<TestPricer>,
     costs: Arc<CostRecord>,
-    sign_in_kind: Arc<SignInKind>,
+    accounts: Arc<TestProviderAccounts>,
     _scratch: TempDir,
 }
 
@@ -233,7 +195,12 @@ impl Bench {
                     "INSERT INTO provider_accounts (account_id, provider, credential_home_path,
                        billing_mode, created_at, updated_at)
                      VALUES (?1, ?2, ?3, 'subscription', ?4, ?4)",
-                    params![account, provider, format!("/homes/{account}"), BEFORE_START],
+                    params![
+                        account,
+                        provider,
+                        format!("/homes/{account}"),
+                        EARLIER_START
+                    ],
                 )
                 .expect("the test registers its account");
         }
@@ -268,13 +235,15 @@ impl Bench {
             price_list,
             table_pricer: pricer(false),
             kind_pricer: pricer(true),
-            sign_in_kind: Arc::default(),
+            accounts: Arc::new(TestProviderAccounts::new(
+                CurrentProviderAccount::NoneRegistered,
+            )),
             _scratch: scratch,
         }
     }
 
-    // A repricing over the bench, as the daemon builds one at a start at `started_at`.
-    fn repricing(&self, started_at: &str) -> Arc<HeldRequestRepricing> {
+    // A repricing over the bench, as the daemon started at `THIS_START` builds one.
+    fn repricing(&self) -> Arc<HeldRequestRepricing> {
         let pricers: HashMap<ProviderId, Arc<dyn RequestPricer>> = HashMap::from([
             (provider("table-rule"), Arc::clone(&self.table_pricer) as _),
             (provider("kind-rule"), Arc::clone(&self.kind_pricer) as _),
@@ -286,49 +255,62 @@ impl Bench {
             )),
             writer: Arc::clone(&self.writer),
             price_list: Arc::clone(&self.price_list),
-            provider_accounts: Arc::clone(&self.sign_in_kind) as _,
+            provider_accounts: Arc::clone(&self.accounts) as _,
             usage: Arc::clone(&self.costs) as _,
             pricers,
-            started_at: instant(started_at),
+            daemon_started_at: instant(THIS_START),
         })
     }
 
-    // Writes one token row on `account` and `model` at `occurred_at`, with `members` besides.
+    // Writes one token row on `account` and `model` with `members` besides, appended under the
+    // daemon started at `daemon_started_at`.
     fn token_row(
         &self,
         account: &str,
         model: &str,
-        occurred_at: &str,
+        daemon_started_at: &str,
         members: &serde_json::Value,
     ) -> UnsequencedEventEnvelope {
-        let mut payload = json!({
-            "sessionId": self.log.session_id,
-            "runId": self.log.run_id,
-            "inputTokens": 10,
-            "outputTokens": 2,
-            "cacheReadTokens": 0,
-            "cacheWriteTokens": 0,
-            "reasoningTokens": 0,
-            "containment": "confirmedSubtracted",
-            "providerAccountId": account,
-            "credentialGeneration": 1,
-            "modelId": model,
-        });
-        if let (Some(payload), Some(members)) = (payload.as_object_mut(), members.as_object()) {
-            payload.extend(members.clone());
-        }
-        let event: SessionEvent = serde_json::from_value(
-            json!({"type": "usage.tokenCount.recorded", "payload": payload}),
-        )
-        .expect("the test writes a usage event");
-        let mut envelope = test_envelope(self.log.session_id, &event);
-        envelope.occurred_at =
-            EventOccurredAt::new(occurred_at.to_owned()).expect("the test writes an instant");
-        run_write_statements(
-            &self.log.writer,
-            &usage_turn_projection_statements(&envelope).expect("the payload reads"),
+        let envelope = recorded_with(
+            &self.log,
+            &Turn {
+                account,
+                generation: 1,
+                model,
+                subagent: None,
+                counts: [10, 2, 0, 0, 0],
+            },
+            members,
+        );
+        append(
+            &self.log,
+            daemon_started_at,
+            std::slice::from_ref(&envelope),
         );
         envelope
+    }
+
+    // Writes a window-start turn of `model` on `account-a` and answers its row's id.
+    fn sessionless_row(&self, model: &str) -> FreeFormText<EVENT_FIELD_MAX_LEN> {
+        let turn_id = mint_sessionless_turn_id();
+        let spend = WindowTurnSpend {
+            model_id: Some(FreeFormText::new(model.to_owned()).expect("a model id")),
+            input_tokens: SafeInt::new(7),
+            output_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            reasoning_tokens: None,
+        };
+        run_write_statements(
+            &self.log.writer,
+            &[sessionless_usage_turn_statement(
+                &turn_id,
+                &account("account-a"),
+                &instant(THIS_START),
+                &spend,
+            )],
+        );
+        turn_id
     }
 
     // Each row's turn id and figure, by turn id.
@@ -381,10 +363,6 @@ fn account(id: &str) -> ProviderAccountId {
     ProviderAccountId::new(id.to_owned()).expect("an account id")
 }
 
-fn instant(text: &str) -> WireInstant {
-    WireInstant::try_from(text.to_owned()).expect("the test writes an instant")
-}
-
 fn late_key() -> UnpricedUsageKey {
     UnpricedUsageKey {
         provider: provider("table-rule"),
@@ -395,10 +373,6 @@ fn late_key() -> UnpricedUsageKey {
     }
 }
 
-fn turn_id(envelope: &UnsequencedEventEnvelope) -> String {
-    envelope.id.as_str().to_owned()
-}
-
 fn sorted(texts: impl Iterator<Item = String>) -> Vec<String> {
     let mut texts: Vec<String> = texts.collect();
     texts.sort();
@@ -406,10 +380,11 @@ fn sorted(texts: impl Iterator<Item = String>) -> Vec<String> {
 }
 
 // Fails when a copy that adds a held key's model prices nothing or a later copy prices it
-// again (repricing per fetch); when a request held for its account's sign-in kind counts as
-// waiting on a price, so the list fetches hourly, or reports a miss, so it fetches again (a
-// miss on a kind); and when the account's change to a known kind prices nothing, or a second
-// change prices it again (no reprice on the kind).
+// again (repricing per fetch); when the start reads the rows of a key the held copy lacks;
+// when a request held for its account's sign-in kind counts as waiting on a price, so the list
+// fetches hourly, or reports a miss, so it fetches again (a miss on a kind); and when the
+// account's change to a known kind prices nothing, or a second change prices it again (no
+// reprice on the kind).
 #[tokio::test]
 async fn held_requests_are_priced_once_by_the_copy_or_the_kind_they_wait_on() {
     let bench = Bench::new().await;
@@ -417,38 +392,27 @@ async fn held_requests_are_priced_once_by_the_copy_or_the_kind_they_wait_on() {
         bench.token_row(
             "account-a",
             "late",
-            BEFORE_START,
+            EARLIER_START,
             &json!({"requestKey": "msg-1"}),
         ),
         bench.token_row(
             "account-a",
             "late",
-            BEFORE_START,
+            EARLIER_START,
             &json!({"requestKey": "msg-1"}),
         ),
     ];
-    let spend = WindowTurnSpend {
-        model_id: Some(FreeFormText::new("late".to_owned()).expect("a model id")),
-        input_tokens: sidekicks_contracts::wire::integer::SafeInt::new(7),
-        output_tokens: None,
-        cache_read_tokens: None,
-        cache_write_tokens: None,
-        reasoning_tokens: None,
-    };
-    run_write_statements(
-        &bench.log.writer,
-        &[sessionless_usage_turn_statement(
-            &account("account-a"),
-            &instant(BEFORE_START),
-            &spend,
-        )],
-    );
-    let kind_held = bench.token_row("account-b", "m1", BEFORE_START, &json!({}));
-    let repricing = bench.repricing(AFTER_EVERY_ROW);
+    bench.sessionless_row("late");
+    let kind_held = bench.token_row("account-b", "m1", EARLIER_START, &json!({}));
+    let repricing = bench.repricing();
     let stop = CancellationToken::new();
 
     repricing.start_pass().await;
     assert_eq!(bench.recorded(), Vec::<Vec<String>>::new());
+    assert!(
+        lock(&bench.table_pricer.priced).is_empty(),
+        "no late row is read"
+    );
     bench.take_copy(LATE_COPY, &stop).await;
     repricing.run_queued(true).await;
 
@@ -466,7 +430,9 @@ async fn held_requests_are_priced_once_by_the_copy_or_the_kind_they_wait_on() {
     repricing.run_queued(true).await;
     assert_eq!(bench.recorded().len(), 1);
 
-    *lock(&bench.sign_in_kind.0) = Some(ProviderAuthMode::ApiKey);
+    bench
+        .accounts
+        .set_sign_in_kind(Some(ProviderAuthMode::ApiKey));
     repricing.account_changed(&account("account-b"));
     repricing.run_queued(false).await;
     assert_eq!(bench.recorded()[1], [turn_id(&kind_held)]);
@@ -478,70 +444,20 @@ async fn held_requests_are_priced_once_by_the_copy_or_the_kind_they_wait_on() {
     stop.cancel();
 }
 
-// Fails when a repricing after a restart reads a request's selectors from memory rather than
-// the store, prices its rows apart rather than regrouped by request key, or reads the rows of
-// a key the held copy lacks (every unpriced row read at start).
-#[tokio::test]
-async fn a_restart_regroups_a_held_request_from_the_store_and_leaves_an_unpriced_key_unread() {
-    let bench = Bench::new().await;
-    let fast_us = |members: serde_json::Value| {
-        let mut facts = json!({"speed": "fast", "processingRegion": "us", "requestKey": "msg-1"});
-        if let (Some(facts), Some(members)) = (facts.as_object_mut(), members.as_object()) {
-            facts.extend(members.clone());
-        }
-        bench.token_row("account-a", "m1", BEFORE_START, &facts)
-    };
-    let request = [
-        fast_us(json!({"cacheWriteExtendedTokens": 30})),
-        fast_us(json!({})),
-    ];
-    bench.token_row("account-a", "late", BEFORE_START, &json!({}));
-
-    bench.repricing(AFTER_EVERY_ROW).start_pass().await;
-
-    let priced = lock(&bench.table_pricer.priced).clone();
-    assert_eq!(priced.len(), 1, "one request, and none of the late key's");
-    let (key, held) = &priced[0];
-    assert_eq!(
-        (
-            key.speed.as_ref().map(BoundedText::as_str),
-            key.processing_region.as_ref().map(BoundedText::as_str)
-        ),
-        (Some("fast"), Some("us"))
-    );
-    assert_eq!(
-        held.request_key.as_ref().map(BoundedText::as_str),
-        Some("msg-1")
-    );
-    let mut rows: Vec<_> = held
-        .rows
-        .iter()
-        .map(|row| {
-            (
-                row.turn_id.as_str().to_owned(),
-                row.cache_write_extended_tokens.map(i64::from),
-            )
-        })
-        .collect();
-    rows.sort();
-    let mut expected = vec![
-        (turn_id(&request[0]), Some(30)),
-        (turn_id(&request[1]), None),
-    ];
-    expected.sort();
-    assert_eq!(rows, expected);
-    assert_eq!(bench.recorded(), [sorted(request.iter().map(turn_id))]);
-}
-
-// Fails when a pass reads rows written since the start that nobody handed over, so a request
-// the live path is still metering is priced, or when a hand-off never prices its request.
+// Fails when a pass reads a row this start's live append wrote that nobody handed over, so a
+// request the live path is still metering is priced; when it skips a row another start wrote or
+// a rebuild wrote with no start; when a hand-off never prices its request; or when a window-start
+// row written after the start waits for the next start although its key prices.
 #[tokio::test]
 async fn a_request_still_being_metered_is_priced_only_once_handed_over() {
     let bench = Bench::new().await;
-    let early = bench.token_row("account-a", "late", BEFORE_START, &json!({}));
-    let handed_over = bench.token_row("account-a", "late", "2026-10-14T09:00:02.000Z", &json!({}));
-    let metering = bench.token_row("account-a", "late", "2026-10-14T09:00:02.000Z", &json!({}));
-    let repricing = bench.repricing("2026-10-14T09:00:01.000Z");
+    // Cleared and written again by a rebuild, which writes no start.
+    let rebuilt = bench.token_row("account-a", "late", THIS_START, &json!({}));
+    rebuild(&bench.log, std::slice::from_ref(&rebuilt));
+    let other_start = bench.token_row("account-a", "late", EARLIER_START, &json!({}));
+    let handed_over = bench.token_row("account-a", "late", THIS_START, &json!({}));
+    let metering = bench.token_row("account-a", "late", THIS_START, &json!({}));
+    let repricing = bench.repricing();
     let stop = CancellationToken::new();
     let hand_over = |envelope: &UnsequencedEventEnvelope| HeldRequest {
         key: late_key(),
@@ -560,7 +476,11 @@ async fn a_request_still_being_metered_is_priced_only_once_handed_over() {
 
     assert_eq!(
         sorted(bench.recorded().concat().into_iter()),
-        sorted([turn_id(&early), turn_id(&handed_over)].into_iter())
+        sorted(
+            [&rebuilt, &other_start, &handed_over]
+                .into_iter()
+                .map(turn_id)
+        )
     );
     repricing
         .request_held(hand_over(&metering))
@@ -568,7 +488,81 @@ async fn a_request_still_being_metered_is_priced_only_once_handed_over() {
         .expect("the hand-off marks its rows");
     repricing.run_queued(false).await;
     repricing.run_queued(true).await;
-    assert_eq!(bench.recorded().concat().len(), 3);
-    assert_eq!(bench.recorded()[2], [turn_id(&metering)]);
+    assert_eq!(bench.recorded().concat().len(), 4);
+    assert_eq!(bench.recorded()[3], [turn_id(&metering)]);
+
+    let window_start = bench.sessionless_row("m1");
+    repricing
+        .request_held(HeldRequest {
+            key: UnpricedUsageKey {
+                model_id: Some(FreeFormText::new("m1".to_owned()).expect("a model id")),
+                ..late_key()
+            },
+            row_ids: vec![window_start.clone()],
+        })
+        .await
+        .expect("the hand-off marks its row");
+    repricing.run_queued(false).await;
+    assert_eq!(bench.figures()[window_start.as_str()], Some(7));
     stop.cancel();
+}
+
+// Fails when a removed account's key keeps waiting, in the map of keys held for a price, which
+// keeps the list fetching hourly, or in the map of accounts held for their sign-in kind.
+#[tokio::test]
+async fn a_removed_accounts_keys_leave_both_waits_and_the_fetch_returns_to_daily() {
+    let bench = Bench::new().await;
+    bench.token_row("account-b", "late", EARLIER_START, &json!({}));
+    bench.token_row("account-b", "m1", EARLIER_START, &json!({}));
+    let repricing = bench.repricing();
+    let stop = CancellationToken::new();
+
+    repricing.start_pass().await;
+    {
+        let held_keys = lock(&repricing.held_keys);
+        assert_eq!(
+            (held_keys.price_held.len(), held_keys.kind_held.len()),
+            (1, 1)
+        );
+    }
+    bench.accounts.remove_accounts();
+    repricing.account_changed(&account("account-b"));
+    bench.take_copy(LATE_COPY, &stop).await;
+    repricing.run_queued(true).await;
+
+    let held_keys = lock(&repricing.held_keys);
+    assert!(held_keys.price_held.is_empty());
+    assert!(held_keys.kind_held.is_empty());
+    drop(held_keys);
+    assert_eq!(
+        bench.price_list.armed_instant().instant(),
+        Some(SystemTime::UNIX_EPOCH + TEST_CLOCK_START + Duration::from_hours(24))
+    );
+    assert_eq!(bench.recorded(), Vec::<Vec<String>>::new());
+    stop.cancel();
+}
+
+// Fails when the task's loop loses a copy taken while a wake is pending, so a key held for a
+// price waits for the next copy.
+#[tokio::test]
+async fn the_running_task_prices_a_held_key_on_a_copy_taken_beside_a_wake() {
+    let bench = Bench::new().await;
+    let late = bench.token_row("account-a", "late", EARLIER_START, &json!({}));
+    let repricing = bench.repricing();
+    let stop = CancellationToken::new();
+    let task = repricing.start(stop.clone());
+
+    repricing.account_changed(&account("account-a"));
+    bench.take_copy(LATE_COPY, &stop).await;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while bench.recorded().is_empty() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the copy prices the held key");
+
+    assert_eq!(bench.recorded(), [[turn_id(&late)]]);
+    stop.cancel();
+    task.await.expect("the task ends at the stop");
 }

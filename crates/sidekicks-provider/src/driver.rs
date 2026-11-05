@@ -679,8 +679,9 @@ pub trait ProviderAccountReader: Send + Sync {
 
     /// How `provider_account_id`'s account signs in, as the provider last reported it; `None` where
     /// no reading was stored. A pasted token's account reads `OauthToken` and a pasted API key's
-    /// `ApiKey`, and only those accounts have a credential sealed to read. Fails when the account
-    /// is not registered or cannot be read.
+    /// `ApiKey`, and only those accounts have a credential sealed to read. Fails with the boxed
+    /// `ProviderAccountRegistryError::NotFound` when the account is not registered, and otherwise
+    /// when it cannot be read.
     fn read_observed_auth_mode(
         &self,
         provider_account_id: ProviderAccountId,

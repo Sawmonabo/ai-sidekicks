@@ -79,6 +79,7 @@ use sidekicks_provider::port::usage_sink::{
 };
 use sidekicks_provider::usage_delta_accountant::UsageAxisCounts;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use sidekicks_store::credential_store::{KeychainRefusal, SecretKeychain};
@@ -457,6 +458,7 @@ impl MethodInputs {
             wall_clock: clock,
             wake_helper: Some(Arc::clone(&wake_helper)),
             publisher: Arc::clone(&publisher) as _,
+            request_held: Arc::new(PortRegistration::new("request held")),
         }));
         let providers = Arc::new(registry_of_first_provider(Arc::new(
             MockProviderDriver::new(),

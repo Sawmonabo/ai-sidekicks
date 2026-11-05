@@ -21,6 +21,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::{WakeHelperStatus, WallClock, WallClockWait};
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::credential_store::SecretKeychain;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -47,6 +48,7 @@ use crate::driver::contract::account::{
     ProviderWindowTurnLegs, TokenLimitsReading, WindowTurnAnswer, WindowTurnSpend,
 };
 use crate::driver::contract::error::DriverError;
+use crate::driver::ports::{HeldRequest, RequestHeldListener};
 use crate::driver::test_registry::new_session_id;
 use crate::driver::{
     AccountFoldersError, CurrentProviderAccount, ProviderAccountFolders, ProviderAccountReader,
@@ -299,6 +301,26 @@ impl ProviderAccountNotificationPublisher for RecordedNotifications {
     }
 }
 
+// Each request handed to the repricing, its provider and account.
+#[derive(Default)]
+pub(super) struct RecordedHeldRequests(Mutex<Vec<(ProviderId, ProviderAccountId)>>);
+
+impl RecordedHeldRequests {
+    pub(super) fn handed_over(&self) -> Vec<(ProviderId, ProviderAccountId)> {
+        lock(&self.0).clone()
+    }
+}
+
+impl RequestHeldListener for RecordedHeldRequests {
+    fn request_held(
+        &self,
+        held: HeldRequest,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        lock(&self.0).push((held.key.provider, held.key.account_id));
+        async { Ok(()) }.boxed()
+    }
+}
+
 // Whether a turn reads as live on every account, and a run's end a test has happen once, inside
 // the next check that finds a turn live, after that check read it as live.
 #[derive(Default)]
@@ -395,6 +417,7 @@ pub(super) struct Fixture {
     pub(super) usage: Arc<RecordedQuotaSets>,
     pub(super) wakes: Arc<ScriptedWakeHelper>,
     pub(super) notifications: Arc<RecordedNotifications>,
+    pub(super) held_requests: Arc<RecordedHeldRequests>,
     pub(super) observer: ProviderAccountObserver,
 }
 
@@ -451,6 +474,11 @@ impl Fixture {
         let usage = Arc::new(RecordedQuotaSets::default());
         let wakes = Arc::new(ScriptedWakeHelper::new(WakeHelperStatus::Installed));
         let notifications = Arc::new(RecordedNotifications::default());
+        let held_requests = Arc::new(RecordedHeldRequests::default());
+        let request_held = PortRegistration::new("request held");
+        request_held
+            .register(Arc::clone(&held_requests) as Arc<dyn RequestHeldListener>)
+            .expect("a new registration takes its port");
         let observer = ProviderAccountObserver::new(ProviderAccountObserverDeps {
             registry: Arc::clone(&registry),
             account_reader: Arc::new(HomeFolders(Arc::clone(&registry))),
@@ -472,6 +500,7 @@ impl Fixture {
             wall_clock: Arc::clone(&clock) as Arc<dyn WallClock>,
             wake_helper: Some(Arc::clone(&wakes) as Arc<dyn MachineWakeHelper>),
             publisher: Arc::clone(&notifications) as Arc<dyn ProviderAccountNotificationPublisher>,
+            request_held: Arc::new(request_held),
         });
         Self {
             registry,
@@ -487,6 +516,7 @@ impl Fixture {
             usage,
             wakes,
             notifications,
+            held_requests,
             observer,
         }
     }
