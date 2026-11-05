@@ -4,13 +4,14 @@ use std::sync::Arc;
 use rstest::rstest;
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
+use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::run::control::StopTrigger;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio_util::sync::CancellationToken;
 
-use super::{ChildRunLookup, CodexHelperNames};
+use super::{ChildRunLookup, CodexHelperStart};
 use crate::driver::codex::delivery::rows::{CodexRowRun, test_row_run};
 use crate::driver::codex::hooks::server::{
     CodexHookAnswer, CodexHookAnswerer, CodexHookEvent, CodexHookInput,
@@ -56,10 +57,12 @@ async fn a_refused_helpers_running_turn_is_interrupted() {
             TEST_THREAD,
             HELPER_THREAD,
             Some("call-1"),
-            CodexHelperNames {
+            CodexHelperStart {
                 name: None,
                 role: None,
                 provider_path: None,
+                model_id: None,
+                effort: None,
             },
         )
         .await;
@@ -113,6 +116,11 @@ const LEAD_TURN: &str = "lead-turn";
 
 /// The model a spawn names for its helper, which the lead does not run on.
 const HELPER_MODEL: &str = "gpt-5.4-mini";
+
+/// `text` as a model or effort word.
+fn token(text: &str) -> ProviderToken {
+    ProviderToken::new(text.to_owned()).expect("a test word fits")
+}
 
 /// Opens the live turn `turn_id` on [`TEST_THREAD`] under a run of its own, delivered on.
 fn open_live_turn(session: &mut TestCodexSession, turn_id: &str) -> CodexRowRun {
@@ -206,12 +214,13 @@ fn started_row_calls(session: &TestCodexSession) -> HashMap<String, Option<Strin
 }
 
 // A v2 spawn's `subAgentActivity` pair starts one child run beneath the run whose call the started
-// item noted, named as the helper's `thread/read` names it, with the item's path; its usage names
-// the item's model; and a later `interacted` item naming it starts nothing. Another live run makes
-// the noted call the only way to the parent. Kills: registration left on `thread/started` (no
-// child run), the v2 call never noted (no parent run, so no child run), names never read, the path
-// from another member, no model or the lead's on the usage, and the kind not checked (a second
-// child run on the `interacted` item).
+// item noted, named as the helper's `thread/read` names it, with the item's path, model and effort;
+// its usage names the item's model; and a later `interacted` item naming it starts nothing. Another
+// live run makes the noted call the only way to the parent. Kills: registration left on
+// `thread/started` (no child run), the v2 call never noted (no parent run, so no child run), names
+// never read, the path from another member, `reasoningEffort` never read, the start's model taken
+// from the read alone (the read names none), no model or the lead's on the usage, and the kind not
+// checked (a second child run on the `interacted` item).
 #[tokio::test]
 async fn a_v2_spawn_starts_its_helpers_child_run_as_codex_names_it() {
     let mut session = TestCodexSession::start().await;
@@ -282,6 +291,8 @@ async fn a_v2_spawn_starts_its_helpers_child_run_as_codex_names_it() {
             name: handle("Scout"),
             role: handle("explorer"),
             provider_path: handle("/root/scout"),
+            model_id: Some(token(HELPER_MODEL)),
+            effort: Some(token("low")),
             start_call_id: None,
         })
     );
@@ -301,20 +312,26 @@ async fn a_v2_spawn_starts_its_helpers_child_run_as_codex_names_it() {
 
 // Each v1 spawn's helper starts beneath the run of its own call and its row names that call, though
 // the later call completes first, and a helper whose `thread/read` fails starts all the same, with
-// no name or role. Kills: the oldest noted call taken (`helper-b` beneath the first call's run),
-// and a failed read starting no run.
+// no name or role but the model and effort its completed item names. Kills: the oldest noted call
+// taken (`helper-b` beneath the first call's run), a failed read starting no run, and the v1 item's
+// `reasoningEffort` or model never read (the read fails, so the item is their only source).
 #[tokio::test]
 async fn each_v1_spawn_starts_its_helper_beneath_its_own_call() {
     let mut session = TestCodexSession::start().await;
     let first = open_live_turn(&mut session, LEAD_TURN);
     let second = open_live_turn(&mut session, "second-turn");
     let spawn_call = |call_id: &str, receivers: &[&str]| {
-        json!({
+        let mut item = json!({
             "type": "collabAgentToolCall", "id": call_id, "tool": "spawnAgent",
             "status": if receivers.is_empty() { "inProgress" } else { "completed" },
             "senderThreadId": TEST_THREAD, "receiverThreadIds": receivers,
             "agentsStates": {},
-        })
+        });
+        if call_id == "call-1" && !receivers.is_empty() {
+            item["model"] = json!("gpt-5.4");
+            item["reasoningEffort"] = json!("high");
+        }
+        item
     };
 
     for (call_id, turn_id) in [("call-1", LEAD_TURN), ("call-2", "second-turn")] {
@@ -359,6 +376,10 @@ async fn each_v1_spawn_starts_its_helper_beneath_its_own_call() {
         .expect("a child run names its helper");
     assert_eq!((&helper_a.name, &helper_a.role), (&None, &None));
     assert_eq!(
+        (&helper_a.model_id, &helper_a.effort),
+        (&Some(token("gpt-5.4")), &Some(token("high")))
+    );
+    assert_eq!(
         started_row_calls(&session),
         HashMap::from([
             ("helper-a".to_owned(), Some("call-1".to_owned())),
@@ -385,10 +406,12 @@ async fn start_helper(session: &mut TestCodexSession, helper_thread: &str) -> Ru
             TEST_THREAD,
             helper_thread,
             Some(&spawn_call),
-            CodexHelperNames {
+            CodexHelperStart {
                 name: None,
                 role: None,
                 provider_path: None,
+                model_id: None,
+                effort: None,
             },
         )
         .await;

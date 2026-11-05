@@ -18,7 +18,7 @@ use tokio::time::Instant;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::compaction::read_codex_compaction_boundary_position;
-use crate::driver::codex::delivery::children::{CodexHelperNames, read_codex_helper_thread};
+use crate::driver::codex::delivery::children::{CodexHelperStart, read_codex_helper_thread};
 use crate::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
 use crate::driver::codex::delivery::frames::{CodexFrameDelivery, CodexFrameDispatch};
 use crate::driver::codex::event_normalizer::{
@@ -152,14 +152,15 @@ impl CodexRoutedFrames {
 }
 
 /// One session's frame router, usage accountant and terminal gate, kept on its task beside its
-/// record, with the model each spawned helper runs on; the gate outlives each record, since a
+/// record, with the model each spawned or restored helper runs on; the gate outlives each record, since a
 /// close covers whichever run is in flight.
 pub(crate) struct CodexSessionRouting {
     router: ThreadFrameRouter<CodexRoutableFrame>,
     accountant: UsageDeltaAccountant,
     gate: TerminalEmissionGate,
     pending_compactions: PendingCompactionRegistry,
-    // Each live spawned helper's model by its conversation, which its usage readings name.
+    // Each live spawned or restored helper's model by its conversation, which its usage readings
+    // name.
     helper_models: HashMap<String, String>,
 }
 
@@ -262,8 +263,9 @@ impl CodexSessionRouting {
 
     /// Registers again a helper of the session's conversation that an adoption restored, running
     /// or with its newest turn over, beneath the conversation, its usage based on
-    /// `prior_emitted_cumulative`, what was already metered on it, and delivers the frames that
-    /// waited for it. Starts no child run: the helper's run is the one it already holds.
+    /// `prior_emitted_cumulative`, what was already metered on it, and its model read from its
+    /// conversation's `thread/read` before the frames that waited for it are delivered. Starts no
+    /// child run: the helper's run is the one it already holds.
     pub(crate) async fn restore_helper_thread(
         &mut self,
         delivery: &CodexFrameDelivery,
@@ -277,6 +279,13 @@ impl CodexSessionRouting {
                 prior_emitted_cumulative,
             },
         );
+        // Read before its held frames are released, so each usage reading among them names it.
+        if let Some(model) = read_codex_helper_thread(record, &helper_thread_id)
+            .await
+            .and_then(|reading| reading.model)
+        {
+            self.helper_models.insert(helper_thread_id.clone(), model);
+        }
         let mut routed = CodexRoutedFrames::default();
         let registered = self
             .router
@@ -366,8 +375,8 @@ impl CodexSessionRouting {
     }
 
     // A helper registered once: its usage based at zero and, for a subagent, its model kept and its
-    // child run started under the names its conversation's `thread/read` gives and the path its
-    // spawn item gives. A repeated announcement keeps the base, since re-basing would meter
+    // child run started under the names its conversation's `thread/read` gives, and the path, the
+    // model and the effort its spawn item gives, the model else the read's. A repeated announcement keeps the base, since re-basing would meter
     // reported spend again, and starts nothing, since a second start would show the helper twice.
     async fn start_registered_child(
         &mut self,
@@ -396,16 +405,19 @@ impl CodexSessionRouting {
         };
         let reading = read_codex_helper_thread(record, child_thread_id).await;
         let reading = reading.as_ref();
-        if let Some(model) = helper
+        let model = helper
             .model
-            .or_else(|| reading.and_then(|reading| reading.model.clone()))
-        {
-            self.helper_models.insert(child_thread_id.to_owned(), model);
+            .or_else(|| reading.and_then(|reading| reading.model.clone()));
+        if let Some(model) = &model {
+            self.helper_models
+                .insert(child_thread_id.to_owned(), model.clone());
         }
-        let names = CodexHelperNames::new(
+        let helper_start = CodexHelperStart::new(
             reading.and_then(|reading| reading.agent_nickname.clone()),
             reading.and_then(|reading| reading.agent_role.clone()),
             helper.provider_path,
+            model,
+            helper.reasoning_effort,
         );
         delivery
             .start_child(
@@ -414,7 +426,7 @@ impl CodexSessionRouting {
                 parent_thread_id,
                 subagent_id,
                 helper.call_id.as_deref(),
-                names,
+                helper_start,
             )
             .await;
     }
@@ -467,8 +479,8 @@ impl CodexSessionRouting {
 
     // Meters a usage frame and answers its reading; `None` for any other frame or no reading. A
     // reading that cannot be read is reported, since a silent drop is spend no receipt shows. A
-    // helper's reading runs at the thread's tier and names the model its spawn named, none for a
-    // restored helper; any other runs at its turn's sent tier and model, else the thread's, as for
+    // helper's reading runs at the thread's tier and names the model its spawn or its conversation's
+    // read named; any other runs at its turn's sent tier and model, else the thread's, as for
     // a turn the daemon started, which keeps none.
     fn meter_usage_frame(
         &mut self,

@@ -6,6 +6,7 @@
 use std::time::Duration;
 
 use serde_json::value::RawValue;
+use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
@@ -31,30 +32,39 @@ use crate::run::delivery::LateAppendableRow;
 use crate::run::delivery::{ChildRunSubagent, DeliveryBinding, InboundDelivery, InboundOutcome};
 use crate::run::state_entry::RunStateEntry;
 
-/// The names a helper's child run carries, each `None` where Codex gives none or one the contract
-/// refuses.
-pub(crate) struct CodexHelperNames {
+/// What a helper's child run carries from Codex: its names and path, and the model and effort it
+/// runs on, each `None` where Codex gives none or one the contract refuses.
+pub(crate) struct CodexHelperStart {
     /// Its nickname, `agentNickname` on the `thread/read` of its conversation.
     pub(crate) name: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
     /// The role it was started in, `agentRole` on the same read.
     pub(crate) role: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
     /// Its path in Codex's tree of helpers, `agentPath` on the spawn item; a v1 spawn names none.
     pub(crate) provider_path: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    /// The model it runs on, the spawn item's `model`, else its conversation's.
+    pub(crate) model_id: Option<ProviderToken>,
+    /// The effort it runs at, the spawn item's `reasoningEffort`, as Codex words it.
+    pub(crate) effort: Option<ProviderToken>,
 }
 
-impl CodexHelperNames {
-    /// The names as the contract holds them; a value it refuses, one holding NUL or one over the
-    /// cap, reads as none, never cut.
+impl CodexHelperStart {
+    /// The start as the contract holds it; a value it refuses, one holding NUL or one over the cap,
+    /// reads as none, never cut.
     pub(crate) fn new(
         name: Option<String>,
         role: Option<String>,
         provider_path: Option<String>,
+        model: Option<String>,
+        reasoning_effort: Option<String>,
     ) -> Self {
         let handle = |text: Option<String>| text.and_then(|text| FreeFormText::new(text).ok());
+        let token = |text: Option<String>| text.and_then(|text| ProviderToken::new(text).ok());
         Self {
             name: handle(name),
             role: handle(role),
             provider_path: handle(provider_path),
+            model_id: token(model),
+            effort: token(reasoning_effort),
         }
     }
 }
@@ -63,9 +73,9 @@ impl CodexHelperNames {
 /// without them.
 const CODEX_HELPER_READ_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Reads a spawned helper's conversation for its names and model, waiting at most
+/// Reads a spawned or restored helper's conversation for its names and model, waiting at most
 /// [`CODEX_HELPER_READ_TIMEOUT`]; a read that fails or finds no thread is logged and answers `None`,
-/// and the helper starts unnamed.
+/// and the helper goes without them.
 pub(crate) async fn read_codex_helper_thread(
     record: &CodexSessionRecord,
     helper_thread_id: &str,
@@ -85,7 +95,7 @@ pub(crate) async fn read_codex_helper_thread(
         session_id = %record.session_id,
         helper_thread_id,
         error = error.as_ref().map(|error| error as &(dyn std::error::Error + 'static)),
-        "codex's helper thread read failed; the helper starts with no name or role"
+        "codex's helper thread read failed; the helper goes without the names and model it gives"
     );
     None
 }
@@ -157,8 +167,8 @@ impl CodexSessionRecord {
 impl CodexFrameDelivery {
     /// Starts the child run of a helper Codex spawned on `child_thread_id` by the call
     /// `spawn_call_id`: beneath the run whose noted spawn call on the parent thread has that id,
-    /// else the parent helper's own child run, else the session's one live run, under the `names`
-    /// Codex gave it, and routes its run to its conversation, which an interrupt of the run
+    /// else the parent helper's own child run, else the session's one live run, as `helper_start`
+    /// names it, and routes its run to its conversation, which an interrupt of the run
     /// reaches. Its rows name `spawn_call_id` as their call whichever run it starts beneath. A
     /// helper whose parent run cannot be told, or beneath a helper that never started, is left
     /// unstarted, since no run can own it.
@@ -169,7 +179,7 @@ impl CodexFrameDelivery {
         parent_thread_id: &str,
         subagent_id: &str,
         spawn_call_id: Option<&str>,
-        names: CodexHelperNames,
+        helper_start: CodexHelperStart,
     ) {
         // A helper id the transcript cannot hold names no helper a row could show.
         let Ok(subagent_id) = SubagentId::new(subagent_id.to_owned()) else {
@@ -229,7 +239,7 @@ impl CodexFrameDelivery {
                     &child,
                     parent_run_id,
                     parent_subagent_id,
-                    names,
+                    helper_start,
                 )
                 .await;
         }
@@ -356,7 +366,7 @@ impl CodexFrameDelivery {
         self.send(record, end, "turn/completed").await;
     }
 
-    // The child run, naming the helper as Codex `names` it and its parent helper
+    // The child run, naming the helper as `helper_start` names it and its parent helper
     // `parent_subagent_id`, and its `subagent.started` row, which names the child run the engine
     // started first; the child's start once the run engine started or refused it, `None` when it
     // absorbed it. A refused helper keeps its ended run, which absorbs its rows, and its
@@ -369,7 +379,7 @@ impl CodexFrameDelivery {
         child: &CodexChildRun,
         parent_run_id: RunId,
         parent_subagent_id: Option<SubagentId>,
-        names: CodexHelperNames,
+        helper_start: CodexHelperStart,
     ) -> Option<CodexBoundChildRun> {
         let start = InboundDelivery::ChildRun {
             binding: DeliveryBinding {
@@ -384,9 +394,11 @@ impl CodexFrameDelivery {
             subagent: ChildRunSubagent {
                 subagent_id: child.subagent_id.clone(),
                 parent_subagent_id,
-                name: names.name,
-                role: names.role,
-                provider_path: names.provider_path,
+                name: helper_start.name,
+                role: helper_start.role,
+                provider_path: helper_start.provider_path,
+                model_id: helper_start.model_id,
+                effort: helper_start.effort,
                 start_call_id: None,
             },
         };

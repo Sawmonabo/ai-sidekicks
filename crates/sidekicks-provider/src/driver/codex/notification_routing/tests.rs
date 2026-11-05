@@ -148,10 +148,11 @@ async fn a_startup_round_lists_its_servers_once_keeping_each_startups_status() {
 
 // The thread runs `gpt-5.4`; the kept turn `turn-1` was sent at `gpt-5.5`, and `turn-daemon`, one
 // the daemon started, keeps no input. Each case reads its reading's tier, thread tier and model.
+// A restored helper's reading names the model its conversation's `thread/read` gives.
 // Killed by the thread's tier on a per-turn request, by the per-turn tier as the thread's, by no
 // fallback to the thread's tier or model, by a made-up tier where none was declared, by a reroute
-// not applied or applied only when its row has a run, and by a root turn's tier or any model on a
-// helper's reading.
+// not applied or applied only when its row has a run, by a root turn's tier or model on a helper's
+// reading, and by a restored helper's model never read.
 #[rstest]
 #[case::turn_sent_at_its_own_tier(
     Some("default"), Some("priority"), "turn-1", None, false,
@@ -169,9 +170,9 @@ async fn a_startup_round_lists_its_servers_once_keeping_each_startups_status() {
     Some("default"), Some("priority"), "turn-1", Some("gpt-5.5-cyber"), false,
     (Some("priority"), Some("default"), Some("gpt-5.5-cyber"))
 )]
-#[case::helper_naming_the_kept_turn(
+#[case::restored_helper_naming_the_kept_turn(
     Some("default"), Some("priority"), "turn-1", None, true,
-    (Some("default"), Some("default"), None)
+    (Some("default"), Some("default"), Some("gpt-5.4-mini"))
 )]
 #[tokio::test(start_paused = true)]
 async fn a_usage_reading_carries_its_turns_tier_the_threads_tier_and_its_model(
@@ -215,14 +216,25 @@ async fn a_usage_reading_carries_its_turns_tier_the_threads_tier_and_its_model(
             .await;
     }
     let reading_thread = if is_helper {
-        task.routing
-            .restore_helper_thread(
+        let script = &mut session.scripted.script;
+        let answer_read = async {
+            let read = script.next_sent().await;
+            assert_eq!(read["method"], "thread/read", "{read}");
+            assert_eq!(read["params"]["threadId"], "helper-1", "{read}");
+            script.answer(
+                &read,
+                &json!({"thread": {"id": "helper-1", "model": "gpt-5.4-mini"}}),
+            );
+        };
+        tokio::join!(
+            task.routing.restore_helper_thread(
                 &delivery,
                 &mut task.record,
                 "helper-1".to_owned(),
                 UsageAxisCounts::default(),
-            )
-            .await;
+            ),
+            answer_read
+        );
         "helper-1"
     } else {
         TEST_THREAD

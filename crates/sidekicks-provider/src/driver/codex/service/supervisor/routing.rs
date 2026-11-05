@@ -152,6 +152,7 @@ struct SpawnItem {
     agent_path: Option<Box<RawValue>>,
     receiver_thread_ids: Option<Box<RawValue>>,
     model: Option<Box<RawValue>>,
+    reasoning_effort: Option<Box<RawValue>>,
 }
 
 /// A helper Codex spawned, as the spawn item on its parent's turn names it.
@@ -165,6 +166,8 @@ pub(crate) struct CodexSpawnedHelper {
     pub(crate) provider_path: Option<String>,
     /// The model it runs on, the item's `model`.
     pub(crate) model: Option<String>,
+    /// The effort it runs at, the item's `reasoningEffort`.
+    pub(crate) reasoning_effort: Option<String>,
 }
 
 /// The conversation a frame names and the helpers its spawn item names, read in one parse.
@@ -241,6 +244,8 @@ fn read_spawned_helpers(is_completed: bool, item: &RawValue) -> Vec<CodexSpawned
     };
     let call_id = read_text(item.id.as_deref());
     let model = read_text(item.model.as_deref()).filter(|model| !model.trim().is_empty());
+    let reasoning_effort =
+        read_text(item.reasoning_effort.as_deref()).filter(|effort| !effort.trim().is_empty());
     match read_text(item.item_type.as_deref()).as_deref() {
         Some(CODEX_SUB_AGENT_ACTIVITY_ITEM_TYPE)
             if read_text(item.kind.as_deref()).as_deref() == Some(CODEX_SPAWNED_ACTIVITY_KIND) =>
@@ -251,6 +256,7 @@ fn read_spawned_helpers(is_completed: bool, item: &RawValue) -> Vec<CodexSpawned
                     call_id,
                     provider_path: read_text(item.agent_path.as_deref()),
                     model,
+                    reasoning_effort,
                 })
                 .into_iter()
                 .collect()
@@ -271,6 +277,7 @@ fn read_spawned_helpers(is_completed: bool, item: &RawValue) -> Vec<CodexSpawned
                     call_id: call_id.clone(),
                     provider_path: None,
                     model: model.clone(),
+                    reasoning_effort: reasoning_effort.clone(),
                 })
                 .collect()
         }
