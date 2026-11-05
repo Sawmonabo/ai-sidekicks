@@ -384,19 +384,11 @@ impl ClaudeDriver {
         params: FindTakenMessagesParams,
     ) -> Result<TakenMessages, DriverError> {
         let session_id = params.session_id;
-        let parts = self.composed_parts();
-        let conversation = parts
-            .and_then(|parts| parts.slots().live_session(session_id))
-            .map(|live| ClaudeEndedConversation {
-                provider_session_id: live.provider_session_id.clone(),
-                spawn_environment: live.spawn_bound_legs.spawn_environment.clone(),
-            })
-            .or_else(|| parts.and_then(|parts| parts.restarts.ended_conversation(session_id)))
-            .ok_or_else(|| {
-                DriverError::Internal(
-                    format!("no Claude Code conversation of session {session_id} is known").into(),
-                )
-            })?;
+        let conversation = self.last_conversation(session_id).ok_or_else(|| {
+            DriverError::Internal(
+                format!("no Claude Code conversation of session {session_id} is known").into(),
+            )
+        })?;
         let file = conversation_file_of(
             &conversation.spawn_environment,
             &conversation.provider_session_id,

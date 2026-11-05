@@ -270,16 +270,13 @@ impl ClaudeDriver {
         let parts = self.composed_parts();
         let live = parts.and_then(|parts| parts.slots().live_session(params.session_id));
         if let Some(project_folder) = &params.project_folder {
-            let ended =
-                parts.and_then(|parts| parts.restarts.ended_conversation(params.session_id));
-            let spawn_environment = match (&live, ended) {
-                (Some(live), _) => live.spawn_bound_legs.spawn_environment.clone(),
-                (None, Some(ended)) => ended.spawn_environment,
-                (None, None) => {
+            let spawn_environment =
+                if let Some(conversation) = self.last_conversation(params.session_id) {
+                    conversation.spawn_environment
+                } else {
                     let account = self.resting_account(params.session_id).await?;
                     self.sources.account_environment(&account).await?
-                }
-            };
+                };
             let config_folder = claude_account_config_folder(&spawn_environment);
             let repository = self.sources.read_repository(project_folder).await;
             let managed_settings_folder = DESCRIPTOR.managed_settings_folder();
