@@ -134,6 +134,43 @@ pub fn insert_run(
         .expect("the test stores a run");
 }
 
+/// Stores the waiting run `run_id` of version `version_id` in `session_id`, started at
+/// `started_at`: the first run of its own chain, or a later run of `root`'s chain where one is
+/// given.
+#[cfg(test)]
+pub(crate) fn insert_chain_run(
+    connection: &Connection,
+    run_id: &str,
+    version_id: &str,
+    session_id: &str,
+    started_at: &str,
+    root: Option<&str>,
+) {
+    insert_run(
+        connection,
+        run_id,
+        version_id,
+        WorkflowRunStatus::Waiting,
+        started_at,
+        None,
+    );
+    connection
+        .execute(
+            "UPDATE workflow_runs SET session_id = ?1 WHERE id = ?2",
+            params![session_id, run_id],
+        )
+        .expect("the test moves the run to its session");
+    if let Some(root) = root {
+        connection
+            .execute(
+                "UPDATE workflow_runs SET chain_root_run_id = ?1, chain_run_count = NULL,
+                   chain_kept_going = NULL WHERE id = ?2",
+                params![root, run_id],
+            )
+            .expect("the test chains a later run onto a first run");
+    }
+}
+
 /// A step a test stores: its place in the run, where it stands and what a waiting one waits on.
 pub struct TestStep<'step> {
     /// Its execution index.
