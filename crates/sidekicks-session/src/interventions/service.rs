@@ -14,9 +14,9 @@
 //! `failed`; one the provider got with no answer back leaves its row `accepted`, and an interrupt's
 //! queue hold held, until the run's end or a turn's end settles both, and a row such a settle
 //! reached while its dispatch was out answers that outcome. Retries on one run take turns under a
-//! per-run lock, and interrupts, the daemon's own at a limit among them, under another, so a stop
-//! never waits behind a retry and a retry still queued when it lands meets the advanced version and
-//! expires.
+//! per-run lock, and interrupts, the daemon's own at a limit and for an undo among them, under
+//! another, so a stop never waits behind a retry and a retry still queued when it lands meets the
+//! advanced version and expires.
 
 pub(crate) mod errors;
 pub(super) mod reached_state;
@@ -113,8 +113,8 @@ pub struct InterventionServiceDeps {
 }
 
 /// Takes every intervention on a run, a person's from their device's connection and the daemon's
-/// own at a limit, to one durable row, at most one dispatch and one outcome. Cloning shares its
-/// locks, so a clone a task carries orders its writes with the rest.
+/// own at a limit and for an undo, to one durable row, at most one dispatch and one outcome.
+/// Cloning shares its locks, so a clone a task carries orders its writes with the rest.
 #[derive(Clone)]
 pub struct InterventionService {
     /// The read pool every read borrows a connection from.
