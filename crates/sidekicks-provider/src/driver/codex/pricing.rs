@@ -11,9 +11,11 @@
 //!
 //! Web searches carry no count on Codex's usage, so none is priced.
 //!
-//! A session's recorder prices each row as it records it: it reads its service's region once per
-//! service, stamps it on every row so the stored row and the live key carry one region, and hands
-//! each model's recorded rows to the live pricing. A row naming no model is recorded unpriced.
+//! A session's recorder, and each side question's or hand-over's copy, prices each row as it
+//! records it: it reads its service's region once per service, stamps it on every row so the
+//! stored row and the live key carry one region, and hands each model's recorded rows to the
+//! driver's one live pricing, which a reroute also marks its model in use on. A row naming no model
+//! is recorded unpriced.
 
 use std::error::Error;
 use std::path::Path;

@@ -164,6 +164,8 @@ pub(crate) struct TestCodexTask {
     pub(crate) run_control: Arc<CodexRunControl>,
     /// How each let-go the driver asked of the record said it stopped being its session's.
     pub(crate) let_go_exits: Vec<CodexRecordExit>,
+    /// The live pricing over `ports` that its reroutes mark and its copies price through.
+    pub(crate) pricing: Arc<LivePricing>,
     items: mpsc::UnboundedReceiver<CodexSessionInbound>,
 }
 
@@ -197,7 +199,7 @@ impl TestCodexSession {
             stopped_helpers: Arc::new(CodexStoppedHelpers::new(TaskTracker::new())),
             effects: Arc::new(NoEffects),
             provider_accounts: Arc::new(PortRegistration::new("provider accounts")),
-            pricing,
+            pricing: Arc::clone(&pricing),
         }));
         let session_id = new_session_id();
         let lead_agent_id = new_agent_id();
@@ -301,6 +303,7 @@ impl TestCodexSession {
                 engine: Arc::clone(&engine) as _,
                 run_control,
                 let_go_exits: Vec::new(),
+                pricing,
                 items,
             },
             bindings,

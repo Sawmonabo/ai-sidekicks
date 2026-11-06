@@ -130,6 +130,7 @@ impl CodexDriver {
                         resume,
                         &params,
                         Arc::clone(&parts.ports.usage),
+                        Arc::clone(&parts.pricing),
                     )
                     .await?
             }

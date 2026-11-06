@@ -1,7 +1,7 @@
 //! The hand-over brief's summary on Codex: an ephemeral, read-only copy of the session's stored
 //! conversation, forked over a connection of its own, answers the fixed template in one turn. The
-//! session's own conversation is never touched, the copy's cost is metered on the session's
-//! binding, and the copy goes with its connection once its turn ended.
+//! session's own conversation is never touched, the copy's cost is metered and priced on the
+//! session's binding, and the copy goes with its connection once its turn ended.
 
 use std::sync::Arc;
 
@@ -10,15 +10,15 @@ use sidekicks_std::port_registration::PortRegistration;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::lifecycle::CodexDriver;
+use crate::driver::codex::pricing::CodexRecorderPricing;
 use crate::driver::codex::service::supervisor::routing::read_codex_frame_thread_id;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::establishment::CodexSessionEstablishment;
 use crate::driver::codex::session::side_questions::copy_turn::{
-    CopyFrameReading, CopyTurn, CopyTurnFailure, read_copy_frame,
+    CopyFrameReading, CopyTurn, CopyTurnFailure, compose_copy_request_facts, file_copy_usage,
+    read_copy_frame,
 };
-use crate::driver::codex::session::side_questions::{
-    file_copy_usage, fork_resting_copy, start_turn,
-};
+use crate::driver::codex::session::side_questions::{fork_resting_copy, start_turn};
 use crate::driver::contract::error::DriverError;
 use crate::driver::error_causes::provider_failure_refusal;
 use crate::driver::session_control::{
@@ -26,11 +26,13 @@ use crate::driver::session_control::{
 };
 use crate::hand_over::brief::HANDOVER_SUMMARY_TEMPLATE;
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner, UsageSink};
+use crate::pricing::live::LivePricing;
 use crate::usage_delta_accountant::{ThreadBaseEstablishment, UsageDeltaAccountant};
 
 impl CodexDriver {
     /// The session's hand-over summary: the answer an ephemeral, read-only copy of its stored
-    /// conversation gives the fixed template, the copy's cost metered on the session's binding.
+    /// conversation gives the fixed template, the copy's cost metered and priced on the session's
+    /// binding.
     /// Refused `provider.unavailable` in Codex's words where the copy's turn gave no answer; fails
     /// as the copy cannot be forked or its turn started.
     pub(crate) async fn export_handover_brief(
@@ -38,20 +40,22 @@ impl CodexDriver {
         params: ExportHandoverBriefParams,
     ) -> Result<DriverHandoverBriefResult, DriverError> {
         let parts = self.parts()?;
-        Ok(summarize_on_copy(&parts.establishment, &params, &parts.ports.usage).await?)
+        let usage = &parts.ports.usage;
+        Ok(summarize_on_copy(&parts.establishment, &params, usage, &parts.pricing).await?)
     }
 }
 
 /// Forks `params`' stored conversation into a read-only copy, asks it the template and reads its
-/// turn to its end, each usage reading filed through `usage`. Fails as
-/// [`CodexDriver::export_handover_brief`] fails.
+/// turn to its end, each usage reading recorded through `usage` and priced through `pricing` at the
+/// copy's model and declared tier. Fails as [`CodexDriver::export_handover_brief`] fails.
 async fn summarize_on_copy(
     establishment: &CodexSessionEstablishment,
     params: &ExportHandoverBriefParams,
     usage: &PortRegistration<Arc<dyn UsageSink>>,
+    pricing: &Arc<LivePricing>,
 ) -> Result<DriverHandoverBriefResult, CodexError> {
     // The service is held until the copy's turn ended; the copy goes with its connection.
-    let (_service, mut copy) = fork_resting_copy(establishment, &params.resume).await?;
+    let (service, mut copy) = fork_resting_copy(establishment, &params.resume).await?;
     start_turn(
         &copy.connection,
         &copy.thread_id,
@@ -62,13 +66,15 @@ async fn summarize_on_copy(
     // Fresh for the copy, so its cost never takes the session's own counts as its base.
     let mut accountant = UsageDeltaAccountant::new(DESCRIPTOR.provider_id());
     accountant.establish_thread(copy.thread_id.clone(), ThreadBaseEstablishment::Fresh);
+    let request = compose_copy_request_facts(&copy.model, copy.declared_tier.as_ref());
+    let mut recorder_pricing = CodexRecorderPricing::new(Arc::clone(pricing));
     let mut answer = None;
     let mut turn = None;
     while let Some((method, frame)) = copy.frames.recv().await {
         if read_codex_frame_thread_id(&method, &frame).as_deref() != Some(copy.thread_id.as_str()) {
             continue;
         }
-        match read_copy_frame(&method, &frame, &mut accountant) {
+        match read_copy_frame(&method, &frame, &request, &mut accountant) {
             CopyFrameReading::Reply(text) => answer = Some(text),
             CopyFrameReading::Usage(delta) => {
                 let metered = MeteredUsage {
@@ -77,7 +83,15 @@ async fn summarize_on_copy(
                     owner: MeteredUsageOwner::SessionCopy,
                     delta: *delta,
                 };
-                file_copy_usage(usage, metered, &params.resume.provider_account_id).await;
+                file_copy_usage(
+                    usage,
+                    metered,
+                    &params.resume.provider_account_id,
+                    &mut recorder_pricing,
+                    &service,
+                    &copy.working_directory,
+                )
+                .await;
             }
             CopyFrameReading::Ended(ended) => {
                 turn = ended;

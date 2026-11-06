@@ -65,6 +65,7 @@ async fn a_hand_over_summary_forks_an_ephemeral_copy_that_answers_the_template()
         &establishment,
         &params,
         &Arc::new(PortRegistration::new("usage")),
+        &session.task.pricing,
     )
     .await
     .expect("the copy answers the template");

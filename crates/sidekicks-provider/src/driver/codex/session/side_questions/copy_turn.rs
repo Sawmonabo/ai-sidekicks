@@ -1,17 +1,30 @@
-//! Reading a throwaway copy's one turn: its reply, its usage metered against the copy's own base,
-//! and how the turn ended.
+//! Reading a throwaway copy's one turn: its reply, its usage metered against the copy's own base
+//! at the copy's model and the tier its fork declared, and how the turn ended; and filing each
+//! metered reading, recorded and priced through the driver's live pricing.
+
+use std::error::Error;
+use std::path::Path;
+use std::sync::Arc;
 
 use serde::Deserialize;
 use serde_json::Value;
 use serde_json::value::RawValue;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
+use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
+use sidekicks_std::port_registration::PortRegistration;
 
 use crate::driver::codex::event_normalizer::{
     CODEX_ITEM_COMPLETED_METHOD, CODEX_THREAD_TOKEN_USAGE_METHOD, CODEX_TURN_COMPLETED_METHOD,
 };
+use crate::driver::codex::pricing::CodexRecorderPricing;
+use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::token_usage::read_codex_token_usage;
 use crate::driver::codex::transport::connection::read_codex_object;
+use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
 use crate::driver::codex::turn_evidence::CodexTurnStatus;
-use crate::usage_delta_accountant::{MeteredUsageDelta, UsageDeltaAccountant};
+use crate::port::usage_sink::{MeteredUsage, UsageSink};
+use crate::usage_delta_accountant::{MeteredUsageDelta, UsageDeltaAccountant, UsageRequestFacts};
 
 /// The item type of the copy's reply.
 const CODEX_AGENT_MESSAGE_ITEM_TYPE: &str = "agentMessage";
@@ -63,10 +76,27 @@ pub(crate) enum CopyFrameReading {
     Other,
 }
 
-/// Reads one frame of a copy's turn, its usage metered through `accountant`.
+/// The facts every usage reading of a copy carries: the copy's `model`, and the tier its fork
+/// declared as both the request's and the thread's speed.
+pub(crate) fn compose_copy_request_facts(
+    model: &str,
+    declared_tier: Option<&ProviderOutputSpeedState>,
+) -> UsageRequestFacts {
+    let speed = declared_tier.and_then(|tier| BoundedText::new(tier.declared.as_str().to_owned()));
+    UsageRequestFacts {
+        model_id: FreeFormText::new(model.to_owned()).ok(),
+        speed: speed.clone(),
+        thread_speed: speed,
+        ..UsageRequestFacts::default()
+    }
+}
+
+/// Reads one frame of a copy's turn, each usage reading stamped with `request` and metered through
+/// `accountant`.
 pub(crate) fn read_copy_frame(
     method: &str,
     params: &RawValue,
+    request: &UsageRequestFacts,
     accountant: &mut UsageDeltaAccountant,
 ) -> CopyFrameReading {
     match method {
@@ -77,7 +107,10 @@ pub(crate) fn read_copy_frame(
             .filter(|text| !text.is_empty())
             .map_or(CopyFrameReading::Other, CopyFrameReading::Reply),
         CODEX_THREAD_TOKEN_USAGE_METHOD => read_codex_token_usage(params)
-            .and_then(|reading| accountant.meter_reading(reading))
+            .and_then(|mut reading| {
+                reading.request = request.clone();
+                accountant.meter_reading(reading)
+            })
             .map_or(CopyFrameReading::Other, |delta| {
                 CopyFrameReading::Usage(Box::new(delta))
             }),
@@ -86,6 +119,35 @@ pub(crate) fn read_copy_frame(
         ),
         _ => CopyFrameReading::Other,
     }
+}
+
+/// Records a copy's metered usage through `usage` and prices it through `pricing`, its region read
+/// on `service`, the copy's own, for `folder`; a refused record or region read is reported under
+/// the copy's account. With no usage record registered it goes nowhere and reads no region.
+pub(crate) async fn file_copy_usage(
+    usage: &PortRegistration<Arc<dyn UsageSink>>,
+    metered: MeteredUsage,
+    provider_account_id: &ProviderAccountId,
+    pricing: &mut CodexRecorderPricing,
+    service: &CodexService,
+    folder: &Path,
+) {
+    let Some(sink) = usage.port() else {
+        return;
+    };
+    let session_id = metered.session_id;
+    let report = |error: Box<dyn Error + Send + Sync>| {
+        CodexTransportDiagnostic::PortDeliveryFailed {
+            provider_account_id: Some(provider_account_id.clone()),
+            port: CodexDeliveryPort::Usage,
+            session_id: Some(session_id),
+            error,
+        }
+        .report();
+    };
+    pricing
+        .record(&**sink, vec![metered], service, folder, &report)
+        .await;
 }
 
 /// Codex's own words for a copy's turn that ended with no answer.
