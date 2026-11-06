@@ -21,12 +21,15 @@ use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::file::publish_without_replacing::publish_without_replacing;
 use sidekicks_std::file::removal_after_failure::remove_file_after_failure;
+use sidekicks_std::file::version_folders::{
+    remove_other_versions, remove_temporary_files, temporary_file_name,
+};
+use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::outbound_http::download::{
     CheckedDownloadError, ExpectedDigest, download_checked,
 };
 use sidekicks_std::outbound_http::outbound_client_builder;
-use sidekicks_std::random_hex::random_hex;
 use sidekicks_std::retry::waits::retry_wait;
 use sidekicks_std::scheduler::{JobCondition, ScheduleError, Scheduler};
 use tokio::sync::watch;
@@ -53,9 +56,6 @@ const PROGRAM_SIZE_CAP: u64 = 256 * 1024 * 1024;
 const IDLE_CONNECTIONS_PER_HOST: usize = 1;
 const REDIRECTS_ALLOWED: usize = 5;
 const READ_TIMEOUT: Duration = Duration::from_mins(1);
-
-// The random bytes in a temporary file's name.
-const TEMPORARY_NAME_BYTES: usize = 8;
 
 // What an unpacking failure says it was doing.
 const UNPACKING: &str = "unpacking bun's program";
@@ -308,24 +308,36 @@ impl BunInstall {
     async fn install(&self, stop: &CancellationToken) -> Result<PathBuf, BunInstallError> {
         let version_folder = self.bun_folder.join(self.pin.version);
         let program = version_folder.join(self.pin.program_name);
-        remove_temporary_files(&self.bun_folder).await?;
-        remove_temporary_files(&version_folder).await?;
+        remove_temporary_files(&self.bun_folder)
+            .await
+            .map_err(BunInstallError::Folder)?;
+        remove_temporary_files(&version_folder)
+            .await
+            .map_err(BunInstallError::Folder)?;
         if tokio::fs::try_exists(&program)
             .await
             .map_err(BunInstallError::Folder)?
         {
-            self.remove_other_versions().await?;
+            // Every other version, each about 90 MB, goes.
+            remove_other_versions(&self.bun_folder, &[self.pin.version])
+                .await
+                .map_err(BunInstallError::Folder)?;
             return Ok(program);
         }
         tokio::fs::create_dir_all(&version_folder)
             .await
             .map_err(BunInstallError::Folder)?;
-        let archive = self.bun_folder.join(temporary_name(".zip")?);
+        let archive = self
+            .bun_folder
+            .join(temporary_file_name(".zip").map_err(BunInstallError::TemporaryName)?);
         let url = self.pin.archive_url(&self.releases_url);
         tokio::select! {
             biased;
             () = stop.cancelled() => {
-                remove_left_file(&archive).await?;
+                tokio::fs::remove_file(&archive)
+                    .await
+                    .none_if_missing()
+                    .map_err(BunInstallError::Folder)?;
                 return Err(BunInstallError::Stopped);
             }
             downloaded = download_checked(
@@ -340,47 +352,33 @@ impl BunInstall {
             let (archive, entry_name, unpacked) = (
                 archive.clone(),
                 self.pin.entry_name(),
-                version_folder.join(temporary_name("")?),
+                version_folder
+                    .join(temporary_file_name("").map_err(BunInstallError::TemporaryName)?),
             );
             tokio::task::spawn_blocking(move || unpack_program(&archive, &entry_name, &unpacked))
                 .await
         };
-        remove_left_file(&archive).await?;
+        tokio::fs::remove_file(&archive)
+            .await
+            .none_if_missing()
+            .map_err(BunInstallError::Folder)?;
         let unpacked = unpacked.map_err(BunInstallError::UnpackTask)??;
         if stop.is_cancelled() {
-            remove_left_file(&unpacked).await?;
+            tokio::fs::remove_file(&unpacked)
+                .await
+                .none_if_missing()
+                .map_err(BunInstallError::Folder)?;
             return Err(BunInstallError::Stopped);
         }
         // Another run's program already named answers as this one's.
         publish_without_replacing(&unpacked, &program)
             .await
             .map_err(BunInstallError::Publish)?;
-        self.remove_other_versions().await?;
-        Ok(program)
-    }
-
-    // Removes every folder in `tools/bun/` but the pinned version's, each about 90 MB.
-    async fn remove_other_versions(&self) -> Result<(), BunInstallError> {
-        let mut entries = tokio::fs::read_dir(&self.bun_folder)
+        // Every other version, each about 90 MB, goes.
+        remove_other_versions(&self.bun_folder, &[self.pin.version])
             .await
             .map_err(BunInstallError::Folder)?;
-        while let Some(entry) = entries
-            .next_entry()
-            .await
-            .map_err(BunInstallError::Folder)?
-        {
-            let is_folder = entry
-                .file_type()
-                .await
-                .map_err(BunInstallError::Folder)?
-                .is_dir();
-            if is_folder && entry.file_name() != self.pin.version {
-                tokio::fs::remove_dir_all(entry.path())
-                    .await
-                    .map_err(BunInstallError::Folder)?;
-            }
-        }
-        Ok(())
+        Ok(program)
     }
 }
 
@@ -507,46 +505,6 @@ async fn run_install(
             error = &refused as &(dyn Error + 'static),
             "bun's next install run could not be scheduled"
         ),
-    }
-}
-
-// A temporary file's name: a dot, so a later run knows it as one, random hex and `extension`.
-fn temporary_name(extension: &str) -> Result<String, BunInstallError> {
-    let hex = random_hex(TEMPORARY_NAME_BYTES).map_err(BunInstallError::TemporaryName)?;
-    Ok(format!(".{hex}{extension}"))
-}
-
-// Removes every file in `folder` whose name starts with a dot, the temporary files a stopped run
-// left; a missing folder holds none.
-async fn remove_temporary_files(folder: &Path) -> Result<(), BunInstallError> {
-    let mut entries = match tokio::fs::read_dir(folder).await {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(BunInstallError::Folder(error)),
-    };
-    while let Some(entry) = entries
-        .next_entry()
-        .await
-        .map_err(BunInstallError::Folder)?
-    {
-        let is_file = entry
-            .file_type()
-            .await
-            .map_err(BunInstallError::Folder)?
-            .is_file();
-        if is_file && entry.file_name().as_encoded_bytes().starts_with(b".") {
-            remove_left_file(&entry.path()).await?;
-        }
-    }
-    Ok(())
-}
-
-// Removes the file at `path`; one already gone counts as removed.
-async fn remove_left_file(path: &Path) -> Result<(), BunInstallError> {
-    match tokio::fs::remove_file(path).await {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(BunInstallError::Folder(error)),
     }
 }
 

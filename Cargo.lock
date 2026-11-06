@@ -8958,6 +8958,7 @@ dependencies = [
  "starlark",
  "strum 0.28.0",
  "subtle",
+ "tar",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",

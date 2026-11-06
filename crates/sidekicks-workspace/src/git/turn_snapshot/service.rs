@@ -37,7 +37,9 @@ use crate::git::turn_snapshot::capture::{
     EXCLUDE_PER_DIRECTORY_GITIGNORE, GitFloorReports, SparseListingPartition, TURN_SNAPSHOT_SUBJECT,
 };
 use crate::git::turn_snapshot::capture_folder::{CaptureFolder, git_folder_argument};
-use crate::git::turn_snapshot::capture_steps::{CaptureStepError, SnapshotCheckout, at, joined};
+use crate::git::turn_snapshot::capture_steps::{
+    CaptureStepError, SnapshotCheckout, at, index_lock_path, joined,
+};
 use crate::git::turn_snapshot::diagnostics::{
     CaptureDiagnostic, CaptureStep, TurnSnapshotRetentionSkipReason,
 };
@@ -268,10 +270,7 @@ impl TurnSnapshotService {
         // capture folder, outside every worktree, so it never shows in `ls-files -o` or
         // `git status`.
         let scratch_index = match random_hex(SCRATCH_INDEX_NAME_BYTES) {
-            Ok(name) => checkout
-                .capture_folder
-                .indexes_folder()
-                .join(format!("scratch-{name}.index")),
+            Ok(name) => checkout.capture_folder.scratch_index(&name),
             Err(failure) => {
                 return fail_capture(
                     input,
@@ -292,9 +291,8 @@ impl TurnSnapshotService {
             .await;
         // Never outlives the capture, nor does the lock file a git ended mid-write leaves beside
         // it; a failed removal is logged, never put in place of the capture's own outcome.
-        let mut lock_file = scratch_index.clone().into_os_string();
-        lock_file.push(".lock");
-        for removal_path in [scratch_index, PathBuf::from(lock_file)] {
+        let lock_file = index_lock_path(&scratch_index);
+        for removal_path in [scratch_index, lock_file] {
             let removed = remove_tree_awaited(&removal_path).await;
             if let Err(failure) = removed {
                 CaptureDiagnostic::ScratchIndexCleanupFailed {
