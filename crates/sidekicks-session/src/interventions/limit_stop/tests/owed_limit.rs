@@ -25,11 +25,9 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::message_handing::MessageHanding;
-use sidekicks_provider::driver::run_control::{
-    AnswerProviderChoiceResult, ResumeRunOutcome, WaitingMessage,
-};
+use sidekicks_provider::driver::run_control::{AnswerProviderChoiceResult, ResumeRunOutcome};
 use sidekicks_provider::port::run_pause::{
-    ContinuedMessages, ContinuedMessagesError, SessionOpening,
+    ContinuedMessages, ContinuedMessagesError, ContinuedRead, SessionOpening,
 };
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
@@ -212,8 +210,8 @@ impl ContinuedMessages for NoWaitingMessages {
         _hold: &KeyHold<'_, SessionId>,
         _run_id: RunId,
         _handing: MessageHanding,
-    ) -> BoxFuture<'_, Result<Vec<WaitingMessage>, ContinuedMessagesError>> {
-        async { Ok(Vec::new()) }.boxed()
+    ) -> BoxFuture<'_, Result<ContinuedRead, ContinuedMessagesError>> {
+        async { Ok(ContinuedRead::Messages(Vec::new())) }.boxed()
     }
 
     fn admit(

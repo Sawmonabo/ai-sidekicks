@@ -2,6 +2,7 @@
 //! whose driver is a stand-in: the order a call is refused in, a resume whose answer never came,
 //! a run ended under the driver call, and the provider's reports held while a resume runs.
 
+mod held_for_undo;
 mod owed_continuation;
 mod unopened;
 mod waiting_messages;
