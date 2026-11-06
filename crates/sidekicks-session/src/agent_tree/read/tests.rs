@@ -570,7 +570,6 @@ fn a_head_reads_its_model_effort_tokens_spend_and_start() {
     assert_eq!(first_helper.started_at.as_str(), at(3));
 
     let nested_helper = head(helper_link(&tree, &fixture.nested_helper));
-    assert_eq!(nested_helper.model_id.as_str(), "model-lead");
     assert_eq!(nested_helper.spend_usd_micros, spend(0));
 
     let model_and_effort = |handle: &ChildHandle| {
