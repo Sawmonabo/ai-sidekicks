@@ -6,6 +6,7 @@ use serde_json::{Map, Value, json};
 use sidekicks_contracts::approval::ApprovalDecision;
 use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::run::gate_resolution::WorkflowGateKind;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
@@ -14,6 +15,8 @@ use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use tokio::time::timeout;
 
 use crate::engine::chain::KeepGoingAnswer;
+use crate::engine::ports::{WorkflowRunSnapshotPoint, WorkflowRunSnapshotPointRequest};
+use crate::engine::tick::turns::tests::harness::ports::OrderedCall;
 use crate::engine::tick::turns::tests::harness::{
     Harness, QUIET, WAIT, edge, item, node, step_column,
 };
@@ -73,9 +76,11 @@ fn outcomes_of(harness: &Harness, intent: &Map<String, Value>) -> Vec<Value> {
         .collect()
 }
 
-/// An approval of the step `approve`, with its gate answer.
+/// An approval of a step of the run of `harness`, with its gate answer, whose ids end in
+/// `id_suffix`.
 fn approval(
     harness: &Harness,
+    id_suffix: u8,
 ) -> (
     PersonWaitAnswer,
     Option<crate::runs::gate_resolution::WorkflowGateAnswer>,
@@ -84,7 +89,7 @@ fn approval(
         PersonWaitAnswer::Approval(ApprovalDecision::Approved),
         Some(gate_answer(
             harness.scope.run_id.text().as_str(),
-            1,
+            id_suffix,
             WorkflowGateKind::HumanApproval,
             ApprovalDecision::Approved,
         )),
@@ -158,7 +163,7 @@ async fn the_first_of_an_answer_and_the_deadline_settles_the_wait(#[case] is_ans
         Some(wall_instant(&stored_deadline(&harness, "approve")))
     );
 
-    let (answer, gate) = approval(&harness);
+    let (answer, gate) = approval(&harness, 1);
     if is_answer_first {
         assert_eq!(
             harness.answer(p_wait, answer.clone(), gate.clone()).await,
@@ -293,6 +298,173 @@ async fn a_failed_ask_fails_its_step() {
         })
         .count();
     assert_eq!(failures, 1);
+}
+
+/// The order log's line for pause `ordinal` of the run of `harness`.
+fn pause_point(harness: &Harness, ordinal: u64) -> OrderedCall {
+    OrderedCall::Point(WorkflowRunSnapshotPointRequest {
+        session_id: harness.scope.session_id,
+        workflow_run_id: harness.scope.run_id,
+        point: WorkflowRunSnapshotPoint::Pause {
+            ordinal: SafeInt::new(ordinal).expect("the test's ordinal"),
+        },
+    })
+}
+
+/// The order log's line for the card raised for `wait_id`.
+fn card(wait_id: UuidTextForm) -> OrderedCall {
+    OrderedCall::Ask {
+        kind: "approval",
+        wait_id,
+    }
+}
+
+/// Each approval pause takes its point, counted from 1, before its card is raised. Kills: the
+/// card raised in `ask_people` before the capture is spawned; the pause count not moved, so the
+/// second pause takes `pause-1` again.
+#[tokio::test]
+async fn each_approval_pause_takes_its_point_before_its_card() {
+    let harness = Harness::new(None).await;
+    harness
+        .start(
+            vec![
+                node("trigger", "test.trigger", 0, None),
+                node("approve", "test.approve", 1, None),
+                node("second", "test.approve", 2, None),
+            ],
+            &[edge("trigger", "approve", 0), edge("approve", "second", 0)],
+            vec![item(json!({}))],
+            |_| {},
+        )
+        .await;
+    let calls = harness.ordered_calls(2).await;
+    let first_wait = harness.wait_id("approve");
+    assert_eq!(calls, [pause_point(&harness, 1), card(first_wait)]);
+
+    let (answer, gate) = approval(&harness, 1);
+    assert_eq!(harness.answer(first_wait, answer, gate).await, Ok(Ok(())));
+    let calls = harness.ordered_calls(4).await;
+    let second_wait = harness.wait_id("second");
+    assert_eq!(calls[2..], [pause_point(&harness, 2), card(second_wait)]);
+}
+
+/// A capture held at its gate holds only its own run's card: another run's step completes and
+/// its next step's row is written meanwhile, and the card is raised once the capture ends.
+/// Kills: the tick awaiting the capture, so the other run's write never lands; the card raised
+/// as soon as the capture is spawned.
+#[tokio::test]
+async fn a_held_capture_holds_only_its_runs_card() {
+    const OTHER_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e70";
+    let mut harness = Harness::new(None).await;
+    harness.points.set_gate(false);
+    harness
+        .start(
+            vec![
+                node("trigger", "test.trigger", 0, None),
+                node("approve", "test.approve", 1, None),
+            ],
+            &[edge("trigger", "approve", 0)],
+            vec![item(json!({}))],
+            |_| {},
+        )
+        .await;
+    harness
+        .wait_until(|rows| step_column(rows, "approve", "status").as_deref() == Some("waiting"))
+        .await;
+    let (point, wait_id) = (pause_point(&harness, 1), harness.wait_id("approve"));
+
+    harness.scope.run_id = WorkflowRunId::new(OTHER_RUN_ID).expect("the test's run id");
+    harness
+        .start(
+            vec![
+                node("other", "test.trigger", 0, None),
+                node("B", "test.step", 1, None),
+                node("C", "test.step", 2, None),
+            ],
+            &[edge("other", "B", 0), edge("B", "C", 0)],
+            vec![item(json!({}))],
+            |_| {},
+        )
+        .await;
+    harness
+        .wait_until(|rows| step_column(rows, "C", "status").as_deref() == Some("succeeded"))
+        .await;
+    harness.wait_for_earlier_turns().await;
+    assert_eq!(
+        harness.ordered_calls(1).await,
+        std::slice::from_ref(&point),
+        "the card waits for its capture"
+    );
+
+    harness.points.set_gate(true);
+    assert_eq!(harness.ordered_calls(2).await, [point, card(wait_id)]);
+}
+
+/// A capture that fails still raises its card, after the point, and its step still waits.
+/// Kills: a failed capture dropping its ask, so no card is raised; a failed capture failing its
+/// step.
+#[tokio::test]
+async fn a_failed_capture_still_raises_its_card() {
+    let harness = Harness::new(None).await;
+    harness.points.refuse_every_capture();
+    harness
+        .start(
+            vec![
+                node("trigger", "test.trigger", 0, None),
+                node("approve", "test.approve", 1, None),
+            ],
+            &[edge("trigger", "approve", 0)],
+            vec![item(json!({}))],
+            |_| {},
+        )
+        .await;
+    let calls = harness.ordered_calls(2).await;
+    assert_eq!(
+        calls,
+        [pause_point(&harness, 1), card(harness.wait_id("approve"))]
+    );
+    harness.wait_for_earlier_turns().await;
+    assert_eq!(harness.status("approve").as_deref(), Some("waiting"));
+    let intents = harness.record_lines("raisingCard");
+    assert_eq!(intents.len(), 1);
+    assert_eq!(outcomes_of(&harness, &intents[0]), [json!("done")]);
+}
+
+/// A form wait and a reply wait open their questions and take no snapshot point. Kills: a point
+/// taken for every person wait.
+#[tokio::test]
+async fn a_form_or_reply_wait_takes_no_point() {
+    let mut harness = Harness::new(None).await;
+    harness
+        .start(
+            vec![
+                node("trigger", "test.trigger", 0, None),
+                node("Q", "test.ask", 1, None),
+                node("F", "test.form", 2, None),
+            ],
+            &[edge("trigger", "Q", 0), edge("trigger", "F", 0)],
+            vec![item(json!({}))],
+            |_| {},
+        )
+        .await;
+    harness
+        .wait_until(|rows| {
+            ["Q", "F"]
+                .iter()
+                .all(|node_id| step_column(rows, node_id, "status").as_deref() == Some("waiting"))
+        })
+        .await;
+    harness.wait_for_earlier_turns().await;
+
+    let calls = harness.ordered_calls(2).await;
+    assert_eq!(calls.len(), 2, "{calls:?}");
+    for (node_id, kind) in [("Q", "reply"), ("F", "form")] {
+        let wait_id = harness.wait_id(node_id);
+        assert!(
+            calls.contains(&OrderedCall::Ask { kind, wait_id }),
+            "{node_id}"
+        );
+    }
 }
 
 /// A park keeps its run's waits, so an answer still settles one, and the parked run starts

@@ -1,28 +1,26 @@
 //! The tick loop's test harness: a loop over a test database, the kinds its tests run, and
 //! what the tests read back.
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+pub(in crate::engine::tick::turns) mod ports;
+
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use futures::future::BoxFuture;
 use rusqlite::{Connection, params};
 use serde_json::{Value, json};
 use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::wire::AnyValue;
-use sidekicks_contracts::wire::id::{UuidTextForm, mint_uuid_v7};
+use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::{ComposedText, NonEmptyText};
 use sidekicks_contracts::workflow::definition::document::{WorkflowEdge, WorkflowNode};
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::events::WorkflowRunStartedPayload;
-use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use sidekicks_contracts::workflow::run::trigger::{
     WorkflowRunChainPlace, WorkflowRunMode, WorkflowRunTrigger, WorkflowStartedBy,
     WorkflowTriggerKind,
 };
-use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::scheduler::armed_instant::InstantJob as _;
 use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
@@ -42,12 +40,14 @@ use crate::engine::chain::{KeepGoingAnswer, KeepGoingIntake};
 use crate::engine::event_record::EngineRecorder;
 use crate::engine::ports::kept_payloads::KeptPayloads;
 use crate::engine::ports::{
-    ApprovalCardRaiser, EnginePorts, EngineRecordSink, FormQuestionRequest, KeptEngineRecords,
-    PersonWaitQuestions, PortError, REFUSED_PORT_CALL, ReplyQuestionRequest, ScriptedGate,
-    StepAdmission, StepPayloadArtifacts, WorkflowApprovalCardRequest, refusing_engine_ports,
+    ApprovalCardRaiser, EnginePorts, EngineRecordSink, KeptEngineRecords, PersonWaitQuestions,
+    RunSnapshotPoints, ScriptedGate, StepAdmission, StepPayloadArtifacts, refusing_engine_ports,
 };
 use crate::engine::start::StartedRun;
 use crate::engine::tick::dispatch::test_dispatch_recording;
+use crate::engine::tick::turns::tests::harness::ports::{
+    OrderLog, OrderedCall, RecordingAsks, RecordingSnapshotPoints,
+};
 use crate::engine::tick::turns::{
     ENGINE_TICK_STATEMENT_CAPACITY, EngineTick, EngineTickDependencies, EngineTickInput,
 };
@@ -104,6 +104,8 @@ enum Script {
     Approve,
     /// Asks for a chat reply that times out after 120 s.
     Ask,
+    /// Asks for a form that times out after 120 s.
+    Form,
 }
 
 /// An executor that runs `script`, waking `signal` where the script waits or is canceled.
@@ -182,6 +184,14 @@ impl NodeExecutor for ScriptedExecutor {
                     return Ok(person_wait(PersonAsk::Approval { prompt: prompt() }, 60));
                 }
                 Script::Ask => return Ok(person_wait(PersonAsk::Reply { prompt: prompt() }, 120)),
+                Script::Form => {
+                    let input_schema = serde_json::Map::new();
+                    let form = PersonAsk::Form {
+                        prompt: prompt(),
+                        input_schema,
+                    };
+                    return Ok(person_wait(form, 120));
+                }
             }))
         })
     }
@@ -296,6 +306,7 @@ fn kinds(signal: &Arc<Signals>) -> Arc<NodeKindTable> {
             scripted("test.gatedFailure", 1, Script::GatedFailure),
             scripted("test.approve", 1, Script::Approve),
             scripted("test.ask", 1, Script::Ask),
+            scripted("test.form", 1, Script::Form),
         ])
         .expect("the test's kinds build a table"),
     )
@@ -342,110 +353,6 @@ pub(in crate::engine::tick::turns) fn edge(
     .expect("the test's edge reads")
 }
 
-/// One call the test's asks took: what it raised or opened, for which step and wait, and the
-/// step's row, its status and wait id, as the call read it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(in crate::engine::tick::turns) struct RecordedAsk {
-    /// `approval`, `form` or `reply`.
-    pub(in crate::engine::tick::turns) kind: &'static str,
-    /// The step that waits.
-    pub(in crate::engine::tick::turns) step: WorkflowStepKey,
-    /// The wait the answer settles.
-    pub(in crate::engine::tick::turns) wait_id: UuidTextForm,
-    /// The step row's status at the call, `None` with no row.
-    pub(in crate::engine::tick::turns) row_status: Option<String>,
-    /// The step row's wait id at the call.
-    pub(in crate::engine::tick::turns) row_wait_id: Option<String>,
-}
-
-/// The approval cards and questions of a test, over their own connection to its database: each
-/// call is kept with what the step's row reads at the call, and every call fails while told to.
-pub(in crate::engine::tick::turns) struct RecordingAsks {
-    rows: Mutex<Connection>,
-    calls: Mutex<Vec<RecordedAsk>>,
-    is_refusing: AtomicBool,
-}
-
-impl RecordingAsks {
-    /// Makes every later call fail, as a card or question that cannot be written.
-    pub(in crate::engine::tick::turns) fn refuse_every_call(&self) {
-        self.is_refusing.store(true, Ordering::SeqCst);
-    }
-
-    /// Every call taken, in order.
-    pub(in crate::engine::tick::turns) fn calls(&self) -> Vec<RecordedAsk> {
-        lock(&self.calls).clone()
-    }
-
-    // Keeps the call of `kind` for `step` under `wait_id`, failing it while told to.
-    fn take(
-        &self,
-        kind: &'static str,
-        step: WorkflowStepKey,
-        wait_id: UuidTextForm,
-    ) -> Result<(), PortError> {
-        let (row_status, row_wait_id) = lock(&self.rows)
-            .query_row(
-                "SELECT status, wait_id FROM workflow_steps \
-                 WHERE workflow_run_id = ?1 AND execution_index = ?2",
-                params![
-                    step.workflow_run_id.text().as_str(),
-                    i64::try_from(step.execution_index.get()).expect("a test's index is small")
-                ],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .map_or((None, None), |(status, wait_id)| (Some(status), wait_id));
-        lock(&self.calls).push(RecordedAsk {
-            kind,
-            step,
-            wait_id,
-            row_status,
-            row_wait_id,
-        });
-        if self.is_refusing.load(Ordering::SeqCst) {
-            return Err("the test's asks refuse every call".into());
-        }
-        Ok(())
-    }
-}
-
-impl ApprovalCardRaiser for RecordingAsks {
-    fn raise(&self, request: WorkflowApprovalCardRequest) -> BoxFuture<'_, Result<(), PortError>> {
-        let step = request.step.expect("a step's approval names its step");
-        let taken = self.take("approval", step, request.wait_id);
-        Box::pin(async move { taken })
-    }
-}
-
-impl PersonWaitQuestions for RecordingAsks {
-    fn open_form(
-        &self,
-        request: FormQuestionRequest,
-    ) -> BoxFuture<'_, Result<QuestionId, PortError>> {
-        let taken = self.take("form", request.step, request.wait_id);
-        Box::pin(async move { taken.map(|()| fresh_question_id()) })
-    }
-
-    fn open_reply(
-        &self,
-        request: ReplyQuestionRequest,
-    ) -> BoxFuture<'_, Result<QuestionId, PortError>> {
-        let taken = self.take("reply", request.step, request.wait_id);
-        Box::pin(async move { taken.map(|()| fresh_question_id()) })
-    }
-
-    fn reattach<'call>(
-        &'call self,
-        _wait_id: &'call UuidTextForm,
-    ) -> BoxFuture<'call, Result<(), PortError>> {
-        Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
-    }
-}
-
-fn fresh_question_id() -> QuestionId {
-    QuestionId::try_from(mint_uuid_v7()).expect("a minted id is a UUID")
-}
-
 /// The loop over a test database, its payload store and record kept for the test, with the
 /// inbox runs start through.
 pub(in crate::engine::tick::turns) struct Harness {
@@ -463,6 +370,10 @@ pub(in crate::engine::tick::turns) struct Harness {
     pub(in crate::engine::tick::turns) scope: RunScope,
     /// The asks the loop's waits go through.
     pub(in crate::engine::tick::turns) asks: Arc<RecordingAsks>,
+    /// The snapshot points the loop's runs take.
+    pub(in crate::engine::tick::turns) points: Arc<RecordingSnapshotPoints>,
+    /// The asks' and the points' calls, in order.
+    order: Arc<OrderLog>,
     /// The wall clock the deadline clock's scheduler runs on, set to the real clock at the start.
     pub(in crate::engine::tick::turns) clock: Arc<TestWallClock>,
     /// The loop's deadline clock.
@@ -511,11 +422,9 @@ impl Harness {
             )),
             reports.clone(),
         );
-        let asks = Arc::new(RecordingAsks {
-            rows: Mutex::new(database.reader()),
-            calls: Mutex::new(Vec::new()),
-            is_refusing: AtomicBool::new(false),
-        });
+        let order = Arc::new(OrderLog::new(Vec::new()));
+        let asks = Arc::new(RecordingAsks::new(database.reader(), Arc::clone(&order)));
+        let points = Arc::new(RecordingSnapshotPoints::new(Arc::clone(&order)));
         let (inbox, received) = mpsc::channel(4);
         let tick = EngineTick::new(EngineTickDependencies {
             dispatch,
@@ -535,6 +444,7 @@ impl Harness {
                 questions: Arc::clone(&asks) as Arc<dyn PersonWaitQuestions>,
             },
             deadlines: Arc::clone(&deadlines),
+            snapshot_points: Arc::clone(&points) as Arc<dyn RunSnapshotPoints>,
         });
         tokio::spawn(tick.run());
         Self {
@@ -550,15 +460,18 @@ impl Harness {
             inbox,
             scope,
             asks,
+            points,
+            order,
             clock,
             deadlines,
             reports,
         }
     }
 
-    /// Stores the workflow of `nodes` and `edges`, the node `trigger` its trigger, and writes its
-    /// run as the start does, on `trigger_items`; `before_start` runs once the run is stored and
-    /// before the loop takes it. Answers the run's cancel.
+    /// Stores the workflow of `nodes` and `edges`, the node `trigger` its trigger, unless an
+    /// earlier run stored it, and writes the run of the scope's run id as the start does, on
+    /// `trigger_items`; `before_start` runs once the run is stored and before the loop takes it.
+    /// Answers the run's cancel.
     pub(in crate::engine::tick::turns) async fn start(
         &self,
         nodes: Vec<WorkflowNode>,
@@ -567,12 +480,22 @@ impl Harness {
         before_start: impl FnOnce(&Connection),
     ) -> CancellationToken {
         let base = &self.scope;
-        insert_workflow_version_body(
-            &self.rows,
-            base.workflow_id.text().as_str(),
-            base.workflow_version_id.text().as_str(),
-            &json!({ "name": "Loop", "nodes": nodes, "edges": edges }),
-        );
+        let is_stored: bool = self
+            .rows
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM workflow_definitions WHERE id = ?1)",
+                [base.workflow_id.text().as_str()],
+                |row| row.get(0),
+            )
+            .expect("the test reads its workflow");
+        if !is_stored {
+            insert_workflow_version_body(
+                &self.rows,
+                base.workflow_id.text().as_str(),
+                base.workflow_version_id.text().as_str(),
+                &json!({ "name": "Loop", "nodes": nodes, "edges": edges }),
+            );
+        }
         let trigger = WorkflowRunTrigger {
             kind: WorkflowTriggerKind::Manual,
             node_id: nodes[0].id.clone(),
@@ -639,6 +562,7 @@ impl Harness {
         )
         .expect("the test's graph builds");
         let scope = RunScope {
+            run_id: base.run_id,
             trigger,
             ..test_run_scope(WorkflowRunMode::Manual, nodes)
         };
@@ -779,6 +703,20 @@ impl Harness {
     pub(in crate::engine::tick::turns) fn wait_id(&self, node_id: &str) -> UuidTextForm {
         UuidTextForm::new(&step_column(&self.rows, node_id, "wait_id").expect("the step waits"))
             .expect("a stored wait id is a UUID")
+    }
+
+    /// Waits until the asks and the points have taken `count` calls, and answers every call
+    /// taken, in order.
+    pub(in crate::engine::tick::turns) async fn ordered_calls(
+        &self,
+        count: usize,
+    ) -> Vec<OrderedCall> {
+        let mut calls = self.order.subscribe();
+        timeout(WAIT, calls.wait_for(|calls| calls.len() >= count))
+            .await
+            .expect("the loop calls in time")
+            .expect("the log stays open")
+            .clone()
     }
 
     /// The instant the deadline clock is armed at, `None` while nothing is armed.
