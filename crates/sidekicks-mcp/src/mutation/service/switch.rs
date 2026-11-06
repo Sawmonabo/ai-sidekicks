@@ -19,7 +19,7 @@ use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::mcp_server::write::McpServerWrite;
 
 use super::{
-    McpMutationParts, McpMutationService, McpMutationStart, McpOperation,
+    McpMutationParts, McpMutationService, McpMutationStart, McpOperation, McpReceiptOperation,
     ROW_UNREAD_BEFORE_WRITE_WORDS, before_digest, bindings_of, observe_before, response_of,
     response_value,
 };
@@ -51,7 +51,12 @@ impl McpMutationService {
         let (idempotency_key, wanted, project_root) = switch_parts(&request);
         let operation = McpOperation::SetEnabled;
         let (receipt_key, request_digest, _hold) = match self
-            .start(operation, idempotency_key, &request, &binding)
+            .start(
+                McpReceiptOperation::Mutation(operation),
+                idempotency_key,
+                &request,
+                &binding,
+            )
             .await?
         {
             McpMutationStart::Answered(answer) => return response_of(answer),

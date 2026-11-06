@@ -52,7 +52,7 @@ const FAIL_COMMITS_SQL: &str = "CREATE TRIGGER fail_commits BEFORE UPDATE ON mcp
      BEGIN SELECT RAISE(ABORT, 'the test fails this commit'); END";
 
 /// The provider the test registry registers first, which every test's driver answers for.
-fn first_provider() -> ProviderId {
+pub(super) fn first_provider() -> ProviderId {
     ProviderId::new(PROVIDER_REGISTRATIONS[0].descriptor.id.to_owned()).expect("a provider id")
 }
 
@@ -219,17 +219,17 @@ fn code<Response>(answer: &Result<Response, DomainError>) -> Option<RefusalCode>
 /// A mutation service over a fresh database and keychain, the table's first providers answered by
 /// a test's drivers in order, with the real inventory, binding store and receipts under it, and a
 /// feed reading the board its tracker and the service send on.
-struct Fixture {
+pub(super) struct Fixture {
     database: TestDatabase,
     keychain: Arc<CountingKeychain>,
-    service: McpMutationService,
+    pub(super) service: McpMutationService,
     notices: Box<dyn Feed<Emission = McpSubscribeEmission>>,
     _data_folder: TempDir,
     _platform_store: PlatformCredentialStore,
 }
 
 impl Fixture {
-    async fn new(
+    pub(super) async fn new(
         drivers: Vec<Arc<dyn ProviderDriver>>,
         removal_rows: Option<McpRemovalRows>,
     ) -> Self {
@@ -266,7 +266,7 @@ impl Fixture {
     }
 
     /// `key`'s receipt status, `None` where it has no receipt.
-    fn receipt_status(&self, key: &ClientUuid) -> Option<String> {
+    pub(super) fn receipt_status(&self, key: &ClientUuid) -> Option<String> {
         self.database
             .reader()
             .query_row(
@@ -278,7 +278,7 @@ impl Fixture {
             .expect("the test reads the receipt")
     }
 
-    fn count(&self, sql: &str) -> i64 {
+    pub(super) fn count(&self, sql: &str) -> i64 {
         self.database
             .reader()
             .query_row(sql, [], |row| row.get(0))
@@ -294,7 +294,7 @@ impl Fixture {
 
     /// The config-changed notices waiting on the fixture's feed, in the order it reads them; the
     /// tracker's status notices are passed over.
-    fn config_notices(&mut self) -> Vec<McpServerConfigChangedNotice> {
+    pub(super) fn config_notices(&mut self) -> Vec<McpServerConfigChangedNotice> {
         let gate = CreditGate::with_credit(1);
         let mut notices = Vec::new();
         while let Some(read) = self.notices.next(&gate).now_or_never() {
@@ -312,7 +312,7 @@ impl Fixture {
 }
 
 /// The `user` server `name`'s binding.
-fn user_binding_ref(provider: &ProviderId, name: &str) -> McpServerBindingRef {
+pub(super) fn user_binding_ref(provider: &ProviderId, name: &str) -> McpServerBindingRef {
     serde_json::from_value(user_binding(provider, name)).expect("a binding")
 }
 
