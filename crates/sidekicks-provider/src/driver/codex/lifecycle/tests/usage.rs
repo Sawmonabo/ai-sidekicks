@@ -43,25 +43,34 @@ use crate::runtime_binding::test_store::test_provider_account_id;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
 /// A usage record that records nothing until its gate opens, then records each delta in arrival
-/// order as a row of its own, counting each delta it was handed, and keeps each priced request
-/// and each request handed to the repricing.
-struct GatedUsage {
+/// order as a row of its own, counting each delta it was handed, and keeps each row recorded,
+/// each priced request and each request handed to the repricing.
+pub(crate) struct GatedUsage {
     gate: watch::Receiver<bool>,
     handed: AtomicUsize,
-    input_deltas: Mutex<Vec<Option<u64>>>,
-    costs: Mutex<Vec<PricedRequest>>,
-    held: Mutex<Vec<HeldRequest>>,
+    pub(crate) metered: Mutex<Vec<MeteredUsage>>,
+    pub(crate) costs: Mutex<Vec<PricedRequest>>,
+    pub(crate) held: Mutex<Vec<HeldRequest>>,
 }
 
 impl GatedUsage {
-    fn new(gate: watch::Receiver<bool>) -> Self {
+    /// A record whose gate `gate` opens.
+    pub(crate) fn new(gate: watch::Receiver<bool>) -> Self {
         Self {
             gate,
             handed: AtomicUsize::new(0),
-            input_deltas: Mutex::default(),
+            metered: Mutex::default(),
             costs: Mutex::default(),
             held: Mutex::default(),
         }
+    }
+
+    // The input delta of each row recorded, in order.
+    fn input_deltas(&self) -> Vec<Option<u64>> {
+        lock(&self.metered)
+            .iter()
+            .map(|metered| metered.delta.axis_deltas.input)
+            .collect()
     }
 }
 
@@ -76,7 +85,7 @@ impl UsageSink for GatedUsage {
             gate.wait_for(|is_open| *is_open)
                 .await
                 .expect("the test holds the gate open");
-            lock(&self.input_deltas).push(metered.delta.axis_deltas.input);
+            lock(&self.metered).push(metered);
             Ok(Some(RecordedUsage {
                 event_id: FreeFormText::new(format!("event-{row}")).expect("an event id"),
                 run_id: None,
@@ -132,23 +141,23 @@ impl RequestHeldListener for GatedUsage {
     }
 }
 
-// A `thread/tokenUsage/updated` frame on the test's turn with the conversation's `total` and the
-// last request's `last`.
-fn token_usage_frame(total: &Value, last: &Value) -> Value {
+/// A `thread/tokenUsage/updated` frame on `thread_id` and the test's turn with the conversation's
+/// `total` and the last request's `last`.
+pub(crate) fn token_usage_frame(thread_id: &str, total: &Value, last: &Value) -> Value {
     json!({
         "jsonrpc": "2.0",
         "method": "thread/tokenUsage/updated",
         "params": {
-            "threadId": TEST_THREAD,
+            "threadId": thread_id,
             "turnId": TEST_TURN,
             "tokenUsage": { "total": total, "last": last, "modelContextWindow": 258_400 },
         },
     })
 }
 
-// Answers the recorder's region read on `scripted` with no base URL set: the API's own host, no
-// region.
-async fn answer_region_read(scripted: &mut ScriptedCodexService) {
+/// Answers the recorder's region read on `scripted` with no base URL set: the API's own host, no
+/// region.
+pub(crate) async fn answer_region_read(scripted: &mut ScriptedCodexService) {
     let request = scripted.next_request("config/read").await;
     scripted
         .script
@@ -188,6 +197,7 @@ async fn a_stalled_sink_loses_no_metered_spend_and_records_it_in_order() {
     for report in 1..=reports {
         total += report;
         live.scripted.script.send(&token_usage_frame(
+            TEST_THREAD,
             &json!({"inputTokens": total, "outputTokens": 0, "totalTokens": total}),
             &json!({"inputTokens": report, "outputTokens": 0, "totalTokens": report}),
         ));
@@ -200,10 +210,10 @@ async fn a_stalled_sink_loses_no_metered_spend_and_records_it_in_order() {
     open.send_replace(true);
 
     let expected: Vec<Option<u64>> = (1..=reports).map(Some).collect();
-    wait_until(|| lock(&usage.input_deltas).len() >= expected.len()).await;
+    wait_until(|| usage.input_deltas().len() >= expected.len()).await;
     // The sink held the first delta alone while stalled.
     assert_eq!(handed_while_stalled, 1);
-    assert_eq!(*lock(&usage.input_deltas), expected);
+    assert_eq!(usage.input_deltas(), expected);
 }
 
 // Probe 11's frames on a plan sign-in: a `last` with `total` T, the same frame again, then the
@@ -240,17 +250,19 @@ async fn a_total_that_did_not_grow_records_and_prices_nothing() {
     );
 
     let counts = |input: u64, output: u64| json!({"inputTokens": input, "outputTokens": output, "totalTokens": input + output});
-    let first = token_usage_frame(&counts(1_000, 100), &counts(1_000, 100));
+    let first = token_usage_frame(TEST_THREAD, &counts(1_000, 100), &counts(1_000, 100));
     live.scripted.script.send(&first);
     live.scripted.script.send(&first);
-    live.scripted
-        .script
-        .send(&token_usage_frame(&counts(3_000, 300), &counts(2_000, 200)));
+    live.scripted.script.send(&token_usage_frame(
+        TEST_THREAD,
+        &counts(3_000, 300),
+        &counts(2_000, 200),
+    ));
     answer_region_read(&mut live.scripted).await;
 
     wait_until(|| lock(&usage.costs).len() >= 2).await;
     stop.cancel();
-    assert_eq!(*lock(&usage.input_deltas), [Some(1_000), Some(2_000)]);
+    assert_eq!(usage.input_deltas(), [Some(1_000), Some(2_000)]);
     let costs: Vec<(UsageCostSource, Vec<u64>)> = lock(&usage.costs)
         .iter()
         .map(|request| {
@@ -320,7 +332,9 @@ enum RestingCopy {
 #[case::a_side_question_at_rest(RestingCopy::SideQuestion)]
 #[case::the_hand_over(RestingCopy::HandOver)]
 #[tokio::test(flavor = "multi_thread")]
-async fn a_resting_copys_rows_are_priced_at_its_model_and_declared_tier(#[case] copy: RestingCopy) {
+async fn a_resting_copy_s_rows_are_priced_at_its_model_and_declared_tier(
+    #[case] copy: RestingCopy,
+) {
     let mut scripted = start_scripted_codex_service();
     let Some(listener) = bind_test_listener(scripted.service.socket_path()) else {
         return;

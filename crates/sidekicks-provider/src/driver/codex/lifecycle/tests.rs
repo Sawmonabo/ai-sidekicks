@@ -15,7 +15,7 @@ mod rule_revoke;
 mod sessions;
 mod status_legs;
 mod terminal_reach;
-mod usage;
+pub(super) mod usage;
 
 use std::path::Path;
 use std::sync::Arc;

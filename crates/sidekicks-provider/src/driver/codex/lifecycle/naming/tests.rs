@@ -1,20 +1,42 @@
 mod one_shot;
 mod rest;
 mod spent_deadline;
+mod usage;
 
+use std::sync::Arc;
+
+use futures::future::BoxFuture;
 use rstest::rstest;
 use serde_json::{Value, json};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use super::{CODEX_NAMING_DEADLINE, TitleRequest, draw_title};
+use crate::driver::codex::DESCRIPTOR;
+use crate::driver::codex::lifecycle::CodexDriver;
+use crate::driver::codex::pricing::{CodexRecorderPricing, CodexRequestPricer};
+use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome};
+use crate::driver::codex::service::registry::{CodexHomeResolver, CodexServiceRegistry};
+use crate::driver::codex::service::supervisor::CodexService;
+use crate::driver::codex::service::supervisor::test_service::{
+    ScriptedCodexService, start_scripted_codex_service,
+};
 use crate::driver::codex::session::detached_conversation::CodexDetachedFrames;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::codex::session::test_fixture::turn_reply;
+use crate::driver::codex::session::side_questions::copy_turn::SessionUsageFiling;
+use crate::driver::codex::session::test_fixture::{TestDaemonTurnBindings, turn_reply};
 use crate::driver::codex::transport::connection::CodexConnectionHandlers;
 use crate::driver::codex::transport::connection::scripted_service::{
     ScriptedService, connect_scripted_service,
 };
+use crate::driver::contract::error::DriverError;
+use crate::driver::ports::DriverPorts;
+use crate::driver::test_registry::{new_agent_id, new_session_id, test_driver_services};
+use crate::port::run_host::test_host::RecordingRunEngine;
+use crate::pricing::live::LivePricing;
+use crate::runtime_binding::store::mint_runtime_binding_id;
+use crate::runtime_binding::test_store::test_provider_account_id;
 
 /// The largest message the scripted connection takes, far above any a test sends.
 const MESSAGE_LIMIT: usize = 1 << 20;
@@ -31,10 +53,101 @@ const TITLE_TURN: &str = "title-turn";
 /// The session's own model.
 const SESSION_MODEL: &str = "gpt-5";
 
-// A title pass over a scripted connection, run on its own task until `cancel` fires, and the
-// script.
+// The scripted service's home for the one account a test names; any other account has no home,
+// and the person's own folder is one no service runs on.
+struct AccountHome {
+    provider_account_id: ProviderAccountId,
+    home: CodexServiceHome,
+}
+
+impl CodexHomeResolver for AccountHome {
+    fn codex_home_for<'call>(
+        &'call self,
+        provider_account_id: &'call ProviderAccountId,
+    ) -> BoxFuture<'call, Result<CodexServiceHome, DriverError>> {
+        let home = (provider_account_id == &self.provider_account_id)
+            .then(|| self.home.clone())
+            .ok_or_else(|| DriverError::Internal("no home for that account".into()));
+        Box::pin(async move { home })
+    }
+
+    fn terminal_reach_home(&self) -> CodexServiceHome {
+        CodexServiceHome {
+            codex_home: self.home.codex_home.join("personal-folder"),
+            kind: CodexHomeKind::PersonalFolder,
+        }
+    }
+}
+
+// A driver whose only service is the scripted one, on `provider_account_id`'s home, each stored leg
+// read from `engine`, its session pieces composing.
+fn driver_on_account(
+    scripted: &ScriptedCodexService,
+    engine: &Arc<RecordingRunEngine>,
+    provider_account_id: ProviderAccountId,
+) -> CodexDriver {
+    let services = test_driver_services();
+    let ports = &services.ports;
+    assert!(ports.run_engine.register(Arc::clone(engine) as _).is_ok());
+    assert!(
+        ports
+            .inbound_dispatch
+            .register(Arc::clone(engine) as _)
+            .is_ok()
+    );
+    let agent_id = new_agent_id();
+    assert!(
+        ports
+            .daemon_turn_bindings
+            .register(Arc::new(TestDaemonTurnBindings::new(agent_id)))
+            .is_ok()
+    );
+    let mut driver = CodexDriver::new(&services);
+    driver.registry = CodexServiceRegistry::holding_on(
+        scripted,
+        Arc::new(AccountHome {
+            provider_account_id,
+            home: scripted.service.home().clone(),
+        }),
+    );
+    driver
+}
+
+// A filing of a new session's spend on a binding of its own through `ports`.
+fn filing_over(ports: &DriverPorts) -> SessionUsageFiling {
+    SessionUsageFiling {
+        usage: Arc::clone(&ports.usage),
+        session_id: new_session_id(),
+        binding_id: mint_runtime_binding_id(),
+        provider_account_id: test_provider_account_id(),
+        pricing: CodexRecorderPricing::new(Arc::new(LivePricing::new(
+            DESCRIPTOR.provider_id(),
+            Arc::new(CodexRequestPricer),
+            ports,
+        ))),
+    }
+}
+
+// A title pass over a scripted connection that files nothing, run on its own task until `cancel`
+// fires, and the script.
 fn start_pass(
     cancel: CancellationToken,
+) -> (
+    tokio::task::JoinHandle<Result<Option<String>, CodexError>>,
+    ScriptedService,
+) {
+    let scripted = start_scripted_codex_service();
+    let filing = filing_over(&DriverPorts::new());
+    start_filed_pass(cancel, filing, Arc::clone(&scripted.service))
+}
+
+// A title pass of a session on `SESSION_MODEL` over a scripted connection, its spend filed through
+// `filing` with its region read on `service`, run on its own task until `cancel` fires, and the
+// script.
+fn start_filed_pass(
+    cancel: CancellationToken,
+    filing: SessionUsageFiling,
+    service: Arc<CodexService>,
 ) -> (
     tokio::task::JoinHandle<Result<Option<String>, CodexError>>,
     ScriptedService,
@@ -53,12 +166,15 @@ fn start_pass(
             connection,
             frames,
             &TitleRequest {
+                session_id: filing.session_id,
+                service: &service,
                 thread_id: "thread-1",
                 is_joined: false,
                 working_directory: FOLDER,
                 session_model: SESSION_MODEL,
                 prompt: "Name this.",
             },
+            filing,
             &cancel,
             Instant::now() + CODEX_NAMING_DEADLINE,
         )
@@ -98,8 +214,8 @@ async fn answer_model_list(script: &mut ScriptedService, models: &[&str]) {
     script.answer(&listed, &json!({"data": rows, "nextCursor": null}));
 }
 
-// The start of the title conversation answered as running under `sandbox_type`, and the start
-// as sent.
+// The start of the title conversation answered as running under `sandbox_type` on the session's
+// model at the priority tier, as Codex resolves them, and the start as sent.
 async fn answer_thread_start(script: &mut ScriptedService, sandbox_type: &str) -> Value {
     let started = script.next_sent().await;
     assert_eq!(started["method"], "thread/start");
@@ -108,6 +224,8 @@ async fn answer_thread_start(script: &mut ScriptedService, sandbox_type: &str) -
         &json!({
             "thread": {"id": TITLE_THREAD, "sessionId": "codex-session"},
             "sandbox": {"type": sandbox_type, "networkAccess": false},
+            "model": SESSION_MODEL,
+            "serviceTier": "priority",
         }),
     );
     started

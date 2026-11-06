@@ -2,7 +2,8 @@
 //! throwaway, read-only conversation with no tool, MCP server or hook, on the session's service
 //! where its conversation is live, else in a one-shot `codex exec`; and told to Codex with
 //! `thread/name/set`, so its own session list shows it. A conversation the person's own terminal
-//! already named keeps that name.
+//! already named keeps that name. What a pass spends is recorded and priced as the session's own,
+//! counted toward no run, on the binding of its first completed run.
 
 pub(crate) mod lockdown;
 #[cfg(test)]
@@ -14,6 +15,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
@@ -26,19 +28,20 @@ use crate::driver::codex::app_server_protocol::{
 use crate::driver::codex::attachments::compose_codex_text_input;
 use crate::driver::codex::capabilities::read_codex_service_model_catalog;
 use crate::driver::codex::config_read::read_codex_config;
-use crate::driver::codex::event_normalizer::{
-    CODEX_ITEM_COMPLETED_METHOD, CODEX_TURN_COMPLETED_METHOD,
-};
 use crate::driver::codex::lifecycle::views::CodexConversationView;
+use crate::driver::codex::output_speed::read_codex_declared_tier;
+use crate::driver::codex::pricing::CodexRecorderPricing;
 use crate::driver::codex::service::command::run_codex_command;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceKind};
 use crate::driver::codex::service::registry::home_exec_switches;
 use crate::driver::codex::service::supervisor::start::compose_codex_native_launch;
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceDependencies};
 use crate::driver::codex::session::detached_conversation::{
-    CodexDetachedFrame, CodexDetachedFrames, stop_detached_turn,
+    CodexDetachedFrame, CodexDetachedFrames, file_received_usage, read_detached_turn,
+    stop_detached_turn,
 };
 use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::session::side_questions::copy_turn::{CopyTurnMeter, SessionUsageFiling};
 use crate::driver::codex::thread::settings::CodexTurnStartParams;
 use crate::driver::codex::thread::view::{
     THREAD_START_METHOD, TURN_START_METHOD, read_thread, read_turn_id, request_thread_reading,
@@ -52,9 +55,6 @@ use crate::runtime_binding::store::RuntimeBinding;
 use crate::spawned_version::ResolvedProviderExecutable;
 
 const THREAD_NAME_SET_METHOD: &str = "thread/name/set";
-
-/// The item type of the pass's reply.
-const CODEX_AGENT_MESSAGE_ITEM_TYPE: &str = "agentMessage";
 
 /// What a title conversation is started from, as Codex names its own title pass's.
 const TITLE_THREAD_SOURCE: &str = "thread_title";
@@ -103,13 +103,23 @@ impl CodexDriver {
     /// failed pass or no name, a one-shot pass of Codex's program on the account the session's
     /// leg runs on. `None` when both gave no name, the session never ran, once `cancel` fired, or
     /// once the pass ran past [`CODEX_NAMING_DEADLINE`], its turn then stopped as a cancel stops
-    /// it. Fails as the stored leg cannot be read, the one-shot pass's launch cannot be composed or
-    /// the MCP servers it disables cannot be listed.
+    /// it. What the pass on the service spent is recorded on `params.binding_id` as the session's
+    /// own, on a task of the driver's, so a cancel never drops it. Fails as the session pieces
+    /// cannot be composed, the stored leg cannot be read, the one-shot pass's launch cannot be
+    /// composed or the MCP servers it disables cannot be listed.
     pub(crate) async fn name_session(
         &self,
         params: NameSessionParams,
     ) -> Result<Option<String>, DriverError> {
-        let cancel = params.cancel;
+        let parts = self.parts()?;
+        let filing = |provider_account_id: &ProviderAccountId| SessionUsageFiling {
+            usage: Arc::clone(&parts.ports.usage),
+            session_id: params.session_id,
+            binding_id: params.binding_id.clone(),
+            provider_account_id: provider_account_id.clone(),
+            pricing: CodexRecorderPricing::new(Arc::clone(&parts.pricing)),
+        };
+        let cancel = params.cancel.clone();
         // One deadline over both passes: the one-shot pass gets what the live one left.
         let deadline = Instant::now() + CODEX_NAMING_DEADLINE;
         let prompt = compose_title_prompt(&params.first_message, &params.first_reply);
@@ -118,10 +128,14 @@ impl CodexDriver {
             if let Some(conversation) = self.views.conversation(params.session_id) {
                 let service = Arc::clone(&conversation.service);
                 let session_model = conversation.model.clone();
-                // On a task of its own, so a caller that stops waiting still has its turn stopped.
+                let pass_filing = filing(&conversation.provider_account_id);
+                // On a task of its own, so a caller that stops waiting still has its turn stopped
+                // and what it spent recorded.
                 let pass = self.tasks.spawn(name_on_service(
                     conversation,
+                    params.session_id,
                     prompt.clone(),
+                    pass_filing,
                     cancel.clone(),
                     deadline,
                 ));
@@ -258,11 +272,13 @@ fn read_title(answer: &str) -> Option<String> {
 }
 
 // The name the person's own terminal gave a joined service's conversation, else one drawn on a
-// throwaway conversation of `conversation`'s service over a connection of its own; `None` once
-// `cancel` fired or `deadline` passed.
+// throwaway conversation of `conversation`'s service over a connection of its own, its spend filed
+// through `filing`; `None` once `cancel` fired or `deadline` passed.
 async fn name_on_service(
     conversation: CodexConversationView,
+    session_id: SessionId,
     prompt: String,
+    filing: SessionUsageFiling,
     cancel: CancellationToken,
     deadline: Instant,
 ) -> Result<Option<String>, CodexError> {
@@ -278,12 +294,15 @@ async fn name_on_service(
         connection,
         frames,
         &TitleRequest {
+            session_id,
+            service,
             thread_id: &conversation.thread_id,
             is_joined: service.kind() == CodexServiceKind::Joined,
             working_directory: &conversation.working_directory.to_string_lossy(),
             session_model: &conversation.model,
             prompt: &prompt,
         },
+        filing,
         &cancel,
         deadline,
     )
@@ -292,6 +311,10 @@ async fn name_on_service(
 
 /// What a title pass on a live service reads of the session's conversation.
 struct TitleRequest<'pass> {
+    /// The session, whose tier the title conversation's start declares.
+    session_id: SessionId,
+    /// The service the pass runs on, whose region its spend is priced in.
+    service: &'pass CodexService,
     /// The session's conversation, whose given name a joined service is asked for.
     thread_id: &'pass str,
     /// Whether the service is the person's own, where their terminal may have named it.
@@ -312,38 +335,40 @@ enum TitleThread {
     Named(String),
     /// A throwaway conversation started.
     Started {
-        /// The conversation.
-        thread_id: String,
+        /// The conversation's meter, at the model and tier its start named.
+        meter: Box<CopyTurnMeter>,
         /// The effort its turn runs at, `None` on the session's own model.
         effort: Option<&'static str>,
     },
 }
 
 // The title of `request`'s conversation drawn over `connection`, whose notifications arrive on
-// `frames`, as `start_title_thread` starts it; `None` once `cancel` fired or `deadline` passed,
-// either of which stops its turn. The connection is let go of as the pass ends, which ends its
-// ephemeral conversation, so the service can unload it.
+// `frames`, as `start_title_thread` starts it, each usage reading filed through `filing`; `None`
+// once `cancel` fired or `deadline` passed, either of which stops its turn and files what it
+// received by then. The connection is let go of as the pass ends, which ends its ephemeral
+// conversation, so the service can unload it.
 async fn draw_title(
     connection: CodexAppServerConnection,
     mut frames: mpsc::UnboundedReceiver<CodexDetachedFrame>,
     request: &TitleRequest<'_>,
+    mut filing: SessionUsageFiling,
     cancel: &CancellationToken,
     deadline: Instant,
 ) -> Result<Option<String>, CodexError> {
-    let connection = &connection;
-    let frames = &mut frames;
+    let (connection, frames, filing) = (&connection, &mut frames, &mut filing);
     run_naming_pass_until(cancel, deadline, |stop| async move {
-        draw_title_until_stopped(connection, frames, request, &stop).await
+        draw_title_until_stopped(connection, frames, request, filing, &stop).await
     })
     .await
 }
 
 // `draw_title` until `stop` fires: a turn the pass leaves before it ends is stopped first, one
-// stopped during its start once the start named it.
+// stopped during its start once the start named it, and the readings it received are filed.
 async fn draw_title_until_stopped(
     connection: &CodexAppServerConnection,
     frames: &mut mpsc::UnboundedReceiver<CodexDetachedFrame>,
     request: &TitleRequest<'_>,
+    filing: &mut SessionUsageFiling,
     stop: &CancellationToken,
 ) -> Result<Option<String>, CodexError> {
     let started = tokio::select! {
@@ -351,10 +376,12 @@ async fn draw_title_until_stopped(
         () = stop.cancelled() => return Ok(None),
         started = start_title_thread(connection, request) => started?,
     };
-    let (title_thread_id, effort) = match started {
+    let (mut meter, effort) = match started {
         TitleThread::Named(name) => return Ok(Some(name)),
-        TitleThread::Started { thread_id, effort } => (thread_id, effort),
+        TitleThread::Started { meter, effort } => (meter, effort),
     };
+    let title_thread_id = meter.thread_id.clone();
+    let (service, folder) = (request.service, Path::new(request.working_directory));
     let turn = CodexTurnStartParams {
         thread_id: title_thread_id.clone(),
         input: vec![compose_codex_text_input(request.prompt.to_owned())],
@@ -381,20 +408,25 @@ async fn draw_title_until_stopped(
                 read_turn_id(&(&mut start).await?, TURN_START_METHOD)
             })
             .await;
+            file_received_usage(frames, &mut meter, filing, service, folder).await;
             return Ok(None);
         }
     };
     let turn_id = read_turn_id(&reply, TURN_START_METHOD)?;
-    let answered = tokio::select! {
-        biased;
-        () = stop.cancelled() => None,
-        answer = read_title_answer(frames, &title_thread_id) => Some(answer),
-    };
-    let Some(answer) = answered else {
+    let read = read_detached_turn(
+        frames,
+        &mut meter,
+        filing,
+        service,
+        folder,
+        stop.cancelled(),
+    );
+    let Some(read) = read.await else {
         stop_detached_turn(connection, &title_thread_id, async { Ok(turn_id) }).await;
+        file_received_usage(frames, &mut meter, filing, service, folder).await;
         return Ok(None);
     };
-    Ok(answer.as_deref().and_then(read_title))
+    Ok(read.answer.as_deref().and_then(read_title))
 }
 
 // A name a joined service's conversation already has, else a throwaway conversation started over
@@ -425,7 +457,7 @@ async fn start_title_thread(
         .request(
             THREAD_START_METHOD,
             &ThreadStartParams {
-                model: title_model.model,
+                model: title_model.model.clone(),
                 cwd: Some(request.working_directory.to_owned()),
                 ephemeral: Some(true),
                 sandbox: Some(SandboxMode::ReadOnly),
@@ -444,52 +476,30 @@ async fn start_title_thread(
             },
         )
         .await?;
-    if read_codex_object::<StartedSandbox>(reply.get())
-        .and_then(|reply| reply.sandbox)
-        .and_then(|sandbox| sandbox.sandbox_type)
-        .as_deref()
-        != Some(READ_ONLY_SANDBOX_TYPE)
-    {
+    let started = read_codex_object::<StartedTitleThread>(reply.get());
+    let sandbox_type = started
+        .as_ref()
+        .and_then(|started| started.sandbox.as_ref())
+        .and_then(|sandbox| sandbox.sandbox_type.as_deref());
+    if sandbox_type != Some(READ_ONLY_SANDBOX_TYPE) {
         return Err(CodexError::Transport {
             detail: "Codex did not start the title conversation read-only.".to_owned(),
             cause: None,
         });
     }
+    // Codex resolves the model from the conversation's config, so its start names what it runs.
+    let model = started
+        .and_then(|started| started.model)
+        .or(title_model.model);
+    let declared_tier = read_codex_declared_tier(request.session_id, &reply);
     Ok(TitleThread::Started {
-        thread_id: read_thread(&reply, THREAD_START_METHOD)?.id,
+        meter: Box::new(CopyTurnMeter::new(
+            read_thread(&reply, THREAD_START_METHOD)?.id,
+            model.as_deref(),
+            declared_tier.as_ref(),
+        )),
         effort: title_model.effort,
     })
-}
-
-// The last answer the title conversation `title_thread_id` gave once its turn completed, or once
-// its connection dropped.
-async fn read_title_answer(
-    frames: &mut mpsc::UnboundedReceiver<CodexDetachedFrame>,
-    title_thread_id: &str,
-) -> Option<String> {
-    let mut answer = None;
-    while let Some((method, params)) = frames.recv().await {
-        let Some(frame) = read_codex_object::<TitleFrame>(params.get()) else {
-            continue;
-        };
-        if frame.thread_id.as_deref() != Some(title_thread_id) {
-            continue;
-        }
-        match method.as_str() {
-            CODEX_ITEM_COMPLETED_METHOD => {
-                if let Some(text) = frame
-                    .item
-                    .filter(|item| item.item_type.as_deref() == Some(CODEX_AGENT_MESSAGE_ITEM_TYPE))
-                    .and_then(|item| item.text)
-                {
-                    answer = Some(text);
-                }
-            }
-            CODEX_TURN_COMPLETED_METHOD => break,
-            _ => {}
-        }
-    }
-    answer
 }
 
 /// The model and effort a title turn runs on.
@@ -656,25 +666,11 @@ pub(crate) async fn list_mcp_server_names(
     lockdown::read_listed_server_names(&listing)
 }
 
-// The members of a title conversation's frame the pass reads.
+// The sandbox a title conversation's start answers it runs under, and the model it runs.
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TitleFrame {
-    thread_id: Option<String>,
-    item: Option<TitleItem>,
-}
-
-#[derive(Deserialize)]
-struct TitleItem {
-    #[serde(rename = "type")]
-    item_type: Option<String>,
-    text: Option<String>,
-}
-
-// The sandbox a title conversation's start answers it runs under.
-#[derive(Deserialize)]
-struct StartedSandbox {
+struct StartedTitleThread {
     sandbox: Option<SandboxReading>,
+    model: Option<String>,
 }
 
 #[derive(Deserialize)]

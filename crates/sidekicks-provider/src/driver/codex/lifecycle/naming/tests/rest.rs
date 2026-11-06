@@ -3,21 +3,14 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::future::BoxFuture;
 use serde_json::json;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
-use crate::driver::codex::lifecycle::CodexDriver;
-use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome};
-use crate::driver::codex::service::registry::{CodexHomeResolver, CodexServiceRegistry};
-use crate::driver::codex::service::supervisor::test_service::{
-    ScriptedCodexService, start_scripted_codex_service,
-};
-use crate::driver::codex::session::test_fixture::TestDaemonTurnBindings;
-use crate::driver::contract::error::DriverError;
+use super::driver_on_account;
+use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
 use crate::driver::schema::schema_parts;
-use crate::driver::test_registry::{new_agent_id, new_session_id, test_driver_services};
+use crate::driver::test_registry::new_session_id;
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::runtime_binding::test_store::record_session_leg;
 
@@ -26,66 +19,6 @@ const NOTHING_SENT_BOUND: Duration = Duration::from_secs(5);
 
 /// The conversation the session's stored leg names.
 const STORED_THREAD: &str = "stored-thread";
-
-// The scripted service's home for the one account a test names; any other account has no home,
-// and the person's own folder is one no service runs on.
-struct AccountHome {
-    provider_account_id: ProviderAccountId,
-    home: CodexServiceHome,
-}
-
-impl CodexHomeResolver for AccountHome {
-    fn codex_home_for<'call>(
-        &'call self,
-        provider_account_id: &'call ProviderAccountId,
-    ) -> BoxFuture<'call, Result<CodexServiceHome, DriverError>> {
-        let home = (provider_account_id == &self.provider_account_id)
-            .then(|| self.home.clone())
-            .ok_or_else(|| DriverError::Internal("no home for that account".into()));
-        Box::pin(async move { home })
-    }
-
-    fn terminal_reach_home(&self) -> CodexServiceHome {
-        CodexServiceHome {
-            codex_home: self.home.codex_home.join("personal-folder"),
-            kind: CodexHomeKind::PersonalFolder,
-        }
-    }
-}
-
-// A driver whose only service is the scripted one, on `provider_account_id`'s home, each stored leg
-// read from `engine`.
-fn driver_on_account(
-    scripted: &ScriptedCodexService,
-    engine: &Arc<RecordingRunEngine>,
-    provider_account_id: ProviderAccountId,
-) -> CodexDriver {
-    let services = test_driver_services();
-    let ports = &services.ports;
-    assert!(ports.run_engine.register(Arc::clone(engine) as _).is_ok());
-    assert!(
-        ports
-            .inbound_dispatch
-            .register(Arc::clone(engine) as _)
-            .is_ok()
-    );
-    let agent_id = new_agent_id();
-    assert!(
-        ports
-            .daemon_turn_bindings
-            .register(Arc::new(TestDaemonTurnBindings::new(agent_id)))
-            .is_ok()
-    );
-    let mut driver = CodexDriver::new(&services);
-    driver.registry = CodexServiceRegistry::holding_on(
-        scripted,
-        Arc::new(AccountHome {
-            provider_account_id,
-            home: scripted.service.home().clone(),
-        }),
-    );
-    driver
-}
 
 // Killed by resolving the resting session's service on any account but its stored leg's, which
 // has no home here, and by dropping the stored handle from `thread/name/set`.
