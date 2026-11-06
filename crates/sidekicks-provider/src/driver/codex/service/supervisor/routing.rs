@@ -23,7 +23,7 @@ use crate::driver::codex::event_normalizer::{
 use crate::driver::codex::service::config_warnings::CodexConfigWarnings;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::rate_limit_readings::CodexRateLimitReadings;
-use crate::driver::codex::service::threads::CodexHeldThreadFrame;
+use crate::driver::codex::service::threads::{CodexHeldThreadFrame, CodexThreadFrameRoute};
 use crate::driver::codex::session::inbound::{CodexSessionInbound, CodexSessionInboundSender};
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::codex::usage_limit_signal::CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD;
@@ -341,20 +341,20 @@ impl CodexService {
         let Some(thread_id) = thread_id else {
             return;
         };
-        let session_id = self.lock_threads().session_for(&thread_id).copied();
-        if let Some(session_id) = session_id {
-            self.register_spawned_helpers(session_id, spawned_helpers);
-            self.deliver_thread_frame(&session_id, &thread_id, method, params);
-            return;
-        }
-        let pushed_out = self.lock_threads().hold(
-            CodexHeldThreadFrame {
-                method: method.to_owned(),
-                params,
-                thread_id,
-            },
-            Instant::now(),
-        );
+        let frame = CodexHeldThreadFrame {
+            method: method.to_owned(),
+            params,
+            thread_id,
+        };
+        let route = self.lock_threads().route_or_hold(frame, Instant::now());
+        let pushed_out = match route {
+            CodexThreadFrameRoute::Session(session_id, frame) => {
+                self.register_spawned_helpers(session_id, spawned_helpers);
+                self.deliver_thread_frame(&session_id, &frame.thread_id, method, frame.params);
+                return;
+            }
+            CodexThreadFrameRoute::Held(pushed_out) => pushed_out,
+        };
         for frame in pushed_out {
             CodexTransportDiagnostic::PendingThreadFrameDropped {
                 method: frame.method,

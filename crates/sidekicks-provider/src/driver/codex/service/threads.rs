@@ -47,6 +47,14 @@ impl PartialEq for CodexHeldThreadFrame {
     }
 }
 
+/// Where a frame naming a thread goes, settled under one lock of the index.
+pub(crate) enum CodexThreadFrameRoute {
+    /// The thread is registered: the frame goes to this session.
+    Session(SessionId, CodexHeldThreadFrame),
+    /// The frame is held, and the bounds pushed out these older frames, oldest first.
+    Held(Vec<CodexHeldThreadFrame>),
+}
+
 /// Where the held frames no registration took within the timeout go: the supervisor reports each
 /// as unrouted. It is called only with a non-empty list, and never under the index's lock.
 pub(crate) type UnclaimedThreadFrameReport = Arc<dyn Fn(Vec<CodexHeldThreadFrame>) + Send + Sync>;
@@ -195,14 +203,23 @@ impl CodexServiceThreads {
         }
     }
 
-    /// Holds a frame for an unregistered thread, as arriving at `now`; a lifecycle broadcast is
-    /// dropped instead while no claim is open. Answers the oldest held frames the bounds pushed
-    /// out, oldest first, the frame itself among them when its params alone pass the byte bound.
-    pub(crate) fn hold(
+    /// Answers the session that registered the frame's thread, or holds the frame as arriving at
+    /// `now`, so no registration can fall between the lookup and the hold.
+    pub(crate) fn route_or_hold(
         &mut self,
         frame: CodexHeldThreadFrame,
         now: Instant,
-    ) -> Vec<CodexHeldThreadFrame> {
+    ) -> CodexThreadFrameRoute {
+        match self.session_by_thread.get(&frame.thread_id) {
+            Some(session_id) => CodexThreadFrameRoute::Session(*session_id, frame),
+            None => CodexThreadFrameRoute::Held(self.hold(frame, now)),
+        }
+    }
+
+    // Holds a frame for an unregistered thread, as arriving at `now`; a lifecycle broadcast is
+    // dropped instead while no claim is open. Answers the oldest held frames the bounds pushed
+    // out, oldest first, the frame itself among them when its params alone pass the byte bound.
+    fn hold(&mut self, frame: CodexHeldThreadFrame, now: Instant) -> Vec<CodexHeldThreadFrame> {
         if self.claims_in_flight == 0
             && CODEX_UNHELD_THREAD_BROADCASTS.contains(&frame.method.as_str())
         {
