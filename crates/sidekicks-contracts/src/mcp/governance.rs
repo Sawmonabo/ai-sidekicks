@@ -316,6 +316,7 @@ methods! {
             refusals: [
                 McpBindingStoreUnavailable,
                 McpServerNotFound,
+                McpServerIdempotencyConflict,
                 McpServerSignInFailed,
                 McpServerSignInUnsupported,
                 ProviderNotInstalled,
@@ -329,7 +330,11 @@ methods! {
             mutating: true,
             params: McpServerSignOutRequest,
             result: EmptyPayload,
-            refusals: [McpBindingStoreUnavailable, McpServerSignOutFailed],
+            refusals: [
+                McpBindingStoreUnavailable,
+                McpServerIdempotencyConflict,
+                McpServerSignOutFailed,
+            ],
         },
         /// Opens a binding's connection again.
         McpServerReconnect = mutation "mcp.server.reconnect" {
