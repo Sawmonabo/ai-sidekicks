@@ -1,7 +1,7 @@
 //! The exchange through the relay: messages pass, the client's handshake is answered from the
 //! relay's own, a start is rewritten and recorded, and only the start's token is admitted.
 
-use serde_json::json;
+use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::{HeaderValue, header};
 
@@ -13,9 +13,10 @@ use crate::driver::codex::exec_relay::RelayedCommand;
 use crate::driver::test_registry::new_session_id;
 
 // Everything the service and the executor say passes unchanged, but the client's `initialize`,
-// answered from the relay's own, and a start, whose environment gains the no-prompt variables
-// where no wrapper runs it and whose command is recorded under its call until the executor
-// reports it ended. A connection without the start's token is refused.
+// answered from the relay's own, each request's id, which reaches the executor as a relay id and
+// comes back as the client's, and a start, whose environment gains the no-prompt variables where
+// no wrapper runs it and whose command is recorded under its call until the executor reports it
+// ended. A connection without the start's token is refused.
 #[tokio::test]
 async fn passes_an_exchange_and_admits_only_the_token() {
     let folder = tempfile::tempdir().expect("a test folder");
@@ -56,7 +57,7 @@ async fn passes_an_exchange_and_admits_only_the_token() {
         json!({ "id": 2, "method": "process/read", "params": { "processId": "p", "afterSeq": 0 } });
     send_text(&mut socket, &read).await;
     assert_eq!(
-        fake.next_sent().await,
+        with_client_id(fake.next_sent().await, &read),
         read,
         "no initialize reaches the executor"
     );
@@ -77,7 +78,9 @@ async fn passes_an_exchange_and_admits_only_the_token() {
         "metadata": { "threadId": THREAD, "toolCallId": CALL },
     }});
     send_text(&mut socket, &start).await;
-    let mut started = fake.next_sent().await;
+    let started = fake.next_sent().await;
+    let relay_id = started["id"].clone();
+    let mut started = with_client_id(started, &start);
     let environment = started["params"]["env"]
         .as_object_mut()
         .expect("the start carries its environment")
@@ -89,9 +92,11 @@ async fn passes_an_exchange_and_admits_only_the_token() {
         started, start,
         "only the environment changes where no channel is open"
     );
-    let answer = json!({ "id": 3, "result": {} });
-    fake.write(&answer).await;
-    assert_eq!(next_text(&mut socket).await, answer);
+    fake.write(&json!({ "id": relay_id, "result": {} })).await;
+    assert_eq!(
+        next_text(&mut socket).await,
+        json!({ "id": 3, "result": {} })
+    );
     assert_eq!(
         relay.relayed_command(session_id, &command_id()),
         Some(RelayedCommand {
@@ -110,7 +115,10 @@ async fn passes_an_exchange_and_admits_only_the_token() {
         "params": { "processId": EXECUTOR_PROCESS },
     });
     send_text(&mut socket, &terminate).await;
-    assert_eq!(fake.next_sent().await, terminate);
+    assert_eq!(
+        with_client_id(fake.next_sent().await, &terminate),
+        terminate
+    );
     let exited = json!({
         "method": "process/exited",
         "params": { "processId": EXECUTOR_PROCESS, "seq": 2, "exitCode": 0 },
@@ -124,4 +132,18 @@ async fn passes_an_exchange_and_admits_only_the_token() {
         tokio::task::yield_now().await;
     }
     panic!("the ended command is still recorded");
+}
+
+// `forwarded`, a request the executor read, with `sent`'s id in place of its relay id, failing
+// when it reached the executor under no relay id.
+fn with_client_id(mut forwarded: Value, sent: &Value) -> Value {
+    assert!(
+        forwarded["id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("sidekicks-client-")),
+        "the request reached the executor under {}",
+        forwarded["id"]
+    );
+    forwarded["id"] = sent["id"].clone();
+    forwarded
 }

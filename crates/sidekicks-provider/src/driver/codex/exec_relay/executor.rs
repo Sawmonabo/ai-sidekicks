@@ -1,8 +1,9 @@
 //! The daemon's own Codex executor and the many connections the relay serves onto it:
-//! newline-delimited JSON-RPC both ways, the relay's own requests answered by their ids, every
-//! other message handed to every connection, each process's end watched so a held terminate or a
-//! stop can wait on it, and the answer to a client's request watched where the relay keeps
-//! something for it.
+//! newline-delimited JSON-RPC both ways, the relay's own requests answered by their ids, each
+//! connection's request sent under a relay id and its answer handed to that connection alone under
+//! the connection's own id, every other message handed to every connection, each process's end
+//! watched so a held terminate or a stop can wait on it, and the answer to a client's request
+//! watched where the relay keeps something for it.
 
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -28,6 +29,10 @@ use crate::driver::codex::session::errors::CodexError;
 /// What opens the id of every request the relay sends itself, so its answer is told apart from an
 /// answer to the client's own requests.
 const RELAY_REQUEST_PREFIX: &str = "sidekicks-relay-";
+
+/// What opens the relay id every client's request reaches the executor under, so two connections'
+/// own ids never meet there.
+const CLIENT_REQUEST_PREFIX: &str = "sidekicks-client-";
 
 /// The longest message line either side reads, the most one WebSocket message carries by default.
 const EXECUTOR_LINE_MAX_BYTES: usize = 64 << 20;
@@ -87,6 +92,13 @@ pub(super) struct ProcessEnd {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) struct RelayConnectionId(u64);
 
+// A client's request the executor has not answered: the connection that sent it and the id it
+// sent it under, as raw JSON text.
+struct ClientRequest {
+    connection: RelayConnectionId,
+    client_id: Box<str>,
+}
+
 /// One executor and the daemon's connection to it.
 pub(super) struct CodexExecutor {
     lines: mpsc::Sender<String>,
@@ -95,6 +107,9 @@ pub(super) struct CodexExecutor {
     // Each connection's only sender, so removing its entry closes the connection.
     clients: Mutex<HashMap<RelayConnectionId, mpsc::Sender<String>>>,
     next_connection: AtomicU64,
+    // Keyed by the relay id as raw JSON text.
+    client_requests: Mutex<HashMap<String, ClientRequest>>,
+    next_client_request: AtomicU64,
     exits: Mutex<HashMap<String, watch::Sender<Option<ProcessEnd>>>>,
     client_replies: Mutex<HashMap<String, oneshot::Sender<bool>>>,
     ended: watch::Sender<bool>,
@@ -157,6 +172,8 @@ impl CodexExecutor {
             next_request: AtomicU64::new(1),
             clients: Mutex::new(HashMap::new()),
             next_connection: AtomicU64::new(1),
+            client_requests: Mutex::new(HashMap::new()),
+            next_client_request: AtomicU64::new(1),
             exits: Mutex::new(HashMap::new()),
             client_replies: Mutex::new(HashMap::new()),
             ended: watch::Sender::new(false),
@@ -218,9 +235,41 @@ impl CodexExecutor {
         Some(connection)
     }
 
-    /// Lets the connection `connection` go, closing its queue.
+    /// How many connections are attached, which a test reads.
+    #[cfg(test)]
+    pub(super) fn connection_count(&self) -> usize {
+        lock(&self.clients).len()
+    }
+
+    /// Lets the connection `connection` go, closing its queue and forgetting every request it
+    /// has in flight, whose answers then reach no one.
     pub(super) fn detach_client(&self, connection: RelayConnectionId) {
         lock(&self.clients).remove(&connection);
+        lock(&self.client_requests).retain(|_relay_id, request| request.connection != connection);
+    }
+
+    /// `line`, a request the connection `connection` sent under `id`, the slice of `line` its
+    /// parse read, with a new relay id in that id's place; the connection and its id are kept
+    /// under the relay id until the executor answers it or the connection goes.
+    pub(super) fn relay_client_request(
+        &self,
+        connection: RelayConnectionId,
+        line: &str,
+        id: &RawValue,
+    ) -> String {
+        let relay_id = format!(
+            "\"{CLIENT_REQUEST_PREFIX}{}\"",
+            self.next_client_request.fetch_add(1, Ordering::Relaxed)
+        );
+        let relayed = replace_id(line, id, &relay_id);
+        lock(&self.client_requests).insert(
+            relay_id,
+            ClientRequest {
+                connection,
+                client_id: id.get().into(),
+            },
+        );
+        relayed
     }
 
     /// Hands `line`, an answer the relay gives in the executor's place, to the connection
@@ -275,9 +324,9 @@ impl CodexExecutor {
         lock(&self.exits).remove(process_id);
     }
 
-    /// Watches the executor's answer to the client's request whose id is `id` as compact JSON,
-    /// still handed to the client: true for a refusal, false for a result; the sender drops when
-    /// the connection ends first.
+    /// Watches the executor's answer to the client's request whose relay id is `id` as compact
+    /// JSON, still handed to the client: true for a refusal, false for a result; the sender drops
+    /// when the connection ends first.
     pub(super) fn watch_client_answer(&self, id: String) -> oneshot::Receiver<bool> {
         let (answer, answered) = oneshot::channel();
         lock(&self.client_replies).insert(id, answer);
@@ -347,10 +396,23 @@ impl CodexExecutor {
         }
         if message.method.is_none()
             && let Some(id) = message.id
-            && let Some(watching) = lock(&self.client_replies).remove(id.get())
         {
-            // The relay's watch of an answer may have stopped waiting; the client still gets it.
-            let _unheard = watching.send(message.error.is_some());
+            let watching = lock(&self.client_replies).remove(id.get());
+            if let Some(watching) = watching {
+                // The relay's watch may have stopped waiting; the client still gets the answer.
+                let _unheard = watching.send(message.error.is_some());
+            }
+            let request = lock(&self.client_requests).remove(id.get());
+            let Some(request) = request else {
+                tracing::debug!(
+                    length = line.len(),
+                    "the Codex executor answered a request no connection waits on"
+                );
+                return;
+            };
+            let answer = replace_id(&line, id, &request.client_id);
+            self.answer_connection(request.connection, answer).await;
+            return;
         }
         if let Some(method) = message.method.as_deref()
             && message.id.is_none()
@@ -380,7 +442,20 @@ impl CodexExecutor {
             record_end(exit, None);
         }
         lock(&self.clients).clear();
+        lock(&self.client_requests).clear();
     }
+}
+
+// `line` with `replacement` in place of `id`, the slice of `line` its parse borrowed, so the rest
+// of the line is copied once and never parsed again.
+fn replace_id(line: &str, id: &RawValue, replacement: &str) -> String {
+    let start = id.get().as_ptr().addr() - line.as_ptr().addr();
+    let end = start + id.get().len();
+    let mut replaced = String::with_capacity(line.len() - id.get().len() + replacement.len());
+    replaced.push_str(&line[..start]);
+    replaced.push_str(replacement);
+    replaced.push_str(&line[end..]);
+    replaced
 }
 
 // Records a process's end with `exit_code` where none was recorded yet: a `process/closed` after

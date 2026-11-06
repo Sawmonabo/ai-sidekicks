@@ -2,9 +2,11 @@
 //! account's service gets one relay for its life: the executor, `codex exec-server`, is the
 //! daemon's own child on standard input and output, and the service reaches it through a loopback
 //! WebSocket the relay serves under a token minted at every start of the service. The relay serves
-//! many connections onto its one executor, answering each one's `initialize` from its own. Every
-//! other message passes unchanged but two: a command's start, rewritten to run under the command
-//! wrapper, and a terminate, held until the wrapper ended the command.
+//! many connections onto its one executor: it answers each one's `initialize` from its own, and
+//! sends each one's requests on under ids of its own, so every connection's answers come back to
+//! it alone under its own ids. Every other message passes unchanged but two: a command's start,
+//! rewritten to run under the command wrapper, and a terminate, held until the wrapper ended the
+//! command.
 //! A command whose service was restarted while it ran is ended by the relay at its process's end,
 //! since the new service never reports the old one's items.
 
@@ -410,8 +412,9 @@ impl CodexExecRelay {
     }
 
     /// Carries one of the connection `connection`'s messages to `executor`: an `initialize` is
-    /// answered to that connection with the executor's own, an `initialized` is already sent, a
-    /// start and a terminate go through their tasks, and everything else passes as it came.
+    /// answered to that connection with the executor's own, an `initialized` is already sent,
+    /// every other request goes on under a relay id, a start and a terminate through their tasks,
+    /// and everything else passes as it came.
     async fn take_client_message(
         &self,
         executor: &Arc<CodexExecutor>,
@@ -426,20 +429,29 @@ impl CodexExecRelay {
         let Some(relay) = self.me.upgrade() else {
             return;
         };
-        match (message.id, message.method.as_deref()) {
-            (Some(id), Some(INITIALIZE_METHOD)) => {
-                let answer = json!({ "id": id, "result": executor.initialize_result() });
-                executor
-                    .answer_connection(connection, answer.to_string())
-                    .await;
+        let (id, method) = match (message.id, message.method) {
+            (Some(id), Some(method)) => (id, method),
+            (None, Some(method)) if method == INITIALIZED_METHOD => return,
+            _ => {
+                forward(executor, line).await;
+                return;
             }
-            (None, Some(INITIALIZED_METHOD)) => {}
-            (Some(_), Some(PROCESS_START_METHOD)) => {
+        };
+        if method == INITIALIZE_METHOD {
+            let answer = json!({ "id": id, "result": executor.initialize_result() });
+            executor
+                .answer_connection(connection, answer.to_string())
+                .await;
+            return;
+        }
+        let line = executor.relay_client_request(connection, &line, id);
+        match method.as_str() {
+            PROCESS_START_METHOD => {
                 #[cfg(test)]
                 self.process_starts.fetch_add(1, Ordering::Relaxed);
                 tokio::spawn(relay.forward_process_start(Arc::clone(executor), line));
             }
-            (Some(_), Some(PROCESS_TERMINATE_METHOD)) => {
+            PROCESS_TERMINATE_METHOD => {
                 tokio::spawn(relay.forward_terminate(Arc::clone(executor), line));
             }
             _ => forward(executor, line).await,

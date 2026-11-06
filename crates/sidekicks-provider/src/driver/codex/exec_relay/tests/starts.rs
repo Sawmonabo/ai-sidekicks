@@ -123,8 +123,11 @@ async fn wraps_a_sessions_start_and_gives_a_copy_s_start_no_way_to_ask() {
         start(2, COPY_THREAD, "call-copy", "8-copy"),
     ));
     let unwrapped = fake.next_sent().await;
-    fake.write(&json!({ "id": 2, "error": { "code": -32603, "message": "spawn failed" } }))
-        .await;
+    fake.write(&json!({
+        "id": unwrapped["id"],
+        "error": { "code": -32603, "message": "spawn failed" },
+    }))
+    .await;
     copy_start.await.expect("the copy's start is passed on");
 
     let params = &wrapped["params"];
@@ -212,8 +215,8 @@ async fn ends_the_row_of_a_former_service_starts_command_at_its_process_end() {
         starts.push(tokio::spawn(
             Arc::clone(&relay).forward_process_start(Arc::clone(&executor), line.to_string()),
         ));
-        fake.next_sent().await;
-        fake.write(&json!({ "id": index, "result": {} })).await;
+        let sent = fake.next_sent().await;
+        fake.write(&json!({ "id": sent["id"], "result": {} })).await;
         if index == 0 {
             fake.write(&exited(&process)).await;
             wait_until(|| relay.relayed_command(session_id, &call_id(call)).is_none()).await;
