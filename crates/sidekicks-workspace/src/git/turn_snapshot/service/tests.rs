@@ -15,15 +15,15 @@ use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
 use super::test_support::{
-    answer, answer_in_git_folder, answer_with_captures, as_the_test, files_with_bytes,
+    answer, answer_in_git_folder, answer_with_captures, as_the_test, checkout_of, files_with_bytes,
     made_capture_folder, minted_run_id, minted_workflow_run_id, point_of, repository_with_a_commit,
     service_reading, turn_of, utf8, write_in,
 };
-use super::{TurnSnapshotCaptureOutcome, TurnSnapshotPruneOutcome};
+use super::{TurnSnapshotCaptureInput, TurnSnapshotCaptureOutcome, TurnSnapshotPruneOutcome};
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::version::KeptProgramFacts;
 use crate::git::process::{GitCall, GitRunner, in_folder, read_git_common_folder, test_git_runner};
-use crate::git::turn_snapshot::capture::{GitFloorReports, LARGE_FILE_BYTES};
+use crate::git::turn_snapshot::capture::{CheckoutCaptureInput, GitFloorReports, LARGE_FILE_BYTES};
 use crate::git::turn_snapshot::capture_folder::{CaptureFolder, git_folder_argument};
 use crate::git::turn_snapshot::diagnostics::{CaptureStep, TurnSnapshotRetentionSkipReason};
 use crate::git::turn_snapshot::refs::{RunSnapshotPoint, build_run_snapshot_ref_prefix};
@@ -544,4 +544,62 @@ async fn a_file_over_the_size_bound_is_left_out_of_a_turn_snapshot_and_named() {
         message.ends_with("\n\nLeft-Out-Paths: [\"big.bin\"]"),
         "got {message:?}"
     );
+}
+
+// What a failing capture takes.
+#[derive(Clone, Copy, Debug)]
+enum FailedCapture {
+    // A workflow run's start.
+    WorkflowRunStart,
+}
+
+// Fails when the cause is dropped from the outcome or taken from another failure than the step's,
+// or when a checkout the live tree disagrees with is captured anyway, recording a wrong tree as
+// the run's: the subfolder is not the top level of the tree holding the execution root.
+#[rstest]
+#[case::a_workflow_runs_start(FailedCapture::WorkflowRunStart)]
+#[tokio::test]
+async fn a_capture_the_live_tree_disagrees_with_fails_naming_its_cause_and_writes_nothing(
+    #[case] captured: FailedCapture,
+) {
+    let git = test_git_runner();
+    let root = tempfile::tempdir().expect("the temporary folder is made");
+    let (repository, _) = repository_with_a_commit(&git, root.path()).await;
+    let subfolder = repository.join("nested");
+    std::fs::create_dir(&subfolder).expect("the subfolder is made");
+    let database = TestDatabase::new(schema_parts());
+    let service = service_over(&git, &database, Arc::new(KeyedLock::new()));
+    let owner = root.path().join("owner");
+    let checkout = CheckoutCaptureInput {
+        checkout_root: subfolder,
+        ..checkout_of(&repository, &owner)
+    };
+
+    let (failed_step, cause) = match captured {
+        FailedCapture::WorkflowRunStart => {
+            let input = TurnSnapshotCaptureInput {
+                checkout,
+                point: RunSnapshotPoint::WorkflowRun {
+                    workflow_run_id: minted_workflow_run_id(),
+                    point: WorkflowRunSnapshotPoint::Start { epoch: epoch(0) },
+                },
+            };
+            match service.capture_turn_snapshot(None, &input).await {
+                TurnSnapshotCaptureOutcome::Failed {
+                    failed_step, cause, ..
+                } => (failed_step, cause),
+                outcome @ (TurnSnapshotCaptureOutcome::Captured { .. }
+                | TurnSnapshotCaptureOutcome::AlreadyCaptured { .. }) => {
+                    panic!("the capture fails, got {outcome:?}")
+                }
+            }
+        }
+    };
+
+    assert_eq!(failed_step, CaptureStep::VerifyCheckoutRoot);
+    assert!(
+        cause.contains("not the working tree holding the execution root"),
+        "got {cause:?}"
+    );
+    assert!(!owner.exists(), "no capture folder is made");
 }

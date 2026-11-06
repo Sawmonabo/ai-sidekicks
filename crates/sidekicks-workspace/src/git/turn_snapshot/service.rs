@@ -25,6 +25,7 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::{create_private_folder, remove_tree_awaited};
+use sidekicks_std::error_description::describe_error;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::random_hex::random_hex;
 use sidekicks_store::database::connection::read_pool::{
@@ -62,6 +63,10 @@ const SELECT_RUN_CONTEXT_SQL: &str =
 /// The random bytes in a scratch index's name, enough that two captures never meet.
 const SCRATCH_INDEX_NAME_BYTES: usize = 16;
 
+/// The cause a capture refused for an old git answers; the floor itself is logged once per place
+/// and feature.
+const GIT_BELOW_FLOOR_CAUSE: &str = "the daemon's git is older than this capture needs";
+
 /// What one snapshot records, every field resolved by the caller.
 #[derive(Clone, Debug)]
 pub struct TurnSnapshotCaptureInput {
@@ -98,12 +103,14 @@ pub enum TurnSnapshotCaptureOutcome {
         /// that has repository access it need not be one this service recorded.
         snapshot_commit: GitObjectId,
     },
-    /// The capture did not complete; the failure itself goes to the service log.
+    /// The capture did not complete; the failure goes to the service log too.
     Failed {
         /// The ref the snapshot would have been written to.
         snapshot_ref: String,
         /// The step that failed.
         failed_step: CaptureStep,
+        /// The failure in one line, its causes after it, for the caller to record.
+        cause: String,
     },
 }
 
@@ -190,8 +197,8 @@ impl TurnSnapshotService {
     /// the size bound left out) as a snapshot commit at the ref of the input's point, a turn's end
     /// or a workflow run's point, in the owner's capture folder, running git for the project at
     /// `place`, then packs what it borrows from the repository. Never fails: every failure is
-    /// logged and answered `Failed` with its step, since a snapshot never holds up a run; a git
-    /// lacking a feature is logged once per place and feature.
+    /// logged and answered `Failed` with its step and cause, since a snapshot never holds up a
+    /// run; a git lacking a feature is logged once per place and feature.
     pub async fn capture_turn_snapshot(
         &self,
         place: Option<&Place>,
@@ -212,6 +219,7 @@ impl TurnSnapshotService {
                 return TurnSnapshotCaptureOutcome::Failed {
                     snapshot_ref,
                     failed_step: CaptureStep::GitFloor,
+                    cause: GIT_BELOW_FLOOR_CAUSE.to_owned(),
                 };
             }
             Err(CaptureStartFailure::Failed(failed_step, failure)) => {
@@ -597,13 +605,14 @@ fn snapshot_subject(point: &RunSnapshotPoint) -> &'static str {
     }
 }
 
-// The one place a capture failure is reported: the log, then the outcome.
+// The one place a capture failure is reported: the log, then the outcome naming its cause.
 fn fail_capture(
     run_key: RunContextKey,
     snapshot_ref: String,
     failed_step: CaptureStep,
     failure: CaptureStepError,
 ) -> TurnSnapshotCaptureOutcome {
+    let cause = describe_error(&failure);
     CaptureDiagnostic::CaptureFailed {
         run_key,
         snapshot_ref: snapshot_ref.clone(),
@@ -614,6 +623,7 @@ fn fail_capture(
     TurnSnapshotCaptureOutcome::Failed {
         snapshot_ref,
         failed_step,
+        cause,
     }
 }
 
