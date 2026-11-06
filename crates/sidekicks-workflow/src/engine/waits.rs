@@ -37,7 +37,7 @@ use sidekicks_contracts::workflow::run::failures::{
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::WorkflowWaitCause;
 use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseSuspendedPayload;
-use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
+use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::scheduler::armed_instant::{ArmedInstant, InstantJob};
@@ -142,13 +142,15 @@ fn ask_cause(ask: &PersonAsk) -> WorkflowWaitCause {
 }
 
 /// The `workflow.phase.suspended` of `step` in the session `session_id`, waiting on `ask` as
-/// `opened` opened it: the arm `ask` names, carrying the wait's id and its deadline.
+/// `opened` opened it: the arm `ask` names, carrying the wait's id, its deadline and `log_ref`, the
+/// log the step wrote before it waited.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn suspended_payload(
     session_id: SessionId,
     step: &WorkflowStepKey,
     opened: &OpenedPersonWait,
     ask: &PersonAsk,
+    log_ref: &WorkflowPayloadRef,
 ) -> WorkflowPhaseSuspendedPayload {
     let workflow_run_id = step.workflow_run_id;
     let node_id = step.node_id.clone();
@@ -156,6 +158,7 @@ pub(crate) fn suspended_payload(
     let execution_index = step.execution_index;
     let wait_deadline_at = opened.deadline_at.clone();
     let wait_id = opened.wait_id;
+    let log_ref = Some(log_ref.clone());
     match ask {
         PersonAsk::Approval { .. } => WorkflowPhaseSuspendedPayload::Approval {
             session_id,
@@ -167,6 +170,7 @@ pub(crate) fn suspended_payload(
             resume_at: None,
             wait_deadline_at,
             wait_id,
+            log_ref,
         },
         PersonAsk::Form { .. } => WorkflowPhaseSuspendedPayload::Form {
             session_id,
@@ -178,6 +182,7 @@ pub(crate) fn suspended_payload(
             resume_at: None,
             wait_deadline_at,
             wait_id,
+            log_ref,
         },
         PersonAsk::Reply { .. } => WorkflowPhaseSuspendedPayload::Reply {
             session_id,
@@ -189,6 +194,7 @@ pub(crate) fn suspended_payload(
             resume_at: None,
             wait_deadline_at,
             wait_id,
+            log_ref,
         },
     }
 }

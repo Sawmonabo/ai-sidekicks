@@ -395,7 +395,9 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
     resolve(AttentionOpenEntries::Step(step_key()))
 )]
 #[case::step_failed(
-    step_event("workflow.step.failed", json!({"error": {"message": "It broke"}, "readied": []})),
+    step_event("workflow.step.failed", json!({
+        "error": {"message": "It broke"}, "logRef": {"kind": "inline", "items": []}, "readied": [],
+    })),
     resolve(AttentionOpenEntries::Step(step_key()))
 )]
 #[case::step_canceled(

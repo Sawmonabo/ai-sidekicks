@@ -485,14 +485,14 @@ Payload shape: `{sessionId, workflowRunId, stepRunId}`; the step types carry the
 | `workflow.phase.canceling` | A phase was asked to stop and is winding down. |
 | `workflow.phase.failed` | A phase failed. Payload carries `cancellationReason: 'siblingFailure' \| null` — non-null exactly where a sibling's failure canceled it. |
 | `workflow.phase.retried` | A failed phase was retried, a new attempt minted for it. |
-| `workflow.phase.suspended` | A step started waiting. Payload carries the step's `waitCause` (`approval`, `form`, `reply`, `chain` or `account`), the durable `resumeAt` instant where the wait armed one, and, on an `account` wait, the spent account's `providerAccountId`. |
+| `workflow.phase.suspended` | A step started waiting. Payload carries the step's `waitCause` (`approval`, `form`, `reply`, `chain` or `account`), the durable `resumeAt` instant where the wait armed one, and, on an `account` wait, the spent account's `providerAccountId`; a wait on a person's approval, form or reply also carries the `logRef` of the log the step wrote before it waited. |
 | `workflow.phase.resumed` | A waiting step resumed. |
 | `workflow.phase.completed` | A phase finished and its gate may resolve. |
 | `workflow.step.started` | A step began executing, its input ref recorded with it and, on an agent step whose account cannot run its run's level, the level it runs at in its place. |
 | `workflow.step.completed` | A step finished, its output and log refs recorded with it, plus its cost where a provider was billed. |
-| `workflow.step.failed` | A step failed, the error and the failing item index recorded with it, and the words typed with the `Decline` that failed a command step. |
+| `workflow.step.failed` | A step failed, the error and the failing item index recorded with it, the words typed with the `Decline` that failed a command step, its `logRef`, and, where its node's `onError` passed its input on, `passedOn`: that output's `outputRef` and `outputItemCounts`. |
 | `workflow.step.canceled` | A step that was running or waiting when its run ended was canceled. |
-| `workflow.step.skipped` | A step was skipped — its input carried no items, or it was disabled. |
+| `workflow.step.skipped` | A step was skipped — its input carried no items, or it was disabled — with its `sources`, its `inputRef`, the `outputRef` it passed on and that output's `outputItemCounts`. |
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 

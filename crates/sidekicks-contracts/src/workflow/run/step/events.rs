@@ -129,9 +129,24 @@ workflow_step_event! {
     }
 }
 
+/// The output a failed step passed on where its node's `onError` passed its input on: one member
+/// holding the ref and its counts, so neither is written without the other.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct WorkflowPassedOnOutput {
+    /// The output.
+    #[garde(dive)]
+    pub output_ref: WorkflowPayloadRef,
+    /// How many items each main output holds, in output order: the boundaries of the output
+    /// lists `outputRef` stores joined.
+    pub output_item_counts: Vec<SafeInt<0>>,
+}
+
 workflow_step_event! {
-    /// `workflow.step.failed`: the error, its failure code if one names it, the failed item, and
-    /// the words a person typed with the Decline that failed it.
+    /// `workflow.step.failed`: the error, its failure code if one names it, the failed item, the
+    /// words a person typed with the Decline that failed it, the step's log, and the output it
+    /// passed on where its node's `onError` passed its input on.
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
@@ -156,6 +171,19 @@ workflow_step_event! {
         )]
         #[schemars(with = "NonEmptyText")]
         pub decline_reason: Option<NonEmptyText>,
+        /// The log.
+        #[garde(dive)]
+        pub log_ref: WorkflowPayloadRef,
+        /// Present only where the node's `onError` passed its input on: that output and its
+        /// counts.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowPassedOnOutput")]
+        #[garde(dive)]
+        pub passed_on: Option<WorkflowPassedOnOutput>,
         /// The steps this event's write readied, each with what its `pending` row stores; empty
         /// where it readied none.
         #[garde(dive)]
@@ -175,11 +203,10 @@ macro_rules! phase_suspended_payload {
             /// `account` wait, the spent account the attention read groups it under and the
             /// durable resume instant where the wait armed one; absent, only the person resumes
             /// it. A wait on anything else names neither. A wait on a person's approval, form or
-            /// reply carries the deadline its node's `Timeout` arms and the `waitId` its answer
-            /// names; a wait on an account or a chain's question carries neither.
-            #[derive(
-                Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
-            )]
+            /// reply carries the deadline its node's `Timeout` arms, the `waitId` its answer
+            /// names and the `logRef` the step wrote before it waited; a wait on an account or a
+            /// chain's question carries none of them.
+            #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
             #[serde(
                 tag = "waitCause",
                 rename_all = "camelCase",
@@ -225,6 +252,14 @@ phase_suspended_payload! {
         )]
         #[schemars(with = "Never")]
         wait_id: Option<Never>,
+        /// Never present: only a wait on a person writes a log before it waits.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        log_ref: Option<Never>,
     }
     /// Waiting on a person's approval.
     Approval {
@@ -255,6 +290,15 @@ phase_suspended_payload! {
         wait_deadline_at: Option<WireInstant>,
         /// The wait the person's answer must name to settle it.
         wait_id: UuidTextForm,
+        /// Always present: the log the step wrote before it waited.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowPayloadRef")]
+        #[garde(dive)]
+        log_ref: Option<WorkflowPayloadRef>,
     }
     /// Waiting on a person's form.
     Form {
@@ -285,6 +329,15 @@ phase_suspended_payload! {
         wait_deadline_at: Option<WireInstant>,
         /// The wait the person's answer must name to settle it.
         wait_id: UuidTextForm,
+        /// Always present: the log the step wrote before it waited.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowPayloadRef")]
+        #[garde(dive)]
+        log_ref: Option<WorkflowPayloadRef>,
     }
     /// Waiting on a person's chat reply.
     Reply {
@@ -315,6 +368,15 @@ phase_suspended_payload! {
         wait_deadline_at: Option<WireInstant>,
         /// The wait the person's answer must name to settle it.
         wait_id: UuidTextForm,
+        /// Always present: the log the step wrote before it waited.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowPayloadRef")]
+        #[garde(dive)]
+        log_ref: Option<WorkflowPayloadRef>,
     }
     /// Waiting on its chain's question.
     Chain {
@@ -350,6 +412,14 @@ phase_suspended_payload! {
         )]
         #[schemars(with = "Never")]
         wait_id: Option<Never>,
+        /// Never present: only a wait on a person writes a log before it waits.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        log_ref: Option<Never>,
     }
 }
 
@@ -465,13 +535,25 @@ pub enum WorkflowStepSkipReason {
 }
 
 workflow_step_event! {
-    /// `workflow.step.skipped`: why the step was skipped.
+    /// `workflow.step.skipped`: why the step was skipped, what fed it, the input it skipped and
+    /// the output it passed on.
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
     pub struct WorkflowStepSkippedPayload {
         /// Why.
         pub reason: WorkflowStepSkipReason,
+        /// The feed of each main input slot in slot order, `null` for a slot nothing fed.
+        pub sources: Vec<Option<WorkflowStepSource>>,
+        /// The input.
+        #[garde(dive)]
+        pub input_ref: WorkflowPayloadRef,
+        /// The output it passed on.
+        #[garde(dive)]
+        pub output_ref: WorkflowPayloadRef,
+        /// How many items each main output carries on, in output order: the boundaries of the
+        /// output lists `outputRef` stores joined.
+        pub output_item_counts: Vec<SafeInt<0>>,
         /// The steps this event's write readied, each with what its `pending` row stores; empty
         /// where it readied none.
         #[garde(dive)]
@@ -515,6 +597,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowStepCanceledPayload>().checked(),
         Definition::read::<WorkflowStepStartedPayload>().checked(),
         Definition::read::<WorkflowStepCompletedPayload>().checked(),
+        Definition::read::<WorkflowPassedOnOutput>(),
         Definition::read::<WorkflowStepFailedPayload>().checked(),
         Definition::read::<WorkflowPhaseSuspendedPayload>().checked(),
         Definition::read::<WorkflowPhaseCancellationReason>(),
@@ -549,6 +632,11 @@ mod tests {
     const DEADLINE: &str = "2020-01-01T10:00:00.000Z";
     const WAIT: &str = "018f0000-0000-7000-8000-00000000000d";
 
+    /// An empty inline log, the one a person's wait carries.
+    fn empty_log() -> Value {
+        json!({"kind": "inline", "items": []})
+    }
+
     /// A step event's payload: the step it names, then `members`.
     fn step_payload(members: Value) -> Value {
         let mut payload = json!({
@@ -564,9 +652,9 @@ mod tests {
     /// A deadline rides a wait on a person and is refused on any other wait. Mutations: refuse it
     /// on a person's wait; keep it on an account or chain wait.
     #[rstest]
-    #[case::approval(json!({"waitCause": "approval", "waitId": WAIT}), true)]
-    #[case::form(json!({"waitCause": "form", "waitId": WAIT}), true)]
-    #[case::reply(json!({"waitCause": "reply", "waitId": WAIT}), true)]
+    #[case::approval(json!({"waitCause": "approval", "waitId": WAIT, "logRef": empty_log()}), true)]
+    #[case::form(json!({"waitCause": "form", "waitId": WAIT, "logRef": empty_log()}), true)]
+    #[case::reply(json!({"waitCause": "reply", "waitId": WAIT, "logRef": empty_log()}), true)]
     #[case::account(json!({"waitCause": "account", "providerAccountId": ACCOUNT}), false)]
     #[case::chain(json!({"waitCause": "chain"}), false)]
     fn phase_suspended_carries_a_deadline_only_on_a_wait_on_a_person(

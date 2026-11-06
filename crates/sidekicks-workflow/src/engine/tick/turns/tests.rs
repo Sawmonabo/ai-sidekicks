@@ -99,7 +99,8 @@ async fn a_level_change_reaches_the_next_dispatched_step() {
 }
 
 /// A run whose last live step leaves it decides what still waits in that step's own write: a
-/// step whose output is empty skips its successor, and a cancel frees a join to run, which its
+/// step whose output is empty skips its successor, whose `workflow.step.skipped` carries the
+/// row's sources, input, output and counts, and a cancel frees a join to run, which its
 /// `workflow.step.canceled` readies. Mutations: a flush that waits for a later report; a step
 /// the flush readies on no event.
 #[rstest]
@@ -131,6 +132,18 @@ async fn a_quiet_run_flushes_in_the_same_turn(#[case] is_canceled: bool) {
             (completed + 1, json!("noItems"))
         );
         assert_eq!(harness.status("Y").as_deref(), Some("skipped"));
+        for (member, column) in [
+            ("sources", "source_json"),
+            ("inputRef", "input_ref"),
+            ("outputRef", "output_ref"),
+            ("outputItemCounts", "output_item_counts_json"),
+        ] {
+            let stored: Value = serde_json::from_str(
+                &step_column(&harness.rows, "Y", column).expect("the skipped step's column"),
+            )
+            .expect("the column holds JSON");
+            assert_eq!(payload[member], stored, "{member}");
+        }
         assert_eq!(
             step_column(&harness.rows, "Y", "started_at"),
             Some(occurred_at)

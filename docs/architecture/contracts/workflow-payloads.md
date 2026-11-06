@@ -610,12 +610,17 @@ interface WorkflowPhaseFailedPayload extends WorkflowStepEventPayload {
 // the spent account the attention read groups it under and the durable resume instant where the
 // wait armed one; absent, only the person resumes it. A wait on a person carries `waitId`, the wait
 // the person's answer must name to settle it, and `waitDeadlineAt`, the instant it gives up, where
-// the node's `Timeout` armed one; the step's row keeps both as truth. A `chain` wait names none of
-// these.
+// the node's `Timeout` armed one; the step's row keeps both as truth. It also carries `logRef`, the
+// log the step wrote before it waited. A `chain` wait names none of these.
 type WorkflowPhaseSuspendedPayload = WorkflowStepEventPayload &
   (
     | { waitCause: "account"; providerAccountId: ProviderAccountId; resumeAt?: string } // RFC 3339 UTC
-    | { waitCause: "approval" | "form" | "reply"; waitId: string; waitDeadlineAt?: string } // RFC 3339 UTC
+    | {
+        waitCause: "approval" | "form" | "reply";
+        waitId: string;
+        waitDeadlineAt?: string; // RFC 3339 UTC
+        logRef: WorkflowPayloadRef;
+      }
     | { waitCause: "chain" }
   );
 // workflow.phase.waitingOnPool — diagnostic, for a step the engine's one memory gate holds before
@@ -629,9 +634,10 @@ interface WorkflowPhaseWaitingOnPoolPayload extends WorkflowStepEventPayload {
 // The step boundaries. A started event names the input it ran on and, on an agent step whose
 // account cannot run its run's level, the level it runs at in its place; a finished event the
 // output and log it produced, how many items each of its main outputs holds, plus its cost where a
-// provider was billed; a failed event the error, the item index that failed and the words typed
-// with the `Decline` that failed a command step; a canceled event the step alone; and a skipped
-// event why it was skipped. Each finished, failed, canceled or skipped event lists the steps its
+// provider was billed; a failed event the error, the item index that failed, the words typed with
+// the `Decline` that failed a command step, its log and, where its node's `onError` passed its
+// input on, that output and its counts; a canceled event the step alone; and a skipped event why it
+// was skipped, what fed it, its input, and the output it passed on with its counts. Each finished, failed, canceled or skipped event lists the steps its
 // write readied. A step's started event
 // precedes its finished, failed or canceled event.
 interface WorkflowStepStartedPayload extends WorkflowStepEventPayload {
@@ -650,6 +656,8 @@ interface WorkflowStepFailedPayload extends WorkflowStepEventPayload {
   error: WorkflowStepError;
   failedItemIndex?: number;
   declineReason?: string; // only where words were typed on the `Decline`
+  logRef: WorkflowPayloadRef;
+  passedOn?: { outputRef: WorkflowPayloadRef; outputItemCounts: number[] }; // only on a pass-on
   readied: WorkflowReadiedStep[];
 }
 interface WorkflowStepCanceledPayload extends WorkflowStepEventPayload {
@@ -657,6 +665,10 @@ interface WorkflowStepCanceledPayload extends WorkflowStepEventPayload {
 }
 interface WorkflowStepSkippedPayload extends WorkflowStepEventPayload {
   reason: "noItems" | "disabled";
+  sources: Array<{ nodeId: WorkflowNodeId; outputIndex: number; executionIndex: number } | null>;
+  inputRef: WorkflowPayloadRef;
+  outputRef: WorkflowPayloadRef;
+  outputItemCounts: number[];
   readied: WorkflowReadiedStep[];
 }
 // workflow.phase.retried — a failed phase was retried; the step it names is the new attempt, whose
