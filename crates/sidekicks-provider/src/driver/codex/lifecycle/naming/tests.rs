@@ -129,21 +129,19 @@ fn filing_over(ports: &DriverPorts) -> SessionUsageFiling {
 }
 
 // A title pass over a scripted connection that files nothing, run on its own task until `cancel`
-// fires, and the script.
+// fires; the script, and the service it runs on, which the caller keeps for the pass's length.
 fn start_pass(
     cancel: CancellationToken,
 ) -> (
     tokio::task::JoinHandle<Result<Option<String>, CodexError>>,
     ScriptedService,
+    ScriptedCodexService,
 ) {
     let scripted = start_scripted_codex_service();
     let filing = filing_over(&DriverPorts::new());
-    start_filed_pass(
-        cancel,
-        Some(SESSION_MODEL),
-        filing,
-        Arc::clone(&scripted.service),
-    )
+    let service = Arc::clone(&scripted.service);
+    let (pass, script) = start_filed_pass(cancel, Some(SESSION_MODEL), filing, service);
+    (pass, script, scripted)
 }
 
 // A title pass of a session on `session_model` over a scripted connection, its spend filed through
@@ -324,7 +322,7 @@ async fn a_title_pass_reads_the_config_then_starts_locked_down_and_reads_a_cappe
     #[case] effort: Option<&str>,
     #[case] named: Option<&str>,
 ) {
-    let (pass, mut script) = start_pass(CancellationToken::new());
+    let (pass, mut script, _scripted) = start_pass(CancellationToken::new());
     answer_config_read(&mut script).await;
     answer_model_list(&mut script, catalog).await;
 
@@ -357,7 +355,7 @@ async fn a_title_pass_reads_the_config_then_starts_locked_down_and_reads_a_cappe
 // would stay loaded, never unloading on the service.
 #[tokio::test(start_paused = true)]
 async fn a_title_pass_lets_its_connection_go_when_it_ends() {
-    let (pass, mut script) = start_pass(CancellationToken::new());
+    let (pass, mut script, _scripted) = start_pass(CancellationToken::new());
     answer_config_read(&mut script).await;
     answer_model_list(&mut script, &[SESSION_MODEL]).await;
     answer_thread_start(&mut script, "readOnly").await;
@@ -388,7 +386,7 @@ enum Refusal {
 async fn a_title_pass_that_cannot_name_its_servers_or_runs_writable_starts_no_turn(
     #[case] refusal: Refusal,
 ) {
-    let (pass, mut script) = start_pass(CancellationToken::new());
+    let (pass, mut script, _scripted) = start_pass(CancellationToken::new());
     match refusal {
         Refusal::UnreadConfig => {
             let read = script.next_sent().await;
@@ -419,7 +417,7 @@ async fn a_title_pass_that_cannot_name_its_servers_or_runs_writable_starts_no_tu
 #[tokio::test(start_paused = true)]
 async fn a_title_pass_canceled_during_its_turns_start_interrupts_the_turn() {
     let cancel = CancellationToken::new();
-    let (pass, mut script) = start_pass(cancel.clone());
+    let (pass, mut script, _scripted) = start_pass(cancel.clone());
     answer_config_read(&mut script).await;
     answer_model_list(&mut script, &[SESSION_MODEL]).await;
     answer_thread_start(&mut script, "readOnly").await;
