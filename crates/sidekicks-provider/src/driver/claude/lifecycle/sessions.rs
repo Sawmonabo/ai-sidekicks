@@ -271,9 +271,9 @@ impl ClaudeDriver {
     }
 
     /// Ends every Claude Code process as the daemon stops: no restart starts from here, every
-    /// session closes, and every process still running is stopped. Each process is the daemon's
-    /// own child, so a restart of the daemon stops them as a stop does. Fails with every close
-    /// that failed once all have ended.
+    /// session closes, every process still running is stopped and each one-turn process's spend
+    /// is recorded. Each process is the daemon's own child, so a restart of the daemon stops them
+    /// as a stop does. Fails with every close that failed once all have ended.
     pub(crate) async fn shutdown(&self, _intent: DaemonStopIntent) -> Result<(), DriverError> {
         let Some(parts) = self.composed_parts() else {
             self.starts.stop_every_process().await;
@@ -288,6 +288,8 @@ impl ClaudeDriver {
             })
         }));
         let (closed, ()) = futures::join!(closes, self.starts.stop_every_process());
+        // A one-turn process stopped with the rest records what it spent before the stop ends.
+        parts.session_controls.wait_for_recorded_turns().await;
         settle_all(closed, "closing the Claude Code sessions at the stop")
             .map(drop)
             .map_err(internal)
@@ -320,9 +322,9 @@ impl ClaudeDriver {
         };
         name_claude_session(
             live.as_deref(),
-            &*self.starts,
+            &self.starts,
             &self.sources,
-            parts.session_controls.one_turn_pricing(),
+            &parts.session_controls,
             account,
             params,
         )

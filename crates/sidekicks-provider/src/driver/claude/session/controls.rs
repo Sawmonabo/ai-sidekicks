@@ -35,6 +35,7 @@ use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_workspace::git::process::environment::NO_PROMPT_ENVIRONMENT;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 
 use crate::driver::claude::delivery::commands::{ClaudeCommandChannel, ClaudeCommandChannels};
 use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
@@ -106,7 +107,10 @@ pub(crate) struct ClaudeSessionControls {
     in_process_tool_servers: Arc<PortRegistration<Arc<dyn InProcessToolServers>>>,
     read_commands: ClaudeCommandListReader,
     command_channels: Arc<ClaudeCommandChannels>,
-    one_turn_pricing: ClaudeOneTurnPricing,
+    one_turn_pricing: Arc<ClaudeOneTurnPricing>,
+    // The one-turn processes whose spend is recorded apart from their caller, which the daemon's
+    // stop waits for.
+    recorded_turns: TaskTracker,
     tables: Arc<Mutex<ClaudeControlTables>>,
 }
 
@@ -164,14 +168,41 @@ impl ClaudeSessionControls {
             in_process_tool_servers,
             read_commands,
             command_channels,
-            one_turn_pricing,
+            one_turn_pricing: Arc::new(one_turn_pricing),
+            recorded_turns: TaskTracker::new(),
             tables: Arc::new(Mutex::new(ClaudeControlTables::default())),
         }
     }
 
-    /// What records and prices the spend of the session's one-turn processes.
-    pub(crate) fn one_turn_pricing(&self) -> &ClaudeOneTurnPricing {
-        &self.one_turn_pricing
+    /// Runs `turn`, one unkept turn of a one-turn process, and records and prices what it spent as
+    /// `charge` however it ended, on a task the daemon's stop waits for, so a caller that stops
+    /// waiting still has the spend recorded; answers the turn's reply, a task that ended
+    /// unfinished as a build failure.
+    pub(crate) async fn run_recorded_turn(
+        &self,
+        turn: impl Future<Output = ClaudeOneTurnOutcome> + Send + 'static,
+        charge: ClaudeOneTurnCharge,
+    ) -> Result<ClaudeOneTurnReply, ClaudeLaunchError> {
+        let pricing = Arc::clone(&self.one_turn_pricing);
+        let recorded = self.recorded_turns.spawn(async move {
+            let outcome = turn.await;
+            if let Some(spend) = outcome.spend {
+                pricing.record(spend, charge).await;
+            }
+            outcome.reply
+        });
+        recorded.await.unwrap_or_else(|error| {
+            Err(ClaudeLaunchError::Build(DriverError::Internal(Box::new(
+                error,
+            ))))
+        })
+    }
+
+    /// Waits for every turn [`Self::run_recorded_turn`] runs to end with its spend recorded; once
+    /// the processes are stopped, that is at most the stop's own bound and one record.
+    pub(crate) async fn wait_for_recorded_turns(&self) {
+        self.recorded_turns.close();
+        self.recorded_turns.wait().await;
     }
 
     /// Moves the session between Build and Plan from its next turn: Plan is Claude Code's `plan`

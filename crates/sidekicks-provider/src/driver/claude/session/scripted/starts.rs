@@ -104,7 +104,8 @@ struct ScriptedStartTables {
     session_commands: VecDeque<Vec<ClaudeListedCommand>>,
     session_command_holds: VecDeque<oneshot::Receiver<()>>,
     session_command_reads: usize,
-    one_turn_outcomes: VecDeque<ClaudeOneTurnOutcome>,
+    // Each scripted one turn's outcome, and whether it waits for its stop before answering it.
+    one_turn_outcomes: VecDeque<(ClaudeOneTurnOutcome, bool)>,
     one_turns: Vec<ScriptedOneTurnRecord>,
     one_turn_environments: Vec<Vec<(String, String)>>,
     account_server_channels: VecDeque<Arc<ScriptedChannel>>,
@@ -232,7 +233,12 @@ impl ScriptedStarts {
 
     /// Scripts the next one-turn process to end as `outcome`.
     pub(crate) fn script_one_turn(&self, outcome: ClaudeOneTurnOutcome) {
-        self.lock().one_turn_outcomes.push_back(outcome);
+        self.lock().one_turn_outcomes.push_back((outcome, false));
+    }
+
+    /// Scripts the next one-turn process to run until its stop fires, then end as `outcome`.
+    pub(crate) fn script_one_turn_until_stopped(&self, outcome: ClaudeOneTurnOutcome) {
+        self.lock().one_turn_outcomes.push_back((outcome, true));
     }
 
     /// Scripts the next account read to answer `mcp_status` and `settings`, in place of answers
@@ -433,11 +439,21 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 .push(request.spawn.legs.spawn_environment.clone());
             tables.one_turn_outcomes.pop_front()
         };
-        let outcome = outcome.unwrap_or_else(|| ClaudeOneTurnOutcome {
-            reply: Err(spawn_failure("no one-turn reply scripted")),
-            spend: None,
+        let (outcome, waits_for_stop) = outcome.unwrap_or_else(|| {
+            let outcome = ClaudeOneTurnOutcome {
+                reply: Err(spawn_failure("no one-turn reply scripted")),
+                spend: None,
+            };
+            (outcome, false)
         });
-        async move { outcome }.boxed()
+        let stop = request.stop;
+        async move {
+            if waits_for_stop {
+                stop.cancelled().await;
+            }
+            outcome
+        }
+        .boxed()
     }
 
     fn probe_sign_in(

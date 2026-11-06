@@ -5,6 +5,7 @@
 //! to its conversation file as the entry Claude Code's own rename writes.
 
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use sidekicks_contracts::machine::settings::ProviderRowValues;
@@ -15,7 +16,8 @@ use sidekicks_platforms::PathRules;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-use crate::driver::claude::pricing::{ClaudeOneTurnCharge, ClaudeOneTurnPricing};
+use crate::driver::claude::pricing::ClaudeOneTurnCharge;
+use crate::driver::claude::session::controls::ClaudeSessionControls;
 use crate::driver::claude::session::conversation_file::conversation_file_of;
 use crate::driver::claude::session::conversation_file::title::append_claude_custom_title;
 use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeSessionUnavailableReason};
@@ -51,32 +53,33 @@ const CLAUDE_NAMING_DEADLINE: Duration = CLAUDE_REQUEST_DEADLINE;
 /// Names the session from its first exchange: Claude Code's title verb on `live` where it answers
 /// with a title, else a one-turn pass on `account`'s home (the account `live` runs on, else the one
 /// its stored leg ran on), on `live`'s legs or the session's own folder, its spend recorded and
-/// priced through `pricing` on `params.binding_id` as the session's own. `None` when both gave no
-/// title, `params.cancel` fired, or the pass ran past [`CLAUDE_NAMING_DEADLINE`], where its
-/// one-turn process is stopped as a cancel stops it. Fails as the one-turn pass fails.
+/// priced on `params.binding_id` as the session's own on a task of `controls`, so a cancel never
+/// drops it. `None` when both gave no title, `params.cancel` fired, or the pass ran past
+/// [`CLAUDE_NAMING_DEADLINE`], where its one-turn process is stopped as a cancel stops it. Fails
+/// as the one-turn pass fails.
 pub(crate) async fn name_claude_session(
     live: Option<&LiveClaudeSession>,
-    starts: &dyn ClaudeProcessStarts,
+    starts: &Arc<dyn ClaudeProcessStarts>,
     sources: &ClaudeSpawnSources,
-    pricing: &ClaudeOneTurnPricing,
+    controls: &ClaudeSessionControls,
     account: ProviderAccountId,
     params: NameSessionParams,
 ) -> Result<Option<String>, DriverError> {
     let cancel = params.cancel.clone();
     let deadline = Instant::now() + CLAUDE_NAMING_DEADLINE;
     run_naming_pass_until(&cancel, deadline, |stop| async move {
-        draw_claude_title(live, starts, sources, pricing, account, params, &stop).await
+        draw_claude_title(live, starts, sources, controls, account, params, &stop).await
     })
     .await
 }
 
 // The title verb on `live`, else the one-turn pass, both ended by `stop`; the one turn's spend is
-// recorded however it ended, before its reply is read.
+// recorded however it ended, before its reply is read, on a task of `controls`.
 async fn draw_claude_title(
     live: Option<&LiveClaudeSession>,
-    starts: &dyn ClaudeProcessStarts,
+    starts: &Arc<dyn ClaudeProcessStarts>,
     sources: &ClaudeSpawnSources,
-    pricing: &ClaudeOneTurnPricing,
+    controls: &ClaudeSessionControls,
     account: ProviderAccountId,
     params: NameSessionParams,
     stop: &CancellationToken,
@@ -109,23 +112,20 @@ async fn draw_claude_title(
         text: compose_naming_prompt(&description),
         origin: OutboundTextOrigin::DriverCommand,
     };
-    let outcome = if let Some(live) = live {
-        let legs = super::controls::one_turn_legs(live, None, None);
-        run_naming_turn(starts, &legs, account.clone(), text, stop).await
+    let legs = if let Some(live) = live {
+        super::controls::one_turn_legs(live, None, None)
     } else {
-        let legs = compose_naming_legs(sources, params.session_id, account.clone(), None).await?;
-        run_naming_turn(starts, &legs, account.clone(), text, stop).await
+        compose_naming_legs(sources, params.session_id, account.clone(), None).await?
     };
-    if let Some(spend) = outcome.spend {
-        let charge = ClaudeOneTurnCharge {
-            session_id: params.session_id,
-            binding_id: params.binding_id,
-            owner: MeteredUsageOwner::Session,
-            provider_account_id: account,
-        };
-        pricing.record(spend, charge).await;
-    }
-    match outcome.reply {
+    let charge = ClaudeOneTurnCharge {
+        session_id: params.session_id,
+        binding_id: params.binding_id,
+        owner: MeteredUsageOwner::Session,
+        provider_account_id: account.clone(),
+    };
+    let (starts, stop) = (Arc::clone(starts), stop.clone());
+    let turn = async move { run_naming_turn(&*starts, &legs, account, text, &stop).await };
+    match controls.run_recorded_turn(turn, charge).await {
         Ok(reply) => Ok(clean_title(&reply.text)),
         Err(ClaudeLaunchError::TurnStopped) => Ok(None),
         Err(error) => Err(error.into()),

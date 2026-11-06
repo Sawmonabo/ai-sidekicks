@@ -1,6 +1,9 @@
 //! A resting session's name: drawn from its first exchange in a one-turn process, whose spend is
 //! the session's own, and told to Claude Code once the driver no longer remembers it.
 
+use std::pin::pin;
+use std::time::Duration;
+
 use rstest::rstest;
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::UsageCostSource;
@@ -14,6 +17,7 @@ use crate::driver::claude::session::scripted::driver::{ScriptedDriver, sandbox_c
 use crate::driver::claude::session::scripted::{binding_id, priced, register_claude_price_list};
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnOutcome, ClaudeOneTurnReply};
+use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::session_control::NameSessionParams;
 use crate::driver::test_registry::new_session_id;
 use crate::port::usage_sink::MeteredUsageOwner;
@@ -170,6 +174,57 @@ async fn a_naming_pass_at_rest_records_and_prices_its_one_turn_as_the_session_s_
     stop.cancel();
 
     assert_eq!(named.is_some(), is_titled);
+    assert_the_session_s_naming_spend(&fixture, cost_source);
+}
+
+// The caller stops waiting at the cancel, as the session's title pass does, and the one turn
+// ends only on the stop that follows. Killed by the spend recorded inside the dropped pass,
+// which the cancel drops with it (no row), and by a daemon stop that ends before the record.
+#[tokio::test]
+async fn a_canceled_naming_pass_s_spend_lands_after_the_cancel() {
+    let scratch = tempfile::tempdir().expect("a scratch folder is made");
+    let stop = CancellationToken::new();
+    let fixture = ScriptedDriver::new();
+    register_claude_price_list(&fixture.services.ports.price_list, &scratch, &stop).await;
+    let session_id = new_session_id();
+    let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
+    fixture.record_session_leg(session_id, account, STORED_CONVERSATION, Map::new());
+    fixture
+        .starts
+        .script_one_turn_until_stopped(ClaudeOneTurnOutcome {
+            reply: Err(ClaudeLaunchError::TurnStopped),
+            spend: Some(opus_spend(&[(1_000, 500)], None)),
+        });
+    let cancel = CancellationToken::new();
+
+    {
+        let mut naming = pin!(fixture.driver.name_session(NameSessionParams {
+            session_id,
+            place: None,
+            first_message: "Fix the login page".to_owned(),
+            first_reply: "Looking at the form.".to_owned(),
+            binding_id: binding_id("naming"),
+            cancel: cancel.clone(),
+        }));
+        while fixture.starts.take_one_turns().is_empty() {
+            let polled = tokio::time::timeout(Duration::from_millis(10), naming.as_mut()).await;
+            assert!(polled.is_err(), "the pass waits on its one turn");
+        }
+    }
+    cancel.cancel();
+    fixture
+        .driver
+        .shutdown(DaemonStopIntent::Restart)
+        .await
+        .expect("the stop ends");
+    stop.cancel();
+
+    assert_the_session_s_naming_spend(&fixture, UsageCostSource::DerivedExact);
+}
+
+// The one turn's 1,000 in and 500 out, recorded on the request's binding as the session's own
+// and priced on the account's row from `cost_source`.
+fn assert_the_session_s_naming_spend(fixture: &ScriptedDriver, cost_source: UsageCostSource) {
     let metered: Vec<_> = fixture
         .usage
         .metered()
