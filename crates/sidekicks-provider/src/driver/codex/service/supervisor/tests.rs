@@ -259,7 +259,10 @@ async fn a_spawned_helpers_frames_reach_its_parents_session(
     );
     let mut reached = Vec::new();
     loop {
-        let CodexSessionInbound::Frame { method, params } = session.task.next_item().await else {
+        let item = tokio::time::timeout(CHECK_WAIT, session.task.next_item())
+            .await
+            .expect("the marker frame reaches the session");
+        let CodexSessionInbound::Frame { method, params } = item else {
             continue;
         };
         if method == "thread/status/changed" {

@@ -169,7 +169,9 @@ async fn handle_answering_read(
 ) {
     let script = &mut session.scripted.script;
     let answer_read = async {
-        let read = script.next_sent().await;
+        let read = tokio::time::timeout(Duration::from_secs(1), script.next_sent())
+            .await
+            .expect("the helper's conversation is read");
         assert_eq!(read["method"], "thread/read", "{read}");
         assert_eq!(read["params"]["threadId"], helper_thread, "{read}");
         answer["jsonrpc"] = json!("2.0");

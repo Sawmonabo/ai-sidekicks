@@ -2,6 +2,7 @@
 //! connection after a reconnect, and each one's child run ended with the service's process.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
@@ -44,7 +45,9 @@ async fn start_helper(session: &mut TestCodexSession, thread_id: &str) -> RunId 
     }});
     let script = &mut session.scripted.script;
     let answer_read = async {
-        let read = script.next_sent().await;
+        let read = tokio::time::timeout(Duration::from_secs(1), script.next_sent())
+            .await
+            .expect("the spawned helper's conversation is read");
         assert_eq!(read["method"], "thread/read", "{read}");
         script.answer(&read, &json!({"thread": {"id": thread_id}}));
     };
