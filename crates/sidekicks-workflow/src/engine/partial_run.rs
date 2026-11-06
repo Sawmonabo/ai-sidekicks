@@ -1,17 +1,20 @@
-//! A partial run's plan: the newest settled step of each node it covers, across every run of the
-//! workflow, and the nodes the difference between the version each step ran and the target
-//! version marks dirty.
+//! A partial run's plan: which of the nodes it covers execute and which reuse their newest
+//! settled step from any run of the workflow, decided from the difference between the version
+//! each step ran and the target version, from whether each step sits beside the steps that fed it,
+//! and from what executes upstream of it.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter;
 use std::sync::LazyLock;
 
+use fixedbitset::FixedBitSet;
 use rusqlite::{Connection, OptionalExtension, Row, named_params};
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::{
     WorkflowDefinitionId, WorkflowDocumentHashedBody, WorkflowNodeId, WorkflowVersionId,
 };
 use sidekicks_contracts::workflow::definition::versions::WorkflowVersionNode;
+use sidekicks_contracts::workflow::run::control::WorkflowNodeExecuteScope;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::WorkflowStepStatus;
 use sidekicks_contracts::workflow::run::step::record::{
@@ -20,7 +23,9 @@ use sidekicks_contracts::workflow::run::step::record::{
 use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::stored_column::{safe_int_column, text_column};
 
+use crate::definitions::stored_document::{StoredDocumentError, parse_stored_workflow_body};
 use crate::definitions::versions::difference::diff_workflow_bodies;
+use crate::definitions::versions::history::{VersionRow, WorkflowVersions, WorkflowVersionsError};
 use crate::engine::tick::RunGraph;
 
 /// The statements a partial run's plan prepares on a read connection beside those of
@@ -51,6 +56,38 @@ static NEWEST_SETTLED_STEP_SQL: LazyLock<String> = LazyLock::new(|| {
   LIMIT 1"
     )
 });
+
+/// What a partial run does with each node it covers: the nodes it executes and the nodes whose
+/// settled step it reuses, each list in graph order, so the executed list is execution order.
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the workflow.node.execute handler")
+)]
+pub(crate) struct PartialRunPlan {
+    /// The nodes the run executes.
+    pub(crate) executed: Vec<WorkflowNodeId>,
+    /// The nodes whose step the run reuses, each with that step.
+    pub(crate) reused: Vec<(WorkflowNodeId, SettledStep)>,
+}
+
+/// Why a partial run could not be planned.
+#[derive(Debug, thiserror::Error)]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the workflow.node.execute handler")
+)]
+pub(crate) enum PartialRunPlanError {
+    /// SQLite failed the read of the nodes' settled steps, or a stored value did not read.
+    #[error("reading the nodes' settled steps failed")]
+    SettledSteps(#[source] rusqlite::Error),
+    /// A version a settled step ran could not be read.
+    #[error("reading a version a settled step ran failed")]
+    Version(#[from] WorkflowVersionsError),
+    /// The target version's body, or the body of a version a settled step ran, does not read.
+    #[error("a version's stored body does not read")]
+    Body(#[from] StoredDocumentError),
+}
 
 /// A node's newest step that stored an output, which a partial run may reuse: a step that
 /// succeeded or was skipped, with the version its run executed.
@@ -121,6 +158,169 @@ fn settled_step_from_row(node_id: &WorkflowNodeId, row: &Row<'_>) -> rusqlite::R
         output_ref: text_column(row, 5, |text| serde_json::from_str(&text))?,
         output_item_counts: text_column(row, 6, |text| serde_json::from_str(&text))?,
     })
+}
+
+/// The plan of a partial run of `target_version`, whose run graph is `graph`, on the node `target`,
+/// which the graph holds, over `scope`: the target alone, or the target and its ancestors. The
+/// target always executes; a covered node executes when it has no settled step, when it is dirty,
+/// when its step was not fed by the steps the plan reuses for its feeders, or when
+/// [`executing_places`] says so; every other covered node reuses its step. Reads each covered
+/// node's settled step and each version those steps ran, and fails as [`PartialRunPlanError`]
+/// says.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the workflow.node.execute handler")
+)]
+pub(crate) fn plan_partial_run(
+    connection: &Connection,
+    target_version: &VersionRow,
+    graph: &RunGraph,
+    target: &WorkflowNodeId,
+    scope: WorkflowNodeExecuteScope,
+) -> Result<PartialRunPlan, PartialRunPlanError> {
+    let target_place = graph.place(target);
+    let mut covered: Vec<usize> = match scope {
+        WorkflowNodeExecuteScope::Node => vec![target_place],
+        WorkflowNodeExecuteScope::FromHere => graph
+            .ancestors(target_place)
+            .chain(iter::once(target_place))
+            .collect(),
+    };
+    covered.sort_unstable();
+    let mut settled = read_settled_steps(
+        connection,
+        target_version.definition_id,
+        covered.iter().map(|&place| &graph.node(place).id),
+    )
+    .map_err(PartialRunPlanError::SettledSteps)?;
+    let target_body = parse_stored_workflow_body(&target_version.definition_body)?;
+    let mut node_ids_by_version: BTreeMap<WorkflowVersionId, BTreeSet<WorkflowNodeId>> =
+        BTreeMap::new();
+    for (node_id, step) in &settled {
+        node_ids_by_version
+            .entry(step.workflow_version_id)
+            .or_default()
+            .insert(node_id.clone());
+    }
+    let versions = WorkflowVersions::new(connection);
+    let sources = node_ids_by_version
+        .into_iter()
+        .map(|(workflow_version_id, node_ids)| {
+            let version = versions.read_version(workflow_version_id)?;
+            Ok(SourceVersion {
+                body: parse_stored_workflow_body(&version.definition_body)?,
+                node_ids,
+            })
+        })
+        .collect::<Result<Vec<_>, PartialRunPlanError>>()?;
+    let dirty = dirty_nodes(&target_body, graph, &sources);
+    let mut needs_execution = FixedBitSet::with_capacity(graph.node_count());
+    needs_execution.insert(target_place);
+    for &place in &covered {
+        let node_id = &graph.node(place).id;
+        let can_reuse = settled
+            .get(node_id)
+            .is_some_and(|step| !dirty.contains(node_id) && is_fed_by_reused_steps(step, &settled));
+        if !can_reuse {
+            needs_execution.insert(place);
+        }
+    }
+    let executing = executing_places(graph, &covered, needs_execution);
+    let mut plan = PartialRunPlan {
+        executed: Vec::new(),
+        reused: Vec::new(),
+    };
+    for place in covered {
+        let node_id = graph.node(place).id.clone();
+        if executing.contains(place) {
+            plan.executed.push(node_id);
+        } else {
+            let step = settled
+                .remove(&node_id)
+                .expect("a node that reuses its step has a settled step");
+            plan.reused.push((node_id, step));
+        }
+    }
+    Ok(plan)
+}
+
+/// Whether `step` was fed by the very steps `settled` holds for its feeders: each slot's source is
+/// that node's settled step, in the same run at the same execution index. A step computed from
+/// another run's feeder outputs than the ones reused beside it cannot be reused with them.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the workflow.node.execute handler")
+)]
+fn is_fed_by_reused_steps(
+    step: &SettledStep,
+    settled: &HashMap<WorkflowNodeId, SettledStep>,
+) -> bool {
+    step.sources.iter().flatten().all(|source| {
+        settled.get(&source.node_id).is_some_and(|feeder| {
+            feeder.step.workflow_run_id == step.step.workflow_run_id
+                && feeder.step.execution_index == source.execution_index
+        })
+    })
+}
+
+/// The places of `covered`, a partial run's nodes, that execute, given `needs_execution`, the
+/// covered places that cannot reuse their step. Each execution rule is applied until none adds a
+/// node: [`is_fed_by_executing_node`] and [`lifts_its_loop`].
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the workflow.node.execute handler")
+)]
+fn executing_places(
+    graph: &RunGraph,
+    covered: &[usize],
+    mut needs_execution: FixedBitSet,
+) -> FixedBitSet {
+    loop {
+        let mut executing = FixedBitSet::with_capacity(graph.node_count());
+        for &place in covered {
+            if needs_execution.contains(place)
+                || is_fed_by_executing_node(graph, &needs_execution, place)
+            {
+                executing.insert(place);
+            }
+        }
+        let lifted: Vec<usize> = covered
+            .iter()
+            .copied()
+            .filter(|&place| !needs_execution.contains(place))
+            .filter(|&place| lifts_its_loop(graph, &executing, place))
+            .collect();
+        if lifted.is_empty() {
+            return executing;
+        }
+        needs_execution.extend(lifted);
+    }
+}
+
+/// Whether the node at `place` is fed, along forward main edges, by a node of `needs_execution`
+/// directly or through other nodes, so it executes too: its stored output was computed from inputs
+/// that no longer hold.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the workflow.node.execute handler")
+)]
+fn is_fed_by_executing_node(graph: &RunGraph, needs_execution: &FixedBitSet, place: usize) -> bool {
+    graph
+        .ancestors(place)
+        .any(|ancestor| needs_execution.contains(ancestor))
+}
+
+/// Whether the node at `place` is a loop's node with a node of `executing` in its body, so the loop
+/// executes whole: a pass of a loop never runs in part.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the workflow.node.execute handler")
+)]
+fn lifts_its_loop(graph: &RunGraph, executing: &FixedBitSet, place: usize) -> bool {
+    graph.node(place).loop_output.is_some()
+        && executing
+            .ones()
+            .any(|inside| graph.is_in_loop_body(inside, place))
 }
 
 // A version that settled steps ran: its body, and the covered nodes whose settled step it ran.

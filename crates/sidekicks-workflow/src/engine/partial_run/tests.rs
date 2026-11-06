@@ -8,11 +8,15 @@ use sidekicks_contracts::workflow::definition::document::{
     WorkflowDefinitionId, WorkflowDocumentHashedBody, WorkflowNode, WorkflowNodeId,
     WorkflowVersionId,
 };
+use sidekicks_contracts::workflow::run::control::WorkflowNodeExecuteScope;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStepStatus};
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 
-use super::{SettledStep, SourceVersion, dirty_nodes, read_settled_steps};
+use super::{
+    PartialRunPlan, SettledStep, SourceVersion, dirty_nodes, plan_partial_run, read_settled_steps,
+};
+use crate::definitions::versions::history::WorkflowVersions;
 use crate::engine::tick::RunGraph;
 use crate::kinds::{NodeKind, NodeKindTable, PassThroughExecutor, test_kind};
 use crate::test_rows::{
@@ -361,5 +365,238 @@ fn each_rule_dirties_exactly_the_nodes_it_names(
             .copied()
             .map(node_id_of)
             .collect::<BTreeSet<_>>()
+    );
+}
+
+/// Stores run `run_id` of `version_id` with one succeeded step per `(node, sources)` of `steps`,
+/// each at its position as its execution index, ended in that order within `minute`, so a run
+/// stored with a later minute holds the newer steps.
+fn store_run_steps(
+    connection: &Connection,
+    run_id: &str,
+    version_id: &str,
+    minute: u32,
+    steps: &[(&str, &[(&str, u32)])],
+) {
+    store_run(connection, run_id, version_id);
+    for ((node_id, sources), execution_index) in steps.iter().zip(0..) {
+        let finished_at = format!("2026-10-02T00:{minute:02}:{execution_index:02}.000Z");
+        let step = StoredStep {
+            node_id,
+            execution_index,
+            status: WorkflowStepStatus::Succeeded,
+            finished_at: &finished_at,
+            sources,
+        };
+        store_step(connection, run_id, &step);
+    }
+}
+
+/// The chain's four steps in one run, each fed by the step before it.
+const CHAIN_STEPS: &[(&str, &[(&str, u32)])] = &[
+    ("T", &[]),
+    ("A", &[("T", 0)]),
+    ("B", &[("A", 1)]),
+    ("C", &[("B", 2)]),
+];
+
+/// The plan of a partial run of version 2, whose body is `target_body`, on `target` over `scope`,
+/// as the nodes it executes and each reused node with the run its step came from.
+fn plan(
+    connection: &Connection,
+    target_body: &Value,
+    target: &str,
+    scope: WorkflowNodeExecuteScope,
+) -> (Vec<String>, Vec<(String, WorkflowRunId)>) {
+    let version = WorkflowVersions::new(connection)
+        .read_version(WorkflowVersionId::new(SECOND_VERSION_ID).expect("the test's version id"))
+        .expect("the target version reads");
+    let graph = graph_of(&parsed(target_body));
+    let PartialRunPlan { executed, reused } =
+        plan_partial_run(connection, &version, &graph, &node_id_of(target), scope)
+            .expect("the plan reads");
+    (
+        executed
+            .iter()
+            .map(|node_id| node_id.as_str().to_owned())
+            .collect(),
+        reused
+            .into_iter()
+            .map(|(node_id, settled)| (node_id.as_str().to_owned(), settled.step.workflow_run_id))
+            .collect(),
+    )
+}
+
+/// The ids `ids` as a plan lists them.
+fn names(ids: &[&str]) -> Vec<String> {
+    ids.iter().map(|&id| id.to_owned()).collect()
+}
+
+/// `ids`, each reusing its step from run `run_id`.
+fn reused_from(run_id: &str, ids: &[&str]) -> Vec<(String, WorkflowRunId)> {
+    let run_id = WorkflowRunId::new(run_id).expect("the test's run id");
+    ids.iter().map(|&id| (id.to_owned(), run_id)).collect()
+}
+
+/// `Run this node` executes the target alone and reuses nothing, though its own step and every
+/// step before it are clean. Mutation: cover the target's ancestors on a node run (they are
+/// reused).
+#[test]
+fn a_node_run_executes_the_target_alone() {
+    let connection = workflow_tables();
+    let chain = body(&chain(), CHAIN);
+    store_versions(&connection, &chain, &chain);
+    store_run_steps(&connection, FIRST_RUN_ID, FIRST_VERSION_ID, 1, CHAIN_STEPS);
+    assert_eq!(
+        plan(&connection, &chain, "B", WorkflowNodeExecuteScope::Node),
+        (names(&["B"]), Vec::new())
+    );
+}
+
+/// A covered node no run settled executes, and so does every node after it. Mutation: reuse a
+/// node with no settled step (the plan finds no step to reuse for it).
+#[test]
+fn a_covered_node_with_no_settled_step_executes() {
+    let connection = workflow_tables();
+    let chain = body(&chain(), CHAIN);
+    store_versions(&connection, &chain, &chain);
+    let steps: &[(&str, &[(&str, u32)])] = &[("T", &[]), ("A", &[("T", 0)]), ("C", &[("B", 9)])];
+    store_run_steps(&connection, FIRST_RUN_ID, FIRST_VERSION_ID, 1, steps);
+    assert_eq!(
+        plan(&connection, &chain, "C", WorkflowNodeExecuteScope::FromHere),
+        (names(&["B", "C"]), reused_from(FIRST_RUN_ID, &["T", "A"]))
+    );
+}
+
+/// Each node is checked against the version its own step ran: the trigger's step ran version 1,
+/// whose difference marks both the trigger and `S`, while `S`'s newer step ran version 2, so `S`
+/// stays clean. Mutation: keep each version's marks on every node (`S` executes).
+#[test]
+fn each_node_is_checked_against_its_own_steps_version() {
+    let connection = workflow_tables();
+    let nodes = |note: &str| {
+        let members = json!({ "params": { "note": note } });
+        vec![
+            node("S", "test.trigger", 1, &members),
+            node("M", "test.pair", 2, &json!({})),
+        ]
+    };
+    let edges: &[Edge] = &[("T", 0, "M", 0), ("S", 0, "M", 1)];
+    let mut first = body(&nodes("first"), edges);
+    first["trigger"]["params"] = json!({ "note": "first" });
+    let second = body(&nodes("second"), edges);
+    store_versions(&connection, &first, &second);
+    let steps: &[(&str, &[(&str, u32)])] = &[("T", &[]), ("S", &[]), ("M", &[("T", 0), ("S", 1)])];
+    store_run_steps(&connection, FIRST_RUN_ID, FIRST_VERSION_ID, 1, steps);
+    store_run_steps(
+        &connection,
+        SECOND_RUN_ID,
+        SECOND_VERSION_ID,
+        2,
+        &[("S", &[])],
+    );
+    assert_eq!(
+        plan(
+            &connection,
+            &second,
+            "M",
+            WorkflowNodeExecuteScope::FromHere
+        ),
+        (names(&["T", "M"]), reused_from(SECOND_RUN_ID, &["S"]))
+    );
+}
+
+/// A dirty `A` makes the clean `B` after it execute, since `B`'s step was computed from `A`'s old
+/// output. Mutation: drop the rule that a node fed by an executing node executes (`B` is reused).
+#[test]
+fn a_dirty_node_makes_the_clean_nodes_after_it_execute() {
+    let connection = workflow_tables();
+    let first = body(&chain(), CHAIN);
+    let second = body(
+        &chain_nodes("A", &json!({ "params": { "note": "x" } })),
+        CHAIN,
+    );
+    store_versions(&connection, &first, &second);
+    store_run_steps(&connection, FIRST_RUN_ID, FIRST_VERSION_ID, 1, CHAIN_STEPS);
+    assert_eq!(
+        plan(
+            &connection,
+            &second,
+            "C",
+            WorkflowNodeExecuteScope::FromHere
+        ),
+        (names(&["A", "B", "C"]), reused_from(FIRST_RUN_ID, &["T"]))
+    );
+}
+
+/// After a later run re-ran `T` and `A` alone, `B`'s newest step was fed by the older `A`, so it
+/// is not reused beside the newer one and executes. Mutation: reuse a step whatever fed it (`B` is
+/// reused from the older run).
+#[test]
+fn a_step_fed_by_another_run_than_its_reused_feeders_executes() {
+    let connection = workflow_tables();
+    let chain = body(&chain(), CHAIN);
+    store_versions(&connection, &chain, &chain);
+    store_run_steps(&connection, FIRST_RUN_ID, FIRST_VERSION_ID, 1, CHAIN_STEPS);
+    store_run_steps(
+        &connection,
+        SECOND_RUN_ID,
+        SECOND_VERSION_ID,
+        2,
+        &CHAIN_STEPS[..2],
+    );
+    assert_eq!(
+        plan(&connection, &chain, "C", WorkflowNodeExecuteScope::FromHere),
+        (names(&["B", "C"]), reused_from(SECOND_RUN_ID, &["T", "A"]))
+    );
+}
+
+/// A loop's node executes whenever a node in its body executes, whether the body node is dirty
+/// or has no settled step. Mutation: drop the rule that lifts a loop (`L` is reused).
+#[rstest]
+#[case::a_dirty_body_node(json!({ "params": { "note": "x" } }), true)]
+#[case::a_body_node_with_no_settled_step(json!({}), false)]
+fn a_loop_executes_whole_when_a_node_in_its_body_executes(
+    #[case] body_change: Value,
+    #[case] has_body_step: bool,
+) {
+    let connection = workflow_tables();
+    let loop_body = |members: &Value| {
+        body(
+            &[
+                node("L", "test.loop", 1, &json!({})),
+                node("X", "test.step", 2, members),
+                node("Y", "test.step", 3, &json!({})),
+            ],
+            &[
+                ("T", 0, "L", 0),
+                ("L", 1, "X", 0),
+                ("X", 0, "Y", 0),
+                ("Y", 0, "L", 0),
+            ],
+        )
+    };
+    let second = loop_body(&body_change);
+    store_versions(&connection, &loop_body(&json!({})), &second);
+    let steps: &[(&str, &[(&str, u32)])] = &[
+        ("T", &[]),
+        ("L", &[("T", 0)]),
+        ("X", &[("L", 1)]),
+        ("Y", &[("X", 2)]),
+    ];
+    let steps: Vec<_> = steps
+        .iter()
+        .copied()
+        .filter(|&(node_id, _)| has_body_step || node_id != "X")
+        .collect();
+    store_run_steps(&connection, FIRST_RUN_ID, FIRST_VERSION_ID, 1, &steps);
+    assert_eq!(
+        plan(
+            &connection,
+            &second,
+            "Y",
+            WorkflowNodeExecuteScope::FromHere
+        ),
+        (names(&["L", "X", "Y"]), reused_from(FIRST_RUN_ID, &["T"]))
     );
 }
