@@ -285,12 +285,6 @@ impl CodexSessionRouting {
         prior_emitted_cumulative: UsageAxisCounts,
         model: Option<String>,
     ) -> CodexRoutedFrames {
-        let model = match model {
-            Some(model) => Some(model),
-            None => read_codex_helper_thread(record, &helper_thread_id)
-                .await
-                .and_then(|reading| reading.model),
-        };
         let mut routed = CodexRoutedFrames::default();
         let registered = self.router.register_child_thread(helper_announcement(
             helper_thread_id.clone(),
@@ -308,6 +302,13 @@ impl CodexSessionRouting {
                     prior_emitted_cumulative,
                 },
             );
+            // Read only for a helper the router took, so a refused one costs no read.
+            let model = match model {
+                Some(model) => Some(model),
+                None => read_codex_helper_thread(record, &helper_thread_id)
+                    .await
+                    .and_then(|reading| reading.model),
+            };
             if let Some(model) = model {
                 self.helper_models.insert(helper_thread_id, model);
             }
