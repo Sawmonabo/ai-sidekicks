@@ -14,21 +14,19 @@ use sidekicks_contracts::run::intervention::{
 };
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_provider::driver::contract::error::DriverError;
-use sidekicks_provider::driver::run_control::{InterruptPayload, InterruptPendingChoice};
 
 use crate::interventions::interrupt_queue::InterruptCause;
 use crate::interventions::limit_stop::mint_client_key;
 use crate::interventions::service::errors::{DispatchError, InterventionError};
 use crate::interventions::service::reached_state::{ReachedState, draft};
 use crate::interventions::service::{
-    InterventionService, InterventionTarget, RecordedFailure, RowMove, RunEndOfVerdict, Verdict,
+    InterventionService, InterventionTarget, RecordedFailure, RowMove, RunEndOfVerdict,
     mint_intervention_id,
 };
 use crate::interventions::store::{
     InterventionTransition, RequestedIntervention, insert_requested_intervention_statement,
     move_intervention_statement,
 };
-use crate::run::engine::InterruptRoute;
 use crate::run::read::safe_run_version;
 
 impl InterventionService {
@@ -81,7 +79,7 @@ impl InterventionService {
                 None,
             )
             .await?;
-        let verdict = match self.dispatch_undo(run_id, run.version).await {
+        let verdict = match self.interrupt_keeping_waiting(run_id, run.version).await {
             Ok(verdict) => verdict,
             Err(dispatch) => return self.fail_undo_hand(&target, dispatch).await,
         };
@@ -99,33 +97,6 @@ impl InterventionService {
             RowMove::Made(ReachedState::Applied) => Ok(()),
             // Degraded, or settled first by the run's end or a turn's end.
             RowMove::Made(_) | RowMove::SettledSince => self.answer_undo_row(&target, None).await,
-        }
-    }
-
-    // Cuts the run's turn: none for a run the engine claimed or that ended meanwhile, else the
-    // driver's interrupt, the waiting messages left waiting.
-    async fn dispatch_undo(
-        &self,
-        run_id: RunId,
-        run_version: i64,
-    ) -> Result<Verdict, DispatchError> {
-        match self.engine.route_interrupt(run_id).await? {
-            InterruptRoute::Claimed | InterruptRoute::Ended => Ok(Verdict::Applied {
-                canceled: Vec::new(),
-            }),
-            InterruptRoute::Driver => {
-                self.interrupt_through_driver(
-                    run_id,
-                    safe_run_version(run_version),
-                    mint_client_key(),
-                    InterruptPayload {
-                        pending: InterruptPendingChoice::KeepWaiting,
-                        reorders_waiting: false,
-                        reason: None,
-                    },
-                )
-                .await
-            }
         }
     }
 

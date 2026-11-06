@@ -53,7 +53,7 @@ use sidekicks_provider::driver::contract::error::{DriverError, bound_failure_det
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::run_control::{
     ApplyInterventionParams, FasterModelRetryOutcome, FasterModelRetryParams, InterruptPayload,
-    InterventionResultStatus,
+    InterruptPendingChoice, InterventionResultStatus,
 };
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
@@ -71,6 +71,7 @@ use crate::driver_resolution::read_run_driver;
 use crate::interventions::interrupt_queue::{
     InterruptCause, InterruptChoice, InterruptEnd, InterruptQueue,
 };
+use crate::interventions::limit_stop::mint_client_key;
 use crate::interventions::store::{
     InterventionTransition, RequestedIntervention, UnresolvedInterventionState,
     insert_requested_intervention_statement, move_intervention_statement, run_at_version_statement,
@@ -79,7 +80,7 @@ use crate::interventions::store::{
 use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::{InterruptRoute, RunEngine};
 use crate::run::projection::advance_run_version_statement;
-use crate::run::read::{RunRead, read_run_through};
+use crate::run::read::{RunRead, read_run_through, safe_run_version};
 use crate::run::refusals::RunRefusal;
 use crate::run::state_change::RunWriteCompanions;
 use crate::run::transitions::states_that_may_enter;
@@ -661,6 +662,35 @@ impl InterventionService {
                 canceled,
             },
         })
+    }
+
+    /// Cuts the turn of `run_id` for the daemon's own interrupt, at a limit or for an undo, the
+    /// waiting messages left waiting: nothing for a run the engine claimed or that ended meanwhile,
+    /// else the driver's interrupt at `run_version` under a fresh key. Fails as the route or the
+    /// driver fails.
+    pub(super) async fn interrupt_keeping_waiting(
+        &self,
+        run_id: RunId,
+        run_version: i64,
+    ) -> Result<Verdict, DispatchError> {
+        match self.engine.route_interrupt(run_id).await? {
+            InterruptRoute::Claimed | InterruptRoute::Ended => Ok(Verdict::Applied {
+                canceled: Vec::new(),
+            }),
+            InterruptRoute::Driver => {
+                self.interrupt_through_driver(
+                    run_id,
+                    safe_run_version(run_version),
+                    mint_client_key(),
+                    InterruptPayload {
+                        pending: InterruptPendingChoice::KeepWaiting,
+                        reorders_waiting: false,
+                        reason: None,
+                    },
+                )
+                .await
+            }
+        }
     }
 
     /// Records an applied or degraded verdict from `accepted`: an interrupt's in the write that
