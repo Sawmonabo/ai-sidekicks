@@ -2,7 +2,7 @@
 // generation time, so the shipped checks hold no `eval` and compile nothing at run time. Ajv's
 // ES-module output still loads its run-time helpers with `require` and leaves its functions
 // untyped; this rewrites both, statement by statement, into TypeScript the package can ship.
-import { Ajv2020, _, type KeywordCxt, type SchemaObject } from "ajv/dist/2020.js";
+import { Ajv2020, Name, _, type Code, type KeywordCxt, type SchemaObject } from "ajv/dist/2020.js";
 import standaloneCode from "ajv/dist/standalone/index.js";
 
 import { MODULE_ID_SCHEME, type ContractModule } from "./emit-folder.ts";
@@ -11,47 +11,92 @@ import type { ModuleImports } from "./module-imports.ts";
 /** The hand-written module the generated checks import their type, formats and helpers from. */
 export const SCHEMA_CHECK_MODULE = "schema-check";
 
+/** The `schema-check` export a `maxJsonBytes` check calls to measure its value. */
+const WIRE_BYTE_LENGTH = "wireByteLength";
+
+/** The `schema-check` values the generated code may name, imported where a check names one. */
+const RUN_TIME_VALUES = ["SCHEMA_FORMATS", WIRE_BYTE_LENGTH] as const;
+
 /** The generated check's name for definition `name`. */
 export function checkName(name: string): string {
   return `validate${name}`;
 }
 
-/** Every `format` value the schemas name, so Ajv's strict mode knows each one at compile time. */
-function formatNames(schemas: readonly SchemaObject[]): Set<string> {
-  const names = new Set<string>();
+/**
+ * Every `format` value the schemas name, with the kind of value it checks, so Ajv's strict mode
+ * knows each one at compile time. Throws on a format named for both a number and a string.
+ */
+function formatKinds(schemas: readonly SchemaObject[]): Map<string, "number" | "string"> {
+  const kinds = new Map<string, "number" | "string">();
   const walk = (node: unknown): void => {
     if (Array.isArray(node)) {
       node.forEach(walk);
     } else if (node !== null && typeof node === "object") {
-      const format = (node as { format?: unknown }).format;
+      const { format, type } = node as { format?: unknown; type?: unknown };
       if (typeof format === "string") {
-        names.add(format);
+        const types: unknown[] = Array.isArray(type) ? type : [type];
+        const isNumber = types.some((name) => name === "integer" || name === "number");
+        const kind = isNumber ? "number" : "string";
+        if ((kinds.get(format) ?? kind) !== kind) {
+          throw new Error(`format ${format} is named for both a number and a string`);
+        }
+        kinds.set(format, kind);
       }
       Object.values(node).forEach(walk);
     }
   };
   schemas.forEach(walk);
-  return names;
+  return kinds;
 }
 
 /**
- * The code of `minBytes` or `maxBytes`: a `{"$bytes": n}` member's attachment, read from the
- * check's context, is within the bound. Without the context, or with no such attachment, it fails.
+ * The code of a keyword on a `{"$bytes": n}` member: its attachment, read from the check's
+ * context, passes `isAccepted`. Without the context, or with no such attachment, it fails.
  */
-function byteBoundCode(comparison: ">=" | "<=") {
+function attachmentCode(isAccepted: (attachment: Code, schema: Code | number) => Code) {
   return (cxt: KeywordCxt): void => {
     const { data, schema } = cxt;
     const attachment = _`this.attachments[${data}.$bytes]`;
     cxt.fail(
-      _`!(${data} && typeof ${data} == "object" && Number.isInteger(${data}.$bytes) && this && Array.isArray(this.attachments) && ${attachment} instanceof Uint8Array && ${attachment}.byteLength ${comparison === ">=" ? _`>=` : _`<=`} ${schema})`,
+      _`!(${data} && typeof ${data} == "object" && Number.isInteger(${data}.$bytes) && this && Array.isArray(this.attachments) && ${attachment} instanceof Uint8Array && ${isAccepted(attachment, schema as Code | number)})`,
     );
   };
 }
 
+/**
+ * The code of `defaultAmongOptions`: a question with option rows starts from its own options, so
+ * each label its `default` names, one text or several, is one option's `label`.
+ */
+function defaultAmongOptionsCode(cxt: KeywordCxt): void {
+  const { gen, data } = cxt;
+  const isAmongOptions = gen.let("isAmongOptions", true);
+  gen.if(_`Array.isArray(${data}.options) && ${data}.options.length > 0`, () => {
+    const labels = gen.const(
+      "labels",
+      _`typeof ${data}.default == "string" ? [${data}.default] : Array.isArray(${data}.default) ? ${data}.default : []`,
+    );
+    gen.forOf("label", labels, (label) => {
+      const isOption = gen.let("isOption", false);
+      gen.forOf("option", _`${data}.options`, (option) => {
+        gen.if(_`${option} && ${option}.label === ${label}`, () => gen.assign(isOption, true));
+      });
+      gen.if(_`!${isOption}`, () => gen.assign(isAmongOptions, false));
+    });
+  });
+  cxt.pass(isAmongOptions);
+}
+
 /** A strict Ajv holding every module's schema, so a reference across modules resolves. */
 function createAjv(schemas: readonly SchemaObject[]): Ajv2020 {
+  // A number format is Ajv's object form, so its check runs on numbers and its code calls
+  // `SCHEMA_FORMATS[name].validate`; a string format is a bare function.
   const formats = Object.fromEntries(
-    [...formatNames(schemas)].map((name) => [name, (): boolean => true]),
+    [...formatKinds(schemas)].map(([name, kind]) => [
+      name,
+      kind === "number"
+        ? { type: "number" as const, validate: (): boolean => true }
+        : (): boolean => true,
+    ]),
   );
   const ajv = new Ajv2020({
     strict: true,
@@ -61,13 +106,50 @@ function createAjv(schemas: readonly SchemaObject[]): Ajv2020 {
     allErrors: true,
     messages: false,
     passContext: true,
-    // Generation only needs each format's name: the code calls `SCHEMA_FORMATS[name]`.
+    // Generation only needs each format's name and kind: the code reads `SCHEMA_FORMATS`.
     formats,
     code: { source: true, esm: true, lines: false, optimize: true, formats: _`SCHEMA_FORMATS` },
   });
   ajv.addKeyword({ keyword: "tsType", schemaType: "string" });
-  ajv.addKeyword({ keyword: "minBytes", schemaType: "number", code: byteBoundCode(">=") });
-  ajv.addKeyword({ keyword: "maxBytes", schemaType: "number", code: byteBoundCode("<=") });
+  ajv.addKeyword({
+    keyword: "minBytes",
+    schemaType: "number",
+    code: attachmentCode((attachment, bound) => _`${attachment}.byteLength >= ${bound}`),
+  });
+  ajv.addKeyword({
+    keyword: "maxBytes",
+    schemaType: "number",
+    code: attachmentCode((attachment, bound) => _`${attachment}.byteLength <= ${bound}`),
+  });
+  ajv.addKeyword({
+    keyword: "evenBytes",
+    schemaType: "boolean",
+    metaSchema: { const: true },
+    code: attachmentCode((attachment) => _`${attachment}.byteLength % 2 === 0`),
+  });
+  // A string's own UTF-8 length, as garde's `length(bytes)` counts it.
+  ajv.addKeyword({
+    keyword: "maxUtf8Bytes",
+    type: "string",
+    schemaType: "number",
+    code: (cxt) => cxt.fail(_`new TextEncoder().encode(${cxt.data}).byteLength > ${cxt.schema}`),
+  });
+  // A value's JSON bytes with its attachments, as the Rust contracts' byte caps measure them.
+  ajv.addKeyword({
+    keyword: "maxJsonBytes",
+    schemaType: "number",
+    code: (cxt) =>
+      cxt.fail(
+        _`${new Name(WIRE_BYTE_LENGTH)}(${cxt.data}, this && this.attachments) > ${cxt.schema}`,
+      ),
+  });
+  ajv.addKeyword({
+    keyword: "defaultAmongOptions",
+    type: "object",
+    schemaType: "boolean",
+    metaSchema: { const: true },
+    code: defaultAmongOptionsCode,
+  });
   for (const schema of schemas) {
     ajv.addSchema(schema);
   }
@@ -132,6 +214,7 @@ const RUNTIME_HELPERS: Readonly<Record<string, string>> = {
   equal: "deepEqual",
 };
 const AJV_EXPORT = /^export const (\w+) = (validate\d+);$/u;
+const AJV_EVALUATED = /^(validate\d+)\.evaluated = (.*);$/u;
 
 /**
  * Generates the checks for `module`'s checked definitions, with every module's schema available
@@ -198,6 +281,12 @@ export function generateChecks(
     if (schemaConstant !== null) {
       return [`const ${schemaConstant[1]!}: any = ${statement.slice(schemaConstant[0].length)}`];
     }
+    // A check reads the `props` or `items` of another's `evaluated`, which one object
+    // literal's inferred type may lack.
+    const evaluated = AJV_EVALUATED.exec(statement);
+    if (evaluated !== null) {
+      return [`${evaluated[1]!}.evaluated = ${evaluated[2]!} as any;`];
+    }
     const head = AJV_FUNCTION_HEAD.exec(statement);
     if (head === null) {
       return [statement];
@@ -211,14 +300,19 @@ export function generateChecks(
     const body = replaceOutsideStrings(statement.slice(head[0].length), (part) =>
       part
         .replace(/\b(let|var|const) (\w+) = /gu, "$1 $2: any = ")
-        .replace(/\b(let|var) (\w+);/gu, "$1 $2: any;"),
+        .replace(/\b(let|var) (\w+);/gu, "$1 $2: any;")
+        // `multipleOf` guards its literal divisor against zero, which TypeScript refuses as a
+        // comparison of two constants.
+        .replace(/\((\d+(?:\.\d+)?) === 0 \|\| \(/gu, "(($1 as number) === 0 || ("),
     );
     // Declares `errors` where TypeScript sees a function's own properties, beside `evaluated`.
     return [typedHead + body, `${functionName}.errors = null;`];
   });
 
-  if (used.some((statement) => statement.includes("SCHEMA_FORMATS"))) {
-    imports.addFromHandWrittenModule(SCHEMA_CHECK_MODULE, "SCHEMA_FORMATS", "value");
+  for (const value of RUN_TIME_VALUES) {
+    if (used.some((statement) => statement.includes(value))) {
+      imports.addFromHandWrittenModule(SCHEMA_CHECK_MODULE, value, "value");
+    }
   }
   imports.addFromHandWrittenModule(SCHEMA_CHECK_MODULE, "SchemaCheck", "type");
 

@@ -14,10 +14,9 @@ if (emitFolder === undefined) {
   throw new Error("usage: generate.ts <emit folder> [output root]");
 }
 const emit = readContractEmit(resolve(emitFolder));
-const allSchemas = emit.modules.map((module) => module.schema);
 for (const module of emit.modules) {
   const file = join(resolve(outputRoot), `${module.path}.ts`);
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, await writeModuleFile(module, allSchemas, emit.refusalCodes));
+  writeFileSync(file, await writeModuleFile(module, emit.modules, emit.refusalCodes));
 }
 console.log(`generated ${emit.modules.length} contract modules into ${resolve(outputRoot)}`);
