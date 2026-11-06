@@ -26,6 +26,8 @@ use sidekicks_store::events::session::followers::{
     CommittedEvent, FollowerAttachment, SessionEventFollowers,
 };
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
+use sidekicks_workspace::git::turn_snapshot::capture::CheckoutCaptureInput;
+use sidekicks_workspace::git::turn_snapshot::refs::RunSnapshotPoint;
 use sidekicks_workspace::git::turn_snapshot::service::{
     TurnSnapshotCaptureInput, TurnSnapshotService,
 };
@@ -188,13 +190,17 @@ impl TurnCapture {
             }
         };
         let input = TurnSnapshotCaptureInput {
-            owner_folder: session_storage_folder(&self.data_folder, &ending.session_id),
-            execution_root: checkout.checkout.execution_root,
-            checkout_root: checkout.checkout.checkout_root,
-            run_id: ending.run_id,
-            epoch: checkout.turn.epoch.0.get(),
-            turn_ordinal: checkout.turn.position.0.get(),
-            turn_ended_at: ending.ended_at,
+            checkout: CheckoutCaptureInput {
+                owner_folder: session_storage_folder(&self.data_folder, &ending.session_id),
+                execution_root: checkout.checkout.execution_root,
+                checkout_root: checkout.checkout.checkout_root,
+                captured_at: ending.ended_at,
+            },
+            point: RunSnapshotPoint::Turn {
+                run_id: ending.run_id,
+                epoch: checkout.turn.epoch.0.get(),
+                ordinal: checkout.turn.position.0.get(),
+            },
         };
         self.snapshots
             .capture_turn_snapshot(checkout.checkout.place.as_ref(), &input)

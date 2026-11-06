@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::ffi::OsString;
 use std::fs::File;
 use std::path::Path;
@@ -5,15 +6,18 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rstest::rstest;
+use sidekicks_contracts::git::local::WorkflowRunSnapshotPoint;
 use sidekicks_contracts::repo::git_reads::GitObjectId;
+use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::workflow::run::snapshot::{WorkflowRunEpoch, WorkflowRunPauseNumber};
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
 use super::test_support::{
     answer, answer_in_git_folder, answer_with_captures, as_the_test, files_with_bytes,
-    made_capture_folder, minted_run_id, repository_with_a_commit, service_reading, turn_of, utf8,
-    write_in,
+    made_capture_folder, minted_run_id, minted_workflow_run_id, point_of, repository_with_a_commit,
+    service_reading, turn_of, utf8, write_in,
 };
 use super::{TurnSnapshotCaptureOutcome, TurnSnapshotPruneOutcome};
 use crate::folder::canonical_path::canonical_folder_path;
@@ -22,7 +26,7 @@ use crate::git::process::{GitCall, GitRunner, in_folder, read_git_common_folder,
 use crate::git::turn_snapshot::capture::{GitFloorReports, LARGE_FILE_BYTES};
 use crate::git::turn_snapshot::capture_folder::{CaptureFolder, git_folder_argument};
 use crate::git::turn_snapshot::diagnostics::{CaptureStep, TurnSnapshotRetentionSkipReason};
-use crate::git::turn_snapshot::refs::build_run_snapshot_ref_prefix;
+use crate::git::turn_snapshot::refs::{RunSnapshotPoint, build_run_snapshot_ref_prefix};
 use crate::git::turn_snapshot::repack::CapturePacking;
 use crate::git::turn_snapshot::retention::RunContextKey;
 use crate::git::worktree::schema::schema_parts;
@@ -124,6 +128,127 @@ async fn a_turn_is_captured_once_into_its_owners_folder_and_the_repository_stays
             if *id == snapshot_commit),
         "a turn captured again keeps its first snapshot, got {again:?}"
     );
+}
+
+// Execution `number` of a workflow run.
+fn epoch(number: u64) -> WorkflowRunEpoch {
+    WorkflowRunEpoch(SafeInt::new(number).expect("the epoch is a safe integer"))
+}
+
+// Approval pause `number` of an execution, counted from 1.
+fn pause(number: u64) -> WorkflowRunPauseNumber {
+    WorkflowRunPauseNumber(SafeInt::new(number).expect("the pause number is counted from 1"))
+}
+
+// Fails when two point kinds spell one ref (`start` and `end` alike), when `build_snapshot_ref`
+// writes `pause` without its number (pause 2 then answers `AlreadyCaptured`), when it drops the
+// epoch (epoch 1's start then answers `AlreadyCaptured`), when the refs are keyed on any id but the
+// workflow run's (the listing under its prefix is then empty), or when a point taken again
+// repoints its ref instead of keeping its first capture.
+#[tokio::test]
+async fn a_workflow_runs_points_land_beside_each_other_and_one_taken_again_keeps_its_first() {
+    let git = test_git_runner();
+    let root = tempfile::tempdir().expect("the temporary folder is made");
+    let (repository, _) = repository_with_a_commit(&git, root.path()).await;
+    let database = TestDatabase::new(schema_parts());
+    let service = service_over(&git, &database, Arc::new(KeyedLock::new()));
+    let owner = root.path().join("owner");
+    let workflow_run_id = minted_workflow_run_id();
+    let at = |point| {
+        let point = RunSnapshotPoint::WorkflowRun {
+            workflow_run_id,
+            point,
+        };
+        point_of(&repository, &owner, point)
+    };
+    let pause_one = WorkflowRunSnapshotPoint::Pause {
+        epoch: epoch(0),
+        pause_number: pause(1),
+    };
+    let epoch_zero = [
+        (
+            "epoch-0/start",
+            WorkflowRunSnapshotPoint::Start { epoch: epoch(0) },
+        ),
+        ("epoch-0/pause-1", pause_one),
+        (
+            "epoch-0/pause-2",
+            WorkflowRunSnapshotPoint::Pause {
+                epoch: epoch(0),
+                pause_number: pause(2),
+            },
+        ),
+        (
+            "epoch-0/end",
+            WorkflowRunSnapshotPoint::End { epoch: epoch(0) },
+        ),
+    ];
+    let notes = repository.join("notes.txt");
+    // The point taken over the checkout once `state` is written into it.
+    let take = async |state: String, point| {
+        tokio::fs::write(&notes, state)
+            .await
+            .expect("the file is written");
+        service.capture_turn_snapshot(None, &at(point)).await
+    };
+    let mut taken = Vec::new();
+    for (index, (point_ref, point)) in epoch_zero.into_iter().enumerate() {
+        let outcome = take(format!("state {index}\n"), point).await;
+        let TurnSnapshotCaptureOutcome::Captured {
+            snapshot_commit, ..
+        } = outcome
+        else {
+            panic!("{point_ref} is captured, got {outcome:?}");
+        };
+        taken.push((point_ref, snapshot_commit));
+    }
+    let again = take("changed after the end\n".to_owned(), pause_one).await;
+    let next_start = take(
+        "the next execution\n".to_owned(),
+        WorkflowRunSnapshotPoint::Start { epoch: epoch(1) },
+    )
+    .await;
+
+    let (_, first_pause) = &taken[1];
+    assert!(
+        matches!(&again, TurnSnapshotCaptureOutcome::AlreadyCaptured { snapshot_commit, .. }
+            if snapshot_commit == first_pause),
+        "a point taken twice keeps its first capture, got {again:?}"
+    );
+    let TurnSnapshotCaptureOutcome::Captured {
+        snapshot_commit, ..
+    } = next_start
+    else {
+        panic!("the next execution's start is captured, got {next_start:?}");
+    };
+    taken.push(("epoch-1/start", snapshot_commit));
+    let distinct: HashSet<&str> = taken.iter().map(|(_, commit)| commit.as_str()).collect();
+    assert_eq!(distinct.len(), 5, "each point records its own state");
+    let prefix = build_run_snapshot_ref_prefix(RunContextKey::from(workflow_run_id));
+    let capture_folder = made_capture_folder(&git, &owner, &repository).await;
+    let listing = ["for-each-ref", "--format=%(refname)", prefix.as_str()];
+    let listed = answer_in_git_folder(&git, capture_folder.folder(), &listing, &[]).await;
+    let expected: Vec<String> = [
+        "epoch-0/end",
+        "epoch-0/pause-1",
+        "epoch-0/pause-2",
+        "epoch-0/start",
+        "epoch-1/start",
+    ]
+    .map(|point_ref| format!("{prefix}{point_ref}"))
+    .into();
+    assert_eq!(listed.lines().collect::<Vec<_>>(), expected);
+    for (point_ref, commit) in &taken {
+        let full_ref = format!("{prefix}{point_ref}");
+        let recorded = answer_in_git_folder(
+            &git,
+            capture_folder.folder(),
+            &["rev-parse", &full_ref],
+            &[],
+        )
+        .await;
+        assert_eq!(recorded, commit.as_str(), "{point_ref} names its own take");
+    }
 }
 
 // Fails when an unended run's refs or an absent capture folder's are touched or misreported, when

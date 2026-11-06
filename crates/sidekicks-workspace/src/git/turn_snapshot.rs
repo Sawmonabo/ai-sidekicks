@@ -10,7 +10,7 @@ pub mod command_capture;
 pub mod diagnostics;
 pub(crate) mod held_checkout;
 pub(crate) mod kept_index;
-pub(crate) mod refs;
+pub mod refs;
 pub mod repack;
 pub mod retention;
 pub mod service;

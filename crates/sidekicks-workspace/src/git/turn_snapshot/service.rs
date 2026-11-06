@@ -1,8 +1,10 @@
-//! The turn-snapshot service: at each turn's end it commits the project state of the checkout a run
-//! works in under `refs/sidekicks/runs/<run>/epoch-<E>/turn-<N>` in its owner's capture folder,
-//! never in the repository's own `.git`; it deletes one run's refs when the run is deleted and
-//! lists an owner's snapshots. Nothing prunes by age, and a capture reads no database: the caller
-//! supplies the owner, the epoch, the checkout and the turn's end.
+//! The turn-snapshot service: at each of an agent run's turn ends and at each of a workflow run's
+//! points it commits the project state of the checkout the run works in under
+//! `refs/sidekicks/runs/<run>/epoch-<E>/` then `turn-<N>`, `start`, `pause-<N>` or `end`, in its
+//! owner's capture folder, never in the repository's own `.git`; it deletes one run's refs when the
+//! run is deleted and lists an owner's snapshots. Nothing prunes by age, and a capture reads no
+//! database: the caller supplies the owner, the point with its epoch, the checkout and the
+//! capture's instant.
 //!
 //! - A capture covers the whole checkout, never only a nested execution root, since `ls-files`
 //!   lists only the folder it runs in; the supplied checkout is checked against the live tree
@@ -18,11 +20,9 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use jiff::Timestamp;
 use rusqlite::{Connection, OptionalExtension, named_params};
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::git_reads::GitObjectId;
-use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::{create_private_folder, remove_tree_awaited};
 use sidekicks_std::keyed_lock::KeyedLock;
@@ -34,7 +34,8 @@ use sidekicks_store::database::stored_column::optional_text_column;
 
 use crate::git::process::{GitCall, GitError, GitRunner};
 use crate::git::turn_snapshot::capture::{
-    EXCLUDE_PER_DIRECTORY_GITIGNORE, GitFloorReports, SparseListingPartition, TURN_SNAPSHOT_SUBJECT,
+    CheckoutCaptureInput, EXCLUDE_PER_DIRECTORY_GITIGNORE, GitFloorReports, SparseListingPartition,
+    TURN_SNAPSHOT_SUBJECT, WORKFLOW_RUN_SNAPSHOT_SUBJECT,
 };
 use crate::git::turn_snapshot::capture_folder::{CaptureFolder, git_folder_argument};
 use crate::git::turn_snapshot::capture_steps::{
@@ -43,10 +44,10 @@ use crate::git::turn_snapshot::capture_steps::{
 use crate::git::turn_snapshot::diagnostics::{
     CaptureDiagnostic, CaptureStep, TurnSnapshotRetentionSkipReason,
 };
-use crate::git::turn_snapshot::held_checkout::{
-    CaptureRoots, CaptureStartFailure, HeldCheckout, hold_checkout,
+use crate::git::turn_snapshot::held_checkout::{CaptureStartFailure, HeldCheckout, hold_checkout};
+use crate::git::turn_snapshot::refs::{
+    RunSnapshotPoint, build_run_snapshot_ref_prefix, build_snapshot_ref,
 };
-use crate::git::turn_snapshot::refs::{build_run_snapshot_ref_prefix, build_turn_snapshot_ref};
 use crate::git::turn_snapshot::repack::{CapturePacking, CapturedCommit};
 use crate::git::turn_snapshot::retention::{
     RunContextKey, RunContextRow, is_path_provably_absent, parse_snapshot_ref_listing,
@@ -61,29 +62,18 @@ const SELECT_RUN_CONTEXT_SQL: &str =
 /// The random bytes in a scratch index's name, enough that two captures never meet.
 const SCRATCH_INDEX_NAME_BYTES: usize = 16;
 
-/// What one capture records, every field resolved by the caller.
+/// What one snapshot records, every field resolved by the caller.
 #[derive(Clone, Debug)]
 pub struct TurnSnapshotCaptureInput {
-    /// The folder of the snapshot's owner, whose capture folders hold its snapshots: a session's
-    /// storage folder, or the folder a workflow run's caller names.
-    pub owner_folder: PathBuf,
-    /// Where the run works: the worktree, or the bound folder of a bound root.
-    pub execution_root: PathBuf,
-    /// The top level of the working tree holding `execution_root`, as the run's execution context
-    /// records it; a value the live tree disagrees with fails the capture.
-    pub checkout_root: PathBuf,
-    /// The run whose turn ended.
-    pub run_id: RunId,
-    /// 0 before any rollback, advanced by each accepted rollback.
-    pub epoch: u64,
-    /// The turn's ordinal within the epoch.
-    pub turn_ordinal: u64,
-    /// When the turn ended; both of the snapshot's dates, so its id never depends on the host's
-    /// time zone or on when the capture ran.
-    pub turn_ended_at: Timestamp,
+    /// The checkout captured and its owner, as the run's execution context records them; its
+    /// `captured_at` is a turn's end for a turn and the instant the caller names for a workflow
+    /// run's point.
+    pub checkout: CheckoutCaptureInput,
+    /// The point the snapshot is taken at, with its run, which names its ref.
+    pub point: RunSnapshotPoint,
 }
 
-/// What one capture did. It never fails the turn: a failure is reported, not retried.
+/// What one capture did. It never fails its caller: a failure is reported, not retried.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TurnSnapshotCaptureOutcome {
     /// This call wrote the snapshot's ref.
@@ -99,7 +89,7 @@ pub enum TurnSnapshotCaptureOutcome {
         /// with any other byte replaced, for the caller to record.
         skipped_embedded_repositories: Vec<String>,
     },
-    /// The ref was already written, by a retry or a duplicate of the same turn; the first write
+    /// The ref was already written, by a retry or a duplicate of the same point; the first write
     /// wins.
     AlreadyCaptured {
         /// The ref.
@@ -197,28 +187,23 @@ impl TurnSnapshotService {
     }
 
     /// Records the checkout's project state (tracked plus non-ignored untracked files, a file over
-    /// the size bound left out) as a snapshot commit at the turn's ref in the owner's capture
-    /// folder, running git for the project at `place`, then packs what it borrows from the
-    /// repository. Never fails: every failure is logged and answered `Failed` with its step, since
-    /// a snapshot never holds up a turn; a git lacking a feature is logged once per place and
-    /// feature.
+    /// the size bound left out) as a snapshot commit at the ref of the input's point, a turn's end
+    /// or a workflow run's point, in the owner's capture folder, running git for the project at
+    /// `place`, then packs what it borrows from the repository. Never fails: every failure is
+    /// logged and answered `Failed` with its step, since a snapshot never holds up a run; a git
+    /// lacking a feature is logged once per place and feature.
     pub async fn capture_turn_snapshot(
         &self,
         place: Option<&Place>,
         input: &TurnSnapshotCaptureInput,
     ) -> TurnSnapshotCaptureOutcome {
-        let snapshot_ref = build_turn_snapshot_ref(&input.run_id, input.epoch, input.turn_ordinal);
-        let roots = CaptureRoots {
-            owner_folder: &input.owner_folder,
-            execution_root: &input.execution_root,
-            checkout_root: &input.checkout_root,
-        };
+        let snapshot_ref = build_snapshot_ref(&input.point);
         let held = match hold_checkout(
             &self.git,
             place,
             &self.checkout_lock,
             &self.floor_reports,
-            roots,
+            input.checkout.roots(),
         )
         .await
         {
@@ -230,7 +215,7 @@ impl TurnSnapshotService {
                 };
             }
             Err(CaptureStartFailure::Failed(failed_step, failure)) => {
-                return fail_capture(input, snapshot_ref, failed_step, failure);
+                return fail_capture(input.point.run_key(), snapshot_ref, failed_step, failure);
             }
         };
         let outcome = self
@@ -273,7 +258,7 @@ impl TurnSnapshotService {
             Ok(name) => checkout.capture_folder.scratch_index(&name),
             Err(failure) => {
                 return fail_capture(
-                    input,
+                    input.point.run_key(),
                     snapshot_ref,
                     CaptureStep::PrepareScratchIndex,
                     CaptureStepError::ScratchIndexName(failure),
@@ -296,9 +281,7 @@ impl TurnSnapshotService {
             let removed = remove_tree_awaited(&removal_path).await;
             if let Err(failure) = removed {
                 CaptureDiagnostic::ScratchIndexCleanupFailed {
-                    run_id: input.run_id,
-                    epoch: input.epoch,
-                    turn_ordinal: input.turn_ordinal,
+                    run_key: input.point.run_key(),
                     scratch_index_path: removal_path,
                     detail: failure,
                 }
@@ -307,7 +290,9 @@ impl TurnSnapshotService {
         }
         match captured {
             Ok(outcome) => outcome,
-            Err((failed_step, failure)) => fail_capture(input, snapshot_ref, failed_step, failure),
+            Err((failed_step, failure)) => {
+                fail_capture(input.point.run_key(), snapshot_ref, failed_step, failure)
+            }
         }
     }
 
@@ -408,11 +393,11 @@ impl TurnSnapshotService {
             .commit_snapshot_tree(
                 &tree,
                 base_commit.as_ref(),
-                TURN_SNAPSHOT_SUBJECT,
+                snapshot_subject(&input.point),
                 &skipped_embedded_repositories,
                 sparse_boundary_paths.as_deref(),
                 &sizes.left_out_entries,
-                input.turn_ended_at,
+                input.checkout.captured_at,
             )
             .await
             .map_err(at(Step::CommitTree))?;
@@ -434,9 +419,7 @@ impl TurnSnapshotService {
             .collect();
         if !skipped.is_empty() {
             CaptureDiagnostic::EmbeddedRepositoriesSkipped {
-                run_id: input.run_id,
-                epoch: input.epoch,
-                turn_ordinal: input.turn_ordinal,
+                run_key: input.point.run_key(),
                 snapshot_ref: snapshot_ref.to_owned(),
                 skipped_paths: skipped.clone(),
             }
@@ -606,17 +589,23 @@ fn read_run_context(
         .optional()?)
 }
 
+// The commit subject of a snapshot at `point`: a turn's, or a workflow run's.
+fn snapshot_subject(point: &RunSnapshotPoint) -> &'static str {
+    match point {
+        RunSnapshotPoint::Turn { .. } => TURN_SNAPSHOT_SUBJECT,
+        RunSnapshotPoint::WorkflowRun { .. } => WORKFLOW_RUN_SNAPSHOT_SUBJECT,
+    }
+}
+
 // The one place a capture failure is reported: the log, then the outcome.
 fn fail_capture(
-    input: &TurnSnapshotCaptureInput,
+    run_key: RunContextKey,
     snapshot_ref: String,
     failed_step: CaptureStep,
     failure: CaptureStepError,
 ) -> TurnSnapshotCaptureOutcome {
     CaptureDiagnostic::CaptureFailed {
-        run_id: input.run_id,
-        epoch: input.epoch,
-        turn_ordinal: input.turn_ordinal,
+        run_key,
         snapshot_ref: snapshot_ref.clone(),
         failed_step,
         detail: Box::new(failure),

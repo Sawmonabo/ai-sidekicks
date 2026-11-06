@@ -67,6 +67,10 @@ pub(crate) const CORE_FSYNC_PIN: [&str; 2] = ["-c", "core.fsync=objects,referenc
 /// property.
 pub(crate) const TURN_SNAPSHOT_SUBJECT: &str = "sidekicks: turn-boundary snapshot";
 
+/// The same bytes for every snapshot of a workflow run's checkout, for the same reason: the
+/// message is an object id input, so identity content would make identical state hash differently.
+pub(crate) const WORKFLOW_RUN_SNAPSHOT_SUBJECT: &str = "sidekicks: workflow run snapshot";
+
 /// The subject of each of a command's two captures, the same bytes every time for the same reason.
 pub(crate) const COMMAND_CAPTURE_SUBJECT: &str = "sidekicks: command capture";
 
