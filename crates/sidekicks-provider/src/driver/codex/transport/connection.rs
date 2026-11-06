@@ -712,6 +712,14 @@ pub(crate) fn read_codex_object<Shape: DeserializeOwned>(json: &str) -> Option<S
     serde_json::from_str(&text).ok()
 }
 
+/// Reads `member`, a raw member the service sent, as text: `None` where it is not a string or is
+/// blank.
+pub(crate) fn read_codex_given_text(member: &RawValue) -> Option<String> {
+    serde_json::from_str::<String>(member.get())
+        .ok()
+        .filter(|text| !text.trim().is_empty())
+}
+
 // Whether `text` holds a JSON object, by its first byte past JSON's whitespace.
 fn is_json_object_text(text: &str) -> bool {
     text.trim_start_matches([' ', '\t', '\n', '\r'])

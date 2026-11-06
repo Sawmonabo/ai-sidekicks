@@ -14,6 +14,7 @@ use sidekicks_contracts::mcp::server::{McpServerStatus, McpToolName};
 use sidekicks_contracts::provider::driver::tools::{IdempotencyClass, ProviderToolMetadata};
 use sidekicks_contracts::wire::text::FreeFormText;
 
+use crate::driver::codex::delivery::rows::CODEX_COLLAB_AGENT_TOOL_CALL_ITEM_TYPE;
 use crate::driver::mcp_server::status::{
     McpServerReading, McpServerStatusIngestRejection, McpServerStatusIngestResult,
     bound_mcp_server_status_emission,
@@ -54,7 +55,7 @@ const CODEX_TOOL_DECLARATIONS: [CodexToolDeclaration; 7] = [
     },
     // The floor: a repeat duplicates another agent's run and its downstream effect.
     CodexToolDeclaration {
-        name: "collabAgentToolCall",
+        name: CODEX_COLLAB_AGENT_TOOL_CALL_ITEM_TYPE,
         idempotency_class: IdempotencyClass::ManualReconcileOnly,
         description: "Spawns, messages, resumes, waits on, or closes a peer agent thread.",
     },

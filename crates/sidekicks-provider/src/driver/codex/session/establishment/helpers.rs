@@ -20,7 +20,9 @@ use crate::driver::codex::session::calls::{CodexSessionCallDependencies, CodexSe
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::history::{CodexListedTurn, read_codex_resumed_newest_turn};
 use crate::driver::codex::session::state::CodexSessionRecord;
-use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
+use crate::driver::codex::transport::connection::{
+    CodexAppServerConnection, read_codex_given_text, read_codex_object,
+};
 use crate::driver::run_control::ReattachedHelper;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
@@ -53,11 +55,12 @@ pub(crate) async fn reopen_codex_helper(
 fn read_resumed_model(reply: &RawValue) -> Option<String> {
     #[derive(Deserialize)]
     struct ResumeModel {
-        model: Option<String>,
+        model: Option<Box<RawValue>>,
     }
     read_codex_object::<ResumeModel>(reply.get())?
         .model
-        .filter(|model| !model.trim().is_empty())
+        .as_deref()
+        .and_then(read_codex_given_text)
 }
 
 /// Reopens the helper `thread_id` as [`reopen_codex_helper`] does, under the session's memory

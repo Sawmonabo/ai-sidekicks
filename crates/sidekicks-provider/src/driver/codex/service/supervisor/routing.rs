@@ -16,6 +16,10 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
 use tokio::time::Instant;
 
+use crate::driver::codex::delivery::rows::{
+    CODEX_COLLAB_AGENT_TOOL_CALL_ITEM_TYPE, CODEX_SPAWN_AGENT_TOOL, CODEX_SPAWNED_ACTIVITY_KIND,
+    CODEX_SUB_AGENT_ACTIVITY_ITEM_TYPE,
+};
 use crate::driver::codex::event_normalizer::{
     CODEX_ITEM_COMPLETED_METHOD, CODEX_ITEM_METHOD_PREFIX, CODEX_ITEM_STARTED_METHOD,
     CODEX_THREAD_STARTED_METHOD, resolve_codex_frame_emission_route,
@@ -25,6 +29,7 @@ use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::rate_limit_readings::CodexRateLimitReadings;
 use crate::driver::codex::service::threads::{CodexHeldThreadFrame, CodexThreadFrameRoute};
 use crate::driver::codex::session::inbound::{CodexSessionInbound, CodexSessionInboundSender};
+use crate::driver::codex::transport::connection::read_codex_given_text;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::codex::usage_limit_signal::CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD;
 use crate::driver::diagnostics::OnceReportedDiagnostics;
@@ -34,19 +39,6 @@ pub(crate) const CODEX_THREAD_CLOSED_METHOD: &str = "thread/closed";
 
 /// The service-wide config warning, which names no conversation and goes to every session.
 pub(crate) const CODEX_CONFIG_WARNING_METHOD: &str = "configWarning";
-
-/// The item Codex's v2 helper tools put on the parent's turn at each step of a helper's life.
-pub(crate) const CODEX_SUB_AGENT_ACTIVITY_ITEM_TYPE: &str = "subAgentActivity";
-
-/// The `subAgentActivity` kind that announces a spawned helper; `interacted`, `interrupted` and
-/// `completed` follow it.
-pub(crate) const CODEX_SPAWNED_ACTIVITY_KIND: &str = "started";
-
-/// The item of a call to one of Codex's v1 helper tools.
-pub(crate) const CODEX_COLLAB_AGENT_TOOL_CALL_ITEM_TYPE: &str = "collabAgentToolCall";
-
-/// The v1 helper tool that spawns a helper.
-pub(crate) const CODEX_SPAWN_AGENT_TOOL: &str = "spawnAgent";
 
 /// What one service's routing keeps beside its thread index: each session's queue, the waits on a
 /// conversation's unload, the config warnings and the account's rate-limit readings.
@@ -244,9 +236,11 @@ fn read_spawned_helpers(is_completed: bool, item: &RawValue) -> Vec<CodexSpawned
         return Vec::new();
     };
     let call_id = read_text(item.id.as_deref());
-    let model = read_text(item.model.as_deref()).filter(|model| !model.trim().is_empty());
-    let reasoning_effort =
-        read_text(item.reasoning_effort.as_deref()).filter(|effort| !effort.trim().is_empty());
+    let model = item.model.as_deref().and_then(read_codex_given_text);
+    let reasoning_effort = item
+        .reasoning_effort
+        .as_deref()
+        .and_then(read_codex_given_text);
     match read_text(item.item_type.as_deref()).as_deref() {
         Some(CODEX_SUB_AGENT_ACTIVITY_ITEM_TYPE)
             if read_text(item.kind.as_deref()).as_deref() == Some(CODEX_SPAWNED_ACTIVITY_KIND) =>

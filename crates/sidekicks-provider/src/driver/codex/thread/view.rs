@@ -12,7 +12,9 @@ use crate::driver::codex::app_server_protocol::ThreadReadParams;
 use crate::driver::codex::permission_level::compose_codex_profile_name;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::thread::settings::CodexThreadSettings;
-use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
+use crate::driver::codex::transport::connection::{
+    CodexAppServerConnection, read_codex_given_text, read_codex_object,
+};
 
 /// A thread as a thread reply names it.
 #[derive(Debug)]
@@ -126,8 +128,10 @@ pub(crate) fn read_thread_reading(reply: &RawValue) -> Option<CodexThreadReading
         .ephemeral
         .and_then(|ephemeral| serde_json::from_str::<bool>(ephemeral.get()).ok());
     Some(CodexThreadReading {
-        name: thread.name.and_then(|name| read_given_text(&name)),
-        preview: thread.preview.and_then(|preview| read_given_text(&preview)),
+        name: thread.name.and_then(|name| read_codex_given_text(&name)),
+        preview: thread
+            .preview
+            .and_then(|preview| read_codex_given_text(&preview)),
         is_typed_in_terminal: source.as_deref() == Some(THREAD_TERMINAL_SOURCE)
             && ephemeral == Some(false),
         status: thread
@@ -135,9 +139,11 @@ pub(crate) fn read_thread_reading(reply: &RawValue) -> Option<CodexThreadReading
             .and_then(|status| read_codex_object::<CodexThreadStatus>(status.get())),
         agent_nickname: thread
             .agent_nickname
-            .and_then(|nickname| read_given_text(&nickname)),
-        agent_role: thread.agent_role.and_then(|role| read_given_text(&role)),
-        model: thread.model.and_then(|model| read_given_text(&model)),
+            .and_then(|nickname| read_codex_given_text(&nickname)),
+        agent_role: thread
+            .agent_role
+            .and_then(|role| read_codex_given_text(&role)),
+        model: thread.model.and_then(|model| read_codex_given_text(&model)),
     })
 }
 
@@ -159,13 +165,6 @@ pub(crate) async fn request_thread_reading(
         )
         .await?;
     Ok(read_thread_reading(&reply))
-}
-
-// A text member, `None` where it is not a string or is blank.
-fn read_given_text(member: &RawValue) -> Option<String> {
-    serde_json::from_str::<String>(member.get())
-        .ok()
-        .filter(|text| !text.trim().is_empty())
 }
 
 // A turn, read by its id.
