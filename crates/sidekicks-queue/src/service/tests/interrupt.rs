@@ -732,7 +732,8 @@ async fn a_reorder_after_send_now_keeps_the_mark_only_on_a_message_left_first(
 
 // The undo's interrupt end of a running lead run, held for the undo, with two messages waiting for
 // it, the second put first by a reorder: the run ends `interrupted`, both messages still wait for
-// it in the reordered order, neither canceled nor returned to the draft, and nothing is handed.
+// it in the reordered order, neither canceled nor returned to the draft, and nothing is handed,
+// since the interrupted run's continue reads the undo's hold.
 // Killed by the undo's cause mapped to a person's `ReturnToDraft` (both messages leave the queue),
 // or by an end that places the waiting messages (the order reads first, second). A person's
 // `NextTurn` with no message first writes nothing, so it reads as the undo's here.

@@ -25,10 +25,10 @@ use crate::run::restart::{PendingInterrupt, read_pending_interrupts};
 
 impl InterventionService {
     /// Hands again, on the engine's interrupt hand carrying the caller's span, each interrupt
-    /// pending on `run_id`, a person's or a limit's, whose provider runs its turn again after a
-    /// restart; a failure is logged, and a row left pending, a hand the daemon's stop cut among
-    /// them, is settled by the run's end. Spawned, since the resume that calls it holds the session
-    /// while the run's end goes through the run queue.
+    /// pending on `run_id`, a person's or a limit's, an undo's handed nothing, whose provider runs
+    /// its turn again after a restart; a failure is logged, and a row left pending, a hand the
+    /// daemon's stop cut among them, is settled by the run's end. Spawned, since the resume that
+    /// calls it holds the session while the run's end goes through the run queue.
     pub fn hand_pending_interrupts_again(&self, run_id: RunId) {
         let service = self.clone();
         self.engine.hand_interrupt(run_id, async move {
