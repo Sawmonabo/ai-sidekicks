@@ -7,9 +7,10 @@
 //! `unescape_name` does the same, read from WSL 3.0.5's `src/linux/init/escape.cpp`: the
 //! character table at lines 27 to 156 and `UnescapePathInplace` at lines 298 to 340, which
 //! `UtilWinPathTranslateInternal` in `src/linux/init/util.cpp` runs on a `\\wsl.localhost\` or
-//! `\\wsl$\` path.
+//! `\\wsl$\` path. `DistributionPath::windows_path` writes the inverse, as `EscapePathForNt` at
+//! line 196 of the same file does.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use typed_path::{WindowsComponent, WindowsPath, WindowsPrefix};
 
@@ -22,6 +23,24 @@ pub struct DistributionPath {
     pub distro: String,
     /// The folder's absolute Linux path, `/` for the distribution's root.
     pub linux_path: String,
+}
+
+impl DistributionPath {
+    /// The folder's Windows form, `\\wsl.localhost\<distro>\` and each name of the Linux path, a
+    /// character WSL escapes moved to U+F000 plus that character; `distribution_of` reads it back.
+    pub fn windows_path(&self) -> PathBuf {
+        let names: Vec<String> = self
+            .linux_path
+            .split('/')
+            .filter(|name| !name.is_empty())
+            .map(escape_name)
+            .collect();
+        PathBuf::from(format!(
+            r"\\wsl.localhost\{}\{}",
+            self.distro,
+            names.join(r"\")
+        ))
+    }
 }
 
 /// The distribution and Linux path a `\\wsl$\<distro>\…` or `\\wsl.localhost\<distro>\…` path
@@ -67,6 +86,17 @@ const fn is_escaped_by_wsl(byte: u8) -> bool {
     )
 }
 
+/// `name` with each character WSL escapes moved into the private-use range from U+F000.
+fn escape_name(name: &str) -> String {
+    name.chars()
+        .map(|character| match u8::try_from(character) {
+            Ok(byte) if is_escaped_by_wsl(byte) => char::from_u32(0xF000 + u32::from(byte))
+                .expect("U+F001 to U+F07C are scalar values"),
+            _ => character,
+        })
+        .collect()
+}
+
 /// `name` with each character of the escaped range, U+F000 to U+F07F, put back where its low bits
 /// spell a character WSL escapes; every other character, a full-width `：` among them, is kept.
 fn unescape_name(name: &[u8]) -> Vec<u8> {
@@ -89,7 +119,7 @@ fn unescape_name(name: &[u8]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     use rstest::rstest;
 
@@ -120,5 +150,27 @@ mod tests {
             linux_path: linux_path.to_owned(),
         });
         assert_eq!(distribution_of(Path::new(path)), expected);
+    }
+
+    // Kills: the escape skipped (`escaped_colon` writes `a:b`), `/` kept as the separator
+    // (`nested`), a `\\wsl$\` host (every literal), and an escape the reader does not invert.
+    #[rstest]
+    #[case::root("Ubuntu", "/", r"\\wsl.localhost\Ubuntu\")]
+    #[case::nested("Ubuntu", "/home/me/x", r"\\wsl.localhost\Ubuntu\home\me\x")]
+    #[case::escaped_colon("Ubuntu", "/a:b", "\\\\wsl.localhost\\Ubuntu\\a\u{F03A}b")]
+    #[case::escaped_backslash("Ubuntu", "/a\\b", "\\\\wsl.localhost\\Ubuntu\\a\u{F05C}b")]
+    #[case::private_use_kept("Ubuntu", "/a\u{F000}b", "\\\\wsl.localhost\\Ubuntu\\a\u{F000}b")]
+    fn writes_the_windows_path_of_a_folder_inside_a_distribution(
+        #[case] distro: &str,
+        #[case] linux_path: &str,
+        #[case] expected: &str,
+    ) {
+        let folder = DistributionPath {
+            distro: distro.to_owned(),
+            linux_path: linux_path.to_owned(),
+        };
+        let windows_path = folder.windows_path();
+        assert_eq!(windows_path, PathBuf::from(expected));
+        assert_eq!(distribution_of(&windows_path), Some(folder));
     }
 }
