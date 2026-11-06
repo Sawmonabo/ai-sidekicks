@@ -22,8 +22,8 @@ use sidekicks_std::keyed_lock::KeyedLock;
 
 use crate::git::process::{GitCall, GitError, GitRunner, in_folder};
 use crate::git::turn_snapshot::capture::{
-    COMMAND_CAPTURE_SUBJECT, EXCLUDE_PER_DIRECTORY_GITIGNORE, GitFloorReports, LargeFile,
-    SparseListingPartition, UnreadPath, join_nul_terminated_listing,
+    COMMAND_CAPTURE_SUBJECT, CheckoutCaptureInput, EXCLUDE_PER_DIRECTORY_GITIGNORE,
+    GitFloorReports, LargeFile, SparseListingPartition, UnreadPath, join_nul_terminated_listing,
     split_nul_terminated_listing_bytes,
 };
 use crate::git::turn_snapshot::capture_folder::CaptureFolder;
@@ -31,26 +31,12 @@ use crate::git::turn_snapshot::capture_steps::{
     CaptureStepError, DiffTreeReadError, SnapshotCheckout, at,
 };
 use crate::git::turn_snapshot::diagnostics::{CaptureDiagnostic, CaptureStep, CommandCapturePhase};
-use crate::git::turn_snapshot::held_checkout::{CaptureRoots, CaptureStartFailure, hold_checkout};
+use crate::git::turn_snapshot::held_checkout::{CaptureStartFailure, hold_checkout};
 use crate::git::turn_snapshot::kept_index::{KeptIndex, open_kept_index};
 use crate::git::turn_snapshot::refs::USE_REPLACE_REFS_PIN;
 use crate::git::turn_snapshot::repack::CapturedCommit;
 
 pub mod before_images;
-
-/// What one of a command's captures records, every field resolved by the caller.
-#[derive(Clone, Debug)]
-pub struct CommandCaptureInput {
-    /// The folder of the capture's owner, whose capture folders hold its captures.
-    pub owner_folder: PathBuf,
-    /// Where the command runs: the worktree, or the bound folder of a bound root.
-    pub execution_root: PathBuf,
-    /// The top level of the working tree holding `execution_root`, as its caller records it; a
-    /// value the live tree disagrees with fails the capture.
-    pub checkout_root: PathBuf,
-    /// When the capture is taken: both of its commit's dates.
-    pub captured_at: Timestamp,
-}
 
 /// One capture of a command's checkout, committed into the owner's capture folder.
 #[derive(Debug)]
@@ -166,7 +152,7 @@ impl CommandCaptureService {
     pub async fn capture_before(
         &self,
         place: Option<&Place>,
-        input: &CommandCaptureInput,
+        input: &CheckoutCaptureInput,
     ) -> Result<CommandCapture, CaptureStep> {
         let (capture, _) = self.capture(place, input, None).await?;
         Ok(capture)
@@ -179,7 +165,7 @@ impl CommandCaptureService {
     pub async fn capture_after(
         &self,
         place: Option<&Place>,
-        input: &CommandCaptureInput,
+        input: &CheckoutCaptureInput,
         before_tree: &GitObjectId,
     ) -> Result<CommandCaptureAfter, CaptureStep> {
         let (capture, changes) = self.capture(place, input, Some(before_tree)).await?;
@@ -191,7 +177,7 @@ impl CommandCaptureService {
     async fn capture(
         &self,
         place: Option<&Place>,
-        input: &CommandCaptureInput,
+        input: &CheckoutCaptureInput,
         before_tree: Option<&GitObjectId>,
     ) -> Result<(CommandCapture, Vec<TreeChange>), CaptureStep> {
         let phase = if before_tree.is_some() {
@@ -199,17 +185,12 @@ impl CommandCaptureService {
         } else {
             CommandCapturePhase::Before
         };
-        let roots = CaptureRoots {
-            owner_folder: &input.owner_folder,
-            execution_root: &input.execution_root,
-            checkout_root: &input.checkout_root,
-        };
         let started = hold_checkout(
             &self.git,
             place,
             &self.checkout_lock,
             &self.floor_reports,
-            roots,
+            input.roots(),
         )
         .await;
         let held = match started {

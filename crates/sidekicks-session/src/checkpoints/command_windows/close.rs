@@ -20,10 +20,9 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::data_folder::session_storage_folder;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::database::statement::WriteStatement;
+use sidekicks_workspace::git::turn_snapshot::capture::CheckoutCaptureInput;
+use sidekicks_workspace::git::turn_snapshot::command_capture::CommandCaptureAfter;
 use sidekicks_workspace::git::turn_snapshot::command_capture::before_images::BeforeImage;
-use sidekicks_workspace::git::turn_snapshot::command_capture::{
-    CommandCaptureAfter, CommandCaptureInput,
-};
 use sidekicks_workspace::git::turn_snapshot::repack::CapturedCommit;
 
 use super::versions::{
@@ -82,7 +81,7 @@ impl WindowRecorder {
             }
             (CommandWindowEnd::Exited { .. } | CommandWindowEnd::Untold, Some(before)) => before,
         };
-        let input = CommandCaptureInput {
+        let input = CheckoutCaptureInput {
             owner_folder: session_storage_folder(&self.data_folder, &session_id),
             execution_root: window.checkout.execution_root.clone(),
             checkout_root: window.checkout.checkout_root.clone(),

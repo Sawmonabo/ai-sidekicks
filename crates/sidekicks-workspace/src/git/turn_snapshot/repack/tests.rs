@@ -12,9 +12,9 @@ use sidekicks_store::database::writer::test_file::TestDatabase;
 
 use super::{CaptureFolderSweep, CapturePacking, is_fold_due};
 use crate::git::process::{GitCall, GitRunner, in_folder, read_git_common_folder, test_git_runner};
-use crate::git::turn_snapshot::capture::GitFloorReports;
+use crate::git::turn_snapshot::capture::{CheckoutCaptureInput, GitFloorReports};
 use crate::git::turn_snapshot::capture_folder::{CaptureFolder, git_folder_argument};
-use crate::git::turn_snapshot::command_capture::{CommandCaptureInput, CommandCaptureService};
+use crate::git::turn_snapshot::command_capture::CommandCaptureService;
 use crate::git::turn_snapshot::service::test_support::{
     answer, answer_in_git_folder, answer_with_captures, files_with_bytes, made_capture_folder,
     minted_run_id, repository_with_a_commit, repository_without_a_commit, service_reading, turn_of,
@@ -156,7 +156,7 @@ async fn a_repository_with_no_commit_is_captured_and_packed() {
     let command = commands
         .capture_before(
             None,
-            &CommandCaptureInput {
+            &CheckoutCaptureInput {
                 owner_folder: owner.clone(),
                 execution_root: repository.clone(),
                 checkout_root: repository.clone(),

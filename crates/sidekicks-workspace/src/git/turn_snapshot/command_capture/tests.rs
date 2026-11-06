@@ -10,12 +10,14 @@ use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
 use super::{
-    CommandCaptureInput, CommandCaptureService, IgnoredListing, TreeChange, TreeEntry,
-    read_diff_tree_records, read_ignored_listing,
+    CommandCaptureService, IgnoredListing, TreeChange, TreeEntry, read_diff_tree_records,
+    read_ignored_listing,
 };
 use crate::git::process::test_repository::{commit_empty, git_in, make_test_repository};
 use crate::git::process::{GitRunner, test_git_runner};
-use crate::git::turn_snapshot::capture::{GitFloorReports, LARGE_FILE_BYTES, LargeFile};
+use crate::git::turn_snapshot::capture::{
+    CheckoutCaptureInput, GitFloorReports, LARGE_FILE_BYTES, LargeFile,
+};
 use crate::git::turn_snapshot::capture_folder::CaptureFolder;
 use crate::git::turn_snapshot::capture_steps::DiffTreeReadError;
 use crate::git::turn_snapshot::repack::CapturePacking;
@@ -38,8 +40,8 @@ const SHA256_A: &str = "33333333333333333333333333333333333333333333333333333333
 const SHA256_B: &str = "4444444444444444444444444444444444444444444444444444444444444444";
 
 // A command capture of the checkout `repository`, owned by `owner`.
-pub(super) fn command_in(repository: &Path, owner: &Path) -> CommandCaptureInput {
-    CommandCaptureInput {
+pub(super) fn command_in(repository: &Path, owner: &Path) -> CheckoutCaptureInput {
+    CheckoutCaptureInput {
         owner_folder: owner.to_path_buf(),
         execution_root: repository.to_path_buf(),
         checkout_root: repository.to_path_buf(),

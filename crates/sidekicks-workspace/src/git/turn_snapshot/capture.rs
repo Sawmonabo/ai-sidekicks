@@ -1,6 +1,7 @@
-//! What every capture shares besides its steps: the commit's subjects, trailers and identity, the
-//! listings it reads from the index, the size bound past which a file is left out, the once-only
-//! reports of a git too old, and the object format of the repository it writes to.
+//! What every capture shares besides its steps: the checkout input it takes, the commit's
+//! subjects, trailers and identity, the listings it reads from the index, the size bound past which
+//! a file is left out, the once-only reports of a git too old, and the object format of the
+//! repository it writes to.
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -16,6 +17,34 @@ use sidekicks_std::mutex_lock::lock;
 
 use crate::git::process::version::{GitFeature, GitVersion};
 use crate::git::turn_snapshot::diagnostics::CaptureDiagnostic;
+use crate::git::turn_snapshot::held_checkout::CaptureRoots;
+
+/// The checkout one capture records, every field resolved by the caller.
+#[derive(Clone, Debug)]
+pub struct CheckoutCaptureInput {
+    /// The folder of the capture's owner, whose capture folders hold its captures: a session's
+    /// storage folder, or the folder a workflow run's caller names.
+    pub owner_folder: PathBuf,
+    /// Where the run or the command works: the worktree, or the bound folder of a bound root.
+    pub execution_root: PathBuf,
+    /// The top level of the working tree holding `execution_root`, as its caller records it; a
+    /// value the live tree disagrees with fails the capture.
+    pub checkout_root: PathBuf,
+    /// When the capture is taken: both of its commit's dates, so its id never depends on the
+    /// host's time zone or on when the capture ran.
+    pub captured_at: Timestamp,
+}
+
+impl CheckoutCaptureInput {
+    /// The folders the capture's start checks and holds.
+    pub(crate) fn roots(&self) -> CaptureRoots<'_> {
+        CaptureRoots {
+            owner_folder: &self.owner_folder,
+            execution_root: &self.execution_root,
+            checkout_root: &self.checkout_root,
+        }
+    }
+}
 
 /// Set on every git call that reads or writes an index outside the repository: a split index
 /// would put its shared part in the repository's git folder and could expire one the live index

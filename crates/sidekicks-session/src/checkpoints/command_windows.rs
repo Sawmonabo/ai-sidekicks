@@ -36,8 +36,9 @@ use sidekicks_store::database::connection::read_pool::{
 };
 use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+use sidekicks_workspace::git::turn_snapshot::capture::CheckoutCaptureInput;
 use sidekicks_workspace::git::turn_snapshot::command_capture::{
-    CommandCapture as CheckoutCapture, CommandCaptureInput, CommandCaptureService,
+    CommandCapture as CheckoutCapture, CommandCaptureService,
 };
 use sidekicks_workspace::git::turn_snapshot::repack::{CapturePacking, CapturedCommit};
 use sidekicks_workspace::working_folder::{WorkingFolderReadError, read_working_folder};
@@ -356,7 +357,7 @@ impl WindowRecorder {
         };
         let window_id = CommandWindowId::mint();
         let opening = bare_opening(window_id, checkpoint_id.clone(), start);
-        let input = CommandCaptureInput {
+        let input = CheckoutCaptureInput {
             owner_folder: session_storage_folder(&self.data_folder, &session_id),
             execution_root: checkout.execution_root.clone(),
             checkout_root: checkout.checkout_root.clone(),
