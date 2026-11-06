@@ -63,6 +63,12 @@ pub enum SignInUnsupportedReason {
     /// The binding is a program the provider starts or a provider account's connector.
     #[error("it is not reached at an address")]
     NotReachedAtAddress,
+    /// The address the binding's entry declares does not read as a web address once its
+    /// variables are filled.
+    #[error(
+        "the address its entry declares names a variable with no value or is not a web address"
+    )]
+    AddressUnreadable,
     /// The server publishes no protected-resource or authorization-server metadata.
     #[error("it publishes no sign-in route")]
     NoSignInRoute,

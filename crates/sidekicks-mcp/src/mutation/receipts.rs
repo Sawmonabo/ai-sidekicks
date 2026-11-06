@@ -443,7 +443,7 @@ fn read_intent(row: &rusqlite::Row<'_>) -> rusqlite::Result<McpIntentReceipt> {
 }
 
 #[cfg(test)]
-pub(super) mod tests {
+pub(crate) mod tests {
     use std::sync::Arc;
 
     use rusqlite::params;
@@ -474,7 +474,7 @@ pub(super) mod tests {
     }
 
     /// A fresh idempotency key.
-    pub(in crate::mutation) fn idempotency_key() -> ClientUuid {
+    pub(crate) fn idempotency_key() -> ClientUuid {
         ClientUuid::new(mint_uuid_v7().to_string()).expect("a minted UUID is a client key")
     }
 
@@ -512,7 +512,7 @@ pub(super) mod tests {
 
     /// A receipt store over a fresh database of the crate's schema, with the writer and the read
     /// pool it goes through, each prepared for the receipt key's statements too.
-    pub(in crate::mutation) async fn receipts_over_a_database() -> (
+    pub(crate) async fn receipts_over_a_database() -> (
         TestDatabase,
         McpMutationReceipts,
         Arc<DatabaseWriter>,
