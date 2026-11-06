@@ -1,14 +1,20 @@
+use std::collections::{BTreeSet, HashMap};
+
+use rstest::rstest;
 use rusqlite::{Connection, params};
 use serde_json::{Value, json};
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::{
-    WorkflowDefinitionId, WorkflowNodeId, WorkflowVersionId,
+    WorkflowDefinitionId, WorkflowDocumentHashedBody, WorkflowNode, WorkflowNodeId,
+    WorkflowVersionId,
 };
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStepStatus};
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 
-use super::{SettledStep, read_settled_steps};
+use super::{SettledStep, SourceVersion, dirty_nodes, read_settled_steps};
+use crate::engine::tick::RunGraph;
+use crate::kinds::{NodeKind, NodeKindTable, PassThroughExecutor, test_kind};
 use crate::test_rows::{
     TestStep, insert_run, insert_step, insert_workflow_version_body, workflow_tables,
 };
@@ -20,9 +26,97 @@ const FIRST_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e21";
 const SECOND_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e22";
 const THIRD_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e23";
 
-/// The workflow's body: a manual trigger and the test kind's `nodes`, joined by `edges`, each
-/// edge from `[source, output, target, input]`.
-fn body(nodes: &[Value], edges: &[(&str, usize, &str, usize)]) -> Value {
+/// An edge from `.0`'s main output `.1` into `.2`'s main input `.3`.
+type Edge = (&'static str, usize, &'static str, usize);
+
+/// The chain `T → A → B → C`, `B` taking a second main input that nothing feeds.
+const CHAIN: &[Edge] = &[("T", 0, "A", 0), ("A", 0, "B", 0), ("B", 0, "C", 0)];
+
+/// The test kind `name` with `inputs` main inputs and `outputs` main outputs, which passes its
+/// inputs on.
+fn kind(name: &str, inputs: usize, outputs: usize) -> NodeKind {
+    let handles = |side: &str, count: usize| -> Value {
+        (0..count)
+            .map(|index| {
+                json!({ "type": "main", "id": format!("{side}/main/{index}"), "label": "H" })
+            })
+            .collect()
+    };
+    test_kind(
+        json!({
+            "kind": name, "version": 1, "category": "developer",
+            "displayName": "Test", "description": "A test kind.", "icon": "test",
+            "params": [], "outputsDeriveFromParams": false,
+            "inputs": handles("inputs", inputs), "outputs": handles("outputs", outputs),
+        }),
+        None,
+        Box::new(PassThroughExecutor),
+    )
+}
+
+/// The kinds the tests' graphs use: a source with no input, a step, a step with two inputs, and a
+/// loop whose second output starts its body.
+fn kinds() -> NodeKindTable {
+    let mut loop_kind = kind("test.loop", 1, 2);
+    loop_kind.loop_output = Some(1);
+    NodeKindTable::new(vec![
+        kind("test.trigger", 0, 1),
+        kind("test.step", 1, 1),
+        kind("test.pair", 2, 1),
+        loop_kind,
+    ])
+    .expect("the test kinds build")
+}
+
+/// The node `id` of the test kind `kind` at `order`, with `members` written over its own.
+fn node(id: &str, kind: &str, order: i64, members: &Value) -> Value {
+    let mut node = json!({
+        "id": id, "kind": kind, "kindVersion": 1, "name": id, "order": order, "params": {},
+    });
+    for (member, value) in members.as_object().expect("the members are an object") {
+        node[member] = value.clone();
+    }
+    node
+}
+
+/// The chain's nodes `A`, `B` and `C`, with `members` written over the node `changed`.
+fn chain_nodes(changed: &str, members: &Value) -> Vec<Value> {
+    [("A", "test.step"), ("B", "test.pair"), ("C", "test.step")]
+        .into_iter()
+        .zip(1..)
+        .map(|((id, kind), order)| {
+            let members = if id == changed {
+                members.clone()
+            } else {
+                json!({})
+            };
+            node(id, kind, order, &members)
+        })
+        .collect()
+}
+
+/// The chain's nodes `A`, `B` and `C` as they stand.
+fn chain() -> Vec<Value> {
+    chain_nodes("", &json!({}))
+}
+
+/// `body` read as the hashed body a version stores.
+fn parsed(body: &Value) -> WorkflowDocumentHashedBody {
+    serde_json::from_value(body.clone()).expect("the test's body reads")
+}
+
+/// The run graph of `body`, its trigger among its nodes.
+fn graph_of(body: &WorkflowDocumentHashedBody) -> RunGraph {
+    let nodes: HashMap<WorkflowNodeId, WorkflowNode> =
+        std::iter::once(WorkflowNode::from(&body.trigger))
+            .chain(body.nodes.iter().cloned())
+            .map(|node| (node.id.clone(), node))
+            .collect();
+    RunGraph::new(&nodes, &body.trigger.id, &body.edges, &kinds()).expect("the graph builds")
+}
+
+/// The workflow's body: the trigger `T` and `nodes`, joined by `edges`.
+fn body(nodes: &[Value], edges: &[Edge]) -> Value {
     json!({
         "name": "Nightly",
         "trigger": {
@@ -198,5 +292,74 @@ fn the_newest_settled_step_is_read_across_versions_past_a_newer_failed_one() {
             node_id_of("A"),
             settled(SECOND_RUN_ID, "A", 1, SECOND_VERSION_ID, &[("T", 0)])
         )]
+    );
+}
+
+/// Each marking rule, applied to the chain's version 1 against version 2 with every node's step
+/// from version 1, dirties exactly the nodes it names: a params edit the node; an insert or a
+/// delete the node after it; an added connection its destination; switching a node off or on the
+/// node and the node after it. Mutation: mark a node whose switch alone changed only through the
+/// nodes it feeds (the switch cases fail).
+#[rstest]
+#[case::params_edit(
+    chain(), CHAIN,
+    chain_nodes("B", &json!({ "params": { "note": "x" } })), CHAIN,
+    &["B"],
+)]
+#[case::insert(
+    chain(), CHAIN,
+    [chain(), vec![node("X", "test.step", 4, &json!({}))]].concat(),
+    &[("T", 0, "A", 0), ("A", 0, "B", 0), ("B", 0, "C", 0), ("T", 0, "X", 0), ("X", 0, "B", 1)],
+    &["B"],
+)]
+#[case::delete(
+    [chain(), vec![node("X", "test.step", 4, &json!({}))]].concat(),
+    &[("T", 0, "A", 0), ("A", 0, "B", 0), ("B", 0, "C", 0), ("T", 0, "X", 0), ("X", 0, "B", 1)],
+    chain(), CHAIN,
+    &["B"],
+)]
+#[case::added_connection(
+    chain(), CHAIN,
+    chain(),
+    &[("T", 0, "A", 0), ("A", 0, "B", 0), ("B", 0, "C", 0), ("A", 0, "C", 0)],
+    &["C"],
+)]
+#[case::switched_off(
+    chain(), CHAIN,
+    chain_nodes("A", &json!({ "disabled": true })), CHAIN,
+    &["A", "B"],
+)]
+#[case::switched_on(
+    chain_nodes("A", &json!({ "disabled": true })), CHAIN,
+    chain(), CHAIN,
+    &["A", "B"],
+)]
+fn each_rule_dirties_exactly_the_nodes_it_names(
+    #[case] source_nodes: Vec<Value>,
+    #[case] source_edges: &[Edge],
+    #[case] target_nodes: Vec<Value>,
+    #[case] target_edges: &[Edge],
+    #[case] expected: &[&str],
+) {
+    let source = parsed(&body(&source_nodes, source_edges));
+    let target = parsed(&body(&target_nodes, target_edges));
+    let node_ids = std::iter::once(source.trigger.id.clone())
+        .chain(source.nodes.iter().map(|node| node.id.clone()))
+        .collect();
+    let dirty = dirty_nodes(
+        &target,
+        &graph_of(&target),
+        &[SourceVersion {
+            body: source,
+            node_ids,
+        }],
+    );
+    assert_eq!(
+        dirty,
+        expected
+            .iter()
+            .copied()
+            .map(node_id_of)
+            .collect::<BTreeSet<_>>()
     );
 }
