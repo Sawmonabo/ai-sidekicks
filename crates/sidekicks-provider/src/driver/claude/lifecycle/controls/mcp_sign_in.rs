@@ -8,6 +8,7 @@ use sidekicks_store::data_folder::plugin_home;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::claude::mcp::config::ClaudePersonConfigFiles;
+use crate::driver::claude::mcp::organization::has_readable_managed_mcp_file;
 use crate::driver::claude::mcp::sign_in::{
     ClaudeSignInSources, remove_left_claude_sign_ins, sign_in_with_claude_client,
 };
@@ -23,23 +24,9 @@ impl ClaudeDriver {
         &self,
         request: ProviderSignInTakeoverRequest,
     ) -> Result<ProviderSignInTakeover, DriverError> {
-        let plugin_home = plugin_home(&self.sources.home_folder, &DESCRIPTOR.provider_id());
-        let managed_settings_folder = DESCRIPTOR.managed_settings_folder();
-        let person = ClaudePersonConfigFiles::resolve(
-            &self.sources.base_environment,
-            &self.sources.home_folder,
-        )
-        .await;
         sign_in_with_claude_client(
             &*self.starts,
-            ClaudeSignInSources {
-                person: &person,
-                plugin_home: &plugin_home,
-                managed_settings_folder: managed_settings_folder.as_deref(),
-                data_folder: &self.sources.data_folder,
-                account_servers: &self.account_servers,
-                credentials: &self.credentials,
-            },
+            self.sign_in_sources().await,
             |folder| self.sign_in_environment(folder),
             request,
         )
@@ -53,6 +40,26 @@ impl ClaudeDriver {
             self.sign_in_environment(folder)
         })
         .await
+    }
+
+    // Where an MCP sign-in reads its server's entry and saved sign-in: the person's files as the
+    // base environment places them, the plugin home, and whether an administrator's MCP file is
+    // deployed.
+    async fn sign_in_sources(&self) -> ClaudeSignInSources<'_> {
+        let managed_settings_folder = DESCRIPTOR.managed_settings_folder();
+        ClaudeSignInSources {
+            person: ClaudePersonConfigFiles::resolve(
+                &self.sources.base_environment,
+                &self.sources.home_folder,
+            )
+            .await,
+            plugin_home: plugin_home(&self.sources.home_folder, &DESCRIPTOR.provider_id()),
+            has_managed_mcp_file: has_readable_managed_mcp_file(managed_settings_folder.as_deref())
+                .await,
+            data_folder: &self.sources.data_folder,
+            account_servers: &self.account_servers,
+            credentials: &self.credentials,
+        }
     }
 
     // The environment of an MCP sign-in's process on its own `folder`, which also names the

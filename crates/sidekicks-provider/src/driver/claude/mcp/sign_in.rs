@@ -47,7 +47,6 @@ use crate::driver::claude::mcp::config::{
 use crate::driver::claude::mcp::machine_probe::variables::{
     ClaudePluginPlaceholders, expand_remote_address, fill_entry_plugin_placeholders,
 };
-use crate::driver::claude::mcp::organization::has_readable_managed_mcp_file;
 use crate::driver::claude::session::account_servers::{
     ClaudeAccountReadAsk, ClaudeAccountServerReads,
 };
@@ -198,11 +197,11 @@ pub(crate) struct ClaudeMcpSignInStart {
 /// Where a sign-in reads the server's entry and the saved sign-in, and makes its own folder.
 pub(crate) struct ClaudeSignInSources<'sources> {
     /// The person's own config files, as their environment places them.
-    pub(crate) person: &'sources ClaudePersonConfigFiles,
+    pub(crate) person: ClaudePersonConfigFiles,
     /// The daemon's plugin home for Claude Code.
-    pub(crate) plugin_home: &'sources Path,
-    /// The folder Claude Code reads its managed settings from; `None` where the system has none.
-    pub(crate) managed_settings_folder: Option<&'sources Path>,
+    pub(crate) plugin_home: PathBuf,
+    /// Whether Claude Code reads an administrator's MCP file in its managed settings folder.
+    pub(crate) has_managed_mcp_file: bool,
     /// The daemon's data folder.
     pub(crate) data_folder: &'sources Path,
     /// Each account's read of its organization's servers.
@@ -232,14 +231,8 @@ pub(crate) async fn sign_in_with_claude_client(
         ProviderSignInReturn::OwnListener => return Err(ClaudeSignInError::NoDaemonReceiver.into()),
     };
     let name = request.binding.server_name().clone();
-    let has_managed_mcp_file = has_readable_managed_mcp_file(sources.managed_settings_folder).await;
-    let entry = read_sign_in_entry(
-        &sources,
-        &request.binding,
-        &request.provider_account_id,
-        has_managed_mcp_file,
-    )
-    .await?;
+    let entry =
+        read_sign_in_entry(&sources, &request.binding, &request.provider_account_id).await?;
     let configured_client_id = entry
         .as_ref()
         .and_then(|entry| entry.get(OAUTH_MEMBER))
@@ -296,7 +289,7 @@ pub(crate) async fn sign_in_with_claude_client(
                 provider_account_id: request.provider_account_id.clone(),
                 folder: folder.path().to_owned(),
                 servers_file: folder.path().join(SIGN_IN_SERVERS_FILE),
-                loads_only_its_servers: !has_managed_mcp_file,
+                loads_only_its_servers: !sources.has_managed_mcp_file,
             })
             .await?;
         let exchanged = tokio::select! {
@@ -423,7 +416,6 @@ async fn read_sign_in_entry(
     sources: &ClaudeSignInSources<'_>,
     binding: &McpServerBindingRef,
     account: &ProviderAccountId,
-    has_managed_mcp_file: bool,
 ) -> Result<Option<Map<String, Value>>, DriverError> {
     let internal = |error: Box<dyn Error + Send + Sync>| DriverError::Internal(error);
     let no_entry = || {
@@ -443,7 +435,7 @@ async fn read_sign_in_entry(
                 Some(entry) => {
                     Some(serde_json::to_value(entry).map_err(|error| internal(Box::new(error)))?)
                 }
-                None if has_managed_mcp_file => return Ok(None),
+                None if sources.has_managed_mcp_file => return Ok(None),
                 None => None,
             }
         }
@@ -451,7 +443,7 @@ async fn read_sign_in_entry(
         | McpServerBindingRef::Local { .. }
         | McpServerBindingRef::Project { .. }
         | McpServerBindingRef::Plugin { .. } => {
-            ClaudeServerEntryReader::new(sources.person, sources.plugin_home)
+            ClaudeServerEntryReader::new(&sources.person, &sources.plugin_home)
                 .read(binding)
                 .await
                 .map_err(|error| internal(Box::new(error)))?
