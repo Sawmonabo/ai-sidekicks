@@ -48,6 +48,29 @@ function byteBoundCode(comparison: ">=" | "<=") {
   };
 }
 
+/**
+ * The code of `defaultAmongOptions`: a question with option rows starts from its own options, so
+ * each label its `default` names, one text or several, is one option's `label`.
+ */
+function defaultAmongOptionsCode(cxt: KeywordCxt): void {
+  const { gen, data } = cxt;
+  const isAmongOptions = gen.let("isAmongOptions", true);
+  gen.if(_`Array.isArray(${data}.options) && ${data}.options.length > 0`, () => {
+    const labels = gen.const(
+      "labels",
+      _`typeof ${data}.default == "string" ? [${data}.default] : Array.isArray(${data}.default) ? ${data}.default : []`,
+    );
+    gen.forOf("label", labels, (label) => {
+      const isOption = gen.let("isOption", false);
+      gen.forOf("option", _`${data}.options`, (option) => {
+        gen.if(_`${option} && ${option}.label === ${label}`, () => gen.assign(isOption, true));
+      });
+      gen.if(_`!${isOption}`, () => gen.assign(isAmongOptions, false));
+    });
+  });
+  cxt.pass(isAmongOptions);
+}
+
 /** A strict Ajv holding every module's schema, so a reference across modules resolves. */
 function createAjv(schemas: readonly SchemaObject[]): Ajv2020 {
   const formats = Object.fromEntries(
@@ -68,6 +91,13 @@ function createAjv(schemas: readonly SchemaObject[]): Ajv2020 {
   ajv.addKeyword({ keyword: "tsType", schemaType: "string" });
   ajv.addKeyword({ keyword: "minBytes", schemaType: "number", code: byteBoundCode(">=") });
   ajv.addKeyword({ keyword: "maxBytes", schemaType: "number", code: byteBoundCode("<=") });
+  ajv.addKeyword({
+    keyword: "defaultAmongOptions",
+    type: "object",
+    schemaType: "boolean",
+    metaSchema: { const: true },
+    code: defaultAmongOptionsCode,
+  });
   for (const schema of schemas) {
     ajv.addSchema(schema);
   }
