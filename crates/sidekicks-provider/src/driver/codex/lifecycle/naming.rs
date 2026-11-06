@@ -11,7 +11,7 @@ mod one_shot;
 #[cfg(test)]
 mod tests;
 
-use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -94,80 +94,103 @@ const TITLE_INSTRUCTIONS: &str = "Name this coding session from its first exchan
                                   alone.";
 
 impl CodexDriver {
-    /// The session's name from its first exchange: on the session's live service, a name the
-    /// person's own terminal gave its conversation first, else a pass there; with no live leg, a
-    /// failed pass or no name, a one-shot pass of Codex's program on the account the session's
-    /// leg runs on. `None` when both gave no name, the session never ran, once `cancel` fired, or
-    /// once the pass ran past [`CODEX_NAMING_DEADLINE`], its turn then stopped as a cancel stops
-    /// it. What either pass spent is recorded on `params.binding_id` as the session's own, each
-    /// pass on a task of the driver's, so a cancel never drops it. Fails as the session pieces
-    /// cannot be composed, the stored leg cannot be read, the one-shot pass's launch cannot be
-    /// composed or the MCP servers it disables cannot be listed.
+    /// The session's name from its first exchange, drawn on the service of the account the
+    /// session runs on: a name the person's own terminal gave its conversation first, else a pass
+    /// there, on its live conversation's service, or at rest on its account's service, started
+    /// for the pass in a scratch folder of its own; with a failed pass or no name, a one-shot pass
+    /// of Codex's program on that account. `None` when both gave no name, the session never ran,
+    /// once `cancel` fired, or once the pass ran past [`CODEX_NAMING_DEADLINE`], its turn then
+    /// stopped as a cancel stops it. What either pass spent is recorded on `params.binding_id` as
+    /// the session's own, each pass on a task of the driver's, so a cancel never drops it. Fails as
+    /// the session pieces cannot be composed, the stored leg cannot be read, the one-shot pass's
+    /// launch cannot be composed or the MCP servers it disables cannot be listed.
     pub(crate) async fn name_session(
         &self,
         params: NameSessionParams,
     ) -> Result<Option<String>, DriverError> {
         let parts = self.parts()?;
+        let session_id = params.session_id;
         let filing = |provider_account_id: &ProviderAccountId| SessionUsageFiling {
             usage: Arc::clone(&parts.ports.usage),
-            session_id: params.session_id,
+            session_id,
             binding_id: params.binding_id.clone(),
             provider_account_id: provider_account_id.clone(),
             pricing: CodexRecorderPricing::new(Arc::clone(&parts.pricing)),
         };
         let cancel = params.cancel.clone();
-        // One deadline over both passes: the one-shot pass gets what the live one left.
+        // One deadline over both passes: the one-shot pass gets what the one on the service left.
         let deadline = Instant::now() + CODEX_NAMING_DEADLINE;
         let prompt = compose_title_prompt(&params.first_message, &params.first_reply);
         // The one-shot pass runs on the session's own account, live or at rest.
-        let (service, session_model, account) =
-            if let Some(conversation) = self.views.conversation(params.session_id) {
-                let service = Arc::clone(&conversation.service);
-                let session_model = conversation.model.clone();
-                let account = conversation.provider_account_id.clone();
-                let pass_filing = filing(&account);
-                // On a task of its own, so a caller that stops waiting still has its turn stopped
-                // and what it spent recorded.
-                let pass = self.tasks.spawn(name_on_service(
-                    conversation,
-                    params.session_id,
-                    prompt.clone(),
-                    pass_filing,
-                    cancel.clone(),
-                    deadline,
-                ));
-                match pass.await {
-                    Ok(Ok(Some(name))) => return Ok(Some(name)),
-                    Ok(Ok(None)) => {}
-                    Ok(Err(error)) => tracing::info!(
-                        error = &error as &(dyn std::error::Error + 'static),
-                        session_id = %params.session_id,
-                        "a codex session's name could not be drawn on its service"
-                    ),
-                    Err(error) => tracing::warn!(
-                        error = &error as &(dyn std::error::Error + 'static),
-                        session_id = %params.session_id,
-                        "a codex session's naming pass on its service ended unfinished"
-                    ),
-                }
-                (service, Some(session_model), account)
-            } else {
-                let leg = tokio::select! {
-                    () = cancel.cancelled() => return Ok(None),
-                    () = tokio::time::sleep_until(deadline) => return Ok(None),
-                    leg = self.read_session_leg(params.session_id) => leg?,
-                };
-                // A session that never ran has no exchange to name.
-                let Some(leg) = leg else {
-                    return Ok(None);
-                };
-                let account = leg.spawn_config.provider_account_id;
-                tokio::select! {
-                    () = cancel.cancelled() => return Ok(None),
-                    () = tokio::time::sleep_until(deadline) => return Ok(None),
-                    service = self.registry.service_for(&account) => (service?, None, account),
+        let (service, session_model, account) = if let Some(conversation) =
+            self.views.conversation(session_id)
+        {
+            let request = TitleRequest {
+                session_id,
+                service: Arc::clone(&conversation.service),
+                thread_id: Some(conversation.thread_id),
+                working_directory: conversation.working_directory,
+                session_model: Some(conversation.model.clone()),
+                prompt: prompt.clone(),
+            };
+            let account = conversation.provider_account_id;
+            let pass = name_on_service(request, filing(&account), cancel.clone(), deadline);
+            if let Some(name) = self.draw_on_service(session_id, pass).await {
+                return Ok(Some(name));
+            }
+            (conversation.service, Some(conversation.model), account)
+        } else {
+            let leg = tokio::select! {
+                () = cancel.cancelled() => return Ok(None),
+                () = tokio::time::sleep_until(deadline) => return Ok(None),
+                leg = self.read_session_leg(session_id) => leg?,
+            };
+            // A session that never ran has no exchange to name.
+            let Some(leg) = leg else {
+                return Ok(None);
+            };
+            let (account, thread_id) = (leg.spawn_config.provider_account_id, leg.resume_handle);
+            let service = tokio::select! {
+                () = cancel.cancelled() => return Ok(None),
+                () = tokio::time::sleep_until(deadline) => return Ok(None),
+                service = self.registry.service_for(&account) => service?,
+            };
+            // Started now, as the rename that follows would start it.
+            let started = tokio::select! {
+                () = cancel.cancelled() => return Ok(None),
+                () = tokio::time::sleep_until(deadline) => return Ok(None),
+                started = service.ensure_started(service.dependencies().startup_timeout) => {
+                    started
                 }
             };
+            match started {
+                Ok(()) => {
+                    let (service, prompt) = (Arc::clone(&service), prompt.clone());
+                    let (filing, cancel) = (filing(&account), cancel.clone());
+                    let pass = async move {
+                        let scratch = make_pass_folder()?;
+                        let request = TitleRequest {
+                            session_id,
+                            service,
+                            thread_id,
+                            working_directory: scratch.path().to_owned(),
+                            session_model: None,
+                            prompt,
+                        };
+                        name_on_service(request, filing, cancel, deadline).await
+                    };
+                    if let Some(name) = self.draw_on_service(session_id, pass).await {
+                        return Ok(Some(name));
+                    }
+                }
+                Err(error) => tracing::info!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    %session_id,
+                    "a resting codex session's service did not start for its naming pass"
+                ),
+            }
+            (service, None, account)
+        };
         let one_shot_filing = filing(&account);
         let one_shot = self.tasks.spawn(async move {
             let model = session_model.as_deref();
@@ -177,6 +200,34 @@ impl CodexDriver {
         match one_shot.await {
             Ok(named) => Ok(named?),
             Err(error) => Err(DriverError::Internal(Box::new(error))),
+        }
+    }
+
+    // The name `pass` drew on a service, run on a task of its own, so a caller that stops waiting
+    // still has its turn stopped and what it spent recorded; `None`, logged, where it failed.
+    async fn draw_on_service(
+        &self,
+        session_id: SessionId,
+        pass: impl Future<Output = Result<Option<String>, CodexError>> + Send + 'static,
+    ) -> Option<String> {
+        match self.tasks.spawn(pass).await {
+            Ok(Ok(named)) => named,
+            Ok(Err(error)) => {
+                tracing::info!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    %session_id,
+                    "a codex session's name could not be drawn on its service"
+                );
+                None
+            }
+            Err(error) => {
+                tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    %session_id,
+                    "a codex session's naming pass on its service ended unfinished"
+                );
+                None
+            }
         }
     }
 
@@ -271,61 +322,50 @@ fn read_title(answer: &str) -> Option<String> {
     (!title.is_empty()).then(|| title.to_owned())
 }
 
+// An empty folder of a pass's own, gone once dropped. Fails as it cannot be made.
+fn make_pass_folder() -> Result<tempfile::TempDir, CodexError> {
+    tempfile::tempdir().map_err(|error| CodexError::Transport {
+        detail: "The folder of Codex's naming pass could not be made.".to_owned(),
+        cause: Some(Box::new(error)),
+    })
+}
+
 // The name the person's own terminal gave a joined service's conversation, else one drawn on a
-// throwaway conversation of `conversation`'s service over a connection of its own, its spend filed
+// throwaway conversation of `request`'s service over a connection of its own, its spend filed
 // through `filing`; `None` once `cancel` fired or `deadline` passed.
 async fn name_on_service(
-    conversation: CodexConversationView,
-    session_id: SessionId,
-    prompt: String,
+    request: TitleRequest,
     filing: SessionUsageFiling,
     cancel: CancellationToken,
     deadline: Instant,
 ) -> Result<Option<String>, CodexError> {
     let (events, frames) = CodexDetachedFrames::new();
-    let service = &conversation.service;
     let connection = tokio::select! {
         biased;
         () = cancel.cancelled() => return Ok(None),
         () = tokio::time::sleep_until(deadline) => return Ok(None),
-        connection = service.open_detached_connection(events) => connection?,
+        connection = request.service.open_detached_connection(events) => connection?,
     };
-    draw_title(
-        connection,
-        frames,
-        &TitleRequest {
-            session_id,
-            service,
-            thread_id: &conversation.thread_id,
-            is_joined: service.kind() == CodexServiceKind::Joined,
-            working_directory: &conversation.working_directory.to_string_lossy(),
-            session_model: &conversation.model,
-            prompt: &prompt,
-        },
-        filing,
-        &cancel,
-        deadline,
-    )
-    .await
+    draw_title(connection, frames, &request, filing, &cancel, deadline).await
 }
 
-/// What a title pass on a live service reads of the session's conversation.
-struct TitleRequest<'pass> {
+/// What a title pass on a service reads of the session.
+struct TitleRequest {
     /// The session, whose tier the title conversation's start declares.
     session_id: SessionId,
     /// The service the pass runs on, whose region its spend is priced in.
-    service: &'pass CodexService,
-    /// The session's conversation, whose given name a joined service is asked for.
-    thread_id: &'pass str,
-    /// Whether the service is the person's own, where their terminal may have named it.
-    is_joined: bool,
-    /// The session's folder, whose config the title conversation is read and started under.
-    working_directory: &'pass str,
+    service: Arc<CodexService>,
+    /// The session's conversation, whose given name a joined service is asked for; `None` where
+    /// none is stored.
+    thread_id: Option<String>,
+    /// The folder whose config the title conversation is read and started under: the session's
+    /// own where it is live, else a scratch folder of the pass's.
+    working_directory: PathBuf,
     /// The session's model, which the title turn runs on where the small title model is not
-    /// offered.
-    session_model: &'pass str,
+    /// offered; `None` at rest, where the home's default runs.
+    session_model: Option<String>,
     /// The pass's prompt.
-    prompt: &'pass str,
+    prompt: String,
 }
 
 /// How a title conversation's start went: a name the conversation already had, or the
@@ -350,7 +390,7 @@ enum TitleThread {
 async fn draw_title(
     connection: CodexAppServerConnection,
     mut frames: mpsc::UnboundedReceiver<CodexDetachedFrame>,
-    request: &TitleRequest<'_>,
+    request: &TitleRequest,
     mut filing: SessionUsageFiling,
     cancel: &CancellationToken,
     deadline: Instant,
@@ -367,7 +407,7 @@ async fn draw_title(
 async fn draw_title_until_stopped(
     connection: &CodexAppServerConnection,
     frames: &mut mpsc::UnboundedReceiver<CodexDetachedFrame>,
-    request: &TitleRequest<'_>,
+    request: &TitleRequest,
     filing: &mut SessionUsageFiling,
     stop: &CancellationToken,
 ) -> Result<Option<String>, CodexError> {
@@ -381,10 +421,10 @@ async fn draw_title_until_stopped(
         TitleThread::Started { meter, effort } => (meter, effort),
     };
     let title_thread_id = meter.thread_id.clone();
-    let (service, folder) = (request.service, Path::new(request.working_directory));
+    let (service, folder) = (&*request.service, request.working_directory.as_path());
     let turn = CodexTurnStartParams {
         thread_id: title_thread_id.clone(),
-        input: vec![compose_codex_text_input(request.prompt.to_owned())],
+        input: vec![compose_codex_text_input(request.prompt.clone())],
         approvals_reviewer: None,
         collaboration_mode: None,
         model: None,
@@ -435,30 +475,29 @@ async fn draw_title_until_stopped(
 // the MCP servers cannot be read or the start does not answer read-only.
 async fn start_title_thread(
     connection: &CodexAppServerConnection,
-    request: &TitleRequest<'_>,
+    request: &TitleRequest,
 ) -> Result<TitleThread, CodexError> {
-    if request.is_joined {
-        let given = request_thread_reading(connection, request.thread_id, CODEX_REQUEST_TIMEOUT)
+    // Only the person's own service may hold a name their terminal gave.
+    if request.service.kind() == CodexServiceKind::Joined
+        && let Some(thread_id) = &request.thread_id
+    {
+        let given = request_thread_reading(connection, thread_id, CODEX_REQUEST_TIMEOUT)
             .await?
             .and_then(|reading| reading.name);
         if let Some(given) = given {
             return Ok(TitleThread::Named(given));
         }
     }
-    let config = read_codex_config::<Map<String, Value>>(
-        connection,
-        Path::new(request.working_directory),
-        false,
-    )
-    .await?;
+    let folder = &request.working_directory;
+    let config = read_codex_config::<Map<String, Value>>(connection, folder, false).await?;
     let server_names = lockdown::read_config_server_names(&config.config);
-    let title_model = choose_title_model(Some(connection), Some(request.session_model)).await;
+    let title_model = choose_title_model(Some(connection), request.session_model.as_deref()).await;
     let reply = connection
         .request(
             THREAD_START_METHOD,
             &ThreadStartParams {
                 model: title_model.model.clone(),
-                cwd: Some(request.working_directory.to_owned()),
+                cwd: Some(folder.to_string_lossy().into_owned()),
                 ephemeral: Some(true),
                 sandbox: Some(SandboxMode::ReadOnly),
                 approval_policy: Some(AskForApproval::Never),

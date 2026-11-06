@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 use super::exec_turn::{ExecTurnEnd, read_exec_turn};
 use super::{
     CODEX_SERVER_LIST_DEADLINE, MODEL_KEY, REASONING_EFFORT_KEY, choose_title_model,
-    list_mcp_server_names, lockdown, read_title, title_schema,
+    list_mcp_server_names, lockdown, make_pass_folder, read_title, title_schema,
 };
 use crate::driver::codex::service::command::{CodexCommandError, run_codex_command};
 use crate::driver::codex::service::registry::home_exec_switches;
@@ -103,10 +103,7 @@ async fn run_title_exec(
     if time_left().is_zero() {
         return Ok(None);
     }
-    let folder = tempfile::tempdir().map_err(|error| CodexError::Transport {
-        detail: "The folder of Codex's naming pass could not be made.".to_owned(),
-        cause: Some(Box::new(error)),
-    })?;
+    let folder = make_pass_folder()?;
     let schema_file = folder.path().join(TITLE_SCHEMA_FILE_NAME);
     let answer_file = folder.path().join(TITLE_ANSWER_FILE_NAME);
     tokio::fs::write(&schema_file, title_schema().to_string())
@@ -129,7 +126,8 @@ async fn run_title_exec(
         time_left().min(CODEX_SERVER_LIST_DEADLINE),
     )
     .await?;
-    // The catalog is read on the service where it is up; the one-shot pass starts none.
+    // The catalog is read on the service where it is up, a resting session's started for its
+    // pass on the service; the one-shot pass starts none.
     let connection = service.connection().ok();
     let title_model = tokio::select! {
         () = tokio::time::sleep_until(deadline) => return Ok(None),

@@ -4,6 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::watch;
@@ -100,21 +101,25 @@ pub(super) fn held_keys(
 
 // Real time, since the list's fetch carries a client timeout a paused clock fires. The title turn's
 // one reading is recorded as the session's own on the filing's binding and held under the model and
-// tier the start named. Killed by the reading left unfiled (no row), by owner `Run`, and by the
-// tier the start declared left unread (speed `None`).
+// tier the start named, the same where the pass asked for no model, as at rest. Killed by the
+// reading left unfiled (no row), by owner `Run`, by the tier the start declared left unread (speed
+// `None`), and by metering at the model asked for (none at rest, so nothing held).
+#[rstest]
+#[case::a_live_session_on_its_model(Some(SESSION_MODEL))]
+#[case::a_resting_session_on_the_home_s_default(None)]
 #[tokio::test]
-async fn a_title_pass_records_its_turns_usage_as_the_session_s_spend_at_the_started_tier() {
+async fn a_title_pass_records_its_turns_usage_as_the_session_s_spend_at_the_started_tier(
+    #[case] session_model: Option<&str>,
+) {
     let mut scripted = start_scripted_codex_service();
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let usage = Arc::new(GatedUsage::new(watch::channel(true).1));
     let stop = CancellationToken::new();
     let (filing, _server) = metered_filing(&usage, folder.path(), &stop).await;
     let binding = filing.binding_id.as_str().to_owned();
-    let (pass, mut script) = start_filed_pass(
-        CancellationToken::new(),
-        filing,
-        Arc::clone(&scripted.service),
-    );
+    let service = Arc::clone(&scripted.service);
+    let (pass, mut script) =
+        start_filed_pass(CancellationToken::new(), session_model, filing, service);
     answer_config_read(&mut script).await;
     answer_model_list(&mut script, &[SESSION_MODEL]).await;
     answer_thread_start(&mut script, "readOnly").await;
@@ -156,8 +161,8 @@ async fn a_canceled_title_pass_files_the_readings_received_before_its_interrupt_
     let stop = CancellationToken::new();
     let (filing, _server) = metered_filing(&usage, folder.path(), &stop).await;
     let cancel = CancellationToken::new();
-    let (pass, mut script) =
-        start_filed_pass(cancel.clone(), filing, Arc::clone(&scripted.service));
+    let service = Arc::clone(&scripted.service);
+    let (pass, mut script) = start_filed_pass(cancel.clone(), Some(SESSION_MODEL), filing, service);
     answer_config_read(&mut script).await;
     answer_model_list(&mut script, &[SESSION_MODEL]).await;
     answer_thread_start(&mut script, "readOnly").await;

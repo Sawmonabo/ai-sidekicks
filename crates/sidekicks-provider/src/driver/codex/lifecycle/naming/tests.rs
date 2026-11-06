@@ -138,14 +138,20 @@ fn start_pass(
 ) {
     let scripted = start_scripted_codex_service();
     let filing = filing_over(&DriverPorts::new());
-    start_filed_pass(cancel, filing, Arc::clone(&scripted.service))
+    start_filed_pass(
+        cancel,
+        Some(SESSION_MODEL),
+        filing,
+        Arc::clone(&scripted.service),
+    )
 }
 
-// A title pass of a session on `SESSION_MODEL` over a scripted connection, its spend filed through
+// A title pass of a session on `session_model` over a scripted connection, its spend filed through
 // `filing` with its region read on `service`, run on its own task until `cancel` fires, and the
 // script.
 fn start_filed_pass(
     cancel: CancellationToken,
+    session_model: Option<&str>,
     filing: SessionUsageFiling,
     service: Arc<CodexService>,
 ) -> (
@@ -161,24 +167,17 @@ fn start_filed_pass(
             token_refresher: None,
         },
     );
+    let request = TitleRequest {
+        session_id: filing.session_id,
+        service,
+        thread_id: Some("thread-1".to_owned()),
+        working_directory: FOLDER.into(),
+        session_model: session_model.map(str::to_owned),
+        prompt: "Name this.".to_owned(),
+    };
     let pass = tokio::spawn(async move {
-        draw_title(
-            connection,
-            frames,
-            &TitleRequest {
-                session_id: filing.session_id,
-                service: &service,
-                thread_id: "thread-1",
-                is_joined: false,
-                working_directory: FOLDER,
-                session_model: SESSION_MODEL,
-                prompt: "Name this.",
-            },
-            filing,
-            &cancel,
-            Instant::now() + CODEX_NAMING_DEADLINE,
-        )
-        .await
+        let deadline = Instant::now() + CODEX_NAMING_DEADLINE;
+        draw_title(connection, frames, &request, filing, &cancel, deadline).await
     });
     (pass, script)
 }
