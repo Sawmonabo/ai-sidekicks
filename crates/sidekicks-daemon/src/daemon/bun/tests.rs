@@ -170,7 +170,10 @@ async fn a_bun_archive_whose_digest_differs_from_its_pin_is_refused_and_nothing_
     assert_eq!(names_in(&bun_folder), vec![BUN_VERSION.to_owned()]);
     let answered = install.bun_program().now_or_never();
     assert!(matches!(answered, Some(Err(_))), "{answered:?}");
-    scheduler.stop().await.expect("the scheduler stops");
+    scheduler
+        .stop(Instant::now() + RUN_BOUND)
+        .await
+        .expect("the scheduler stops");
 }
 
 // Fails when the wrong entry is taken, the mode stays the archive's, the port answers before the
@@ -230,7 +233,10 @@ async fn a_checked_bun_archive_installs_its_program_and_the_next_start_fetches_n
         .expect("the run ends");
     assert_eq!(again.expect("bun is installed"), program);
     assert_eq!(server.requests.load(Ordering::SeqCst), 1);
-    scheduler.stop().await.expect("the scheduler stops");
+    scheduler
+        .stop(Instant::now() + RUN_BOUND)
+        .await
+        .expect("the scheduler stops");
 }
 
 // Fails when a server error is not retried, is read as a refusal, or waits other than the retry
@@ -263,7 +269,10 @@ async fn a_fetch_the_server_failed_is_tried_again_on_the_retry_schedule() {
         waited >= Duration::from_secs(1) && waited < Duration::from_secs(2),
         "{waited:?}"
     );
-    scheduler.stop().await.expect("the scheduler stops");
+    scheduler
+        .stop(Instant::now() + RUN_BOUND)
+        .await
+        .expect("the scheduler stops");
 }
 
 // Fails when the download runs on the scheduler's task, which holds every job due after it until
@@ -311,5 +320,8 @@ async fn a_held_bun_download_holds_no_other_scheduled_job() {
     let installed = install.bun_program().await;
     assert!(installed.is_ok(), "{installed:?}");
     assert_eq!(server.requests.load(Ordering::SeqCst), 1);
-    scheduler.stop().await.expect("the scheduler stops");
+    scheduler
+        .stop(Instant::now() + RUN_BOUND)
+        .await
+        .expect("the scheduler stops");
 }

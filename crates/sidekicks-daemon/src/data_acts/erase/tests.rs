@@ -415,14 +415,23 @@ async fn an_erase_removes_every_sessions_other_volume_folder_and_names_each_left
     let mut driver = MockProviderDriver::new();
     driver
         .expect_shutdown()
-        .returning(|_intent| async { Ok(()) }.boxed());
+        .returning(|_intent, _deadline| async {}.boxed());
     let ended = Arc::new(Notify::new());
     let end_signal = Arc::clone(&ended);
     let erase = Arc::new(DataErase::new(DataEraseDeps {
         data_folder: data.clone(),
         secret_items: empty_secret_items(&data),
         providers: Arc::new(registry_of_first_provider(Arc::new(driver))),
-        sign_out_accounts: Arc::new(|| async { Ok(Vec::new()) }.boxed()),
+        sign_out_accounts: Arc::new(|| {
+            async {
+                Ok(HomesSignOut {
+                    left_signed_in: Vec::new(),
+                    has_unnamed_home: false,
+                })
+            }
+            .boxed()
+        }),
+        end_sign_ins: Arc::new(|| async { true }.boxed()),
         stop_work: Arc::new(|| async {}.boxed()),
         close_data_folder: Arc::new(|| async {}.boxed()),
         end_process: Arc::new(move || end_signal.notify_one()),
