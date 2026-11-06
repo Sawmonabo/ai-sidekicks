@@ -374,7 +374,8 @@ impl ClaudeResultPricing {
     }
 }
 
-// A stored row's input, output, cache-read and whole cache-write counts, each 0 where it holds none.
+// A stored row's input, output, cache-read and whole cache-write counts, each 0 where it holds
+// none.
 struct RowCounts {
     input: u64,
     output: u64,
