@@ -5,6 +5,7 @@
 //! already named keeps that name. What a pass spends is recorded and priced as the session's own,
 //! counted toward no run, on the binding of its first completed run.
 
+pub(crate) mod exec_turn;
 pub(crate) mod lockdown;
 #[cfg(test)]
 mod tests;
