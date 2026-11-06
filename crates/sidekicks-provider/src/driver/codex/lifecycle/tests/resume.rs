@@ -278,7 +278,7 @@ fn answer_resume_request(script: &ScriptedService, sent: &Value) {
 }
 
 // The reply to the `thread/resume` `sent`: its conversation, standing at `status`, under the
-// profile it asks for.
+// profile it asks for, on the model every resume reply names.
 fn resumed_thread(sent: &Value, status: &Value) -> Value {
     json!({
         "thread": {
@@ -286,6 +286,7 @@ fn resumed_thread(sent: &Value, status: &Value) -> Value {
             "sessionId": "codex-session",
             "status": status,
         },
+        "model": "gpt-5.4",
         "activePermissionProfile": {"id": sent["params"]["permissions"]},
     })
 }
