@@ -484,9 +484,13 @@ fn crossing_node_and_run_chains_end_without_repeating_a_member() {
     );
 }
 
-// Killed by either model fallback dropped, by cache or reasoning counted, by the agent asked shown
-// on a workflow run, by spend matched on the whole member, and by a helper's model read from its
-// newest own run only.
+// A provider helper's head names the model it ran on, else the model and effort its node names,
+// else those of the nearest node above it that names them, which it inherited, else its parent's
+// binding. Killed by either model fallback dropped, by cache or reasoning counted, by the agent
+// asked shown on a workflow run, by spend matched on the whole member, by a helper's model read
+// from its newest own run only, by the node's values ignored (`h3` reads the lead's), by the
+// node's model put before the usage row (`h4` reads `m-own`), by the parent node's values ignored
+// (`h5` reads the lead's), and by the binding's fallback dropped (`h2` reads no effort).
 #[test]
 fn a_head_reads_its_model_effort_tokens_spend_and_start() {
     let mut fixture = Fixture::new();
@@ -494,6 +498,20 @@ fn a_head_reads_its_model_effort_tokens_spend_and_start() {
     session.usage(fixture.bridged, "m1", &at(6));
     session.usage(fixture.bridged, "m2", &at(7));
     session.usage(fixture.first_helper_first_run, "mh", &at(8));
+    let lead_run = fixture.lead_run;
+    let named_run = session.own_run(lead_run, "h3", RunState::Running, &at(9));
+    let named = session.node_on(
+        named_run,
+        "h3",
+        None,
+        &at(9),
+        (Some("gpt-5.4-mini"), Some("xhigh")),
+    );
+    let inheriting_run = session.own_run(named_run, "h5", RunState::Running, &at(10));
+    let inheriting = session.node(inheriting_run, "h5", Some(&named), &at(10));
+    let used_run = session.own_run(lead_run, "h4", RunState::Running, &at(11));
+    let used = session.node_on(used_run, "h4", None, &at(11), (Some("m-own"), Some("low")));
+    session.usage(used_run, "m-used", &at(12));
     let spend = |whole| UsdMicros(SafeInt::new(whole).expect("a small figure"));
     let agent_spend = [
         AgentSpend {
@@ -554,27 +572,6 @@ fn a_head_reads_its_model_effort_tokens_spend_and_start() {
     let nested_helper = head(helper_link(&tree, &fixture.nested_helper));
     assert_eq!(nested_helper.model_id.as_str(), "model-lead");
     assert_eq!(nested_helper.spend_usd_micros, spend(0));
-}
-
-// Killed by the node's values ignored (`h3` reads the lead's), by the node's model put before the
-// usage row (`h4` reads `m-own`), and by the binding's fallback dropped (`h2` reads no effort).
-#[test]
-fn a_provider_helpers_head_names_its_own_model_and_effort_before_its_parents_binding() {
-    let mut fixture = Fixture::new();
-    let session = &mut fixture.session;
-    let lead_run = fixture.lead_run;
-    let own_run = session.own_run(lead_run, "h3", RunState::Running, &at(6));
-    let named = session.node_on(
-        own_run,
-        "h3",
-        None,
-        &at(6),
-        (Some("gpt-5.4-mini"), Some("xhigh")),
-    );
-    let used_run = session.own_run(lead_run, "h4", RunState::Running, &at(7));
-    let used = session.node_on(used_run, "h4", None, &at(7), (Some("m-own"), Some("low")));
-    session.usage(used_run, "m-used", &at(8));
-    let tree = session.read();
 
     let model_and_effort = |handle: &ChildHandle| {
         let head = head(helper_link(&tree, handle));
@@ -585,19 +582,22 @@ fn a_provider_helpers_head_names_its_own_model_and_effort_before_its_parents_bin
                 .map(|effort| effort.as_str().to_owned()),
         )
     };
+    let named_as = |model: &str, effort: &str| (model.to_owned(), Some(effort.to_owned()));
+    assert_eq!(model_and_effort(&named), named_as("gpt-5.4-mini", "xhigh"));
     assert_eq!(
-        model_and_effort(&named),
-        ("gpt-5.4-mini".to_owned(), Some("xhigh".to_owned()))
+        model_and_effort(&inheriting),
+        named_as("gpt-5.4-mini", "xhigh"),
+        "what the helper above it started on"
     );
     assert_eq!(
         model_and_effort(&used),
-        ("m-used".to_owned(), Some("low".to_owned())),
+        named_as("m-used", "low"),
         "the model it ran on before the one its start named"
     );
     assert_eq!(
         model_and_effort(&fixture.nested_helper),
-        ("model-lead".to_owned(), Some("medium".to_owned())),
-        "its parent's binding where its start named neither"
+        named_as("model-lead", "medium"),
+        "its parent's binding where no node above it names either"
     );
 }
 
