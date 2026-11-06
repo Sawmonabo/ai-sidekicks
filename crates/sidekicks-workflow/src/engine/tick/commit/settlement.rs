@@ -102,6 +102,7 @@ impl RunTurnCommit {
                         &step,
                         &opened,
                         &ask,
+                        &log_ref,
                     )),
                 );
                 if matches!(ask, PersonAsk::Approval { .. }) {
@@ -497,6 +498,7 @@ fn account_suspended(
         resume_at: None,
         wait_deadline_at: None,
         wait_id: None,
+        log_ref: None,
     })
 }
 

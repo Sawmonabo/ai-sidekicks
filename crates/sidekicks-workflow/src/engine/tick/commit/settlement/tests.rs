@@ -438,10 +438,11 @@ enum WaitCase {
 }
 
 /// A wait is stored in the step's write before anyone is asked: an approval's row takes the
-/// four wait columns with `phase.suspended` naming its wait id and deadline and `gate.reached`, and
-/// the answer names the opened wait; a form writes no `gate.reached`; an account wait stores its
-/// account with no resume instant and hands the run back. Mutations: the wait id missing from the
-/// row; `gate.reached` on a form; a deadline not reported; the account's run dropped.
+/// four wait columns with `phase.suspended` naming its wait id, deadline and the row's log and
+/// `gate.reached`, and the answer names the opened wait; a form writes no `gate.reached`; an
+/// account wait stores its account with no resume instant or log and hands the run back.
+/// Mutations: the wait id missing from the row; `gate.reached` on a form; a deadline not
+/// reported; the account's run dropped; the log left off the suspension.
 #[rstest]
 #[case::approval(WaitCase::Approval)]
 #[case::form(WaitCase::Form)]
@@ -459,7 +460,7 @@ async fn a_wait_is_stored_before_anyone_is_asked(#[case] case: WaitCase) {
                 timeout: Some(Duration::from_secs(600)),
             },
             admission: None,
-            log_lines: Vec::new(),
+            log_lines: vec!["asked for approval".to_owned()],
         },
         WaitCase::Form => StepSettlement::PersonWait {
             wait: PersonWait {
@@ -505,6 +506,7 @@ async fn a_wait_is_stored_before_anyone_is_asked(#[case] case: WaitCase) {
             let wait_id = json!(opened.wait_id);
             assert_eq!(step_json(&harness, "wait_id", 1), wait_id);
             assert_eq!(suspended["waitId"], wait_id);
+            assert_eq!(suspended["logRef"], step_json(&harness, "log_ref", 1));
             let deadline_json = deadline.as_ref().map_or(Value::Null, |at| json!(at));
             assert_eq!(step_json(&harness, "wait_deadline_at", 1), deadline_json);
             if matches!(case, WaitCase::Approval) {
@@ -524,6 +526,7 @@ async fn a_wait_is_stored_before_anyone_is_asked(#[case] case: WaitCase) {
             );
             assert_eq!(step_json(&harness, "resume_at", 1), Value::Null);
             assert_eq!(suspended["waitCause"], json!("account"));
+            assert_eq!(suspended.get("logRef"), None);
             assert_eq!(types, ["workflow.phase.suspended"]);
             let progressed = run.progressed();
             runner.progress();
