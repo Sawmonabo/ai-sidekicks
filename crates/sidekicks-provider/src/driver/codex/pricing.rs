@@ -48,7 +48,7 @@ type RegionWord = BoundedText<1, EVENT_FIELD_MAX_LEN>;
 // stamps on its rows; no regional prefix equals it, so the rule holds an API key's requests.
 const UNKNOWN_HOST_REGION: &str = "unknownHost";
 
-/// The models Codex's automatic reviewer runs by default, on a ChatGPT login and on an API key.
+/// The models Codex's automatic reviewer runs by default, on a plan sign-in and on an API key.
 pub(crate) const CODEX_REVIEWER_MODELS: [&str; 2] = ["codex-auto-review", "gpt-5.6-luna"];
 
 /// The facts a Codex request carries: its `model`, and the `tier` it was sent at as both its own
