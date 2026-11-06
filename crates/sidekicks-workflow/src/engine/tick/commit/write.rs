@@ -49,7 +49,10 @@ impl RunTurnCommit {
         };
         match appender.append(last, linkage).await {
             Ok(receipt) => Ok(answer
-                .recorded(sequences_ending_at(receipt.sequence, event_count), record)
+                .recorded(
+                    sequences_ending_at(receipt.sequence, event_count),
+                    Some(record),
+                )
                 .await),
             Err(error) => Err(RunTurnCommitFailure {
                 error: error.into(),
@@ -61,14 +64,15 @@ impl RunTurnCommit {
     /// Commits the turns of `writes`, each beside its run's live steps and record, in one write
     /// across every session they live in, all or none: the turns of one session in one append, in
     /// the order given, and the sessions in the order their first turn comes. Each turn is drafted
-    /// and answers as [`RunTurnCommit::append`] says. Every session's turns hold an event. Fails
+    /// and answers as [`RunTurnCommit::append`] says, and a turn of a run the tick does not drive,
+    /// handed no record, records nothing. Every session's turns hold an event. Fails
     /// with [`RunTurnCommitFailure`], nothing of any turn stored, naming every turn's artifacts;
     /// a refused statement's index counts across the whole write.
     pub(crate) async fn append_together<'tick>(
         writes: Vec<(
             RunTurnCommit,
             Vec<RunLiveStep<'tick>>,
-            &'tick RunEngineRecord,
+            Option<&'tick RunEngineRecord>,
         )>,
         appender: &SessionEventAppender,
     ) -> Result<Vec<RunTurnCommitted>, RunTurnCommitFailure> {
@@ -241,29 +245,31 @@ impl TurnAnswer {
     }
 
     /// The answer of a turn whose events committed at `event_sequences`, in write order, once
-    /// each move, gate answer and status move went to `record`.
+    /// each move, gate answer and status move went to `record`, where there is one.
     async fn recorded(
         self,
         event_sequences: Vec<SafeInt<0>>,
-        record: &RunEngineRecord,
+        record: Option<&RunEngineRecord>,
     ) -> RunTurnCommitted {
         let readied = self
             .pending
             .into_iter()
             .map(|(step, readying_event)| (step, event_sequences[readying_event]))
             .collect();
-        for (step, step_move) in &self.moves {
-            record.decision(Some(step), step_move.decision()).await;
-        }
-        for (outcome, node_id) in self.gates {
-            record
-                .decision(None, EngineDecision::GateResolved { outcome, node_id })
-                .await;
-        }
-        if let Some(status) = self.run_status {
-            record
-                .decision(None, EngineDecision::RunStatus(status))
-                .await;
+        if let Some(record) = record {
+            for (step, step_move) in &self.moves {
+                record.decision(Some(step), step_move.decision()).await;
+            }
+            for (outcome, node_id) in self.gates {
+                record
+                    .decision(None, EngineDecision::GateResolved { outcome, node_id })
+                    .await;
+            }
+            if let Some(status) = self.run_status {
+                record
+                    .decision(None, EngineDecision::RunStatus(status))
+                    .await;
+            }
         }
         RunTurnCommitted {
             event_sequences,

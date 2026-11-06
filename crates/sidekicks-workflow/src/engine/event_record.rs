@@ -209,6 +209,8 @@ pub(crate) enum EngineFault {
     TurnPayloadLeftBehind,
     /// A payload of a step could not be stored; the step failed in its place.
     SettlementWriteFailed,
+    /// A `Keep going` could not be read or written; its sender reads it as not taken.
+    KeepGoingFailed,
 }
 
 /// An intent recorded and not yet answered; its outcome names it by `sequence`.
@@ -501,6 +503,11 @@ impl RunEngineRecord {
                 &mut line,
                 "settlementWriteFailed",
                 "A payload of the step could not be stored; the step failed in its place.",
+            ),
+            EngineFault::KeepGoingFailed => says(
+                &mut line,
+                "keepGoingFailed",
+                "A Keep going of the run's chain could not be read or written.",
             ),
         }
         line.insert("error".to_owned(), json!(error_chain(error)));

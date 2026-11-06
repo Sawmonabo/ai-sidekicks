@@ -43,13 +43,13 @@ use super::live_runs::{LiveRun, LiveStep};
 use super::node_settings::main_inputs;
 use super::walk::WalkReady;
 use super::{ReadyStep, RunSnapshot, StepReport, StepReportKind, StepSettlement};
+use crate::engine::chain::KeepGoingIntake;
 use crate::engine::event_record::{EngineFault, EngineRecorder};
 use crate::engine::ports::{StepAdmission, StepPayloadArtifacts};
 use crate::engine::start::StartedRun;
 use crate::engine::waits::answers::PersonWaitIntake;
 use crate::engine::waits::{PersonWaitDeadlines, PersonWaitPorts, PersonWaitRefusal};
 use crate::kinds::{NodeKindTable, StepFailure, uncoded_step_error};
-use crate::runs::gate_resolution::RunEventKeys;
 
 /// The most reports one turn takes, and the most inputs from its inbox, so a turn stays bounded.
 const TURN_REPORT_LIMIT: usize = 256;
@@ -72,6 +72,8 @@ pub(crate) enum EngineTickInput {
     Started(StartedRun),
     /// A person's answer to a step waiting on them.
     Answer(PersonWaitIntake),
+    /// A `Keep going` of a chain whose question waits.
+    KeepGoing(KeepGoingIntake),
 }
 
 /// What an [`EngineTick`] drives runs through, reads, writes and is woken by.
@@ -262,7 +264,8 @@ impl EngineTick {
         }
     }
 
-    /// One turn: each run's share in arrival order, its next batch first, then the answers
+    /// One turn: each `Keep going` as its own write while the inputs are routed, then each run's
+    /// share in arrival order, its next batch first, then the answers
     /// routed to it, and its retries come `due` with it, committed in one write per run; then one read of the dispatching runs'
     /// levels, their dispatch, one read of the deadline clock where a write moved a deadline, and
     /// one weigh of the memory gate.
@@ -281,6 +284,7 @@ impl EngineTick {
                 EngineTickInput::Answer(intake) => {
                     self.route_answer(intake, &mut order, &mut answers);
                 }
+                EngineTickInput::KeepGoing(intake) => self.keep_going(intake).await,
             }
         }
         let mut arrived: HashMap<WorkflowRunId, Vec<StepReport>> = HashMap::new();
@@ -394,14 +398,9 @@ impl EngineTick {
         due: Vec<WorkflowStepKey>,
     ) -> Option<Vec<ReadyStep>> {
         let mut live = self.runs.remove(&run_id)?;
-        let keys = RunEventKeys {
-            session_id: live.scope.session_id,
-            definition_id: live.scope.workflow_id,
-            workflow_version_id: live.scope.workflow_version_id,
-        };
         let mut turn = RunTurn {
             commit: RunTurnCommit::new(
-                keys,
+                live.event_keys(),
                 run_id,
                 live.counts,
                 std::mem::take(&mut live.person_wait),

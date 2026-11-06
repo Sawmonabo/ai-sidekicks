@@ -27,6 +27,7 @@ use crate::engine::event_record::{EngineDeadline, EngineDecision, RunEngineRecor
 use crate::engine::ports::AgentStepRun;
 use crate::engine::waits::OpenedPersonWait;
 use crate::expressions::lineage::StepOutputs;
+use crate::runs::gate_resolution::RunEventKeys;
 
 /// A run the tick drives: its scope, its record, its walk, each node's executions so far, the
 /// values it set with `Set variables`, its steps still to settle, the reports its last dispatch
@@ -189,6 +190,15 @@ impl LiveRun {
         if let Some(line) = cleared {
             self.deadline_lines.push(line);
             self.needs_deadline_read = true;
+        }
+    }
+
+    /// The session, definition and version the run's events name.
+    pub(crate) fn event_keys(&self) -> RunEventKeys {
+        RunEventKeys {
+            session_id: self.scope.session_id,
+            definition_id: self.scope.workflow_id,
+            workflow_version_id: self.scope.workflow_version_id,
         }
     }
 

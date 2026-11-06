@@ -478,7 +478,7 @@ async fn keep_going_moves_every_held_step_in_one_write() {
                         wait_cause: None,
                     })
                     .collect();
-                (turn, live_steps, &harness.record)
+                (turn, live_steps, Some(&harness.record))
             })
             .collect::<Vec<_>>()
     };
