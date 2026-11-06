@@ -226,8 +226,7 @@ impl ClaudeDeliveryStream {
     /// Prices the rows `session`'s process kept with no `result` to price them, from the price
     /// list.
     pub(crate) async fn price_process_end(&self, session: &ClaudeSessionStream) {
-        let account = session.provider_account_id();
-        let models = lock(&session.result_pricing).take_all(session.session_id, &account);
+        let models = lock(&session.result_pricing).take_all();
         price_claude_rows(&self.dependencies.pricing, session.session_id, models).await;
     }
 

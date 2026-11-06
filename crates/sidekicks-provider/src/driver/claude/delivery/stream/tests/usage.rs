@@ -439,10 +439,11 @@ async fn the_spend_no_message_showed_is_recorded_at_its_model_and_priced() {
     );
 }
 
-// Killed by dropping the balance, which records a 400-input row at the second result, and by
-// dropping the figure no row carried (14,000 at the third).
+// Killed by dropping the balance, which records a 400-input row at the second result, by carrying
+// the figure no row took to the model's next rows (two requests, 10,000 and 16,000), and by
+// dropping it (no request at the second result).
 #[tokio::test]
-async fn rows_past_their_result_carry_a_balance_and_an_unheld_figure_carries_on() {
+async fn rows_past_their_result_carry_a_balance_and_a_figure_with_no_row_is_recorded_at_once() {
     let scratch = tempfile::tempdir().expect("a scratch folder is made");
     let stop = CancellationToken::new();
     let session = ScriptedSession::new().await;
@@ -459,7 +460,13 @@ async fn rows_past_their_result_carry_a_balance_and_an_unheld_figure_carries_on(
     session.hold_lead_turn("lead");
     session.frame(&priced_message("message-2", opus, 1_000, 500));
     session.frame(&opus_result(1_000, 500, 0.014, &[]));
-    ScriptedDriver::wait_for(|| session.usage.priced().len() == 2).await;
+    // Each row is a request of its own, so the last result is priced once every row is.
+    ScriptedDriver::wait_for(|| {
+        let metered = session.usage.metered();
+        let messages = (metered.iter()).filter(|row| row.delta.axis_deltas.input == Some(1_000));
+        messages.count() == 2 && session.usage.priced().len() == metered.len()
+    })
+    .await;
     stop.cancel();
 
     let lead = binding_id("lead");
@@ -467,19 +474,20 @@ async fn rows_past_their_result_carry_a_balance_and_an_unheld_figure_carries_on(
         metered_rows(&session),
         [
             (true, lead.clone(), opus.to_owned(), 1_000, 500),
+            (true, lead.clone(), opus.to_owned(), 0, 0),
             (true, lead, opus.to_owned(), 1_000, 500),
         ]
     );
     let account = test_provider_account_id().as_str().to_owned();
+    let reported = |share: u64| {
+        (
+            UsageCostSource::ProviderReported,
+            vec![(account.clone(), share)],
+        )
+    };
     assert_eq!(
         priced(&session.usage.priced()),
-        [
-            (
-                UsageCostSource::ProviderReported,
-                vec![(account.clone(), 10_000)]
-            ),
-            (UsageCostSource::ProviderReported, vec![(account, 16_000)]),
-        ]
+        [reported(10_000), reported(2_000), reported(14_000)]
     );
 }
 
