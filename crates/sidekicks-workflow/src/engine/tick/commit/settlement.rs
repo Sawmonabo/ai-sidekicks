@@ -17,9 +17,9 @@ use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::events::WorkflowGateReachedPayload;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 use sidekicks_contracts::workflow::run::step::events::{
-    WorkflowPhaseCancellationReason, WorkflowPhaseCompletedPayload, WorkflowPhaseFailedPayload,
-    WorkflowPhaseSuspendedPayload, WorkflowStepCanceledPayload, WorkflowStepCompletedPayload,
-    WorkflowStepFailedPayload,
+    WorkflowPassedOnOutput, WorkflowPhaseCancellationReason, WorkflowPhaseCompletedPayload,
+    WorkflowPhaseFailedPayload, WorkflowPhaseSuspendedPayload, WorkflowStepCanceledPayload,
+    WorkflowStepCompletedPayload, WorkflowStepFailedPayload,
 };
 use sidekicks_contracts::workflow::run::step::record::{
     WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP, WorkflowCost, WorkflowPayloadRef, WorkflowStepKey,
@@ -404,6 +404,14 @@ impl RunTurnCommit {
                 error: error,
                 failed_item_index: failed_item_index,
                 decline_reason: decline_reason,
+                log_ref: log_ref,
+                passed_on: output.map(|(output_ref, output_lengths)| WorkflowPassedOnOutput {
+                    output_ref,
+                    output_item_counts: output_lengths
+                        .into_iter()
+                        .map(SafeInt::from_usize)
+                        .collect(),
+                }),
                 readied: Vec::new(),
             )),
         );

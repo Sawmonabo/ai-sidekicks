@@ -258,12 +258,13 @@ enum FailureCase {
 }
 
 /// A failure writes the row `failed` from wherever the step stood, with every wait column empty
-/// and the cut hold added, then `phase.failed` and `step.failed`, and answers as its node routes
-/// it: a retry writes the next attempt's `pending` row and `phase.retried` in the same write; a
-/// decline is never retried and passes its input on with its words on event and row; a stop
-/// parks, its run `failed` with no end instant and `workflow.run.failed` parked the write's last.
-/// Mutations: a decline retried; the cut hold dropped; a waiting step's failure refused by the
-/// CHECK; the retry's row outside the failure's write; a park that moves no count.
+/// and the cut hold added, then `phase.failed` and `step.failed` carrying the row's log, and
+/// answers as its node routes it: a retry writes the next attempt's `pending` row and
+/// `phase.retried` in the same write; a decline is never retried and passes its input on with its
+/// words, its output and its counts on event and row; a stop parks, its run `failed` with no end
+/// instant and `workflow.run.failed` parked the write's last. Mutations: a decline retried; the
+/// cut hold dropped; a waiting step's failure refused by the CHECK; the retry's row outside the
+/// failure's write; a park that moves no count; the passed-on output left off the event.
 #[rstest]
 #[case::retry_left(FailureCase::RetryLeft)]
 #[case::declined_continue(FailureCase::DeclinedContinue)]
@@ -376,8 +377,10 @@ async fn a_failure_routes_as_its_node_says(#[case] case: FailureCase) {
         ["workflow.phase.failed", "workflow.step.failed"]
     );
     assert_eq!(events[0].3["cancellationReason"], Value::Null);
+    assert_eq!(events[1].3["logRef"], step_json(&harness, "log_ref", 1));
     match case {
         FailureCase::RetryLeft => {
+            assert_eq!(events[1].3.get("passedOn"), None);
             assert_eq!(types[2..], ["workflow.phase.retried"]);
             assert_eq!(events[2].3["attempt"], json!(2));
             assert_eq!(events[2].3["readied"][0]["attempt"], json!(2));
@@ -393,8 +396,15 @@ async fn a_failure_routes_as_its_node_says(#[case] case: FailureCase) {
                 output_ref["items"][0]["error"]["message"],
                 json!("The step was declined: not now")
             );
+            let passed_on = &events[1].3["passedOn"];
+            assert_eq!(passed_on["outputRef"], output_ref);
+            assert_eq!(
+                passed_on["outputItemCounts"],
+                step_json(&harness, "output_item_counts_json", 1)
+            );
         }
         FailureCase::HeldStop | FailureCase::DeadlineStop => {
+            assert_eq!(events[1].3.get("passedOn"), None);
             assert_eq!(types[2..], ["workflow.run.failed"]);
             assert_eq!(events[2].3["outcome"], json!("parked"));
             let run_row: (String, Option<String>) = harness
