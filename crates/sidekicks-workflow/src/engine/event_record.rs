@@ -77,9 +77,12 @@ pub(crate) enum EngineOutcome {
 }
 
 /// A decision the engine took, recorded once as it is taken.
-#[expect(
-    dead_code,
-    reason = "the engine's tick and waits, which record every decision they take"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the engine's tick and waits, which record every decision they take"
+    )
 )]
 pub(crate) enum EngineDecision<'report> {
     /// A step's report moved it; a step's progress is no transition and is never recorded.

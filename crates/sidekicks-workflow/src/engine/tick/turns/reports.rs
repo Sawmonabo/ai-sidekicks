@@ -25,7 +25,7 @@ use crate::kinds::StepFailure;
 impl EngineTick {
     /// Offers `report` to the run's waves, then adds it to the turn and follows what a settlement
     /// answers. A wave's `branchesCanceled` is written whether or not its deciding step is live;
-    /// any other report of a step that is not live is dropped.
+    /// any other report of a step that is not live, or is live and failed, is dropped.
     pub(super) async fn apply_report(
         &self,
         live: &mut LiveRun,
@@ -41,8 +41,11 @@ impl EngineTick {
             return;
         }
         let execution_index = report.step.execution_index.get();
-        if !live.steps.contains_key(&execution_index) {
-            return;
+        // A park or an end keeps its failed step live, and the deadline clock can report one wait
+        // twice; nothing more is written for a failed step.
+        match live.steps.get(&execution_index) {
+            Some(live_step) if live_step.status != WorkflowStepStatus::Failed => {}
+            Some(_) | None => return,
         }
         let hold = match &report.kind {
             StepReportKind::WaitingOnPool { .. } => Some(Some(report.at.clone())),
@@ -184,8 +187,7 @@ impl EngineTick {
             SettlementAnswer::Retry { wait } => {
                 let next = live.walk.retry(step);
                 let failed = live
-                    .steps
-                    .remove(&step.execution_index.get())
+                    .remove_step(step.execution_index.get())
                     .expect("a retried step is live");
                 turn.commit.retried(&next, failed.input_ref.clone());
                 // A stopped run starts nothing new; with no wait, the attempt goes out this turn.
@@ -207,17 +209,13 @@ impl EngineTick {
             }
             SettlementAnswer::Canceled { readying_event } => {
                 live.walk.drop_step(step);
-                live.steps.remove(&step.execution_index.get());
+                live.remove_step(step.execution_index.get());
                 turn.last_readying_event = Some((readying_event, at));
             }
             SettlementAnswer::Park => self.stop_run(live, turn, step, &at, RunStop::Park).await,
             SettlementAnswer::End => self.stop_run(live, turn, step, &at, RunStop::End).await,
             SettlementAnswer::PersonWait { opened, .. } => {
-                live.move_step(
-                    step.execution_index.get(),
-                    WorkflowStepStatus::Waiting,
-                    Some(opened.cause),
-                );
+                live.wait_on_person(step.execution_index.get(), &opened);
             }
             SettlementAnswer::AccountSpent { run } => {
                 let execution_index = step.execution_index.get();

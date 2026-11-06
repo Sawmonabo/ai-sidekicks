@@ -33,8 +33,7 @@ impl EngineTick {
         let output_lengths: Vec<usize> = outputs.iter().map(Vec::len).collect();
         let walked = live.walk.settle(step, &output_lengths);
         let settled = live
-            .steps
-            .remove(&step.execution_index.get())
+            .remove_step(step.execution_index.get())
             .expect("a settled step is live");
         live.outputs.record(
             StepKey {
