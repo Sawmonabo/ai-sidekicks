@@ -1,19 +1,15 @@
 //! The exchange through the relay: messages pass, the client's handshake is answered from the
 //! relay's own, a start is rewritten and recorded, and only the start's token is admitted.
 
-use std::sync::Arc;
-
-use futures::SinkExt as _;
-use serde_json::{Value, json};
-use sidekicks_std::mutex_lock::lock;
-use tokio_tungstenite::tungstenite::Message;
+use serde_json::json;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::{HeaderValue, header};
 
-use super::{EXECUTOR_PROCESS, THREAD, command_id, initialized_executor, next_text, relay_for};
-use crate::bearer_token::BearerToken;
+use super::{
+    CALL, EXECUTOR_PROCESS, ListeningRelay, THREAD, admitted_socket, command_id, listening_relay,
+    next_text, send_text,
+};
 use crate::driver::codex::exec_relay::RelayedCommand;
-use crate::driver::codex::exec_relay::endpoint::RelayEndpoint;
 use crate::driver::test_registry::new_session_id;
 
 // Everything the service and the executor say passes unchanged, but the client's `initialize`,
@@ -24,16 +20,12 @@ use crate::driver::test_registry::new_session_id;
 async fn passes_an_exchange_and_admits_only_the_token() {
     let folder = tempfile::tempdir().expect("a test folder");
     let session_id = new_session_id();
-    let relay = relay_for(session_id, folder.path());
-    let (executor, mut fake) = initialized_executor().await;
-    relay.take_executor(executor);
-    let token = BearerToken::mint().expect("a token mints");
-    let presented = format!("Bearer {}", token.text());
-    let endpoint = RelayEndpoint::listen(Arc::downgrade(&relay), token)
-        .await
-        .expect("the relay listens");
-    let url = endpoint.url();
-    *lock(&relay.endpoint) = Some(endpoint);
+    let ListeningRelay {
+        relay,
+        mut fake,
+        url,
+        presented,
+    } = listening_relay(session_id, folder.path()).await;
 
     for authorization in [None, Some("Bearer not-the-token")] {
         let mut request = url.as_str().into_client_request().expect("a request");
@@ -48,36 +40,21 @@ async fn passes_an_exchange_and_admits_only_the_token() {
             "{authorization:?} is refused"
         );
     }
-    let mut request = url.as_str().into_client_request().expect("a request");
-    request.headers_mut().insert(
-        header::AUTHORIZATION,
-        HeaderValue::from_str(&presented).expect("a header value"),
-    );
-    let (mut socket, _response) = tokio_tungstenite::connect_async(request)
-        .await
-        .expect("the token is admitted");
+    let mut socket = admitted_socket(&url, &presented).await;
 
-    let send = |message: Value| Message::text(message.to_string());
-    socket
-        .send(send(
-            json!({ "id": 1, "method": "initialize", "params": { "clientName": "codex" } }),
-        ))
-        .await
-        .expect("the client writes");
+    send_text(
+        &mut socket,
+        &json!({ "id": 1, "method": "initialize", "params": { "clientName": "codex" } }),
+    )
+    .await;
     assert_eq!(
         next_text(&mut socket).await,
         json!({ "id": 1, "result": { "sessionId": "executor-1" } })
     );
-    socket
-        .send(send(json!({ "method": "initialized" })))
-        .await
-        .expect("the client writes");
+    send_text(&mut socket, &json!({ "method": "initialized" })).await;
     let read =
         json!({ "id": 2, "method": "process/read", "params": { "processId": "p", "afterSeq": 0 } });
-    socket
-        .send(send(read.clone()))
-        .await
-        .expect("the client writes");
+    send_text(&mut socket, &read).await;
     assert_eq!(
         fake.next_sent().await,
         read,
@@ -99,10 +76,7 @@ async fn passes_an_exchange_and_admits_only_the_token() {
         "arg0": null,
         "metadata": { "threadId": THREAD, "toolCallId": CALL },
     }});
-    socket
-        .send(send(start.clone()))
-        .await
-        .expect("the client writes");
+    send_text(&mut socket, &start).await;
     let mut started = fake.next_sent().await;
     let environment = started["params"]["env"]
         .as_object_mut()
@@ -135,10 +109,7 @@ async fn passes_an_exchange_and_admits_only_the_token() {
         "method": "process/terminate",
         "params": { "processId": EXECUTOR_PROCESS },
     });
-    socket
-        .send(send(terminate.clone()))
-        .await
-        .expect("the client writes");
+    send_text(&mut socket, &terminate).await;
     assert_eq!(fake.next_sent().await, terminate);
     let exited = json!({
         "method": "process/exited",

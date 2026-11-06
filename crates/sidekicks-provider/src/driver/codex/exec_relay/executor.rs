@@ -1,7 +1,8 @@
-//! The daemon's own Codex executor and its one connection: newline-delimited JSON-RPC both ways,
-//! the relay's own requests answered by their ids, every other message handed to the client the
-//! relay serves, each process's end watched so a held terminate or a stop can wait on it, and the
-//! answer to a client's request watched where the relay keeps something for it.
+//! The daemon's own Codex executor and the many connections the relay serves onto it:
+//! newline-delimited JSON-RPC both ways, the relay's own requests answered by their ids, every
+//! other message handed to every connection, each process's end watched so a held terminate or a
+//! stop can wait on it, and the answer to a client's request watched where the relay keeps
+//! something for it.
 
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -82,12 +83,18 @@ pub(super) struct ProcessEnd {
     pub(super) exit_code: Option<i32>,
 }
 
+/// One connection the relay serves onto its executor, unique for the executor's life.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) struct RelayConnectionId(u64);
+
 /// One executor and the daemon's connection to it.
 pub(super) struct CodexExecutor {
     lines: mpsc::Sender<String>,
     pending: Mutex<HashMap<String, oneshot::Sender<RelayAnswer>>>,
     next_request: AtomicU64,
-    client: Mutex<Option<mpsc::Sender<String>>>,
+    // Each connection's only sender, so removing its entry closes the connection.
+    clients: Mutex<HashMap<RelayConnectionId, mpsc::Sender<String>>>,
+    next_connection: AtomicU64,
     exits: Mutex<HashMap<String, watch::Sender<Option<ProcessEnd>>>>,
     client_replies: Mutex<HashMap<String, oneshot::Sender<bool>>>,
     ended: watch::Sender<bool>,
@@ -148,7 +155,8 @@ impl CodexExecutor {
             lines,
             pending: Mutex::new(HashMap::new()),
             next_request: AtomicU64::new(1),
-            client: Mutex::new(None),
+            clients: Mutex::new(HashMap::new()),
+            next_connection: AtomicU64::new(1),
             exits: Mutex::new(HashMap::new()),
             client_replies: Mutex::new(HashMap::new()),
             ended: watch::Sender::new(false),
@@ -197,30 +205,50 @@ impl CodexExecutor {
         lock(&self.initialize_result).clone()
     }
 
-    /// Makes `client` the one the executor's messages go to, in place of any before it.
-    pub(super) fn attach_client(&self, client: mpsc::Sender<String>) {
-        *lock(&self.client) = Some(client);
+    /// Attaches `client`, a connection's queue, beside the others and answers the connection's
+    /// id; `None` once the executor's connection ended. The executor keeps the queue's only
+    /// sender, so the connection's detach or the executor's end closes it.
+    pub(super) fn attach_client(&self, client: mpsc::Sender<String>) -> Option<RelayConnectionId> {
+        let mut clients = lock(&self.clients);
+        if *self.ended.borrow() {
+            return None;
+        }
+        let connection = RelayConnectionId(self.next_connection.fetch_add(1, Ordering::Relaxed));
+        clients.insert(connection, client);
+        Some(connection)
     }
 
-    /// Lets `client` go, when it is still the one attached.
-    pub(super) fn detach_client(&self, client: &mpsc::Sender<String>) {
-        let mut attached = lock(&self.client);
-        if attached
-            .as_ref()
-            .is_some_and(|attached| attached.same_channel(client))
-        {
-            *attached = None;
+    /// Lets the connection `connection` go, closing its queue.
+    pub(super) fn detach_client(&self, connection: RelayConnectionId) {
+        lock(&self.clients).remove(&connection);
+    }
+
+    /// Hands `line`, an answer the relay gives in the executor's place, to the connection
+    /// `connection` alone; dropped once that connection is gone.
+    pub(super) async fn answer_connection(&self, connection: RelayConnectionId, line: String) {
+        let client = lock(&self.clients).get(&connection).cloned();
+        let Some(client) = client else {
+            tracing::debug!("the Codex relay's client went away before its answer was handed on");
+            return;
+        };
+        if client.send(line).await.is_err() {
+            tracing::debug!("the Codex relay's client went away before its answer reached it");
         }
     }
 
-    /// Hands `line` to the attached client: a message of the executor's or an answer the relay
-    /// gives in its place; dropped while no client is attached.
-    pub(super) async fn answer_client(&self, line: String) {
-        let client = lock(&self.client).clone();
-        if let Some(client) = client
-            && client.send(line).await.is_err()
-        {
-            tracing::debug!("the Codex relay's client went away before its answer reached it");
+    // Hands `line` to every connection, one copy for each past the first.
+    async fn send_to_every_connection(&self, line: String) {
+        let clients: Vec<_> = lock(&self.clients).values().cloned().collect();
+        let Some((last, others)) = clients.split_last() else {
+            return;
+        };
+        for client in others {
+            if client.send(line.clone()).await.is_err() {
+                tracing::debug!("a Codex relay client went away before a message reached it");
+            }
+        }
+        if last.send(line).await.is_err() {
+            tracing::debug!("a Codex relay client went away before a message reached it");
         }
     }
 
@@ -339,10 +367,11 @@ impl CodexExecutor {
                 exits.remove(&named.process_id);
             }
         }
-        self.answer_client(line).await;
+        self.send_to_every_connection(line).await;
     }
 
-    // Marks the connection ended: every waiting request fails and every watched process ends.
+    // Marks the connection ended: every waiting request fails, every watched process ends and
+    // every connection onto it closes.
     fn end(&self) {
         self.ended.send_replace(true);
         lock(&self.pending).clear();
@@ -350,7 +379,7 @@ impl CodexExecutor {
         for exit in lock(&self.exits).values() {
             record_end(exit, None);
         }
-        *lock(&self.client) = None;
+        lock(&self.clients).clear();
     }
 }
 

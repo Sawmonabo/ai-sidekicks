@@ -1,23 +1,32 @@
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
-use futures::StreamExt as _;
+use futures::{SinkExt as _, StreamExt as _};
 use serde_json::{Value, json};
 use sidekicks_contracts::command::CommandId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::Spawner;
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, DuplexStream, Lines};
+use tokio::net::TcpStream;
 use tokio::runtime::Handle;
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
+use tokio_tungstenite::tungstenite::http::{HeaderValue, header};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
+use super::endpoint::RelayEndpoint;
 use super::executor::CodexExecutor;
 use super::{CodexExecRelay, CodexExecRelayDependencies, CodexThreadSessions, RelayedThread};
+use crate::bearer_token::BearerToken;
 use crate::command::running_set::RunningCommandSets;
 use crate::command::waiting_checks::SystemInputWaitReader;
 
 mod acts;
+mod connections;
 mod exchange;
 mod parity;
 mod starts;
@@ -26,6 +35,12 @@ const THREAD: &str = "thread-1";
 const COPY_THREAD: &str = "thread-copy";
 const CALL: &str = "call-1";
 const EXECUTOR_PROCESS: &str = "7-0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d";
+
+// How long a test waits for any one message on a client's socket.
+const SOCKET_READ_WAIT: Duration = Duration::from_secs(5);
+
+// A client's end of a connection to the relay.
+type ClientSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 // The executor's far side: the lines the relay wrote to it, and its output the test writes.
 struct FakeExecutor {
@@ -119,6 +134,57 @@ fn relay_reporting_to(
     CodexExecRelay::new(dependencies, thread_sessions, Arc::new(|| {}))
 }
 
+// A relay listening over a fake executor, and what a client needs to reach it.
+struct ListeningRelay {
+    relay: Arc<CodexExecRelay>,
+    fake: FakeExecutor,
+    url: String,
+    // The authorization header that presents the relay's token.
+    presented: String,
+}
+
+// A relay for `session_id` in `folder` over an initialized fake executor, listening under a fresh
+// token.
+async fn listening_relay(session_id: SessionId, folder: &Path) -> ListeningRelay {
+    let relay = relay_for(session_id, folder);
+    let (executor, fake) = initialized_executor().await;
+    relay.take_executor(executor);
+    let token = BearerToken::mint().expect("a token mints");
+    let presented = format!("Bearer {}", token.text());
+    let endpoint = RelayEndpoint::listen(Arc::downgrade(&relay), token)
+        .await
+        .expect("the relay listens");
+    let url = endpoint.url();
+    *lock(&relay.endpoint) = Some(endpoint);
+    ListeningRelay {
+        relay,
+        fake,
+        url,
+        presented,
+    }
+}
+
+// A connection to the relay at `url`, admitted by the authorization header `presented`.
+async fn admitted_socket(url: &str, presented: &str) -> ClientSocket {
+    let mut request = url.into_client_request().expect("a request");
+    request.headers_mut().insert(
+        header::AUTHORIZATION,
+        HeaderValue::from_str(presented).expect("a header value"),
+    );
+    let (socket, _response) = tokio_tungstenite::connect_async(request)
+        .await
+        .expect("the token is admitted");
+    socket
+}
+
+// Sends `message` on `socket` as one text message.
+async fn send_text(socket: &mut ClientSocket, message: &Value) {
+    socket
+        .send(Message::text(message.to_string()))
+        .await
+        .expect("the client writes");
+}
+
 fn command_id() -> CommandId {
     CommandId::new(CALL.to_owned()).expect("a call id is a command id")
 }
@@ -127,8 +193,8 @@ async fn next_text<Stream>(socket: &mut Stream) -> Value
 where
     Stream: futures::Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
 {
-    match socket.next().await {
-        Some(Ok(Message::Text(text))) => serde_json::from_str(text.as_str()).expect("JSON"),
+    match tokio::time::timeout(SOCKET_READ_WAIT, socket.next()).await {
+        Ok(Some(Ok(Message::Text(text)))) => serde_json::from_str(text.as_str()).expect("JSON"),
         other => panic!("the client expected a text message, got {other:?}"),
     }
 }
