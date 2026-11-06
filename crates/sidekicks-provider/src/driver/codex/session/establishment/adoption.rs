@@ -489,9 +489,9 @@ fn find_live_helpers(live_runs: &[LiveRunResume], loaded: &[String]) -> Vec<Adop
 
 // Reads each of `helpers`' newest turns on `connection`, in their order: a loaded one reopened,
 // so its frames reach the daemon's connection, with the model its reply names, an unloaded one
-// listed, which loads nothing. A
-// read Codex refuses is logged and leaves the helper with no turn, which reads `Gone`; a loaded
-// one's running turn is then interrupted, so it does not run on with no run to answer for it.
+// listed, which loads nothing. A read Codex refuses is logged and leaves the helper with no turn,
+// which reads `Gone`; a loaded one's running turn is then interrupted, so it does not run on with
+// no run to answer for it.
 async fn read_helper_newest_turns(
     connection: &CodexAppServerConnection,
     session_id: SessionId,
