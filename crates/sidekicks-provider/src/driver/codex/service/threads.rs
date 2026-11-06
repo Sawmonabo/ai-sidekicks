@@ -2,7 +2,8 @@
 //! a service sends names its thread, so this is where a shared service's traffic is told apart: a
 //! session's own thread, and every child thread a helper opened beneath it. A frame can name a
 //! thread before it is registered: a start's or a fork's ahead of its reply, a spawned helper's
-//! ahead of the spawn item. Such frames are held, within a bound and a timeout, until it is.
+//! ahead of the spawn item. Such frames are held, within a frame count, a byte bound and a
+//! timeout, until it is; a held frame no registration took is reported at its deadline.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -11,6 +12,7 @@ use std::time::Duration;
 use serde_json::value::RawValue;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::watch;
 use tokio::time::Instant;
 
 use crate::driver::codex::event_normalizer::CODEX_THREAD_STARTED_METHOD;
@@ -21,6 +23,10 @@ use crate::driver::codex::service::supervisor::routing::CODEX_THREAD_CLOSED_METH
 /// fault when no session holds the conversation.
 const CODEX_UNHELD_THREAD_BROADCASTS: [&str; 2] =
     [CODEX_THREAD_STARTED_METHOD, CODEX_THREAD_CLOSED_METHOD];
+
+/// The most the hold keeps of its frames' params, in bytes, the oldest pushed out past it: one
+/// `item/completed` can carry a command's whole output.
+pub(crate) const CODEX_HELD_FRAME_MAX_BYTES: usize = 4 * 1024 * 1024;
 
 /// A frame the service sent naming a thread no session has registered yet.
 #[derive(Clone, Debug)]
@@ -51,33 +57,62 @@ pub(crate) type UnclaimedThreadFrameReport = Arc<dyn Fn(Vec<CodexHeldThreadFrame
 /// no lock of its own: the supervisor owns the `Mutex` around it.
 pub(crate) struct CodexServiceThreads {
     max_held_frames: usize,
+    max_held_bytes: usize,
     held_frame_timeout: Duration,
     report_unclaimed: UnclaimedThreadFrameReport,
     session_by_thread: BTreeMap<String, SessionId>,
     side_question_threads: BTreeSet<String>,
     /// The held frames in arrival order, each with when it arrived.
     held_frames: VecDeque<(Instant, CodexHeldThreadFrame)>,
+    /// The bytes of the held frames' params.
+    held_bytes: usize,
     claims_in_flight: usize,
+    /// When the oldest held frame falls due, `None` while nothing is held or a claim is open.
+    expiry: watch::Sender<Option<Instant>>,
 }
 
 impl CodexServiceThreads {
-    /// An empty index whose hold keeps at most `max_held_frames`, the oldest pushed out past it,
-    /// each for `held_frame_timeout` while no claim is open, and reports the frames it let expire
-    /// through `report_unclaimed`.
+    /// An empty index whose hold keeps at most `max_held_frames` and `max_held_bytes` of params,
+    /// the oldest pushed out past either, each for `held_frame_timeout` while no claim is open,
+    /// and reports the frames it let expire through `report_unclaimed`.
     pub(crate) fn new(
         max_held_frames: usize,
+        max_held_bytes: usize,
         held_frame_timeout: Duration,
         report_unclaimed: UnclaimedThreadFrameReport,
     ) -> Self {
         Self {
             max_held_frames,
+            max_held_bytes,
             held_frame_timeout,
             report_unclaimed,
             session_by_thread: BTreeMap::new(),
             side_question_threads: BTreeSet::new(),
             held_frames: VecDeque::new(),
+            held_bytes: 0,
             claims_in_flight: 0,
+            expiry: watch::Sender::new(None),
         }
+    }
+
+    /// When the oldest held frame falls due, as it changes: the timer that reports it watches this,
+    /// so a held frame is reported at its deadline, never later.
+    pub(crate) fn watch_expiry(&self) -> watch::Receiver<Option<Instant>> {
+        self.expiry.subscribe()
+    }
+
+    // Sets when the oldest held frame falls due; none falls due while a claim is open.
+    fn rearm_expiry(&self) {
+        let deadline = self
+            .held_frames
+            .front()
+            .filter(|_| self.claims_in_flight == 0)
+            .map(|(arrived_at, _)| *arrived_at + self.held_frame_timeout);
+        self.expiry.send_if_modified(|due| {
+            let is_changed = *due != deadline;
+            *due = deadline;
+            is_changed
+        });
     }
 
     /// The session a thread belongs to, or `None` for one no session on this service holds.
@@ -124,12 +159,16 @@ impl CodexServiceThreads {
         let mut released = Vec::new();
         for (arrived_at, frame) in std::mem::take(&mut self.held_frames) {
             if frame.thread_id == thread_id {
+                self.held_bytes -= frame.params.get().len();
                 released.push(frame);
             } else {
                 self.held_frames.push_back((arrived_at, frame));
             }
         }
         self.session_by_thread.insert(thread_id, session_id);
+        if !released.is_empty() {
+            self.rearm_expiry();
+        }
         released
     }
 
@@ -147,6 +186,7 @@ impl CodexServiceThreads {
         let report_unclaimed = {
             let mut index = lock(threads);
             index.claims_in_flight += 1;
+            index.rearm_expiry();
             Arc::clone(&index.report_unclaimed)
         };
         ThreadClaim {
@@ -156,28 +196,36 @@ impl CodexServiceThreads {
     }
 
     /// Holds a frame for an unregistered thread, as arriving at `now`; a lifecycle broadcast is
-    /// dropped instead while no claim is open. Answers the oldest held frame when the bound
-    /// pushed it out.
+    /// dropped instead while no claim is open. Answers the oldest held frames the bounds pushed
+    /// out, oldest first, the frame itself among them when its params alone pass the byte bound.
     pub(crate) fn hold(
         &mut self,
         frame: CodexHeldThreadFrame,
         now: Instant,
-    ) -> Option<CodexHeldThreadFrame> {
+    ) -> Vec<CodexHeldThreadFrame> {
         if self.claims_in_flight == 0
             && CODEX_UNHELD_THREAD_BROADCASTS.contains(&frame.method.as_str())
         {
-            return None;
+            return Vec::new();
         }
+        self.held_bytes += frame.params.get().len();
         self.held_frames.push_back((now, frame));
-        if self.held_frames.len() <= self.max_held_frames {
-            return None;
+        let mut pushed_out = Vec::new();
+        while self.held_frames.len() > self.max_held_frames || self.held_bytes > self.max_held_bytes
+        {
+            let Some((_, oldest)) = self.held_frames.pop_front() else {
+                break;
+            };
+            self.held_bytes -= oldest.params.get().len();
+            pushed_out.push(oldest);
         }
-        self.held_frames.pop_front().map(|(_, frame)| frame)
+        self.rearm_expiry();
+        pushed_out
     }
 
-    /// Reports the frames held past the timeout at `now`, unless a claim is open; called on each
-    /// frame the reader routes, so the hold expires with no timer. It locks `threads`, and reports
-    /// once that lock is let go.
+    /// Reports the frames held past the timeout at `now`, unless a claim is open; the service's
+    /// runner calls it when [`Self::watch_expiry`]'s deadline falls due. It locks `threads`, and
+    /// reports once that lock is let go.
     pub(crate) fn report_expired(threads: &Arc<Mutex<Self>>, now: Instant) {
         let (expired, report_unclaimed) = {
             let mut index = lock(threads);
@@ -200,8 +248,10 @@ impl CodexServiceThreads {
             .held_frames
             .pop_front_if(|(arrived_at, _)| now.saturating_duration_since(*arrived_at) >= timeout)
         {
+            self.held_bytes -= frame.params.get().len();
             expired.push(frame);
         }
+        self.rearm_expiry();
         expired
     }
 }
@@ -223,6 +273,7 @@ impl Drop for ThreadClaim {
             if index.claims_in_flight > 0 {
                 return;
             }
+            // Takes the expired frames and arms the younger ones' deadline.
             index.take_expired(Instant::now())
         };
         // Called after the lock is let go, since the report may reach the index again.
@@ -256,16 +307,26 @@ mod tests {
         }
     }
 
-    // An index holding at most `max_held_frames` for `TIMEOUT`, and what it reported.
-    fn index(max_held_frames: usize) -> (Arc<Mutex<CodexServiceThreads>>, Reports) {
+    // An index holding at most `max_held_frames` and `max_held_bytes` for `TIMEOUT`, and what it
+    // reported.
+    fn index_within(
+        max_held_frames: usize,
+        max_held_bytes: usize,
+    ) -> (Arc<Mutex<CodexServiceThreads>>, Reports) {
         let reports: Reports = Arc::default();
         let recorded = Arc::clone(&reports);
         let threads = Arc::new(Mutex::new(CodexServiceThreads::new(
             max_held_frames,
+            max_held_bytes,
             TIMEOUT,
             Arc::new(move |frames| recorded.lock().unwrap().push(frames)),
         )));
         (threads, reports)
+    }
+
+    // An index holding at most `max_held_frames` of any size for `TIMEOUT`.
+    fn index(max_held_frames: usize) -> (Arc<Mutex<CodexServiceThreads>>, Reports) {
+        index_within(max_held_frames, usize::MAX)
     }
 
     // Killed by a hold still gated on a claim (the helper's frame is never handed back) and by a
@@ -278,7 +339,7 @@ mod tests {
             .lock()
             .unwrap()
             .hold(frame("turn/started", "helper-a"), Instant::now());
-        assert_eq!(held, None);
+        assert_eq!(held, vec![]);
         assert_eq!(
             threads
                 .lock()
@@ -292,12 +353,12 @@ mod tests {
             .lock()
             .unwrap()
             .hold(frame("thread/closed", "person-thread"), Instant::now());
-        assert_eq!(closed, None);
+        assert_eq!(closed, vec![]);
         let stale = threads
             .lock()
             .unwrap()
             .hold(frame("turn/started", "helper-b"), Instant::now());
-        assert_eq!(stale, None);
+        assert_eq!(stale, vec![]);
 
         CodexServiceThreads::report_expired(&threads, Instant::now());
         assert!(reports.lock().unwrap().is_empty());
@@ -338,11 +399,11 @@ mod tests {
                 .hold(frame(method, "thread-unknown"), Instant::now())
         };
 
-        assert_eq!(hold("item/started"), None);
-        assert_eq!(hold("item/completed"), None);
+        assert_eq!(hold("item/started"), vec![]);
+        assert_eq!(hold("item/completed"), vec![]);
         assert_eq!(
             hold("turn/started"),
-            Some(frame("item/started", "thread-unknown"))
+            vec![frame("item/started", "thread-unknown")]
         );
 
         advance(TIMEOUT).await;
@@ -352,7 +413,7 @@ mod tests {
 
         assert_eq!(
             hold("turn/completed"),
-            Some(frame("item/completed", "thread-unknown"))
+            vec![frame("item/completed", "thread-unknown")]
         );
         drop(last_claim);
         assert_eq!(
@@ -370,5 +431,97 @@ mod tests {
         // A last claim that closes with nothing held reports nothing.
         drop(CodexServiceThreads::begin_claim(&threads));
         assert_eq!(reports.lock().unwrap().len(), 1);
+    }
+
+    // A frame whose params pass the byte bound pushes out as many of the oldest as it takes, and
+    // one larger than the bound alone pushes out itself. Killed by a bound on the count alone
+    // (nothing pushed out) and by the bytes of a frame let go left counted (the third frame pushes
+    // out the second as well).
+    #[tokio::test(start_paused = true)]
+    async fn the_hold_keeps_its_frames_within_its_byte_bound() {
+        let one_frame = frame("turn/started", "helper-a").params.get().len();
+        let (threads, _reports) = index_within(8, 2 * one_frame);
+        let hold = |method: &str, thread_id: &str| {
+            threads
+                .lock()
+                .unwrap()
+                .hold(frame(method, thread_id), Instant::now())
+        };
+
+        assert_eq!(hold("turn/started", "helper-a"), vec![]);
+        assert_eq!(hold("turn/started", "helper-b"), vec![]);
+        assert_eq!(
+            hold("turn/started", "helper-c"),
+            vec![frame("turn/started", "helper-a")]
+        );
+        assert_eq!(
+            threads
+                .lock()
+                .unwrap()
+                .register("helper-b".to_owned(), new_session_id()),
+            vec![frame("turn/started", "helper-b")]
+        );
+        assert_eq!(hold("turn/started", "helper-d"), vec![]);
+
+        let mut oversized = frame("turn/started", "helper-e");
+        oversized.params = RawValue::from_string(format!(
+            r#"{{"threadId":"helper-e","pad":"{}"}}"#,
+            "x".repeat(2 * one_frame)
+        ))
+        .expect("the params are JSON");
+        let pushed_out = threads
+            .lock()
+            .unwrap()
+            .hold(oversized.clone(), Instant::now());
+        assert_eq!(
+            pushed_out,
+            vec![
+                frame("turn/started", "helper-c"),
+                frame("turn/started", "helper-d"),
+                oversized
+            ]
+        );
+    }
+
+    // The deadline the service's timer waits on is the oldest held frame's, moved as the oldest
+    // changes and cleared while a claim is open or nothing is held. Killed by a hold that arms no
+    // deadline, by a release or an expiry that leaves the old one, and by a deadline kept under a
+    // claim.
+    #[tokio::test(start_paused = true)]
+    async fn the_expiry_deadline_follows_the_oldest_held_frame() {
+        let (threads, _reports) = index(8);
+        let expiry = threads.lock().unwrap().watch_expiry();
+        let first_at = Instant::now();
+        let hold = |thread_id: &str| {
+            threads
+                .lock()
+                .unwrap()
+                .hold(frame("turn/started", thread_id), Instant::now())
+        };
+        assert_eq!(*expiry.borrow(), None);
+
+        assert_eq!(hold("helper-a"), vec![]);
+        assert_eq!(*expiry.borrow(), Some(first_at + TIMEOUT));
+        advance(Duration::from_secs(1)).await;
+        assert_eq!(hold("helper-b"), vec![]);
+        assert_eq!(*expiry.borrow(), Some(first_at + TIMEOUT), "the oldest's");
+
+        drop(
+            threads
+                .lock()
+                .unwrap()
+                .register("helper-a".to_owned(), new_session_id()),
+        );
+        let second_due = first_at + Duration::from_secs(1) + TIMEOUT;
+        assert_eq!(*expiry.borrow(), Some(second_due));
+
+        let claim = CodexServiceThreads::begin_claim(&threads);
+        assert_eq!(*expiry.borrow(), None, "nothing expires under a claim");
+        drop(claim);
+        assert_eq!(*expiry.borrow(), Some(second_due));
+
+        advance(TIMEOUT + Duration::from_secs(1)).await;
+        CodexServiceThreads::report_expired(&threads, Instant::now());
+        assert_eq!(*expiry.borrow(), None, "nothing is held");
     }
 }

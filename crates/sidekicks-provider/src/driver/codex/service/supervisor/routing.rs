@@ -3,7 +3,8 @@
 //! names registered under its parent's session first, a frame naming none to every session on the
 //! service, and the frames of a conversation a session moved off only while its commands still
 //! run. A frame naming a conversation not registered yet, a start's or a fork's in flight or a
-//! spawned helper's ahead of its spawn item, is held until it is, within a bound and a timeout.
+//! spawned helper's ahead of its spawn item, is held until it is, within a frame count, a byte
+//! bound and a timeout.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,7 +23,7 @@ use crate::driver::codex::event_normalizer::{
 use crate::driver::codex::service::config_warnings::CodexConfigWarnings;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::rate_limit_readings::CodexRateLimitReadings;
-use crate::driver::codex::service::threads::{CodexHeldThreadFrame, CodexServiceThreads};
+use crate::driver::codex::service::threads::CodexHeldThreadFrame;
 use crate::driver::codex::session::inbound::{CodexSessionInbound, CodexSessionInboundSender};
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::codex::usage_limit_signal::CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD;
@@ -295,14 +296,11 @@ enum FrameAudience {
 
 impl CodexService {
     /// Routes one notification the connection `dial` read: called on its reader, so every
-    /// decision here is made in arrival order and nothing awaits. Each one first reports the held
-    /// frames past their timeout.
+    /// decision here is made in arrival order and nothing awaits.
     pub(super) fn route(self: &Arc<Self>, dial: u64, method: &str, params: Box<RawValue>) {
         if !self.is_routed_dial(dial) {
             return;
         }
-        let now = Instant::now();
-        CodexServiceThreads::report_expired(&self.threads, now);
         let CodexFrameThreads {
             thread_id,
             spawned_helpers,
@@ -355,9 +353,9 @@ impl CodexService {
                 params,
                 thread_id,
             },
-            now,
+            Instant::now(),
         );
-        if let Some(frame) = pushed_out {
+        for frame in pushed_out {
             CodexTransportDiagnostic::PendingThreadFrameDropped {
                 method: frame.method,
                 thread_id: frame.thread_id,

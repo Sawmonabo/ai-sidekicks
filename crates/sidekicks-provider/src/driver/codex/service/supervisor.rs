@@ -67,7 +67,9 @@ use crate::driver::codex::service::supervisor::transition::{
     CodexServiceAvailability, Supervision,
 };
 use crate::driver::codex::service::switching::CodexSwitchingAccount;
-use crate::driver::codex::service::threads::{CodexServiceThreads, ThreadClaim};
+use crate::driver::codex::service::threads::{
+    CODEX_HELD_FRAME_MAX_BYTES, CodexServiceThreads, ThreadClaim,
+};
 use crate::driver::codex::session::conversation_release::CodexConversationRelease;
 use crate::driver::codex::session::errors::{
     CODEX_DRAINING_REASON, CODEX_INVALID_REQUEST_CODE, CodexError,
@@ -249,6 +251,7 @@ impl CodexService {
             routed_dial: AtomicU64::new(0),
             threads: Arc::new(Mutex::new(CodexServiceThreads::new(
                 CODEX_THREAD_FRAME_ROUTER_CONFIG.max_pending_hold_frames,
+                CODEX_HELD_FRAME_MAX_BYTES,
                 CODEX_THREAD_FRAME_ROUTER_CONFIG.pending_registration_timeout,
                 Arc::new(|unclaimed| {
                     for frame in unclaimed {
@@ -263,7 +266,10 @@ impl CodexService {
             routing: Arc::default(),
             exec_relay: OnceLock::new(),
         });
-        tokio::spawn(ServiceRunner::new(Arc::downgrade(&service), received).run());
+        let held_frame_expiry = service.lock_threads().watch_expiry();
+        tokio::spawn(
+            ServiceRunner::new(Arc::downgrade(&service), received, held_frame_expiry).run(),
+        );
         service
     }
 

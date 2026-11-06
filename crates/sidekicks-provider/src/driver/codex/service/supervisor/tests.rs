@@ -274,3 +274,59 @@ async fn a_spawned_helpers_frames_reach_its_parents_session(
         "{reached:?}"
     );
 }
+
+// The frames that reach the session up to the marker `status`, each by its method and thread.
+async fn reached_until(session: &mut TestCodexSession, status: &str) -> Vec<(String, Value)> {
+    let mut reached = Vec::new();
+    loop {
+        let item = tokio::time::timeout(CHECK_WAIT, session.task.next_item())
+            .await
+            .expect("the marker reaches the session");
+        let CodexSessionInbound::Frame { method, params } = item else {
+            continue;
+        };
+        let params: Value = serde_json::from_str(params.get()).expect("the params are JSON");
+        if method == "thread/status/changed" && params["status"]["type"] == status {
+            return reached;
+        }
+        reached.push((method, params["threadId"].clone()));
+    }
+}
+
+// A frame of a conversation no session registers is reported at its deadline, though no later
+// frame is routed, so a registration after the deadline releases nothing. Killed by an expiry run
+// only as the next frame is routed (the late registration hands the frame to the session).
+#[tokio::test(start_paused = true)]
+async fn a_held_frame_expires_at_its_deadline_with_no_later_frame() {
+    let mut session = TestCodexSession::start().await;
+    let send = |session: &TestCodexSession, method: &str, params: Value| {
+        session
+            .scripted
+            .script
+            .send(&json!({"jsonrpc": "2.0", "method": method, "params": params}));
+    };
+    let marker = |session: &TestCodexSession, status: &str| {
+        send(
+            session,
+            "thread/status/changed",
+            json!({"threadId": TEST_THREAD, "status": {"type": status}}),
+        );
+    };
+    send(
+        &session,
+        "turn/started",
+        json!({"threadId": "late-helper",
+            "turn": {"id": "turn-late", "items": [], "status": "inProgress"}}),
+    );
+    marker(&session, "active");
+    reached_until(&mut session, "active").await;
+    tokio::time::sleep(Duration::from_secs(6)).await;
+    session
+        .task
+        .record
+        .service
+        .register_thread("late-helper".to_owned(), session.task.record.session_id);
+    marker(&session, "idle");
+
+    assert_eq!(reached_until(&mut session, "idle").await, Vec::new());
+}
