@@ -13,9 +13,9 @@ use sha2::{Digest as _, Sha256};
 use sidekicks_platforms::has_file_mode;
 use sidekicks_provider::port::bun_program::BunProgram as _;
 use sidekicks_std::outbound_http::download::ExpectedDigest;
-use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
-use tokio::sync::{Notify, watch};
+use sidekicks_std::scheduler::{JobCondition, Scheduler};
+use tokio::sync::{Notify, oneshot, watch};
 use tokio::time::Instant;
 use zip::ZipWriter;
 use zip::write::SimpleFileOptions;
@@ -263,5 +263,53 @@ async fn a_fetch_the_server_failed_is_tried_again_on_the_retry_schedule() {
         waited >= Duration::from_secs(1) && waited < Duration::from_secs(2),
         "{waited:?}"
     );
+    scheduler.stop().await.expect("the scheduler stops");
+}
+
+// Fails when the download runs on the scheduler's task, which holds every job due after it until
+// the server answers, or when a second due run starts another download while one is live.
+#[tokio::test(start_paused = true)]
+async fn a_held_bun_download_holds_no_other_scheduled_job() {
+    let folder = tempfile::tempdir().expect("a scratch folder");
+    let pin = BunPin::running();
+    let archive = bun_archive(&pin);
+    let gate = Arc::new(Notify::new());
+    let server = serve_archive(
+        archive.clone(),
+        vec![ArchiveAnswer::Archive],
+        Some(Arc::clone(&gate)),
+    )
+    .await;
+    let scheduler = start_scheduler();
+    let install = install_from(folder.path(), &server, pin_for(&archive));
+
+    schedule_bun_install(Arc::clone(&install), &scheduler).expect("the install is scheduled");
+    schedule_bun_install(Arc::clone(&install), &scheduler).expect("a second run is scheduled");
+    let (ran, other_job_ran) = oneshot::channel();
+    let mut ran = Some(ran);
+    scheduler
+        .schedule(
+            "job due after the install",
+            JobCondition::Always,
+            Duration::from_millis(10),
+            move |_stop| {
+                if let Some(ran) = ran.take() {
+                    ran.send(()).expect("the test waits for the job");
+                }
+                async { Ok(()) }.boxed()
+            },
+        )
+        .expect("the other job is scheduled");
+    // The paused clock reaches this bound at once if the held download holds the scheduler.
+    tokio::time::timeout(RUN_BOUND, other_job_ran)
+        .await
+        .expect("the other job runs while the download is held")
+        .expect("the other job reports");
+
+    assert_eq!(install.bun_program().now_or_never(), None);
+    gate.notify_one();
+    let installed = install.bun_program().await;
+    assert!(installed.is_ok(), "{installed:?}");
+    assert_eq!(server.requests.load(Ordering::SeqCst), 1);
     scheduler.stop().await.expect("the scheduler stops");
 }

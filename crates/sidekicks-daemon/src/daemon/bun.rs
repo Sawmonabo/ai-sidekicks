@@ -7,7 +7,7 @@ use std::error::Error;
 use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -21,6 +21,7 @@ use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::file::publish_without_replacing::publish_without_replacing;
 use sidekicks_std::file::removal_after_failure::remove_file_after_failure;
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::outbound_http::download::{
     CheckedDownloadError, ExpectedDigest, download_checked,
 };
@@ -30,6 +31,7 @@ use sidekicks_std::retry::waits::retry_wait;
 use sidekicks_std::scheduler::{JobCondition, ScheduleError, Scheduler};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::AbortOnDropHandle;
 use zip::ZipArchive;
 use zip::result::ZipError;
 
@@ -215,6 +217,8 @@ pub(crate) struct BunInstall {
     pin: BunPin,
     /// Where the install stands.
     state: watch::Sender<BunInstallState>,
+    /// The run under way or the last one, which a due run checks before starting another.
+    task: Mutex<Option<AbortOnDropHandle<()>>>,
 }
 
 /// Why one install run failed.
@@ -294,6 +298,7 @@ impl BunInstall {
             releases_url,
             pin,
             state: watch::Sender::new(BunInstallState::Installing),
+            task: Mutex::new(None),
         }
     }
 
@@ -404,9 +409,11 @@ impl BunProgram for BunInstall {
     }
 }
 
-/// Schedules `install`'s first run on `scheduler` at once. A run that fails for a passing cause
-/// schedules the next on the program's retry schedule; any other failure leaves the install
-/// refused until the next start. Fails when the scheduler has stopped.
+/// Schedules `install`'s first run on `scheduler` at once. Each due run starts the install on its
+/// own task, so the scheduler's other jobs never wait on the download, and starts nothing while
+/// one is live. A run that fails for a passing cause schedules the next on the program's retry
+/// schedule; any other failure leaves the install refused until the next start. Fails when the
+/// scheduler has stopped.
 pub(crate) fn schedule_bun_install(
     install: Arc<BunInstall>,
     scheduler: &Arc<Scheduler>,
@@ -430,46 +437,77 @@ fn schedule_install_run(
 ) -> Result<(), ScheduleError> {
     scheduler
         .schedule(BUN_INSTALL_JOB, JobCondition::Always, delay, move |stop| {
-            let install = Arc::clone(&install);
-            let scheduler_handle = scheduler_handle.clone();
-            async move {
-                let failure = match install.install(&stop).await {
-                    Ok(program) => {
-                        install
-                            .state
-                            .send_replace(BunInstallState::Installed(program));
-                        return Ok(());
-                    }
-                    Err(BunInstallError::Stopped) => return Ok(()),
-                    Err(failure) => failure,
-                };
-                if !failure.is_passing() {
-                    install
-                        .state
-                        .send_replace(BunInstallState::Refused(describe_error(&failure)));
-                    return Err(failure.into());
-                }
-                tracing::warn!(
-                    error = &failure as &(dyn Error + 'static),
-                    "bun's install failed and will be tried again"
-                );
-                let Some(scheduler) = scheduler_handle.upgrade() else {
-                    return Ok(());
-                };
-                match schedule_install_run(
-                    install,
-                    scheduler_handle,
-                    &scheduler,
-                    retry_wait(failed_tries),
-                    failed_tries + 1,
-                ) {
-                    Ok(()) | Err(ScheduleError::Stopped { .. }) => Ok(()),
-                    Err(refused) => Err(refused.into()),
-                }
-            }
-            .boxed()
+            start_install_task(&install, scheduler_handle.clone(), failed_tries, stop);
+            async { Ok(()) }.boxed()
         })
         .map(drop)
+}
+
+// Starts one install run on its own task, ended by the scheduler's `stop`, unless a run is live.
+fn start_install_task(
+    install: &Arc<BunInstall>,
+    scheduler_handle: Weak<Scheduler>,
+    failed_tries: usize,
+    stop: CancellationToken,
+) {
+    let mut task = lock(&install.task);
+    if task.as_ref().is_some_and(|task| !task.is_finished()) {
+        return;
+    }
+    let running = Arc::clone(install);
+    *task = Some(AbortOnDropHandle::new(tokio::spawn(async move {
+        run_install(running, scheduler_handle, failed_tries, stop).await;
+    })));
+}
+
+// One install run to its end: installed, refused until the next start, or scheduled again on the
+// retry schedule after a passing failure.
+async fn run_install(
+    install: Arc<BunInstall>,
+    scheduler_handle: Weak<Scheduler>,
+    failed_tries: usize,
+    stop: CancellationToken,
+) {
+    let failure = match install.install(&stop).await {
+        Ok(program) => {
+            install
+                .state
+                .send_replace(BunInstallState::Installed(program));
+            return;
+        }
+        Err(BunInstallError::Stopped) => return,
+        Err(failure) => failure,
+    };
+    if !failure.is_passing() {
+        tracing::error!(
+            error = &failure as &(dyn Error + 'static),
+            "bun's install was refused until the next start"
+        );
+        install
+            .state
+            .send_replace(BunInstallState::Refused(describe_error(&failure)));
+        return;
+    }
+    tracing::warn!(
+        error = &failure as &(dyn Error + 'static),
+        "bun's install failed and will be tried again"
+    );
+    let Some(scheduler) = scheduler_handle.upgrade() else {
+        return;
+    };
+    match schedule_install_run(
+        install,
+        scheduler_handle,
+        &scheduler,
+        retry_wait(failed_tries),
+        failed_tries + 1,
+    ) {
+        Ok(()) | Err(ScheduleError::Stopped { .. }) => {}
+        Err(refused) => tracing::error!(
+            error = &refused as &(dyn Error + 'static),
+            "bun's next install run could not be scheduled"
+        ),
+    }
 }
 
 // A temporary file's name: a dot, so a later run knows it as one, random hex and `extension`.
