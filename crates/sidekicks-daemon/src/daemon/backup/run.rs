@@ -77,8 +77,9 @@ use crate::daemon::release_version::this_build_release_version;
 /// The lock file in the backups folder a run holds while it writes there.
 pub(crate) const BACKUP_LOCK_FILE_NAME: &str = "backup.lock";
 
-/// The statements the last run's read prepares, counted into the read pool's capacity.
-pub(crate) const BACKUP_STATEMENT_CAPACITY: usize = 1;
+/// The statements a run's reads prepare, counted into the read pool's capacity: the read of the
+/// last run, and the read of the sessions' folders on other volumes.
+pub(crate) const BACKUP_STATEMENT_CAPACITY: usize = 2;
 
 /// A run's processor budget, and a repack's, since a `VACUUM` copies the store too: one second
 /// per 256 MiB of store.
