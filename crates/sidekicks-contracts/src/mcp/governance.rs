@@ -325,15 +325,21 @@ methods! {
                 SystemInternalError,
             ],
         },
-        /// Signs out of a server.
+        /// Signs out of a binding's server.
         McpServerSignOut = mutation "mcp.server.signOut" {
             mutating: true,
             params: McpServerSignOutRequest,
             result: EmptyPayload,
             refusals: [
                 McpBindingStoreUnavailable,
+                McpServerNotFound,
                 McpServerIdempotencyConflict,
                 McpServerSignOutFailed,
+                McpServerSignInUnsupported,
+                ProviderNotInstalled,
+                ProviderUnavailable,
+                ProviderTimeout,
+                SystemInternalError,
             ],
         },
         /// Opens a binding's connection again.
