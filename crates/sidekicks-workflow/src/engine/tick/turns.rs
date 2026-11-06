@@ -45,7 +45,7 @@ use super::walk::WalkReady;
 use super::{ReadyStep, RunSnapshot, StepReport, StepReportKind, StepSettlement};
 use crate::engine::chain::KeepGoingIntake;
 use crate::engine::event_record::{EngineFault, EngineRecorder};
-use crate::engine::ports::{StepAdmission, StepPayloadArtifacts};
+use crate::engine::ports::{RunSnapshotPoints, StepAdmission, StepPayloadArtifacts};
 use crate::engine::start::StartedRun;
 use crate::engine::waits::answers::PersonWaitIntake;
 use crate::engine::waits::{PersonWaitDeadlines, PersonWaitPorts, PersonWaitRefusal};
@@ -102,6 +102,8 @@ pub(crate) struct EngineTickDependencies {
     /// The deadline clock over every step waiting on a person, read again after a write moves a
     /// deadline.
     pub(crate) deadlines: Arc<PersonWaitDeadlines>,
+    /// The snapshot points a run takes, each on its own task.
+    pub(crate) snapshot_points: Arc<dyn RunSnapshotPoints>,
 }
 
 /// The engine's tick: the live runs and the one loop that drives them.
@@ -118,6 +120,7 @@ pub(crate) struct EngineTick {
     inbox: mpsc::Receiver<EngineTickInput>,
     person_waits: PersonWaitPorts,
     deadlines: Arc<PersonWaitDeadlines>,
+    snapshot_points: Arc<dyn RunSnapshotPoints>,
     /// Whether this turn's writes armed or cleared a deadline, took a late answer or dropped a
     /// run, so the deadline clock is read again at the turn's end.
     needs_deadline_read: bool,
@@ -198,6 +201,7 @@ impl EngineTick {
             inbox,
             person_waits,
             deadlines,
+            snapshot_points,
         } = dependencies;
         Self {
             dispatch,
@@ -211,6 +215,7 @@ impl EngineTick {
             inbox,
             person_waits,
             deadlines,
+            snapshot_points,
             needs_deadline_read: false,
             dropped_waits: HashSet::new(),
             runs: HashMap::new(),

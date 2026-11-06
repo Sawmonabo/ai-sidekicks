@@ -25,6 +25,7 @@ use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::UuidTextForm;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::ComposedText;
 use sidekicks_contracts::workflow::definition::document::{WorkflowDefinitionId, WorkflowNodeId};
 use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowStepError};
@@ -343,6 +344,44 @@ pub trait ApprovalCardRaiser: Send + Sync {
     /// the request's wait id: the restart raises again for a stored wait whose card never landed,
     /// and a second raise for one wait keeps its one card. Fails when the card cannot be written.
     fn raise(&self, request: WorkflowApprovalCardRequest) -> BoxFuture<'_, Result<(), PortError>>;
+}
+
+/// A point of a workflow run at which its checkout is recorded, in the run's own capture folder.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkflowRunSnapshotPoint {
+    /// The run's start, written as `start`.
+    Start,
+    /// One of the run's approval pauses, written as `pause-<ordinal>`.
+    Pause {
+        /// The pause's place among the run's approval pauses, counted from 1.
+        ordinal: SafeInt<1>,
+    },
+    /// The run's end, written as `end`.
+    End,
+}
+
+/// A snapshot point a workflow run takes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkflowRunSnapshotPointRequest {
+    /// The session the run belongs to.
+    pub session_id: SessionId,
+    /// The run whose checkout is recorded.
+    pub workflow_run_id: WorkflowRunId,
+    /// The point taken.
+    pub point: WorkflowRunSnapshotPoint,
+}
+
+/// Takes a workflow run's snapshot points; the program implements it over the turn-snapshot
+/// service.
+pub trait RunSnapshotPoints: Send + Sync {
+    /// Records `request`'s point of the run's checkout. A run with no checkout captures nothing
+    /// and answers `Ok`; the point's ref is create-only, so a point taken twice keeps its first
+    /// capture. The future borrows nothing, so the caller can spawn it. Fails when the capture
+    /// cannot be written.
+    fn take(
+        &self,
+        request: WorkflowRunSnapshotPointRequest,
+    ) -> BoxFuture<'static, Result<(), PortError>>;
 }
 
 /// A form question a step waiting on a person opens.
