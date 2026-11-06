@@ -39,6 +39,7 @@ use crate::pricing::list::{PriceTable, SpeedPricing};
 use crate::pricing::live::{LivePricing, LiveUsageRow};
 use crate::pricing::quote::{RequestTokenCounts, RequestUsage, quote_request_rows};
 use crate::pricing::rule::{RequestPricer, RequestPricing};
+use crate::usage_delta_accountant::UsageRequestFacts;
 
 type BoxedError = Box<dyn Error + Send + Sync>;
 type RegionWord = BoundedText<1, EVENT_FIELD_MAX_LEN>;
@@ -46,6 +47,21 @@ type RegionWord = BoundedText<1, EVENT_FIELD_MAX_LEN>;
 // The region a service on a host that is neither the API's own nor one of its regional hosts
 // stamps on its rows; no regional prefix equals it, so the rule holds an API key's requests.
 const UNKNOWN_HOST_REGION: &str = "unknownHost";
+
+/// The models Codex's automatic reviewer runs by default, on a plan sign-in and on an API key.
+pub(crate) const CODEX_REVIEWER_MODELS: [&str; 2] = ["codex-auto-review", "gpt-5.6-luna"];
+
+/// The facts a Codex request carries: its `model`, and the `tier` it was sent at as both its own
+/// speed and its thread's; shared by a copy's readings and the export's responses.
+pub(crate) fn compose_codex_request_facts(model: &str, tier: Option<&str>) -> UsageRequestFacts {
+    let speed = tier.and_then(|tier| BoundedText::new(tier.to_owned()));
+    UsageRequestFacts {
+        model_id: FreeFormText::new(model.to_owned()).ok(),
+        speed: speed.clone(),
+        thread_speed: speed,
+        ..UsageRequestFacts::default()
+    }
+}
 
 /// Codex's rule for pricing its requests from the held price table by the account's sign-in kind.
 pub(crate) struct CodexRequestPricer;

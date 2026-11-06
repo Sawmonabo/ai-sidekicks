@@ -19,6 +19,6 @@ pub(super) mod socket_link;
 mod start_lock;
 pub(super) mod supervisor;
 pub(super) mod switching;
-mod telemetry_switches;
+pub(super) mod telemetry_switches;
 pub(super) mod threads;
 mod trust;

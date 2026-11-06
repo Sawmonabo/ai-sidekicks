@@ -707,8 +707,8 @@ pub(crate) fn home_config_overrides(kind: &CodexHomeKind) -> Vec<String> {
 }
 
 /// The switches of [`home_config_overrides`], then every exporter off on a home of the daemon's
-/// own, as the `-c` pairs a `codex exec` or another short command on a home of `kind` starts with,
-/// before its own arguments.
+/// own, as the `-c` pairs any Codex process on a home of `kind` that is not a service starts with
+/// before its own arguments: `codex exec`, the executor and the other short commands.
 pub(crate) fn home_exec_switches(kind: &CodexHomeKind) -> Vec<String> {
     home_config_overrides(kind)
         .into_iter()

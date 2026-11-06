@@ -43,7 +43,7 @@ use crate::driver::codex::delivery::memory::read_codex_error_kind;
 use crate::driver::codex::event_normalizer::CODEX_TURN_COMPLETED_METHOD;
 use crate::driver::codex::output_speed::read_codex_declared_tier;
 use crate::driver::codex::permission_level::compose_codex_profile_name;
-use crate::driver::codex::pricing::CodexRecorderPricing;
+use crate::driver::codex::pricing::{CodexRecorderPricing, compose_codex_request_facts};
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::routing::read_codex_frame_thread_id;
 use crate::driver::codex::session::detached_conversation::{
@@ -52,8 +52,7 @@ use crate::driver::codex::session::detached_conversation::{
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::establishment::CodexSessionEstablishment;
 use crate::driver::codex::session::side_questions::copy_turn::{
-    CopyFrameReading, CopyTurn, CopyTurnFailure, compose_copy_request_facts, file_copy_usage,
-    read_copy_frame,
+    CopyFrameReading, CopyTurn, CopyTurnFailure, file_copy_usage, read_copy_frame,
 };
 use crate::driver::codex::session::slots::let_go_codex_thread;
 use crate::driver::codex::session::state::CodexSessionRecord;
@@ -151,7 +150,10 @@ impl CodexSideQuestion {
                 FreeFormText::new(params.question.clone())
                     .expect("a side question's text was checked where it came in"),
             ),
-            request: compose_copy_request_facts(&model, declared_tier.as_ref()),
+            request: compose_codex_request_facts(
+                &model,
+                declared_tier.as_ref().map(|tier| tier.declared.as_str()),
+            ),
             model,
             answer: None,
             answered,

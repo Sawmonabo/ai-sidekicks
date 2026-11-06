@@ -29,6 +29,7 @@ use crate::driver::codex::service::command_line::{
 use crate::driver::codex::service::registry::home_socket_path;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::start::compose_codex_native_launch;
+use crate::driver::codex::service::telemetry_switches::exporters_off_overrides;
 use crate::driver::codex::session::detached_conversation::CodexDetachedFrames;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::thread::view::{THREAD_START_METHOD, TURN_START_METHOD};
@@ -264,7 +265,7 @@ async fn run_calibration_turn(
         .map_err(CodexError::Driver)?;
     let mut arguments = compose_codex_service_arguments(&CodexServiceCommandLineInput {
         listen_address: "unix://".to_owned(),
-        additional_config_overrides: Vec::new(),
+        additional_config_overrides: exporters_off_overrides(),
     });
     let provider_entry = format!("model_providers.{STAND_IN_PROVIDER_ID}");
     arguments.extend(write_exec_overrides(vec![

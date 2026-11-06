@@ -148,6 +148,9 @@ pub(crate) struct CodexDriver {
     capability_read: tokio::sync::Mutex<()>,
     tasks: TaskTracker,
     link: Arc<CodexDriverLink>,
+    /// Codex's live pricing, which every session's recorder and every copy price through and a
+    /// reroute marks its model in use on.
+    pricing: Arc<LivePricing>,
     parts: OnceLock<Arc<CodexDriverParts>>,
 }
 
@@ -314,6 +317,11 @@ impl CodexDriver {
             capability_read: tokio::sync::Mutex::default(),
             tasks,
             link,
+            pricing: Arc::new(LivePricing::new(
+                DESCRIPTOR.provider_id(),
+                Arc::new(CodexRequestPricer),
+                &services.ports,
+            )),
             parts: OnceLock::new(),
         }
     }
@@ -344,11 +352,6 @@ impl CodexDriver {
                 .map_err(internal)?,
         );
         let effects = Arc::new(CodexDriverEffects::new(Arc::clone(&self.link)));
-        let pricing = Arc::new(LivePricing::new(
-            DESCRIPTOR.provider_id(),
-            Arc::new(CodexRequestPricer),
-            ports,
-        ));
         let delivery = Arc::new(CodexFrameDelivery::new(CodexFrameDeliveryDependencies {
             engine: Arc::clone(&engine),
             dispatch: Arc::clone(&dispatch),
@@ -359,7 +362,7 @@ impl CodexDriver {
             stopped_helpers: Arc::clone(&self.stopped_helpers),
             effects,
             provider_accounts: Arc::clone(&ports.provider_accounts),
-            pricing: Arc::clone(&pricing),
+            pricing: Arc::clone(&self.pricing),
         }));
         let hand_off = Arc::new(CodexAskHandOff::new(CodexAskHandOffDependencies {
             delivery: Arc::clone(&delivery),
@@ -512,7 +515,7 @@ impl CodexDriver {
             retries,
             adoptions,
             tasks: self.tasks.clone(),
-            pricing,
+            pricing: Arc::clone(&self.pricing),
         })
     }
 

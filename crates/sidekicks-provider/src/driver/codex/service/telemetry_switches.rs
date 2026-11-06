@@ -1,8 +1,8 @@
 //! The telemetry switches each Codex process the daemon launches carries for its kind of home: a
 //! service running the daemon's sessions exports its logs to the daemon's receiver with the
-//! token, every exporter off on a read service and on a short command on a home of the daemon's
-//! own, and nothing on the person's own folder's terminal service or short commands, which keep
-//! the person's own settings.
+//! token, every exporter off on a read service, on the executor, on the calibration run and on a
+//! short command on a home of the daemon's own, and nothing on the person's own folder's terminal
+//! service or short commands, which keep the person's own settings.
 
 use serde_json::json;
 
@@ -121,6 +121,8 @@ fn exporters_off() -> TelemetrySwitches {
     }
 }
 
-fn exporters_off_overrides() -> Vec<String> {
+/// Every exporter off, as the `key=value` switches a process on a scratch home of the daemon's own
+/// carries.
+pub(crate) fn exporters_off_overrides() -> Vec<String> {
     EXPORTERS_OFF.into_iter().map(str::to_owned).collect()
 }

@@ -24,6 +24,7 @@ use super::kept_records::{KeptServicesStop, retire_former_service, stop_kept_ser
 use super::{StartFailure, StartedService, compose_launch, start_codex_service};
 use crate::bearer_token::BearerToken;
 use crate::driver::child_records::UnrecordedChildren;
+use crate::driver::codex::exec_relay::compose_codex_executor_arguments;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::service::process::{
     CodexProcessLaunch, repin_lasting_codex_service, start_lasting_codex_service,
@@ -548,9 +549,10 @@ const EXPORTERS_OFF: [&str; 3] = [
 
 // Killed by the daemon's switches or its bearer on any home they do not belong to, the person's
 // folder's terminal service among them; by an exporter left on for a read service, for a short
-// command on a home of the daemon's own, or for a launch before the target is registered; by
-// `statsig` or any metrics exporter left on a read or a short command; by the bearer on the
-// command line; and by a header value the receiver's token refuses.
+// command on a home of the daemon's own, or for a launch before the target is registered; by an
+// executor started with any exporter left on; by `statsig` or any metrics exporter left on a read
+// or a short command; by the bearer on the command line; and by a header value the receiver's
+// token refuses.
 #[rstest]
 #[case::an_account_service(
     CodexHomeKind::Account(test_provider_account_id()),
@@ -716,5 +718,18 @@ async fn a_launch_carries_its_home_s_telemetry_switches(
         assert!(command_otel.is_empty(), "{command_otel:?}");
     } else {
         assert_eq!(command_otel, EXPORTERS_OFF);
+    }
+    if matches!(home_kind, CodexHomeKind::Account(_)) {
+        let executor = compose_codex_executor_arguments(&home_kind);
+        let executor_otel: Vec<&str> = executor
+            .iter()
+            .map(String::as_str)
+            .filter(|argument| argument.starts_with("otel."))
+            .collect();
+        assert_eq!(executor_otel, EXPORTERS_OFF, "{executor:?}");
+        assert_eq!(
+            executor[executor.len() - 3..],
+            ["exec-server", "--listen", "stdio"]
+        );
     }
 }
