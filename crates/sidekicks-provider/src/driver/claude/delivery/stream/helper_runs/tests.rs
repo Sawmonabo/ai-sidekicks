@@ -1,3 +1,5 @@
+use std::time::SystemTime;
+
 use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::run::control::{RunFailureCategory, StopTrigger};
@@ -9,6 +11,7 @@ use sidekicks_std::mutex_lock::lock;
 
 use super::super::tests::result;
 use crate::driver::claude::hooks::pause::{ClaudeHookAnswer, ClaudePauseAnswer};
+use crate::driver::claude::hooks::registration::CLAUDE_HOOK_HOLD_RENEWAL_AFTER;
 use crate::driver::claude::session::scripted::driver::create_params;
 use crate::driver::claude::session::scripted::held_calls::{helper_started, init};
 use crate::driver::claude::session::scripted::{
@@ -483,6 +486,55 @@ async fn a_helper_call_no_start_took_is_forgotten_when_its_caller_ends() {
 
     session.frame(&helper_ended("p", "completed", "done"));
     settle().await;
+    assert_eq!(recorded_helper_calls(&session), Vec::<String>::new());
+}
+
+// A lead's call its pause denies is never kept, and a held helper's call its renewal denies is
+// forgotten. Killed by recording a denied call (`call-q` kept), and by a renewal that forgets
+// nothing (`call-r` kept).
+#[tokio::test(start_paused = true)]
+async fn a_denied_helper_call_is_never_kept() {
+    let session = ScriptedSession::new().await;
+    let lead = session.hold_lead_turn("lead");
+    session.frame(&init());
+    session.request(
+        "hook-p",
+        &helper_call_hook("call-p", None, &json!({"subagent_type": "Explore"})),
+    );
+    session.frame(&nested_start("p", "call-p", None, None));
+    lock(&session.parts.run_controls.pauses).pause_lead(&session.session_id, &lead);
+    session.request(
+        "hook-q",
+        &helper_call_hook("call-q", None, &json!({"model": "opus"})),
+    );
+    settle().await;
+    let denied = session
+        .channel
+        .written_answer("hook-q")
+        .expect("the paused lead's call is answered")
+        .to_string();
+    assert!(denied.contains(r#""permissionDecision":"deny""#));
+    assert_eq!(recorded_helper_calls(&session), Vec::<String>::new());
+
+    lock(&session.parts.run_controls.pauses).pause_helper(&session.session_id, "p");
+    session.request(
+        "hook-r",
+        &helper_call_hook("call-r", Some("p"), &json!({"model": "haiku"})),
+    );
+    settle().await;
+    // Read after the renewal was armed, so it falls due at the latest a renewal's span from here.
+    let now = SystemTime::now();
+    session.wall_clock.set_now(now);
+    assert_eq!(recorded_helper_calls(&session), ["call-r"]);
+
+    session
+        .wall_clock
+        .set_now(now + CLAUDE_HOOK_HOLD_RENEWAL_AFTER);
+    settle().await;
+    assert!(
+        session.channel.written_answer("hook-r").is_some(),
+        "the renewal denies the held call"
+    );
     assert_eq!(recorded_helper_calls(&session), Vec::<String>::new());
 }
 
