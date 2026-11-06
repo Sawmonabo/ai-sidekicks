@@ -138,8 +138,6 @@ fn helper(
     }
 }
 
-// `text` as a provider's model or effort word.
-
 // The run a subagent's start left running.
 fn running(started: Option<SubagentRunStart>) -> RunId {
     match started {

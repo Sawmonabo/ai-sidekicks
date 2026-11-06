@@ -118,8 +118,6 @@ const LEAD_TURN: &str = "lead-turn";
 /// The model a spawn names for its helper, which the lead does not run on.
 const HELPER_MODEL: &str = "gpt-5.4-mini";
 
-/// `text` as a model or effort word.
-
 /// Opens the live turn `turn_id` on [`TEST_THREAD`] under a run of its own, delivered on.
 fn open_live_turn(session: &mut TestCodexSession, turn_id: &str) -> CodexRowRun {
     let mut run = test_row_run();
