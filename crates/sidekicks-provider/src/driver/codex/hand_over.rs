@@ -10,13 +10,12 @@ use sidekicks_std::port_registration::PortRegistration;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::lifecycle::CodexDriver;
-use crate::driver::codex::pricing::CodexRecorderPricing;
+use crate::driver::codex::pricing::{CodexRecorderPricing, compose_codex_request_facts};
 use crate::driver::codex::service::supervisor::routing::read_codex_frame_thread_id;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::establishment::CodexSessionEstablishment;
 use crate::driver::codex::session::side_questions::copy_turn::{
-    CopyFrameReading, CopyTurn, CopyTurnFailure, compose_copy_request_facts, file_copy_usage,
-    read_copy_frame,
+    CopyFrameReading, CopyTurn, CopyTurnFailure, file_copy_usage, read_copy_frame,
 };
 use crate::driver::codex::session::side_questions::{fork_resting_copy, start_turn};
 use crate::driver::contract::error::DriverError;
@@ -66,7 +65,12 @@ async fn summarize_on_copy(
     // Fresh for the copy, so its cost never takes the session's own counts as its base.
     let mut accountant = UsageDeltaAccountant::new(DESCRIPTOR.provider_id());
     accountant.establish_thread(copy.thread_id.clone(), ThreadBaseEstablishment::Fresh);
-    let request = compose_copy_request_facts(&copy.model, copy.declared_tier.as_ref());
+    let request = compose_codex_request_facts(
+        &copy.model,
+        copy.declared_tier
+            .as_ref()
+            .map(|tier| tier.declared.as_str()),
+    );
     let mut recorder_pricing = CodexRecorderPricing::new(Arc::clone(pricing));
     let mut answer = None;
     let mut turn = None;

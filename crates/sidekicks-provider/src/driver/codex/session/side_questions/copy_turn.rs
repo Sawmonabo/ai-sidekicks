@@ -10,8 +10,6 @@ use serde::Deserialize;
 use serde_json::Value;
 use serde_json::value::RawValue;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
-use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 use sidekicks_std::port_registration::PortRegistration;
 
 use crate::driver::codex::event_normalizer::{
@@ -74,21 +72,6 @@ pub(crate) enum CopyFrameReading {
     Ended(Option<CopyTurn>),
     /// Nothing the copy reads.
     Other,
-}
-
-/// The facts every usage reading of a copy carries: the copy's `model`, and the tier its fork
-/// declared as both the request's and the thread's speed.
-pub(crate) fn compose_copy_request_facts(
-    model: &str,
-    declared_tier: Option<&ProviderOutputSpeedState>,
-) -> UsageRequestFacts {
-    let speed = declared_tier.and_then(|tier| BoundedText::new(tier.declared.as_str().to_owned()));
-    UsageRequestFacts {
-        model_id: FreeFormText::new(model.to_owned()).ok(),
-        speed: speed.clone(),
-        thread_speed: speed,
-        ..UsageRequestFacts::default()
-    }
 }
 
 /// Reads one frame of a copy's turn, each usage reading stamped with `request` and metered through
