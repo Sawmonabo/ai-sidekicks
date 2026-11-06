@@ -5,7 +5,6 @@ use std::fmt::Write as _;
 
 use rstest::rstest;
 use serde_json::Map;
-use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -16,6 +15,7 @@ use super::{
     RuntimeBindingStore, mint_runtime_binding_id, read_binding,
 };
 use crate::driver::PROVIDERS;
+use crate::driver::registry::test_token;
 use crate::driver::schema::schema_parts;
 use crate::driver::session_control::SessionToolServer;
 use crate::left_conversations::LeftConversation;
@@ -23,10 +23,6 @@ use crate::runtime_binding::test_store::{
     binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
 };
 use crate::runtime_binding::writer::RuntimeBindingWriter;
-
-fn token(text: &str) -> ProviderToken {
-    FreeFormText::new(text.to_owned()).expect("the test's token is valid text")
-}
 
 async fn create(
     store: &RuntimeBindingStore,
@@ -48,7 +44,7 @@ async fn a_relaunch_records_its_own_build_and_keeps_the_predecessors_legs() {
     let predecessor = create(
         &store,
         RuntimeBindingSpawnConfig {
-            output_speed: Some(token("fast")),
+            output_speed: Some(test_token("fast")),
             ..spawn_config_on(test_provider_account_id())
         },
     )
@@ -202,7 +198,7 @@ async fn a_tool_server_set_lands_as_a_list_on_the_runs_newest_resumable_row() {
     let older = create(
         &store,
         RuntimeBindingSpawnConfig {
-            output_speed: Some(token("fast")),
+            output_speed: Some(test_token("fast")),
             ..spawn_config_on(test_provider_account_id())
         },
     )
@@ -269,7 +265,7 @@ async fn a_tool_server_set_lands_as_a_list_on_the_runs_newest_resumable_row() {
         .expect("the newer binding reads")
         .expect("the newer binding has a row");
     assert_eq!(newer.spawn_config.tool_servers, Some(tool_servers));
-    assert_eq!(newer.spawn_config.output_speed, Some(token("fast")));
+    assert_eq!(newer.spawn_config.output_speed, Some(test_token("fast")));
     assert_eq!(newer.resolved_executable_path, "/opt/provider/2.1.0/bin");
     assert_eq!(read_row(older.id.as_str()), older_before);
 }

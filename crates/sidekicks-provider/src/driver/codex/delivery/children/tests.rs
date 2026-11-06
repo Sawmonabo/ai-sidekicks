@@ -5,7 +5,6 @@ use std::time::Duration;
 use rstest::rstest;
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
-use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::run::control::StopTrigger;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::subagent::SubagentId;
@@ -20,6 +19,7 @@ use crate::driver::codex::hooks::server::{
 use crate::driver::codex::run::routes::CodexRunBinding;
 use crate::driver::codex::session::inbound::CodexSessionInbound;
 use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestCodexSession, turn_completed};
+use crate::driver::registry::test_token;
 use crate::driver::run_control::HelperStopReason;
 use crate::port::run_host::test_host::RecordedDelivery;
 use crate::run::delivery::{ChildRunSubagent, LateAppendableRow, RunSetupRefusal};
@@ -119,9 +119,6 @@ const LEAD_TURN: &str = "lead-turn";
 const HELPER_MODEL: &str = "gpt-5.4-mini";
 
 /// `text` as a model or effort word.
-fn token(text: &str) -> ProviderToken {
-    ProviderToken::new(text.to_owned()).expect("a test word fits")
-}
 
 /// Opens the live turn `turn_id` on [`TEST_THREAD`] under a run of its own, delivered on.
 fn open_live_turn(session: &mut TestCodexSession, turn_id: &str) -> CodexRowRun {
@@ -294,8 +291,8 @@ async fn a_v2_spawn_starts_its_helpers_child_run_as_codex_names_it() {
             name: handle("Scout"),
             role: handle("explorer"),
             provider_path: handle("/root/scout"),
-            model_id: Some(token(HELPER_MODEL)),
-            effort: Some(token("low")),
+            model_id: Some(test_token(HELPER_MODEL)),
+            effort: Some(test_token("low")),
             start_call_id: None,
         })
     );
@@ -380,7 +377,7 @@ async fn each_v1_spawn_starts_its_helper_beneath_its_own_call() {
     assert_eq!((&helper_a.name, &helper_a.role), (&None, &None));
     assert_eq!(
         (&helper_a.model_id, &helper_a.effort),
-        (&Some(token("gpt-5.4")), &Some(token("high")))
+        (&Some(test_token("gpt-5.4")), &Some(test_token("high")))
     );
     assert_eq!(
         started_row_calls(&session),

@@ -8,7 +8,6 @@ use rstest::rstest;
 use rusqlite::params;
 use serde_json::Value;
 use sidekicks_contracts::agent::definition::AgentId;
-use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::agent::tree::ChildHandle;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::free_form_string::FilesystemPath;
@@ -28,7 +27,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::MockProviderDriver;
-use sidekicks_provider::driver::registry::test_provider;
+use sidekicks_provider::driver::registry::{test_provider, test_token};
 use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
 };
@@ -140,9 +139,6 @@ fn helper(
 }
 
 // `text` as a provider's model or effort word.
-fn token(text: &str) -> ProviderToken {
-    ProviderToken::new(text.to_owned()).expect("a provider token")
-}
 
 // The run a subagent's start left running.
 fn running(started: Option<SubagentRunStart>) -> RunId {
@@ -626,8 +622,8 @@ async fn a_helpers_later_start_binds_its_node_and_a_rebuild_writes_the_same_rows
             .start_provider_subagent_run(
                 parent,
                 ChildRunSubagent {
-                    model_id: Some(token("gpt-5.4-mini")),
-                    effort: Some(token("low")),
+                    model_id: Some(test_token("gpt-5.4-mini")),
+                    effort: Some(test_token("low")),
                     ..helper("helper-1", None, "call-1")
                 },
             )
@@ -654,8 +650,8 @@ async fn a_helpers_later_start_binds_its_node_and_a_rebuild_writes_the_same_rows
     assert_eq!(first_queued["providerChild"]["modelId"], "gpt-5.4-mini");
     assert_eq!(first_queued["providerChild"]["effort"], "low");
     let helper_one = stored_node(&database, session_id, "helper-1");
-    assert_eq!(helper_one.model_id, Some(token("gpt-5.4-mini")));
-    assert_eq!(helper_one.effort, Some(token("low")));
+    assert_eq!(helper_one.model_id, Some(test_token("gpt-5.4-mini")));
+    assert_eq!(helper_one.effort, Some(test_token("low")));
     assert_eq!(helper_one.child_handle, queued_child_handle(&first_queued));
     assert_eq!(helper_one.child_handle, queued_child_handle(&second_queued));
     assert_eq!(helper_one.own_run_id, second);
