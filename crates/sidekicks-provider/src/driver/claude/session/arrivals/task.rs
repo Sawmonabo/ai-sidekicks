@@ -206,6 +206,7 @@ impl ClaudeSessionTask {
         let lead_costs = (observation.subagent_id.is_none())
             .then(|| observation.model_costs.clone())
             .flatten();
+        let lead = routed.turn_at_read.lead.clone();
         let is_reviewed = self.level() == Some(PermissionLevel::Reviewed);
         let after = services
             .delivery
@@ -227,9 +228,10 @@ impl ClaudeSessionTask {
         }
         // Claude Code states each model's spend at every lead `result`, a steer's mid-turn one too.
         if let Some(model_costs) = lead_costs {
-            services
-                .delivery
-                .price_result(&self.stream, model_costs)
+            let thread_id = &live.provider_session_id;
+            let delivery = &services.delivery;
+            delivery
+                .price_result(&self.stream, model_costs, lead, thread_id)
                 .await;
         }
     }

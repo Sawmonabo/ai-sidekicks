@@ -460,6 +460,28 @@ impl UsageDeltaAccountant {
     }
 }
 
+/// One reading of `counts` on `provider`'s `thread_id`, metered from a zero base with `request` as
+/// what prices it: the delta of spend no running sum holds, its input normalized as a session's
+/// usage rows are.
+pub(crate) fn meter_from_zero(
+    provider: ProviderId,
+    thread_id: String,
+    counts: UsageAxisCounts,
+    request: UsageRequestFacts,
+) -> MeteredUsageDelta {
+    let mut accountant = UsageDeltaAccountant::new(provider);
+    accountant.establish_thread(thread_id.clone(), ThreadBaseEstablishment::Fresh);
+    accountant
+        .meter_change(CumulativeUsageReading {
+            thread_id,
+            named_turn_id: None,
+            cumulative: counts,
+            declared_per_turn: None,
+            request,
+        })
+        .expect("the thread was just established")
+}
+
 /// What a process that ran one turn and nothing else spent on `provider`: its cumulative `counts`
 /// metered from a zero base, the input normalized as a session's usage rows are, on `model_id` as
 /// the provider names it; a turn that spent nothing composes its counts as they read. Fails with
@@ -469,17 +491,12 @@ pub(crate) fn compose_one_turn_spend(
     model_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
     counts: UsageAxisCounts,
 ) -> Option<WindowTurnSpend> {
-    const THREAD_ID: &str = "one-turn";
-    let mut accountant = UsageDeltaAccountant::new(provider);
-    accountant.establish_thread(THREAD_ID.to_owned(), ThreadBaseEstablishment::Fresh);
-    // The thread is established, so only a count past the range below fails.
-    let delta = accountant.meter_change(CumulativeUsageReading {
-        thread_id: THREAD_ID.to_owned(),
-        named_turn_id: None,
-        cumulative: counts,
-        declared_per_turn: None,
-        request: UsageRequestFacts::default(),
-    })?;
+    let delta = meter_from_zero(
+        provider,
+        "one-turn".to_owned(),
+        counts,
+        UsageRequestFacts::default(),
+    );
     let figures = delta.row_figures()?;
     Some(WindowTurnSpend {
         model_id,

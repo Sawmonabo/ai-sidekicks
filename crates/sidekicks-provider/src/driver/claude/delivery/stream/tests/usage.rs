@@ -11,6 +11,7 @@ use sidekicks_contracts::event::usage::{
     ApiRetryErrorKind, UsageApiRequestRetriedPayload, UsageCostSource,
 };
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::wire::integer::SafeInt;
 use tempfile::TempDir;
@@ -409,6 +410,146 @@ async fn a_steers_mid_turn_result_prices_the_spend_it_states() {
             ),
             (UsageCostSource::ProviderReported, vec![(account, 50_000)]),
         ]
+    );
+}
+
+// Each metered row's owner, binding, model and input and output.
+fn metered_rows(session: &ScriptedSession) -> Vec<(bool, RuntimeBindingId, String, u64, u64)> {
+    session
+        .usage
+        .metered()
+        .into_iter()
+        .map(|metered| {
+            let model = metered
+                .delta
+                .request
+                .model_id
+                .map(|model| model.as_str().to_owned());
+            (
+                matches!(metered.owner, MeteredUsageOwner::Run),
+                metered.binding_id,
+                model.unwrap_or_default(),
+                metered.delta.axis_deltas.input.unwrap_or(0),
+                metered.delta.axis_deltas.output.unwrap_or(0),
+            )
+        })
+        .collect()
+}
+
+// Killed by recording every entry at the session's model, by recording an entry's counts without
+// the kept rows taken off (Opus {1,400, 600}), and by recording a row only for a model with no
+// message (Opus's figure on the message alone, 20,000).
+#[tokio::test]
+async fn the_spend_no_message_showed_is_recorded_at_its_model_and_priced() {
+    let scratch = tempfile::tempdir().expect("a scratch folder is made");
+    let stop = CancellationToken::new();
+    let session = ScriptedSession::new().await;
+    register_price_list(&session, &scratch, &stop).await;
+    let (opus, sonnet) = ("claude-opus-5-5", "claude-sonnet-5-5");
+
+    session.hold_lead_turn("lead");
+    session.frame(&init());
+    session.frame(&priced_message("message-1", opus, 1_000, 500));
+    session.frame(&result(&json!({"model_usage_since_last_result": {
+        opus: {"inputTokens": 1_400, "outputTokens": 600, "costUSD": 0.02, "costBasis": "list"},
+        sonnet: {"inputTokens": 3_000, "outputTokens": 200, "costUSD": 0.01, "costBasis": "list"},
+    }})));
+    ScriptedDriver::wait_for(|| session.usage.priced().len() == 2).await;
+    stop.cancel();
+
+    let lead = binding_id("lead");
+    assert_eq!(
+        metered_rows(&session),
+        [
+            (true, lead.clone(), opus.to_owned(), 1_000, 500),
+            (true, lead.clone(), opus.to_owned(), 400, 100),
+            (true, lead, sonnet.to_owned(), 3_000, 200),
+        ]
+    );
+    let account = test_provider_account_id().as_str().to_owned();
+    assert_eq!(
+        priced(&session.usage.priced()),
+        [
+            (
+                UsageCostSource::ProviderReported,
+                vec![(account.clone(), 15_909), (account.clone(), 4_091)]
+            ),
+            (UsageCostSource::ProviderReported, vec![(account, 10_000)]),
+        ]
+    );
+}
+
+// Killed by dropping the balance, which records a 400-input row at the second result, and by
+// dropping the figure no row carried (14,000 at the third).
+#[tokio::test]
+async fn rows_past_their_result_carry_a_balance_and_an_unheld_figure_carries_on() {
+    let scratch = tempfile::tempdir().expect("a scratch folder is made");
+    let stop = CancellationToken::new();
+    let session = ScriptedSession::new().await;
+    register_price_list(&session, &scratch, &stop).await;
+    let opus = "claude-opus-5-5";
+
+    session.hold_lead_turn("lead");
+    session.frame(&init());
+    session.frame(&priced_message("message-1", opus, 1_000, 500));
+    session.frame(&opus_result(600, 500, 0.01, &[]));
+    ScriptedDriver::wait_for(|| session.usage.priced().len() == 1).await;
+    session.hold_lead_turn("lead");
+    session.frame(&opus_result(400, 0, 0.002, &[]));
+    session.hold_lead_turn("lead");
+    session.frame(&priced_message("message-2", opus, 1_000, 500));
+    session.frame(&opus_result(1_000, 500, 0.014, &[]));
+    ScriptedDriver::wait_for(|| session.usage.priced().len() == 2).await;
+    stop.cancel();
+
+    let lead = binding_id("lead");
+    assert_eq!(
+        metered_rows(&session),
+        [
+            (true, lead.clone(), opus.to_owned(), 1_000, 500),
+            (true, lead, opus.to_owned(), 1_000, 500),
+        ]
+    );
+    let account = test_provider_account_id().as_str().to_owned();
+    assert_eq!(
+        priced(&session.usage.priced()),
+        [
+            (
+                UsageCostSource::ProviderReported,
+                vec![(account.clone(), 10_000)]
+            ),
+            (UsageCostSource::ProviderReported, vec![(account, 16_000)]),
+        ]
+    );
+}
+
+// Killed by pricing a result's rows from the table when it states no figures (a `derivedExact`
+// 14,000 first), which the next result's figures would then price again.
+#[tokio::test]
+async fn a_result_stating_no_figures_leaves_its_rows_for_the_next() {
+    let scratch = tempfile::tempdir().expect("a scratch folder is made");
+    let stop = CancellationToken::new();
+    let session = ScriptedSession::new().await;
+    register_price_list(&session, &scratch, &stop).await;
+    let opus = "claude-opus-5-5";
+
+    session.hold_lead_turn("lead");
+    session.frame(&init());
+    session.frame(&priced_message("message-1", opus, 1_000, 500));
+    session.frame(&result(&json!({})));
+    session.hold_lead_turn("lead");
+    session.frame(&priced_message("message-2", opus, 1_000, 500));
+    session.frame(&opus_result(2_000, 1_000, 0.20, &[]));
+    ScriptedDriver::wait_for(|| !session.usage.priced().is_empty()).await;
+    stop.cancel();
+
+    let account = test_provider_account_id().as_str().to_owned();
+    assert_eq!(
+        priced(&session.usage.priced()),
+        [(
+            UsageCostSource::ProviderReported,
+            vec![(account.clone(), 100_000), (account, 100_000)]
+        )]
     );
 }
 

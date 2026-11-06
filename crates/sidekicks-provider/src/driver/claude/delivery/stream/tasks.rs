@@ -194,7 +194,7 @@ impl ClaudeDeliveryStream {
                 Ok(Some(recorded)) => {
                     if let Some((model_id, delta)) = priced {
                         let row = LiveUsageRow::new(&recorded, session.session_id, &delta);
-                        lock(&session.result_pricing).keep(model_id, row);
+                        lock(&session.result_pricing).keep(model_id, row, &delta);
                     }
                 }
                 Ok(None) => {}
@@ -204,12 +204,25 @@ impl ClaudeDeliveryStream {
     }
 
     /// Prices the rows `session`'s process kept at a lead `result` stating `model_costs`, each
-    /// model's cost since the process's previous result, whether or not the result ends a turn.
+    /// model's usage and cost since the process's previous result, whether or not the result ends
+    /// a turn. The spend an entry states that no row showed is first recorded on `lead`'s binding,
+    /// or where a reading no route names goes, on the lead's `thread_id`, and priced with the rest.
     pub(crate) async fn price_result(
         &self,
         session: &ClaudeSessionStream,
         model_costs: Vec<ClaudeModelCost>,
+        lead: Option<ClaudeBoundRun>,
+        thread_id: &str,
     ) {
+        let unshown = lock(&session.result_pricing).take_unshown_spend(&model_costs, thread_id);
+        let readings = unshown
+            .into_iter()
+            .map(|delta| ClaudeMeteredReading {
+                subagent_id: None,
+                delta,
+            })
+            .collect();
+        self.record_metered(session, lead.as_ref(), readings).await;
         let account = session.provider_account_id();
         let models = lock(&session.result_pricing).take_at_result(
             &model_costs,
@@ -221,7 +234,8 @@ impl ClaudeDeliveryStream {
 
     /// Prices the rows `session`'s process kept with no `result` to price them, from the price list.
     pub(crate) async fn price_process_end(&self, session: &ClaudeSessionStream) {
-        let models = lock(&session.result_pricing).take_all();
+        let account = session.provider_account_id();
+        let models = lock(&session.result_pricing).take_all(session.session_id, &account);
         self.price_models(session, models).await;
     }
 
