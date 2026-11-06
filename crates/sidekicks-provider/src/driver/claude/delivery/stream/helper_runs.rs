@@ -389,8 +389,9 @@ impl ClaudeSessionStream {
         self.lock().helper_calls.remove(call_id);
     }
 
-    /// Forgets the helper call whose pre-tool hook the withdrawn request `request_id` carried.
-    pub(crate) fn withdraw_helper_call(&self, request_id: &str) {
+    /// Forgets the helper call whose pre-tool hook the request `request_id` carried, once Claude
+    /// Code withdraws it or a held call is released with a deny: neither starts a helper.
+    pub(crate) fn forget_helper_call_of_request(&self, request_id: &str) {
         self.lock()
             .helper_calls
             .retain(|_, helper_call| helper_call.request_id != request_id);

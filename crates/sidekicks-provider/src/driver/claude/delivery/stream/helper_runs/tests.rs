@@ -2,6 +2,8 @@ use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::run::control::{RunFailureCategory, StopTrigger};
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_std::mutex_lock::lock;
 
 use super::super::tests::result;
@@ -10,7 +12,7 @@ use crate::driver::claude::session::scripted::held_calls::{helper_started, init}
 use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
 };
-use crate::driver::run_control::HelperStopReason;
+use crate::driver::run_control::{HelperStopReason, ResumeRunParams, WaitingMessage};
 use crate::port::run_host::test_host::RecordedDelivery;
 use crate::run::delivery::{LateAppendableRow, RunSetupRefusal};
 use crate::run::state_entry::RunStateEntry;
@@ -255,7 +257,8 @@ fn helper_call_hook(call_id: &str, agent_id: Option<&str>, tool_input: &Value) -
 // read (`p` names nothing), an entry keyed by the request id (no start finds it), a helper's own
 // call missed (`c` names nothing), a fork's values kept (`f` names `high`), the hook input's own
 // `effort.level` read for the call's (`max` on every start), a withdrawal that forgets nothing
-// (`w` names `opus`), and a failed call's hook that forgets nothing (`x` names `sonnet`).
+// (`w` names `opus`), a failed call's hook that forgets nothing (`x` names `sonnet`), and a held
+// call released with a deny that forgets nothing (`d` names `opus`).
 #[tokio::test(start_paused = true)]
 async fn a_helpers_start_names_the_model_and_effort_its_agent_call_asked_for() {
     let session = ScriptedSession::new().await;
@@ -302,6 +305,37 @@ async fn a_helpers_start_names_the_model_and_effort_its_agent_call_asked_for() {
     ] {
         session.frame(&nested_start(task_id, call_id, None, None));
     }
+    // `p` is paused, so its call `call-d` is held, then released denied with the person's words.
+    lock(&session.parts.run_controls.pauses).pause_helper(&session.session_id, "p");
+    session.request(
+        "hook-d",
+        &helper_call_hook("call-d", Some("p"), &json!({"model": "opus"})),
+    );
+    settle().await;
+    let run_of_p = session
+        .start
+        .routes
+        .child_run_for(session.session_id, "p")
+        .expect("p has its child run");
+    session
+        .parts
+        .run_controls
+        .resume_run(ResumeRunParams {
+            session_id: session.session_id,
+            run_id: run_of_p,
+            messages: vec![WaitingMessage {
+                id: QueueItemId::new(&mint_uuid_v7().to_string())
+                    .expect("a minted UUID is an item id"),
+                content: MessageContent::new("look elsewhere".to_owned())
+                    .expect("the words are a message"),
+                attachments: Vec::new(),
+                skills: Vec::new(),
+            }],
+            is_continuation_owed: false,
+        })
+        .await
+        .expect("the paused helper continues");
+    session.frame(&nested_start("d", "call-d", Some("p"), None));
     session.request(
         "hook-c",
         &helper_call_hook("call-c", Some("p"), &json!({"model": "haiku"})),
@@ -340,6 +374,7 @@ async fn a_helpers_start_names_the_model_and_effort_its_agent_call_asked_for() {
             named("n", None, None),
             named("w", None, None),
             named("x", None, None),
+            named("d", None, None),
             named("c", Some("haiku"), None),
         ]
     );

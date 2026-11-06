@@ -341,6 +341,7 @@ impl ClaudeSessionTask {
                         &services.scheduler,
                         &services.pauses,
                         &services.self_started.start.slots,
+                        &self.stream,
                         session_id,
                         helper.agent_id,
                     );
@@ -359,7 +360,7 @@ impl ClaudeSessionTask {
             ClaudeRequestRoute::Forward(event) => {
                 // A withdrawn helper call starts no helper.
                 if let ClaudeInboundRequestEvent::Cancel { request_id } = &event {
-                    self.stream.withdraw_helper_call(request_id);
+                    self.stream.forget_helper_call_of_request(request_id);
                 }
                 let running_model = lock(&live.settings).running_model.clone();
                 let session = ClaudeRequestSession {
