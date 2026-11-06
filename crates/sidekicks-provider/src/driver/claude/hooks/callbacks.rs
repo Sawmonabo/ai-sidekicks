@@ -181,19 +181,15 @@ pub(crate) struct ClaudeHelperCall {
 // names.
 const CLAUDE_FORK_SUBAGENT_TYPE: &str = "fork";
 
-// What the helper call the hook `callback` carries asks for: `None` where it names no call id, is
-// a fork, or names no model or effort the contract holds.
+// What the helper call `call_id` asks for: `None` where it names no call id, is a fork, or names no
+// model or effort the contract holds.
 fn read_helper_call(
-    callback: &ClaudeHookCallback,
+    call_id: Option<String>,
     input: Option<&HookInput>,
     request_id: &str,
     caller_agent_id: Option<&str>,
 ) -> Option<ClaudeHelperCall> {
-    let call_id = callback
-        .tool_use_id
-        .clone()
-        .or_else(|| input?.tool_use_id.clone())
-        .filter(|id| !id.is_empty())?;
+    let call_id = call_id?;
     let tool_input = input?.tool_input.as_ref()?;
     if tool_input.subagent_type.as_deref() == Some(CLAUDE_FORK_SUBAGENT_TYPE) {
         return None;
@@ -289,6 +285,12 @@ pub(crate) fn route_claude_request(
         .filter(|input| input.tool_name.as_deref() == Some(CLAUDE_MESSAGE_TOOL_NAME))
         .and_then(|input| input.tool_input.as_ref()?.to.clone())
         .filter(|to| !to.is_empty());
+    // The call's id: the callback's, else its input's, never empty.
+    let call_id = callback
+        .tool_use_id
+        .clone()
+        .or_else(|| input.as_ref()?.tool_use_id.clone())
+        .filter(|id| !id.is_empty());
     let request_id = request.request_id.clone();
     let pass_off_level = |at: PermissionLevel, request| {
         if level == Some(at) {
@@ -306,7 +308,7 @@ pub(crate) fn route_claude_request(
         RegisteredHook::PauseBeforeTool if is_helper_start => {
             ClaudeRequestRoute::CheckHelperStart {
                 helper_call: read_helper_call(
-                    callback,
+                    call_id,
                     input.as_ref(),
                     &request.request_id,
                     agent_id.as_deref(),
@@ -337,12 +339,7 @@ pub(crate) fn route_claude_request(
             request_id: request.request_id,
         },
         RegisteredHook::HelperLimit => {
-            let tool_use_id = callback
-                .tool_use_id
-                .clone()
-                .or_else(|| input.and_then(|input| input.tool_use_id))
-                .filter(|id| !id.is_empty())
-                .unwrap_or_else(|| request.request_id.clone());
+            let tool_use_id = call_id.unwrap_or_else(|| request.request_id.clone());
             if is_helper_start {
                 let answer = helpers.answer_start(session_id, &request.request_id, &tool_use_id);
                 return helper_limit_route(answer, request.request_id);
@@ -369,11 +366,7 @@ pub(crate) fn route_claude_request(
             request_id: request.request_id,
         },
         RegisteredHook::HelperCallFailed => ClaudeRequestRoute::ForgetHelperCall {
-            call_id: callback
-                .tool_use_id
-                .clone()
-                .or_else(|| input.and_then(|input| input.tool_use_id))
-                .filter(|id| !id.is_empty()),
+            call_id,
             request_id: request.request_id,
         },
         RegisteredHook::QuestionBridge => pass_off_level(PermissionLevel::Sandboxed, request),
