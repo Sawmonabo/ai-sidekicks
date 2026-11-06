@@ -59,12 +59,6 @@ use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_std::text_cut::cut_to_code_points;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-use sidekicks_store::database::statement::WriteStatement;
-use sidekicks_store::events::log_service::EventLogService;
-use sidekicks_store::events::session::appender::{
-    SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventLinkage,
-};
-use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 use self::errors::{DispatchError, InterventionError, failure_text_of};
 use self::reached_state::{ReachedState, draft};
@@ -109,8 +103,6 @@ const ACCEPT_MOVE_INDEX: usize = 2;
 pub struct InterventionServiceDeps {
     /// The read pool every read borrows a connection from.
     pub pool: Arc<DatabaseReadPool>,
-    /// The event log every intervention event is appended to.
-    pub event_log: Arc<EventLogService>,
     /// The run engine, which routes an interrupt and forgets a limit's hand no stop awaits.
     pub engine: Arc<RunEngine>,
     /// The registered drivers, which carry out a dispatch.
@@ -126,8 +118,6 @@ pub struct InterventionServiceDeps {
 pub struct InterventionService {
     /// The read pool every read borrows a connection from.
     pub(super) pool: Arc<DatabaseReadPool>,
-    /// The appender every intervention event goes through.
-    pub(super) appender: Arc<SessionEventAppender>,
     /// The run engine.
     pub(super) engine: Arc<RunEngine>,
     /// The registered drivers.
@@ -256,17 +246,12 @@ impl InterventionService {
     pub fn new(deps: InterventionServiceDeps) -> Self {
         let InterventionServiceDeps {
             pool,
-            event_log,
             engine,
             providers,
             queue,
         } = deps;
         Self {
             pool,
-            appender: Arc::new(SessionEventAppender::new(
-                event_log,
-                SESSION_EVENT_VERSION.clone(),
-            )),
             engine,
             providers,
             queue,
@@ -408,14 +393,16 @@ impl InterventionService {
             device_id: device_of(&target.actor),
         };
         let inserted = self
+            .engine
             .append(
                 draft(target, &ReachedState::Requested)?,
                 vec![insert_requested_intervention_statement(&requested)],
                 Vec::new(),
+                None,
             )
             .await;
         match inserted {
-            Ok(()) => Ok(()),
+            Ok(_) => Ok(()),
             Err(error) => match error.refused_statement_index() {
                 Some(INSERT_STATEMENT_INDEX) => {
                     let saved = self
@@ -521,6 +508,7 @@ impl InterventionService {
             InterventionType::FasterModelRetry => vec![RunState::Running],
         };
         let accepted = self
+            .engine
             .append(
                 draft(target, &ReachedState::Accepted)?,
                 vec![
@@ -535,6 +523,7 @@ impl InterventionService {
                     ),
                 ],
                 Vec::new(),
+                None,
             )
             .await;
         if let Err(error) = accepted {
@@ -739,7 +728,11 @@ impl InterventionService {
                 ],
             };
             let row_move_index = statements.len() - 1;
-            if let Err(error) = self.append(event, statements, Vec::new()).await {
+            if let Err(error) = self
+                .engine
+                .append(event, statements, Vec::new(), None)
+                .await
+            {
                 return match error.refused_statement_index() {
                     Some(index) if index == row_move_index => {
                         self.settled_since_or(target, error.into()).await
@@ -766,6 +759,7 @@ impl InterventionService {
         );
         let state = ReachedState::Failed(reason.clone());
         let recorded = self
+            .engine
             .append(
                 draft(target, &state)?,
                 vec![move_intervention_statement(
@@ -775,11 +769,11 @@ impl InterventionService {
                     },
                 )],
                 Vec::new(),
+                None,
             )
             .await;
-        let record = match recorded {
-            Ok(()) => return Ok(RecordedFailure::Recorded { reason, dispatch }),
-            Err(record) => record,
+        let Err(record) = recorded else {
+            return Ok(RecordedFailure::Recorded { reason, dispatch });
         };
         // The row's move is the write's one statement.
         let is_settled_since = if record.refused_statement_index() == Some(0) {
@@ -821,6 +815,7 @@ impl InterventionService {
             ),
         };
         let resolved = self
+            .engine
             .append(
                 draft(target, &state)?,
                 vec![move_intervention_statement(
@@ -828,10 +823,11 @@ impl InterventionService {
                     &transition,
                 )],
                 Vec::new(),
+                None,
             )
             .await;
         match resolved {
-            Ok(()) => Ok(RowMove::Made(state)),
+            Ok(_) => Ok(RowMove::Made(state)),
             // The row's move is the write's one statement.
             Err(error) if error.refused_statement_index() == Some(0) => {
                 self.settled_since_or(target, error.into()).await
@@ -846,26 +842,6 @@ impl InterventionService {
         read_run_through::<RunEngineError>(&self.pool, run_id)
             .await?
             .ok_or(RunEngineError::Refused(RunRefusal::NotFound { run_id }))
-    }
-
-    /// Appends `draft` after `preceding_events`, with `statements` in its write.
-    pub(super) async fn append(
-        &self,
-        draft: SessionEventDraft,
-        statements: Vec<WriteStatement>,
-        preceding_events: Vec<SessionEventDraft>,
-    ) -> Result<(), SessionEventAppendError> {
-        self.appender
-            .append(
-                draft,
-                SessionEventLinkage {
-                    transactional_prelude: statements,
-                    preceding_events,
-                    ..SessionEventLinkage::default()
-                },
-            )
-            .await
-            .map(drop)
     }
 }
 

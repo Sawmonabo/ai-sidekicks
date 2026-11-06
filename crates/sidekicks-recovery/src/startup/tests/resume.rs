@@ -26,8 +26,8 @@ use sidekicks_provider::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, InterventionResultStatus, TakenMessages,
 };
 use sidekicks_provider::driver::session_control::{
-    DriverResumeResult, EndKeptTurnsParams, KeptRunTurns, ProviderTurnAnswer, ResumeSessionParams,
-    ResumedRunAnswer,
+    DriverResumeResult, EndKeptTurnsParams, KeptRunTurns, KeptTurnsEnding, ProviderTurnAnswer,
+    ResumeSessionParams, ResumedRunAnswer,
 };
 use sidekicks_provider::runtime_binding::test_store::spawned_build;
 use sidekicks_session::queue_store::{QueueItemReader, RecordedQueueItemState};
@@ -93,19 +93,22 @@ pub(super) fn resuming_driver(
     driver
 }
 
-// Has `driver` expect one end of the turns a restart kept, answered at once, and answers where
-// the params it is handed are recorded.
+// Has `driver` expect one end of the turns a restart kept, answered at once with `ending`, and
+// answers where the params it is handed are recorded.
 pub(super) fn expect_kept_turns_ended(
     driver: &mut MockProviderDriver,
+    ending: KeptTurnsEnding,
 ) -> Arc<Mutex<Vec<EndKeptTurnsParams>>> {
     let ended: Arc<Mutex<Vec<EndKeptTurnsParams>>> = Arc::default();
     let recorded = Arc::clone(&ended);
+    let ending = Mutex::new(Some(ending));
     driver
         .expect_end_kept_turns()
         .times(1)
         .returning(move |params| {
             lock(&recorded).push(params);
-            async { Ok(()) }.boxed()
+            let ending = lock(&ending).take().expect("the kept turns are ended once");
+            async move { Ok(ending) }.boxed()
         });
     ended
 }
@@ -358,7 +361,7 @@ async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interru
     let named: Arc<Mutex<Vec<(RunId, bool)>>> = Arc::default();
     let interrupted: Arc<Mutex<Vec<RunId>>> = Arc::default();
     let mut unopened = MockProviderDriver::new();
-    let kept_ends = expect_kept_turns_ended(&mut unopened);
+    let kept_ends = expect_kept_turns_ended(&mut unopened, KeptTurnsEnding::ended_now());
     let mut resumed = resuming_driver(2, {
         let answers = Arc::clone(&answers);
         let named = Arc::clone(&named);
@@ -676,7 +679,7 @@ async fn a_refused_resume_fails_its_run_and_lists_it_until_the_sessions_next_run
         provider_failure_detail: FreeFormText::new(REFUSED_DETAIL.to_owned())
             .expect("the refusal's words"),
     });
-    let kept_ends = expect_kept_turns_ended(&mut refusing);
+    let kept_ends = expect_kept_turns_ended(&mut refusing, KeptTurnsEnding::ended_now());
     let fixture =
         PassFixture::over_drivers(vec![Arc::new(refusing) as Arc<dyn ProviderDriver>]).await;
     let _run_starts = fixture.status.follow_run_starts(&fixture.followers);

@@ -14,7 +14,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::contract::error::bound_failure_detail;
-use sidekicks_provider::driver::session_control::KeptRunTurns;
+use sidekicks_provider::driver::session_control::{KeptRunTurns, KeptTurnsEnding};
 use sidekicks_queue::provider_session::errors::ProviderSessionError;
 use sidekicks_session::run::read::RunStateReader;
 use sidekicks_session::run::restart::read_has_own_stop;
@@ -52,14 +52,16 @@ impl StartupRecovery {
     /// Resumes the session's conversation where it had work in progress, then settles what the
     /// restart left in it; a listed one takes calls again after, except one under the stop intent,
     /// whose runs end as the person's Stop ends them with no resume and which the pass lets take
-    /// calls once it has dropped its name. Fails at the first step that fails.
+    /// calls once it has dropped its name. Answers, for a session under the intent whose kept
+    /// turns a driver took, the ending of that driver's work, which the name's drop waits for.
+    /// Fails at the first step that fails.
     pub(super) async fn settle_session(
         &self,
         session_id: SessionId,
         is_under_stop: bool,
         tally: &mut PassTally,
         stop: &CancellationToken,
-    ) -> Result<(), PassFailure> {
+    ) -> Result<Option<KeptTurnsEnding>, PassFailure> {
         if stop.is_cancelled() {
             return Err(PassFailure::Stopped);
         }
@@ -86,19 +88,27 @@ impl StartupRecovery {
         tally.restart.add(settled.tally);
         // The runs are settled; their turns end on the provider off the pass, which only waits
         // for the driver to hold the session, so no run reaches it before the work.
-        if !resume.kept_turns.is_empty()
-            && let Err(failure) = self
+        let kept_turns_ending = if resume.kept_turns.is_empty() {
+            None
+        } else {
+            match self
                 .deps
                 .provider_sessions
                 .end_kept_turns(session_id, resume.kept_turns, stop.clone())
                 .await
-        {
-            tracing::warn!(
-                session_id = %session_id,
-                error = &failure as &(dyn Error + 'static),
-                "the turns a restart kept in a session not resumed could not be ended; they run on"
-            );
-        }
+            {
+                Ok(ending) => Some(ending),
+                Err(failure) => {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        error = &failure as &(dyn Error + 'static),
+                        "the turns a restart kept in a session not resumed could not be ended; \
+                         they run on"
+                    );
+                    None
+                }
+            }
+        };
         if let Some(refusal) = resume.refusal {
             for run_id in settled.failed_run_ids {
                 status.mark_run_halted(
@@ -121,10 +131,12 @@ impl StartupRecovery {
             .questions
             .withdraw_tool_server_questions(session_id)
             .await?;
-        if !is_under_stop {
-            status.mark_session_healthy(&session_id);
+        if is_under_stop {
+            return Ok(kept_turns_ending);
         }
-        Ok(())
+        // Not under the intent, the session leaves its turns' end to the driver.
+        status.mark_session_healthy(&session_id);
+        Ok(None)
     }
 
     // Re-arms the session's runs in progress and resumes its conversation through the provider

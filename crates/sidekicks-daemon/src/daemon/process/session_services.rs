@@ -499,7 +499,6 @@ pub(crate) fn build_session_services(
         .expect("a new engine holds no posture source yet");
     let interventions = Arc::new(InterventionService::new(InterventionServiceDeps {
         pool: Arc::clone(&reads),
-        event_log: Arc::clone(&event_log),
         engine: Arc::clone(&engine),
         providers: Arc::clone(&providers),
         queue: Arc::clone(&queue) as Arc<_>,

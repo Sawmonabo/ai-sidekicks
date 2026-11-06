@@ -226,16 +226,18 @@ pub(crate) enum CrashMonitorEndFailure {
 
 /// Ends the daemon's work, `bound` counted from this call: the person's Stop first writes its
 /// intent whole; that write and the stop's record of each step it waits on, which a cut write could
-/// land after the stop's end record, are the waits `bound` does not cut; then the stop token, so
-/// the work under way ends; then, within what is left of `bound`, the socket, so no new call comes,
-/// the mutating calls under way, the machine keys' background read, the capability refresh, the
-/// providers' registration, the tool servers' client, the run queue, the worktree cleanup's
-/// requests and the start's background tasks, the clone service with its askpass broker, the
-/// worktrees' setup commands, the repository services' background work, the attention decisions,
-/// the session services' follows with the chats' write watch and file recount, whose watermark a
-/// clean end stores, the renames' name pushes, the highlighter, the terminals, the provider
-/// accounts' sign-ins, the start's sweep of new accounts' homes and the account observer, the
-/// scheduler, the working-folder watch, the projects list, the search index, the drivers, the
+/// land after the stop's end record, are the waits `bound` does not cut; then the stop token and
+/// the cut of the engine's interrupt hands, so the work under way ends and no hand holds a lock a
+/// mutating call waits on; then, within what is left of `bound`, the recovery's session ends, whose
+/// waits the token ends, the socket, so no new call comes, the mutating calls under way, the
+/// machine keys' background read, the capability refresh, the providers' registration, the tool
+/// servers' client, the wait for the engine's interrupt hands, the run queue, the worktree
+/// cleanup's requests and the start's background tasks, the clone service with its askpass broker,
+/// the worktrees' setup commands, the repository services' background work, the attention
+/// decisions, the session services' follows with the chats' write watch and file recount, whose
+/// watermark a clean end stores, the renames' name pushes, the highlighter, the terminals, the
+/// provider accounts' sign-ins, the start's sweep of new accounts' homes and the account observer,
+/// the scheduler, the working-folder watch, the projects list, the search index, the drivers, the
 /// person's Stop's drain of the live runs, the turn end captures under way, the git trees a failed
 /// call left and, last, the kept worktrees' reads. The drivers are told `reason`'s intent, once a
 /// stop the person asked for over the socket since has replaced a restart, which writes the intent
@@ -261,7 +263,19 @@ pub(crate) async fn stop_work(
     }
     process.process_state.mark_stopping();
     process.work_stop.cancel();
+    // With the token, so no interrupt hand holds a run's interrupt lock that a mutating call
+    // waits on; the run queue's step waits the hands out.
+    if let Some(session) = &process.session {
+        session.engine.cut_interrupt_hands();
+    }
     let remaining = || bound.saturating_sub(started.elapsed());
+    // Right after the cancel, which ends each wait of the recovery's name drops with the name kept.
+    if let Some(recovery) = process.recovery.take()
+        && let Err(failure) =
+            wait_within(remaining(), "recovery's session ends", recovery.stop()).await
+    {
+        failures.push(failure);
+    }
     // Its listener closed at the cancel, so no call comes past a cut wait.
     if let Some(gateway) = process.gateway.take() {
         process
@@ -345,6 +359,16 @@ pub(crate) async fn stop_work(
             .stop_record
             .write_step(DaemonStopStep::RunQueue)
             .await;
+        // Before the queue's stop, so a hand the token cuts never meets a stopped queue.
+        if let Err(failure) = wait_within(
+            remaining(),
+            "interrupt hands",
+            session.engine.stop_interrupt_hands(),
+        )
+        .await
+        {
+            failures.push(failure);
+        }
         if let Err(failure) = wait_within(remaining(), "run queue", session.queue.stop()).await {
             failures.push(failure);
         }
