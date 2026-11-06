@@ -330,13 +330,30 @@ impl CodexSideQuestions {
         let forked = stop
             .run_until_cancelled(fork_resting_copy(establishment, resume))
             .await;
-        let (service, copy) = match forked {
+        let (service, mut copy) = match forked {
             Some(Ok(forked)) => forked,
             Some(Err(error)) => {
                 self.remove_copy_stop(params.side_question_id);
                 return Err(error);
             }
             None => return Ok(answer),
+        };
+        // Built before the turn is asked for, so a stop during its start files what it received.
+        let tier = copy.declared_tier.clone();
+        let mut question = CodexSideQuestion::new(
+            service,
+            resume.provider_account_id.clone(),
+            params,
+            (&copy.thread_id, copy.model.clone(), tier),
+            stop.clone(),
+            answered,
+        );
+        let mut filing = SessionUsageFiling {
+            usage,
+            session_id: params.session_id,
+            binding_id: params.binding_id.clone(),
+            provider_account_id: resume.provider_account_id.clone(),
+            pricing: CodexRecorderPricing::new(pricing),
         };
         let started = {
             let start = start_turn(
@@ -352,6 +369,14 @@ impl CodexSideQuestions {
                 // Once asked for, the turn starts whatever the stop: wait for its id, then stop it.
                 () = stop.cancelled() => {
                     stop_detached_turn(&copy.connection, &copy.thread_id, start).await;
+                    file_received_usage(
+                        &mut copy.frames,
+                        &mut question.meter,
+                        &mut filing,
+                        &question.service,
+                        &copy.working_directory,
+                    )
+                    .await;
                     return Ok(answer);
                 }
             }
@@ -363,23 +388,7 @@ impl CodexSideQuestions {
                 return Err(error);
             }
         };
-        let tier = copy.declared_tier.clone();
-        let mut question = CodexSideQuestion::new(
-            service,
-            resume.provider_account_id.clone(),
-            params,
-            (&copy.thread_id, copy.model.clone(), tier),
-            stop,
-            answered,
-        );
         question.turn_id = Some(turn_id.clone());
-        let filing = SessionUsageFiling {
-            usage,
-            session_id: params.session_id,
-            binding_id: params.binding_id.clone(),
-            provider_account_id: resume.provider_account_id.clone(),
-            pricing: CodexRecorderPricing::new(pricing),
-        };
         self.tasks.spawn(answer_at_rest(
             Arc::clone(&self.dispatch),
             filing,
