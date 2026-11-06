@@ -21,6 +21,9 @@ blake3.workspace = true
 bytes.workspace = true
 console.workspace = true
 diffy.workspace = true
+# Reads the Agent SDK tarball's gzip, and compresses the tests' loopback connector list as the
+# service may send it.
+flate2.workspace = true
 futures.workspace = true
 getrandom.workspace = true
 hpke.workspace = true
@@ -62,6 +65,8 @@ sidekicks-workspace.workspace = true
 starlark.workspace = true
 strum.workspace = true
 subtle.workspace = true
+# Reads the Agent SDK tarball's one entry, its `sdk.mjs`.
+tar.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
@@ -80,8 +85,6 @@ vte.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
-# Compresses the loopback connector list's reply as the service may send it.
-flate2.workspace = true
 mockall.workspace = true
 proptest.workspace = true
 rstest.workspace = true

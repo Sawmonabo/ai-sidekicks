@@ -73,6 +73,7 @@ use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandI
 use crate::port::session_inbox_address::SessionInboxAddresser;
 
 mod account;
+mod agent_sdk;
 mod attachments;
 mod capabilities;
 mod capability_probe;
