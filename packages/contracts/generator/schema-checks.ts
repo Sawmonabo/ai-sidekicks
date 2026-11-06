@@ -214,6 +214,7 @@ const RUNTIME_HELPERS: Readonly<Record<string, string>> = {
   equal: "deepEqual",
 };
 const AJV_EXPORT = /^export const (\w+) = (validate\d+);$/u;
+const AJV_EVALUATED = /^(validate\d+)\.evaluated = (.*);$/u;
 
 /**
  * Generates the checks for `module`'s checked definitions, with every module's schema available
@@ -280,6 +281,12 @@ export function generateChecks(
     if (schemaConstant !== null) {
       return [`const ${schemaConstant[1]!}: any = ${statement.slice(schemaConstant[0].length)}`];
     }
+    // A check reads the `props` or `items` of another's `evaluated`, which one object
+    // literal's inferred type may lack.
+    const evaluated = AJV_EVALUATED.exec(statement);
+    if (evaluated !== null) {
+      return [`${evaluated[1]!}.evaluated = ${evaluated[2]!} as any;`];
+    }
     const head = AJV_FUNCTION_HEAD.exec(statement);
     if (head === null) {
       return [statement];
@@ -293,7 +300,10 @@ export function generateChecks(
     const body = replaceOutsideStrings(statement.slice(head[0].length), (part) =>
       part
         .replace(/\b(let|var|const) (\w+) = /gu, "$1 $2: any = ")
-        .replace(/\b(let|var) (\w+);/gu, "$1 $2: any;"),
+        .replace(/\b(let|var) (\w+);/gu, "$1 $2: any;")
+        // `multipleOf` guards its literal divisor against zero, which TypeScript refuses as a
+        // comparison of two constants.
+        .replace(/\((\d+(?:\.\d+)?) === 0 \|\| \(/gu, "(($1 as number) === 0 || ("),
     );
     // Declares `errors` where TypeScript sees a function's own properties, beside `evaluated`.
     return [typedHead + body, `${functionName}.errors = null;`];
