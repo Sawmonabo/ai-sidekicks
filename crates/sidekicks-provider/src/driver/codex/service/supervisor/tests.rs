@@ -21,6 +21,7 @@ use super::{CodexService, CodexServiceSocket};
 use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::session::inbound::{CodexSessionInbound, codex_session_inbound};
+use crate::driver::codex::session::state::CODEX_THREAD_FRAME_ROUTER_CONFIG;
 use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestCodexSession};
 use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::driver::test_registry::new_session_id;
@@ -323,7 +324,10 @@ async fn a_held_frame_expires_at_its_deadline_with_no_later_frame() {
     );
     marker(&session, "active");
     reached_until(&mut session, "active").await;
-    tokio::time::sleep(Duration::from_secs(6)).await;
+    tokio::time::sleep(
+        CODEX_THREAD_FRAME_ROUTER_CONFIG.pending_registration_timeout + Duration::from_secs(1),
+    )
+    .await;
     session
         .task
         .record
