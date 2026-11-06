@@ -99,6 +99,9 @@ pub(crate) enum DaemonStartError {
     /// This machine's row could not be read or minted.
     #[error(transparent)]
     LocalMachine(#[from] LocalMachineError),
+    /// The client bun is fetched through could not be built.
+    #[error("bun's download client could not be built")]
+    BunClient(#[source] reqwest::Error),
     /// The wall clock the scheduler's timed jobs run on could not be armed.
     #[error("the scheduler's wall clock could not be armed")]
     WallClock(#[source] std::io::Error),

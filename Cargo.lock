@@ -8668,6 +8668,7 @@ name = "sidekicks-daemon"
 version = "0.0.0"
 dependencies = [
  "alacritty_terminal",
+ "axum",
  "base16ct 1.0.0",
  "blake3",
  "bytes",
@@ -8745,6 +8746,7 @@ dependencies = [
  "walkdir",
  "web-push-native",
  "x-wing",
+ "zip",
 ]
 
 [[package]]
@@ -8875,7 +8877,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tree-sitter",
- "typed-path",
+ "typed-path 0.12.3",
  "uds_windows",
  "walkdir",
  "windows",
@@ -10544,6 +10546,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e28f89b80c87b8fb0cf04ab448d5dd0dd0ade2f8891bae878de66a75a28600e"
 
 [[package]]
+name = "typed-path"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ce898823d8cd0f028662d2f349694b1af0a5cc9be83f1d213a00d3147445e1e"
+
+[[package]]
 name = "typeid"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11711,16 +11719,19 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "9.0.2"
+version = "9.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e2fc56a6707efb066c40aead2409ebb1224e6dde24a074e9fbc78ced500507b"
+checksum = "3cec733c9820347a592f6375c3c0089b479ba0a0b1cbf3dd1958b02959b7c033"
 dependencies = [
  "crc32fast",
  "flate2",
+ "getrandom 0.4.3",
  "indexmap 2.14.2",
+ "libc",
  "memchr",
  "nix 0.31.3",
- "typed-path",
+ "typed-path 0.13.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

@@ -84,6 +84,7 @@ use sidekicks_workspace::project::service::{ProjectService, ProjectServiceDeps};
 use crate::daemon::artifact_methods::ArtifactMethods;
 use crate::daemon::backup::methods::BackupMethodsDeps;
 use crate::daemon::backup::run::Backups;
+use crate::daemon::bun::BunInstall;
 use crate::daemon::config_methods::ConfigMethodsDeps;
 use crate::daemon::configuration::ConfigurationStore;
 use crate::daemon::data_methods::DataMethodsDeps;
@@ -175,6 +176,8 @@ pub(crate) struct MethodInputsStart<'start> {
     pub(crate) configuration: Arc<ConfigurationStore>,
     /// The service's backups.
     pub(crate) backups: Arc<Backups>,
+    /// bun's install, which the drivers ask bun's path from.
+    pub(crate) bun: Arc<BunInstall>,
     /// The session list's feed, the one the repository services refresh.
     pub(crate) list_feed: Arc<SessionListFeed>,
     /// The plan store's holds, the same the session list reads.
@@ -313,6 +316,7 @@ pub(crate) async fn register_method_inputs(
         settings,
         configuration,
         backups,
+        bun,
         list_feed,
         plan_holds,
         orphan_guard,
@@ -554,6 +558,7 @@ pub(crate) async fn register_method_inputs(
             idle_sleep: Arc::clone(&session.idle_sleep),
             session_resumes: Arc::clone(&session.stored_resumes),
             provider_sessions: Arc::clone(&session.provider_sessions),
+            bun_program: bun,
         },
     )?;
     let shells = Arc::new(

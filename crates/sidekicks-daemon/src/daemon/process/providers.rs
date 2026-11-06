@@ -84,6 +84,7 @@ use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 use tokio::task::JoinError;
 use tokio_util::task::AbortOnDropHandle;
 
+use crate::daemon::bun::BunInstall;
 use crate::daemon::process::session_services::stored_resumes::StoredSessionResumes;
 use crate::program::dispatches_hook_mode;
 
@@ -353,6 +354,8 @@ pub(crate) struct DriverPortOwners {
     pub(crate) session_account_moves: Arc<dyn SessionAccountMoveRecorder>,
     /// The one lock on account homes, which a driver's renewal in an account's home holds.
     pub(crate) account_home_lock: Arc<AccountHomeLock>,
+    /// bun's install, which a driver asks bun's path from for a step that runs under bun.
+    pub(crate) bun_program: Arc<BunInstall>,
 }
 
 /// The places the daemon runs sessions in: this computer's own system alone, its login shell's
@@ -429,6 +432,7 @@ pub(crate) fn register_driver_ports(
         .session_account_moves
         .register(owners.session_account_moves)?;
     ports.account_home_lock.register(owners.account_home_lock)?;
+    ports.bun_program.register(owners.bun_program)?;
     ports.run_pauses.register(owners.run_pauses)
 }
 

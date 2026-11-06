@@ -1,6 +1,6 @@
 //! The background jobs the start schedules once its recovery pass has ended: the writer's passive
 //! checkpoint and daily optimize, the hourly diagnostic-log expiry, the crash report pass at once
-//! and then hourly, and the daily backup; and the one-shot collect that hands freed memory back
+//! and then hourly, the daily backup and bun's install; and the one-shot collect that hands freed memory back
 //! once the daemon's work goes quiet.
 
 use std::error::Error;
@@ -17,6 +17,7 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::AbortOnDropHandle;
 
 use crate::daemon::backup::run::Backups;
+use crate::daemon::bun::{BunInstall, schedule_bun_install};
 use crate::daemon::crash::reports::{CrashReportDeps, crash_report_job};
 use crate::daemon::machine_settings::file::MachineSettingsFile;
 use crate::daemon::release_version::this_build_release_version;
@@ -40,6 +41,8 @@ pub(crate) struct JobDeps {
     pub(crate) settings: Arc<MachineSettingsFile>,
     /// The service's backups, whose daily run is scheduled here.
     pub(crate) backups: Arc<Backups>,
+    /// bun's install, whose first run is scheduled here.
+    pub(crate) bun: Arc<BunInstall>,
 }
 
 /// Why a job could not be scheduled.
@@ -56,8 +59,8 @@ pub(crate) enum JobScheduleError {
 
 /// Schedules every background job on `scheduler`, each run whenever it falls due: the passive
 /// checkpoint every five minutes, the optimize a day after the start and daily after, the
-/// diagnostic-log expiry and the crash report pass at once and then hourly, and the daily backup.
-/// Fails with the first job the scheduler refuses.
+/// diagnostic-log expiry and the crash report pass at once and then hourly, the daily backup, and
+/// bun's install at once. Fails with the first job the scheduler refuses.
 pub(crate) async fn schedule_jobs(
     scheduler: &Arc<Scheduler>,
     deps: JobDeps,
@@ -68,6 +71,7 @@ pub(crate) async fn schedule_jobs(
         data_folder,
         settings,
         backups,
+        bun,
     } = deps;
     scheduler.schedule_repeating(
         "passive checkpoint",
@@ -110,6 +114,7 @@ pub(crate) async fn schedule_jobs(
         .schedule_daily(scheduler)
         .await
         .map_err(JobScheduleError::DailyBackup)?;
+    schedule_bun_install(bun, scheduler)?;
     Ok(())
 }
 

@@ -61,7 +61,7 @@ use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
 use sidekicks_store::credential_store::os::KEYCHAIN_CALL_TIMEOUT;
 use sidekicks_store::data_folder::lock::DataFolderLock;
-use sidekicks_store::data_folder::{data_folder, program_link_folder};
+use sidekicks_store::data_folder::{data_folder, program_link_folder, tools_folder};
 use sidekicks_store::database::connection::writer_open::{
     DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME,
 };
@@ -83,6 +83,7 @@ use crate::daemon::backup::roots::mirror_roots_reader;
 use crate::daemon::backup::run::{
     BackupDeps, Backups, backup_folder, backup_manifest_facts, default_backup_folder,
 };
+use crate::daemon::bun::BunInstall;
 use crate::daemon::configuration::ConfigurationStore;
 use crate::daemon::crash::monitor::{crash_monitor_socket_path, remove_dead_monitor_sockets};
 use crate::daemon::login_shell_environment::capture_provider_base_environment;
@@ -316,6 +317,10 @@ impl DaemonProcess {
             })?;
         }
         let data_folder = data_folder(home_folder);
+        let bun = Arc::new(
+            BunInstall::for_release(&tools_folder(&data_folder))
+                .map_err(DaemonStartError::BunClient)?,
+        );
         prepare_run_folder(run_folder).await?;
         remove_dead_monitor_sockets(&run_folder.folder_path).await;
         let session_token = mint_session_token().map_err(DaemonStartError::SessionToken)?;
@@ -577,6 +582,7 @@ impl DaemonProcess {
                 settings: Arc::clone(&settings),
                 configuration: Arc::clone(&configuration),
                 backups: Arc::clone(&backups),
+                bun: Arc::clone(&bun),
                 list_feed,
                 plan_holds: Arc::new(StoredPlanHolds),
                 orphan_guard,
@@ -730,6 +736,7 @@ impl DaemonProcess {
                 data_folder,
                 settings,
                 backups,
+                bun,
             },
         )
         .await?;
