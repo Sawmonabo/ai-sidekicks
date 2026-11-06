@@ -309,11 +309,12 @@ impl ClaudeInboundRequests {
         Ok(())
     }
 
-    // Closes the window of the call `tool_use_id`, refused before it ran, with no after-capture.
+    // Closes the window of the call `tool_use_id`, refused before it ran, with no after-capture;
+    // its note is dropped unrecorded.
     fn close_unrun(&self, session_id: SessionId, tool_use_id: &str) {
         let windows = &self.dependencies.command_windows;
-        if let Some((window, end)) = windows.take_unrun(session_id, tool_use_id) {
-            windows.close(window, end);
+        if let Some(closing) = windows.take_unrun(session_id, tool_use_id) {
+            windows.close(closing);
         }
     }
 

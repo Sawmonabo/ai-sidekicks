@@ -24,6 +24,7 @@ use sidekicks_store::data_folder::program_link_folder;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 
 use crate::command::askpass::command_askpass_program_path;
+use crate::command::channel::records::LineCapture;
 use crate::command::wrapper::command_wrapper_program_path;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::DriverServices;
@@ -109,6 +110,9 @@ pub(crate) struct ClaudeDriver {
     pub(crate) account_legs: Arc<ClaudeAccountLegs>,
     // One capability read at a time, since each makes and removes the same folder.
     capability_read: tokio::sync::Mutex<()>,
+    // The windows and notes of every session's commands, which the command channels pair each
+    // line with and every compose of the session pieces shares.
+    command_windows: Arc<ClaudeCommandWindows>,
     parts: OnceLock<Arc<ClaudeSessionParts>>,
 }
 
@@ -205,6 +209,9 @@ impl ClaudeDriver {
     ) -> Self {
         let usage_probe_models: Arc<ClaudeUsageProbeModels> = Arc::default();
         let link_folder = program_link_folder(&services.data_folder);
+        let command_windows = Arc::new(ClaudeCommandWindows::new(Arc::clone(
+            &services.ports.command_capture,
+        )));
         let sources = Arc::new(ClaudeSpawnSources {
             spawner: services.spawner.clone(),
             command_sandbox_check,
@@ -226,7 +233,10 @@ impl ClaudeDriver {
                 Arc::clone(&services.caller_processes),
                 Arc::clone(&services.input_waits),
                 Arc::clone(&services.ports.command_output),
-                Arc::clone(&services.ports.command_capture),
+                LineCapture {
+                    capture: Arc::clone(&services.ports.command_capture),
+                    noted_calls: Some(Arc::clone(&command_windows) as _),
+                },
             )),
             ports: Arc::clone(&services.ports),
         });
@@ -258,6 +268,7 @@ impl ClaudeDriver {
                 usage_probe_models,
             )),
             capability_read: tokio::sync::Mutex::default(),
+            command_windows,
             parts: OnceLock::new(),
         }
     }
@@ -328,9 +339,7 @@ impl ClaudeDriver {
         let pauses = Arc::new(Mutex::new(ClaudeRunPauses::default()));
         let helpers = Arc::new(Mutex::new(ClaudeHelperLimit::default()));
         let helper_steers = Arc::new(Mutex::new(ClaudeHelperSteers::default()));
-        let command_windows = Arc::new(ClaudeCommandWindows::new(Arc::clone(
-            &ports.command_capture,
-        )));
+        let command_windows = Arc::clone(&self.command_windows);
         let dialogs = Arc::new(ClaudeProviderDialogs::new(ClaudeStreamDialogPorts::new(
             Arc::clone(dispatch),
             Arc::clone(&routes),

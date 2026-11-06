@@ -1,9 +1,10 @@
 //! Routes each request a live Claude Code process sends: the daemon's own pause, helper-start,
 //! message-target, helper-limit, helper-wake and background-work hooks are answered here, the
 //! pre-tool hook of a call that changes a file only once its file's copy is kept, that of a command
-//! that runs with no wrapper only once its window is open, the post-tool hooks of such a command
-//! close its window, and every other request (tool asks, dialogs, the question hook, a reviewer's
-//! block) goes on to the event side, which answers it or leaves it pending at the provider.
+//! that runs with no wrapper only once its window is open and that of a shell call the wrapper runs
+//! once the call is noted, the post-tool hooks of a command with no wrapper close its window, and
+//! every other request (tool asks, dialogs, the question hook, a reviewer's block) goes on to the
+//! event side, which answers it or leaves it pending at the provider.
 
 use std::sync::{Arc, Mutex};
 
@@ -94,6 +95,10 @@ pub(crate) enum ClaudeRequestRoute {
         request_id: String,
         /// The shell call the hook was asked about.
         call: ClaudeShellCall,
+        /// The call's tool-use id, `None` where the hook names none.
+        tool_use_id: Option<String>,
+        /// The calling helper's id, `None` on the lead.
+        agent_id: Option<String>,
     },
     /// Answer or hold it through [`route_helper_start`], which checks the session's posture before
     /// the pause decides: a call of the helper tool, by the lead or a helper.
@@ -136,7 +141,8 @@ pub(crate) enum ClaudeRequestRoute {
 pub(crate) enum ClaudeToolCapture {
     /// The copy of the file the call changes.
     Edit(EditCheckpointRequest),
-    /// The window of the command the call runs with no wrapper.
+    /// The window of the command the call runs with no wrapper, or the note of the shell call
+    /// the wrapper runs.
     Command(ClaudeCommandTarget),
 }
 
@@ -313,11 +319,13 @@ pub(crate) fn route_claude_request(
             agent_id,
         ),
         RegisteredHook::BackgroundWork => ClaudeRequestRoute::CheckBackgroundWork {
+            tool_use_id: read_tool_use_id(callback, input.as_ref()).map(str::to_owned),
             call: input
                 .and_then(|input| input.tool_input)
                 .map(ClaudeShellCall::of)
                 .unwrap_or_default(),
             request_id: request.request_id,
+            agent_id,
         },
         RegisteredHook::HelperLimit => {
             let tool_use_id = read_tool_use_id(callback, input.as_ref())
@@ -726,6 +734,7 @@ fn read_hooked_capture(
         tool_input.and_then(|tool_input| tool_input.command.as_deref()),
         tool_use_id,
         agent_id,
+        tool_input.and_then(|tool_input| tool_input.run_in_background),
     )
     .map(ClaudeToolCapture::Command)
 }

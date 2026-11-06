@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::process::Child;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -11,15 +11,18 @@ use sidekicks_contracts::command::{
     AgentCommandEndedPayload, AgentCommandSubscribeFrame, CommandId,
 };
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::BoundedInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_platforms::{InputTerminal, InputWaitReading, TerminalSignal, send_signal};
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::watch;
 
-use super::{RecordFollower, follow_channel_records, tail_output};
+use super::{LineCapture, NotedWrapperCalls, RecordFollower, follow_channel_records, tail_output};
 use crate::command::channel::test_support::{
     KeyPair, end_party, names_in, open_channel, party_command, ready_parties, sealed,
     sent_requests, write_party_record,
@@ -34,7 +37,8 @@ use crate::command::running_set::{
 use crate::command::waiting_checks::InputWaitReader;
 use crate::driver::contract::MockProviderDriver;
 use crate::port::command_capture::{
-    CaptureCall, CommandWindowEnd, held_capture, next_call, no_call, unregistered_capture,
+    CaptureCall, CommandCapture, CommandWindowEnd, held_capture, held_capture_with_starts,
+    next_call, no_call, unregistered_capture,
 };
 use crate::port::running_command_publisher::{CommandStart, RunningCommandPublisher as _};
 
@@ -102,6 +106,36 @@ fn starting(process: Option<&str>) -> PartyRecord {
 
 fn session() -> SessionId {
     SessionId::new(SESSION).expect("a session id")
+}
+
+/// The capture of a follower whose provider notes no calls, lines captured through `capture`.
+fn unnoted(capture: Arc<PortRegistration<Arc<dyn CommandCapture>>>) -> LineCapture {
+    LineCapture {
+        capture,
+        noted_calls: None,
+    }
+}
+
+/// Noted calls that answer `paired` for every start and keep each line they are asked, in order.
+struct RecordedNotes {
+    paired: Option<ToolCallId>,
+    asked: Mutex<Vec<String>>,
+}
+
+impl RecordedNotes {
+    fn pairing(paired: Option<&str>) -> Arc<Self> {
+        Arc::new(Self {
+            paired: paired.map(|id| ToolCallId::new(id.to_owned()).expect("a call id")),
+            asked: Mutex::default(),
+        })
+    }
+}
+
+impl NotedWrapperCalls for RecordedNotes {
+    fn pair_started_wrapper(&self, _session_id: SessionId, line: &str) -> Option<ToolCallId> {
+        lock(&self.asked).push(line.to_owned());
+        self.paired.clone()
+    }
 }
 
 /// The start of a row `id` whose line runs `id`.
@@ -242,7 +276,7 @@ async fn a_wrapper_killed_after_its_start_is_let_go() {
         watch,
         Arc::clone(&sets),
         Arc::new(NoTerminals),
-        unregistered_capture(),
+        unnoted(unregistered_capture()),
     ));
     let stdout_path = folder.path().join("output");
     std::fs::write(&stdout_path, b"").expect("the output file is made");
@@ -294,7 +328,7 @@ async fn a_nested_wrapper_is_answered_go_and_let_go_at_its_end() {
         watch,
         Arc::clone(&sets),
         Arc::new(NoTerminals),
-        unregistered_capture(),
+        unnoted(unregistered_capture()),
     ));
     let starting = PartyRecord::Starting {
         command: "npm test".to_owned(),
@@ -348,7 +382,7 @@ async fn an_askpass_s_answer_waits_for_it_and_its_end_closes_its_prompt() {
         watch,
         Arc::clone(&sets),
         Arc::new(NoTerminals),
-        unregistered_capture(),
+        unnoted(unregistered_capture()),
     ));
     let requests = channel.folder.join(REQUESTS_FOLDER);
     // The first askpass is answered, the second dies unanswered.
@@ -449,7 +483,7 @@ async fn a_wrapper_s_exit_written_just_before_its_end_settles_its_row() {
         channel: Arc::clone(&channel),
         set: Arc::clone(&sets),
         waits: Arc::new(NoTerminals),
-        capture: unregistered_capture(),
+        line_capture: unnoted(unregistered_capture()),
         wrappers: HashMap::new(),
         askpasses: HashMap::new(),
         process_ended,
@@ -519,7 +553,7 @@ async fn a_line_s_go_waits_for_its_window_which_closes_after_its_open() {
         watch,
         Arc::clone(&sets),
         Arc::new(NoTerminals),
-        capture,
+        unnoted(capture),
     ));
 
     // The window opens while the wrapper waits acknowledged, and `go` follows its open.
@@ -604,9 +638,10 @@ async fn a_line_s_go_waits_for_its_window_which_closes_after_its_open() {
 }
 
 // Fails when a relayed command, a wrapper under another or a follower with no capture registered
-// opens a window or waits on one, or when a failed open leaves its wrapper waiting. Mutations:
-// drop `process.is_none()` or `!received.is_nested` from the capture's filter; return before
-// `Go` in the window's task when the open fails.
+// opens a window or waits on one, when a relayed or a nested start takes a call's note, or when a
+// failed open leaves its wrapper waiting. Mutations: drop `process.is_none()` or
+// `!received.is_nested` from `is_line`; return before `Go` in the window's task when the open
+// fails.
 #[tokio::test]
 async fn a_wrapper_with_no_window_or_a_failed_one_is_answered_go() {
     let folder = tempfile::tempdir().expect("a folder");
@@ -614,6 +649,7 @@ async fn a_wrapper_with_no_window_or_a_failed_one_is_answered_go() {
     let sets = unbound_running_command_sets();
     let (_opens, failed_opens) = watch::channel(Some(false));
     let (capture, mut called) = held_capture(failed_opens);
+    let noted = RecordedNotes::pairing(None);
     let watch = channel.watch().await.expect("the channel is watched");
     let follower = tokio::spawn(follow_channel_records(
         session(),
@@ -622,7 +658,10 @@ async fn a_wrapper_with_no_window_or_a_failed_one_is_answered_go() {
         watch,
         Arc::clone(&sets),
         Arc::new(NoTerminals),
-        capture,
+        LineCapture {
+            capture,
+            noted_calls: Some(Arc::clone(&noted) as _),
+        },
     ));
     let answered_go = |keys: &KeyPair, party: PartyId| {
         let channel = Arc::clone(&channel);
@@ -661,6 +700,11 @@ async fn a_wrapper_with_no_window_or_a_failed_one_is_answered_go() {
     write_party_record(&channel, &nested_keys, nested_id, 1, &starting(None));
     answered_go(&nested_keys, nested_id).await;
     no_call(&mut called, "a nested wrapper opened a window").await;
+    assert_eq!(
+        *lock(&noted.asked),
+        ["npm test"],
+        "only the line's start pairs"
+    );
     follower.abort();
 
     // With no capture registered a line is answered go at once.
@@ -672,7 +716,7 @@ async fn a_wrapper_with_no_window_or_a_failed_one_is_answered_go() {
         watch,
         Arc::clone(&sets),
         Arc::new(NoTerminals),
-        unregistered_capture(),
+        unnoted(unregistered_capture()),
     ));
     let (line, line_keys, ready) = started_party(None);
     write_party_record(&channel, &line_keys, ready[0], 1, &starting(None));
@@ -681,4 +725,40 @@ async fn a_wrapper_with_no_window_or_a_failed_one_is_answered_go() {
     for party in [relayed, outer, line] {
         end_party(party);
     }
+}
+
+// Fails when a line's start skips the pairing, or its window drops the call it paired with.
+// Mutations: drop the `pair_started_wrapper` call; open the window with no tool call.
+#[tokio::test]
+async fn a_wrapper_start_names_the_call_it_paired_with() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let channel = Arc::new(open_channel(folder.path(), std::process::id()));
+    let (_opens, opens) = watch::channel(Some(true));
+    let (capture, mut called, starts) = held_capture_with_starts(opens);
+    let noted = RecordedNotes::pairing(Some("toolu_1"));
+    let watch = channel.watch().await.expect("the channel is watched");
+    let follower = tokio::spawn(follow_channel_records(
+        session(),
+        None,
+        Arc::clone(&channel),
+        watch,
+        unbound_running_command_sets(),
+        Arc::new(NoTerminals),
+        LineCapture {
+            capture,
+            noted_calls: Some(Arc::clone(&noted) as _),
+        },
+    ));
+
+    let (party, keys, ready) = started_party(None);
+    write_party_record(&channel, &keys, ready[0], 1, &starting(None));
+
+    assert_eq!(next_call(&mut called).await, CaptureCall::Open(1));
+    assert_eq!(*lock(&noted.asked), ["npm test"]);
+    assert_eq!(
+        lock(&starts)[0].tool_call_id,
+        Some(ToolCallId::new("toolu_1".to_owned()).expect("a call id"))
+    );
+    follower.abort();
+    end_party(party);
 }

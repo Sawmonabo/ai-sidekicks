@@ -35,6 +35,7 @@ use self::endpoint::RelayEndpoint;
 use self::executor::{CodexExecutor, ProcessEnd};
 use crate::bearer_token::BearerToken;
 use crate::command::channel::CommandChannel;
+use crate::command::channel::records::LineCapture;
 use crate::command::running_set::RunningCommandSets;
 use crate::command::waiting_checks::InputWaitReader;
 use crate::driver::codex::app_server_protocol::EnvironmentAddParams;
@@ -537,7 +538,10 @@ impl CodexExecRelay {
             watch,
             sets,
             Arc::clone(&self.dependencies.input_waits),
-            Arc::clone(&self.dependencies.command_capture),
+            LineCapture {
+                capture: Arc::clone(&self.dependencies.command_capture),
+                noted_calls: None,
+            },
         );
         let follower = tokio::spawn(async move {
             // The watch failing ends the following; the rows keep what Codex reports of them.

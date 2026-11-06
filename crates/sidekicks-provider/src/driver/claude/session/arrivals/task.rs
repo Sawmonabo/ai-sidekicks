@@ -2,10 +2,11 @@
 //! still binds opens a turn Claude Code started by itself, feeds the goal, helper and stream
 //! readings, and leaves the running model and a too-long turn's cut behind it; a turn end settles
 //! the turn; a request goes through the daemon's hooks or on to the requests, an edit's copy or a
-//! command's window and its answer spawned off the task, and a command's window closed off it at
-//! its post-tool hook; the exit forgets everything the process held. What no closer reached is
-//! closed at its caller's end: the lead's foreground commands at its turn's end, a helper's at the
-//! helper's end, and every command of the process, background ones too, at the process's end.
+//! command's window and its answer spawned off the task, a command's window closed off it at its
+//! post-tool hook, and a shell call the background-work hook denies left with no note or window;
+//! the exit forgets everything the process held. What no closer reached is closed at its caller's
+//! end: the lead's foreground commands at its turn's end, a helper's at the helper's end, and
+//! every command of the process, background ones too, at the process's end.
 
 use std::sync::{Arc, Mutex};
 
@@ -113,7 +114,7 @@ pub(crate) struct ClaudeSessionTaskServices {
     /// The copy kept before each edit a passed pre-tool hook lets run, once registered.
     pub(crate) edit_checkpoint: Arc<PortRegistration<Arc<dyn EditCheckpoint>>>,
     /// The windows of the commands that run with no wrapper, opened at their pre-tool hooks and
-    /// closed at their post-tool hooks.
+    /// closed at their post-tool hooks, with the notes of the shell calls the wrapper runs.
     pub(crate) command_windows: Arc<ClaudeCommandWindows>,
     /// Which process runs each session, each removed at its exit.
     pub(crate) processes: Arc<ProviderProcessRegistry>,
@@ -378,8 +379,8 @@ impl ClaudeSessionTask {
                     &ClaudeHookAnswer::Pass,
                 )
                 .await;
-                if let Some((window, end)) = closing {
-                    services.command_windows.close(window, end);
+                if let Some(closing) = closing {
+                    services.command_windows.close(closing);
                 }
             }
             ClaudeRequestRoute::Held { helper } => {
@@ -396,13 +397,30 @@ impl ClaudeSessionTask {
                     );
                 }
             }
-            ClaudeRequestRoute::CheckBackgroundWork { request_id, call } => {
+            ClaudeRequestRoute::CheckBackgroundWork {
+                request_id,
+                call,
+                tool_use_id,
+                agent_id,
+            } => {
                 let answer = answer_background_work_check(
                     &services.shell_lines,
                     &services.background_work,
                     call,
                 )
                 .await;
+                // A pre-tool hook's deny reaches no refusal a closer reads, so the call's note or
+                // window is taken here, before Claude Code reads the deny.
+                if let (ClaudeHookAnswer::Deny { .. }, Some(tool_use_id)) = (&answer, tool_use_id)
+                    && let Some(closing) = services.command_windows.take_refused(
+                        session_id,
+                        live.process_identity,
+                        agent_id,
+                        &tool_use_id,
+                    )
+                {
+                    services.command_windows.close(closing);
+                }
                 answer_claude_request(&*live.channel, &session_id, account, request_id, &answer)
                     .await;
             }
@@ -425,8 +443,8 @@ impl ClaudeSessionTask {
     fn close_remaining_commands(&self, owner: &ClaudeCommandOwner) {
         let windows = &self.services.command_windows;
         let live = &self.live;
-        for (window, end) in windows.take_remaining(live.session_id, live.process_identity, owner) {
-            windows.close(window, end);
+        for closing in windows.take_remaining(live.session_id, live.process_identity, owner) {
+            windows.close(closing);
         }
     }
 

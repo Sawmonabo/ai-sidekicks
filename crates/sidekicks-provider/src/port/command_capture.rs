@@ -42,7 +42,8 @@ pub struct CommandWindowStart {
     pub apart_run: Option<RunId>,
     /// The command line the provider gave.
     pub command: String,
-    /// The provider's tool call that ran the command, `None` where the leg has none.
+    /// The provider's tool call that ran the command, `None` where the leg has none; the wrapper
+    /// leg names the call its wrapper paired with.
     pub tool_call_id: Option<ToolCallId>,
 }
 
@@ -117,4 +118,10 @@ pub trait CommandCapture: Send + Sync {
     /// Closes `window` as `end` says, at the command's end as its leg reads it, unrun where the
     /// leg ended before the command began. Called once per window, last.
     fn close_window(&self, window: CommandWindowId, end: CommandWindowEnd) -> BoxFuture<'_, ()>;
+
+    /// Records a command that ran with no window as run uncovered, under the session's newest
+    /// checkpoint and at the time of this call. Records nothing for a session with no checkpoint
+    /// or a run with no checkout, as an open is refused; where the record cannot be written, marks
+    /// the session's capture failed. Answers at once.
+    fn record_uncovered_command(&self, start: CommandWindowStart) -> BoxFuture<'_, ()>;
 }

@@ -16,7 +16,9 @@ use crate::driver::claude::hooks::callbacks::{
     ClaudeRequestRoute, ClaudeToolCapture, answer_released_callbacks,
 };
 use crate::driver::claude::hooks::command_capture::tests::open_one_window;
-use crate::driver::claude::hooks::command_capture::{ClaudeCommandTarget, ClaudeCommandWindows};
+use crate::driver::claude::hooks::command_capture::{
+    ClaudeCommandLeg, ClaudeCommandTarget, ClaudeCommandWindows,
+};
 use crate::driver::claude::hooks::edit_checkpoint::tests::is_answered;
 use crate::driver::claude::hooks::pause::{ClaudeHookAnswer, ClaudeRunPauses};
 use crate::driver::claude::hooks::registration::ClaudeHookCallback as RegisteredHook;
@@ -45,30 +47,56 @@ fn call_input(
     input
 }
 
-// Killed by `Bash` given a hook window where the wrapper runs it (two windows for one command), a
-// `Monitor` with no command opened, and the tool-use id or the helper dropped.
+// The leg a routed `Bash` call takes here, in the background where `is_background` says.
+const fn shell_leg(is_background: bool) -> ClaudeCommandLeg {
+    if RUNS_COMMAND_WRAPPER {
+        ClaudeCommandLeg::Wrapper { is_background }
+    } else {
+        ClaudeCommandLeg::Hook
+    }
+}
+
+// Killed by `Bash` given a hook window where the wrapper runs it (two windows for one command), the
+// `Bash` call left unnoted, its background flag dropped, a `Monitor` with no command opened, and the
+// tool-use id or the helper dropped.
 #[rstest]
-#[case::powershell("PowerShell", json!({ "command": "Get-ChildItem" }), true, true)]
-#[case::monitor_running_a_command("Monitor", json!({ "command": "tail -f app.log" }), true, true)]
+#[case::powershell(
+    "PowerShell",
+    json!({ "command": "Get-ChildItem" }),
+    true,
+    Some(ClaudeCommandLeg::Hook)
+)]
+#[case::monitor_running_a_command(
+    "Monitor",
+    json!({ "command": "tail -f app.log" }),
+    true,
+    Some(ClaudeCommandLeg::Hook)
+)]
 #[case::monitor_watching_a_socket(
     "Monitor",
     json!({ "ws": { "url": "ws://localhost:9000" } }),
     true,
-    false
+    None
 )]
-#[case::read("Read", json!({ "file_path": "/work/notes.md" }), true, false)]
+#[case::read("Read", json!({ "file_path": "/work/notes.md" }), true, None)]
 #[case::powershell_with_no_tool_use_id(
     "PowerShell",
     json!({ "command": "Get-ChildItem" }),
     false,
-    false
+    None
 )]
-#[case::shell("Bash", json!({ "command": "ls" }), true, !RUNS_COMMAND_WRAPPER)]
+#[case::shell("Bash", json!({ "command": "ls" }), true, Some(shell_leg(false)))]
+#[case::shell_in_the_background(
+    "Bash",
+    json!({ "command": "npm run dev", "run_in_background": true, "timeout": 60000 }),
+    true,
+    Some(shell_leg(true))
+)]
 fn a_command_call_routes_to_its_window(
     #[case] tool_name: &str,
     #[case] tool_input: Value,
     #[case] has_tool_use_id: bool,
-    #[case] is_routed: bool,
+    #[case] routed_leg: Option<ClaudeCommandLeg>,
 ) {
     let command = tool_input["command"].as_str().map(str::to_owned);
     let input = call_input(
@@ -86,9 +114,9 @@ fn a_command_call_routes_to_its_window(
         "r1",
     );
 
-    match (is_routed, route) {
+    match (routed_leg, route) {
         (
-            true,
+            Some(leg),
             ClaudeRequestRoute::CaptureBeforeTool {
                 request_id,
                 capture: ClaudeToolCapture::Command(target),
@@ -101,17 +129,18 @@ fn a_command_call_routes_to_its_window(
                     tool_use_id: "toolu_1".to_owned(),
                     command: command.expect("a routed call carries its command"),
                     agent_id: Some("helper-1".to_owned()),
+                    leg,
                 }
             );
         }
         (
-            false,
+            None,
             ClaudeRequestRoute::Answer {
                 request_id,
                 answer: ClaudeHookAnswer::Pass,
             },
         ) if request_id == "r1" => {}
-        (is_routed, route) => panic!("expected a window: {is_routed}, routed {route:?}"),
+        (routed_leg, route) => panic!("expected a window: {routed_leg:?}, routed {route:?}"),
     }
 }
 
@@ -171,8 +200,8 @@ async fn each_post_hook_closes_its_window_once_with_its_end(
         assert_eq!(routed, request_id);
         // Taken as the session's task takes it.
         let closing = windows.take_post_hook(fixed_session_id(), &tool_use_id, end);
-        if let Some((window, end)) = closing {
-            windows.close(window, end);
+        if let Some(closing) = closing {
+            windows.close(closing);
         }
         if is_first {
             assert_eq!(
