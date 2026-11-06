@@ -37,6 +37,10 @@ use crate::lenient_json::{
 use crate::record_readers::filter_non_empty;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
+// The `inference_geo` words that name no region: `global`, and `not_available`, which Claude Code
+// sends on most requests and prices at the base rate.
+const CLAUDE_NO_REGION_WORDS: [&str; 2] = ["global", "not_available"];
+
 // The hook events whose run Claude Code reports while it starts, which `initialize`'s wait does
 // not count.
 const CLAUDE_STARTUP_HOOK_EVENTS: [&str; 2] = ["SessionStart", "Setup"];
@@ -441,8 +445,8 @@ fn read_token_counts(usage: &ClaudeTokenUsage) -> Option<UsageAxisCounts> {
 }
 
 // What prices a message's request: its model without the larger-window mark, its speed as given,
-// its region where it names one other than `global`, and its longer-lifetime cache write and web
-// searches so far. A text that does not fit its type reads as absent.
+// its region where it names one other than `global` or `not_available`, and its longer-lifetime
+// cache write and web searches so far. A text that does not fit its type reads as absent.
 fn read_request_facts(model: Option<&str>, usage: &ClaudeTokenUsage) -> ClaudeMessageRequestFacts {
     ClaudeMessageRequestFacts {
         model_id: model
@@ -451,7 +455,7 @@ fn read_request_facts(model: Option<&str>, usage: &ClaudeTokenUsage) -> ClaudeMe
         processing_region: usage
             .inference_geo
             .clone()
-            .filter(|region| region != "global")
+            .filter(|region| !CLAUDE_NO_REGION_WORDS.contains(&region.as_str()))
             .and_then(BoundedText::new),
         cache_write_extended_tokens: usage.cache_creation.as_ref().and_then(|cache_creation| {
             read_count(cache_creation.ephemeral_1h_input_tokens.as_deref())

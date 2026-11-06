@@ -267,10 +267,12 @@ async fn a_turn_too_long_for_the_window_files_an_exceeded_row_with_no_counts() {
     );
 }
 
-// The list's copy: the fixture's two models kept, and Opus 5.5 at its input and output rates.
+// The list's copy: the fixture's two models kept, and Opus 5.5 at its input and output rates and
+// its `us` multiplier.
 const OPUS_COPY: &[u8] = br#"{"m1": {"input_cost_per_token": 3e-06},
     "seed-only": {"input_cost_per_token": 2e-06},
-    "claude-opus-5-5": {"input_cost_per_token": 4e-06, "output_cost_per_token": 2e-05}}"#;
+    "claude-opus-5-5": {"input_cost_per_token": 4e-06, "output_cost_per_token": 2e-05,
+        "provider_specific_entry": {"us": 1.1}}}"#;
 
 // A price list in `scratch` that took `OPUS_COPY` from its stand-in server, registered for
 // `session`'s pricing; it runs until `stop`.
@@ -554,17 +556,30 @@ async fn a_result_stating_no_figures_leaves_its_rows_for_the_next() {
 }
 
 // Killed by leaving a turn's rows unpriced until a restart when its process ends before its
-// `result`: they are priced from the price list as the process ends.
+// `result`: they are priced from the price list as the process ends. Killed too by reading
+// `not_available` as a region, which holds the request, and by pricing `us` at the base rate.
+#[rstest]
+#[case::no_region(None, 14_000)]
+#[case::global(Some("global"), 14_000)]
+#[case::not_available(Some("not_available"), 14_000)]
+#[case::us(Some("us"), 15_400)]
 #[tokio::test]
-async fn a_process_that_ends_before_its_result_prices_its_rows_from_the_list() {
+async fn a_process_that_ends_before_its_result_prices_its_rows_from_the_list(
+    #[case] region: Option<&str>,
+    #[case] cost_usd_micros: u64,
+) {
     let scratch = tempfile::tempdir().expect("a scratch folder is made");
     let stop = CancellationToken::new();
     let session = ScriptedSession::new().await;
     register_price_list(&session, &scratch, &stop).await;
+    let mut message = priced_message("message-1", "claude-opus-5-5", 1_000, 500);
+    if let Some(region) = region {
+        message["message"]["usage"]["inference_geo"] = Value::from(region);
+    }
 
     session.hold_lead_turn("lead");
     session.frame(&init());
-    session.frame(&priced_message("message-1", "claude-opus-5-5", 1_000, 500));
+    session.frame(&message);
     ScriptedDriver::wait_for(|| session.usage.metered().len() == 1).await;
     session.exit();
     ScriptedDriver::wait_for(|| session.usage.priced().len() == 1).await;
@@ -574,7 +589,10 @@ async fn a_process_that_ends_before_its_result_prices_its_rows_from_the_list() {
         priced(&session.usage.priced()),
         [(
             UsageCostSource::DerivedExact,
-            vec![(test_provider_account_id().as_str().to_owned(), 14_000)]
+            vec![(
+                test_provider_account_id().as_str().to_owned(),
+                cost_usd_micros
+            )]
         )]
     );
 }

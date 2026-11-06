@@ -144,7 +144,8 @@ pub(crate) struct ClaudeMessageUsageObservation {
 
 /// What prices one assistant message's request, each absent where the message carries none or a
 /// value that does not fit: its model without the larger-window mark, its speed as given, its
-/// region (none for `global`), and its longer-lifetime cache write and web searches so far.
+/// region (none for `global` or `not_available`), and its longer-lifetime cache write and web
+/// searches so far.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ClaudeMessageRequestFacts {
     /// The model.
