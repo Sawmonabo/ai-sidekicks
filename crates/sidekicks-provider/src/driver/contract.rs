@@ -329,7 +329,8 @@ pub trait ProviderDriver: Send + Sync {
     /// pass of the provider's program on the account the session's leg runs on. `None` only when
     /// both returned no name, or the session never ran. A pass whose `cancel` fires ends at once
     /// and returns `None`, and so does one that runs past the driver's own bound on the whole pass,
-    /// which stops what it started as a cancel does.
+    /// which stops what it started as a cancel does. The pass's spend is recorded on
+    /// `params.binding_id` as the session's own, counted toward no run.
     fn name_session(
         &self,
         params: NameSessionParams,

@@ -15,6 +15,7 @@ use crate::driver::codex::service::supervisor::test_service::bind_test_listener;
 use crate::driver::codex::session::test_fixture::{TestCodexSession, turn_reply};
 use crate::driver::session_control::NameSessionParams;
 use crate::driver::test_registry::test_driver_services;
+use crate::runtime_binding::store::mint_runtime_binding_id;
 
 // Serves the title pass's connection as Codex up to its turn's start, which it never ends; answers
 // the interrupt the daemon sent.
@@ -83,6 +84,7 @@ async fn a_live_pass_that_spends_the_deadline_leaves_the_one_shot_pass_no_time()
             place: None,
             first_message: "Fix the login page".to_owned(),
             first_reply: "Looking at the form.".to_owned(),
+            binding_id: mint_runtime_binding_id(),
             cancel: CancellationToken::new(),
         })
         .await;

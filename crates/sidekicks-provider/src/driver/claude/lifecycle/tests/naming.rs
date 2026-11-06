@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::driver::ProviderAccountFolders;
 use crate::driver::claude::session::conversation_home::claude_conversation_home_metadata;
+use crate::driver::claude::session::scripted::binding_id;
 use crate::driver::claude::session::scripted::driver::{ScriptedDriver, sandbox_cannot_run};
 use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnOutcome, ClaudeOneTurnReply};
 use crate::driver::session_control::NameSessionParams;
@@ -99,6 +100,7 @@ async fn a_naming_pass_at_rest_runs_its_one_turn_in_no_mode_of_its_own() {
             place: None,
             first_message: "Fix the login page".to_owned(),
             first_reply: "Looking at the form.".to_owned(),
+            binding_id: binding_id("naming"),
             cancel: CancellationToken::new(),
         })
         .await
