@@ -71,8 +71,6 @@ const INT64_FORMAT: NumberFormat = Object.freeze({
  * The `format` rules a contract schema names: a function of the string it checks, or a number
  * rule in Ajv's object form. A schema naming a format missing here fails to typecheck its
  * generated check.
- *
- * @consumedBy the generated contract checks
  */
 export const SCHEMA_FORMATS: {
   readonly "site-origin": (origin: string) => boolean;
