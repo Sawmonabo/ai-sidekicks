@@ -368,9 +368,9 @@ async fn read_declared_address(
 }
 
 // A person's entry is read whole, its user name and query kept; a plugin's entry answers the
-// `url` its file declares; and a program's entry declares no address to sign in at. Killed by the
-// takeover's address filter left in the shared read (every whole address refused, since none
-// names the request's), and by answering the stripped address.
+// `url` its file declares; and a program's entry declares no address to sign in at. Killed by
+// answering the stripped address (the user name or query lost), and by a read that filters the
+// entry against any address before answering it.
 #[rstest]
 #[case::the_persons_entry_whole(
     DeclaredEntry::Person(json!({SERVER_NAME: {

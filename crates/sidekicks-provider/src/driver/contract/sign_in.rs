@@ -16,8 +16,8 @@ use url::Url;
 /// The token type both providers present their saved access tokens as, the one they keep.
 pub const BEARER_TOKEN_TYPE: &str = "Bearer";
 
-/// What the daemon asks a driver to sign in to through its provider's own client.
-#[derive(Debug)]
+/// What the daemon asks a driver to sign in to through its provider's own client. Its `Debug`
+/// prints no server address.
 pub struct ProviderSignInTakeoverRequest {
     /// The account whose provider runs the flow.
     pub provider_account_id: ProviderAccountId,
@@ -37,6 +37,19 @@ pub struct ProviderSignInTakeoverRequest {
     pub authorization_url: oneshot::Sender<Url>,
     /// Where the browser comes back to once the person has signed in.
     pub browser_return: ProviderSignInReturn,
+}
+
+impl fmt::Debug for ProviderSignInTakeoverRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProviderSignInTakeoverRequest")
+            .field("provider_account_id", &self.provider_account_id)
+            .field("binding", &self.binding)
+            .field("root_folder", &self.root_folder)
+            .field("lifetime", &self.lifetime)
+            .field("browser_return", &self.browser_return)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Where the browser comes back to from a provider's own sign-in, chosen by the driver's
