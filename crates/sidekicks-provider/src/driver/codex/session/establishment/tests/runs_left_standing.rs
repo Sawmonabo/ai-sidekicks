@@ -130,6 +130,7 @@ async fn no_turn_continues_a_run_the_rows_leave_as_it_stands(
             subagent_id: Some(
                 SubagentId::new(format!("thread-helper-{depth}")).expect("a helper id"),
             ),
+            model_id: None,
             is_stopping: false,
             run_state: helper_state,
         });

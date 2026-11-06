@@ -13,6 +13,7 @@ use super::adoption::{
 };
 use crate::driver::codex::session::establishment::{CodexEstablishedSession, CodexOpenedSession};
 use crate::driver::codex::session::test_fixture::TestCodexSession;
+use crate::driver::registry::test_token;
 use crate::driver::session_control::{LiveRunResume, ProviderTurnAnswer};
 use crate::driver::test_registry::new_run_id;
 use crate::run::delivery::LateAppendableRow;
@@ -29,6 +30,7 @@ pub(super) fn helper_run(run_id: RunId, parent_run_id: RunId, thread_id: &str) -
         parent_run_id: Some(parent_run_id),
         open_turns: Vec::new(),
         subagent_id: Some(SubagentId::new(thread_id.to_owned()).expect("a helper id")),
+        model_id: None,
         is_stopping: false,
         run_state: RunState::Running,
     }
@@ -118,28 +120,32 @@ pub(super) async fn open_answering_reads(
 // running (the loaded completed case), by the unloaded read skipped (the unloaded completed case
 // reads gone), by no route bound, by the owed end not routed (no end at the open) or read as the
 // daemon's interrupt, by a refusal that stops the reads, and by a refused helper left running (no
-// interrupt). A restored helper keeps the model its reopen named, so only one listed is read as the
-// session opens; killed by every restored helper read (a loaded helper's read).
+// interrupt). A restored helper keeps the model its reopen named, else the one its node keeps, so
+// only one listed whose node names no model is read as the session opens; killed by every restored
+// helper read (a loaded helper's read) and by the node's model dropped (the node-model case).
 #[rstest]
 #[case::loaded_running(vec![
-    (loaded("thread-helper-a", "inProgress"), ProviderTurnAnswer::StillRunning),
+    (loaded("thread-helper-a", "inProgress"), ProviderTurnAnswer::StillRunning, None),
 ])]
 #[case::loaded_completed(vec![
-    (loaded("thread-helper-a", "completed"), ProviderTurnAnswer::EndedByProvider),
+    (loaded("thread-helper-a", "completed"), ProviderTurnAnswer::EndedByProvider, None),
 ])]
 #[case::unloaded_completed(vec![
-    (unloaded("thread-helper-a", "completed"), ProviderTurnAnswer::EndedByProvider),
+    (unloaded("thread-helper-a", "completed"), ProviderTurnAnswer::EndedByProvider, None),
+])]
+#[case::unloaded_completed_with_its_nodes_model(vec![
+    (unloaded("thread-helper-a", "completed"), ProviderTurnAnswer::EndedByProvider, Some("gpt-5.4")),
 ])]
 #[case::unloaded_in_progress(vec![
-    (unloaded("thread-helper-a", "inProgress"), ProviderTurnAnswer::Gone),
+    (unloaded("thread-helper-a", "inProgress"), ProviderTurnAnswer::Gone, None),
 ])]
 #[case::resume_refused(vec![
-    (refused("thread-helper-a"), ProviderTurnAnswer::Gone),
-    (loaded("thread-helper-b", "inProgress"), ProviderTurnAnswer::StillRunning),
+    (refused("thread-helper-a"), ProviderTurnAnswer::Gone, None),
+    (loaded("thread-helper-b", "inProgress"), ProviderTurnAnswer::StillRunning, None),
 ])]
 #[tokio::test(start_paused = true)]
 async fn an_adopted_helper_is_answered_from_its_newest_turn(
-    #[case] helpers: Vec<(HelperScript, ProviderTurnAnswer)>,
+    #[case] helpers: Vec<(HelperScript, ProviderTurnAnswer, Option<&str>)>,
 ) {
     let mut session = TestCodexSession::start().await;
     let lead_run_id = new_run_id();
@@ -149,13 +155,19 @@ async fn an_adopted_helper_is_answered_from_its_newest_turn(
     let mut expected_resumes = vec![json!(ADOPTED_THREAD)];
     let mut expected_interrupts = Vec::new();
     let mut expected_reads = Vec::new();
-    for (script, answer) in helpers {
+    for (script, answer, node_model) in helpers {
         let run_id = new_run_id();
-        live_runs.push(helper_run(run_id, lead_run_id, script.thread_id));
+        live_runs.push(LiveRunResume {
+            model_id: node_model.map(test_token),
+            ..helper_run(run_id, lead_run_id, script.thread_id)
+        });
         if script.is_loaded {
             expected_resumes.push(json!(script.thread_id));
         }
-        if !script.is_loaded && answer == ProviderTurnAnswer::EndedByProvider {
+        if !script.is_loaded
+            && answer == ProviderTurnAnswer::EndedByProvider
+            && node_model.is_none()
+        {
             expected_reads.push(json!(script.thread_id));
         }
         if script.resume_page.get("error").is_some() {

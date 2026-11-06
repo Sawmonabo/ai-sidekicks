@@ -481,7 +481,7 @@ fn find_live_helpers(live_runs: &[LiveRunResume], loaded: &[String]) -> Vec<Adop
                 run_id: run.run_id,
                 parent_run_id,
                 newest_turn: None,
-                model: None,
+                model: run.model_id.as_ref().map(|model| model.as_str().to_owned()),
             })
         })
         .collect()
@@ -512,7 +512,8 @@ async fn read_helper_newest_turns(
         match read {
             Ok((newest_turn, model)) => {
                 helper.newest_turn = newest_turn;
-                helper.model = model;
+                // The reopen's model, else the one the helper's node keeps.
+                helper.model = model.or(helper.model.take());
             }
             Err(error) => {
                 tracing::warn!(

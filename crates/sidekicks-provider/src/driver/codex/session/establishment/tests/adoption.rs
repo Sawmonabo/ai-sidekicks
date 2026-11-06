@@ -62,6 +62,7 @@ pub(super) fn lead_run(run_id: RunId, run_state: RunState) -> LiveRunResume {
                 .expect("a minted UUID is an event id"),
         }],
         subagent_id: None,
+        model_id: None,
         is_stopping: false,
         run_state,
     }

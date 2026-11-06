@@ -51,6 +51,7 @@ use crate::run::engine::test_fixture::{
 };
 use crate::run::engine::tests::{started_turn, turn_start};
 use crate::run::engine::{RunEngine, SubagentRunStart};
+use crate::run::read::RunStateReader;
 use crate::run::start_request::RunStartRequest;
 
 // The posture at `level` over `git_folder`.
@@ -599,8 +600,9 @@ async fn a_helpers_start_writes_its_node_in_its_runs_own_append() {
 // and the fold rebuilds every row as the live writes left it. Killed by an insert per start, which
 // the unique key refuses, a new handle per start, `started_at` rewritten on a bind, the parent link
 // left unresolved, the payload or the node dropping the model or effort, a bind that rewrites them,
-// and by a fold that mints a handle, inserts a handle it already wrote, drops the model or effort,
-// or times a row by the clock.
+// a live resume that names the newer run's own start's model, which is none, and by a fold that
+// mints a handle, inserts a handle it already wrote, drops the model or effort, or times a row by
+// the clock.
 #[tokio::test]
 async fn a_helpers_later_start_binds_its_node_and_a_rebuild_writes_the_same_rows() {
     let database = TestDatabase::new(subagent_schema_parts());
@@ -658,6 +660,15 @@ async fn a_helpers_later_start_binds_its_node_and_a_rebuild_writes_the_same_rows
         Some("call-2")
     );
     assert_eq!(helper_one.started_at.as_str(), first_at);
+    let live_runs = RunStateReader::new(&database.reader())
+        .list_live_run_resumes(&session_id)
+        .expect("the live runs read");
+    let resumed = live_runs.iter().find(|run| run.run_id == second);
+    assert_eq!(
+        resumed.and_then(|run| run.model_id.clone()),
+        Some(test_token("gpt-5.4-mini")),
+        "a resume of the node's newer run names the model its first start named"
+    );
     assert_eq!(helper_one.updated_at.as_str(), second_at);
     let helper_two = stored_node(&database, session_id, "helper-2");
     assert_eq!(
