@@ -250,11 +250,12 @@ fn helper_call_hook(call_id: &str, agent_id: Option<&str>, tool_input: &Value) -
 }
 
 // Each helper's child run names the model and effort its `Agent` call asked for, read from the
-// call's pre-tool hook, the lead's call or a helper's own; a fork's, a call naming neither and a
-// withdrawn call's name none. Kills: the hook's input never read (`p` names nothing), an entry
-// keyed by the request id (no start finds it), a helper's own call missed (`c` names nothing), a
-// fork's values kept (`f` names `high`), the hook input's own `effort.level` read for the call's
-// (`max` on every start), and a withdrawal that forgets nothing (`w` names `opus`).
+// call's pre-tool hook, the lead's call or a helper's own; a fork's, a call naming neither, a
+// withdrawn call's and a call that failed inside the tool name none. Kills: the hook's input never
+// read (`p` names nothing), an entry keyed by the request id (no start finds it), a helper's own
+// call missed (`c` names nothing), a fork's values kept (`f` names `high`), the hook input's own
+// `effort.level` read for the call's (`max` on every start), a withdrawal that forgets nothing
+// (`w` names `opus`), and a failed call's hook that forgets nothing (`x` names `sonnet`).
 #[tokio::test(start_paused = true)]
 async fn a_helpers_start_names_the_model_and_effort_its_agent_call_asked_for() {
     let session = ScriptedSession::new().await;
@@ -274,15 +275,30 @@ async fn a_helpers_start_names_the_model_and_effort_its_agent_call_asked_for() {
         ),
         ("hook-n", "call-n", json!({"subagent_type": "Plan"})),
         ("hook-w", "call-w", json!({"model": "opus"})),
+        ("hook-x", "call-x", json!({"model": "sonnet"})),
     ] {
         session.request(request_id, &helper_call_hook(call_id, None, &tool_input));
     }
     session.cancel("hook-w");
+    session.request(
+        "failed-x",
+        &json!({
+            "subtype": "hook_callback",
+            "callback_id": "sidekicks-helper-call-failed",
+            "input": {
+                "hook_event_name": "PostToolUseFailure",
+                "tool_name": "Agent",
+                "tool_use_id": "call-x",
+                "error": "Agent type 'Missing' not found",
+            },
+        }),
+    );
     for (task_id, call_id) in [
         ("p", "call-p"),
         ("f", "call-f"),
         ("n", "call-n"),
         ("w", "call-w"),
+        ("x", "call-x"),
     ] {
         session.frame(&nested_start(task_id, call_id, None, None));
     }
@@ -323,6 +339,7 @@ async fn a_helpers_start_names_the_model_and_effort_its_agent_call_asked_for() {
             named("f", None, None),
             named("n", None, None),
             named("w", None, None),
+            named("x", None, None),
             named("c", Some("haiku"), None),
         ]
     );

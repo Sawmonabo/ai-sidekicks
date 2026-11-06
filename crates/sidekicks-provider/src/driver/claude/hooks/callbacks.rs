@@ -98,6 +98,14 @@ pub(crate) enum ClaudeRequestRoute {
         /// The recipient the call names.
         to: String,
     },
+    /// Answer it with no decision once the helper call it names is forgotten: a failed call of the
+    /// helper tool, which starts no helper.
+    ForgetHelperCall {
+        /// The request's id.
+        request_id: String,
+        /// The failed call's id, `None` where the hook names none.
+        call_id: Option<String>,
+    },
     /// Hand it on to the event side: every request the daemon's hooks do not answer, and every
     /// withdrawal.
     Forward(ClaudeInboundRequestEvent),
@@ -228,7 +236,8 @@ lenient_object!(HookInput, HookToolInput);
 /// check, carrying the model and effort the call asks for, and a call of the message tool that names a recipient to the message-target check,
 /// before the pause decides; a pause callback, and a helper-limit callback on the helper tool, is
 /// answered or held here, while one on the message tool that names a recipient goes to the
-/// helper-wake check and any other passes; a helper's post-tool and stop callbacks carry its
+/// helper-wake check and any other passes; a failed helper call's callback forgets what the call
+/// asked for; a helper's post-tool and stop callbacks carry its
 /// waiting words; the background-work callback is checked; the question hook goes on only at
 /// Sandboxed and the denial hook only at Reviewed, both registered at every level since a live
 /// process can move, and pass with no decision off them; anything else goes on.
@@ -338,6 +347,14 @@ pub(crate) fn route_claude_request(
         },
         RegisteredHook::HelperSteerAtStop => ClaudeRequestRoute::Answer {
             answer: helper_steers.answer_at_stop(*session_id, agent_id.as_deref()),
+            request_id: request.request_id,
+        },
+        RegisteredHook::HelperCallFailed => ClaudeRequestRoute::ForgetHelperCall {
+            call_id: callback
+                .tool_use_id
+                .clone()
+                .or_else(|| input.and_then(|input| input.tool_use_id))
+                .filter(|id| !id.is_empty()),
             request_id: request.request_id,
         },
         RegisteredHook::QuestionBridge => pass_off_level(PermissionLevel::Sandboxed, request),

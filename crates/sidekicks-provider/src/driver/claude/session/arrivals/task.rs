@@ -312,6 +312,22 @@ impl ClaudeSessionTask {
                 .await;
                 Box::pin(self.take_route(settled, level)).await;
             }
+            ClaudeRequestRoute::ForgetHelperCall {
+                request_id,
+                call_id,
+            } => {
+                if let Some(call_id) = call_id {
+                    self.stream.forget_helper_call(&call_id);
+                }
+                answer_claude_request(
+                    &*live.channel,
+                    &session_id,
+                    account,
+                    request_id,
+                    &ClaudeHookAnswer::Pass,
+                )
+                .await;
+            }
             ClaudeRequestRoute::Answer { request_id, answer } => {
                 answer_claude_request(&*live.channel, &session_id, account, request_id, &answer)
                     .await;

@@ -384,6 +384,11 @@ impl ClaudeSessionStream {
             .insert(helper_call.call_id.clone(), helper_call);
     }
 
+    /// Forgets the helper call `call_id`, which failed before any helper started.
+    pub(crate) fn forget_helper_call(&self, call_id: &str) {
+        self.lock().helper_calls.remove(call_id);
+    }
+
     /// Forgets the helper call whose pre-tool hook the withdrawn request `request_id` carried.
     pub(crate) fn withdraw_helper_call(&self, request_id: &str) {
         self.lock()
