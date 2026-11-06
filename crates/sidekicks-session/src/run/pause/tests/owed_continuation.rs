@@ -34,12 +34,7 @@ async fn a_continue_owes_the_continuation_only_after_the_restart_cut_its_pause(
         .times(1)
         .returning(move |params| {
             *recorded.lock().expect("the field reads") = Some(params.is_continuation_owed);
-            async {
-                Ok(ResumeRunOutcome {
-                    is_hold_lost: false,
-                })
-            }
-            .boxed()
+            async { Ok(ResumeRunOutcome::default()) }.boxed()
         });
     let fixture = fixture(driver, "paused").await;
     for &(turn_number, cause) in turn_ends {

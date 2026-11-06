@@ -238,12 +238,7 @@ fn recording_driver(calls: &Arc<DriverCalls>) -> MockProviderDriver {
     driver.expect_resume_run().returning(move |params| {
         let messages = params.messages.iter().map(|message| message.id).collect();
         lock(&resuming.resumes).push((params.run_id, messages));
-        async {
-            Ok(ResumeRunOutcome {
-                is_hold_lost: false,
-            })
-        }
-        .boxed()
+        async { Ok(ResumeRunOutcome::default()) }.boxed()
     });
     driver
 }
