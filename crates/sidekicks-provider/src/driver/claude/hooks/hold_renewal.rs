@@ -105,7 +105,6 @@ mod tests {
     use super::HOLD_RENEWAL_JOB;
     use crate::driver::claude::hooks::pause::HELD_HELPER_RENEWAL_REASON;
     use crate::driver::claude::hooks::registration::CLAUDE_HOOK_HOLD_RENEWAL_AFTER;
-    use crate::driver::claude::session::scripted::channel::ScriptedWrite;
     use crate::driver::claude::session::scripted::driver::create_params;
     use crate::driver::claude::session::scripted::{ScriptedSession, settle};
     use crate::driver::run_control::{PauseRunParams, ResumeRunParams};
@@ -130,24 +129,6 @@ mod tests {
     // The helper `agent_id`'s shell call `tool_use_id`, through the pause's hook.
     fn paused_hook_call(agent_id: &str, tool_use_id: &str) -> Value {
         helper_call(agent_id, "sidekicks-pause-before-tool", "Bash", tool_use_id)
-    }
-
-    // The answer written to `request_id`, `None` while it is unanswered.
-    fn answer_of(session: &ScriptedSession, request_id: &str) -> Option<String> {
-        session
-            .channel
-            .writes()
-            .into_iter()
-            .find_map(|write| match write {
-                ScriptedWrite::Answer {
-                    request_id: answered,
-                    answer,
-                } if answered == request_id => Some(answer.to_string()),
-                ScriptedWrite::Answer { .. }
-                | ScriptedWrite::Control(_)
-                | ScriptedWrite::User(_)
-                | ScriptedWrite::Terminate => None,
-            })
     }
 
     // The renewals waiting on the driver's scheduler.
@@ -199,20 +180,24 @@ mod tests {
             .wall_clock
             .set_now(now + CLAUDE_HOOK_HOLD_RENEWAL_AFTER - Duration::from_mins(1));
         settle().await;
-        assert_eq!(answer_of(&session, "r1"), None);
+        assert_eq!(session.channel.written_answer("r1"), None);
 
         session
             .wall_clock
             .set_now(now + CLAUDE_HOOK_HOLD_RENEWAL_AFTER);
         settle().await;
-        let renewed = answer_of(&session, "r1").expect("the held call is answered at its renewal");
+        let renewed = session
+            .channel
+            .written_answer("r1")
+            .expect("the held call is answered at its renewal")
+            .to_string();
         assert!(renewed.contains(r#""permissionDecision":"deny""#));
         assert!(renewed.contains(HELD_HELPER_RENEWAL_REASON));
 
         session.request("r2", &paused_hook_call("helper", "call-shell"));
         settle().await;
         assert_eq!(
-            answer_of(&session, "r2"),
+            session.channel.written_answer("r2"),
             None,
             "the call made again is held"
         );
@@ -265,9 +250,9 @@ mod tests {
         session.request("start-1", &helper_start("call-1"));
         session.request("start-2", &helper_start("call-2"));
         settle().await;
-        assert!(answer_of(&session, "start-1").is_some());
+        assert!(session.channel.written_answer("start-1").is_some());
         assert_eq!(
-            answer_of(&session, "start-2"),
+            session.channel.written_answer("start-2"),
             None,
             "the second start is held"
         );
@@ -300,7 +285,7 @@ mod tests {
             .wall_clock
             .set_now(now + CLAUDE_HOOK_HOLD_RENEWAL_AFTER);
         settle().await;
-        assert!(answer_of(&session, "r1").is_some());
+        assert!(session.channel.written_answer("r1").is_some());
         assert_eq!(
             renewals_waiting(&session),
             0,

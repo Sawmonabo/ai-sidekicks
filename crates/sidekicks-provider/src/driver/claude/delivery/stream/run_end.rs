@@ -265,9 +265,12 @@ impl ClaudeDeliveryStream {
             return None;
         }
         // The same holds for a run an interrupt stops: Claude Code starts its next turn with the
-        // steers the interrupt left it, which the run holds and goes on in.
-        let is_carried = (end.is_daemon_interrupt_end
-            || marked.is_some_and(|(is_for_interrupt, _)| is_for_interrupt))
+        // steers the interrupt left it, which the run holds and goes on in. A run whose daemon end
+        // is already confirmed, a refusal canceled at an interrupt, has ended and carries nothing.
+        let is_confirmed_end = marked.is_some_and(|(_, is_confirmed)| is_confirmed);
+        let is_carried = !is_confirmed_end
+            && (end.is_daemon_interrupt_end
+                || marked.is_some_and(|(is_for_interrupt, _)| is_for_interrupt))
             && has_untaken_steer;
         self.release_reader_carry(lead.run_id, reader_carried, is_carried);
         let routes = &self.dependencies.routes;

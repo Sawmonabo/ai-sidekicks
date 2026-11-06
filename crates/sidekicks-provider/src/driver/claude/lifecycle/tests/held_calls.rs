@@ -30,9 +30,10 @@ use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, binding_id, hand_scripted_frame, settle,
 };
 use crate::driver::claude::spawn::environment::claude_config_folder;
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::driver::session_control::{
-    CloseSessionParams, MoveSessionToForkParams, SessionCloseCause, SettleHeldToolCallsParams,
+    CloseSessionParams, HeldCallsSettle, MoveSessionToForkParams, SessionCloseCause,
+    SettleHeldToolCallsParams,
 };
 use crate::driver::test_registry::{new_run_id, new_session_id};
 
@@ -42,10 +43,10 @@ const STORED_CONVERSATION: &str = "0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d";
 /// How a call ends with its process.
 const ENDED_WITH_THE_PROCESS: Ending = Ending::Failed(Some(ToolCallEndCause::ProcessExit));
 
-// A live session of `fixture`'s driver on `channel` whose process holds each of `calls`, a call
-// and its task, in the background, all opened by one lead run on `lead`; the log answers each
-// open. Answers the session, the run and the process's start.
-async fn holding_session(
+/// A live session of `fixture`'s driver on `channel` whose process holds each of `calls`, a call
+/// and its task, in the background, all opened by one lead run on `lead`; the log answers each
+/// open. Answers the session, the run and the process's start.
+pub(super) async fn holding_session(
     fixture: &ScriptedDriver,
     channel: &Arc<ScriptedChannel>,
     calls: &[(&str, &str)],
@@ -91,9 +92,14 @@ async fn holding_session(
     (session_id, run_id, start)
 }
 
-// Writes the record of `call_id`, of the task `task_id`, beside the conversation `session_id`'s
-// live process runs.
-fn keep_record(fixture: &ScriptedDriver, session_id: SessionId, call_id: &str, task_id: &str) {
+/// Writes the record of `call_id`, of the task `task_id`, beside the conversation `session_id`'s
+/// live process runs.
+pub(super) fn keep_record(
+    fixture: &ScriptedDriver,
+    session_id: SessionId,
+    call_id: &str,
+    task_id: &str,
+) {
     let live = fixture
         .driver
         .composed_parts()
@@ -367,9 +373,8 @@ async fn a_restart_of_the_daemon_writes_no_held_call_close() {
 
     fixture
         .driver
-        .shutdown(DaemonStopIntent::Restart)
-        .await
-        .expect("the sessions close");
+        .shutdown(DaemonStopIntent::Restart, daemon_stop_deadline())
+        .await;
     settle().await;
 
     assert_eq!(closes(fixture.engine.deliveries()), []);
@@ -436,8 +441,8 @@ async fn a_forks_predecessor_exit_settles_none_of_its_held_calls() {
     assert_eq!(closed, [("call-A".to_owned(), ENDED_WITH_THE_PROCESS)]);
 }
 
-// The `stop_task` requests written to `channel`, each by the task it names.
-fn stopped_tasks(channel: &ScriptedChannel) -> Vec<String> {
+/// The `stop_task` requests written to `channel`, each by the task it names.
+pub(super) fn stopped_tasks(channel: &ScriptedChannel) -> Vec<String> {
     channel
         .control_requests()
         .into_iter()
@@ -573,18 +578,23 @@ async fn only_a_persons_close_stops_the_surviving_tasks(#[case] cause: SessionCl
     );
 }
 
-// Fails when the start after a restart settles a resting session's held calls other than by what
-// Claude Code kept: a call kept nowhere reads stopped by the restart, and one only recorded stays
-// open for the next resume, while a closed session ends every call kept nowhere or only recorded
-// with its process. The driver is new and no session call composed its pieces, as at a real start.
-// Mutations: the `Restart` column's `Unkept` cell answering `processExit` (call-1 reads it when not
-// closed); the record ignored after a restart (call-3 closed when not closed); `Restart` passed for
-// a closed session (no close for call-3 when closed).
+// Fails when the start after a restart or a Stop settles a resting session's held calls other than
+// by what Claude Code kept: a call kept nowhere reads ended by the restart or the Stop, and one only
+// recorded stays open for the next resume, while a closed session ends every call kept nowhere or
+// only recorded with its process. The driver is new and no session call composed its pieces, as at
+// a real start. Mutations: the `Restart` column's `Unkept` cell answering `processExit` (call-1
+// reads it after a restart); the record ignored after a restart (call-3 closed); `Restart` passed
+// for a closed session (no close for call-3 when closed); `Stop` read as `Restart` (call-1 reads
+// `daemonRestart` after a Stop); a recorded call ended under a Stop (call-3 closed); `Stopped`
+// mapped to another settle (call-1's cause, or call-3 closed).
 #[rstest]
-#[case::open(false)]
-#[case::closed(true)]
+#[case::restarted(HeldCallsSettle::Restarted)]
+#[case::closed(HeldCallsSettle::Closed)]
+#[case::stopped(HeldCallsSettle::Stopped)]
 #[tokio::test(start_paused = true)]
-async fn the_start_after_a_restart_settles_a_resting_sessions_held_calls(#[case] is_closed: bool) {
+async fn the_start_after_a_restart_settles_a_resting_sessions_held_calls(
+    #[case] held_calls_settle: HeldCallsSettle,
+) {
     let fixture = ScriptedDriver::new();
     let session_id = new_session_id();
     let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
@@ -632,7 +642,7 @@ async fn the_start_after_a_restart_settles_a_resting_sessions_held_calls(#[case]
             provider_account_id: account,
             conversation: STORED_CONVERSATION.to_owned(),
             runtime_metadata: Map::new(),
-            is_closed,
+            settle: held_calls_settle,
         })
         .await
         .expect("the held calls are settled");
@@ -645,21 +655,17 @@ async fn the_start_after_a_restart_settles_a_resting_sessions_held_calls(#[case]
         Ending::Completed,
         Some("Exported".to_owned()),
     );
-    let expected = if is_closed {
-        vec![
+    let ended_unkept = |cause| ("call-1".to_owned(), Ending::Failed(Some(cause)), None);
+    let expected = match held_calls_settle {
+        HeldCallsSettle::Closed => vec![
             ("call-1".to_owned(), ENDED_WITH_THE_PROCESS, None),
             completed,
             ("call-3".to_owned(), ENDED_WITH_THE_PROCESS, None),
-        ]
-    } else {
-        vec![
-            (
-                "call-1".to_owned(),
-                Ending::Failed(Some(ToolCallEndCause::DaemonRestart)),
-                None,
-            ),
-            completed,
-        ]
+        ],
+        HeldCallsSettle::Restarted => {
+            vec![ended_unkept(ToolCallEndCause::DaemonRestart), completed]
+        }
+        HeldCallsSettle::Stopped => vec![ended_unkept(ToolCallEndCause::DaemonStop), completed],
     };
     assert_eq!(closed, expected);
 }

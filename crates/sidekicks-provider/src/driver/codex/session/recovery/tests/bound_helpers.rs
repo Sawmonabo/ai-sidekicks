@@ -87,6 +87,7 @@ async fn a_reconnect_reopens_bound_helpers_and_ends_the_finished_one() {
             let sent = script.next_sent().await;
             let thread_id = sent["params"]["threadId"].clone();
             let answer = match sent["method"].as_str() {
+                Some("config/read") => json!({"config": {}, "origins": {}}),
                 Some("thread/resume") if thread_id == TEST_THREAD => {
                     fork_reply(TEST_THREAD, &settings)
                 }

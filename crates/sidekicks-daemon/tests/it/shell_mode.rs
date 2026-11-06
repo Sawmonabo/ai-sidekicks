@@ -5,39 +5,13 @@
 use std::process::Stdio;
 use std::time::Duration;
 
-use alacritty_terminal::event::EventListener;
 use sidekicks_platforms::{default_shell, run_test_as_own_root};
-use sidekicks_terminal::{
-    CommandLine, OutputFilter, ScreenListener, ShellCommand, SpawnRequest, TerminalEvent, Terminals,
-};
+use sidekicks_terminal::{CommandLine, ShellCommand, SpawnRequest, TerminalEvent, Terminals};
 
-use crate::helpers::{DAEMON_PROGRAM, spawner};
+use crate::helpers::{DAEMON_PROGRAM, KeepAllOutput, NoListener, spawner};
 
 /// The bound on each wait, so a mode that hangs fails the test.
 const WAIT_BOUND: Duration = Duration::from_secs(30);
-
-/// Keeps every byte of the output.
-struct KeepAllOutput;
-
-impl OutputFilter for KeepAllOutput {
-    fn filter(&mut self, chunk: &[u8], kept: &mut Vec<u8>) {
-        kept.extend_from_slice(chunk);
-    }
-
-    fn finish(&mut self, _kept: &mut Vec<u8>) {}
-}
-
-/// A screen-copy listener that hears nothing and answers nothing.
-#[derive(Clone)]
-struct NoListener;
-
-impl EventListener for NoListener {}
-
-impl ScreenListener for NoListener {
-    fn find_questions(&mut self, _output: &[u8], _ends: &mut Vec<usize>) {}
-
-    fn answer_question(&mut self) {}
-}
 
 // The test's own name in the binary, which runs again as its own responsible process on macOS.
 const FALLBACK_TEST: &str =

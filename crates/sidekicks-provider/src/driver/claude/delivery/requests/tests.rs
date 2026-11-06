@@ -197,17 +197,9 @@ async fn a_questions_record_carries_its_extended_form_and_its_answer_goes_back_k
         .await
         .expect("the answer is written");
 
-    let answers: Vec<_> = session
-        .channel
-        .writes()
-        .into_iter()
-        .filter_map(|write| match write {
-            ScriptedWrite::Answer { answer, .. } => Some(answer),
-            ScriptedWrite::Control(_) | ScriptedWrite::User(_) | ScriptedWrite::Terminate => None,
-        })
-        .collect();
+    let answers = session.channel.answers();
     assert_eq!(answers.len(), 1);
-    let updated_input = &answers[0]["updatedInput"];
+    let updated_input = &answers[0].1["updatedInput"];
     assert_eq!(
         updated_input["answers"],
         json!({
@@ -297,15 +289,7 @@ async fn a_question_whose_take_failed_is_withdrawn_and_refused() {
     assert_eq!(card.withdrawals(), ["question"]);
     assert!(card.taken().is_empty(), "it never opened");
     card.wait_until_none_waiting().await;
-    let answers: Vec<_> = session
-        .channel
-        .writes()
-        .into_iter()
-        .filter_map(|write| match write {
-            ScriptedWrite::Answer { request_id, answer } => Some((request_id, answer)),
-            ScriptedWrite::Control(_) | ScriptedWrite::User(_) | ScriptedWrite::Terminate => None,
-        })
-        .collect();
+    let answers = session.channel.answers();
     assert_eq!(answers.len(), 1);
     assert_eq!(answers[0].0, "question");
     assert_eq!(answers[0].1["behavior"], "deny");
@@ -328,15 +312,7 @@ async fn a_question_with_no_card_is_refused_at_once() {
     );
     settle().await;
 
-    let answers: Vec<_> = session
-        .channel
-        .writes()
-        .into_iter()
-        .filter_map(|write| match write {
-            ScriptedWrite::Answer { request_id, answer } => Some((request_id, answer)),
-            ScriptedWrite::Control(_) | ScriptedWrite::User(_) | ScriptedWrite::Terminate => None,
-        })
-        .collect();
+    let answers = session.channel.answers();
     assert_eq!(
         answers,
         [(
@@ -385,9 +361,7 @@ async fn a_question_let_go_before_its_record_failed_is_not_refused() {
 
     assert_eq!(card.withdrawals(), ["question", "question"]);
     assert!(card.taken().is_empty(), "the record never landed");
-    let has_answer = session.channel.writes().into_iter().any(|write| {
-        matches!(write, ScriptedWrite::Answer { request_id, .. } if request_id == "question")
-    });
+    let has_answer = session.channel.written_answer("question").is_some();
     assert!(!has_answer, "a request let go of is not answered");
 }
 

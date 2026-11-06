@@ -6,14 +6,12 @@ use std::path::Path;
 
 use serde_json::Value;
 
+use crate::driver::claude::session::rules::CLAUDE_USER_SETTINGS_FILE;
 use crate::driver::claude::session::settings_file::{
     ClaudeSettingsFileError, hold_settings_file, read_settings_file, set_settings_value,
     write_settings_file,
 };
 use crate::driver::claude::spawn::settings::CLAUDE_CLEANUP_PERIOD_DAYS;
-
-// The home's own settings file, in its config folder.
-const CLAUDE_HOME_SETTINGS_FILE: &str = "settings.json";
 
 // The setting that holds how many days Claude Code keeps a conversation file.
 const CLAUDE_CLEANUP_PERIOD_SETTING: &str = "cleanupPeriodDays";
@@ -27,7 +25,7 @@ pub(crate) const CLAUDE_HOME_SETTINGS_MODE: u32 = 0o600;
 pub(crate) async fn write_claude_home_retention(
     config_folder: &Path,
 ) -> Result<(), ClaudeSettingsFileError> {
-    let file = config_folder.join(CLAUDE_HOME_SETTINGS_FILE);
+    let file = config_folder.join(CLAUDE_USER_SETTINGS_FILE);
     let hold = hold_settings_file(&file).await?;
     let text = read_settings_file(&hold, &file).await?;
     let retention = Value::from(CLAUDE_CLEANUP_PERIOD_DAYS);
@@ -47,14 +45,14 @@ mod tests {
     use std::fs::{self, File};
     use std::time::{Duration, SystemTime};
 
-    use super::write_claude_home_retention;
+    use super::{CLAUDE_USER_SETTINGS_FILE, write_claude_home_retention};
 
     // Killed by a `serde_json` round trip, which rewrites the person's spacing and key order, by a
     // retention left unset, and by a rewrite of a file that already holds it.
     #[tokio::test]
     async fn the_retention_is_set_in_place_and_an_equal_value_writes_nothing() {
         let home = tempfile::tempdir().expect("a config folder");
-        let file = home.path().join("settings.json");
+        let file = home.path().join(CLAUDE_USER_SETTINGS_FILE);
         let held = concat!(
             "{\n\t\"model\":\"opus\" ,\n",
             "\t\"cleanupPeriodDays\": 30,\n",

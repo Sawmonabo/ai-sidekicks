@@ -8,7 +8,7 @@ use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
 use sidekicks_mcp::client::McpClient;
 use sidekicks_mcp::client::dispatch::McpToolDispatch;
-use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
+use sidekicks_mcp::client::dispatch::restart_sweep::McpRestartSweep;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_queue::provider_session::resumed_runs::ResumedRunsIngress;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
@@ -16,6 +16,7 @@ use sidekicks_recovery::projection_rebuild::ProjectionRebuildService;
 use sidekicks_recovery::restart_settle::{RestartSettle, RestartSettleDeps};
 use sidekicks_recovery::resumed_runs::{ResumedRunsFinalize, ResumedRunsFinalizeDeps};
 use sidekicks_recovery::startup::{StartupRecovery, StartupRecoveryDeps};
+use sidekicks_recovery::stop_intent::StopIntentFile;
 use sidekicks_shell::table::ShellTable;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -26,11 +27,12 @@ use crate::daemon::artifact_methods::ArtifactMethods;
 use crate::daemon::backup::run::Backups;
 use crate::daemon::configuration::ConfigurationStore;
 use crate::daemon::process::database::DatabaseFile;
-use crate::daemon::process::method_inputs::MethodInputsError;
+use crate::daemon::process::method_inputs::error::MethodInputsError;
 use crate::daemon::process::projections::rebuild_projections;
 use crate::daemon::process::providers::Providers;
 use crate::daemon::process::repo_services::RepoServices;
 use crate::daemon::process::session_services::SessionServices;
+use crate::daemon::process::stop::DaemonStopReason;
 use crate::daemon::process::stored_data::{
     StoredDataMethods, StoredDataMethodsStart, build_stored_data_methods,
 };
@@ -70,17 +72,15 @@ pub(super) struct RecoveryServiceStart<'start> {
     pub(super) backups: &'start Arc<Backups>,
     /// The serving socket's record of mutating calls, set once its gate chain is built.
     pub(super) in_flight: Arc<OnceLock<Arc<InFlightMutations>>>,
-    /// Starts the daemon's stop for the intent given.
-    pub(super) accept_stop: &'start Arc<dyn Fn(DaemonStopIntent) + Send + Sync>,
+    /// Starts the daemon's stop for the reason given.
+    pub(super) accept_stop: &'start Arc<dyn Fn(DaemonStopReason) + Send + Sync>,
     /// The daemon's data folder.
     pub(super) data_folder: &'start Path,
     /// The copy the recovery pass copies the store's files aside with.
     pub(super) copier: Arc<DatabaseFileCopier>,
-    /// The tool calls' one dispatch.
-    #[expect(
-        dead_code,
-        reason = "the restart's sweep resumes each receipt a stop left in flight through it"
-    )]
+    /// The intent the person's Stop writes, the one the process holds from its start.
+    pub(super) stop_intent: Arc<StopIntentFile>,
+    /// The tool calls' one dispatch, which the restart's sweep resumes each receipt through.
     pub(super) mcp_dispatch: Arc<McpToolDispatch>,
 }
 
@@ -91,6 +91,8 @@ pub(super) struct RecoveryServices {
     pub(super) stored: StoredDataMethods,
     /// The recovery pass, run once the socket is bound and before any follow of the log begins.
     pub(super) recovery: StartupRecovery,
+    /// The restart's settle, which the person's Stop drains the live runs through.
+    pub(super) restart_settle: Arc<RestartSettle>,
 }
 
 /// Builds the projection rebuild and the restart's settle, registers the resumed runs' finalize,
@@ -119,7 +121,8 @@ pub(super) fn build_recovery_services(
         accept_stop,
         data_folder,
         copier,
-        mcp_dispatch: _,
+        stop_intent,
+        mcp_dispatch,
     } = start;
     let projection_rebuild = Arc::new(ProjectionRebuildService::new(
         Arc::clone(reads),
@@ -134,6 +137,7 @@ pub(super) fn build_recovery_services(
         run_engine: Arc::clone(&session.engine),
         approvals: Arc::clone(&session.approvals.service),
         plans: Arc::clone(&session.plans),
+        providers: Arc::clone(registry),
     }));
     // A resume settles the runs it named through recovery's finalize, registered before the start
     // serves anything, so no resume finds the port empty.
@@ -163,6 +167,7 @@ pub(super) fn build_recovery_services(
         backups: Arc::clone(backups),
         projection_rebuild: Arc::clone(&projection_rebuild),
         restart_settle: Arc::clone(&restart_settle),
+        stop_intent: Arc::clone(&stop_intent),
         in_flight,
         accept_stop: Arc::clone(accept_stop),
     });
@@ -173,7 +178,7 @@ pub(super) fn build_recovery_services(
         appender: Arc::clone(&session.appender),
         projection_rebuild,
         damaged_history: Arc::clone(&stored.damaged_history),
-        restart_settle,
+        restart_settle: Arc::clone(&restart_settle),
         provider_sessions: Arc::clone(&session.provider_sessions),
         questions: Arc::clone(&session.questions),
         status: Arc::clone(&database.status),
@@ -181,6 +186,12 @@ pub(super) fn build_recovery_services(
         database_path: database.database_path.clone(),
         data_folder: data_folder.to_path_buf(),
         copier,
+        stop_intent,
+        mcp_sweep: McpRestartSweep::new(Arc::clone(mcp_client), mcp_dispatch, Arc::clone(reads)),
     });
-    Ok(RecoveryServices { stored, recovery })
+    Ok(RecoveryServices {
+        stored,
+        recovery,
+        restart_settle,
+    })
 }

@@ -82,13 +82,6 @@ impl McpServerConnection {
     /// be built, the process cannot start (`NotFound` for a program no search finds), or the
     /// server does not complete its start in time or its first tools read; past the spawn, the
     /// error carries the process's exit.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the session's tool-server connection opener starts a stdio server through it"
-        )
-    )]
     pub(crate) async fn start_stdio(
         spawner: &Spawner,
         server: McpStdioServer,

@@ -76,7 +76,9 @@ pub(crate) struct ScriptedChannel {
     control_holds: Mutex<HashMap<String, VecDeque<oneshot::Receiver<()>>>>,
     user_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
     user_failures: Mutex<VecDeque<ClaudeWriteDelivery>>,
+    answer_failures: Mutex<VecDeque<ClaudeWriteDelivery>>,
     close_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
+    processes_stopped_at: Mutex<Option<usize>>,
     listener: Mutex<Option<Arc<dyn ClaudeProcessListener>>>,
     // Wakes a wait for a write on each one recorded.
     written: Notify,
@@ -129,31 +131,64 @@ impl ScriptedChannel {
         lock(&self.user_failures).push_back(delivery);
     }
 
+    /// Fails the next answer's write to a request the process sent as `delivery`.
+    pub(crate) fn fail_next_answer(&self, delivery: ClaudeWriteDelivery) {
+        lock(&self.answer_failures).push_back(delivery);
+    }
+
     /// The answer the driver wrote to the request `request_id` the process sent, waiting until it
     /// is written.
     pub(crate) async fn answer_to(&self, request_id: &str) -> Value {
         loop {
             let written = self.written.notified();
-            let answer = self.writes().into_iter().find_map(|write| match write {
-                ScriptedWrite::Answer {
-                    request_id: answered,
-                    answer,
-                } if answered == request_id => Some(answer),
-                ScriptedWrite::Answer { .. }
-                | ScriptedWrite::Control(_)
-                | ScriptedWrite::User(_)
-                | ScriptedWrite::Terminate => None,
-            });
-            if let Some(answer) = answer {
+            if let Some(answer) = self.written_answer(request_id) {
                 return answer;
             }
             written.await;
         }
     }
 
+    /// The answer written so far to the request `request_id`, `None` while it is unanswered.
+    pub(crate) fn written_answer(&self, request_id: &str) -> Option<Value> {
+        self.answers()
+            .into_iter()
+            .find_map(|(answered, answer)| (answered == request_id).then_some(answer))
+    }
+
+    /// Every answer written so far, each beside the id of the request it answers, in order.
+    pub(crate) fn answers(&self) -> Vec<(String, Value)> {
+        self.writes()
+            .into_iter()
+            .filter_map(|write| match write {
+                ScriptedWrite::Answer { request_id, answer } => Some((request_id, answer)),
+                ScriptedWrite::Control(_) | ScriptedWrite::User(_) | ScriptedWrite::Terminate => {
+                    None
+                }
+            })
+            .collect()
+    }
+
     /// Everything written so far, in order.
     pub(crate) fn writes(&self) -> Vec<ScriptedWrite> {
         lock(&self.writes).clone()
+    }
+
+    /// Where the stop of every process reached this one: the count of writes before it, `None`
+    /// before that stop.
+    pub(crate) fn processes_stopped_at(&self) -> Option<usize> {
+        *lock(&self.processes_stopped_at)
+    }
+
+    /// Marks the stop of every process at the writes recorded so far; a later stop changes
+    /// nothing.
+    pub(super) fn mark_processes_stopped(&self) {
+        let written = lock(&self.writes).len();
+        let mut stopped_at = lock(&self.processes_stopped_at);
+        if stopped_at.is_none() {
+            *stopped_at = Some(written);
+        }
+        drop(stopped_at);
+        self.written.notify_waiters();
     }
 
     /// The control requests written so far, in order.
@@ -263,7 +298,14 @@ impl ClaudeProcessChannel for ScriptedChannel {
     ) -> BoxFuture<'_, ClaudeWriteAttempt> {
         let answer = serde_json::from_str(answer.get()).expect("an answer is JSON");
         self.record(ScriptedWrite::Answer { request_id, answer });
-        async { ClaudeWriteAttempt::Written }.boxed()
+        let attempt = match lock(&self.answer_failures).pop_front() {
+            None => ClaudeWriteAttempt::Written,
+            Some(delivery) => ClaudeWriteAttempt::Failed {
+                delivery,
+                cause: io::Error::from(io::ErrorKind::BrokenPipe),
+            },
+        };
+        async { attempt }.boxed()
     }
 
     fn write_user_frame(&self, frame: ClaudeUserFrame) -> BoxFuture<'_, ClaudeWriteAttempt> {

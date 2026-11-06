@@ -24,6 +24,9 @@ use crate::driver::claude::mcp::config::{
     ClaudeMcpConfigSources, ClaudeMcpRoot, ClaudePersonConfigFiles, read_claude_mcp_config,
 };
 use crate::driver::claude::mcp::organization::read_claude_organization_servers;
+use crate::driver::claude::session::rules::{
+    CLAUDE_SHARED_SETTINGS_FILE, local_settings_path, settings_path,
+};
 use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
 use crate::driver::claude::session::scripted::starts::ScriptedStarts;
 use crate::driver::claude::session::transport::control::ClaudeToolServerEntry;
@@ -418,12 +421,12 @@ async fn a_project_server_is_withheld_only_where_its_settings_reject_it() {
     )
     .expect("the project's servers are written");
     std::fs::write(
-        folder.join(".claude").join("settings.local.json"),
+        local_settings_path(&folder),
         json!({ "disabledMcpjsonServers": ["rejected", "my server"] }).to_string(),
     )
     .expect("the project's local settings are written");
     std::fs::write(
-        folder.join(".claude").join("settings.json"),
+        settings_path(&folder, CLAUDE_SHARED_SETTINGS_FILE),
         json!({ "disabledMcpjsonServers": ["refused"] }).to_string(),
     )
     .expect("the project's settings are written");

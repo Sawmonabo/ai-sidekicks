@@ -5,8 +5,8 @@ use std::time::Duration;
 use sidekicks_contracts::provider::account::record::{BillingMode, ProviderAccountHealthState};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_provider::account::credential_home::minted::{
-    clear_minted_mark, mark_minted, read_minted_homes,
+use sidekicks_provider::account::credential_home::marks::{
+    clear_minted_mark, mark_minted, mark_removed, read_minted_homes,
 };
 use sidekicks_provider::account::credential_home::test_legs::RecordedSignOuts;
 use sidekicks_provider::account::registry::{
@@ -24,11 +24,12 @@ fn claude() -> ProviderId {
 
 // A start signs out and removes a marked home no row names, keeps one whose sign-out the provider
 // refuses, clears the mark of an account a row names and of one whose home was never made, and
-// leaves an unmarked home with no row, a removed account's, as it is. Killed by every home no row
-// names removed (the removed account's home goes), by a removal without its sign-out (the record
-// is empty), by a removal past a refused sign-out (the refused home goes), by a marked home a row
-// names removed (the admitted home goes), by a row's mark left (still marked) and by a sign-out
-// run on a home never made (the record holds the unmade account).
+// leaves a removed account's home with no row, which carries only a removed mark, as it is. Killed
+// by every home no row names removed or the removed marks read (the removed account's home goes),
+// by a removal without its sign-out (the record is empty), by a removal past a refused sign-out
+// (the refused home goes), by a marked home a row names removed (the admitted home goes), by a
+// row's mark left (still marked) and by a sign-out run on a home never made (the record holds the
+// unmade account).
 #[tokio::test]
 async fn a_start_removes_only_the_homes_minted_for_accounts_no_row_took() {
     let database = TestDatabase::new(schema_parts());
@@ -44,7 +45,9 @@ async fn a_start_removes_only_the_homes_minted_for_accounts_no_row_took() {
         .mint(claude())
         .expect("a removed account is minted");
     clear_minted_mark(data_folder.path(), removed.account_id())
-        .expect("the removed account carries no mark");
+        .expect("the removed account carries no minted mark");
+    mark_removed(data_folder.path(), removed.account_id(), &claude())
+        .expect("the removed account carries a removed mark");
     let unmade = registry
         .mint(claude())
         .expect("an account whose home a stop left unmade");
@@ -70,7 +73,7 @@ async fn a_start_removes_only_the_homes_minted_for_accounts_no_row_took() {
     // A stop between the row's write and the mark's clear leaves the admitted home marked.
     mark_minted(data_folder.path(), &admitted.account_id, &claude())
         .expect("the admitted account is marked");
-    let legs = Arc::new(RecordedSignOuts::refusing(refused.account_id().clone()));
+    let legs = Arc::new(RecordedSignOuts::refusing([refused.account_id().clone()]));
 
     LeftoverMintedHomes::read(&registry, data_folder.path().to_path_buf())
         .await

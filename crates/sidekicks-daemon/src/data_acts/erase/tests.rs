@@ -8,15 +8,19 @@ use futures::future::BoxFuture;
 use rusqlite::params;
 use secrecy::SecretString;
 use sidekicks_contracts::daemon::data::{
-    DaemonDataEraseResponse, DataEraseSignOutFailure, DataEraseSignedInAccount,
+    DaemonDataEraseResponse, DataEraseAccountListing, DataEraseSignOutFailure,
+    DataEraseSignedInAccount,
 };
 use sidekicks_contracts::daemon::secrets_place::{PlaceRecord, SecretsPlace};
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::{CredentialStore, read_volume, real_path};
-use sidekicks_provider::account::credential_home::HomeSignOutError;
-use sidekicks_provider::account::errors::ProviderAccountRegistryError;
+use sidekicks_provider::account::credential_home::{
+    HomeLeftSignedIn, HomeSignOutError, HomesSignOut,
+};
+use sidekicks_provider::account::homes::AccountHomesReadError;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::test_registry::registry_of_first_provider;
@@ -38,8 +42,7 @@ use crate::daemon::schema::schema_parts;
 type CallLog = Arc<Mutex<Vec<String>>>;
 
 // What the accounts' sign-out answers.
-type SignOutAnswer =
-    Result<Vec<(ProviderAccountId, HomeSignOutError)>, ProviderAccountRegistryError>;
+type SignOutAnswer = Result<HomesSignOut, AccountHomesReadError>;
 
 fn record(calls: &CallLog, call: String) {
     lock(calls).push(call);
@@ -47,6 +50,10 @@ fn record(calls: &CallLog, call: String) {
 
 fn signed_in_account() -> ProviderAccountId {
     ProviderAccountId::new("account-1".to_owned()).expect("a test account id")
+}
+
+fn claude() -> ProviderId {
+    ProviderId::new("claude".to_owned()).expect("the Claude Code provider id")
 }
 
 fn write_file(path: &Path) {
@@ -75,17 +82,20 @@ fn empty_secret_items(data: &Path) -> Arc<SecretItems> {
     .expect("the system gives random bytes")
 }
 
-// The erase runs in its order: the provider accounts sign out in their homes while the folder
-// and the keychain are whole, and only then does the erase answer, naming the account left
-// signed in; then the work stops while the data folder is whole, each provider's services end,
-// the keychain's items go before the data folder closes, and the process ends last; the data
-// folder goes but for an earlier backup, and a project folder is untouched. An account that does
-// not sign out stops nothing. A second erase sent while the accounts sign out is refused and
-// starts nothing. Killed by the sign-out moved after the answer or after the work stops, by the
-// account left signed in missing from the answer, by an erase that stops on that account, by a
-// delete before the stop, by items deleted after the folder, by a provider service ended as for a
-// restart, by a project folder or a backup deleted, by a second erase let run beside the first,
-// and by a second erase answered as the first.
+// The erase runs in its order: the sign-ins under way end, then the provider accounts sign out in
+// their homes while the folder and the keychain are whole, and only then does the erase answer,
+// naming the account left signed in and that a home row could not be named, so the account list
+// could not all be read; then the work stops while the data folder is whole, each
+// provider's services end, the keychain's items go before the data folder closes, and the process
+// ends last; the data folder goes but for an earlier backup, and a project folder is untouched. An
+// account that does not sign out stops nothing. A second erase sent while the accounts sign out is
+// refused and starts nothing. Killed by the sign-ins' end run after the sign-outs, after the answer
+// or not at all, by the sign-out moved after the answer or after the work stops, by the account
+// left signed in missing from the answer or answered without its provider or listing, by the
+// unnamed row's flag dropped from the answer, by an erase
+// that stops on that account, by a delete before the stop, by items deleted after the folder, by a
+// provider service ended as for a restart, by a project folder or a backup deleted, by a second
+// erase let run beside the first, and by a second erase answered as the first.
 #[tokio::test]
 async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
     let data_folder = tempfile::tempdir().expect("the data folder is made");
@@ -118,22 +128,27 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
     let calls: CallLog = Arc::default();
     let mut driver = MockProviderDriver::new();
     let shutdown_calls = Arc::clone(&calls);
-    driver.expect_shutdown().times(1).returning(move |intent| {
-        record(
-            &shutdown_calls,
-            format!("provider services end ({intent:?})"),
-        );
-        async { Ok(()) }.boxed()
-    });
+    driver
+        .expect_shutdown()
+        .times(1)
+        .returning(move |intent, _deadline| {
+            record(
+                &shutdown_calls,
+                format!("provider services end ({intent:?})"),
+            );
+            async {}.boxed()
+        });
     let providers = Arc::new(registry_of_first_provider(Arc::new(driver)));
     let ended = Arc::new(Notify::new());
-    let (stop_calls, sign_out_calls, close_calls, end_calls) = (
+    let (stop_calls, sign_in_calls, sign_out_calls, close_calls, end_calls) = (
+        Arc::clone(&calls),
         Arc::clone(&calls),
         Arc::clone(&calls),
         Arc::clone(&calls),
         Arc::clone(&calls),
     );
-    let (stop_data, sign_out_data, end_signal) = (data.clone(), data.clone(), Arc::clone(&ended));
+    let (stop_data, sign_in_data, sign_out_data) = (data.clone(), data.clone(), data.clone());
+    let end_signal = Arc::clone(&ended);
     let sign_out_credentials = credentials.clone();
     let sign_out_signal = Arc::new(Notify::new());
     let sign_out_started = Arc::clone(&sign_out_signal);
@@ -147,6 +162,14 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
             let whole = stop_data.join("daemon.db").exists();
             record(&stop_calls, format!("work stops (folder whole: {whole})"));
             async {}.boxed()
+        }),
+        end_sign_ins: Arc::new(move || {
+            let whole = sign_in_data.join("accounts").exists();
+            record(
+                &sign_in_calls,
+                format!("sign-ins end (folder whole: {whole})"),
+            );
+            async { true }.boxed()
         }),
         sign_out_accounts: Arc::new(move || {
             let whole = sign_out_data.join("accounts").exists();
@@ -165,7 +188,15 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
                     .wait_for(|is_open| *is_open)
                     .await
                     .expect("the gate stays while the test runs");
-                Ok(vec![(signed_in_account(), HomeSignOutError::Overran)])
+                Ok(HomesSignOut {
+                    left_signed_in: vec![HomeLeftSignedIn {
+                        account_id: signed_in_account(),
+                        provider: claude(),
+                        listing: DataEraseAccountListing::Removed,
+                        cause: HomeSignOutError::Overran,
+                    }],
+                    has_unnamed_home: true,
+                })
             }
             .boxed()
         }),
@@ -198,8 +229,8 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
     );
     assert_eq!(
         lock(&calls).len(),
-        1,
-        "nothing but the sign-outs runs before the answer"
+        2,
+        "nothing but the sign-ins' end and the sign-outs runs before the answer"
     );
     gate.send_replace(true);
     let answer = first
@@ -211,9 +242,11 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
         DaemonDataEraseResponse {
             signed_in_accounts: vec![DataEraseSignedInAccount {
                 account_id: signed_in_account(),
+                provider: claude(),
+                listing: DataEraseAccountListing::Removed,
                 cause: DataEraseSignOutFailure::TimedOut,
             }],
-            is_account_list_unread: false,
+            is_account_list_unread: true,
             volume_folders_left: Vec::new(),
             is_volume_folder_list_unread: false,
         }
@@ -225,6 +258,7 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
     assert_eq!(
         *lock(&calls),
         [
+            "sign-ins end (folder whole: true)".to_owned(),
             "accounts sign out (folder whole: true, item held: true)".to_owned(),
             "work stops (folder whole: true)".to_owned(),
             format!("provider services end ({:?})", DaemonStopIntent::Stop),
@@ -305,6 +339,7 @@ async fn an_erase_that_ends_before_it_answers_fails_and_admits_the_next() {
             *lock(&sign_out_count) += 1;
             panic!("a provider's sign-out panics")
         }),
+        end_sign_ins: Arc::new(|| async { true }.boxed()),
         stop_work: Arc::new(|| -> BoxFuture<'static, ()> {
             unreachable!("an erase that did not answer stops no work")
         }),

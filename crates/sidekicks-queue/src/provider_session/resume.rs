@@ -4,8 +4,9 @@
 //! and stayed down, under a binding minted here whose cursor opens before the driver runs, and
 //! recorded as the session's opening, so the next message opens nothing again; a resume the
 //! provider deferred, starting no process, opens nothing. Each relaunch carries the held lead's
-//! continue where the person's answers are owed it, and one that records its binding hands the
-//! driver the helpers live before it to re-attach.
+//! continue where the person's answers are owed it, and the person's continue of a paused run,
+//! a helper beneath it or the held lead itself, also carries that run's kept words. A relaunch
+//! that records its binding hands the driver the helpers live before it to re-attach.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -16,6 +17,7 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::driver::capabilities::DriverCapabilityFlag;
@@ -34,6 +36,7 @@ use sidekicks_provider::runtime_binding::store::{
 };
 use sidekicks_session::agent_tree::reattach::read_helpers_to_reattach;
 use sidekicks_session::console_state::read_session_mode;
+use sidekicks_session::directory::provider_port::OpeningToolServers;
 use sidekicks_session::idle_sleep::kept_schedules::read_session_schedules;
 use sidekicks_session::idle_sleep::openings::SessionProcessWaker;
 use sidekicks_session::run::read::RunStateReader;
@@ -41,7 +44,7 @@ use sidekicks_session::run::stored_leg::read_session_leg;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 
 use crate::provider_session::errors::ProviderSessionError;
-use crate::provider_session::held_run_continue::ClaimedContinue;
+use crate::provider_session::held_run_continue::{ClaimedContinue, ContinuedWords};
 use crate::provider_session::resumed_runs::ResumedRuns;
 use crate::provider_session::{OpenedSession, ProviderSessions, close_unrecorded, posture_of};
 
@@ -92,8 +95,10 @@ impl ProviderSessions {
     /// composed from the session's lead as it stands now on the account the leg ran on, at the
     /// level it stands at, in the mode it was last moved to, with the timed fires the idle sleep
     /// stored for it and its live runs as its log names them, under `binding_id`, with no function
-    /// legs. Fails as the composition, the posture or the read of the mode, the timed fires or the
-    /// live runs fails, and with
+    /// legs. Its opening takes the tool servers the leg stored, the set the resume sends, so no set
+    /// is composed afresh, nothing waits on the tool-server table's first fill, and the legs it
+    /// opens later report status for that stored set. Fails as the composition, the posture or the
+    /// read of the mode, the timed fires or the live runs fails, and with
     /// [`ProviderSessionError::NotResumable`] for a leg with no conversation.
     pub async fn compose_resume(
         &self,
@@ -101,9 +106,14 @@ impl ProviderSessions {
         leg: &RuntimeBinding,
         binding_id: RuntimeBindingId,
     ) -> Result<ComposedResume, ProviderSessionError> {
-        // The resume runs on the account the leg ran on, read back from its spawn record.
+        // The resume runs on the account the leg ran on, with the tool servers it stored, both read
+        // back from its spawn record; a switch keeps that set current, so none is composed afresh.
         let opening = self
-            .compose(session_id, leg.spawn_config.provider_account_id.clone())
+            .compose(
+                session_id,
+                leg.spawn_config.provider_account_id.clone(),
+                OpeningToolServers::Stored(leg.spawn_config.tool_servers.clone()),
+            )
             .await?;
         let execution_posture = posture_of(session_id, &opening)?;
         let (mode, kept_schedules, live_runs) = self
@@ -168,7 +178,9 @@ impl ProviderSessions {
                 .answer_failed_start(session_id, &leg.provider_name, refusal.into())
                 .await);
         }
-        let (opened, _resumed) = self.relaunch(session_id, leg, Relaunch::Restart).await?;
+        let (opened, _resumed) = self
+            .relaunch(session_id, leg, Relaunch::Restart, None)
+            .await?;
         if let Some(opened) = opened {
             self.record_opened(session_id, opened);
         }
@@ -202,28 +214,32 @@ impl ProviderSessions {
     }
 
     /// Continues `session_id`'s lead with the answers the person gave while the daemon's restart
-    /// held it, once none is still owed it: its conversation is resumed under the session's
-    /// transition lock even where this process opened it, so the resume carries the continue. A
-    /// driver holding the session live lets its record go and takes it again; one holding nothing
-    /// brings a process up. Nothing is resumed while the lead is still held or nothing is owed.
-    /// Fails with [`ProviderSessionError::Closed`] or [`ProviderSessionError::BeingDeleted`] for
-    /// an ended session, [`ProviderSessionError::NoConversation`] for one with none to resume,
-    /// [`ProviderSessionError::ResumeRefused`] for a resume the provider refused, its answers then
-    /// owed to the next resume, and as the composition, the driver or the binding's record fails;
-    /// the provider's refusal, a missing conversation or the driver's failure posts the provider's
-    /// words as the session's provider warning. A continue whose provider no driver
-    /// answers, or is not installed, posts the `providerMissing` notice first.
-    pub async fn resume_after_answer(
+    /// held it and the words of each paused run `continued_words` carries, once none is still owed.
+    /// Fails for an ended session, one with no conversation, the provider's refusal (its answers
+    /// owed to the next resume) and as the composition, the driver or the binding's record fails.
+    pub(crate) async fn resume_after_answer(
         &self,
         session_id: SessionId,
+        continued_words: &ContinuedWords<'_>,
     ) -> Result<(), ProviderSessionError> {
+        // Resumed under the transition lock even where this process opened the conversation, so
+        // the resume carries the continue: a driver holding the session live lets its record go
+        // and takes it again, one holding nothing brings a process up, and nothing is resumed
+        // while the lead is still held or nothing is owed.
         let _hold = self.deps.transition_lock.acquire(session_id).await;
         self.refuse_ended(session_id).await?;
+        // A missing conversation, the provider's refusal or the driver's failure posts the
+        // provider's words as the session's provider warning, and a provider no driver answers
+        // posts the `providerMissing` notice first. The carried runs' messages are delivered once
+        // the provider carried the continue.
         let Some(leg) = read_session_leg(&self.deps.pool, session_id).await? else {
             let failed = ProviderSessionError::NoConversation { session_id };
             return Err(self.answer_failed_continue(session_id, failed).await);
         };
-        let (opened, _resumed) = match self.relaunch(session_id, leg, Relaunch::Continue).await {
+        let relaunched = self
+            .relaunch(session_id, leg, Relaunch::Continue, Some(continued_words))
+            .await;
+        let (opened, _resumed) = match relaunched {
             Ok(relaunched) => relaunched,
             Err(failed) => return Err(self.answer_failed_continue(session_id, failed).await),
         };
@@ -242,7 +258,9 @@ impl ProviderSessions {
         session_id: SessionId,
         leg: RuntimeBinding,
     ) -> Result<ResumedSession, ProviderSessionError> {
-        let (opened, resumed) = self.relaunch(session_id, leg, Relaunch::Resume).await?;
+        let (opened, resumed) = self
+            .relaunch(session_id, leg, Relaunch::Resume, None)
+            .await?;
         if let Some(opened) = opened {
             self.record_opened(session_id, opened);
         }
@@ -257,14 +275,16 @@ impl ProviderSessions {
     // stays up when its runs fail; a deferred resume started none and records nothing. The held
     // lead's continue is claimed before the driver runs and given back when it fails, defers or
     // does not run the lead on; one the provider carried stays claimed whatever fails after, since
-    // the lead has its answers. A `Continue` with none to carry calls no driver. Answers the
-    // opening, `None` for a deferred resume or a continue not run, beside what the resume brought
-    // back.
+    // the lead has its answers, and the kept messages of each run whose words it carried are
+    // delivered before the runs are taken. Only a relaunch given `continued_words` carries a
+    // continued run. A `Continue` with none to carry calls no driver. Answers the opening,
+    // `None` for a deferred resume or a continue not run, beside what the resume brought back.
     async fn relaunch(
         &self,
         session_id: SessionId,
         leg: RuntimeBinding,
         relaunch: Relaunch,
+        continued_words: Option<&ContinuedWords<'_>>,
     ) -> Result<(Option<OpenedSession>, ResumedSession), ProviderSessionError> {
         let minted_id = mint_runtime_binding_id();
         let ComposedResume {
@@ -287,8 +307,14 @@ impl ProviderSessions {
             held_run_continue,
             claims,
             answered_runs,
+            continued_messages,
         } = self
-            .claim_held_run_continue(session_id, &mut params.live_runs, &params.kept_schedules)
+            .claim_held_run_continue(
+                session_id,
+                &mut params.live_runs,
+                &params.kept_schedules,
+                continued_words,
+            )
             .await?;
         if matches!(relaunch, Relaunch::Continue) && held_run_continue.is_none() {
             return Ok((None, ResumedSession::default()));
@@ -430,6 +456,21 @@ impl ProviderSessions {
                 unmoved
             }));
         }
+        // A continued run's kept messages are delivered with it before its old run is settled,
+        // which would otherwise give them back to go again beside the words the lead was sent.
+        if is_continue_carried
+            && let Some(continued_words) = continued_words
+            && let Err(cause) =
+                deliver_continued_messages(continued_words, continued_messages).await
+        {
+            let undelivered = ProviderSessionError::ResumedRuns { session_id, cause };
+            self.deps.binding_cursors.forget_binding(&minted_id);
+            return Err(after_carried(if binding_id == minted_id {
+                close_unrecorded(driver.as_ref(), session_id, undelivered).await
+            } else {
+                undelivered
+            }));
+        }
         let named_run_ids = runs.iter().map(|run| run.run_id).collect();
         // Each run the resume named is settled before the binding is recorded, so none goes live
         // on the resumed process ahead of its settlement. A failure from here on gives nothing
@@ -452,6 +493,7 @@ impl ProviderSessions {
                     session_id,
                     provider_account_id: leg.spawn_config.provider_account_id.clone(),
                     conversation_id: handle.clone(),
+                    runtime_metadata: leg.runtime_metadata.clone(),
                 })
                 .into_iter()
                 .collect();
@@ -586,6 +628,21 @@ impl ProviderSessions {
             SessionSleepState::Awake
         })
     }
+}
+
+// Delivers the kept messages of each run whose words a carried continue held, stopping at the
+// first failure.
+async fn deliver_continued_messages(
+    continued_words: &ContinuedWords<'_>,
+    continued_messages: Vec<(RunId, Vec<QueueItemId>)>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    for (run_id, message_ids) in continued_messages {
+        continued_words
+            .messages
+            .deliver_carried(run_id, message_ids)
+            .await?;
+    }
+    Ok(())
 }
 
 impl SessionProcessWaker for ProviderSessions {

@@ -16,7 +16,7 @@ pub mod budget;
 pub mod changes;
 pub mod checkpoints;
 pub mod console_state;
-pub mod conversation_purge;
+pub mod conversations;
 pub mod convert;
 pub mod create;
 pub mod directory;

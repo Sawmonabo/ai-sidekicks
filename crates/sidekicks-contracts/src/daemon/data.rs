@@ -16,6 +16,7 @@ use crate::keychain::KeychainRefusalCause;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::provider::account::record::ProviderAccountId;
+use crate::provider::id::ProviderId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::integer::SafeInt;
 use crate::wire::text::FreeFormText;
@@ -194,6 +195,20 @@ pub enum DataEraseSignOutFailure {
     TimedOut,
 }
 
+/// How an account the erase left signed in stood on the account list: listed there (`listed`),
+/// removed from it, its home kept (`removed`), or minted by a sign-in that did not finish, so it
+/// never reached the list (`signInUnfinished`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum DataEraseAccountListing {
+    /// The account is on the list.
+    Listed,
+    /// The account was removed from the list, or its removal had begun.
+    Removed,
+    /// The account's sign-in did not finish, so no row ever listed it.
+    SignInUnfinished,
+}
+
 /// An account the erase could not sign out, which stays signed in with its provider once its home
 /// is deleted.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -202,6 +217,10 @@ pub enum DataEraseSignOutFailure {
 pub struct DataEraseSignedInAccount {
     /// The account.
     pub account_id: ProviderAccountId,
+    /// The account's provider, named here since a removed account has no row to name it.
+    pub provider: ProviderId,
+    /// How the account stood on the account list.
+    pub listing: DataEraseAccountListing,
     /// Why it was not signed out.
     pub cause: DataEraseSignOutFailure,
 }
@@ -214,7 +233,9 @@ pub struct DataEraseSignedInAccount {
 pub struct DaemonDataEraseResponse {
     /// Each account left signed in with its provider, with why; empty when every one signed out.
     pub signed_in_accounts: Vec<DataEraseSignedInAccount>,
-    /// Whether the accounts could not be read, so none was signed out.
+    /// Whether the account list could not all be read: none was signed out where it could not be
+    /// read at all, and a row naming no valid account or provider id was left signed in while the
+    /// rest were signed out.
     pub is_account_list_unread: bool,
     /// Each session's own folder on another volume that stays once the data folder is gone, its
     /// volume not connected or its removal refused; empty when every one went.
@@ -279,6 +300,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<DataExportProgress>().checked(),
         Definition::read::<DaemonDataStoreUnavailableDetails>().checked(),
         Definition::read::<DataEraseSignOutFailure>(),
+        Definition::read::<DataEraseAccountListing>(),
         Definition::read::<DataEraseSignedInAccount>().checked(),
         Definition::read::<DaemonDataEraseResponse>().checked(),
     ],

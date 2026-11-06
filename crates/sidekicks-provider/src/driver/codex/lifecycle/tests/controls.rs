@@ -1,5 +1,6 @@
-//! A live session's level and mode moves Codex refuses, and a settle as the session opens and while
-//! it comes back, with the resume its service's return owes it, through the driver.
+//! A live session's level and mode moves Codex refuses, its switch of its tool servers, and a
+//! settle as the session opens and while it comes back, with the resume its service's return owes
+//! it, through the driver.
 
 use std::pin::pin;
 use std::sync::Arc;
@@ -11,19 +12,26 @@ use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 
 use super::super::service_events::CodexDriverServiceEvents;
 use super::{LiveCodexSession, driver_holding};
+use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::service::supervisor::events::{
     CodexServiceEvents as _, CodexServiceRecoveryCause,
 };
 use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
 use crate::driver::codex::session::errors::CodexSessionSlotState;
-use crate::driver::codex::session::test_fixture::{TEST_THREAD, create_session_params};
+use crate::driver::codex::session::test_fixture::{
+    TEST_THREAD, create_session_params, fork_reply, no_turns, test_thread_settings,
+};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::SessionProcessState;
-use crate::driver::session_control::{UpdatePermissionLevelParams, UpdateSessionModeParams};
+use crate::driver::mcp_server::session_switch::McpSessionSwitch;
+use crate::driver::session_control::{
+    SessionToolServer, UpdatePermissionLevelParams, UpdateSessionModeParams,
+};
 use crate::driver::test_registry::new_session_id;
 use crate::run::posture::compose_execution_posture;
 
@@ -95,6 +103,78 @@ async fn a_level_or_mode_codex_refuses_is_refused_as_not_offered(
         panic!("a refused setting is refused, not {moved:?}");
     };
     assert_eq!(refusal.code, code);
+}
+
+// An idle session's switch moves it onto a fork and answers `Applied`; where Codex refuses the
+// fork, the switch, its set kept and the fork still owed, answers `AtNextTurn` rather than a
+// refusal. Killed by answering before the fork ran, and by answering a failed fork as a refusal.
+#[rstest]
+#[case::forked(true, McpSessionSwitch::Applied)]
+#[case::fork_refused(false, McpSessionSwitch::AtNextTurn)]
+#[tokio::test]
+async fn an_idle_switch_answers_as_its_fork_ends(
+    #[case] is_fork_answered: bool,
+    #[case] answered: McpSessionSwitch,
+) {
+    let LiveCodexSession {
+        driver,
+        session_id,
+        run_id,
+        mut scripted,
+        ..
+    } = LiveCodexSession::idle().await;
+    let tracker_off = SessionToolServer {
+        binding: McpServerBindingRef::User {
+            provider: DESCRIPTOR.provider_id(),
+            server_name: McpServerName::new("tracker".to_owned()).expect("a server name"),
+        },
+        is_enabled: false,
+    };
+    let switching = driver.switch_session_mcp_servers(session_id, run_id, vec![tracker_off]);
+    let forking = async {
+        let read = scripted.next_request("config/read").await;
+        scripted
+            .script
+            .answer(&read, &json!({"config": {}, "origins": {}}));
+        let forked = scripted.next_request("thread/fork").await;
+        if !is_fork_answered {
+            scripted.script.send(&json!({
+                "jsonrpc": "2.0",
+                "id": forked["id"],
+                "error": {"code": -32603, "message": "the fork failed"},
+            }));
+            return;
+        }
+        let settings = test_thread_settings(session_id);
+        scripted
+            .script
+            .answer(&forked, &fork_reply("thread-2", &settings));
+        // The move onto the fork, up to the old conversation's unsubscribe.
+        loop {
+            let request = scripted.script.next_sent().await;
+            match request["method"].as_str() {
+                Some("thread/turns/list") => scripted.script.answer(&request, &no_turns()),
+                Some("thread/backgroundTerminals/list") => {
+                    scripted.script.answer(&request, &json!({"data": []}));
+                }
+                Some("thread/unsubscribe") => {
+                    assert_eq!(request["params"]["threadId"], TEST_THREAD);
+                    scripted
+                        .script
+                        .answer(&request, &json!({"status": "unsubscribed"}));
+                    return;
+                }
+                Some(_) | None => scripted.script.answer(&request, &json!({})),
+            }
+        }
+    };
+
+    let (switched, ()) =
+        tokio::time::timeout(SETTLE_BOUND, async { tokio::join!(switching, forking) })
+            .await
+            .expect("the switch settles");
+
+    assert_eq!(switched.expect("the stored set is written"), answered);
 }
 
 /// What brings a live session back while a settle waits.
@@ -179,6 +259,8 @@ async fn a_settle_as_soon_as_a_session_is_created_answers_live() {
                                 "id": sent["params"]["config"]["default_permissions"],
                             },
                         })
+                    } else if sent["method"] == "config/read" {
+                        json!({"config": {}, "origins": {}})
                     } else {
                         json!({})
                     };

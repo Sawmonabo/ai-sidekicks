@@ -17,8 +17,6 @@ pub mod registration;
 pub(crate) mod service;
 pub(crate) mod sign_out;
 #[cfg(test)]
-mod test_keychain;
-#[cfg(test)]
 mod test_service;
 
 use sidekicks_contracts::mcp::server::config::McpServerAddress;

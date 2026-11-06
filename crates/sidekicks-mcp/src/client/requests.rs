@@ -12,8 +12,8 @@ use std::time::Duration;
 use rmcp::model::{
     CallToolRequest, CallToolRequestParams, CallToolResponse, CancelTaskParams, CancelTaskRequest,
     CancelledNotificationParam, ClientRequest, CustomRequest, GetTaskParams, GetTaskRequest,
-    GetTaskResult, ListPromptsRequest, PaginatedRequestParams, Prompt, RequestId, ServerResult,
-    UpdateTaskParams, UpdateTaskRequest,
+    GetTaskResult, ListPromptsRequest, ListResourcesRequest, PaginatedRequestParams, Prompt,
+    RequestId, Resource, ServerResult, UpdateTaskParams, UpdateTaskRequest,
 };
 use rmcp::service::{PeerRequestOptions, ServiceError};
 use rmcp::{Peer, RoleClient};
@@ -47,6 +47,8 @@ pub(super) const MAX_LIST_PAGES: usize = 100;
 pub(super) struct PageCursors {
     seen: HashSet<String>,
     pages: usize,
+    /// Whether the page cap stopped the list before its last page.
+    is_capped: bool,
 }
 
 impl PageCursors {
@@ -56,6 +58,7 @@ impl PageCursors {
         self.pages += 1;
         let cursor = next?;
         if self.pages >= MAX_LIST_PAGES {
+            self.is_capped = true;
             tracing::warn!(
                 method,
                 "a tool server's list ran past the page cap; read so far kept"
@@ -70,6 +73,11 @@ impl PageCursors {
             return None;
         }
         Some(cursor)
+    }
+
+    /// Whether the list was read to its end: false once the page cap stopped it.
+    pub(super) fn is_complete(&self) -> bool {
+        !self.is_capped
     }
 }
 
@@ -291,22 +299,60 @@ impl ServerRequests {
     /// Every prompt the server lists, page by page, as [`PageCursors`] bounds the pages. Fails as a
     /// page's request fails.
     pub(super) async fn list_all_prompts(&self) -> Result<Vec<Prompt>, ServiceError> {
-        let mut prompts = Vec::new();
+        let (prompts, _is_complete) = self
+            .list_every_page(
+                "prompts/list",
+                |params| ClientRequest::ListPromptsRequest(ListPromptsRequest::with_param(params)),
+                |result| {
+                    let ServerResult::ListPromptsResult(page) = result else {
+                        return None;
+                    };
+                    Some((page.prompts, page.next_cursor))
+                },
+            )
+            .await?;
+        Ok(prompts)
+    }
+
+    /// Every resource the server lists, page by page, as [`PageCursors`] bounds the pages, with
+    /// whether the list was read to its end. Fails as a page's request fails.
+    pub(super) async fn list_all_resources(&self) -> Result<(Vec<Resource>, bool), ServiceError> {
+        self.list_every_page(
+            "resources/list",
+            |params| ClientRequest::ListResourcesRequest(ListResourcesRequest::with_param(params)),
+            |result| {
+                let ServerResult::ListResourcesResult(page) = result else {
+                    return None;
+                };
+                Some((page.resources, page.next_cursor))
+            },
+        )
+        .await
+    }
+
+    /// Every item of the paged list `method` names, each page's request made by `request` and
+    /// its items and next cursor read by `read`, with whether the list was read to its end. Fails
+    /// as a page's request fails, and with [`ServiceError::UnexpectedResponse`] for a page `read`
+    /// does not take.
+    async fn list_every_page<Item>(
+        &self,
+        method: &str,
+        request: impl Fn(PaginatedRequestParams) -> ClientRequest,
+        read: impl Fn(ServerResult) -> Option<(Vec<Item>, Option<String>)>,
+    ) -> Result<(Vec<Item>, bool), ServiceError> {
+        let mut items = Vec::new();
         let mut cursors = PageCursors::default();
         let mut cursor = None;
         loop {
-            let request = ClientRequest::ListPromptsRequest(ListPromptsRequest::with_param(
-                PaginatedRequestParams::default().with_cursor(cursor),
-            ));
-            let ServerResult::ListPromptsResult(page) =
-                self.send_request(request, RequestWait::Ordinary).await?
-            else {
-                return Err(ServiceError::UnexpectedResponse);
-            };
-            prompts.extend(page.prompts);
-            cursor = cursors.follow("prompts/list", page.next_cursor);
+            let params = PaginatedRequestParams::default().with_cursor(cursor);
+            let answer = self
+                .send_request(request(params), RequestWait::Ordinary)
+                .await?;
+            let (page, next_cursor) = read(answer).ok_or(ServiceError::UnexpectedResponse)?;
+            items.extend(page);
+            cursor = cursors.follow(method, next_cursor);
             if cursor.is_none() {
-                return Ok(prompts);
+                return Ok((items, cursors.is_complete()));
             }
         }
     }

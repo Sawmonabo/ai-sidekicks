@@ -23,7 +23,6 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
@@ -53,11 +52,10 @@ use super::{
 use crate::interventions::interrupt_queue::InterruptQueue;
 use crate::interventions::service::test_fixture::EngineQueue;
 use crate::questions::schema::schema_parts;
-use crate::queue_store::{
-    NewQueueItem, QueueItemBody, QueueMessageBody, insert_queue_item_statement,
-};
+use crate::queue_store::QueueItemBody;
+use crate::queue_store::test_items::{test_queue_item, words, write_item};
 use crate::run::engine::RunEngine;
-use crate::run::engine::test_fixture::{insert_running_run, stored_run_state, test_engine};
+use crate::run::engine::test_fixture::{insert_run, stored_run_state, test_engine};
 use crate::run::state_change::RunStateChange;
 
 /// A service over a test database holding one running run, at version 1, bound to the table's
@@ -115,7 +113,7 @@ async fn harness_reading_priority(
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     bind_run_to_first_provider(&database, run_id);
     let engine = test_engine(&database, Arc::clone(&log.service), home.path());
     let providers = registry_of_first_provider(Arc::new(driver));
@@ -136,7 +134,6 @@ async fn harness_reading_priority(
             database.path(),
             INTERVENTION_SERVICE_STATEMENT_CAPACITY,
         )),
-        event_log: Arc::clone(&log.service),
         engine: Arc::clone(&engine),
         providers: Arc::new(providers),
         queue,
@@ -230,30 +227,13 @@ impl Harness {
 
     /// Queues a message for the run and answers its id.
     async fn queue_message(&self) -> QueueItemId {
-        let item_id =
-            QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id");
-        let item = NewQueueItem {
-            id: item_id,
-            session_id: self.session_id,
-            body: QueueItemBody::Message(QueueMessageBody {
-                content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
-                attachments: None,
-                skills: None,
-                answers_question_id: None,
-                output_speed_for_turn: None,
-                workspace_id: None,
-            }),
-            target_run_id: self.run_id,
-            device_id: None,
-            client_idempotency_key: Some(key(OTHER_KEY)),
-            replaces_queue_item_id: None,
-            now: WireInstant::now(),
-        };
-        self.writer
-            .write(vec![insert_queue_item_statement(&item)])
-            .await
-            .expect("the test queues its message");
-        item_id
+        let mut item = test_queue_item(
+            self.session_id,
+            self.run_id,
+            QueueItemBody::Message(words("Look again")),
+        );
+        item.client_idempotency_key = Some(key(OTHER_KEY));
+        write_item(&self.writer, &item).await
     }
 
     /// Puts the run in `state` at `version`.

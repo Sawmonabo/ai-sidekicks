@@ -72,7 +72,7 @@ async fn a_stop_answers_only_once_claude_code_acknowledged_it() {
         session.channel.writes().contains(&ScriptedWrite::Terminate),
         "a cut stop stops the process"
     );
-    let requests = session.channel.control_requests();
+    let requests = session.control_requests_after_start();
     assert_eq!(requests.len(), 3);
     assert!(
         requests
@@ -140,7 +140,7 @@ async fn a_command_moves_to_the_background_through_the_call_that_started_it() {
 
     assert!(!unnamed, "a command Claude Code never named does not move");
     assert!(moved, "the named command moves");
-    let requests = session.channel.control_requests();
+    let requests = session.control_requests_after_start();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0]["subtype"], "background_tasks");
     assert_eq!(requests[0]["tool_use_id"], "call-b");

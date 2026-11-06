@@ -1,6 +1,7 @@
 //! The settings a Codex session's conversation is started and resumed with: its folder, level,
-//! profile folders, the commands' environment, its helpers' role files and its tool servers,
-//! resolved afresh at every start and resume, with the session's step bound read beside them.
+//! profile folders, the commands' environment, its helpers' role files, its tool servers and its
+//! memory switch, resolved afresh at every start and resume, with the session's step bound read
+//! beside them.
 
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
@@ -148,6 +149,7 @@ impl CodexSessionEstablishment {
             tool_servers: request.tool_servers.map(<[_]>::to_vec).unwrap_or_default(),
             // The daemon's spawn context carries no instructions for a conversation.
             base_instructions: None,
+            auto_memory: context.auto_memory,
         };
         Ok(CodexComposedSettings {
             thread_settings,

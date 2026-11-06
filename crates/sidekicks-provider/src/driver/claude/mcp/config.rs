@@ -4,13 +4,19 @@
 //! deny lists. Every credential-bearing value is dropped at the read: a declaration keeps names
 //! only, and a remote address is held whole only in memory, for the duplicate match. The one read
 //! that keeps values takes a single server's entry for the probe that sends it, which drops it
-//! once sent.
+//! once sent. Beside the read sit the observe, compose, guarded edit and write of one server's
+//! entry in the person's own config, which keep values only in memory.
 
+mod compose;
+mod edit;
 mod entry;
 mod lock;
+mod observe;
 mod plugin_manifest;
 mod policy;
+mod write;
 
+pub(crate) use self::compose::compose_claude_mcp_entry;
 pub(crate) use self::entry::{ClaudeDeclaredEntry, ClaudePluginFolders, ClaudeServerEntryReader};
 
 use std::collections::BTreeMap;
@@ -32,7 +38,10 @@ use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::account::credentials::{
     CONFIG_FOLDER_VARIABLE, CUSTOM_SIGN_IN_HOST_VARIABLE,
 };
-use crate::driver::claude::session::rules::compose_claude_tool_server_name;
+use crate::driver::claude::session::rules::{
+    CLAUDE_SHARED_SETTINGS_FILE, CLAUDE_USER_SETTINGS_FILE, compose_claude_tool_server_name,
+    local_settings_path, settings_path,
+};
 use crate::driver::claude::session::settings_file::{
     ClaudeSettingsReadError, find_claude_setting, is_unreadable_path, list_managed_settings_files,
     read_claude_settings_file,
@@ -53,6 +62,34 @@ const CUSTOM_SIGN_IN_CONFIG_SUFFIX: &str = "-custom-oauth";
 const LEGACY_PERSON_CONFIG_FILE: &str = ".config.json";
 // A project's or a plugin's file of servers.
 const SERVERS_FILE: &str = ".mcp.json";
+// The `type` of an entry reached over a WebSocket, which only the read takes.
+const WS_TYPE: &str = "ws";
+
+/// The member of a Claude Code config file, a server file or a plugin's manifest that lists
+/// servers by name.
+pub(crate) const MCP_SERVERS_MEMBER: &str = "mcpServers";
+
+/// The member of the person's config that holds each project's own settings, by its root.
+pub(crate) const PROJECTS_MEMBER: &str = "projects";
+
+/// The member of a server entry naming the address an `http` or `sse` entry reaches.
+pub(crate) const URL_MEMBER: &str = "url";
+
+/// The member of a server entry naming the client its owner issued, through which Claude Code
+/// signs in to the server itself.
+pub(crate) const OAUTH_MEMBER: &str = "oauth";
+
+/// The member of a server entry naming a program Claude Code runs for each request's headers.
+pub(crate) const HEADERS_HELPER_MEMBER: &str = "headersHelper";
+
+/// The `type` of an entry that starts a program, and the transport of an entry with no `type`.
+pub(crate) const STDIO_TYPE: &str = "stdio";
+
+/// The `type` of an entry reached over streamable HTTP.
+pub(crate) const HTTP_TYPE: &str = "http";
+
+/// The `type` of an entry reached over server-sent events.
+pub(crate) const SSE_TYPE: &str = "sse";
 
 /// One attached project root and the folder its files are read at on this computer.
 #[derive(Clone, Debug)]
@@ -109,7 +146,7 @@ impl ClaudePersonConfigFiles {
             } else {
                 person_config
             },
-            user_settings: config_folder.join("settings.json"),
+            user_settings: config_folder.join(CLAUDE_USER_SETTINGS_FILE),
         }
     }
 }
@@ -258,9 +295,9 @@ pub(crate) async fn read_claude_mcp_config(
         let project_file: ClaudeMcpServersFile = read_json_file(&root.folder.join(SERVERS_FILE))
             .await?
             .unwrap_or_default();
-        let settings_folder = root.folder.join(".claude");
-        let project_settings = read_settings(&settings_folder.join("settings.json")).await?;
-        let local_settings = read_settings(&settings_folder.join("settings.local.json")).await?;
+        let project_settings =
+            read_settings(&settings_path(&root.folder, CLAUDE_SHARED_SETTINGS_FILE)).await?;
+        let local_settings = read_settings(&local_settings_path(&root.folder)).await?;
 
         // Claude Code's approval of a `.mcp.json` server rejects one the merged settings'
         // `disabledMcpjsonServers` name, and otherwise approves it by the settings or leaves it
@@ -430,6 +467,13 @@ struct ClaudeInstalledPlugin {
     install_path: PathBuf,
 }
 
+// The value at `keys` in `value`, each key a member of the object before it; `None` where one is
+// missing.
+fn value_at<'value>(value: &'value Value, keys: &[impl AsRef<str>]) -> Option<&'value Value> {
+    keys.iter()
+        .try_fold(value, |value, key| value.get(key.as_ref()))
+}
+
 // A JSON file read into `File`: `None` where the daemon cannot read it or it does not parse as
 // `File`, the error on any other read failure.
 async fn read_json_file<File: DeserializeOwned>(
@@ -527,7 +571,7 @@ fn read_server_entry(
         map.as_ref().map(|map| map.keys().cloned().collect())
     };
     match entry.transport.as_deref() {
-        None | Some("stdio") => {
+        None | Some(STDIO_TYPE) => {
             let command = entry.command.clone()?;
             let endpoint = ClaudeMcpEndpoint::Command {
                 command: command.clone(),
@@ -544,19 +588,19 @@ fn read_server_entry(
             };
             Some((config, Some(endpoint)))
         }
-        Some(transport @ ("http" | "sse" | "ws")) => {
+        Some(transport @ (HTTP_TYPE | SSE_TYPE | WS_TYPE)) => {
             let address = read_server_address(entry.url.as_deref()?);
             let url = address.stripped_url;
             let url_query_param_names =
                 (!address.query_param_names.is_empty()).then_some(address.query_param_names);
             let header_names = names(&entry.headers);
-            let config = if transport == "ws" {
+            let config = if transport == WS_TYPE {
                 McpServerConfigView::Ws {
                     url,
                     url_query_param_names,
                     header_names,
                 }
-            } else if transport == "http" {
+            } else if transport == HTTP_TYPE {
                 McpServerConfigView::Http {
                     url,
                     url_query_param_names,

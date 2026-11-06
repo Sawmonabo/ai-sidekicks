@@ -49,7 +49,7 @@ use tempfile::TempDir;
 use super::{USAGE_RECORD_STATEMENT_CAPACITY, UsageRecord, UsageRecordError};
 use crate::questions::schema::schema_parts;
 use crate::run::engine::RunEngine;
-use crate::run::engine::test_fixture::{append, insert_running_run, test_choices, test_engine};
+use crate::run::engine::test_fixture::{append, insert_run, test_choices, test_engine};
 use crate::run::engine::usage_tallies::TokenLimitStop;
 use crate::run::epochs::{EpochBinding, ExecutionEpochs};
 use crate::run::inbound::tests::UnreadRunStates;
@@ -107,7 +107,7 @@ impl Harness {
         assert!(engine.set_limit_interrupter(handed).is_ok());
         let session_id = test_session_id();
         let lead_run_id = new_run_id();
-        insert_running_run(&database, session_id, lead_run_id);
+        insert_run(&database, session_id, lead_run_id, "running");
         append(
             &engine,
             session_id,

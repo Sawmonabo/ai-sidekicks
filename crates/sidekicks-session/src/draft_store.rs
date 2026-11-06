@@ -26,6 +26,13 @@ const UPSERT_DRAFT_SQL: &str = "INSERT INTO session_drafts (session_id, text, up
   VALUES (@sessionId, @text, @updatedAt)
   ON CONFLICT (session_id) DO UPDATE SET text = excluded.text, updated_at = excluded.updated_at";
 
+// Puts the words on their own line ahead of the held draft; a held draft is never empty, so no
+// stray line break is written. One statement, so a draft saved beside it is never read stale.
+const PREPEND_DRAFT_SQL: &str = "INSERT INTO session_drafts (session_id, text, updated_at)
+  VALUES (@sessionId, @text, @updatedAt)
+  ON CONFLICT (session_id) DO UPDATE SET
+    text = excluded.text || char(10) || session_drafts.text, updated_at = excluded.updated_at";
+
 const DELETE_DRAFT_SQL: &str = "DELETE FROM session_drafts WHERE session_id = @sessionId";
 
 /// Why a draft was not read or stored; a refused store keeps nothing.
@@ -105,17 +112,38 @@ impl SessionDraftStore {
                 expected_row_count: None,
             }
         } else {
-            WriteStatement {
-                sql: Cow::Borrowed(UPSERT_DRAFT_SQL),
-                bindings: StatementBindings::Named(vec![
-                    text_binding("@sessionId", session_text.as_str()),
-                    (Cow::Borrowed("@text"), Value::Text(text)),
-                    text_binding("@updatedAt", updated_at.as_str()),
-                ]),
-                expected_row_count: None,
-            }
+            draft_statement(UPSERT_DRAFT_SQL, &session_id, text, &updated_at)
         };
         write_while_session_exists(&self.writer, &session_id, change).await?;
         Ok(updated_at)
+    }
+}
+
+/// The write that puts `words`, returned messages one line each, back into `session_id`'s draft
+/// ahead of the held draft, on a line of their own, or as the whole draft where none is held, for
+/// a caller's own write.
+pub fn restored_words_statement(
+    session_id: &SessionId,
+    words: &str,
+    now: &WireInstant,
+) -> WriteStatement {
+    draft_statement(PREPEND_DRAFT_SQL, session_id, words.to_owned(), now)
+}
+
+// The draft write `sql` of `text` for `session_id` at `updated_at`.
+fn draft_statement(
+    sql: &'static str,
+    session_id: &SessionId,
+    text: String,
+    updated_at: &WireInstant,
+) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(sql),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@sessionId", session_id.text().as_str()),
+            (Cow::Borrowed("@text"), Value::Text(text)),
+            text_binding("@updatedAt", updated_at.as_str()),
+        ]),
+        expected_row_count: None,
     }
 }

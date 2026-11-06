@@ -42,6 +42,7 @@ use sidekicks_ipc::protocol_negotiation::ProtocolNegotiator;
 use sidekicks_ipc::registry::MethodRegistryBuilder;
 use sidekicks_ipc::stream::subscriptions::Subscriptions;
 use sidekicks_mcp::client::McpClient;
+use sidekicks_mcp::mutation::service::McpMutationService;
 use sidekicks_platforms::{
     Spawner, WakeWatch, WallClock, WallClockTimer, askpass_socket_path, check_socket_path,
     read_command_argument_limit,
@@ -49,9 +50,11 @@ use sidekicks_platforms::{
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::command::channel::remove_channel_folders;
-use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
 use sidekicks_recovery::database_file::sqlite_shell::SqliteShell;
+use sidekicks_recovery::restart_settle::RestartSettle;
+use sidekicks_recovery::startup::StartupRecovery;
+use sidekicks_recovery::stop_intent::StopIntentFile;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::run::turn_capture::TurnCapturing;
 use sidekicks_session::search::index::live::{LiveIndex, LiveIndexOptions};
@@ -112,11 +115,13 @@ use crate::daemon::process::session_services::{
 };
 use crate::daemon::process::start_error::{DaemonStartError, DaemonStartFailure};
 use crate::daemon::process::start_options::{DaemonStartOptions, ProviderBaseEnvironment};
-use crate::daemon::process::stop::{DaemonCommand, close_data_folder, stop_work};
+use crate::daemon::process::stop::{
+    DaemonCommand, DaemonStopReason, close_data_folder_contents, stop_work,
+};
 use crate::daemon::process::supervision::{ProcessStateTracker, ServingSocketHooks};
 use crate::daemon::process::workspace_services::{WorkspaceWork, settle_interrupted_creations};
 use crate::daemon::run_folder::{bind_socket, mint_session_token, prepare_run_folder};
-use crate::daemon::service_status::remove_service_status;
+use crate::daemon::service_status::{StopRecord, record_start_failure, remove_service_status};
 use crate::daemon::start_stopped_error::DaemonStartStoppedError;
 use crate::ipc::local_gateway::{GatewayServices, LocalGateway};
 use crate::observability::diagnostic_buckets::expiry::{
@@ -134,8 +139,8 @@ pub(crate) struct DaemonProcess {
     pub(crate) started_at: Timestamp,
     /// The system's stop request.
     system_stop: CancellationToken,
-    /// The first stop asked for over the socket, with why.
-    stop_asked: watch::Sender<Option<DaemonStopIntent>>,
+    /// Why a stop was asked for over the socket, each ask joined to the one before it.
+    stop_asked: watch::Sender<Option<DaemonStopReason>>,
     /// The erase's steps, sent to the task that owns the process.
     commands: mpsc::Receiver<DaemonCommand>,
     /// Where the erase's steps are sent; held here, so the receiver never ends while the process
@@ -162,15 +167,22 @@ pub(crate) struct DaemonProcess {
     pub(crate) database: Option<DatabaseFile>,
     /// This machine's two keys, whose background read the stop joins within the drain bound.
     pub(crate) machine_identity: Option<Arc<MachineIdentity>>,
-    /// When the stop began, from which what is left of the drain bound is counted.
+    /// When the latest stop began, from which what is left of its drain bound is counted.
     pub(crate) stop_started: Option<Instant>,
+    /// The intent the person's Stop writes beside the database file, held from before the file
+    /// opens, so a Stop that cuts the start short writes it too.
+    pub(crate) stop_intent: Arc<StopIntentFile>,
     /// Whether a step of the stop failed, so no clean stop is recorded.
     pub(crate) has_stop_failed: bool,
+    /// The record in the status file of each stop of the running service: each step it waits on
+    /// and how it ended.
+    pub(crate) stop_record: StopRecord,
     /// Hands freed memory back once the work goes quiet; ends with the work.
     idle_memory: Option<Arc<IdleMemoryCollect>>,
     /// Runs the background jobs, stopped as the work ends.
     pub(crate) scheduler: Option<Arc<Scheduler>>,
-    /// The session search index, closed as the work ends.
+    /// The session search index, closed as the work ends, a close cut there waited out as the
+    /// data folder closes.
     pub(crate) search_index: Option<Arc<LiveIndex>>,
     /// The gate that records every mutating call while it runs, which the stop waits on.
     pub(crate) in_flight: Option<Arc<InFlightMutations>>,
@@ -182,6 +194,8 @@ pub(crate) struct DaemonProcess {
     pub(crate) mcp_attribution_fills: Option<McpAttributionFills>,
     /// The tool servers' client, stopped before the queue and the drivers.
     pub(crate) mcp_client: Option<Arc<McpClient>>,
+    /// The MCP binding edits' service, whose settle pass the stop waits for before the drivers.
+    pub(crate) mcp_mutations: Option<Arc<McpMutationService>>,
     /// The repository services, whose watch, fetches and askpass broker the stop ends.
     pub(crate) repo: Option<RepoServices>,
     /// The repository services' background work, ended by the stop before the scheduler.
@@ -189,10 +203,16 @@ pub(crate) struct DaemonProcess {
     /// The session services: the stop ends the queue, the renames' name pushes, the highlighter
     /// and the terminals, and lets the rest go before the database file closes.
     pub(crate) session: Option<SessionServices>,
+    /// What a restart or the person's Stop left in the sessions, settled; the person's Stop
+    /// drains the live runs through it once the drivers are shut down.
+    pub(crate) restart_settle: Option<Arc<RestartSettle>>,
     /// The session services' follows of the log, ended by the stop with the chats' write watch.
     pub(crate) session_attachments: Option<SessionAttachments>,
     /// The turn-end capture's follow, ended by the stop once the drivers can end no more turns.
     pub(crate) turn_capturing: Option<TurnCapturing>,
+    /// The start's recovery pass, kept past it so the stop waits out the name drops it left
+    /// waiting on a session's kept turns.
+    pub(crate) recovery: Option<StartupRecovery>,
     /// The attention service's decision task, which ends with the work's stop and is waited out.
     pub(crate) attention: Option<JoinHandle<()>>,
     /// The provider accounts' background observer, ended by the stop before the scheduler.
@@ -217,25 +237,27 @@ const START_OPERATION: &str = "the daemon's start";
 
 impl DaemonProcess {
     /// Starts the daemon with `options` and answers it once it is ready. A failed step releases
-    /// what the start took, in the stop's order, and fails with the step's error beside every
-    /// failure of that release; a stop asked for before the daemon is ready fails it with
-    /// [`DaemonStartError::Stopped`].
+    /// what the start took, in the stop's order, records why the start failed in the status file
+    /// and fails with the step's error beside every failure of that release; a stop asked for
+    /// before the daemon is ready fails it with [`DaemonStartError::Stopped`].
     pub(crate) async fn start(options: DaemonStartOptions) -> Result<Self, DaemonStartFailure> {
         let started_at = Timestamp::now();
         let spawner = match Spawner::new(tokio::runtime::Handle::current()) {
             Ok(spawner) => spawner,
             Err(error) => {
+                let error = DaemonStartError::Spawner(error);
+                // The lock `options` holds goes only once this returns, after the record.
+                record_start_failure(&options.run_folder, &error);
                 return Err(DaemonStartFailure {
-                    failures: Box::new(CleanupFailures::new(
-                        DaemonStartError::Spawner(error),
-                        Vec::new(),
-                        START_OPERATION,
-                    )),
+                    failures: Box::new(CleanupFailures::new(error, Vec::new(), START_OPERATION)),
                     release_started: Instant::now(),
                 });
             }
         };
         let (command_sender, commands) = mpsc::channel(1);
+        let stop_intent = Arc::new(StopIntentFile::new(
+            &data_folder(&options.home_folder).join(DAEMON_DATABASE_FILE_NAME),
+        ));
         let mut process = Self {
             started_at,
             work_stop: options.stop.child_token(),
@@ -253,7 +275,12 @@ impl DaemonProcess {
             database: None,
             machine_identity: None,
             stop_started: None,
+            stop_intent,
             has_stop_failed: false,
+            stop_record: StopRecord::new(
+                options.run_folder.clone(),
+                options.process_identity.clone(),
+            ),
             idle_memory: None,
             scheduler: None,
             search_index: None,
@@ -262,11 +289,14 @@ impl DaemonProcess {
             providers_registration: None,
             mcp_attribution_fills: None,
             mcp_client: None,
+            mcp_mutations: None,
             repo: None,
             repo_attachments: None,
             session: None,
+            restart_settle: None,
             session_attachments: None,
             turn_capturing: None,
+            recovery: None,
             attention: None,
             provider_accounts: None,
             web_address_sender: None,
@@ -597,12 +627,13 @@ impl DaemonProcess {
                 process_state: Arc::clone(&self.process_state),
                 in_flight: Arc::clone(&in_flight),
                 accept_stop,
+                stop_intent: Arc::clone(&self.stop_intent),
                 stop_work: stop_work_step,
                 close_data_folder: close_data_folder_step,
             },
         )
         .await?;
-        let recovery = inputs.recovery;
+        self.recovery = Some(inputs.recovery);
         let attention = inputs.attention;
         let web_address_sender = inputs.web_address_sender;
         self.project_list_feed = Some(inputs.project_list_feed);
@@ -612,8 +643,10 @@ impl DaemonProcess {
         // Before the socket serves, so no creation is under way.
         settle_interrupted_creations(self.worktree_creator.insert(inputs.worktree_creator)).await;
         let mcp_inventory = inputs.mcp_inventory;
+        let mcp_mutations = Arc::clone(self.mcp_mutations.insert(inputs.mcp_mutations));
         self.mcp_client = Some(inputs.mcp_client);
         let mut provider_accounts = inputs.provider_accounts;
+        self.restart_settle = Some(inputs.restart_settle);
         let session = self.session.insert(inputs.session);
         let queue = Arc::clone(&session.queue);
         let caller_check = CallerCheck::new(
@@ -697,7 +730,11 @@ impl DaemonProcess {
         self.turn_capturing = Some(session.turn_capture.start(&followers));
         // Settles what the last stop left before any other follow of the log or any folder watch
         // starts.
-        recovery.run(&self.work_stop).await;
+        self.recovery
+            .as_ref()
+            .expect("the recovery pass is built with the start's inputs")
+            .run(&self.work_stop)
+            .await;
         // Right after the recovery pass, so the sweep reads what the last stop left before the
         // session services' follows begin.
         self.attention = Some(attention.start(self.work_stop.clone()).await?);
@@ -751,6 +788,9 @@ impl DaemonProcess {
             () = self.work_stop.cancelled() => {}
         }
         self.check_stop("waiting for the providers' first reads")?;
+        // After the first reads too: a settle reads each provider's config, which may start its
+        // service. It runs in the background and never holds the start.
+        mcp_mutations.settle_pending();
         // After the first reads, so each provider's read joins what its start runs.
         self.mcp_attribution_fills = Some(McpAttributionFills::start(
             mcp_inventory,
@@ -792,12 +832,16 @@ impl DaemonProcess {
         Ok(())
     }
 
-    // Releases what a failed start took, in the stop's order, keeping each failure beside `error`.
+    // Releases what a failed start took, in the stop's order, for the reason `error` gives, keeping
+    // each failure beside `error`. Why the start failed is recorded before the data folder's lock
+    // goes last, so a start that takes the lock next meets no write of this one.
     async fn release(mut self, error: DaemonStartError) -> DaemonStartFailure {
         let release_started = Instant::now();
-        let mut failures =
-            stop_work(&mut self, DaemonStopIntent::Stop, DAEMON_STOP_DRAIN_BOUND).await;
-        failures.extend(close_data_folder(&mut self).await);
+        let reason = DaemonStopReason::of_failed_start(&error);
+        let mut failures = stop_work(&mut self, reason, DAEMON_STOP_DRAIN_BOUND).await;
+        failures.extend(close_data_folder_contents(&mut self).await);
+        record_start_failure(&self.stop_record.run_folder, &error);
+        drop(self.data_folder_lock.take());
         DaemonStartFailure {
             failures: Box::new(CleanupFailures::new(error, failures, START_OPERATION)),
             release_started,

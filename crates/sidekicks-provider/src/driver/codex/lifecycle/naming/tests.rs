@@ -8,16 +8,11 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use super::{CODEX_NAMING_DEADLINE, TitleRequest, draw_title};
-use crate::driver::codex::session::detached_conversation::CodexDetachedFrames;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::test_fixture::turn_reply;
-use crate::driver::codex::transport::connection::CodexConnectionHandlers;
 use crate::driver::codex::transport::connection::scripted_service::{
-    ScriptedService, connect_scripted_service,
+    ScriptedService, scripted_connection,
 };
-
-/// The largest message the scripted connection takes, far above any a test sends.
-const MESSAGE_LIMIT: usize = 1 << 20;
 
 /// The session's folder, which the title conversation is read and started under.
 const FOLDER: &str = "/work/repository";
@@ -39,15 +34,7 @@ fn start_pass(
     tokio::task::JoinHandle<Result<Option<String>, CodexError>>,
     ScriptedService,
 ) {
-    let (events, frames) = CodexDetachedFrames::new();
-    let (connection, script) = connect_scripted_service(
-        MESSAGE_LIMIT,
-        CodexConnectionHandlers {
-            events,
-            responder: None,
-            token_refresher: None,
-        },
-    );
+    let (connection, script, frames) = scripted_connection();
     let pass = tokio::spawn(async move {
         draw_title(
             connection,

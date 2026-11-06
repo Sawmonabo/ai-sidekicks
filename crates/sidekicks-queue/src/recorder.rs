@@ -39,6 +39,7 @@ use sidekicks_session::queue_store::{
     session_takes_messages_statement, supersede_undelivered_statement,
 };
 use sidekicks_session::run::projection::insert_queued_run_statement;
+use sidekicks_session::run::state_change::RunWriteCompanions;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -361,6 +362,35 @@ impl QueueRecorder {
         let (draft, statement) = outcome_draft_of(item, &outcome, now)?;
         self.append_with(draft, vec![statement]).await?;
         self.raise_committed(std::slice::from_ref(item), false);
+        Ok(())
+    }
+
+    /// Writes `ends`, waiting items' moves out of `queued` and their events, alone in one write, its
+    /// last event as the write's own; raises nothing, so the caller raises once it has settled the
+    /// items. Fails as [`QueueRecordError`] says, refused when an item has left `queued`; nothing
+    /// is written then.
+    pub(crate) async fn record_ends(
+        &self,
+        ends: RunWriteCompanions,
+    ) -> Result<(), QueueRecordError> {
+        let RunWriteCompanions {
+            statements,
+            mut preceding_events,
+            ..
+        } = ends;
+        let draft = preceding_events
+            .pop()
+            .expect("the ends written alone end at least one item");
+        self.appender
+            .append(
+                draft,
+                SessionEventLinkage {
+                    transactional_prelude: statements,
+                    preceding_events,
+                    ..SessionEventLinkage::default()
+                },
+            )
+            .await?;
         Ok(())
     }
 

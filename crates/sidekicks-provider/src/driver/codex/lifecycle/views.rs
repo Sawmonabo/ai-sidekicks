@@ -1,8 +1,9 @@
 //! What each session's task shows of its record to the driver's reads that answer at once and so
 //! cannot wait their turn on the task: the service and conversation the session runs on, its
-//! account, folder, model and one live run, for its command list, a request's answer and its
-//! name, and the tier it declared. The task updates a view after each item it handles, only where
-//! it changed, and takes it away as it lets the record go.
+//! account, folder, model and one live run, for its command list, a request's answer and its name,
+//! the tier it declared, and its open turns, which the daemon's stop interrupts. The task updates a
+//! view after each item it handles, only where it changed, and takes it away as it lets the record
+//! go.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -27,6 +28,7 @@ struct CodexSessionView {
     model: String,
     run_id: Option<RunId>,
     declared_output_speed: Option<ProviderOutputSpeedState>,
+    open_turn_ids: Vec<String>,
 }
 
 /// A live session's conversation as its name is drawn and told: the service it is loaded on, the
@@ -52,6 +54,11 @@ impl CodexSessionView {
             model: record.thread_settings.model.clone(),
             run_id: record.sole_active_run(),
             declared_output_speed: record.declared_output_speed.clone(),
+            open_turn_ids: record
+                .active_turns
+                .iter()
+                .map(|(turn_id, _)| turn_id.clone())
+                .collect(),
         }
     }
 
@@ -63,6 +70,10 @@ impl CodexSessionView {
             && self.model == record.thread_settings.model
             && self.run_id == record.sole_active_run()
             && self.declared_output_speed == record.declared_output_speed
+            && self
+                .open_turn_ids
+                .iter()
+                .eq(record.active_turns.iter().map(|(turn_id, _)| turn_id))
     }
 }
 
@@ -121,6 +132,14 @@ impl CodexSessionViews {
                 working_directory: view.working_directory.clone(),
                 model: view.model.clone(),
             })
+    }
+
+    /// Every live turn of `session_id`'s conversation, oldest first; none with no live record.
+    pub(crate) fn open_turn_ids(&self, session_id: SessionId) -> Vec<String> {
+        self.lock()
+            .get(&session_id)
+            .map(|view| view.open_turn_ids.clone())
+            .unwrap_or_default()
     }
 
     /// The tier `session_id`'s conversation last declared, `None` with no live record or no

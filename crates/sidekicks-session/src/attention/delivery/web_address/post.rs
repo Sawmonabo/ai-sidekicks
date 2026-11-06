@@ -4,7 +4,6 @@
 //! drops its address before it is kept or logged, and the answer's body is never read.
 
 use std::error::Error;
-use std::sync::Mutex;
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -13,14 +12,12 @@ use bytes::Bytes;
 use jiff::Timestamp;
 use percent_encoding::percent_decode_str;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue};
-use reqwest::redirect::Policy;
-use reqwest::{Client, StatusCode, Url};
+use reqwest::{StatusCode, Url};
 use secrecy::SecretString;
 use sidekicks_contracts::attention::AttentionDeliveryResult;
 use sidekicks_contracts::web_address::WebAddress;
 use sidekicks_contracts::wire::integer::BoundedInt;
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::outbound_http::outbound_client_builder;
+use sidekicks_std::outbound_http::KeptOutboundClient;
 
 use crate::attention::delivery::web_address::signature::{UnreadableSigningSecret, sign_message};
 
@@ -30,11 +27,19 @@ const ANSWER_TIMEOUT: Duration = Duration::from_secs(15);
 /// The idle connections kept to the address: the one a sequential sender reuses.
 const IDLE_CONNECTIONS_PER_HOST: usize = 1;
 
-/// The web address's HTTP client, built at its first post and kept until it is released; it
-/// follows no redirect.
-#[derive(Default)]
+/// The web address's poster, whose HTTP client is built at its first post and kept until it is
+/// released; it follows no redirect.
 pub(crate) struct WebAddressPoster {
-    client: Mutex<Option<Client>>,
+    /// The kept client, which the sender releases once nothing is sent.
+    pub(crate) client: KeptOutboundClient,
+}
+
+impl Default for WebAddressPoster {
+    fn default() -> Self {
+        Self {
+            client: KeptOutboundClient::new(IDLE_CONNECTIONS_PER_HOST),
+        }
+    }
 }
 
 /// One attempt to send a message: where, signed with what, its id, its frozen body and the
@@ -74,36 +79,11 @@ pub(crate) enum PostError {
 }
 
 impl WebAddressPoster {
-    /// Drops the client and, with it, the idle connection it keeps, once nothing is sent.
-    pub(crate) fn release(&self) {
-        lock(&self.client).take();
-    }
-
-    /// Whether a client is kept.
-    #[cfg(test)]
-    pub(crate) fn is_client_kept(&self) -> bool {
-        lock(&self.client).is_some()
-    }
-
-    // The kept client, built when none is.
-    fn client(&self) -> Result<Client, PostError> {
-        let mut kept = lock(&self.client);
-        if let Some(client) = kept.as_ref() {
-            return Ok(client.clone());
-        }
-        let client = outbound_client_builder(IDLE_CONNECTIONS_PER_HOST)
-            .redirect(Policy::none())
-            .build()
-            .map_err(|error| PostError::Client(error.without_url()))?;
-        *kept = Some(client.clone());
-        Ok(client)
-    }
-
     /// Sends `post`'s body once and reports how it ended: a 2xx answer within 15 s `delivered`,
     /// any other answer, a redirect among them, `refused`, no answer in time `timedOut`, and no
     /// answer at all `unreachable`. Fails with [`PostError`] when no attempt could be made.
     pub(crate) async fn post(&self, post: WebAddressPost<'_>) -> Result<PostOutcome, PostError> {
-        let client = self.client()?;
+        let client = self.client.client().map_err(PostError::Client)?;
         let timestamp = post.attempted_at.as_second();
         let signature = sign_message(post.signing_secret, post.message_id, timestamp, post.body)?;
         let (url, authorization) = moved_user_info(post.address);

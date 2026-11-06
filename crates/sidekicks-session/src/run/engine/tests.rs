@@ -181,7 +181,7 @@ pub(super) fn arm_step_count(engine: &RunEngine, run_id: RunId, turn_number: u64
 }
 
 /// A test's turn number.
-pub(super) fn turn(number: u64) -> SafeInt<1> {
+pub(crate) fn turn(number: u64) -> SafeInt<1> {
     SafeInt::new(number).expect("the test's turn numbers count from 1")
 }
 
@@ -297,6 +297,11 @@ pub(crate) fn hold_cut(
         turn_number,
         stop_id: cut.stop_id,
     }
+}
+
+/// Whether a limit row's mark keeps `cut` past its stop.
+pub(crate) fn is_cut_named_by_row(engine: &RunEngine, cut: HandedCut) -> bool {
+    lock(&engine.live).rowed_cuts.contains(&cut.stop_id)
 }
 
 /// A turn start of `run_id`, read-only at the root, whose driver starts the turn as `start_driver`

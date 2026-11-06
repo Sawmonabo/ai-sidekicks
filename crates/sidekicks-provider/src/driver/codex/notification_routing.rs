@@ -61,6 +61,11 @@ pub(crate) struct CodexMcpServerStartups {
 }
 
 impl CodexMcpServerStartups {
+    /// The servers a startup was heard for since the conversation was bound.
+    pub(crate) fn server_names(&self) -> impl Iterator<Item = &McpServerName> {
+        self.readings.keys()
+    }
+
     /// Whether no startup was heard since the conversation was bound.
     #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {

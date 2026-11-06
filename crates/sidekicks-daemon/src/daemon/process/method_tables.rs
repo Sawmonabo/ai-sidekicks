@@ -94,6 +94,7 @@ use crate::ipc::handlers::session::goal::register_session_goal_methods;
 use crate::ipc::handlers::session::group::register_session_groups;
 use crate::ipc::handlers::session::links::register_session_links;
 use crate::ipc::handlers::session::list::register_session_list;
+use crate::ipc::handlers::session::mcp_servers::{McpServerMethods, register_mcp_servers};
 use crate::ipc::handlers::session::recovery::register_session_recovery_methods;
 use crate::ipc::handlers::session::restart::register_session_restart;
 use crate::ipc::handlers::session::review_note::register_session_review_notes;
@@ -191,6 +192,8 @@ pub(crate) struct MethodTableServices {
     /// The session controls' inputs: the level, the mode, side questions, reviews and the
     /// command list.
     pub(crate) session_controls: SessionControlMethods,
+    /// What a session's server methods read and act through.
+    pub(crate) mcp_servers: McpServerMethods,
     /// Lists a repository's branches.
     pub(crate) branches: Arc<BranchListReader>,
     /// Follows a session's working folder.
@@ -282,6 +285,7 @@ pub(crate) fn register_method_tables(
         Arc::clone(&services.session_controls.provider_sessions),
     )?;
     register_session_controls(builder, services.session_controls)?;
+    register_mcp_servers(builder, services.mcp_servers)?;
     register_session_goal_methods(builder, services.session_goals)?;
     register_session_tags(builder, services.tags)?;
     register_session_groups(builder, services.session_groups)?;

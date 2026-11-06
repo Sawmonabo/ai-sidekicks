@@ -66,13 +66,13 @@ impl WebAddressSender {
         match is_switched_on {
             Ok(true) => {}
             // No pass releases the client while the switch stays off.
-            Ok(false) => self.poster.release(),
+            Ok(false) => self.poster.client.release(),
             Err(error) => {
                 tracing::warn!(
                     error = &error as &(dyn Error + 'static),
                     "the machine's settings did not read for a test message, so its client goes"
                 );
-                self.poster.release();
+                self.poster.client.release();
             }
         }
         self.answer_test(at, end).await

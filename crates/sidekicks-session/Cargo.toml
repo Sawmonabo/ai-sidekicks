@@ -70,7 +70,8 @@ mockall.workspace = true
 rstest.workspace = true
 # The credit gate the list feed's tests read through.
 sidekicks-ipc = { workspace = true, features = ["test-support"] }
-# The status tracker the session directory's port is built over in its tests.
+# The status tracker the session directory's port is built over in its tests, and the
+# attribution table they fill from a reading.
 sidekicks-mcp = { workspace = true, features = ["test-support"] }
 # The illegal byte sequence check and the name that is not Unicode the tests read, and the
 # credential store in memory the web address's secrets are kept in.
@@ -97,8 +98,8 @@ tracing-subscriber.workspace = true
 # Helpers other crates' tests use: the run engine built over a test database and its restart pause,
 # the live count's test log, the attention entries' test log and counting windowless starter, the
 # transcript's test log, the questions service's fixtures, the list feed's test build, the follow
-# count, the search index's test services, and the agents projection's test events, statements
-# and log rows.
+# count, the search index's test services, the queue items tests queue, and the agents projection's
+# test events, statements and log rows.
 test-support = [
   "dep:tempfile",
   "sidekicks-provider/test-support",
