@@ -45,7 +45,8 @@ async fn start_helper(session: &mut TestCodexSession, thread_id: &str) -> RunId 
     }});
     let script = &mut session.scripted.script;
     let answer_read = async {
-        let read = tokio::time::timeout(Duration::from_secs(1), script.next_sent())
+        let read = script
+            .next_sent_within(Duration::from_secs(1))
             .await
             .expect("the spawned helper's conversation is read");
         assert_eq!(read["method"], "thread/read", "{read}");

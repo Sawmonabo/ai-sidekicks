@@ -139,9 +139,10 @@ async fn a_startup_round_lists_its_servers_once_keeping_each_startups_status() {
         .await;
     let script = &mut session.scripted.script;
     assert!(
-        tokio::time::timeout(Duration::from_secs(1), script.next_sent())
+        script
+            .next_sent_within(Duration::from_secs(1))
             .await
-            .is_err(),
+            .is_none(),
         "a settle outside the round listed again"
     );
 }
@@ -244,7 +245,8 @@ async fn a_usage_reading_carries_its_turns_tier_the_threads_tier_and_its_model(
             restored.await;
         } else {
             let answer_read = async {
-                let read = tokio::time::timeout(Duration::from_secs(1), script.next_sent())
+                let read = script
+                    .next_sent_within(Duration::from_secs(1))
                     .await
                     .expect("the restored helper's conversation is read");
                 assert_eq!(read["method"], "thread/read", "{read}");

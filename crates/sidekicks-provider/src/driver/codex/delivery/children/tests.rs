@@ -164,7 +164,8 @@ async fn handle_answering_read(
 ) {
     let script = &mut session.scripted.script;
     let answer_read = async {
-        let read = tokio::time::timeout(Duration::from_secs(1), script.next_sent())
+        let read = script
+            .next_sent_within(Duration::from_secs(1))
             .await
             .expect("the helper's conversation is read");
         assert_eq!(read["method"], "thread/read", "{read}");
@@ -406,7 +407,8 @@ async fn a_v1_spawn_reads_each_of_its_helpers_together() {
     let answer_reads = async {
         let mut reads = Vec::new();
         for _ in 0..2 {
-            let read = tokio::time::timeout(Duration::from_secs(1), script.next_sent())
+            let read = script
+                .next_sent_within(Duration::from_secs(1))
                 .await
                 .expect("each read goes out before any is answered");
             assert_eq!(read["method"], "thread/read", "{read}");
