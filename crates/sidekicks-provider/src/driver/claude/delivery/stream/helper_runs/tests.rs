@@ -4,15 +4,18 @@ use sidekicks_contracts::run::control::{RunFailureCategory, StopTrigger};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_std::mutex_lock::lock;
 
 use super::super::tests::result;
 use crate::driver::claude::hooks::pause::{ClaudeHookAnswer, ClaudePauseAnswer};
+use crate::driver::claude::session::scripted::driver::create_params;
 use crate::driver::claude::session::scripted::held_calls::{helper_started, init};
 use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
 };
 use crate::driver::run_control::{HelperStopReason, ResumeRunParams, WaitingMessage};
+use crate::driver::session_control::{CreateSessionParams, SubagentPolicy};
 use crate::port::run_host::test_host::RecordedDelivery;
 use crate::run::delivery::{LateAppendableRow, RunSetupRefusal};
 use crate::run::state_entry::RunStateEntry;
@@ -378,6 +381,109 @@ async fn a_helpers_start_names_the_model_and_effort_its_agent_call_asked_for() {
             named("c", Some("haiku"), None),
         ]
     );
+}
+
+// The helper calls the session's stream keeps for a start to take, by call id, sorted.
+fn recorded_helper_calls(session: &ScriptedSession) -> Vec<String> {
+    let stream = session
+        .start
+        .streams
+        .get(session.session_id)
+        .expect("the session has its stream");
+    let mut calls: Vec<String> = stream.lock().helper_calls.keys().cloned().collect();
+    calls.sort();
+    calls
+}
+
+// A lead's call the helper limit holds, then withdraws, is forgotten by its call id, though the
+// pause hook's request recorded it. Killed by a withdrawal that forgets only by the withdrawn
+// request's id (`call-l` kept).
+#[tokio::test(start_paused = true)]
+async fn a_withdrawn_helper_limit_hold_forgets_what_its_call_asked_for() {
+    let session = ScriptedSession::created_with(|session_id| CreateSessionParams {
+        subagent_policy: Some(SubagentPolicy::Enabled {
+            helpers_at_once: Some(SafeInt::new(1).expect("1 is a safe integer")),
+            definitions: Vec::new(),
+        }),
+        ..create_params(session_id)
+    })
+    .await;
+    session.hold_lead_turn("lead");
+    session.frame(&init());
+    let mut limit_hook = helper_call_hook("call-l", None, &json!({"model": "opus"}));
+    limit_hook["callback_id"] = json!("sidekicks-helper-limit");
+    let mut first_limit_hook = limit_hook.clone();
+    first_limit_hook["input"]["tool_use_id"] = json!("call-h");
+    session.request("limit-h", &first_limit_hook);
+    session.request(
+        "hook-l",
+        &helper_call_hook("call-l", None, &json!({"model": "opus"})),
+    );
+    session.request("limit-l", &limit_hook);
+    settle().await;
+    assert_eq!(recorded_helper_calls(&session), ["call-l"]);
+    assert_eq!(
+        session.channel.written_answer("limit-l"),
+        None,
+        "the limit holds the second start"
+    );
+
+    session.cancel("limit-l");
+    settle().await;
+    assert_eq!(recorded_helper_calls(&session), Vec::<String>::new());
+}
+
+// A call no start took by its caller's end was denied or interrupted before it ran: the lead's
+// are forgotten at its turn-ending `result`, a helper's at its own end, and a helper's call made
+// across the lead's `result` still names its helper. Killed by keeping the lead's at the turn's
+// end (`call-l` kept), by forgetting a helper's there too (`c` names nothing), and by keeping a
+// helper's at its end (`call-e` kept).
+#[tokio::test(start_paused = true)]
+async fn a_helper_call_no_start_took_is_forgotten_when_its_caller_ends() {
+    let session = ScriptedSession::new().await;
+    session.hold_lead_turn("lead");
+    session.frame(&init());
+    session.request(
+        "hook-p",
+        &helper_call_hook("call-p", None, &json!({"subagent_type": "Explore"})),
+    );
+    session.frame(&nested_start("p", "call-p", None, None));
+    session.request(
+        "hook-l",
+        &helper_call_hook("call-l", None, &json!({"model": "opus"})),
+    );
+    for (request_id, call_id) in [("hook-c", "call-c"), ("hook-e", "call-e")] {
+        session.request(
+            request_id,
+            &helper_call_hook(call_id, Some("p"), &json!({"model": "haiku"})),
+        );
+    }
+    settle().await;
+    assert_eq!(
+        recorded_helper_calls(&session),
+        ["call-c", "call-e", "call-l"]
+    );
+
+    session.frame(&result(&json!({})));
+    settle().await;
+    assert_eq!(recorded_helper_calls(&session), ["call-c", "call-e"]);
+    session.frame(&nested_start("c", "call-c", Some("p"), None));
+    settle().await;
+    let started_c = session
+        .engine
+        .deliveries()
+        .into_iter()
+        .filter_map(|delivery| delivery.subagent)
+        .find(|subagent| subagent.subagent_id.as_str() == "c")
+        .expect("c gets its child run");
+    assert_eq!(
+        started_c.model_id.map(|model| model.as_str().to_owned()),
+        Some("haiku".to_owned())
+    );
+
+    session.frame(&helper_ended("p", "completed", "done"));
+    settle().await;
+    assert_eq!(recorded_helper_calls(&session), Vec::<String>::new());
 }
 
 /// The `task_notification` that ends the helper `task_id` with `status`.

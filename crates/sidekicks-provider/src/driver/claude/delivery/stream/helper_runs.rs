@@ -96,6 +96,7 @@ impl ClaudeDeliveryStream {
                 .await;
             }
             SubagentLifecycleEventType::Completed => {
+                session.forget_helper_calls_of(&emission.subagent_id);
                 // An end goes on the run its start went beneath.
                 let carrier = self
                     .helper_parent_run(session, &emission.subagent_id)
@@ -377,14 +378,17 @@ impl ClaudeDeliveryStream {
 }
 
 impl ClaudeSessionStream {
-    /// Keeps what the helper call `helper_call` asked for until its helper's start takes it.
+    /// Keeps what the helper call `helper_call` asked for until its helper's start takes it, or
+    /// its caller's turn ends with no start: the lead's at its turn-ending `result`, a helper's at
+    /// its own end.
     pub(crate) fn record_helper_call(&self, helper_call: ClaudeHelperCall) {
         self.lock()
             .helper_calls
             .insert(helper_call.call_id.clone(), helper_call);
     }
 
-    /// Forgets the helper call `call_id`, which failed before any helper started.
+    /// Forgets the helper call `call_id`, which starts no helper: it failed before any started, or
+    /// Claude Code withdrew the helper limit's hold on it.
     pub(crate) fn forget_helper_call(&self, call_id: &str) {
         self.lock().helper_calls.remove(call_id);
     }
@@ -395,6 +399,22 @@ impl ClaudeSessionStream {
         self.lock()
             .helper_calls
             .retain(|_, helper_call| helper_call.request_id != request_id);
+    }
+
+    /// Forgets every helper call of the lead's that no start took by its turn's end: Claude Code
+    /// starts a call's helper before the call answers, so the call was denied or interrupted.
+    pub(crate) fn forget_lead_helper_calls(&self) {
+        self.lock()
+            .helper_calls
+            .retain(|_, helper_call| helper_call.caller_agent_id.is_some());
+    }
+
+    // Forgets every helper call of the helper `agent_id` that no start took by its end, as the
+    // lead's are at its turn's end.
+    fn forget_helper_calls_of(&self, agent_id: &str) {
+        self.lock()
+            .helper_calls
+            .retain(|_, helper_call| helper_call.caller_agent_id.as_deref() != Some(agent_id));
     }
 }
 

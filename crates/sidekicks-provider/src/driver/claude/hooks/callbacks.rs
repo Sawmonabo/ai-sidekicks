@@ -106,8 +106,15 @@ pub(crate) enum ClaudeRequestRoute {
         /// The failed call's id, `None` where the hook names none.
         call_id: Option<String>,
     },
-    /// Hand it on to the event side: every request the daemon's hooks do not answer, and every
-    /// withdrawal.
+    /// Forget what the withdrawn request's helper call asked for, then hand the withdrawal on to
+    /// the event side.
+    Withdrawn {
+        /// The withdrawn request's id.
+        request_id: String,
+        /// The helper call a withdrawn helper-limit hold named, `None` where the limit held none.
+        held_call_id: Option<String>,
+    },
+    /// Hand it on to the event side: every request the daemon's hooks do not answer.
     Forward(ClaudeInboundRequestEvent),
 }
 
@@ -162,6 +169,8 @@ pub(crate) struct ClaudeHelperCall {
     pub(crate) call_id: String,
     /// The hook request that carried it, which a withdrawal names.
     pub(crate) request_id: String,
+    /// The calling helper's agent id, `None` on the lead's call.
+    pub(crate) caller_agent_id: Option<String>,
     /// The model the call names.
     pub(crate) model_id: Option<ProviderToken>,
     /// The effort the call names, in Claude Code's word.
@@ -178,6 +187,7 @@ fn read_helper_call(
     callback: &ClaudeHookCallback,
     input: Option<&HookInput>,
     request_id: &str,
+    caller_agent_id: Option<&str>,
 ) -> Option<ClaudeHelperCall> {
     let call_id = callback
         .tool_use_id
@@ -197,6 +207,7 @@ fn read_helper_call(
     Some(ClaudeHelperCall {
         call_id,
         request_id: request_id.to_owned(),
+        caller_agent_id: caller_agent_id.map(str::to_owned),
         model_id,
         effort,
     })
@@ -252,8 +263,11 @@ pub(crate) fn route_claude_request(
     let request = match event {
         ClaudeInboundRequestEvent::Cancel { request_id } => {
             pauses.withdraw_callback(session_id, &request_id);
-            helpers.withdraw_start(session_id, &request_id);
-            return ClaudeRequestRoute::Forward(ClaudeInboundRequestEvent::Cancel { request_id });
+            let held_call_id = helpers.withdraw_start(session_id, &request_id);
+            return ClaudeRequestRoute::Withdrawn {
+                request_id,
+                held_call_id,
+            };
         }
         ClaudeInboundRequestEvent::Request(request) => request,
     };
@@ -291,7 +305,12 @@ pub(crate) fn route_claude_request(
         // released straight from the pause store.
         RegisteredHook::PauseBeforeTool if is_helper_start => {
             ClaudeRequestRoute::CheckHelperStart {
-                helper_call: read_helper_call(callback, input.as_ref(), &request.request_id),
+                helper_call: read_helper_call(
+                    callback,
+                    input.as_ref(),
+                    &request.request_id,
+                    agent_id.as_deref(),
+                ),
                 request_id: request.request_id,
                 agent_id,
             }

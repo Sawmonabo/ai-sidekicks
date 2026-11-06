@@ -226,7 +226,8 @@ pub(crate) struct ClaudeStreamSession {
     /// The helpers' newest own runs and the `SendMessage` calls read, which a resume goes by.
     pub(crate) helper_resumes: ClaudeHelperResumes,
     /// Each helper call that names a model or an effort, by call id, from its pre-tool hook until
-    /// its helper's start takes it, the hook is withdrawn, a held call is denied or the call fails.
+    /// its helper's start takes it, a hook of it is withdrawn, a held call is denied, the call
+    /// fails or its caller's turn ends.
     pub(crate) helper_calls: HashMap<String, ClaudeHelperCall>,
 }
 
