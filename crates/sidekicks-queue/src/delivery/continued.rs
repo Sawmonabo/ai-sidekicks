@@ -41,16 +41,16 @@ impl QueueDelivery {
     // The unhanded lead messages waiting for `run_id` of `session_id`, a continue that did not go
     // read again (one a resume keeps excepted), each marked handed by the continue to a provider
     // that takes messages as `handing` says, in the queue's order, the item an undo's release
-    // reserved first. Under an undo's hold it answers held, nothing read and the reservation left
-    // for the release's own resume. Called under the session's queue lock, which the hold is set
-    // under.
+    // reserved first. Under an undo's hold it answers held, nothing read, the reservation left
+    // for the release's own resume and the run owed a resume at the release. Called under the
+    // session's queue lock, which the hold is set under.
     async fn read_continued(
         &self,
         session_id: SessionId,
         run_id: RunId,
         handing: MessageHanding,
     ) -> Result<ContinuedRead, DeliveryError> {
-        if self.is_held_for_undo(session_id) {
+        if self.lock_state().owe_resume_after_undo(session_id, run_id) {
             return Ok(ContinuedRead::HeldForUndo);
         }
         // Taken before the read, which leaves a reserved item out as an opening.
