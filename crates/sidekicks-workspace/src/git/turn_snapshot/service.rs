@@ -2,9 +2,10 @@
 //! points it commits the project state of the checkout the run works in under
 //! `refs/sidekicks/runs/<run>/epoch-<E>/` then `turn-<N>`, `start`, `pause-<N>` or `end`, in its
 //! owner's capture folder, never in the repository's own `.git`; it deletes one run's refs when the
-//! run is deleted and lists an owner's snapshots. Nothing prunes by age, and a capture reads no
-//! database: the caller supplies the owner, the point with its epoch, the checkout and the
-//! capture's instant.
+//! run is deleted and lists an owner's snapshots. It also reads a workflow run's checkout the same
+//! way with no ref, answering the tree, its commit and its base. Nothing prunes by age, and a
+//! capture reads no database: the caller supplies the owner, the point with its epoch, the
+//! checkout and the capture's instant.
 //!
 //! - A capture covers the whole checkout, never only a nested execution root, since `ls-files`
 //!   lists only the folder it runs in; the supplied checkout is checked against the live tree
@@ -20,10 +21,12 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use jiff::Timestamp;
 use rusqlite::{Connection, OptionalExtension, named_params};
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_platforms::{create_private_folder, remove_tree_awaited};
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::keyed_lock::KeyedLock;
@@ -112,6 +115,55 @@ pub enum TurnSnapshotCaptureOutcome {
         /// The failure in one line, its causes after it, for the caller to record.
         cause: String,
     },
+}
+
+/// What one read of a workflow run's checkout did. It never fails its caller: a failure is
+/// reported, not retried.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CheckoutTreeOutcome {
+    /// The checkout was read; no ref names it.
+    Captured {
+        /// The checkout's tree, the same for the same project state.
+        tree: GitObjectId,
+        /// The commit naming the tree, whose trailers name the files left out of it.
+        snapshot_commit: GitObjectId,
+        /// The repository's commit the tree stands on and the commit's parent, which a sweep keeps
+        /// the tree readable past; `None` in a repository with no commit yet.
+        base_commit: Option<GitObjectId>,
+    },
+    /// The read did not complete; the failure goes to the service log too.
+    Failed {
+        /// The step that failed.
+        failed_step: CaptureStep,
+        /// The failure in one line, its causes after it, for the caller to record.
+        cause: String,
+    },
+}
+
+// A run's capture committed in its capture folder, before any ref names it.
+struct CommittedCheckout {
+    tree: GitObjectId,
+    snapshot_commit: GitObjectId,
+    // The one base resolved at the start: both the tree's base and the commit's parent.
+    base_commit: Option<GitObjectId>,
+    // The embedded repositories not recorded as gitlinks, in listing order, read as UTF-8 with any
+    // other byte replaced.
+    skipped_embedded_repositories: Vec<String>,
+}
+
+impl CommittedCheckout {
+    // Logs the embedded repositories the capture left unrecorded, if any, with the ref it wrote.
+    fn warn_skipped(&self, run_key: RunContextKey, snapshot_ref: Option<&str>) {
+        if self.skipped_embedded_repositories.is_empty() {
+            return;
+        }
+        CaptureDiagnostic::EmbeddedRepositoriesSkipped {
+            run_key,
+            snapshot_ref: snapshot_ref.map(str::to_owned),
+            skipped_paths: self.skipped_embedded_repositories.clone(),
+        }
+        .warn();
+    }
 }
 
 /// What one prune of a run's snapshot refs did.
@@ -205,80 +257,193 @@ impl TurnSnapshotService {
         input: &TurnSnapshotCaptureInput,
     ) -> TurnSnapshotCaptureOutcome {
         let snapshot_ref = build_snapshot_ref(&input.point);
+        let run_key = input.point.run_key();
+        let subject = snapshot_subject(&input.point);
+        let committed = self
+            .hold_and_commit(
+                place,
+                run_key,
+                Some(&snapshot_ref),
+                subject,
+                &input.checkout,
+            )
+            .await;
+        let (held, committed) = match committed {
+            Ok(held_and_committed) => held_and_committed,
+            Err((failed_step, cause)) => {
+                return TurnSnapshotCaptureOutcome::Failed {
+                    snapshot_ref,
+                    failed_step,
+                    cause,
+                };
+            }
+        };
+        // Still under the hold, so no other capture of the checkout writes between.
+        let written = held
+            .checkout(&self.git, place)
+            .write_create_only_ref(&snapshot_ref, &committed.snapshot_commit)
+            .await;
+        match written {
+            Ok(None) => {
+                committed.warn_skipped(run_key, Some(&snapshot_ref));
+                let CommittedCheckout {
+                    snapshot_commit,
+                    base_commit,
+                    skipped_embedded_repositories,
+                    ..
+                } = committed;
+                self.release_and_pack(place, held, snapshot_commit.clone(), base_commit.clone())
+                    .await;
+                TurnSnapshotCaptureOutcome::Captured {
+                    snapshot_ref,
+                    snapshot_commit,
+                    base_commit,
+                    skipped_embedded_repositories,
+                }
+            }
+            Ok(Some(recorded)) => TurnSnapshotCaptureOutcome::AlreadyCaptured {
+                snapshot_ref,
+                snapshot_commit: recorded,
+            },
+            Err(failure) => {
+                let (failed_step, cause) =
+                    fail_capture(run_key, Some(&snapshot_ref), CaptureStep::WriteRef, failure);
+                TurnSnapshotCaptureOutcome::Failed {
+                    snapshot_ref,
+                    failed_step,
+                    cause,
+                }
+            }
+        }
+    }
+
+    /// Reads the checkout of the workflow run `workflow_run_id` as a point would record it, the
+    /// same tree for the same project state, into the owner's capture folder, running git for the
+    /// project at `place`, and packs what it borrows from the repository as a point's capture is
+    /// packed; it writes no ref, so nothing can repoint it. It answers the tree, the commit naming
+    /// it, whose trailers name the files left out, and the base it stands on, which a sweep needs
+    /// to keep the tree readable once the repository drops that base. Never fails: every failure
+    /// is logged and answered `Failed` with its step and cause.
+    pub async fn capture_checkout_tree(
+        &self,
+        place: Option<&Place>,
+        workflow_run_id: WorkflowRunId,
+        checkout: &CheckoutCaptureInput,
+    ) -> CheckoutTreeOutcome {
+        let run_key = RunContextKey::from(workflow_run_id);
+        let committed = self
+            .hold_and_commit(
+                place,
+                run_key,
+                None,
+                WORKFLOW_RUN_SNAPSHOT_SUBJECT,
+                checkout,
+            )
+            .await;
+        let (held, committed) = match committed {
+            Ok(held_and_committed) => held_and_committed,
+            Err((failed_step, cause)) => {
+                return CheckoutTreeOutcome::Failed { failed_step, cause };
+            }
+        };
+        committed.warn_skipped(run_key, None);
+        let CommittedCheckout {
+            tree,
+            snapshot_commit,
+            base_commit,
+            ..
+        } = committed;
+        self.release_and_pack(place, held, snapshot_commit.clone(), base_commit.clone())
+            .await;
+        CheckoutTreeOutcome::Captured {
+            tree,
+            snapshot_commit,
+            base_commit,
+        }
+    }
+
+    // The start every capture of a run shares and its steps through the commit, under the
+    // checkout's hold, which the caller lets go; a failure is logged once and answered with its
+    // step and cause.
+    async fn hold_and_commit(
+        &self,
+        place: Option<&Place>,
+        run_key: RunContextKey,
+        snapshot_ref: Option<&str>,
+        subject: &'static str,
+        checkout: &CheckoutCaptureInput,
+    ) -> Result<(HeldCheckout<'_>, CommittedCheckout), (CaptureStep, String)> {
         let held = match hold_checkout(
             &self.git,
             place,
             &self.checkout_lock,
             &self.floor_reports,
-            input.checkout.roots(),
+            checkout.roots(),
         )
         .await
         {
             Ok(held) => held,
             Err(CaptureStartFailure::BelowFloor) => {
-                return TurnSnapshotCaptureOutcome::Failed {
-                    snapshot_ref,
-                    failed_step: CaptureStep::GitFloor,
-                    cause: GIT_BELOW_FLOOR_CAUSE.to_owned(),
-                };
+                return Err((CaptureStep::GitFloor, GIT_BELOW_FLOOR_CAUSE.to_owned()));
             }
             Err(CaptureStartFailure::Failed(failed_step, failure)) => {
-                return fail_capture(input.point.run_key(), snapshot_ref, failed_step, failure);
+                return Err(fail_capture(run_key, snapshot_ref, failed_step, failure));
             }
         };
-        let outcome = self
-            .capture_checkout(&held, place, input, snapshot_ref)
-            .await;
+        match self
+            .commit_checkout(&held, place, run_key, subject, checkout.captured_at)
+            .await
+        {
+            Ok(committed) => Ok((held, committed)),
+            Err((failed_step, failure)) => {
+                Err(fail_capture(run_key, snapshot_ref, failed_step, failure))
+            }
+        }
+    }
+
+    // Lets the checkout go, so the next capture of it does not wait, then packs what the capture
+    // `snapshot_commit` borrows from the repository beyond `base_commit`.
+    async fn release_and_pack(
+        &self,
+        place: Option<&Place>,
+        held: HeldCheckout<'_>,
+        snapshot_commit: GitObjectId,
+        base_commit: Option<GitObjectId>,
+    ) {
         let HeldCheckout {
             capture_folder,
             hold,
             ..
         } = held;
-        // Packed after the checkout is let go, so the next capture of it does not wait.
         drop(hold);
-        if let TurnSnapshotCaptureOutcome::Captured {
-            snapshot_commit,
-            base_commit,
-            ..
-        } = &outcome
-        {
-            let captured =
-                CapturedCommit::new(capture_folder, snapshot_commit.clone(), base_commit.clone());
-            self.packing.pack(place, &captured).await;
-        }
-        outcome
+        let captured = CapturedCommit::new(capture_folder, snapshot_commit, base_commit);
+        self.packing.pack(place, &captured).await;
     }
 
-    // The capture's steps, each run at the top level of the verified checkout, and the scratch
-    // index's removal after them whatever they did.
-    async fn capture_checkout(
+    // The capture's steps through its commit, each run at the top level of the verified checkout,
+    // and the scratch index's removal after them whatever they did.
+    async fn commit_checkout(
         &self,
         held: &HeldCheckout<'_>,
         place: Option<&Place>,
-        input: &TurnSnapshotCaptureInput,
-        snapshot_ref: String,
-    ) -> TurnSnapshotCaptureOutcome {
+        run_key: RunContextKey,
+        subject: &'static str,
+        captured_at: Timestamp,
+    ) -> Result<CommittedCheckout, (CaptureStep, CaptureStepError)> {
         let checkout = &held.checkout(&self.git, place);
         // A name that meets no other, removed in the same call; no row or event stores it. In the
         // capture folder, outside every worktree, so it never shows in `ls-files -o` or
         // `git status`.
-        let scratch_index = match random_hex(SCRATCH_INDEX_NAME_BYTES) {
-            Ok(name) => checkout.capture_folder.scratch_index(&name),
-            Err(failure) => {
-                return fail_capture(
-                    input.point.run_key(),
-                    snapshot_ref,
-                    CaptureStep::PrepareScratchIndex,
-                    CaptureStepError::ScratchIndexName(failure),
-                );
-            }
-        };
-        let captured = self
+        let scratch_index = random_hex(SCRATCH_INDEX_NAME_BYTES)
+            .map(|name| checkout.capture_folder.scratch_index(&name))
+            .map_err(CaptureStepError::ScratchIndexName)
+            .map_err(at(CaptureStep::PrepareScratchIndex))?;
+        let committed = self
             .run_capture_steps(
                 checkout,
                 held.is_sparse_root,
-                input,
-                &snapshot_ref,
+                subject,
+                captured_at,
                 &scratch_index,
             )
             .await;
@@ -289,29 +454,26 @@ impl TurnSnapshotService {
             let removed = remove_tree_awaited(&removal_path).await;
             if let Err(failure) = removed {
                 CaptureDiagnostic::ScratchIndexCleanupFailed {
-                    run_key: input.point.run_key(),
+                    run_key,
                     scratch_index_path: removal_path,
                     detail: failure,
                 }
                 .warn();
             }
         }
-        match captured {
-            Ok(outcome) => outcome,
-            Err((failed_step, failure)) => {
-                fail_capture(input.point.run_key(), snapshot_ref, failed_step, failure)
-            }
-        }
+        committed
     }
 
+    // The steps of one capture through its commit, staged into `scratch_index`, the commit taking
+    // `subject` and `captured_at`.
     async fn run_capture_steps(
         &self,
         checkout: &SnapshotCheckout<'_>,
         is_sparse_root: bool,
-        input: &TurnSnapshotCaptureInput,
-        snapshot_ref: &str,
+        subject: &'static str,
+        captured_at: Timestamp,
         scratch_index: &Path,
-    ) -> Result<TurnSnapshotCaptureOutcome, (CaptureStep, CaptureStepError)> {
+    ) -> Result<CommittedCheckout, (CaptureStep, CaptureStepError)> {
         use CaptureStep as Step;
 
         let indexes = checkout.capture_folder.indexes_folder();
@@ -401,43 +563,23 @@ impl TurnSnapshotService {
             .commit_snapshot_tree(
                 &tree,
                 base_commit.as_ref(),
-                snapshot_subject(&input.point),
+                subject,
                 &skipped_embedded_repositories,
                 sparse_boundary_paths.as_deref(),
                 &sizes.left_out_entries,
-                input.checkout.captured_at,
+                captured_at,
             )
             .await
             .map_err(at(Step::CommitTree))?;
 
-        if let Some(recorded) = checkout
-            .write_create_only_ref(snapshot_ref, &snapshot_commit)
-            .await
-            .map_err(at(Step::WriteRef))?
-        {
-            return Ok(TurnSnapshotCaptureOutcome::AlreadyCaptured {
-                snapshot_ref: snapshot_ref.to_owned(),
-                snapshot_commit: recorded,
-            });
-        }
-
-        let skipped: Vec<String> = skipped_embedded_repositories
-            .iter()
-            .map(|path| String::from_utf8_lossy(path).into_owned())
-            .collect();
-        if !skipped.is_empty() {
-            CaptureDiagnostic::EmbeddedRepositoriesSkipped {
-                run_key: input.point.run_key(),
-                snapshot_ref: snapshot_ref.to_owned(),
-                skipped_paths: skipped.clone(),
-            }
-            .warn();
-        }
-        Ok(TurnSnapshotCaptureOutcome::Captured {
-            snapshot_ref: snapshot_ref.to_owned(),
+        Ok(CommittedCheckout {
+            tree,
             snapshot_commit,
             base_commit,
-            skipped_embedded_repositories: skipped,
+            skipped_embedded_repositories: skipped_embedded_repositories
+                .iter()
+                .map(|path| String::from_utf8_lossy(path).into_owned())
+                .collect(),
         })
     }
 
@@ -605,26 +747,23 @@ fn snapshot_subject(point: &RunSnapshotPoint) -> &'static str {
     }
 }
 
-// The one place a capture failure is reported: the log, then the outcome naming its cause.
+// The one place a run's capture failure is reported: the log, with the ref the capture would have
+// written (`None` for a checkout read), then the step and its cause for the caller's outcome.
 fn fail_capture(
     run_key: RunContextKey,
-    snapshot_ref: String,
+    snapshot_ref: Option<&str>,
     failed_step: CaptureStep,
     failure: CaptureStepError,
-) -> TurnSnapshotCaptureOutcome {
+) -> (CaptureStep, String) {
     let cause = describe_error(&failure);
     CaptureDiagnostic::CaptureFailed {
         run_key,
-        snapshot_ref: snapshot_ref.clone(),
+        snapshot_ref: snapshot_ref.map(str::to_owned),
         failed_step,
         detail: Box::new(failure),
     }
     .warn();
-    TurnSnapshotCaptureOutcome::Failed {
-        snapshot_ref,
-        failed_step,
-        cause,
-    }
+    (failed_step, cause)
 }
 
 fn skipped(

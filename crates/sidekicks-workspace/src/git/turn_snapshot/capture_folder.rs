@@ -227,6 +227,9 @@ impl CaptureFolder {
 
     // `partial` as a bare repository in the object format of the repository at `repository`, with
     // automatic gc and maintenance off, so nothing packs or prunes the captures but the daemon.
+    // Pruning is off too: since git 2.54 a maintenance run's geometric strategy reads no `gc.auto`
+    // and its cruft repack expires unreachable objects after two weeks, and a capture with no ref
+    // is unreachable.
     async fn set_up(
         &self,
         git: &GitRunner,
@@ -251,7 +254,11 @@ impl CaptureFolder {
             partial.into(),
         ]);
         git.run(place, init).await?;
-        for [key, value] in [["gc.auto", "0"], ["maintenance.auto", "false"]] {
+        for [key, value] in [
+            ["gc.auto", "0"],
+            ["maintenance.auto", "false"],
+            ["gc.pruneExpire", "never"],
+        ] {
             let setting = GitCall::read([
                 git_folder_argument(partial),
                 "config".into(),

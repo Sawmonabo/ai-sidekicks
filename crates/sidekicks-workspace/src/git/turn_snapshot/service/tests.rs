@@ -1,9 +1,10 @@
 use std::collections::HashSet;
 use std::ffi::OsString;
-use std::fs::File;
+use std::fs::{File, FileTimes};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, SystemTime};
 
 use rstest::rstest;
 use sidekicks_contracts::git::local::WorkflowRunSnapshotPoint;
@@ -19,12 +20,17 @@ use super::test_support::{
     made_capture_folder, minted_run_id, minted_workflow_run_id, point_of, repository_with_a_commit,
     service_reading, turn_of, utf8, write_in,
 };
-use super::{TurnSnapshotCaptureInput, TurnSnapshotCaptureOutcome, TurnSnapshotPruneOutcome};
+use super::{
+    CheckoutTreeOutcome, TurnSnapshotCaptureInput, TurnSnapshotCaptureOutcome,
+    TurnSnapshotPruneOutcome,
+};
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::version::KeptProgramFacts;
 use crate::git::process::{GitCall, GitRunner, in_folder, read_git_common_folder, test_git_runner};
 use crate::git::turn_snapshot::capture::{CheckoutCaptureInput, GitFloorReports, LARGE_FILE_BYTES};
-use crate::git::turn_snapshot::capture_folder::{CaptureFolder, git_folder_argument};
+use crate::git::turn_snapshot::capture_folder::{
+    CaptureFolder, OBJECTS_SEGMENT, git_folder_argument,
+};
 use crate::git::turn_snapshot::diagnostics::{CaptureStep, TurnSnapshotRetentionSkipReason};
 use crate::git::turn_snapshot::refs::{RunSnapshotPoint, build_run_snapshot_ref_prefix};
 use crate::git::turn_snapshot::repack::CapturePacking;
@@ -551,13 +557,17 @@ async fn a_file_over_the_size_bound_is_left_out_of_a_turn_snapshot_and_named() {
 enum FailedCapture {
     // A workflow run's start.
     WorkflowRunStart,
+    // A read of a workflow run's checkout.
+    CheckoutRead,
 }
 
 // Fails when the cause is dropped from the outcome or taken from another failure than the step's,
-// or when a checkout the live tree disagrees with is captured anyway, recording a wrong tree as
-// the run's: the subfolder is not the top level of the tree holding the execution root.
+// when the read's start answers its step without its cause, or when a checkout the live tree
+// disagrees with is captured anyway, recording a wrong tree as the run's: the subfolder is not the
+// top level of the tree holding the execution root.
 #[rstest]
 #[case::a_workflow_runs_start(FailedCapture::WorkflowRunStart)]
+#[case::a_checkout_read(FailedCapture::CheckoutRead)]
 #[tokio::test]
 async fn a_capture_the_live_tree_disagrees_with_fails_naming_its_cause_and_writes_nothing(
     #[case] captured: FailedCapture,
@@ -594,6 +604,17 @@ async fn a_capture_the_live_tree_disagrees_with_fails_naming_its_cause_and_write
                 }
             }
         }
+        FailedCapture::CheckoutRead => {
+            let read = service
+                .capture_checkout_tree(None, minted_workflow_run_id(), &checkout)
+                .await;
+            match read {
+                CheckoutTreeOutcome::Failed { failed_step, cause } => (failed_step, cause),
+                outcome @ CheckoutTreeOutcome::Captured { .. } => {
+                    panic!("the read fails, got {outcome:?}")
+                }
+            }
+        }
     };
 
     assert_eq!(failed_step, CaptureStep::VerifyCheckoutRoot);
@@ -602,4 +623,132 @@ async fn a_capture_the_live_tree_disagrees_with_fails_naming_its_cause_and_write
         "got {cause:?}"
     );
     assert!(!owner.exists(), "no capture folder is made");
+}
+
+// Fails when the tree and the commit are swapped or one is answered for both, when the base is not
+// the repository's `HEAD` and the commit's parent (a sweep would keep nothing on it), when the read
+// writes a ref, when its pack is dropped (the untracked file's blob, which only the repository
+// held, is then gone once the repository prunes it), or when the same checkout read again answers
+// another tree.
+#[tokio::test]
+async fn a_checkout_read_writes_its_tree_and_no_ref_and_keeps_what_it_borrows() {
+    let git = test_git_runner();
+    let root = tempfile::tempdir().expect("the temporary folder is made");
+    let (repository, base) = repository_with_a_commit(&git, root.path()).await;
+    tokio::fs::write(repository.join("notes.txt"), "a note\n")
+        .await
+        .expect("the untracked file is written");
+    // Its blob is in the repository's objects and reached by nothing there.
+    write_in(&git, &repository, &["add", "notes.txt"]).await;
+    write_in(
+        &git,
+        &repository,
+        &["rm", "--cached", "--quiet", "notes.txt"],
+    )
+    .await;
+    let database = TestDatabase::new(schema_parts());
+    let service = service_over(&git, &database, Arc::new(KeyedLock::new()));
+    let owner = root.path().join("owner");
+    let checkout = checkout_of(&repository, &owner);
+    let workflow_run_id = minted_workflow_run_id();
+
+    let first = service
+        .capture_checkout_tree(None, workflow_run_id, &checkout)
+        .await;
+
+    let CheckoutTreeOutcome::Captured {
+        tree,
+        snapshot_commit,
+        base_commit,
+    } = first
+    else {
+        panic!("the checkout is read, got {first:?}");
+    };
+    let capture_folder = made_capture_folder(&git, &owner, &repository).await;
+    let with_captures = async |arguments: &[&str]| {
+        answer_with_captures(&git, &repository, &capture_folder, arguments).await
+    };
+    assert_eq!(
+        with_captures(&["cat-file", "-t", tree.as_str()]).await,
+        "tree"
+    );
+    let commit_tree = format!("{}^{{tree}}", snapshot_commit.as_str());
+    assert_eq!(
+        with_captures(&["rev-parse", &commit_tree]).await,
+        tree.as_str()
+    );
+    let parent = format!("{}^", snapshot_commit.as_str());
+    assert_eq!(with_captures(&["rev-parse", &parent]).await, base);
+    assert_eq!(
+        base_commit.as_ref().map(GitObjectId::as_str),
+        Some(base.as_str())
+    );
+    let refs = answer_in_git_folder(&git, capture_folder.folder(), &["for-each-ref"], &[]).await;
+    assert_eq!(refs, "", "a read writes no ref");
+    write_in(&git, &repository, &["gc", "--prune=now", "--quiet"]).await;
+    let blob = format!("{}:notes.txt", tree.as_str());
+    let kept = ["cat-file", "-p", blob.as_str()];
+    assert_eq!(
+        answer_in_git_folder(&git, capture_folder.folder(), &kept, &[]).await,
+        "a note",
+        "the folder alone holds what the read borrowed"
+    );
+    let again = service
+        .capture_checkout_tree(None, workflow_run_id, &checkout)
+        .await;
+    assert!(
+        matches!(&again, CheckoutTreeOutcome::Captured { tree: read_again, .. }
+            if *read_again == tree),
+        "the same checkout answers the same tree, got {again:?}"
+    );
+}
+
+// Fails when the capture folder lacks `gc.pruneExpire=never`: the cruft repack the maintenance's
+// geometric task falls back to then expires the aged reads, which no ref reaches. Two reads of one
+// shape leave two packs of one weight, which the task rolls up whole, the path that expires.
+#[tokio::test]
+async fn a_capture_folder_keeps_a_capture_with_no_ref_through_a_maintenance_run() {
+    let git = test_git_runner();
+    let root = tempfile::tempdir().expect("the temporary folder is made");
+    let (repository, _) = repository_with_a_commit(&git, root.path()).await;
+    let database = TestDatabase::new(schema_parts());
+    let service = service_over(&git, &database, Arc::new(KeyedLock::new()));
+    let owner = root.path().join("owner");
+    let checkout = checkout_of(&repository, &owner);
+    let workflow_run_id = minted_workflow_run_id();
+    let mut reads = Vec::new();
+    for state in ["first\n", "second\n"] {
+        tokio::fs::write(repository.join("notes.txt"), state)
+            .await
+            .expect("the file is written");
+        let outcome = service
+            .capture_checkout_tree(None, workflow_run_id, &checkout)
+            .await;
+        let CheckoutTreeOutcome::Captured {
+            tree,
+            snapshot_commit,
+            ..
+        } = outcome
+        else {
+            panic!("the checkout is read, got {outcome:?}");
+        };
+        reads.push((tree, snapshot_commit));
+    }
+    let capture_folder = made_capture_folder(&git, &owner, &repository).await;
+    let folder = capture_folder.folder();
+    let aged = SystemTime::now() - Duration::from_hours(30 * 24);
+    for (path, _) in files_with_bytes(&folder.join(OBJECTS_SEGMENT)) {
+        std::fs::set_times(&path, FileTimes::new().set_modified(aged))
+            .expect("the object file is aged");
+    }
+
+    let maintenance = ["maintenance", "run", "--task=geometric-repack", "--quiet"];
+    answer_in_git_folder(&git, folder, &maintenance, &[]).await;
+
+    for (tree, snapshot_commit) in &reads {
+        for object in [tree, snapshot_commit] {
+            // Nothing attached, so only the folder's own objects read; a missing one fails git.
+            answer_in_git_folder(&git, folder, &["cat-file", "-e", object.as_str()], &[]).await;
+        }
+    }
 }

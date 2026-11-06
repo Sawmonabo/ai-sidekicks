@@ -103,12 +103,13 @@ pub(crate) enum CaptureDiagnostic {
         /// The feature it lacks, whose first release is the floor.
         feature: GitFeature,
     },
-    /// A run's snapshot was not captured; the run goes on anyway.
+    /// A run's snapshot or checkout read was not captured; the run goes on anyway.
     CaptureFailed {
         /// The run, of either kind, whose snapshot was taken.
         run_key: RunContextKey,
-        /// The ref the snapshot would have been written to.
-        snapshot_ref: String,
+        /// The ref the snapshot would have been written to; `None` for a read of a workflow run's
+        /// checkout, which writes none.
+        snapshot_ref: Option<String>,
         /// The step that failed.
         failed_step: CaptureStep,
         /// The failure of whichever step failed.
@@ -161,8 +162,9 @@ pub(crate) enum CaptureDiagnostic {
     EmbeddedRepositoriesSkipped {
         /// The run, of either kind, whose snapshot was taken.
         run_key: RunContextKey,
-        /// The ref the snapshot was written to.
-        snapshot_ref: String,
+        /// The ref the snapshot was written to; `None` for a read of a workflow run's checkout,
+        /// which writes none.
+        snapshot_ref: Option<String>,
         /// Each skipped repository's path within the checkout.
         skipped_paths: Vec<String>,
     },
@@ -207,10 +209,10 @@ impl CaptureDiagnostic {
                 detail,
             } => tracing::warn!(
                 run_id = %run_key,
-                snapshot_ref = snapshot_ref.as_str(),
+                snapshot_ref = snapshot_ref.as_deref(),
                 failed_step = <&str>::from(*failed_step),
                 error = &**detail as &(dyn Error + 'static),
-                "A run's snapshot was not captured"
+                "A run's checkout was not captured"
             ),
             Self::CommandCaptureFailed {
                 phase,
@@ -262,7 +264,7 @@ impl CaptureDiagnostic {
                 skipped_paths,
             } => tracing::warn!(
                 run_id = %run_key,
-                snapshot_ref = snapshot_ref.as_str(),
+                snapshot_ref = snapshot_ref.as_deref(),
                 skipped_paths = ?skipped_paths,
                 "A run's snapshot left embedded repositories unrecorded"
             ),
