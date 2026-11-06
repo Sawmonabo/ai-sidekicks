@@ -14,61 +14,16 @@ use tokio_util::sync::CancellationToken;
 use super::live::task_elicitation;
 use super::{address_task_receipt, fixture_at_address, working_task_server};
 use crate::client::connection::standing::McpStandingConnection;
-use crate::client::dispatch::tests::{Fixture, task_server, tools_server};
+use crate::client::dispatch::tests::{Fixture, left_in_flight, task_server, tools_server};
 use crate::client::dispatch::{McpCallCompletionError, McpDispatchedCall};
 use crate::client::tasks::McpTaskContact::{CancelRefused, NotConfigured, Reached};
-use crate::client::tasks::{
-    McpServerEndpoint, McpTaskContact, McpTaskGeneration, McpTaskHandleObservation,
-    McpTaskHandleSink as _, McpToolCallEnd,
-};
+use crate::client::tasks::{McpServerEndpoint, McpTaskContact, McpTaskGeneration, McpToolCallEnd};
 use crate::client::test_server::{
     Reply, Responder, board_accepted, board_answer, completed, contact, input_required,
-    method_not_found, text_result, track_call, tracked_end, tracker_address, v1_initialize_result,
+    method_not_found, text_result, tracked_end, tracker_address, v1_initialize_result,
     v1_status_reply, v2_task_server, wait_for_contact,
 };
-use crate::command_receipts::{InFlightReceipt, InFlightTask};
-
-/// The receipt a call of `track` left in flight across a restart: claimed, and holding task
-/// `task-1` accepted under the generation on the tracker at the endpoint when `task` names them.
-async fn left_in_flight(
-    fixture: &Fixture,
-    task: Option<(McpTaskGeneration, McpServerEndpoint)>,
-) -> InFlightReceipt {
-    let call = track_call();
-    let id = fixture
-        .dispatch
-        .receipts
-        .accept_and_claim(
-            &call.dispatch.command_id,
-            call.run_id,
-            &CancellationToken::new(),
-        )
-        .await
-        .expect("the receipt is written");
-    if let Some((mcp_task_generation, endpoint)) = &task {
-        let observation = McpTaskHandleObservation {
-            dispatch: call.dispatch.clone(),
-            mcp_task_id: "task-1".to_owned(),
-            mcp_task_generation: *mcp_task_generation,
-            server_name: fixture.name.clone(),
-            endpoint: endpoint.clone(),
-        };
-        fixture.dispatch.recorder.record(observation).await;
-    }
-    let task = task.map(|(mcp_task_generation, endpoint)| InFlightTask {
-        mcp_task_id: "task-1".to_owned(),
-        mcp_task_generation,
-        server_name: fixture.name.clone(),
-        endpoint,
-    });
-    InFlightReceipt {
-        id,
-        command_id: call.dispatch.command_id,
-        run_id: call.run_id,
-        task,
-        is_backgrounded: false,
-    }
-}
+use crate::command_receipts::InFlightReceipt;
 
 /// The receipt of a 2025-11-25 task on the tracker at its address, left in flight.
 async fn v1_left_in_flight(fixture: &Fixture) -> InFlightReceipt {

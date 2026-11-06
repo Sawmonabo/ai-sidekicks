@@ -23,6 +23,7 @@ use crate::driver::codex::run::routes::CodexRunBinding;
 use crate::driver::codex::run::start::record::{CodexRunCallDependencies, route_accepted_turn};
 use crate::driver::codex::run::turn_interrupt::{CodexTurnInterrupt, interrupt_codex_turn};
 use crate::driver::codex::session::calls::CodexSessionTask;
+use crate::driver::codex::session::context_reading::CodexSessionContextReadings;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::fork::bind_codex_first_run;
 use crate::driver::codex::session::state::CodexSessionRecord;
@@ -81,8 +82,10 @@ pub(crate) async fn open_codex_self_started_turn(
     record.delivery.self_started_turn_opening = Some(turn_id.clone());
     task.waiters.settle(record);
     let opened = match claimed_run_id {
-        Some(run_id) => take_claimed_turn(record, runs, run_id, &turn_id).await,
-        None => open_run(record, runs, dependencies, &turn_id).await,
+        Some(run_id) => {
+            take_claimed_turn(record, task.context_readings, runs, run_id, &turn_id).await
+        }
+        None => open_run(record, task.context_readings, runs, dependencies, &turn_id).await,
     };
     record.delivery.self_started_turn_opening = None;
     if let Err(error) = opened {
@@ -104,6 +107,7 @@ pub(crate) async fn open_codex_self_started_turn(
 // starts waits for, then binds the run and routes the turn to it.
 async fn open_run(
     record: &mut CodexSessionRecord,
+    context_readings: &CodexSessionContextReadings,
     runs: &CodexRunCallDependencies,
     dependencies: &CodexSelfStartedTurnDependencies,
     turn_id: &str,
@@ -173,13 +177,22 @@ async fn open_run(
             step_bound: binding.step_bound,
         },
     );
-    route_turn_to_run(record, runs, run_id, binding.binding_id, turn_id).await;
+    route_turn_to_run(
+        record,
+        context_readings,
+        runs,
+        run_id,
+        binding.binding_id,
+        turn_id,
+    )
+    .await;
     Ok(())
 }
 
 // Routes the turn to the goal's run that claimed it, on the binding that run's start bound.
 async fn take_claimed_turn(
     record: &mut CodexSessionRecord,
+    context_readings: &CodexSessionContextReadings,
     runs: &CodexRunCallDependencies,
     run_id: RunId,
     turn_id: &str,
@@ -195,28 +208,45 @@ async fn take_claimed_turn(
             ),
             cause: None,
         })?;
-    route_turn_to_run(record, runs, run_id, binding.binding_id, turn_id).await;
+    route_turn_to_run(
+        record,
+        context_readings,
+        runs,
+        run_id,
+        binding.binding_id,
+        turn_id,
+    )
+    .await;
     Ok(())
 }
 
 // Adopts the run's binding as the session's and routes the turn to the run.
 async fn route_turn_to_run(
     record: &mut CodexSessionRecord,
+    context_readings: &CodexSessionContextReadings,
     runs: &CodexRunCallDependencies,
     run_id: RunId,
     binding_id: RuntimeBindingId,
     turn_id: &str,
 ) {
     let adoption = runs.adoptions.adopt(record, binding_id.clone());
-    // The run already runs, so a failed write leaves those conversations owed to the next one.
+    // The run already runs, so a failed write leaves what it held owed: the conversations to the
+    // next write, the fixed start to the next usage report.
     if adoption.is_first_binding()
-        && let Err(error) = bind_codex_first_run(record, runs.bindings.as_ref(), &binding_id).await
+        && let Err(error) = bind_codex_first_run(
+            record,
+            context_readings,
+            runs.bindings.as_ref(),
+            &binding_id,
+        )
+        .await
     {
         tracing::error!(
             session_id = %record.session_id,
             run_id = %run_id,
             error = &error as &(dyn Error + 'static),
-            "the conversations a Codex session left were not recorded on its first run's binding"
+            "a Codex session's first run's binding did not keep its recovery data or the \
+             conversations it left"
         );
     }
     // A turn Codex started by itself opened with no message the daemon queued.

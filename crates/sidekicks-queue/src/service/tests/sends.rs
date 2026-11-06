@@ -34,7 +34,6 @@ use sidekicks_provider::driver::CurrentProviderAccount;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::params_and_results::RunOpeningItem;
-use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
 use sidekicks_session::queue_store::{QueueItemBody, QueueItemRecord, RecordedQueueItemState};
 use tokio::time::timeout;
 
@@ -49,7 +48,8 @@ async fn a_send_resumes_a_paused_run_with_the_message() {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(recording_driver(&calls)).await;
     let run_id = fixture.insert_run("paused").await;
-    bind_run_to_first_provider(&fixture.database, run_id);
+    // Paused in this daemon, so its session's process is open.
+    fixture.open_session(run_id).await;
 
     let item_id = timeout(WAIT, fixture.send())
         .await
@@ -125,9 +125,11 @@ async fn a_send_whose_lead_run_changes_under_every_attempt_is_refused() {
         third.release.send(()).expect("the send waits");
     };
 
-    let (sent, ()) = timeout(WAIT, async { tokio::join!(fixture.send(), changing) })
-        .await
-        .expect("the send answers");
+    let (sent, ()) = Box::pin(timeout(WAIT, async {
+        tokio::join!(fixture.send(), changing)
+    }))
+    .await
+    .expect("the send answers");
     fixture.queue.stop().await;
 
     let Err(QueueError::Refused(DomainError { code, .. })) = sent else {
@@ -584,14 +586,6 @@ impl Fixture {
             .expect("the test reads the item's transcript row");
         serde_json::from_str(&payload).expect("a stored payload is JSON")
     }
-
-    /// The events the session's log holds.
-    pub(super) fn count_events(&self) -> i64 {
-        self.database
-            .reader()
-            .query_row("SELECT COUNT(*) FROM session_events", [], |row| row.get(0))
-            .expect("the test counts the log's events")
-    }
 }
 
 /// The id of the item a queued send answers.
@@ -699,7 +693,7 @@ async fn an_edit_of_a_waiting_plan_message_is_refused() {
     let item_id = fixture
         .send_plan_message(new_plan_id(), PlanMessageKind::Build, client_key())
         .await;
-    let events = fixture.count_events();
+    let events = fixture.count_events(None, None);
 
     let edited = fixture.replace_item(item_id).await;
     fixture.queue.stop().await;
@@ -713,7 +707,7 @@ async fn an_edit_of_a_waiting_plan_message_is_refused() {
         json!("planMessage")
     );
     assert_eq!(fixture.count_items(), 1);
-    assert_eq!(fixture.count_events(), events);
+    assert_eq!(fixture.count_events(None, None), events);
     assert_eq!(
         fixture.stored_state(item_id),
         RecordedQueueItemState::Queued
@@ -840,7 +834,7 @@ async fn a_person_removes_a_build_message_but_never_a_hand_off_s_seed() {
         .cancel_item(build_id)
         .await
         .expect("the build message is removed");
-    let events = fixture.count_events();
+    let events = fixture.count_events(None, None);
     let seed_canceled = fixture.cancel_item(seed_id).await;
     fixture.queue.stop().await;
 
@@ -860,5 +854,5 @@ async fn a_person_removes_a_build_message_but_never_a_hand_off_s_seed() {
         fixture.stored_state(seed_id),
         RecordedQueueItemState::Queued
     );
-    assert_eq!(fixture.count_events(), events);
+    assert_eq!(fixture.count_events(None, None), events);
 }

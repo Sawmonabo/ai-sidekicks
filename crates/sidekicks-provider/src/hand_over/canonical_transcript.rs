@@ -804,14 +804,19 @@ impl ToolResultRow {
 }
 
 /// A tool result's body as a reader shows it whole: its text, or, for a result with no body whose
-/// call ended with no result, why in plain words. A reader handing a body on in frames shows its
-/// frames instead.
+/// call ended with no result, its cause's label, a service's restart or stop adding that what the
+/// call did is unknown. A reader handing a body on in frames shows its frames instead.
 pub fn shown_tool_result_body(text: &str, end_cause: Option<ToolCallEndCause>) -> &str {
     match end_cause {
         Some(end_cause) if text.is_empty() => match end_cause {
-            ToolCallEndCause::Stopped => "stopped before it answered",
-            ToolCallEndCause::ProcessExit => "ended when its process exited",
-            ToolCallEndCause::DaemonRestart => "stopped when the app restarted",
+            ToolCallEndCause::Stopped => "Stopped",
+            ToolCallEndCause::ProcessExit => "Process exited",
+            ToolCallEndCause::DaemonRestart => {
+                "Service restarted: outcome unknown; check before redoing"
+            }
+            ToolCallEndCause::DaemonStop => {
+                "Service stopped: outcome unknown; check before redoing"
+            }
         },
         Some(_) | None => text,
     }

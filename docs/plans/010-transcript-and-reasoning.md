@@ -193,10 +193,10 @@ T3.2 carries a wait of its own, stated on its entry below.
   - **Spec coverage:** Spec-011 §Flow Row Kinds (Agent prose), §Interfaces And Contracts
   - **Verifies invariant:** none
   - **Tests:** a path to a file inside the workspace answers its file with its line carried; a `../` path out of the workspace, and a link inside the workspace pointing outside it, each answer `file: null`; a path to nothing answers `file: null`.
-- **T3.12** — Project a long tool-server call: a call the provider moved to a task stays one running tool row until that task ends, and its result is the task's notification or delivered result, with the completion's `resource_links` read as the call's output, never a message from the person; after a daemon restart a plain call's row settles as `Stopped when the app restarted`. It consumes the long-call states the provider driver records ([Plan-003](./003-provider-driver-contract-and-capabilities.md) T5.2) and authors none of them.
+- **T3.12** — Project a long tool-server call: a call the provider moved to a task stays one running tool row until that task ends, and its result is the task's notification or delivered result, with the completion's `resource_links` read as the call's output, never a message from the person; after a daemon restart a plain call's row settles as `Service restarted`, or `Service stopped` after a stop the person asked for, its outcome unknown. It consumes the long-call states the provider driver records ([Plan-003](./003-provider-driver-contract-and-capabilities.md) T5.2) and authors none of them.
   - **Spec coverage:** Spec-011 §Flow Row Kinds (Tool row); [Spec-024 §Long tool calls and the fronted route](../specs/024-mcp-server-configuration-and-governance.md#long-tool-calls-and-the-fronted-route)
   - **Verifies invariant:** none
-  - **Tests:** a long call stays one running row across its task and settles with its delivered result's resource links as output; no user-message row is projected for the result; a plain call open across a restart reads `Stopped when the app restarted`.
+  - **Tests:** a long call stays one running row across its task and settles with its delivered result's resource links as output; no user-message row is projected for the result; a plain call open across a restart reads `Service restarted`, and `Service stopped` after a stop the person asked for.
 
 ### Phase 4 — Desktop Transcript Rendering
 

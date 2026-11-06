@@ -26,7 +26,7 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use crate::checkpoints::schema::schema_parts;
 use crate::checkpoints::store::{list_checkpoints, read_checkpoint};
 use crate::run::engine::RunEngine;
-use crate::run::engine::test_fixture::{end_run_aside, insert_running_run, test_engine};
+use crate::run::engine::test_fixture::{end_run_aside, insert_run, test_engine};
 use crate::run::engine::undo::RunCut;
 use crate::run::state_change::RunWriteCompanions;
 
@@ -150,7 +150,7 @@ async fn each_opened_turn_writes_one_checkpoint_before_its_message_with_its_star
         SessionEventAppender::new(Arc::clone(&log.service), SESSION_EVENT_VERSION.clone());
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     let [first, steer, second, third, fourth] = [(); 5].map(|()| minted_item());
 
     let first_sequence = send(&appender, session_id, run_id, first).await;

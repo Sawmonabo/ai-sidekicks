@@ -42,7 +42,6 @@ use crate::daemon::process::stop::DaemonStopFailure;
 use crate::daemon::process::{DAEMON_STOP_DRAIN_BOUND, DaemonProcess};
 use crate::daemon::release_version::this_build_release_version;
 use crate::daemon::service_log::{ServiceLogFiles, open_service_log};
-use crate::daemon::service_status::record_start_failure;
 
 // The runtime's worker threads.
 const RUNTIME_WORKER_THREADS: usize = 2;
@@ -245,7 +244,7 @@ fn run_daemon(
         let started = Box::pin(DaemonProcess::start(DaemonStartOptions {
             home_folder,
             data_folder_lock,
-            run_folder: run_folder.clone(),
+            run_folder,
             daemon_program,
             process_identity,
             version: this_build_release_version(),
@@ -262,9 +261,9 @@ fn run_daemon(
         .await;
         let ran = match started {
             Ok(mut process) => {
-                let intent = process.wait_for_stop().await;
+                let reason = process.wait_for_stop().await;
                 let drain_started = Instant::now();
-                match process.stop(intent).await {
+                match process.stop(reason).await {
                     Ok(()) => {
                         tracing::info!("the background service stopped");
                         (ExitCode::SUCCESS, drain_started)
@@ -279,7 +278,6 @@ fn run_daemon(
                 }
             }
             Err(failure) => {
-                record_start_failure(&run_folder, failure.failures.original());
                 report_start_failure(&ServiceStartError::Start(failure.failures));
                 (ExitCode::FAILURE, failure.release_started)
             }

@@ -9,6 +9,9 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 use sidekicks_platforms::{PathRules, resolve_path, resolve_path_against};
 
+use crate::driver::claude::session::rules::{
+    CLAUDE_SHARED_SETTINGS_FILE, CLAUDE_USER_SETTINGS_FILE, local_settings_path, settings_path,
+};
 use crate::driver::claude::session::settings_file::{
     is_unreadable_path, read_claude_settings_file,
 };
@@ -114,10 +117,10 @@ async fn read_configured_plans_folder(
     project_folder: &Path,
     root_local_settings: &Path,
 ) -> io::Result<Option<String>> {
-    let local_settings = project_folder.join(".claude").join("settings.local.json");
+    let local_settings = local_settings_path(project_folder);
     let mut settings_files = vec![
-        config_folder.join("settings.json"),
-        project_folder.join(".claude").join("settings.json"),
+        config_folder.join(CLAUDE_USER_SETTINGS_FILE),
+        settings_path(project_folder, CLAUDE_SHARED_SETTINGS_FILE),
     ];
     if root_local_settings != local_settings {
         settings_files.push(local_settings);
@@ -167,7 +170,10 @@ mod tests {
     use serde_json::json;
     use sidekicks_platforms::PathRules;
 
-    use super::{ClaudePlan, find_claude_plan_files};
+    use super::{
+        CLAUDE_SHARED_SETTINGS_FILE, ClaudePlan, find_claude_plan_files, local_settings_path,
+        settings_path,
+    };
 
     const PLAN_SLUG: &str = "brave-otter";
 
@@ -234,15 +240,15 @@ mod tests {
             })
         };
         write_plans_directory(
-            &project_folder.join(".claude").join("settings.json"),
+            &settings_path(&project_folder, CLAUDE_SHARED_SETTINGS_FILE),
             in_scratch(shared_setting).as_deref(),
         );
         write_plans_directory(
-            &project_folder.join(".claude").join("settings.local.json"),
+            &local_settings_path(&project_folder),
             in_scratch(local_setting).as_deref(),
         );
 
-        let local_settings = project_folder.join(".claude").join("settings.local.json");
+        let local_settings = local_settings_path(&project_folder);
         let plan = ClaudePlan {
             project_folder: &project_folder,
             root_local_settings: local_settings,

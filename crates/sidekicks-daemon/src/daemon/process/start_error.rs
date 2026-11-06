@@ -24,7 +24,7 @@ use crate::daemon::crash::monitor::CrashMonitorError;
 use crate::daemon::machine_settings::file::MachineSettingsFileError;
 use crate::daemon::process::database::DatabaseFileOpenError;
 use crate::daemon::process::jobs::JobScheduleError;
-use crate::daemon::process::method_inputs::MethodInputsError;
+use crate::daemon::process::method_inputs::error::MethodInputsError;
 use crate::daemon::process::repo_services::{RepoAttachmentStartError, RepoServiceStartError};
 use crate::daemon::process::stop::DaemonStopFailure;
 use crate::daemon::run_folder::RunFolderError;

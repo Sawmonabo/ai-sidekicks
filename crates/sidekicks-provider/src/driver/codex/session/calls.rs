@@ -23,6 +23,7 @@ use crate::driver::codex::run::turn_end_waiters::{
     CodexTurnEndDeadline, CodexTurnEndWaiters, CodexTurnWait,
 };
 use crate::driver::codex::service::supervisor::CodexService;
+use crate::driver::codex::session::context_reading::CodexSessionContextReadings;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::establishment::helpers::restore_reattached_codex_helper;
 use crate::driver::codex::session::fork::config_change::run_codex_config_fork;
@@ -38,8 +39,8 @@ use crate::driver::codex::session::rewind::{
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 
-/// What a session's task holds beside its queue: the record, its routing band and the waits on
-/// its turns.
+/// What a session's task holds beside its queue: the record, its routing band, the waits on its
+/// turns and its context readings.
 pub(crate) struct CodexSessionTask<'task> {
     /// The session's record.
     pub(crate) record: &'task mut CodexSessionRecord,
@@ -47,6 +48,9 @@ pub(crate) struct CodexSessionTask<'task> {
     pub(crate) routing: &'task mut CodexSessionRouting,
     /// The waits on the session's turns, settled after each frame and call.
     pub(crate) waiters: &'task mut CodexTurnEndWaiters,
+    /// The session's context readings, whose fixed start each binding and each left conversation
+    /// keeps.
+    pub(crate) context_readings: &'task CodexSessionContextReadings,
 }
 
 /// What the calls act through beside the session's task, shared by every session of the driver.
@@ -59,7 +63,8 @@ pub(crate) struct CodexSessionCallDependencies {
 
 /// What a goal's turn, a rewind, `Allow once`, a helper's reopen and a message's delivery read of
 /// a session: the service and connection its conversation is on, the conversation, the state of
-/// its turns, and the posture and account a turn the daemon starts on it runs at.
+/// its turns, the posture and account a turn the daemon starts on it runs at, and its memory
+/// switch.
 pub(crate) struct CodexSessionReading {
     /// The service, which a reopened helper is registered on.
     pub(crate) service: Arc<CodexService>,
@@ -94,6 +99,9 @@ pub(crate) struct CodexSessionReading {
         )
     )]
     pub(crate) provider_account_id: ProviderAccountId,
+    /// The session's `Auto memory` switch, which a conversation the service loads again starts
+    /// under.
+    pub(crate) auto_memory: Option<bool>,
 }
 
 /// Runs `call` on the session's task, answering on the call's own reply, and settles the waits
@@ -324,5 +332,6 @@ fn read_codex_session(task: &CodexSessionTask<'_>, thread_id: Option<&str>) -> C
         }),
         execution_posture: record.execution_posture.clone(),
         provider_account_id: record.provider_account_id.clone(),
+        auto_memory: record.thread_settings.auto_memory,
     }
 }

@@ -3,11 +3,10 @@
 //! one that folds a skipped range through the runs projection's fold and clears no row, so a stale
 //! session's runs stand as the test wrote them and one broken row damages its history, and provider
 //! sessions that resume a session's conversation through the drivers a test gives, each resume's
-//! runs settled through recovery's own finalize.
+//! runs settled through recovery's own finalize, and the message a test queues for a run.
 
 use std::error::Error;
 use std::fs;
-use std::num::NonZeroUsize;
 use std::sync::{Arc, LazyLock, Mutex, Weak};
 
 use futures::FutureExt as _;
@@ -28,10 +27,14 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_contracts::question::QuestionId;
+use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_mcp::client::McpClient;
+use sidekicks_mcp::client::dispatch::McpToolDispatch;
+use sidekicks_mcp::client::dispatch::restart_sweep::McpRestartSweep;
 use sidekicks_platforms::{Spawner, harness_test_name, pass_through_start};
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::ProviderDriver;
@@ -42,22 +45,20 @@ use sidekicks_provider::driver::test_registry::{
 use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
 use sidekicks_provider::runtime_binding::test_store::bind_resumable;
 use sidekicks_queue::delivery::test_fixture::test_delivery;
+use sidekicks_queue::provider_session::ProviderSessions;
 use sidekicks_queue::provider_session::resumed_runs::ResumedRunsIngress;
 use sidekicks_queue::provider_session::test_opening::{
-    OrphanedAnswersStandIn, RecordedProcessFollowing, test_execution_postures,
-    test_git_folder_reader, test_opening_composer,
+    OrphanedAnswersStandIn, test_provider_sessions,
 };
-use sidekicks_queue::provider_session::{ProviderSessions, ProviderSessionsDeps};
 use sidekicks_session::interventions::service::test_fixture::test_intervention_service;
 use sidekicks_session::questions::service::QuestionsService;
-use sidekicks_session::run::binding_cursors::RunBindingCursors;
+use sidekicks_session::queue_store::QueueItemBody;
+use sidekicks_session::queue_store::test_items::{insert_item, words};
 use sidekicks_session::run::engine::RunEngine;
-use sidekicks_session::run::engine::test_fixture::{insert_running_run, test_engine_with};
-use sidekicks_session::run::epochs::ExecutionEpochs;
+use sidekicks_session::run::engine::test_fixture::{insert_run, test_engine_with};
 use sidekicks_session::run::live_count::count_live_runs_after_commits;
 use sidekicks_session::run::projection::RunsProjection;
 use sidekicks_session::service::SessionService;
-use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::damage::DatabaseDamageWatch;
@@ -89,12 +90,10 @@ use crate::resumed_runs::{ResumedRunsFinalize, ResumedRunsFinalizeDeps};
 use crate::session_write_refusal::refuse_session_event;
 use crate::startup::{StartupRecovery, StartupRecoveryDeps};
 use crate::status::RecoveryStatusTracker;
+use crate::stop_intent::StopIntentFile;
 
 // Statements every pool of the pass caches; a cache size, not a bound on what runs.
 const TEST_STATEMENT_CAPACITY: usize = 64;
-
-// The most epochs one binding's cursor keeps.
-const TEST_EPOCHS_PER_BINDING: NonZeroUsize = NonZeroUsize::new(8).expect("eight is not zero");
 
 /// The test the pass's database copy runs as.
 const COPY_STAND_IN: &str = "a_database_copy_stand_in_copies_its_file";
@@ -221,6 +220,8 @@ pub(crate) struct PassFixture {
     pub(crate) followers: Arc<SessionEventFollowers>,
     /// The resume of each session's conversation through the fixture's drivers.
     provider_sessions: Arc<ProviderSessions>,
+    /// The fixture's drivers, by the providers the table lists first.
+    providers: Arc<ProviderRegistry>,
     /// The runtime bindings a test records a session's conversation in.
     bindings: Arc<RuntimeBindingStore>,
     _home: TempDir,
@@ -319,12 +320,8 @@ impl PassFixture {
             Arc::clone(&store.reads),
             Arc::clone(&store.writer),
         ));
-        let provider_sessions = resuming_provider_sessions(
-            &store,
-            &engine,
-            &Arc::new(registry_of_first_providers(drivers)),
-            &bindings,
-        );
+        let providers = Arc::new(registry_of_first_providers(drivers));
+        let provider_sessions = resuming_provider_sessions(&store, &engine, &providers);
         Self {
             store,
             engine,
@@ -334,6 +331,7 @@ impl PassFixture {
             purges: Arc::new(RecordedPurges::default()),
             followers,
             provider_sessions,
+            providers,
             bindings,
             _home: home,
         }
@@ -355,6 +353,17 @@ impl PassFixture {
                 &test_driver_services(),
             )),
         ));
+        // No receipt is in flight, so the sweep asks no question and reaches no server.
+        let mcp_client = McpClient::new(
+            Arc::new(PortRegistration::new("questions")),
+            ReleaseVersion::new("0.0.0".to_owned()).expect("a release version"),
+        )
+        .expect("the tool-server client builds");
+        let mcp_sweep = McpRestartSweep::new(
+            Arc::new(mcp_client),
+            Arc::new(McpToolDispatch::new(Arc::clone(&store.writer))),
+            Arc::clone(&services.reads),
+        );
         StartupRecovery::new(StartupRecoveryDeps {
             machine_id: MachineId::new("machine-1".to_owned()).expect("the test's machine id"),
             reads: services.reads,
@@ -373,7 +382,15 @@ impl PassFixture {
                 pass_through_start(&harness_test_name(module_path!(), COPY_STAND_IN)),
                 Spawner::new(Handle::current()).expect("the spawner starts"),
             )),
+            stop_intent: services.stop_intent,
+            mcp_sweep,
         })
+    }
+
+    /// The stop intent beside the fixture's database file, the one the pass and damaged history
+    /// read.
+    pub(crate) fn stop_intent(&self) -> StopIntentFile {
+        StopIntentFile::new(&self.store.database.path())
     }
 
     /// Damaged history over the fixture's services, reading the fixture's recovery state.
@@ -416,7 +433,9 @@ impl PassFixture {
             run_engine: Arc::clone(&self.engine),
             approvals,
             plans: Arc::new(self.plans()),
+            providers: Arc::clone(&self.providers),
         }));
+        let stop_intent = Arc::new(StopIntentFile::new(&store.database.path()));
         let damaged_history = Arc::new(DamagedHistory::new(DamagedHistoryDeps {
             reads: Arc::clone(&reads),
             session_events,
@@ -426,6 +445,7 @@ impl PassFixture {
             restart_settle: Arc::clone(&restart_settle),
             purge: Arc::clone(&self.purges) as Arc<dyn DamagedSessionPurge>,
             status,
+            stop_intent: Arc::clone(&stop_intent),
         }));
         RecoveryServices {
             reads,
@@ -433,6 +453,7 @@ impl PassFixture {
             projection_rebuild,
             restart_settle,
             damaged_history,
+            stop_intent,
         }
     }
 
@@ -490,7 +511,7 @@ impl PassFixture {
                 .expect("the test breaks the stored row");
         }
         let run_id = test_run_id();
-        insert_running_run(&self.store.database, session_id, run_id);
+        insert_run(&self.store.database, session_id, run_id, "running");
         (session_id, run_id)
     }
 
@@ -651,32 +672,42 @@ impl PassFixture {
     }
 }
 
-/// Writes one run of `session` per entry of `runs` into `database`, each left in its state's
-/// stored word.
+/// Queues a message for `run_id` of `session_id` through `writer` and answers its id.
+pub(crate) async fn queue_message(
+    writer: &DatabaseWriter,
+    session_id: SessionId,
+    run_id: RunId,
+) -> QueueItemId {
+    let body = QueueItemBody::Message(words("Look again"));
+    insert_item(writer, session_id, run_id, body).await
+}
+
+/// Writes one run of `session` per entry of `runs` into `database`, each in its state's stored
+/// word.
 pub(crate) fn insert_runs(database: &TestDatabase, session: SessionId, runs: &[(RunId, &str)]) {
     for &(run_id, run_state) in runs {
-        insert_running_run(database, session, run_id);
-        database
-            .reader()
-            .execute(
-                "UPDATE runs SET state = ?1 WHERE run_id = ?2",
-                params![run_state, run_id.text().as_str()],
-            )
-            .expect("the test sets the run's state");
+        insert_run(database, session, run_id, run_state);
     }
 }
 
-// The provider sessions over `store`'s database, resuming on `providers` and recording bindings in
-// `bindings`, each resume's runs settled through recovery's finalize over `engine`, with an
-// interventions service wired to `engine` handing a pending interrupt again, a person's or a
-// limit's.
+// The provider sessions over `store`'s database, resuming on `providers`, each resume's runs
+// settled through recovery's finalize over `engine`, whose delivery opens a paused run's session
+// through them, with an interventions service wired to `engine` handing a pending interrupt again,
+// a person's or a limit's.
 fn resuming_provider_sessions(
     store: &ArtifactTestStore,
     engine: &Arc<RunEngine>,
     providers: &Arc<ProviderRegistry>,
-    bindings: &Arc<RuntimeBindingStore>,
 ) -> Arc<ProviderSessions> {
-    let resumed_runs = PortRegistration::new("resumed runs");
+    let resumed_runs = Arc::new(PortRegistration::new("resumed runs"));
+    let provider_sessions = test_provider_sessions(
+        Arc::clone(&store.reads),
+        Arc::clone(&store.event_log),
+        Arc::clone(&store.writer),
+        Arc::clone(providers),
+        Arc::clone(&resumed_runs),
+        Arc::new(OrphanedAnswersStandIn::<ApprovalRequestId>::default()),
+    );
     resumed_runs
         .register(Arc::new(ResumedRunsFinalize::new(ResumedRunsFinalizeDeps {
             reads: Arc::clone(&store.reads),
@@ -686,35 +717,17 @@ fn resuming_provider_sessions(
                 Arc::clone(&store.event_log),
                 Arc::clone(&store.writer),
                 Arc::clone(providers),
+                &provider_sessions,
             ),
             providers: Arc::clone(providers),
             interventions: test_intervention_service(
                 Arc::clone(&store.reads),
-                Arc::clone(&store.event_log),
                 engine,
                 Arc::clone(providers),
             ),
         })) as Arc<dyn ResumedRunsIngress>)
         .expect("a new port holds no ingress yet");
-    Arc::new(ProviderSessions::new(ProviderSessionsDeps {
-        pool: Arc::clone(&store.reads),
-        appender: Arc::clone(&store.appender),
-        binding_cursors: Arc::new(RunBindingCursors::new(
-            Arc::clone(&store.reads),
-            Arc::new(|_: &SessionId| None),
-            Arc::clone(bindings),
-            Arc::new(Mutex::new(ExecutionEpochs::new(TEST_EPOCHS_PER_BINDING))),
-        )),
-        providers: Arc::clone(providers),
-        compose_opening: test_opening_composer(),
-        read_git_folder: test_git_folder_reader(),
-        transition_lock: Arc::new(KeyedLock::new()),
-        process_follower: Arc::new(RecordedProcessFollowing::default()),
-        execution_postures: test_execution_postures(),
-        resumed_runs: Arc::new(resumed_runs),
-        orphaned_approvals: Arc::new(OrphanedAnswersStandIn::<ApprovalRequestId>::default()),
-        orphaned_questions: Arc::new(OrphanedAnswersStandIn::<QuestionId>::default()),
-    }))
+    provider_sessions
 }
 
 // The services the pass and damaged history share.
@@ -724,4 +737,5 @@ struct RecoveryServices {
     projection_rebuild: Arc<ProjectionRebuildService>,
     restart_settle: Arc<RestartSettle>,
     damaged_history: Arc<DamagedHistory>,
+    stop_intent: Arc<StopIntentFile>,
 }

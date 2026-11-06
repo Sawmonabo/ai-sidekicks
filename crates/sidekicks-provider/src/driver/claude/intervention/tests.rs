@@ -14,10 +14,12 @@ use sidekicks_std::mutex_lock::lock;
 use super::CLAUDE_INTERRUPT_CANCEL_QUEUED_CAPABILITY;
 use crate::driver::claude::hooks::pause::ClaudePauseAnswer;
 use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedWrite};
+use crate::driver::claude::session::scripted::held_calls::init;
 use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle,
 };
 use crate::driver::claude::session::transport::declarations::ClaudeHandshakeDeclaration;
+use crate::driver::claude::session::transport::user_message::ClaudeWriteDelivery;
 use crate::driver::contract::params_and_results::{ProviderRequestAnswer, RespondToRequestParams};
 use crate::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, InterruptPayload, InterruptPendingChoice,
@@ -25,6 +27,7 @@ use crate::driver::run_control::{
 };
 use crate::driver::test_registry::new_message_id;
 use crate::port::permission_ask::ProviderPermissionAnswer;
+use crate::run::state_entry::RunStateEntry;
 
 fn steer(
     run_id: RunId,
@@ -183,7 +186,7 @@ async fn an_interrupt_sends_and_answers_as_its_choice_and_the_build_allow(
 
     let response = apply(&session, interrupt(run_id, pending, reorders_waiting)).await;
 
-    let requests = session.channel.control_requests();
+    let requests = session.control_requests_after_start();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0]["subtype"], "interrupt");
     assert_eq!(
@@ -248,7 +251,7 @@ fn foreground_task_started(
 
 // The calls whose work the session asked to move to the background ahead of its interrupt, sorted.
 fn backgrounded_before_interrupt(session: &ScriptedSession) -> Vec<Value> {
-    let mut requests = session.channel.control_requests();
+    let mut requests = session.control_requests_after_start();
     let last = requests.pop().expect("the interrupt went");
     assert_eq!(last["subtype"], "interrupt");
     let mut backgrounded: Vec<_> = requests
@@ -301,7 +304,7 @@ async fn an_interrupt_moves_each_foreground_helper_to_the_background_first() {
         interrupt(run_id, InterruptPendingChoice::NextTurn, false),
     )
     .await;
-    let requests = without_helpers.channel.control_requests();
+    let requests = without_helpers.control_requests_after_start();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0]["subtype"], "interrupt");
 }
@@ -387,8 +390,7 @@ async fn a_helper_move_cut_mid_write_stops_the_process_in_place_of_the_interrupt
     .await;
 
     let subtypes: Vec<_> = session
-        .channel
-        .control_requests()
+        .control_requests_after_start()
         .iter()
         .map(|request| request["subtype"].clone())
         .collect();
@@ -439,7 +441,7 @@ async fn a_helpers_interrupt_holds_it_and_stops_its_commands_its_lead_going_on(
     .await;
 
     assert_eq!(response.status, expected_status);
-    let requests = session.channel.control_requests();
+    let requests = session.control_requests_after_start();
     assert_eq!(requests.len(), 1, "{requests:?}");
     assert_eq!(requests[0]["subtype"], "stop_task");
     assert_eq!(requests[0]["task_id"], "cmd-1");
@@ -723,4 +725,124 @@ async fn a_released_send_now_settles_its_runs_choice_behind_the_frames_queued_be
         matches!((queued, settled), (Some(queued), Some(settled)) if queued < settled),
         "{kinds:?}"
     );
+}
+
+// Killed by recording the refusal's end on the interrupt (a second settlement row and a refused
+// move), by sending Claude Code's interrupt beside the cancel, by delivering the turn end Claude
+// Code sends after the cancel as the run's end, by leaving that turn end held for good, and, with a
+// steer written before the dialog and never taken, by carrying the ended run into Claude Code's
+// next turn (that turn's end moves the run again).
+#[rstest]
+#[case::alone(false)]
+#[case::after_an_untaken_steer(true)]
+#[tokio::test(start_paused = true)]
+async fn an_interrupt_of_a_waiting_refusal_answers_claude_code_and_leaves_the_end_to_the_engine(
+    #[case] has_untaken_steer: bool,
+) {
+    let session = ScriptedSession::new().await;
+    let run_id = session.hold_lead_turn("lead");
+    if has_untaken_steer {
+        apply(
+            &session,
+            steer(run_id, &new_message_id(), "steer", Vec::new(), false),
+        )
+        .await;
+    }
+    session.request(
+        "refusal",
+        &json!({
+            "subtype": "request_user_dialog",
+            "dialog_kind": "refusal_fallback_prompt",
+            "payload": {"originalModel": "claude-fable-5", "fallbackModel": "claude-opus-5"},
+        }),
+    );
+    settle().await;
+
+    let response = apply(
+        &session,
+        interrupt(run_id, InterruptPendingChoice::NextTurn, false),
+    )
+    .await;
+    settle().await;
+    let is_held_before_the_turn_end = session.stream.is_turn_ending_for_interrupt(run_id);
+    let turn_end = json!({
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "result": "",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+    });
+    session.frame(&init());
+    session.frame(&turn_end);
+    settle().await;
+    let is_held_after_the_turn_end = session.stream.is_turn_ending_for_interrupt(run_id);
+    // Claude Code's next turn, which starts with any steer the refused turn left untaken.
+    session.frame(&init());
+    session.frame(&turn_end);
+    settle().await;
+
+    assert_eq!(response.status, InterventionResultStatus::Applied);
+    let writes = answers_and_messages(&session);
+    assert_eq!(
+        writes.last(),
+        Some(&ScriptedWrite::Answer {
+            request_id: "refusal".to_owned(),
+            answer: json!({"behavior": "cancelled"}),
+        })
+    );
+    assert_eq!(
+        writes.len(),
+        usize::from(has_untaken_steer) + 1,
+        "{writes:?}"
+    );
+    assert!(
+        session
+            .channel
+            .control_requests()
+            .iter()
+            .all(|request| request["subtype"] != "interrupt")
+    );
+    assert_eq!(
+        session.engine.moves_of_run(run_id),
+        [RunStateEntry::WaitingForInput]
+    );
+    let rows = session
+        .engine
+        .deliveries()
+        .into_iter()
+        .filter(|delivery| delivery.kind == "unstampedRow")
+        .count();
+    assert_eq!(rows, 1);
+    assert!(is_held_before_the_turn_end);
+    assert!(!is_held_after_the_turn_end);
+}
+
+// Killed by an interrupt whose refusal cancel was never written that leaves the run's turn end
+// held for the interrupt, a missing `release_daemon_end`: the turn end Claude Code then sends would
+// never be delivered.
+#[tokio::test(start_paused = true)]
+async fn an_interrupt_whose_refusal_cancel_is_unsent_holds_no_turn_end() {
+    let session = ScriptedSession::new().await;
+    let run_id = session.hold_lead_turn("lead");
+    session.request(
+        "refusal",
+        &json!({
+            "subtype": "request_user_dialog",
+            "dialog_kind": "refusal_fallback_prompt",
+            "payload": {"originalModel": "claude-fable-5", "fallbackModel": "claude-opus-5"},
+        }),
+    );
+    settle().await;
+    session
+        .channel
+        .fail_next_answer(ClaudeWriteDelivery::Unsent);
+
+    let interrupted = session
+        .interventions
+        .apply_intervention(interrupt(run_id, InterruptPendingChoice::NextTurn, false))
+        .await;
+    settle().await;
+
+    assert!(interrupted.is_err(), "{interrupted:?}");
+    assert!(!session.stream.is_turn_ending_for_interrupt(run_id));
 }

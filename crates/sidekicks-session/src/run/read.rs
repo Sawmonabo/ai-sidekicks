@@ -108,6 +108,30 @@ const SELECT_RUN_SQL: &str = "SELECT session_id, state, run_version FROM runs WH
 const SELECT_RUN_PARENTAGE_SQL: &str =
     "SELECT session_id, parent_run_id, state FROM runs WHERE run_id = ?";
 
+// The run a provider's helper was dispatched beneath; no row for a run reached any other way.
+static SELECT_HELPER_LEAD_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT parent_run_id FROM runs WHERE run_id = @run_id AND reached_by = '{}'",
+        <&'static str>::from(ChildRunProvenance::ProviderSubagent)
+    )
+});
+
+/// The run `run_id` was dispatched beneath where it is a provider's own helper, whose process it
+/// runs in; `None` for a run reached any other way, a lead or an unknown run. Fails as the read
+/// fails.
+pub(crate) fn read_helper_lead(
+    reader: &Connection,
+    run_id: &RunId,
+) -> rusqlite::Result<Option<RunId>> {
+    Ok(reader
+        .prepare_cached(&SELECT_HELPER_LEAD_SQL)?
+        .query_row(named_params! { "@run_id": run_id.text().as_str() }, |row| {
+            optional_text_column(row, 0, |text| RunId::new(&text))
+        })
+        .optional()?
+        .flatten())
+}
+
 // The run's own `agent.run.failed` row naming a setup failure, found on the index of one session's
 // runs' events by type, so the read never walks the log.
 static SELECT_FAILED_AT_SETUP_SQL: LazyLock<String> = LazyLock::new(|| {

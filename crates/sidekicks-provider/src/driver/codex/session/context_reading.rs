@@ -6,6 +6,7 @@
 //! stop is the session's fixed start, its conversation's first request's input, plus a tenth of
 //! the window. The fixed start is kept on the session's binding, so a resume reads it back.
 
+use std::error::Error;
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Map, Value};
@@ -27,6 +28,7 @@ use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::context_window::{BOTTOM_STOP_HEADROOM_PERCENT, share_percent};
 use crate::port::context_reading_publisher::ContextReadingPublisher;
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 use crate::usage_delta_accountant::WindowTelemetry;
 
 /// What a context reading is composed from beyond its window and usage, in tokens.
@@ -64,6 +66,20 @@ pub(crate) fn read_codex_kept_fixed_start(runtime_metadata: &Map<String, Value>)
     runtime_metadata
         .get(FIXED_START_TOKENS_KEY)
         .and_then(Value::as_u64)
+}
+
+/// A conversation's recovery data: its fixed start, in tokens, where one is known, and the home
+/// that holds it.
+pub(crate) fn compose_codex_recovery_data(
+    fixed_start_tokens: Option<u64>,
+    home: CodexConversationHome,
+) -> Map<String, Value> {
+    let mut runtime_metadata = Map::new();
+    if let Some(tokens) = fixed_start_tokens {
+        runtime_metadata.insert(FIXED_START_TOKENS_KEY.to_owned(), Value::from(tokens));
+    }
+    home.keep_in(&mut runtime_metadata);
+    runtime_metadata
 }
 
 /// Where an opening session's conversation takes its fixed start from.
@@ -128,6 +144,39 @@ impl CodexSessionContextReadings {
         }
     }
 
+    /// The session's fixed start, in tokens, `None` while it is unknown.
+    pub(crate) fn fixed_start_tokens(&self) -> Option<u64> {
+        self.fixed_start_tokens
+    }
+
+    /// Keeps the session's fixed start and `home` on its first binding `binding_id` in the bind's
+    /// own write, where either is there to keep, and marks the binding once a write holding the
+    /// fixed start succeeded, so the next usage report does not write it again. Fails as the
+    /// write does, the binding left unmarked.
+    pub(crate) async fn keep_on_first_binding(
+        &self,
+        bindings: &dyn RuntimeBindingWriter,
+        binding_id: &RuntimeBindingId,
+        home: CodexConversationHome,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if lock(&self.fixed_start_kept_on).as_ref() == Some(binding_id) {
+            return Ok(());
+        }
+        let runtime_metadata = compose_codex_recovery_data(self.fixed_start_tokens, home);
+        if runtime_metadata.is_empty() {
+            return Ok(());
+        }
+        bindings
+            .keep_recovery_data(binding_id.clone(), runtime_metadata)
+            .await?;
+        // Marked only once the write held the fixed start, else the next report would skip it.
+        // The write runs on the session's task, so no report starts a second one meanwhile.
+        if self.fixed_start_tokens.is_some() {
+            *lock(&self.fixed_start_kept_on) = Some(binding_id.clone());
+        }
+        Ok(())
+    }
+
     /// Publishes the reading of one usage report of the session's own conversation, whose
     /// conversation's first request also sets the fixed start.
     pub(crate) fn publish_report(
@@ -187,9 +236,10 @@ impl CodexSessionContextReadings {
         let binding_id = binding_id.clone();
         let session_id = self.session_id;
         // The write replaces the recovery data whole, so it keeps the conversation's home too.
-        let mut runtime_metadata =
-            Map::from_iter([(FIXED_START_TOKENS_KEY.to_owned(), Value::from(tokens))]);
-        CodexConversationHome::of_service(record.service.home()).keep_in(&mut runtime_metadata);
+        let runtime_metadata = compose_codex_recovery_data(
+            Some(tokens),
+            CodexConversationHome::of_service(record.service.home()),
+        );
         parts.tasks.spawn(async move {
             if let Err(error) = runtime_bindings
                 .keep_recovery_data(binding_id.clone(), runtime_metadata)

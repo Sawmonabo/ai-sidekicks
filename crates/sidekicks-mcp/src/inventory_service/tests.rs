@@ -1,10 +1,11 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use futures::FutureExt;
 use futures::future::{BoxFuture, ready};
 use rstest::rstest;
-use rusqlite::{Connection, params};
+use rusqlite::params;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::mcp::server::inventory::{
@@ -15,7 +16,6 @@ use sidekicks_contracts::mcp::server::requests::McpServerListRequest;
 use sidekicks_contracts::mcp::server::{
     McpApprovalMode, McpServerBindingRef, McpServerName, McpServerStatus, McpToolName,
 };
-use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
@@ -30,42 +30,27 @@ use sidekicks_provider::driver::mcp_server::read::{
 use sidekicks_provider::driver::mcp_server::status::{McpServerReading, McpServerStatusEmission};
 use sidekicks_provider::driver::test_registry::registry_of_first_providers;
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-use sidekicks_workspace::project::records::{
-    ProjectRecords, ProjectSessionActivity, ProjectSessionFacts,
-};
 use tokio::sync::oneshot;
 
-use super::{McpInventoryService, McpInventorySources};
-use crate::binding::resolver::McpAttributionTable;
-use crate::binding::store::{McpBindingKey, McpBindingStore, open_first_observation_drain};
+use super::McpInventoryService;
+use crate::binding::resolver::{McpAttributionTable, McpFirstFill};
+use crate::binding::session_tool_servers::{McpSessionToolServers, McpSessionToolServersError};
+use crate::binding::store::McpBindingKey;
 use crate::schema::schema_parts;
 use crate::status::McpServerStatusTracker;
 use crate::status::machine_probe::McpMachineProbeGate;
 use crate::status::normalizer::{McpSessionAttribution, open_mcp_leg_status_producer};
 use crate::status::notices::McpNoticeBoard;
+use crate::test_inventory::open_test_inventory;
 
 /// The statements a read connection keeps prepared: the store's, the accounts' and the roots'.
 const READ_STATEMENT_CAPACITY: usize = 8;
 
 /// How long a wait the test expects to end lasts before the test fails instead of hanging.
 const WAIT_BOUND: Duration = Duration::from_secs(10);
-
-/// No project has a session; the inventory reads only the attached roots.
-struct NoProjectSessions;
-
-impl ProjectSessionActivity for NoProjectSessions {
-    fn read_session_facts(
-        &self,
-        _reader: &Connection,
-        _project_ids: Option<&[ProjectId]>,
-    ) -> rusqlite::Result<Vec<ProjectSessionFacts>> {
-        Ok(Vec::new())
-    }
-}
 
 /// What a test's driver answers a read with, given the registry's provider and the request.
 type DriverAnswer = Box<
@@ -81,7 +66,7 @@ type DriverAnswer = Box<
 struct TestInventory {
     database: TestDatabase,
     provider: ProviderId,
-    service: McpInventoryService,
+    service: Arc<McpInventoryService>,
     tracker: Arc<McpServerStatusTracker>,
     attribution: Arc<McpAttributionTable>,
     gate: Arc<McpMachineProbeGate>,
@@ -106,10 +91,6 @@ async fn open_inventory_over(answers: Vec<DriverAnswer>) -> TestInventory {
         database.path(),
         READ_STATEMENT_CAPACITY,
     ));
-    let store = McpBindingStore::new(writer, Arc::clone(&reads));
-    let (outlet, drain) = open_first_observation_drain(store.clone()).await;
-    // The drain records each binding the tracker observes; it ends when the tracker drops.
-    tokio::spawn(drain);
     let probes = Arc::new(Mutex::new(Vec::new()));
     let mut providers_of_registry = Vec::new();
     let mut drivers: Vec<Arc<dyn ProviderDriver>> = Vec::new();
@@ -151,29 +132,20 @@ async fn open_inventory_over(answers: Vec<DriverAnswer>) -> TestInventory {
             params![provider.as_str()],
         )
         .expect("the binding's row is stored");
-    let tracker = Arc::new(McpServerStatusTracker::new(
-        Arc::new(McpNoticeBoard::default()),
-        outlet,
-    ));
-    let gate = Arc::new(McpMachineProbeGate::default());
-    let attribution = Arc::new(McpAttributionTable::default());
-    let service = McpInventoryService::new(McpInventorySources {
+    let inventory = open_test_inventory(
         providers,
-        reads: Arc::clone(&reads),
-        meter: ProcessorMeter::default(),
-        projects: Arc::new(ProjectRecords::new(reads, Arc::new(NoProjectSessions))),
-        store,
-        tracker: Arc::clone(&tracker),
-        attribution: Arc::clone(&attribution),
-        probe_gate: Arc::clone(&gate),
-    });
+        writer,
+        reads,
+        Arc::new(McpNoticeBoard::default()),
+    )
+    .await;
     TestInventory {
         database,
         provider,
-        service,
-        tracker,
-        attribution,
-        gate,
+        service: inventory.service,
+        tracker: inventory.tracker,
+        attribution: inventory.attribution,
+        gate: inventory.probe_gate,
         probes,
     }
 }
@@ -511,8 +483,10 @@ async fn a_binding_gone_from_the_config_loses_its_probe_reading_and_a_live_leg_s
 
 /// A `local` row the store keeps for the person's `docs` entry, which is off by default, reaches
 /// the driver's read as an emulated binding, and a refresh's probe reading of that binding is
-/// what the `local` row the inventory lists in the entry's place reads. Killed by the request
-/// leaving the store's `local` bindings out, which leaves the row `unknown`.
+/// what the `local` row the inventory lists in the entry's place reads; the row is on as the
+/// daemon's switch keeps it, though the entry is off. Killed by the request leaving the store's
+/// `local` bindings out, which leaves the row `unknown`, and by the row read by the entry's own
+/// switch, which reads it off.
 #[tokio::test]
 async fn a_refresh_reads_an_emulated_local_rows_status_from_its_probe() {
     let docs_local = |provider: &ProviderId| McpServerBindingRef::Local {
@@ -548,8 +522,9 @@ async fn a_refresh_reads_an_emulated_local_rows_status_from_its_probe() {
         .reader()
         .execute(
             "INSERT INTO mcp_server_bindings
-               (provider, scope, scope_ref, server_name, first_observed_at, updated_at)
-             VALUES (?1, 'local', '/work/app', 'docs', 't', 't')",
+               (provider, scope, scope_ref, server_name, enabled_override, first_observed_at,
+                updated_at)
+             VALUES (?1, 'local', '/work/app', 'docs', 1, 't', 't')",
             params![inventory.provider.as_str()],
         )
         .expect("the local binding's row is stored");
@@ -565,6 +540,7 @@ async fn a_refresh_reads_an_emulated_local_rows_status_from_its_probe() {
     let McpServerInventoryEntry::Answered(McpAnsweredInventoryEntry::Local {
         scope_ref,
         status,
+        enabled,
         ..
     }) = entry
     else {
@@ -572,6 +548,7 @@ async fn a_refresh_reads_an_emulated_local_rows_status_from_its_probe() {
     };
     assert_eq!(scope_ref.as_str(), "/work/app");
     assert_eq!(status, McpServerStatus::Connected);
+    assert!(enabled, "the daemon's switch keeps the emulated row on");
 }
 
 /// A session in no project reports `docs` before anything filled the attribution table; its report
@@ -591,6 +568,7 @@ async fn a_report_before_any_read_shows_once_the_table_is_filled(#[case] is_fill
             Arc::clone(&inventory.attribution),
             inventory.provider.clone(),
             None,
+            &[],
         )
         .expect("a session in no root"),
         SessionId::try_from(mint_uuid_v7()).expect("a session id"),
@@ -760,4 +738,117 @@ async fn a_plain_list_after_a_failed_probe_carries_its_failure_reason(#[case] pr
         probe_failure_reason.as_ref().map(FreeFormText::as_str),
         Some(REFUSAL)
     );
+}
+
+/// A first fill whose read fails is recorded as failed, and an opening then reads the provider
+/// once itself: where that read lands the opening composes from it, and where it fails too the
+/// opening is refused. Killed by the failed fill left unrecorded (the wait never ends), by a
+/// failed fill composing from the empty table, and by the opening refusing without its own read.
+#[rstest]
+#[case::its_read_lands(true)]
+#[case::its_read_fails_too(false)]
+#[tokio::test]
+async fn an_opening_after_a_failed_fill_reads_the_provider_once(#[case] does_read_land: bool) {
+    let reads = Arc::new(AtomicUsize::new(0));
+    let driver_reads = Arc::clone(&reads);
+    let answer: DriverAnswer = Box::new(move |provider, request| {
+        let is_fill = driver_reads.fetch_add(1, Ordering::SeqCst) == 0;
+        if is_fill || !does_read_land {
+            ready(Err(DriverError::Internal(
+                "the config could not be read".into(),
+            )))
+            .boxed()
+        } else {
+            ready(Ok(reading_of(&provider, &request))).boxed()
+        }
+    });
+    let inventory = open_inventory(answer).await;
+    inventory.service.fill_attribution().await;
+    let first_fill = tokio::time::timeout(
+        WAIT_BOUND,
+        inventory
+            .attribution
+            .wait_for_first_fill(&inventory.provider),
+    )
+    .await
+    .expect("a failed fill ends the wait");
+    assert_eq!(first_fill, McpFirstFill::Failed);
+    let composer = McpSessionToolServers::new(
+        Arc::clone(&inventory.attribution),
+        inventory.service.sources.store.clone(),
+    );
+    composer
+        .register_inventory(Arc::clone(&inventory.service))
+        .expect("the inventory registers once");
+
+    let composed = tokio::time::timeout(WAIT_BOUND, composer.compose(&inventory.provider, None))
+        .await
+        .expect("the opening answers");
+
+    assert_eq!(reads.load(Ordering::SeqCst), 2);
+    if does_read_land {
+        let bindings: Vec<_> = composed
+            .expect("the opening composes")
+            .into_iter()
+            .map(|server| server.binding)
+            .collect();
+        assert_eq!(bindings, vec![docs_binding(&inventory.provider)]);
+    } else {
+        assert!(matches!(
+            composed,
+            Err(McpSessionToolServersError::ProviderUnread(_))
+        ));
+    }
+}
+
+/// The openings that meet one failed fill share one read of the provider: the first to hold the
+/// provider's refill reads, and each after it finds the table filled and opens without a read.
+/// Killed by the hold removed, where every opening reads.
+#[tokio::test]
+async fn openings_after_a_failed_fill_share_one_read() {
+    const OPENINGS: usize = 4;
+    let reads = Arc::new(AtomicUsize::new(0));
+    let driver_reads = Arc::clone(&reads);
+    let answer: DriverAnswer = Box::new(move |provider, request| {
+        if driver_reads.fetch_add(1, Ordering::SeqCst) == 0 {
+            return ready(Err(DriverError::Internal(
+                "the config could not be read".into(),
+            )))
+            .boxed();
+        }
+        // Slow enough that every opening meets the failed fill while this read runs.
+        async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            Ok(reading_of(&provider, &request))
+        }
+        .boxed()
+    });
+    let inventory = open_inventory(answer).await;
+    inventory.service.fill_attribution().await;
+    let composer = McpSessionToolServers::new(
+        Arc::clone(&inventory.attribution),
+        inventory.service.sources.store.clone(),
+    );
+    composer
+        .register_inventory(Arc::clone(&inventory.service))
+        .expect("the inventory registers once");
+
+    let opened = tokio::time::timeout(
+        WAIT_BOUND,
+        futures::future::join_all(
+            (0..OPENINGS).map(|_| composer.compose(&inventory.provider, None)),
+        ),
+    )
+    .await
+    .expect("the openings answer");
+
+    assert_eq!(reads.load(Ordering::SeqCst), 2);
+    for composed in opened {
+        let bindings: Vec<_> = composed
+            .expect("the opening composes")
+            .into_iter()
+            .map(|server| server.binding)
+            .collect();
+        assert_eq!(bindings, vec![docs_binding(&inventory.provider)]);
+    }
 }

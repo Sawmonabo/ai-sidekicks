@@ -8,7 +8,7 @@ use sidekicks_ipc::stream::feed::CreditGate;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::task_list::TaskListChange;
 use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_provider};
-use sidekicks_session::run::engine::test_fixture::insert_running_run;
+use sidekicks_session::run::engine::test_fixture::insert_run;
 use sidekicks_session::transcript::test_log::{
     STALLING_TEXT, stalling_parse, wire_block_starts, wire_message,
 };
@@ -516,7 +516,7 @@ async fn a_read_ending_in_a_task_list_call_reads_through_it() {
         .map(|(provider, _)| provider.clone())
         .expect("the table has a provider");
     insert_lead(&database, session_id, provider.as_str());
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     pin(&log, session_id).await;
     let task_list_call = serde_json::from_value(json!({
         "type": "agent.toolCall.invoked",

@@ -411,7 +411,8 @@ pub(crate) fn kickstart_system_service(
 /// login agent is turned off in Login Items, and as the status file's read does.
 fn refuse_app_turned_off() -> anyhow::Result<()> {
     if matches!(
-        read_cannot_start()?,
+        // The start this check serves replaces the file, so a torn one needs no warning.
+        read_cannot_start(&mut io::sink())?,
         Some(DaemonCannotStart::TurnedOffInLoginItems {})
     ) {
         return Err(CommandFailure::AppServiceTurnedOff.into());
@@ -481,7 +482,8 @@ async fn start_and_wait(
                 return Ok(DaemonStart::AlreadyRunning);
             }
             let exit = read_child_exit(&status, None);
-            Err(match read_cannot_start() {
+            // The start this read serves replaces the file, so a torn one needs no warning.
+            Err(match read_cannot_start(&mut io::sink()) {
                 Ok(cannot_start) => CommandFailure::DaemonExited { exit, cannot_start }.into(),
                 Err(unread) => anyhow::Error::from(CommandFailure::DaemonExited {
                     exit,

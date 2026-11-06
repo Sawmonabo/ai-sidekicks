@@ -1,9 +1,10 @@
 //! The driver registry other areas' tests build on: the shared services every driver's build takes,
 //! the table's first providers answered by stand-in drivers, a run bound to the first one, every
 //! provider answered by a mock driver, the session inbox addresser the table's own drivers answer,
-//! an accounts reader answering one current account, the table with Codex's driver over a scripted
-//! service, and the stand-in Codex service a test program runs as itself; the run, session and
-//! message ids the drivers' tests mint, and the run queue's intake as a driver tells it.
+//! an accounts reader answering the current account and every account's folders it holds, the table
+//! with Codex's driver over a scripted service, and the stand-in Codex service a test program runs
+//! as itself; the run, session and message ids the drivers' tests mint, and the run queue's intake
+//! as a driver tells it.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -67,6 +68,7 @@ use crate::driver::ports::{
     MessageTakenListener,
 };
 use crate::driver::registry::ProviderRegistry;
+use crate::driver::session_control::SessionToolServer;
 use crate::driver::{
     AccountFoldersError, CurrentProviderAccount, DriverServices, PROVIDER_REGISTRATIONS, PROVIDERS,
     ProviderAccountFolders, ProviderAccountReader, ProviderRegistration, codex,
@@ -117,6 +119,14 @@ impl RuntimeBindingWriter for NothingServed {
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         async { Err(NotServedInTest("runtime binding").into()) }.boxed()
     }
+
+    fn replace_tool_servers(
+        &self,
+        _run_id: RunId,
+        _tool_servers: Vec<SessionToolServer>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async { Err(NotServedInTest("runtime binding").into()) }.boxed()
+    }
 }
 
 impl AttachmentResolver for NothingServed {
@@ -129,11 +139,13 @@ impl AttachmentResolver for NothingServed {
     }
 }
 
-/// An accounts reader answering every provider's current account as it holds it, for a test that
-/// admits runs, and every account's sign-in kind as the test sets it; it resolves no account's
-/// folders and reads no credential generation.
+/// An accounts reader answering every provider's current account as it holds it, every account's
+/// sign-in kind as the test sets it, and every account's folders as the one folder it may hold,
+/// which is both an account's configuration and credential folder; it reads no credential
+/// generation and answers no sealed token.
 pub struct TestProviderAccounts {
     current: CurrentProviderAccount,
+    folder: Option<PathBuf>,
     sign_in_kind: Mutex<TestSignInKind>,
 }
 
@@ -145,10 +157,17 @@ enum TestSignInKind {
 }
 
 impl TestProviderAccounts {
-    /// Accounts answering `current`, each registered with no sign-in kind read.
+    /// Accounts answering `current`, each registered with no sign-in kind read and no folders.
     pub fn new(current: CurrentProviderAccount) -> Self {
+        Self::holding_folder(current, None)
+    }
+
+    /// Accounts answering `current`, each registered with no sign-in kind read, whose folders are
+    /// both `folder`; `None` answers that no account has folders.
+    pub fn holding_folder(current: CurrentProviderAccount, folder: Option<PathBuf>) -> Self {
         Self {
             current,
+            folder,
             sign_in_kind: Mutex::new(TestSignInKind::Registered(None)),
         }
     }
@@ -162,6 +181,14 @@ impl TestProviderAccounts {
     pub fn remove_accounts(&self) {
         *lock(&self.sign_in_kind) = TestSignInKind::Removed;
     }
+
+    /// The folders it answers for every account, `None` where it holds no folder.
+    pub fn account_folders(&self) -> Option<ProviderAccountFolders> {
+        self.folder.clone().map(|folder| ProviderAccountFolders {
+            configuration_folder: folder.clone(),
+            credential_store_folder: folder,
+        })
+    }
 }
 
 impl ProviderAccountReader for TestProviderAccounts {
@@ -169,7 +196,8 @@ impl ProviderAccountReader for TestProviderAccounts {
         &self,
         _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<ProviderAccountFolders, AccountFoldersError>> {
-        async { Err(AccountFoldersError::NotFound) }.boxed()
+        let account_folders = self.account_folders().ok_or(AccountFoldersError::NotFound);
+        async move { account_folders }.boxed()
     }
 
     fn current_account(
@@ -209,7 +237,7 @@ impl ProviderAccountReader for TestProviderAccounts {
     }
 }
 
-/// A registration holding [`TestProviderAccounts`] answering `current`.
+/// A registration holding [`TestProviderAccounts`] answering `current` and no account's folders.
 pub fn registered_test_accounts(
     current: CurrentProviderAccount,
 ) -> Arc<PortRegistration<Arc<dyn ProviderAccountReader>>> {

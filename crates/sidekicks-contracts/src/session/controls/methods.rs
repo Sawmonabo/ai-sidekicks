@@ -306,6 +306,8 @@ pub struct McpResourceListResponse {
     pub server_name: McpServerName,
     /// Its resources.
     pub resources: Vec<SessionMcpResource>,
+    /// Whether every page was read; `false` where a page cap stopped the read.
+    pub complete: bool,
 }
 
 /// One prompt a working tool server publishes, listed under the server's name.
@@ -577,14 +579,14 @@ methods! {
             mutating: true,
             params: SessionMcpServerEnabledUpdateRequest,
             result: SessionMcpServerEnabledUpdateResponse,
-            refusals: [SessionNotFound],
+            refusals: [SessionNotFound, McpServerNotRunning, ProviderUnavailable, ProviderTimeout],
         },
         /// Lists one working server's resources.
         McpResourceList = query "mcp.resource.list" {
             mutating: false,
             params: McpResourceListRequest,
             result: McpResourceListResponse,
-            refusals: [SessionNotFound, McpServerNotRunning],
+            refusals: [SessionNotFound, McpServerNotRunning, ProviderUnavailable, ProviderTimeout],
         },
         /// Streams the live `/` list's provider half.
         SessionProviderCommandSubscribe = subscription "session.providerCommand.subscribe" {

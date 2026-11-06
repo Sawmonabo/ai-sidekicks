@@ -46,6 +46,9 @@ async fn a_start_whose_profile_reads_back_wrong_lets_its_conversation_go_and_ins
 
     let created = tokio::spawn(async move { establishment.create(&params).await.map(|_| ()) });
     let script = &mut session.scripted.script;
+    let read = script.next_sent().await;
+    assert_eq!(read["method"], "config/read");
+    script.answer(&read, &json!({"config": {}, "origins": {}}));
     let started = script.next_sent().await;
     assert_eq!(started["method"], "thread/start");
     script.answer(
@@ -117,6 +120,9 @@ async fn a_start_refuses_an_effort_its_models_row_does_not_list_before_any_conve
         assert_eq!(invalid.axis, ProviderAxis::Effort);
         assert_eq!(invalid.value, Value::from(effort));
     } else {
+        let read = script.next_sent().await;
+        assert_eq!(read["method"], "config/read");
+        script.answer(&read, &json!({"config": {}, "origins": {}}));
         assert_eq!(script.next_sent().await["method"], "thread/start");
         created.abort();
     }
@@ -124,14 +130,16 @@ async fn a_start_refuses_an_effort_its_models_row_does_not_list_before_any_conve
 
 // Resumes the test session's conversation in place on a second service whose process is
 // `process_id` and which the session is attached to, reporting on `function_legs`, its script
-// answering the resume and its history, the mode's update with `mode_answer` (an error where it
-// holds one) and the auth read a failure is classified by.
+// answering the config read with `loaded_servers`, the resume and its history, the mode's update
+// with `mode_answer` (an error where it holds one) and the auth read a failure is classified by;
+// answers the server table the resume sent, checking the read came before it.
 async fn resume_on_second_service(
     session: &mut TestCodexSession,
     process_id: u32,
     mode_answer: Value,
     function_legs: ResumeFunctionLegs,
-) -> (ScriptedCodexService, DriverResumeResult) {
+    loaded_servers: Value,
+) -> (ScriptedCodexService, DriverResumeResult, Value) {
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let establishment = session.establishment(folder.path());
     let mut second = start_scripted_codex_service();
@@ -143,11 +151,24 @@ async fn resume_on_second_service(
         .attach_session(session.task.record.inbound.clone());
     let settings = session.task.record.thread_settings.clone();
     let script = &mut second.script;
+    let mut resume_table = None;
     let service_side = async {
+        let mut has_read = false;
         loop {
             let sent = script.next_sent().await;
             match sent["method"].as_str() {
-                Some("thread/resume") => script.answer(&sent, &fork_reply(TEST_THREAD, &settings)),
+                Some("config/read") => {
+                    has_read = true;
+                    script.answer(
+                        &sent,
+                        &json!({"config": {"mcp_servers": loaded_servers}, "origins": {}}),
+                    );
+                }
+                Some("thread/resume") => {
+                    assert!(has_read, "the resume is sent after its own read");
+                    resume_table = Some(sent["params"]["config"]["mcp_servers"].clone());
+                    script.answer(&sent, &fork_reply(TEST_THREAD, &settings));
+                }
                 Some("thread/turns/list") => script.answer(&sent, &no_turns()),
                 Some("thread/settings/update") if mode_answer.get("error").is_some() => {
                     let mut refusal = mode_answer.clone();
@@ -173,7 +194,55 @@ async fn resume_on_second_service(
         resumed = resume => resumed,
         () = service_side => unreachable!("the service answers until the resume ends"),
     };
-    (second, resumed.outcome.result)
+    (
+        second,
+        resumed.outcome.result,
+        resume_table.unwrap_or_default(),
+    )
+}
+
+// A start and then a resume each send the table their own read loads, read just before the call
+// on the service it goes to: a server only the start's read loads is not in the resume's table,
+// and one only the resume's read loads is switched off there. Killed by a call sent before its
+// read, and by a resume reusing an earlier read.
+#[tokio::test(start_paused = true)]
+async fn a_start_and_a_resume_each_send_the_table_their_own_read_loads() {
+    let mut session = TestCodexSession::start().await;
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let establishment = session.establishment(folder.path());
+    let session_id = SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
+    let params = create_session_params(session_id);
+
+    let created = tokio::spawn(async move { establishment.create(&params).await.map(|_| ()) });
+    let script = &mut session.scripted.script;
+    let read = script.next_sent().await;
+    assert_eq!(read["method"], "config/read");
+    let github = json!({"github": {"url": "https://example.com/mcp"}});
+    script.answer(
+        &read,
+        &json!({"config": {"mcp_servers": github}, "origins": {}}),
+    );
+    let started = script.next_sent().await;
+    assert_eq!(started["method"], "thread/start");
+    assert_eq!(
+        started["params"]["config"]["mcp_servers"]["github"],
+        json!({"enabled": false})
+    );
+    created.abort();
+
+    let docs = json!({"docs": {"url": "https://example.com/docs"}});
+    let (_second, result, resume_table) = resume_on_second_service(
+        &mut session,
+        4242,
+        json!({}),
+        ResumeFunctionLegs::default(),
+        docs,
+    )
+    .await;
+
+    assert!(matches!(result, DriverResumeResult::Resumed { .. }));
+    assert_eq!(resume_table["docs"], json!({"enabled": false}));
+    assert_eq!(resume_table.get("github"), None);
 }
 
 // Killed by dropping the release of the registration the resume made, and by moving the record
@@ -183,11 +252,12 @@ async fn a_resume_whose_mode_update_fails_leaves_the_record_and_the_new_service_
     let mut session = TestCodexSession::start().await;
     let session_id = session.task.record.session_id;
 
-    let (second, result) = resume_on_second_service(
+    let (second, result, _) = resume_on_second_service(
         &mut session,
         4242,
         json!({"error": {"code": -32600, "message": "the mode is refused"}}),
         ResumeFunctionLegs::default(),
+        json!({}),
     )
     .await;
 
@@ -212,9 +282,14 @@ async fn an_established_session_is_kept_under_its_service_process_until_it_lets_
     let session_id = session.task.record.session_id;
     let folder = tempfile::tempdir().expect("the test makes a folder");
 
-    let (second, result) =
-        resume_on_second_service(&mut session, 4242, json!({}), ResumeFunctionLegs::default())
-            .await;
+    let (second, result, _) = resume_on_second_service(
+        &mut session,
+        4242,
+        json!({}),
+        ResumeFunctionLegs::default(),
+        json!({}),
+    )
+    .await;
 
     assert!(matches!(result, DriverResumeResult::Resumed { .. }));
     assert!(Arc::ptr_eq(&session.task.record.service, &second.service));
@@ -273,7 +348,8 @@ async fn a_resume_in_place_ends_the_held_leg_and_reports_on_its_own() {
         on_mcp_server_status: Some(Arc::clone(&new_sink) as McpServerStatusProducer),
     };
 
-    let (_second, result) = resume_on_second_service(&mut session, 4242, json!({}), legs).await;
+    let (_second, result, _) =
+        resume_on_second_service(&mut session, 4242, json!({}), legs, json!({})).await;
 
     assert!(matches!(result, DriverResumeResult::Resumed { .. }));
     assert_eq!(old_sink.ends(), 1, "the held leg ends once");

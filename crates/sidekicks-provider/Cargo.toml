@@ -48,6 +48,7 @@ secrecy.workspace = true
 semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_path_to_error.workspace = true
 serde_with.workspace = true
 sha1.workspace = true
 sha2.workspace = true
@@ -56,7 +57,8 @@ sidekicks-contracts.workspace = true
 sidekicks-ipc.workspace = true
 sidekicks-platforms.workspace = true
 sidekicks-policy.workspace = true
-# The outbound HTTP client's shared settings, which the price list's fetch builds on.
+# The outbound HTTP client's shared settings and capped body reader, which the price list's fetch
+# and the connector list's read build on.
 sidekicks-std = { workspace = true, features = ["outbound-http"] }
 sidekicks-store.workspace = true
 sidekicks-workspace.workspace = true

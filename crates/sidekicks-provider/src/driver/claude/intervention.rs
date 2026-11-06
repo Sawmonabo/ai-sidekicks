@@ -4,12 +4,14 @@
 //!
 //! A typed refusal of the interrupt means Claude Code answered: `Degraded`, with no fallback. An
 //! interrupt left unanswered past its deadline, or whose write was cut partway, stops the process
-//! instead, which ends the turn as surely. Any other failure propagates. A choice Claude Code holds
-//! the run on is settled first, each helper running in the foreground moves to the background so
-//! the interrupt spares it, and the turn end the interrupt causes is held until Claude Code
-//! answers, then delivered `interrupted`. An interrupt whose choice takes waiting messages back
-//! asks Claude Code to drop the ones it holds and answers their ids, on a build that can; one that
-//! cannot answers `Degraded` with the plain interrupt as its fallback.
+//! instead, which ends the turn as surely. Any other failure propagates. The run's turn end is held
+//! first and a choice Claude Code holds the run on is settled: a refusal is answered `cancelled` in
+//! the interrupt's place, its turn end dropped, since the run engine ends the run refused with the
+//! interrupt's verdict. Otherwise each helper running in the foreground moves to the background so
+//! the interrupt spares it, and the held turn end is delivered `interrupted` once Claude Code
+//! answers. An interrupt whose choice takes waiting messages back asks Claude Code to drop the ones
+//! it holds and answers their ids, on a build that can; one that cannot answers `Degraded` with the
+//! plain interrupt as its fallback.
 //!
 //! An interrupt on a helper's run holds that helper at its next tool call and stops the commands it
 //! runs, its lead going on.
@@ -281,20 +283,35 @@ impl ClaudeInterventions {
         let live = self.writer.start.live_session_for_run(run_id)?;
         let session_id = live.session_id;
         let stream = self.writer.start.streams.get(session_id);
-        if settle_claude_choice(
-            &self.writer.dialogs,
-            &live,
-            run_id,
-            ClaudeChoiceSettling::Interrupt,
-        )
-        .await?
-        {
-            return Ok(applied());
-        }
-        let is_stopped_first = self.background_foreground_helpers(&live).await;
+        // Held before a refusal's cancel goes, so the turn end Claude Code sends once it reads the
+        // cancel is never delivered as the run's end.
         if let Some(stream) = &stream {
             stream.hold_turn_end_for_interrupt(run_id);
         }
+        let is_refusal_canceled = match settle_claude_choice(
+            &self.writer.dialogs,
+            &live,
+            run_id,
+            ClaudeChoiceSettling::PersonInterrupt,
+        )
+        .await
+        {
+            Ok(is_refusal_canceled) => is_refusal_canceled,
+            Err(error) => {
+                if let Some(stream) = &stream {
+                    stream.release_daemon_end(run_id);
+                }
+                return Err(error);
+            }
+        };
+        if is_refusal_canceled {
+            // The run engine writes the run's end with this interrupt's verdict.
+            if let Some(stream) = &stream {
+                stream.confirm_daemon_end(run_id);
+            }
+            return Ok(applied());
+        }
+        let is_stopped_first = self.background_foreground_helpers(&live).await;
         let takes_messages_back =
             payload.reorders_waiting || payload.pending != InterruptPendingChoice::NextTurn;
         let can_cancel_queued = self.declares_cancel_queued(&live);

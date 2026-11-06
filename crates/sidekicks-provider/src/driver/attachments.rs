@@ -72,7 +72,7 @@ pub trait AttachmentResolver: Send + Sync {
 
 /// Binds a message's attachments in staging order; one with none asks the resolver nothing. An
 /// error is the resolver's own.
-pub(crate) async fn resolve_message_attachments(
+pub async fn resolve_message_attachments(
     resolver: &dyn AttachmentResolver,
     session_id: &SessionId,
     artifact_ids: &[ArtifactId],
@@ -104,7 +104,7 @@ pub(crate) fn compose_attachment_text(attachment: &ProviderAttachment) -> String
 
 /// A message as words alone, for a reader that takes only text: its words, then a line per
 /// attachment in staging order.
-pub(crate) fn compose_message_text(content: &str, attachments: &[ProviderAttachment]) -> String {
+pub fn compose_message_text(content: &str, attachments: &[ProviderAttachment]) -> String {
     let mut text = content.to_owned();
     for attachment in attachments {
         text.push('\n');

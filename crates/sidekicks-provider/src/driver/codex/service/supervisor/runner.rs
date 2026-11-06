@@ -27,9 +27,9 @@ use crate::driver::codex::service::socket_link::{clear_socket_link_of, is_listen
 use crate::driver::codex::service::start_lock::{CodexStartLock, take_codex_start_lock};
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::drain::drain_lasting_service;
+use crate::driver::codex::service::supervisor::own_record::{EarlierRecordFile, retire_own_record};
 use crate::driver::codex::service::supervisor::reconnect::reconnect_wait;
 use crate::driver::codex::service::supervisor::refusals::SharedCodexError;
-use crate::driver::codex::service::supervisor::start::kept_records::retire_own_record;
 use crate::driver::codex::service::supervisor::start::{
     CodexServiceProcess, StartedService, connect, read_codex_loaded_threads, read_service_version,
     start_codex_service,
@@ -42,6 +42,7 @@ use crate::driver::codex::service::supervisor::transition::event::SupervisorEven
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::diagnostics::{CodexTeardownStep, CodexTransportDiagnostic};
 use crate::driver::codex::transport::socket::CodexSocketWait;
+use crate::driver::daemon_stop::{DaemonStopIntent, run_until};
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
@@ -53,6 +54,18 @@ use crate::spawned_version::SpawnedProviderVersionReading;
 pub(super) const SERVICE_STOP_GRACE: Duration =
     Duration::from_millis(DAEMON_STOP_TERMINAL_DRAIN_MS);
 
+/// What a stop held to the daemon's stop deadline keeps back from its grace, so a service killed
+/// at the grace's end is reaped and its record removed before the deadline cuts the stop.
+const KILL_REAP_SHARE: Duration = Duration::from_millis(500);
+
+/// The grace of a service's stop that must end by the daemon's stop `deadline`: what is left of it
+/// less the kill's reap share.
+pub(super) fn stop_grace_by(deadline: tokio::time::Instant) -> Duration {
+    deadline
+        .saturating_duration_since(tokio::time::Instant::now())
+        .saturating_sub(KILL_REAP_SHARE)
+}
+
 /// One event for the runner, with what its outcome parked for the runner to adopt or tear down.
 pub(super) struct RunnerInput {
     event: SupervisorEvent,
@@ -61,6 +74,8 @@ pub(super) struct RunnerInput {
     exit: Option<ProcessExit>,
     // Codex's start lock, held for the start the event leads to.
     start_lock: Option<CodexStartLock>,
+    // The daemon's stop deadline, carried by the shutdown alone.
+    deadline: Option<tokio::time::Instant>,
 }
 
 impl RunnerInput {
@@ -71,6 +86,15 @@ impl RunnerInput {
             parked: None,
             exit: None,
             start_lock: None,
+            deadline: None,
+        }
+    }
+
+    /// The daemon's stop or restart, every stop of the service from then on ending by `deadline`.
+    pub(super) fn shutdown(intent: DaemonStopIntent, deadline: tokio::time::Instant) -> Self {
+        Self {
+            deadline: Some(deadline),
+            ..Self::event(SupervisorEvent::Shutdown { intent })
         }
     }
 }
@@ -78,7 +102,11 @@ impl RunnerInput {
 /// What an outcome left for the runner, under its ticket.
 enum Parked {
     Started(StartedService),
-    Failed(Option<CodexServiceProcess>),
+    Failed {
+        process: Option<CodexServiceProcess>,
+        // The name to put back once `process` is stopped.
+        earlier_record_file: Option<EarlierRecordFile>,
+    },
     Dialed {
         connection: Arc<CodexAppServerConnection>,
         version: Option<SpawnedProviderVersionReading>,
@@ -100,6 +128,9 @@ pub(super) struct ServiceRunner {
     last_exit: Option<ProcessExit>,
     // Codex's start lock an input carried, for the start its event leads to.
     start_lock: Option<CodexStartLock>,
+    // The first stop deadline an input carried, which bounds every stop for the runner's life,
+    // since the shutdown is for good.
+    stop_deadline: Option<tokio::time::Instant>,
 }
 
 impl ServiceRunner {
@@ -117,6 +148,7 @@ impl ServiceRunner {
             silence: CancellationToken::new(),
             last_exit: None,
             start_lock: None,
+            stop_deadline: None,
         }
     }
 
@@ -131,6 +163,7 @@ impl ServiceRunner {
                 parked,
                 exit,
                 start_lock,
+                deadline,
             } = input;
             if let Some((ticket, parked)) = parked {
                 self.parked.insert(ticket, parked);
@@ -139,6 +172,7 @@ impl ServiceRunner {
                 self.last_exit = exit;
             }
             self.start_lock = start_lock;
+            self.stop_deadline = self.stop_deadline.or(deadline);
             self.read_process_gone(&mut event);
             let actions = service.lock_supervision().transition(event);
             for action in actions {
@@ -314,6 +348,7 @@ impl ServiceRunner {
                     parked: Some((launch, Parked::Started(started))),
                     exit: None,
                     start_lock: None,
+                    deadline: None,
                 },
                 Err(failure) => RunnerInput {
                     event: SupervisorEvent::StartFailed {
@@ -323,10 +358,16 @@ impl ServiceRunner {
                     },
                     parked: Some((
                         launch,
-                        Parked::Failed(failure.process.map(|process| *process)),
+                        Parked::Failed {
+                            process: failure.process.map(|process| *process),
+                            earlier_record_file: failure
+                                .earlier_record_file
+                                .map(|earlier| *earlier),
+                        },
                     )),
                     exit: None,
                     start_lock: None,
+                    deadline: None,
                 },
             };
             starting.send_input(input);
@@ -354,16 +395,17 @@ impl ServiceRunner {
                         parked: None,
                         exit: exit.ok(),
                         start_lock: None,
+                        deadline: None,
                     });
                 }
             });
         }
         log_version(service, &started.version);
         *service.lock_physical_socket() = Some(started.physical_socket);
-        *service.lock_process_record_file() = match &started.process {
+        service.set_process_record_file(match &started.process {
             Some(CodexServiceProcess::Lasting { record_file, .. }) => Some(record_file.clone()),
             Some(CodexServiceProcess::Managed(_)) | None => None,
-        };
+        });
         *service.lock_live() = super::LiveService {
             connection: Some(started.connection),
             process: started
@@ -403,21 +445,36 @@ impl ServiceRunner {
     fn tear_down(&mut self, service: &Arc<CodexService>, ticket: u64, end: LastingServiceEnd) {
         let parked = self.parked.remove(&ticket);
         let stopping = Arc::clone(service);
+        let deadline = self.stop_deadline;
         tokio::spawn(async move {
             match parked {
                 Some(Parked::Started(started)) => {
-                    close_connection(&started.connection).await;
+                    close_connection(&started.connection, deadline).await;
                     if let Some(process) = started.process
-                        && stop_process(&stopping, process, end).await
+                        && stop_process(&stopping, process, end, deadline).await
                     {
                         clear_home_socket_link(&stopping, Some(started.physical_socket)).await;
                     }
+                    if let Some(earlier_record_file) = started.earlier_record_file {
+                        earlier_record_file.restore(&stopping);
+                    }
                 }
-                Some(Parked::Failed(Some(process))) => {
-                    stop_process(&stopping, process, end).await;
+                Some(Parked::Failed {
+                    process,
+                    earlier_record_file,
+                }) => {
+                    if let Some(process) = process {
+                        stop_process(&stopping, process, end, deadline).await;
+                    }
+                    // Only now, so a daemon stop until the process ended left it to this stop.
+                    if let Some(earlier_record_file) = earlier_record_file {
+                        earlier_record_file.restore(&stopping);
+                    }
                 }
-                Some(Parked::Dialed { connection, .. }) => close_connection(&connection).await,
-                Some(Parked::Failed(None)) | None => {}
+                Some(Parked::Dialed { connection, .. }) => {
+                    close_connection(&connection, deadline).await;
+                }
+                None => {}
             }
             stopping.send(SupervisorEvent::StopDone { ticket });
         });
@@ -437,7 +494,8 @@ impl ServiceRunner {
             self.process = None;
         }
         if let Some(connection) = connection {
-            tokio::spawn(async move { close_connection(&connection).await });
+            let deadline = self.stop_deadline;
+            tokio::spawn(async move { close_connection(&connection, deadline).await });
         }
     }
 
@@ -487,6 +545,7 @@ impl ServiceRunner {
                         )),
                         exit: None,
                         start_lock: None,
+                        deadline: None,
                     }
                 }
                 Err(error) => {
@@ -519,12 +578,13 @@ impl ServiceRunner {
         service.lock_routing().settle_closed(None);
         let process = self.process.take();
         let stopping = Arc::clone(service);
+        let deadline = self.stop_deadline;
         tokio::spawn(async move {
             if let Some(connection) = connection {
-                close_connection(&connection).await;
+                close_connection(&connection, deadline).await;
             }
             if let Some(process) = process
-                && stop_process(&stopping, process, end).await
+                && stop_process(&stopping, process, end, deadline).await
             {
                 clear_home_socket_link(&stopping, stopping.physical_socket()).await;
             }
@@ -568,6 +628,7 @@ fn check_joined_service_free(service: &Arc<CodexService>, dial: u64) {
                 parked: None,
                 exit: None,
                 start_lock: Some(lock),
+                deadline: None,
             }),
             Ok(None) => {}
             Err(error) => report_stop_failed(error),
@@ -627,33 +688,54 @@ fn report_version_unread(error: &(dyn std::error::Error + 'static)) {
     );
 }
 
-async fn close_connection(connection: &CodexAppServerConnection) {
-    if let Err(error) = connection.close().await {
-        tracing::debug!(
+// Closes `connection`, by `deadline` where the daemon's stop gives one; it is marked closed first.
+async fn close_connection(
+    connection: &CodexAppServerConnection,
+    deadline: Option<tokio::time::Instant>,
+) {
+    match run_until(deadline, connection.close()).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => tracing::debug!(
             error = &error as &(dyn std::error::Error + 'static),
             "a Codex connection did not close cleanly"
-        );
+        ),
+        Err(cut) => tracing::debug!(
+            error = &cut as &(dyn std::error::Error + 'static),
+            "a Codex connection's close was cut at the daemon's stop deadline"
+        ),
     }
 }
 
 // Ends a service process by its kind: the daemon's own child asked to stop and killed once the
-// wait runs out; a lasting service as `end` says: drained to its end, stopped with its record
-// removed, or left running in its record. Answers whether it was ended.
+// grace runs out; a lasting service as `end` says: drained to its end, stopped with its record
+// removed, or left running in its record. Under the daemon's stop every step ends by `deadline`,
+// each kill a reap share before it: a child's exit not read by then is left to its owner, a drain
+// cut while begun is left draining in its record, and a stop cut keeps its record for the next
+// start to retire. Answers whether it was ended, `false` for a lasting service the deadline cut.
 async fn stop_process(
     service: &CodexService,
     process: CodexServiceProcess,
     end: LastingServiceEnd,
+    deadline: Option<tokio::time::Instant>,
 ) -> bool {
     match process {
         CodexServiceProcess::Managed(managed) => {
-            managed.stop();
-            if tokio::time::timeout(SERVICE_STOP_GRACE, managed.exited())
-                .await
-                .is_err()
-            {
-                managed.kill();
-                if let Err(error) = managed.exited().await {
-                    report_stop_failed(io::Error::new(error.kind(), error.to_string()));
+            let kill_at = deadline.map_or_else(
+                || tokio::time::Instant::now() + SERVICE_STOP_GRACE,
+                |deadline| deadline - KILL_REAP_SHARE,
+            );
+            if managed.stop_until(kill_at).await.is_none() {
+                match run_until(deadline, managed.exited()).await {
+                    Ok(Ok(_killed)) => {}
+                    Ok(Err(error)) => {
+                        report_stop_failed(io::Error::new(error.kind(), error.to_string()));
+                    }
+                    Err(cut) => tracing::warn!(
+                        error = &cut as &(dyn std::error::Error + 'static),
+                        process_id = managed.process_id(),
+                        "a Codex service killed before the daemon's stop deadline is left to its \
+                         owner"
+                    ),
                 }
             }
         }
@@ -668,15 +750,19 @@ async fn stop_process(
                     lasting,
                     record_file,
                     service.socket_path(),
+                    deadline,
                 )
                 .await;
             }
             LastingServiceEnd::Stop => {
-                if let Err(error) = lasting
-                    .stop(SERVICE_STOP_GRACE, service.socket_path())
-                    .await
-                {
-                    report_stop_failed(error);
+                let grace = deadline.map_or(SERVICE_STOP_GRACE, stop_grace_by);
+                match run_until(deadline, lasting.stop(grace, service.socket_path())).await {
+                    Ok(Ok(_ended)) => {}
+                    Ok(Err(error)) => report_stop_failed(error),
+                    Err(cut) => {
+                        report_stop_failed(io::Error::new(io::ErrorKind::TimedOut, cut));
+                        return false;
+                    }
                 }
                 let stopped = lasting.record().clone();
                 let removed =

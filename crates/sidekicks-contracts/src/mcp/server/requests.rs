@@ -269,8 +269,8 @@ pub struct McpLiveApplicationResult {
 }
 
 /// What a governance mutation answers with: the row as it now stands, where the change took
-/// effect, and each live session's outcome. `liveResults` is absent, not empty, where none was
-/// touched.
+/// effect, each live session's outcome, and why the provider's running service did not reload the
+/// change, where it did not. `liveResults` is absent, not empty, where none was touched.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -288,9 +288,21 @@ pub struct McpServerMutationResponse {
     )]
     #[schemars(with = "Vec<McpLiveApplicationResult>")]
     pub live_results: Option<Vec<McpLiveApplicationResult>>,
+    /// Present when the provider holds the change but its running service did not reload it, so
+    /// the change applies at that service's next start; it says why, with no config value or file
+    /// path.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "FreeFormText<ERROR_MESSAGE_MAX_LEN>")]
+    pub reload_failure: Option<FreeFormText<ERROR_MESSAGE_MAX_LEN>>,
 }
 
-/// What removing a binding answers with. There is no row left to return.
+/// What removing a binding answers with: where the change took effect, each live session's
+/// outcome, and why the provider's running service did not reload the removal, where it did not.
+/// There is no row left to return.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -305,6 +317,16 @@ pub struct McpServerDeleteResponse {
     )]
     #[schemars(with = "Vec<McpLiveApplicationResult>")]
     pub live_results: Option<Vec<McpLiveApplicationResult>>,
+    /// Present when the provider holds the change but its running service did not reload it, so
+    /// the change applies at that service's next start; it says why, with no config value or file
+    /// path.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "FreeFormText<ERROR_MESSAGE_MAX_LEN>")]
+    pub reload_failure: Option<FreeFormText<ERROR_MESSAGE_MAX_LEN>>,
 }
 
 literal! {
@@ -390,6 +412,14 @@ pub struct McpRegistryPackage {
     pub registry_type: String,
     /// The package's name there.
     pub identifier: NonEmptyText,
+    /// The package's version, where the registry names one.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "String")]
+    pub version: Option<String>,
     /// The runtime that runs it, such as `npx`.
     #[serde(
         default,
@@ -399,7 +429,8 @@ pub struct McpRegistryPackage {
     #[schemars(with = "String")]
     pub runtime_hint: Option<String>,
     /// The runtime's arguments, each as the registry describes it (its kind, name, value and
-    /// whether it is required).
+    /// whether it is required); a secret argument, or a secret variable of one, carries no `value`
+    /// or `default`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -407,6 +438,15 @@ pub struct McpRegistryPackage {
     )]
     #[schemars(with = "Vec<JsonRecord>")]
     pub runtime_arguments: Option<Vec<JsonRecord>>,
+    /// The package's own arguments, each as the registry describes it; a secret argument, or a
+    /// secret variable of one, carries no `value` or `default`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Vec<JsonRecord>")]
+    pub package_arguments: Option<Vec<JsonRecord>>,
 }
 
 /// A registry server reached at an address.
@@ -416,15 +456,34 @@ pub struct McpRegistryRemote {
     /// How it is reached, as the registry names it.
     #[serde(rename = "type")]
     pub transport: String,
-    /// Its `http:` or `https:` address.
-    pub url: WebAddress,
+    /// The address as the registry writes it: an `http:` or `https:` address, or a template whose
+    /// `{name}` placeholders its `variables` fill. The form asks for each variable and checks the
+    /// filled address, which the upsert reads as a server address.
+    pub url: NonEmptyText,
+    /// The placeholders in its address the person fills.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Vec<McpRegistryInput>")]
+    pub variables: Option<Vec<McpRegistryInput>>,
+    /// The headers its requests carry, which the person fills.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Vec<McpRegistryInput>")]
+    pub headers: Option<Vec<McpRegistryInput>>,
 }
 
-/// An environment variable a registry server reads: its name, never a value.
+/// What a registry server asks the person to fill (an environment variable, a header or a
+/// placeholder in its address): its name and how to ask, never a value or a default.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct McpRegistryEnvironmentVariable {
-    /// The variable's name.
+pub struct McpRegistryInput {
+    /// The input's name.
     pub name: NonEmptyText,
     /// What it is for.
     #[serde(
@@ -436,10 +495,13 @@ pub struct McpRegistryEnvironmentVariable {
     pub description: Option<String>,
     /// Whether the server needs it.
     pub is_required: bool,
+    /// Whether it is a secret, which the form masks.
+    pub is_secret: bool,
 }
 
 /// One registry search result. Untrusted data from a public registry anyone can publish to: it
-/// fills the add form and nothing else, and it never holds an environment variable's value.
+/// fills the add form and nothing else. No environment variable, header or address input carries
+/// a value or a default, and neither does a secret argument.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct McpRegistryServer {
@@ -474,7 +536,7 @@ pub struct McpRegistryServer {
     #[schemars(with = "Vec<McpRegistryRemote>")]
     pub remotes: Option<Vec<McpRegistryRemote>>,
     /// The environment variables it reads.
-    pub environment_variables: Vec<McpRegistryEnvironmentVariable>,
+    pub environment_variables: Vec<McpRegistryInput>,
 }
 
 /// One page of registry search results.
@@ -499,7 +561,10 @@ mod tests {
     use rstest::rstest;
 
     use super::{McpServerSignOutRequest, McpServerUpsertRequest};
+    use crate::mcp::server::config::McpServerConfigInput;
     use crate::wire::attachment::{ReceivedError, parse_received};
+    use crate::wire::number::PositiveNumber;
+    use crate::wire::text::FreeFormText;
 
     const KEY: &str = "00000000-0000-4000-8000-000000000000";
 
@@ -535,6 +600,100 @@ mod tests {
         assert!(matches!(
             parse_received::<McpServerSignOutRequest>(logout(&padded).as_bytes(), vec![]),
             Err(ReceivedError::Read { .. })
+        ));
+    }
+
+    /// What a clearable member reads as: kept, cleared or set.
+    #[derive(Debug, PartialEq)]
+    enum Reading<T> {
+        Keep,
+        Clear,
+        Set(T),
+    }
+
+    impl<T> Reading<T> {
+        #[expect(
+            clippy::option_option,
+            reason = "it reads the clearable member's own three-meaning type"
+        )]
+        fn of(member: Option<Option<T>>) -> Self {
+            match member {
+                None => Self::Keep,
+                Some(None) => Self::Clear,
+                Some(Some(value)) => Self::Set(value),
+            }
+        }
+    }
+
+    /// A clearable member reads absent as keep, `null` as remove and a value as set, on a remote
+    /// member and a shared one alike, and writes each back as sent; a switch still refuses `null`.
+    #[rstest]
+    #[case::absent(serde_json::json!({}), Reading::Keep, Reading::Keep)]
+    #[case::null(
+        serde_json::json!({ "bearerTokenEnvVar": null, "startupTimeoutSec": null }),
+        Reading::Clear,
+        Reading::Clear
+    )]
+    #[case::value(
+        serde_json::json!({ "bearerTokenEnvVar": "TOKEN", "startupTimeoutSec": 10.0 }),
+        Reading::Set("TOKEN"),
+        Reading::Set(10.0)
+    )]
+    fn a_clearable_member_keeps_its_three_meanings(
+        #[case] members: serde_json::Value,
+        #[case] bearer: Reading<&str>,
+        #[case] startup: Reading<f64>,
+    ) {
+        let upsert = |members: &serde_json::Value| {
+            let mut config =
+                serde_json::json!({ "transport": "http", "url": "https://example.com/" });
+            for (name, value) in members.as_object().expect("the members are an object") {
+                config[name] = value.clone();
+            }
+            let request = serde_json::json!({
+                "scope": "user",
+                "provider": "codex",
+                "serverName": "s",
+                "clientIdempotencyKey": KEY,
+                "config": config,
+            });
+            (config, request.to_string())
+        };
+        let (sent, request) = upsert(&members);
+        let read = parse_received::<McpServerUpsertRequest>(request.as_bytes(), vec![])
+            .expect("a clearable member is read absent, null or set");
+        let McpServerUpsertRequest::User { config, .. } = &read else {
+            panic!("{read:?} is not the user arm");
+        };
+        let McpServerConfigInput::Http {
+            bearer_token_env_var,
+            startup_timeout_sec,
+            ..
+        } = config
+        else {
+            panic!("{config:?} is not the http arm");
+        };
+        assert_eq!(
+            Reading::of(
+                bearer_token_env_var
+                    .as_ref()
+                    .map(|member| member.as_ref().map(FreeFormText::as_str))
+            ),
+            bearer
+        );
+        assert_eq!(
+            Reading::of((*startup_timeout_sec).map(|member| member.map(PositiveNumber::get))),
+            startup
+        );
+        assert_eq!(
+            serde_json::to_value(config).expect("the config writes"),
+            sent
+        );
+
+        let (_, switched_off) = upsert(&serde_json::json!({ "enabled": null }));
+        assert!(matches!(
+            parse_received::<McpServerUpsertRequest>(switched_off.as_bytes(), vec![]),
+            Err(ReceivedError::Shape { .. })
         ));
     }
 }

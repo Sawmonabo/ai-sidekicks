@@ -26,16 +26,18 @@ use sidekicks_session::queue_store::send_now::{
     SentNow, mark_sent_now_statement, record_sent_now_statement,
 };
 use sidekicks_session::queue_store::{
-    QueueItemOutcome, QueueItemRecord, RecordedQueueItemState, placement_statements,
+    QueueItemRecord, RecordedQueueItemState, placement_statements,
 };
 use sidekicks_session::run::read::{read_run_through, safe_run_version};
 use sidekicks_session::run::refusals::RunRefusal;
 use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 
-use super::{EMPTIED_RUN_DETAIL, RunQueue};
+use super::RunQueue;
+use crate::delivery::run_end::stop_message_ends;
 use crate::delivery::{InterruptHoldRelease, QueueWithdrawal, reordered_of};
 use crate::error::QueueError;
+use crate::recorder::QueueRecordError;
 use crate::refusals::{
     UnreturnedReason, left_queue_refusal, queue_item_not_found, unreturned_refusal,
 };
@@ -502,9 +504,10 @@ impl RunQueue {
     }
 
     // Applies an interrupt's choice to `waiting`, lead messages that waited for its run when the
-    // run ended before the interrupt could end it. A cancel that leaves a queued run they were
-    // moved on to with no message to start with ends that run, as a removal of its last one does.
-    async fn apply_choice_to_waiting(
+    // run ended before the interrupt could end it: a return to the draft returns each as the Stop
+    // does. One that leaves a queued run they were moved on to with no message to start with ends
+    // that run `stopped`, as a removal of its last one does.
+    pub(super) async fn apply_choice_to_waiting(
         &self,
         hold: &KeyHold<'_, SessionId>,
         choice: InterruptChoice,
@@ -528,25 +531,31 @@ impl RunQueue {
             }
             InterruptPendingChoice::ReturnToDraft => {
                 let withdrawals = self.delivery.take_back(hold, &waiting).await?;
+                let returned: Vec<QueueItemRecord> = waiting
+                    .into_iter()
+                    .filter(|item| withdrawals.get(&item.id) == Some(&QueueWithdrawal::Returned))
+                    .collect();
+                if returned.is_empty() {
+                    return Ok(());
+                }
+                // Every outcome and the draft in one write, so no message reads canceled with its
+                // words lost.
+                let ends = stop_message_ends(&returned, &WireInstant::now())
+                    .map_err(QueueRecordError::from)?;
+                self.recorder.record_ends(ends).await?;
+                self.recorder.raise_committed(&returned, false);
+                let item_ids: Vec<QueueItemId> = returned.iter().map(|item| item.id).collect();
+                self.delivery.forget(&item_ids);
                 let mut run_ids: Vec<RunId> = Vec::new();
-                for item in waiting {
-                    if withdrawals.get(&item.id) != Some(&QueueWithdrawal::Returned) {
-                        continue;
-                    }
-                    self.recorder
-                        .record_outcome(&item, QueueItemOutcome::Canceled, &WireInstant::now())
-                        .await?;
-                    self.delivery.forget(&[item.id]);
-                    if let Some(run_id) = item.target_run_id
-                        && !run_ids.contains(&run_id)
-                    {
+                for run_id in returned.iter().filter_map(|item| item.target_run_id) {
+                    if !run_ids.contains(&run_id) {
                         run_ids.push(run_id);
                     }
                 }
                 for run_id in run_ids {
                     if self.is_queued_run_emptied_by(run_id, &[]).await? {
                         self.admission
-                            .end_queued_run(hold, run_id, Vec::new(), EMPTIED_RUN_DETAIL.clone())
+                            .stop_emptied_run(hold, run_id, Vec::new(), Vec::new())
                             .await?;
                     }
                 }

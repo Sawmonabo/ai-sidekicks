@@ -3,11 +3,12 @@
 //! off its mark keeping every row.
 
 use rusqlite::params;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_provider::driver::registry::test_provider;
-use sidekicks_session::conversation_purge::ConversationPurgeError;
+use sidekicks_session::changes::SessionChangeError;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::database::writer::test_file::session_event_row;
 
@@ -34,7 +35,8 @@ async fn a_failed_file_step_keeps_every_row_and_purging_again_finishes() {
             params![run_id, session_id.text().as_str()],
         )
         .expect("the test writes the run");
-    // A conversation on a provider no driver answers refuses the provider's step.
+    // A run bound on a provider no driver answers refuses the provider's step: its leg's end,
+    // which comes before the conversations' delete.
     reader
         .execute(
             "INSERT INTO runtime_bindings
@@ -61,10 +63,10 @@ async fn a_failed_file_step_keeps_every_row_and_purging_again_finishes() {
 
     assert!(
         matches!(
-            refused,
-            SessionPurgeOutcome::Refused(SessionPurgeError::Conversations(
-                ConversationPurgeError::ProviderNotFound(_)
-            ))
+            &refused,
+            SessionPurgeOutcome::Refused(SessionPurgeError::Legs(SessionChangeError::Refused(
+                refusal
+            ))) if refusal.code == RefusalCode::ProviderNotFound
         ),
         "the provider's step refuses the purge, got {refused:?}"
     );

@@ -5,9 +5,8 @@ use sidekicks_contracts::run::intervention::{InterventionType, LimitInterruptRec
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::integer::SafeInt;
 
-use super::{
-    assert_owed_hand_ends_the_run, driver_failing_once, hand_service_to_engine, record_accepted_row,
-};
+use super::owed_limit::{assert_owed_hand_ends_the_run, driver_failing_once};
+use super::{hand_service_to_engine, record_accepted_row};
 use crate::interventions::service::InterventionTarget;
 use crate::interventions::service::tests::harness;
 use crate::run::engine::test_fixture::{append, stored_run_state};

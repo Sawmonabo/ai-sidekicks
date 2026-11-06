@@ -91,6 +91,10 @@ pub mod written_name;
 
 /// The fixed facts a provider's driver declares about itself, the same for every installed build,
 /// account, model and session; what depends on those comes from the driver's methods.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is one fact the driver declares about itself"
+)]
 pub struct ProviderDescriptor {
     /// The provider's id: a lowercase letter, then up to 31 lowercase letters, digits or hyphens.
     pub id: &'static str,
@@ -155,6 +159,9 @@ pub struct ProviderDescriptor {
     /// Whether a project's `local` server is an entry in the person's user file that the daemon
     /// switches on per project, since the provider keeps no servers of its own per project.
     pub is_mcp_local_scope_emulated: bool,
+    /// Whether the driver starts a session with the session's own set of tool servers, each
+    /// switched as the person set it; where it does not, no set is composed for its sessions.
+    pub takes_session_tool_servers: bool,
     /// The most characters it takes in a skill's name, where it sets a limit of its own.
     #[expect(dead_code, reason = "the provider list's section reads it")]
     pub(crate) skill_name_max_length: Option<u64>,
@@ -643,6 +650,9 @@ pub struct SessionSpawnContext {
     /// The session's own advisor: `None` where it has none of its own, `Some(None)` where it is
     /// off.
     pub advisor_model: Option<Option<String>>,
+    /// The session's own `Auto memory` switch: `None` where the person never set it, so the
+    /// provider's own settings decide.
+    pub auto_memory: Option<bool>,
 }
 
 /// The folders of an account's home, which the app manages for every account, each absolute: the

@@ -32,6 +32,9 @@ use crate::driver::codex::service::socket_link::{
 };
 use crate::driver::codex::service::start_lock::CodexStartLock;
 use crate::driver::codex::service::supervisor::CodexService;
+use crate::driver::codex::service::supervisor::own_record::{
+    PublishedRecordFile, socket_record_file,
+};
 use crate::driver::codex::service::supervisor::start::kept_records::{
     KeptRecordsOutcome, lock_record, reconcile_kept_records, retire_kept_record, settle_own_records,
 };
@@ -60,11 +63,8 @@ pub(super) async fn start_terminal_service(
     let dependencies = service.dependencies();
     let codex_home = service.home().codex_home.clone();
     let socket = service.socket_path().to_owned();
-    let record_file =
-        LastingServiceRecordFile::of_socket(&dependencies.data_folder, &codex_home, &socket)
-            .map_err(|error| {
-                start_failed("The Codex service's record could not be named.", error)
-            })?;
+    let record_file = socket_record_file(service)
+        .map_err(|error| start_failed("The Codex service's record could not be named.", error))?;
     let locked = lock_record(record_file).await?;
     let deadline = tokio::time::Instant::now() + dependencies.startup_timeout;
     // A planned restart's second service, on a socket of its own and a record of its own: the
@@ -228,16 +228,18 @@ async fn join_listener(
         physical_socket: read_physical_socket(socket).await?,
         is_restart_owed: false,
         connection,
+        earlier_record_file: None,
     })
 }
 
-// A lasting service a former daemon left, joined on `physical_socket`, where its record says its
-// socket really is, so the join reaches that record's service whatever the home's link names; its
-// hooks are compared with the ones this daemon would start it with. A join the service fails, in
-// its dial and answer, its hook list or its version, hands it back with the failure, so the
-// start's teardown stops it and removes its record; a failure on the daemon's own side leaves it
-// running in its record.
-async fn join_former_service(
+/// A lasting service a former daemon left, joined on `physical_socket`, where its record says its
+/// socket really is, so the join reaches that record's service whatever the home's link names; its
+/// record is published on `service` from the join's start, and its hooks are compared with the ones
+/// this daemon would start it with. A join the service fails, in its dial and answer, its hook list
+/// or its version, hands it back with the failure, so the start's teardown stops it and removes its
+/// record, and keeps the published name until that teardown puts back the one before; a failure on
+/// the daemon's own side leaves it running in its record and puts that name back at once.
+pub(super) async fn join_former_service(
     service: &Arc<CodexService>,
     launch: u64,
     cancel: &CancellationToken,
@@ -246,6 +248,8 @@ async fn join_former_service(
     record_file: LastingServiceRecordFile,
     physical_socket: PathBuf,
 ) -> Result<StartedService, StartFailure> {
+    // Published first, so a daemon stop under way leaves the joined record to this service.
+    let published = PublishedRecordFile::publish(service, record_file.clone());
     let dependencies = service.dependencies();
     let hooks = read_terminal_service_hooks(
         dependencies.dispatches_hook_mode,
@@ -281,10 +285,12 @@ async fn join_former_service(
             version,
             physical_socket,
             is_restart_owed,
+            earlier_record_file: Some(Box::new(published.hand_back())),
         }),
         Err(error) => Err(StartFailure {
             error,
             process: process.map(Box::new),
+            earlier_record_file: Some(Box::new(published.hand_back())),
         }),
     }
 }
@@ -293,7 +299,7 @@ async fn join_former_service(
 // its record, and lets go of the start lock once it listens, the home's link moved onto a service
 // launched beside a draining one and pointed back at a service that holds it; its hooks, while the
 // daemon runs any, are trusted before any conversation.
-async fn launch_terminal_service(
+pub(super) async fn launch_terminal_service(
     service: &Arc<CodexService>,
     launch: u64,
     cancel: &CancellationToken,
@@ -344,6 +350,7 @@ async fn launch_terminal_service(
         connection,
         reply,
         physical_socket,
+        earlier_record_file,
     } = launch_lasting_service(
         service,
         launch,
@@ -371,6 +378,7 @@ async fn launch_terminal_service(
         Ok::<_, CodexError>(version)
     }
     .await;
+    let earlier_record_file = Some(Box::new(earlier_record_file));
     match trusted {
         Ok(version) => Ok(StartedService {
             kind: CodexServiceKind::Terminal,
@@ -379,10 +387,13 @@ async fn launch_terminal_service(
             version,
             physical_socket,
             is_restart_owed: false,
+            earlier_record_file,
         }),
+        // Its process is handed back with the name before the launch's, put back once it ends.
         Err(error) => Err(StartFailure {
             error,
             process: Some(Box::new(process)),
+            earlier_record_file,
         }),
     }
 }

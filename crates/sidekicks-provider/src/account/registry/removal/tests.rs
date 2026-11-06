@@ -21,6 +21,7 @@ use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
 use super::ProviderAccountRemovalError;
+use crate::account::credential_home::marks::{mark_minted, read_minted_homes, read_removed_homes};
 use crate::account::credential_home::reset_credential_home;
 use crate::account::credential_home::test_legs::RecordedSignOuts;
 use crate::account::home_lock::AccountHomeLock;
@@ -46,7 +47,7 @@ impl AccountLiveTurns for LiveSessions {
 
 struct Fixture {
     database: TestDatabase,
-    _data_folder: tempfile::TempDir,
+    data_folder: tempfile::TempDir,
     registry: Arc<ProviderAccountRegistry>,
     writer: Arc<DatabaseWriter>,
     keychain: Arc<ScriptedKeychain>,
@@ -72,7 +73,7 @@ impl Fixture {
         let account = register(&registry, "claude").await;
         let fixture = Self {
             database,
-            _data_folder: data_folder,
+            data_folder,
             registry,
             writer,
             keychain,
@@ -257,9 +258,12 @@ async fn a_held_account_refuses_its_removal_and_keeps_everything(#[case] holder:
 
 /// A home reset leaves the account's quota readings stamped with the generation before it while
 /// its sign-in reads gone at the next one; its removal then destroys the sealed token, read from
-/// the keychain itself, deletes its row, readings and usage turns, tells each driver to forget
-/// it, and leaves its home byte for byte. Fails when the token is left behind, when the readings
-/// outlive the row, and when the removal writes into the home.
+/// the keychain itself, writes a removed mark naming its provider beside the homes, deletes its
+/// row, readings and usage turns, tells each driver to forget it, and leaves its home byte for
+/// byte, clearing the minted mark its admission failed to clear. Fails when the token is left
+/// behind, when the readings outlive the row, when the removal writes into the home, when no
+/// removed mark is written, when the mark is a minted one, and when the stale minted mark is kept:
+/// either would have the next start's sweep sign the removed home out and delete it.
 #[tokio::test]
 async fn a_removal_shreds_what_the_account_kept_and_leaves_its_home() {
     let fixture = Fixture::new().await;
@@ -288,6 +292,13 @@ async fn a_removal_shreds_what_the_account_kept_and_leaves_its_home() {
     );
     assert_eq!(fixture.readings(), (vec![1], 1));
     fs::write(home.join("settings.json"), b"{\"kept\":true}").expect("the settings are kept");
+    // An admission whose clear of the minted mark failed leaves it beside the row.
+    mark_minted(
+        fixture.data_folder.path(),
+        fixture.account_id(),
+        &fixture.account.provider,
+    )
+    .expect("the stale minted mark is written");
     let home_before = snapshot(&home);
     let mut driver = MockProviderDriver::new();
     let forgotten = fixture.account_id().clone();
@@ -311,6 +322,25 @@ async fn a_removal_shreds_what_the_account_kept_and_leaves_its_home() {
         .expect("the accounts read");
     assert!(ids.registered.is_empty() && ids.marked.is_empty());
     assert_eq!(fixture.readings(), (Vec::new(), 0));
+    let removed: Vec<_> = read_removed_homes(fixture.data_folder.path())
+        .expect("the removed marks read")
+        .into_iter()
+        .map(|marked| (marked.account_id, marked.provider, marked.home))
+        .collect();
+    assert_eq!(
+        removed,
+        [(
+            fixture.account_id().clone(),
+            fixture.account.provider.clone(),
+            fixture.account.credential_home.clone(),
+        )]
+    );
+    assert!(
+        read_minted_homes(fixture.data_folder.path())
+            .expect("the minted marks read")
+            .is_empty(),
+        "the removal leaves no minted mark"
+    );
     assert_eq!(snapshot(&home), home_before);
 }
 

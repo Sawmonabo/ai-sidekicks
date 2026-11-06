@@ -9,6 +9,7 @@ use futures::future::BoxFuture;
 
 use futures::FutureExt as _;
 use sidekicks_artifact::admission::UploadAdmission;
+use sidekicks_artifact::attachment_resolver::ArtifactAttachmentResolver;
 use sidekicks_artifact::payload_store::PayloadStore;
 use sidekicks_artifact::plans::store::StoredPlanHolds;
 use sidekicks_artifact::publish::ArtifactPublishService;
@@ -49,7 +50,7 @@ use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::plan_holds::PlanHolds;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
-use sidekicks_session::run::engine::test_fixture::insert_running_run;
+use sidekicks_session::run::engine::test_fixture::insert_run;
 use sidekicks_session::run::epochs::ExecutionEpochs;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::scheduler::Scheduler;
@@ -183,6 +184,10 @@ async fn fixture() -> Fixture {
     ));
     let payloads =
         Arc::new(PayloadStore::new(home.path().join("objects")).expect("the payload store opens"));
+    let attachments = Arc::new(ArtifactAttachmentResolver::new(
+        Arc::clone(&reads),
+        Arc::clone(&payloads),
+    ));
     let spool_folder = home.path().join("spool");
     let publisher = Arc::new(ArtifactPublishService::new(
         appender,
@@ -257,6 +262,7 @@ async fn fixture() -> Fixture {
         plan_holds,
         payloads,
         publisher,
+        attachments,
         spool_folder,
         workspaces_folder: managed_workspaces_folder(home.path()),
         workspace_writes,
@@ -294,7 +300,7 @@ impl Fixture {
     // Records a binding of a new running run of `session_id` through the services' cursors.
     async fn bind_new_run(&self, session_id: SessionId) -> RuntimeBindingId {
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-        insert_running_run(&self.database, session_id, run_id);
+        insert_run(&self.database, session_id, run_id, "running");
         let binding = self
             .session
             .binding_cursors

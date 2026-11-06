@@ -24,7 +24,7 @@ use crate::driver::codex::account::{
 use crate::driver::codex::service::home::{CodexHomeKind, CodexHomes};
 use crate::driver::codex::service::registry::CodexHomeResolver;
 use crate::driver::codex::service::switching::test_sign_in::AccountHomes;
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 /// The account the test signs in with a pasted API key.
@@ -120,7 +120,9 @@ async fn a_lasting_service_keeps_its_sign_in_in_the_store_its_home_names(
         .ensure_started(services.dependencies.startup_timeout)
         .await;
     let arguments = last_launch_arguments(&services);
-    daemon.shutdown(DaemonStopIntent::Stop).await;
+    daemon
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
 
     assert!(started.is_ok(), "{started:?}");
     let count = |switch: &str| {
@@ -151,7 +153,9 @@ async fn a_restart_keeps_an_account_homes_service_and_the_next_stop_ends_it() {
         .expect("the home resolves");
     let started = kept.ensure_started(startup_timeout).await;
     let kept_process = kept.process_id().expect("the service runs a process");
-    first.shutdown(DaemonStopIntent::Restart).await;
+    first
+        .shutdown(DaemonStopIntent::Restart, daemon_stop_deadline())
+        .await;
     let is_kept_running = is_running(kept_process);
 
     let next = another_daemon(&services);
@@ -161,7 +165,8 @@ async fn a_restart_keeps_an_account_homes_service_and_the_next_stop_ends_it() {
         .expect("the home resolves");
     let rejoined = joined.ensure_started(startup_timeout).await;
     let joined_process = joined.process_id();
-    next.shutdown(DaemonStopIntent::Stop).await;
+    next.shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
     let is_stopped =
         wait_for_end_and_record_removal(kept_process, &services, startup_timeout).await;
 
@@ -202,7 +207,9 @@ async fn an_api_key_accounts_service_is_handed_its_key_at_each_start() {
         .await
         .expect("the home resolves");
     let started = kept.ensure_started(startup_timeout).await;
-    first.shutdown(DaemonStopIntent::Restart).await;
+    first
+        .shutdown(DaemonStopIntent::Restart, daemon_stop_deadline())
+        .await;
 
     let next = another_daemon(&services);
     let joined = next
@@ -213,7 +220,8 @@ async fn an_api_key_accounts_service_is_handed_its_key_at_each_start() {
     let rejoined = joined.ensure_started(startup_timeout).await;
     // Read as the start answered: anything sent after, a resume among it, comes later.
     let sent = recorded_requests(&services, &codex_home);
-    next.shutdown(DaemonStopIntent::Stop).await;
+    next.shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
 
     assert!(started.is_ok(), "{started:?}");
     assert!(rejoined.is_ok(), "{rejoined:?}");

@@ -1,16 +1,19 @@
 //! The live MCP notices every open `mcp.subscribe` feed reads: each kept as its key's newest value,
 //! so a reader that falls behind ends on every key's newest notice and nothing queues.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use sidekicks_contracts::mcp::event::McpSubscribeEmission;
+use sidekicks_contracts::mcp::server::{
+    McpServerBindingRef, McpServerConfigChangedNotice, McpServerConfigChangedType,
+};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_ipc::stream::latest_value::{
-    KeyedLatestValueOutlet, KeyedLatestValueOutlets, LatestValueOutletId,
-};
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_ipc::stream::latest_value::{KeyedLatestValueFeed, KeyedLatestValueOutlets};
 use sidekicks_std::mutex_lock::lock;
 
+use crate::binding::binding_arm;
 use crate::binding::store::McpBindingKey;
 
 /// Which notice a key holds.
@@ -19,10 +22,6 @@ pub(crate) enum McpNoticeKind {
     /// `mcp.server.status.changed`.
     Status,
     /// `mcp.server.config.changed`.
-    #[expect(
-        dead_code,
-        reason = "the binding edits send their config-changed notices through it"
-    )]
     ConfigChanged,
 }
 
@@ -39,10 +38,6 @@ pub(crate) enum McpNoticeOrigin {
     /// The daemon's own machine probe.
     Probe,
     /// An edit to the binding.
-    #[expect(
-        dead_code,
-        reason = "the binding edits send their config-changed notices through it"
-    )]
     Edit,
 }
 
@@ -59,33 +54,53 @@ pub struct McpNoticeKey {
     pub(crate) origin: McpNoticeOrigin,
 }
 
-/// The outlets of every open `mcp.subscribe` feed. The daemon builds one board and hands it to the
-/// status tracker and to the subscribe handler, which attaches each feed's outlet and detaches it
-/// when the feed drops.
+/// The detach a feed's place on the board runs when the feed drops.
+pub type McpNoticeBoardDetach = Box<dyn FnOnce() + Send>;
+
+/// A feed of the board's notices, each key's newest, from its follow on.
+pub type McpNoticeFeed =
+    KeyedLatestValueFeed<McpNoticeKey, McpSubscribeEmission, McpNoticeBoardDetach>;
+
+/// The outlets of every open feed of MCP notices. The daemon builds one board and hands it to the
+/// status tracker and to the subscribe handlers, each of whose feeds follows it and leaves it when
+/// the feed drops.
 #[derive(Default)]
 pub struct McpNoticeBoard {
     outlets: Mutex<KeyedLatestValueOutlets<McpNoticeKey, McpSubscribeEmission>>,
 }
 
 impl McpNoticeBoard {
-    /// Keeps a feed's outlet, which receives every notice sent from now on, and answers the id its
-    /// detach removes it by.
-    pub fn attach(
-        &self,
-        outlet: KeyedLatestValueOutlet<McpNoticeKey, McpSubscribeEmission>,
-    ) -> LatestValueOutletId {
-        lock(&self.outlets).attach(outlet)
-    }
-
-    /// Drops the outlet `id` names; an id already removed changes nothing.
-    pub fn detach(&self, id: LatestValueOutletId) {
-        lock(&self.outlets).detach(id);
+    /// Opens a feed that receives every notice sent from now on and leaves the board when it
+    /// drops. Fails only as the feed's open fails.
+    pub async fn follow(self: &Arc<Self>) -> Result<McpNoticeFeed, HandlerError> {
+        let board = Arc::clone(self);
+        KeyedLatestValueFeed::open(move |outlet| {
+            let id = lock(&board.outlets).attach(outlet);
+            let detach: McpNoticeBoardDetach = Box::new(move || lock(&board.outlets).detach(id));
+            std::future::ready(Ok(detach))
+        })
+        .await
     }
 
     /// Sends `emission` under `key` to every attached feed, replacing the one still waiting there
     /// under that key.
     pub(crate) fn send(&self, key: &McpNoticeKey, emission: &McpSubscribeEmission) {
         lock(&self.outlets).send(key, emission);
+    }
+
+    /// Sends `mcp.server.config.changed` for `binding`, once an edit to it is committed; a later
+    /// edit of the binding replaces the notice still waiting.
+    pub(crate) fn send_config_changed(&self, binding: &McpServerBindingRef) {
+        let notice_type = McpServerConfigChangedType::Value;
+        let notice = binding_arm!(McpServerConfigChangedNotice, binding.clone(), {
+            notice_type
+        });
+        let key = McpNoticeKey {
+            kind: McpNoticeKind::ConfigChanged,
+            binding: McpBindingKey::of(binding),
+            origin: McpNoticeOrigin::Edit,
+        };
+        self.send(&key, &McpSubscribeEmission::ConfigChanged(notice));
     }
 }
 
@@ -95,7 +110,7 @@ impl McpNoticeBoard {
     /// tracker sends it by; for the tests of the crates that read the board.
     pub fn send_probe_notice(
         &self,
-        binding: &sidekicks_contracts::mcp::server::McpServerBindingRef,
+        binding: &McpServerBindingRef,
         notice: sidekicks_contracts::mcp::governance::McpServerStatusChangedNotice,
     ) {
         let key = McpNoticeKey {

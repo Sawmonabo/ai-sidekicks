@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use futures::future::join_all;
 use sidekicks_contracts::error::ERROR_MESSAGE_MAX_LEN;
-use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::mcp::server::inventory::{
     McpAnsweredInventoryEntry, McpOverrideOrigin, McpServerIdempotencyClass,
     McpServerInventoryEntry, McpStoreUnavailableInventoryEntry, McpToolOverride, McpToolReading,
@@ -29,7 +28,8 @@ use sidekicks_provider::account::homes::{AccountHome, AccountHomesReadError, rea
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::mcp_server::read::{
-    McpProbeReading, McpProbeScope, McpServerToolDefaults, McpServersReadRequest,
+    McpProbeReading, McpProbeScope, McpServerDeclaration, McpServerToolDefaults,
+    McpServersReadRequest,
 };
 use sidekicks_provider::driver::mcp_server::status::McpServerReading;
 use sidekicks_provider::driver::registry::ProviderRegistry;
@@ -37,84 +37,18 @@ use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_workspace::project::records::{ProjectReadError, ProjectRecords};
 
+use crate::binding::binding_arm;
 use crate::binding::resolver::{
     McpAccountsAsked, McpAttributionTable, McpBindingRow, attached_root_path, resolve_binding_rows,
 };
-use crate::binding::store::{McpBindingKey, McpBindingStore, PROJECT_SWITCH_SCOPES};
+use crate::binding::store::{
+    McpBindingKey, McpBindingLanding, McpBindingStore, PROJECT_SWITCH_SCOPES,
+};
 use crate::errors::McpRefusal;
 use crate::status::McpServerStatusTracker;
 use crate::status::machine_probe::{
     McpMachineProbeGate, McpMachineProbeTurn, wait_for_machine_probe,
 };
-
-/// Builds the arm of the inventory entry `$entry` for `$binding`, the binding's identity moved into
-/// the arm beside the named locals.
-macro_rules! entry_for_binding {
-    ($entry:ident, $binding:expr, { $($member:ident),* $(,)? }) => {
-        match $binding {
-            McpServerBindingRef::User {
-                provider,
-                server_name,
-            } => $entry::User {
-                provider,
-                server_name,
-                $($member,)*
-            },
-            McpServerBindingRef::Project {
-                provider,
-                scope_ref,
-                place,
-                server_name,
-            } => $entry::Project {
-                provider,
-                scope_ref,
-                place,
-                server_name,
-                $($member,)*
-            },
-            McpServerBindingRef::Local {
-                provider,
-                scope_ref,
-                place,
-                server_name,
-            } => $entry::Local {
-                provider,
-                scope_ref,
-                place,
-                server_name,
-                $($member,)*
-            },
-            McpServerBindingRef::Plugin {
-                provider,
-                scope_ref,
-                server_name,
-            } => $entry::Plugin {
-                provider,
-                scope_ref,
-                server_name,
-                $($member,)*
-            },
-            McpServerBindingRef::Connector {
-                provider,
-                scope_ref,
-                server_name,
-            } => $entry::Connector {
-                provider,
-                scope_ref,
-                server_name,
-                $($member,)*
-            },
-            McpServerBindingRef::Managed {
-                provider,
-                server_name,
-            } => $entry::Managed {
-                provider,
-                server_name,
-                $($member,)*
-            },
-        }
-    };
-}
 
 /// What the inventory reads: the providers' drivers, the database the accounts are read from, the
 /// attached projects, the binding store, the bindings' statuses, the attribution table each read
@@ -237,6 +171,24 @@ impl McpInventoryService {
         &self,
         binding: &McpServerBindingRef,
     ) -> Result<McpServerInventoryEntry, McpInventoryError> {
+        self.read_binding(binding, None).await
+    }
+
+    /// The binding `landing` names, read as [`Self::read`] reads it with `landing`'s row laid over
+    /// what the store keeps, for a change's answer read before that row commits.
+    pub(crate) async fn read_landed(
+        &self,
+        landing: McpBindingLanding<'_>,
+    ) -> Result<McpServerInventoryEntry, McpInventoryError> {
+        self.read_binding(landing.binding, Some(landing)).await
+    }
+
+    // The binding `binding` names, with `landing`'s row laid over what the store keeps.
+    async fn read_binding(
+        &self,
+        binding: &McpServerBindingRef,
+        landing: Option<McpBindingLanding<'_>>,
+    ) -> Result<McpServerInventoryEntry, McpInventoryError> {
         let key = McpBindingKey::of(binding);
         let not_found = || McpRefusal::ServerNotFound {
             binding: Box::new(binding.clone()),
@@ -255,6 +207,7 @@ impl McpInventoryService {
                 &context,
                 false,
                 McpProbeScope::None,
+                landing,
             )
             .await?;
         entries
@@ -264,11 +217,43 @@ impl McpInventoryService {
             .ok_or_else(|| not_found().into())
     }
 
+    /// Every declaration `provider` holds across the attached roots and its accounts, read as a
+    /// list reads it, with no probe and no refresh; a provider that is not registered declares
+    /// none. Fails as a source or the provider's driver cannot be read.
+    pub(crate) async fn read_declarations(
+        &self,
+        provider: &ProviderId,
+    ) -> Result<Vec<McpServerDeclaration>, McpInventoryError> {
+        let Some((provider, driver)) = self
+            .sources
+            .providers
+            .drivers()
+            .find(|(registered, _driver)| *registered == provider)
+        else {
+            return Ok(Vec::new());
+        };
+        let context = self.read_context().await?;
+        let rows = self
+            .read_resolved_rows(
+                provider,
+                driver.as_ref(),
+                &context,
+                false,
+                McpProbeScope::None,
+                None,
+            )
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(_key, row)| row.declaration)
+            .collect())
+    }
+
     /// Fills the attribution table from one read per provider of what it loads at each attached
     /// root, with no account, no probe and no refresh, so a leg that reports before any list
     /// resolves its servers; the status tracker's readings stay as they are. A provider whose read
-    /// fails keeps the table as it was and is logged; a failed read of the attached roots fills
-    /// nothing and is logged.
+    /// fails keeps the table as it was, is logged and is recorded as a failed fill; a failed read
+    /// of the attached roots fills nothing, is logged and records every provider's fill as failed.
     pub async fn fill_attribution(&self) {
         let attached_roots = match self.read_attached_roots().await {
             Ok(roots) => roots,
@@ -277,6 +262,9 @@ impl McpInventoryService {
                     error = &error as &(dyn std::error::Error + 'static),
                     "the attached roots could not be read, so no MCP server name was attributed"
                 );
+                for (provider, _driver) in self.sources.providers.drivers() {
+                    self.sources.attribution.record_failed_fill(provider);
+                }
                 return;
             }
         };
@@ -299,12 +287,15 @@ impl McpInventoryService {
                             stamp,
                         );
                     }
-                    Err(error) => tracing::warn!(
-                        error = &error as &(dyn std::error::Error + 'static),
-                        provider = provider.as_str(),
-                        "the provider's MCP servers could not be read, so their names resolve \
-                         as the last read left them"
-                    ),
+                    Err(error) => {
+                        tracing::warn!(
+                            error = &error as &(dyn std::error::Error + 'static),
+                            provider = provider.as_str(),
+                            "the provider's MCP servers could not be read, so their names resolve \
+                             as the last read left them"
+                        );
+                        self.sources.attribution.record_failed_fill(provider);
+                    }
                 }
             }
         }))
@@ -323,7 +314,7 @@ impl McpInventoryService {
     ) -> Result<Vec<(McpBindingKey, McpServerInventoryEntry)>, McpInventoryError> {
         if !is_refresh {
             return self
-                .read_provider_rows(provider, driver, context, false, McpProbeScope::None)
+                .read_provider_rows(provider, driver, context, false, McpProbeScope::None, None)
                 .await;
         }
         match self.sources.probe_gate.enter(provider) {
@@ -334,12 +325,13 @@ impl McpInventoryService {
                     context,
                     true,
                     McpProbeScope::EveryBinding,
+                    None,
                 )
                 .await
             }
             McpMachineProbeTurn::Wait(running) => {
                 wait_for_machine_probe(running).await;
-                self.read_provider_rows(provider, driver, context, false, McpProbeScope::None)
+                self.read_provider_rows(provider, driver, context, false, McpProbeScope::None, None)
                     .await
             }
         }
@@ -372,16 +364,16 @@ impl McpInventoryService {
 
     /// Reads `provider`'s bindings through `driver`, asking it to probe the bindings `probe`
     /// names, the store's `local` bindings among them, and, on `is_refresh`, to read again what it
-    /// keeps, for each of the provider's stored accounts; this is the one read a probe trigger
-    /// calls. Each row is keyed by its binding. The attribution table takes the provider's reading
-    /// unless a later read already replaced it, a refresh then has the driver ask its live
-    /// sessions again, each probe reading the driver answers lands in
-    /// [`Self::keep_probe_readings`], and, where this read is the newest, the tracker forgets the
-    /// probe reading of every binding of the provider the rows no longer hold. Fails with
-    /// [`McpInventoryError::AccountId`] where a stored account of the provider has an id that is
-    /// not one, and as the driver's read fails; a store that does not answer gives each row the
-    /// store-unavailable arm and forgets no probe reading, since without it the emulated `local`
-    /// rows are not listed.
+    /// keeps, for each of the provider's stored accounts, with `landing`'s row, where given, laid
+    /// over what the store keeps; this is the one read a probe trigger calls. Each row is keyed by
+    /// its binding. The attribution table takes the provider's reading unless a later read already
+    /// replaced it, a refresh then has the driver ask its live sessions again, each probe reading
+    /// the driver answers lands in [`Self::keep_probe_readings`], and, where this read is the
+    /// newest, the tracker forgets the probe reading of every binding of the provider the rows no
+    /// longer hold. Fails with [`McpInventoryError::AccountId`] where a stored account of the
+    /// provider has an id that is not one, and as the driver's read fails; a store that does not
+    /// answer gives each row the store-unavailable arm and forgets no probe reading, since without
+    /// it the emulated `local` rows are not listed.
     async fn read_provider_rows(
         &self,
         provider: &ProviderId,
@@ -389,7 +381,30 @@ impl McpInventoryService {
         context: &McpInventoryContext,
         is_refresh: bool,
         probe: McpProbeScope,
+        landing: Option<McpBindingLanding<'_>>,
     ) -> Result<Vec<(McpBindingKey, McpServerInventoryEntry)>, McpInventoryError> {
+        Ok(self
+            .read_resolved_rows(provider, driver, context, is_refresh, probe, landing)
+            .await?
+            .into_iter()
+            .map(|(key, row)| {
+                let entry = self.entry(&key, row);
+                (key, entry)
+            })
+            .collect())
+    }
+
+    // The read [`Self::read_provider_rows`] makes, each binding's row resolved and keyed before
+    // it becomes an entry.
+    async fn read_resolved_rows(
+        &self,
+        provider: &ProviderId,
+        driver: &dyn ProviderDriver,
+        context: &McpInventoryContext,
+        is_refresh: bool,
+        probe: McpProbeScope,
+        landing: Option<McpBindingLanding<'_>>,
+    ) -> Result<Vec<(McpBindingKey, McpBindingRow)>, McpInventoryError> {
         let provider_account_ids = context
             .accounts
             .iter()
@@ -416,7 +431,13 @@ impl McpInventoryService {
                      what the store keeps"
                 );
             })
-            .ok();
+            .ok()
+            .map(|mut stored| {
+                if let Some(landing) = &landing {
+                    stored.record(landing);
+                }
+                stored
+            });
         let request = McpServersReadRequest {
             attached_roots: context.attached_roots.clone(),
             provider_account_ids,
@@ -456,13 +477,7 @@ impl McpInventoryService {
             let listed = rows.iter().map(|(key, _row)| key.clone()).collect();
             self.sources.tracker.forget_probes_of(provider, &listed);
         }
-        Ok(rows
-            .into_iter()
-            .map(|(key, row)| {
-                let entry = self.entry(&key, row);
-                (key, entry)
-            })
-            .collect())
+        Ok(rows)
     }
 
     /// Records in the status tracker each probe reading that observed its server, with its error
@@ -484,6 +499,7 @@ impl McpInventoryService {
     // One row's inventory entry: the declaration and the status, and what the store keeps where
     // it answered.
     fn entry(&self, key: &McpBindingKey, row: McpBindingRow) -> McpServerInventoryEntry {
+        let enabled = row.own_switch();
         let McpBindingRow {
             declaration,
             stored,
@@ -494,21 +510,13 @@ impl McpInventoryService {
         let status = status_reading.status;
         let legs = (!status_reading.legs.is_empty()).then_some(status_reading.legs);
         let observed_at = status_reading.observed_at;
-        let probe_failure_reason = status_reading.probe_failure_reason.and_then(|text| {
-            // A blank text carries no reason; past that, the NUL dropped and the cap kept leave
-            // nothing the text check refuses.
-            let reason = sanitize_failure_reason(&text.replace('\0', ""), ERROR_MESSAGE_MAX_LEN);
-            (!reason.chars().all(is_ecmascript_whitespace)).then(|| {
-                FreeFormText::new(reason)
-                    .expect("a sanitized, NUL-free, non-blank reason within its cap is free text")
-            })
-        });
+        let probe_failure_reason = status_reading
+            .probe_failure_reason
+            .and_then(|text| failure_reason_text(&text));
         let superseded_in = unique_places(declaration.superseded_in);
         let organization_managed = declaration.organization_managed;
-        let provider_enabled = config_enabled(&config);
         let Some(stored) = stored else {
             let binding_store_unavailable = True::default();
-            let enabled = (!declaration.is_switch_kept_by_daemon).then_some(provider_enabled);
             // Where the per-project switch lives in the store, the driver's roots alone would read
             // as switched off nowhere else, so the member is absent.
             let disabled_in = if PROJECT_SWITCH_SCOPES.contains(&key.scope) {
@@ -516,7 +524,7 @@ impl McpInventoryService {
             } else {
                 unique_places(declaration.disabled_in)
             };
-            return McpServerInventoryEntry::StoreUnavailable(entry_for_binding!(
+            return McpServerInventoryEntry::StoreUnavailable(binding_arm!(
                 McpStoreUnavailableInventoryEntry,
                 declaration.binding,
                 {
@@ -534,11 +542,7 @@ impl McpInventoryService {
                 }
             ));
         };
-        let enabled = if declaration.is_switch_kept_by_daemon {
-            stored.enabled_override.unwrap_or(provider_enabled)
-        } else {
-            provider_enabled
-        };
+        let enabled = enabled.expect("a row the store answered has its own switch");
         let disabled_in = unique_places(
             declaration
                 .disabled_in
@@ -557,7 +561,7 @@ impl McpInventoryService {
             &stored.tool_overrides,
         );
         let binding_store_unavailable = None;
-        McpServerInventoryEntry::Answered(entry_for_binding!(
+        McpServerInventoryEntry::Answered(binding_arm!(
             McpAnsweredInventoryEntry,
             declaration.binding,
             {
@@ -607,15 +611,17 @@ fn read_failure_cause(
     )
 }
 
-/// Whether a declaration's own config leaves its server on: its `enabled` member, on where it
-/// sets none, as every provider reads an entry without one.
-fn config_enabled(config: &McpServerConfigView) -> bool {
-    match config {
-        McpServerConfigView::Stdio { enabled, .. }
-        | McpServerConfigView::Http { enabled, .. }
-        | McpServerConfigView::Sse { enabled, .. } => enabled.unwrap_or(true),
-        McpServerConfigView::Ws { .. } => true,
-    }
+/// `text`, a provider's or a driver's words about a failure, as the wire carries a failure reason:
+/// with no credential, address query, file path or NUL, cut to its cap; `None` where nothing but
+/// whitespace is left.
+pub(crate) fn failure_reason_text(text: &str) -> Option<FreeFormText<ERROR_MESSAGE_MAX_LEN>> {
+    // A blank text carries no reason; past that, the NUL dropped and the cap kept leave nothing
+    // the text check refuses.
+    let reason = sanitize_failure_reason(&text.replace('\0', ""), ERROR_MESSAGE_MAX_LEN);
+    (!reason.chars().all(is_ecmascript_whitespace)).then(|| {
+        FreeFormText::new(reason)
+            .expect("a sanitized, NUL-free, non-blank reason within its cap is free text")
+    })
 }
 
 /// `places` without repeats, in their first order; absent where none is left.

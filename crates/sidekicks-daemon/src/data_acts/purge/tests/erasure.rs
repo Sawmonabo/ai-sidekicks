@@ -21,7 +21,7 @@ use sidekicks_platforms::{read_volume, real_path};
 use sidekicks_recovery::status::RECOVERY_STATUS_STATEMENT_CAPACITY;
 use sidekicks_session::checkpoints::store::shadows::{VolumeFolder, owed_folders};
 use sidekicks_session::checkpoints::volume_folders::restored_clones_folder;
-use sidekicks_session::run::engine::test_fixture::insert_running_run;
+use sidekicks_session::run::engine::test_fixture;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::data_folder::session_storage_folder;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -113,7 +113,7 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
     store_session(&reader, session_id, SessionState::Archived);
     store_session(&reader, survivor, SessionState::Active);
     let lead_run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&fixture.database, session_id, lead_run_id);
+    test_fixture::insert_run(&fixture.database, session_id, lead_run_id, "running");
     let git = test_git_runner();
     let capture_folder =
         store_capture_folder(&git, fixture.home.path(), session_id, lead_run_id).await;

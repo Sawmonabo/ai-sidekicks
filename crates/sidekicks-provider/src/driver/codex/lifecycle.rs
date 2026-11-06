@@ -130,7 +130,7 @@ pub(crate) struct CodexDriver {
     run_routes: Arc<CodexRunRoutes>,
     config_forks: Arc<CodexConfigForks>,
     provider_commands: Arc<CodexProviderCommandCache>,
-    project_rules: Arc<CodexProjectRuleFiles>,
+    pub(super) project_rules: Arc<CodexProjectRuleFiles>,
     pub(super) views: Arc<CodexSessionViews>,
     compaction_limits: Arc<CodexCompactionLimits>,
     model_windows: Arc<CodexModelWindowCache>,
@@ -151,34 +151,63 @@ pub(crate) struct CodexDriver {
 /// What every session shares once the daemon's run engine is registered; each session's task
 /// holds it.
 pub(crate) struct CodexDriverParts {
+    /// The run engine each session's runs open and end in.
     pub(crate) engine: Arc<dyn RunHost>,
+    /// The ports the daemon registers on the driver.
     pub(crate) ports: Arc<DriverPorts>,
+    /// The Codex service of each credential home.
     pub(crate) registry: Arc<CodexServiceRegistry>,
+    /// Lets go of each conversation a session moved off once no command of it runs.
     pub(crate) release: Arc<CodexConversationRelease>,
+    /// Every session's slot.
     pub(crate) slots: Arc<CodexSessionSlots>,
+    /// Which run each session's frames deliver to.
     pub(crate) run_routes: Arc<CodexRunRoutes>,
+    /// The forks each session's conversation owes onto its changed config.
     pub(crate) config_forks: Arc<CodexConfigForks>,
+    /// Each session's listing of Codex's commands.
     pub(crate) provider_commands: Arc<CodexProviderCommandCache>,
+    /// Every live session's view.
     pub(crate) views: Arc<CodexSessionViews>,
+    /// The waits on compactions the sessions started.
     pub(crate) pending_compactions: PendingCompactionRegistry,
+    /// Delivers each session's frames to its runs.
     pub(crate) delivery: Arc<CodexFrameDelivery>,
+    /// Hands Codex's approvals and questions to the run engine and carries the answers back.
     pub(crate) hand_off: Arc<CodexAskHandOff>,
+    /// What each routed approval or question is attributed and held by.
     pub(crate) ask_intake: CodexAskIntake,
+    /// The side questions asked on the sessions' conversations.
     pub(crate) side_questions: CodexSideQuestions,
+    /// Opens and resumes sessions' conversations.
     pub(crate) establishment: Arc<CodexSessionEstablishment>,
+    /// Keeps each service's conversations through its exits and restarts.
     pub(crate) recovery: Arc<CodexServiceRecovery>,
+    /// Starts each run's turn.
     pub(crate) run_start: Arc<CodexRunStart>,
+    /// Sends each held lead's answers once its session's task runs.
     pub(crate) answer_steers: Arc<CodexAnswerSteers>,
+    /// Pauses, continues and stops the sessions' runs.
     pub(crate) run_control: Arc<CodexRunControl>,
+    /// Retries held turns on a faster model.
     pub(crate) retries: Arc<CodexFasterModelRetries>,
+    /// Routes interventions onto Codex's own operations.
     pub(crate) interventions: CodexInterventionDispatcher,
+    /// Sets and clears each session's goal.
     pub(crate) goals: CodexSessionGoals,
+    /// Sends `Allow once` on the blocks Codex's reviewer made.
     pub(crate) controls: CodexSessionControls,
+    /// Cuts sessions' conversations back in place.
     pub(crate) rewind: CodexConversationRewind,
+    /// What the calls on a session's record act through.
     pub(crate) calls: CodexSessionCallDependencies,
+    /// What opening the run of a turn Codex started by itself acts through.
     pub(crate) self_started: CodexSelfStartedTurnDependencies,
+    /// Each session's latest binding adoption, so a failed start undoes only its own.
     pub(crate) adoptions: Arc<CodexBindingAdoptions>,
+    /// Files the rate-limit windows Codex reports.
     pub(crate) rate_limits: CodexRateLimitFiling,
+    /// Tracks the work the sessions run off their tasks.
     pub(crate) tasks: TaskTracker,
     /// The compaction limit each Codex version, model and window was measured at.
     pub(crate) compaction_limits: Arc<CodexCompactionLimits>,
@@ -461,6 +490,7 @@ impl CodexDriver {
                     delivery: Arc::clone(&delivery),
                     release: Arc::clone(&self.release),
                     bindings: Arc::clone(&self.runtime_bindings),
+                    services: Arc::clone(&self.registry),
                     tool_server_route: Arc::clone(&ports.tool_server_route),
                     reviewer_denials: Arc::clone(&ports.reviewer_denials),
                     pending_compactions: self.pending_compactions.clone(),

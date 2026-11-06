@@ -468,6 +468,7 @@ async fn a_retry_gives_its_held_turns_unechoed_steer_back_at_that_turns_end() {
         let started = loop {
             let sent = script.next_sent().await;
             match sent["method"].as_str() {
+                Some("config/read") => script.answer(&sent, &json!({"config": {}, "origins": {}})),
                 Some("thread/fork") => {
                     assert_eq!(sent["params"]["model"], "gpt-5-fast");
                     script.answer(&sent, &fork_reply("thread-2", &settings));

@@ -17,17 +17,12 @@ use super::{
 };
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::mcp::config::{CodexLoadedServer, CodexMcpConfigReading, CodexMcpRoot};
-use crate::driver::codex::session::detached_conversation::CodexDetachedFrames;
-use crate::driver::codex::transport::connection::CodexConnectionHandlers;
-use crate::driver::codex::transport::connection::scripted_service::connect_scripted_service;
+use crate::driver::codex::transport::connection::scripted_service::scripted_connection;
 use crate::driver::mcp_server::read::{
     McpProbeScope, McpProbeStart, McpProbeTarget, McpRootReading, McpServerDeclaration,
     McpServerPolicy, McpServerToolDefaults, McpServersReadRequest,
 };
 use crate::driver::mcp_server::status::McpServerReading;
-
-/// The largest message the scripted connection takes, far above any a test sends.
-const MESSAGE_LIMIT: usize = 1 << 20;
 
 /// The conversation the scripted service opens.
 const THREAD: &str = "probe-thread";
@@ -66,15 +61,7 @@ fn listed(name: &Value, runtime_status: &str) -> Value {
 // by its key or by the default every other takes.
 #[tokio::test(start_paused = true)]
 async fn a_server_unsettled_at_the_ceiling_reads_its_listed_status() {
-    let (events, frames) = CodexDetachedFrames::new();
-    let (connection, mut script) = connect_scripted_service(
-        MESSAGE_LIMIT,
-        CodexConnectionHandlers {
-            events,
-            responder: None,
-            token_refresher: None,
-        },
-    );
+    let (connection, mut script, frames) = scripted_connection();
     let site = CodexMcpProbeSite {
         folder: PathBuf::from("/work/app"),
         servers: vec![probed("broken", 7), probed("slow", 12)],
@@ -365,15 +352,7 @@ fn a_persons_server_is_probed_where_it_is_loaded_as_that_place_merges_it() {
 // by waiting the ceiling for it, and by asking Codex its status.
 #[tokio::test(start_paused = true)]
 async fn a_refused_plugin_server_is_not_sent_and_reads_switched_off_at_once() {
-    let (events, frames) = CodexDetachedFrames::new();
-    let (connection, mut script) = connect_scripted_service(
-        MESSAGE_LIMIT,
-        CodexConnectionHandlers {
-            events,
-            responder: None,
-            token_refresher: None,
-        },
-    );
+    let (connection, mut script, frames) = scripted_connection();
     let refused = McpServerBindingRef::Plugin {
         provider: DESCRIPTOR.provider_id(),
         scope_ref: PluginToken::new("tools".to_owned()).expect("a plugin name"),

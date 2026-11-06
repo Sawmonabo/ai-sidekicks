@@ -32,7 +32,7 @@ use crate::interventions::store::run_at_version_statement;
 use crate::questions::schema::schema_parts;
 use crate::run::engine::RunEngine;
 use crate::run::engine::errors::RunEngineError;
-use crate::run::engine::test_fixture::{append, insert_running_run, stored_run_state, test_engine};
+use crate::run::engine::test_fixture::{append, insert_run, stored_run_state, test_engine};
 use crate::run::projection::RunsProjection;
 use crate::run::read::RunRead;
 use crate::run::state_change::{RunEventDraft, RunWriteCompanions, RunWriteError};
@@ -58,7 +58,7 @@ impl Fixture {
         let home = tempfile::tempdir().expect("the test makes a home folder");
         let session_id = test_session_id();
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-        insert_running_run(&database, session_id, run_id);
+        insert_run(&database, session_id, run_id, "running");
         database
             .reader()
             .execute(
@@ -325,7 +325,12 @@ async fn a_rollback_of_a_run_that_moved_lands_past_its_new_version() {
 async fn a_cut_of_several_runs_lands_whole_once_no_turn_of_them_is_open() {
     let fixture = Fixture::new(RunState::Completed).await;
     let later_run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&fixture.database, fixture.session_id, later_run_id);
+    insert_run(
+        &fixture.database,
+        fixture.session_id,
+        later_run_id,
+        "running",
+    );
     fixture
         .append_turn_event(later_run_id, "agent.turn.started")
         .await;

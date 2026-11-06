@@ -34,6 +34,9 @@ async fn a_fork_rebinds_before_it_lets_go_of_the_conversation_left() {
     let script = &mut session.scripted.script;
     let database = &session.database;
     let answer = async {
+        let read = script.next_sent().await;
+        assert_eq!(read["method"], "config/read");
+        script.answer(&read, &json!({"config": {}, "origins": {}}));
         let forked = script.next_sent().await;
         assert_eq!(forked["method"], "thread/fork");
         assert_eq!(forked["params"]["threadId"], TEST_THREAD);
@@ -114,6 +117,9 @@ async fn a_fork_onto_another_binding_ends_the_left_leg_and_takes_its_own() {
     );
     let script = &mut session.scripted.script;
     let answer = async {
+        let read = script.next_sent().await;
+        assert_eq!(read["method"], "config/read");
+        script.answer(&read, &json!({"config": {}, "origins": {}}));
         let forked = script.next_sent().await;
         assert_eq!(forked["method"], "thread/fork");
         script.answer(&forked, &fork_reply("thread-2", &settings));

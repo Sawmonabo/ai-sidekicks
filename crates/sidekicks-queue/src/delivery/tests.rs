@@ -1,10 +1,12 @@
 //! The delivery's tests, over a test database holding a session and its running lead run bound to
-//! the table's first provider, whose driver is a stand-in, by behavior: hands, take-backs, the
-//! interrupt's end, messages a provider process or a resume keeps, and the undo's hold.
+//! the table's first provider, whose driver is a stand-in, the session's provider session opened,
+//! by behavior: hands, take-backs, the interrupt's end, messages a provider process or a resume
+//! keeps, and the undo's hold.
 
 mod hands;
 mod interrupt_end;
 mod kept_messages;
+mod run_end;
 mod undo_hold;
 mod withdraws;
 
@@ -15,15 +17,13 @@ use std::time::Duration;
 
 use futures::FutureExt as _;
 use rusqlite::params;
+use sidekicks_contracts::approval::ApprovalRequestId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
 use sidekicks_provider::driver::run_control::{
@@ -38,11 +38,9 @@ use sidekicks_provider::process_identity::{
     ProcessStandIn, ProviderProcessIds, TEST_PROVIDER_PROCESS,
 };
 use sidekicks_session::questions::schema::schema_parts;
-use sidekicks_session::queue_store::{
-    NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, QueueMessageBody,
-    insert_queue_item_statement,
-};
-use sidekicks_session::run::engine::test_fixture::insert_running_run;
+use sidekicks_session::queue_store::test_items::{self, words};
+use sidekicks_session::queue_store::{QueueItemBody, QueueItemReader, QueueItemRecord};
+use sidekicks_session::run::engine::test_fixture::insert_run;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
@@ -53,6 +51,10 @@ use tokio::time::timeout;
 
 use super::test_fixture::test_delivery_deps;
 use super::{OpeningMessages, QueueDelivery, QueueDeliveryDeps};
+use crate::provider_session::ProviderSessions;
+use crate::provider_session::test_opening::{
+    OrphanedAnswersStandIn, RecordedResumedRuns, test_provider_sessions,
+};
 use crate::session_lock::QueueSessionLock;
 
 /// The statements the tests' read pool prepares: the delivery's reads and the recorder's.
@@ -113,11 +115,14 @@ impl OpeningMessages for OpeningStandIn {
     }
 }
 
-/// A delivery over a session whose lead run runs, bound to the stand-in driver.
+/// A delivery over a session whose lead run runs, bound to the stand-in driver, its provider
+/// session opened in this daemon.
 struct Fixture {
     database: TestDatabase,
     log: TestLog,
     delivery: QueueDelivery,
+    // Held so the delivery's weak hold on it lives: a resume finds the session opened.
+    _provider_sessions: Arc<ProviderSessions>,
     session_lock: Arc<QueueSessionLock>,
     process: Arc<ProcessStandIn>,
     openings: Arc<OpeningStandIn>,
@@ -131,7 +136,7 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
     let session_id = test_session_id();
     insert_session_row(&database.reader(), session_id.text().as_str(), None, None);
     let run_id = new_run_id();
-    insert_running_run(&database, session_id, run_id);
+    insert_run(&database, session_id, run_id, "running");
     bind_run_to_first_provider(&database, run_id);
     let pool = Arc::new(DatabaseReadPool::new(
         database.path(),
@@ -144,6 +149,16 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
         openings: Mutex::new(HashSet::new()),
         after_read: Mutex::new(None),
     });
+    let providers = Arc::new(registry_of_first_provider(Arc::new(driver)));
+    let provider_sessions = test_provider_sessions(
+        Arc::clone(&pool),
+        Arc::clone(&log.service),
+        Arc::clone(&log.writer),
+        Arc::clone(&providers),
+        Arc::new(RecordedResumedRuns::default()).registered(),
+        Arc::new(OrphanedAnswersStandIn::<ApprovalRequestId>::default()),
+    );
+    provider_sessions.record_test_opening(session_id);
     let delivery = QueueDelivery::new(QueueDeliveryDeps {
         session_lock: Arc::clone(&session_lock),
         processes: Arc::clone(&process) as Arc<dyn ProviderProcessIds>,
@@ -152,13 +167,15 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
             pool,
             Arc::clone(&log.service),
             Arc::clone(&log.writer),
-            Arc::new(registry_of_first_provider(Arc::new(driver))),
+            providers,
+            &provider_sessions,
         )
     });
     Fixture {
         database,
         log,
         delivery,
+        _provider_sessions: provider_sessions,
         session_lock,
         process,
         openings,
@@ -221,32 +238,15 @@ fn count_withdraws(driver: &mut MockProviderDriver) -> Arc<AtomicUsize> {
 
 /// Queues a message for the fixture's run, after every one before it, and reads it back.
 async fn insert_item(fixture: &Fixture) -> QueueItemRecord {
-    let item = NewQueueItem {
-        id: QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id"),
-        session_id: fixture.session_id,
-        body: QueueItemBody::Message(QueueMessageBody {
-            content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
-            attachments: None,
-            skills: None,
-            answers_question_id: None,
-            output_speed_for_turn: None,
-            workspace_id: None,
-        }),
-        target_run_id: fixture.run_id,
-        device_id: None,
-        client_idempotency_key: Some(
-            ClientUuid::new(mint_uuid_v7().to_string()).expect("a minted UUID is a client key"),
-        ),
-        replaces_queue_item_id: None,
-        now: WireInstant::now(),
-    };
-    fixture
-        .log
-        .writer
-        .write(vec![insert_queue_item_statement(&item)])
-        .await
-        .expect("the test queues its message");
-    stored_item(fixture, item.id)
+    let body = QueueItemBody::Message(words("Look again"));
+    let item_id = test_items::insert_item(
+        &fixture.log.writer,
+        fixture.session_id,
+        fixture.run_id,
+        body,
+    )
+    .await;
+    stored_item(fixture, item_id)
 }
 
 fn stored_item(fixture: &Fixture, item_id: QueueItemId) -> QueueItemRecord {

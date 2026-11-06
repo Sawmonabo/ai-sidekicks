@@ -43,7 +43,7 @@ use crate::driver::claude::delivery::stream::ClaudeSessionStream;
 use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::intervention::ClaudeInterventions;
-use crate::driver::claude::lifecycle::ClaudeSessionParts;
+use crate::driver::claude::lifecycle::{ClaudeDriver, ClaudeSessionParts};
 use crate::driver::claude::run::routes::{ClaudeChildRunRoute, ClaudeRunRoutes};
 use crate::driver::claude::run::start::ClaudeRunStart;
 use crate::driver::claude::session::answered_commands::{
@@ -171,6 +171,10 @@ pub(crate) fn scripted_live_session(
 /// and its task, as the reader hands them over. Built inside a Tokio runtime, since the session's
 /// task is spawned.
 pub(crate) struct ScriptedSession {
+    /// The driver the session was opened on.
+    pub(crate) driver: Arc<ClaudeDriver>,
+    /// The person's home the driver reads the person's own config in.
+    pub(crate) home: PathBuf,
     /// The session.
     pub(crate) session_id: SessionId,
     /// Its process.
@@ -201,6 +205,8 @@ pub(crate) struct ScriptedSession {
     pub(crate) wall_clock: Arc<TestWallClock>,
     listener: Arc<dyn ClaudeProcessListener>,
     control_frames: Mutex<ClaudeControlFrameReader>,
+    // How many control requests the session's start wrote.
+    start_requests: usize,
     // The home, working folder and database the session's start read from.
     _folder: TempDir,
     _database: TestDatabase,
@@ -226,6 +232,7 @@ impl ScriptedSession {
             usage,
             attachments,
             wall_clock,
+            home,
             folder,
             database,
             ..
@@ -247,6 +254,8 @@ impl ScriptedSession {
             .create_session(params(session_id))
             .await
             .expect("the session opens");
+        ScriptedDriver::wait_for_hooks_listing(&channel).await;
+        let start_requests = channel.control_requests().len();
         let started = starts.take_started().pop().expect("a start was recorded");
         let parts = Arc::clone(driver.composed_parts().expect("the pieces are composed"));
         let establishment = &parts.establishment;
@@ -264,6 +273,8 @@ impl ScriptedSession {
             live.provider_session_id.clone(),
         );
         Self {
+            driver,
+            home,
             session_id,
             channel,
             engine,
@@ -280,9 +291,17 @@ impl ScriptedSession {
             parts,
             listener: started.listener,
             control_frames: Mutex::new(control_frames),
+            start_requests,
             _folder: folder,
             _database: database,
         }
+    }
+
+    /// The control requests written since the session's start wrote its own.
+    pub(crate) fn control_requests_after_start(&self) -> Vec<Value> {
+        self.channel
+            .control_requests()
+            .split_off(self.start_requests)
     }
 
     /// Hands the reader's next stream frame over, as the process wrote it.

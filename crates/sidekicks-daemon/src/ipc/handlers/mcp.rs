@@ -1,8 +1,9 @@
-//! The `mcp.*` methods: the server inventory's reads, and `mcp.subscribe`, the MCP governance
-//! stream: the stored governance events of the daemon-scope sentinel session's log, followed from
-//! its head when the call is taken, and the newest notice per key from the status tracker's notice
-//! board, the stream's place in the board taken before the acknowledgment goes out, so a notice
-//! sent after it is read and none falls between the call and a first `mcp.server.list`.
+//! The `mcp.*` methods: the server inventory's reads, the public MCP Registry's search, the
+//! binding edits the mutation service answers, and `mcp.subscribe`, the MCP governance stream: the
+//! stored governance events of the daemon-scope sentinel session's log, followed from its head when
+//! the call is taken, and the newest notice per key from the status tracker's notice board, the
+//! stream's place in the board taken before the acknowledgment goes out, so a notice sent after it
+//! is read and none falls between the call and a first `mcp.server.list`.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, LazyLock};
@@ -22,9 +23,10 @@ use sidekicks_ipc::registry::{
 };
 use sidekicks_ipc::stream::feed::{ChangeRecord, Feed, RecordPage, RecordPageRead, SendGate};
 use sidekicks_ipc::stream::frame_batcher::{ChangeFeed, FrameChanges};
-use sidekicks_ipc::stream::latest_value::KeyedLatestValueFeed;
 use sidekicks_mcp::inventory_service::McpInventoryService;
-use sidekicks_mcp::status::notices::{McpNoticeBoard, McpNoticeKey};
+use sidekicks_mcp::mutation::service::McpMutationService;
+use sidekicks_mcp::registry_search::{MCP_REGISTRY_ADDRESS, McpRegistryClient};
+use sidekicks_mcp::status::notices::{McpNoticeBoard, McpNoticeFeed};
 use sidekicks_store::database::connection::read_pool::DatabaseReadError;
 use sidekicks_store::events::log_service::{
     EventLogFollowError, EventLogReadError, EventLogService, FollowStart,
@@ -32,8 +34,10 @@ use sidekicks_store::events::log_service::{
 use tokio::sync::watch;
 
 use self::inventory::register_inventory_methods;
+use self::requests::register_request_methods;
 
 mod inventory;
+mod requests;
 #[cfg(test)]
 mod tests;
 
@@ -46,7 +50,8 @@ static MCP_GOVERNANCE_EVENT_TYPE_NAMES: LazyLock<Vec<&'static str>> = LazyLock::
 });
 
 /// What the `mcp.*` methods read: the event log and the status tracker's notice board the
-/// subscription follows, and the server inventory.
+/// subscription follows, the server inventory, and the mutation service the binding edits go
+/// through; the registry search keeps its own client.
 pub(crate) struct McpMethodSources {
     /// The event log, whose sentinel session holds the governance events.
     pub(crate) log: Arc<EventLogService>,
@@ -54,11 +59,14 @@ pub(crate) struct McpMethodSources {
     pub(crate) board: Arc<McpNoticeBoard>,
     /// The server inventory `mcp.server.list` and `mcp.server.read` answer from.
     pub(crate) inventory: Arc<McpInventoryService>,
+    /// The mutation service `mcp.server.upsert` and `mcp.server.enabled.update` answer from.
+    pub(crate) mutations: Arc<McpMutationService>,
 }
 
-/// Registers `mcp.server.list`, `mcp.server.read` and `mcp.subscribe` over `sources`. A first read
-/// of the log that fails refuses the subscription with nothing open. Fails the start when a method
-/// is already registered.
+/// Registers `mcp.server.list`, `mcp.server.read`, `mcp.server.upsert`,
+/// `mcp.server.enabled.update` and `mcp.subscribe` over `sources`, and `mcp.registry.search` over
+/// a registry client built here. A first read of the log that fails refuses the subscription with
+/// nothing open. Fails the start when a method is already registered.
 pub(crate) fn register_mcp_methods(
     registry: &mut MethodRegistryBuilder,
     sources: McpMethodSources,
@@ -67,8 +75,14 @@ pub(crate) fn register_mcp_methods(
         log,
         board,
         inventory,
+        mutations,
     } = sources;
     register_inventory_methods(registry, &inventory)?;
+    register_request_methods(
+        registry,
+        Arc::new(McpRegistryClient::new(MCP_REGISTRY_ADDRESS)),
+        &mutations,
+    )?;
     registry.register_subscription::<McpSubscribe, _>(
         move |_request: EmptyPayload, _context: HandlerContext, subscription_id: SubscriptionId| {
             let log = Arc::clone(&log);
@@ -83,9 +97,6 @@ pub(crate) fn register_mcp_methods(
     )
 }
 
-/// The detach a subscriber's place in the board runs when its feed drops.
-type BoardDetach = Box<dyn FnOnce() + Send>;
-
 /// Opens one subscriber's stream: its place in `board` first, then the log followed from its
 /// head (the start of the log while the sentinel session holds no event). Fails as the log's
 /// first read fails, leaving nothing attached.
@@ -93,12 +104,7 @@ async fn open_mcp_subscribe_feed(
     log: Arc<EventLogService>,
     board: Arc<McpNoticeBoard>,
 ) -> Result<McpSubscribeFeed, HandlerError> {
-    let notices = KeyedLatestValueFeed::open(|outlet| {
-        let id = board.attach(outlet);
-        let detach: BoardDetach = Box::new(move || board.detach(id));
-        async move { Ok(detach) }
-    })
-    .await?;
+    let notices = board.follow().await?;
     let cursor = match log
         .read_follow_start(*DAEMON_SCOPE_SENTINEL_SESSION_ID, FollowStart::Newest)
         .await
@@ -213,7 +219,7 @@ impl ChangeRecord for McpGovernanceRecord {
 struct McpSubscribeFeed {
     events: ChangeFeed<McpGovernanceRecord, FrameChanges<McpGovernanceChange>>,
     unsent_events: VecDeque<McpGovernanceEvent>,
-    notices: KeyedLatestValueFeed<McpNoticeKey, McpSubscribeEmission, BoardDetach>,
+    notices: McpNoticeFeed,
 }
 
 impl Feed for McpSubscribeFeed {

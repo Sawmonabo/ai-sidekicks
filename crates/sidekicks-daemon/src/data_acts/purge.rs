@@ -7,13 +7,14 @@
 //!   session made is being handed to a fresh session whose seed has no queue item yet, so the
 //!   seed's transcript and manifest are always written from a live planning session.
 //! - Then the files only this session names go: its shells end and stay refused until the rows
-//!   are gone, its tool-server connections start closing and no new one opens, then the
-//!   provider's copy of each conversation, a chat's managed workspace folder, the session's own
-//!   storage folder with its runs' capture folders, the copies a restore made of the clones it
-//!   kept on other volumes, its own folders on other volumes whose volume is mounted (each with
-//!   its user folder once that is empty; a folder whose volume is absent is owed instead, in the
-//!   rows' write), and the project rules the session wrote into its project's files. A failure
-//!   there leaves the mark and every row, so purging the session again finishes it.
+//!   are gone, its tool-server connections start closing and no new one opens, every provider
+//!   leg of the session ends, so no provider runs a turn on what is deleted, then the provider's
+//!   copy of each conversation, a chat's managed workspace folder, the session's own storage
+//!   folder with its runs' capture folders, the copies a restore made of the clones it kept on
+//!   other volumes, its own folders on other volumes whose volume is mounted (each with its user
+//!   folder once that is empty; a folder whose volume is absent is owed instead, in the rows'
+//!   write), and the project rules the session wrote into its project's files. A failure there
+//!   leaves the mark and every row, so purging the session again finishes it.
 //! - Then one write, under the session's append lock, deletes every row naming the session, its
 //!   plans and the hand-off that made it among them, and appends its `session.event.compacted`
 //!   receipt on the daemon's sentinel session, led by two guards: the session is still marked,
@@ -21,12 +22,13 @@
 //!   commit can land after the range is read; the range is then read again once, since the hold
 //!   keeps any new append out. The writer's connection runs with `secure_delete` on, so a freed
 //!   page is overwritten.
-//! - After the commit the recovery state forgets the session's damage, the session reads let go of
-//!   its block cuts, the runs' postures forget its level moves, the project's other sessions are
-//!   handed their rules again, the live list loses the session, the project list counts it no
-//!   more, and each stored payload no surviving manifest names is unlinked. Once every session is
-//!   done the sessions they were linked to are scored again, and the write-ahead log is truncated,
-//!   tried again until it succeeds, even when nothing was deleted.
+//! - After the commit the recovery state forgets the session's damage, the stop intent drops its
+//!   name, the session reads let go of its block cuts, the runs' postures forget its level moves,
+//!   the project's other sessions are handed their rules again, the live list loses the session,
+//!   the project list counts it no more, and each stored payload no surviving manifest names is
+//!   unlinked. Once every session is done the sessions they were linked to are scored again, and
+//!   the write-ahead log is truncated, tried again until it succeeds, even when nothing was
+//!   deleted.
 
 pub(crate) mod rows;
 #[cfg(test)]
@@ -61,11 +63,13 @@ use sidekicks_platforms::remove_tree_awaited;
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_recovery::damaged_history::DamagedSessionPurge;
 use sidekicks_recovery::status::RecoveryStatusTracker;
+use sidekicks_recovery::stop_intent::StopIntentFile;
+use sidekicks_session::changes::{SessionChangeError, SessionChanges};
 use sidekicks_session::checkpoints::store::shadows::VolumeFolder;
 use sidekicks_session::checkpoints::volume_folders::{
     VolumeFolderRemoval, remove_volume_folder, restored_clones_folder,
 };
-use sidekicks_session::conversation_purge::{ConversationPurge, ConversationPurgeError};
+use sidekicks_session::conversations::purge::{ConversationPurge, ConversationPurgeError};
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::questions::service::QuestionsService;
 use sidekicks_session::readings::context::ContextReadings;
@@ -135,6 +139,9 @@ pub(crate) enum SessionPurgeError {
     /// A shell of the session would not end.
     #[error("the session's shells could not all be ended")]
     Shells(#[source] HandlerError),
+    /// A provider leg of the session could not be ended.
+    #[error("the session's provider legs could not all be ended")]
+    Legs(#[source] SessionChangeError),
     /// The provider's copy of a conversation could not be deleted.
     #[error(transparent)]
     Conversations(#[from] ConversationPurgeError),
@@ -194,6 +201,8 @@ pub(crate) struct SessionPurgeDeps {
     pub(crate) machine_id: MachineId,
     /// The lock every session-wide transition holds for its whole run.
     pub(crate) transition_lock: Arc<KeyedLock<SessionId>>,
+    /// Ends every provider leg of a session before its conversations are deleted.
+    pub(crate) changes: Arc<SessionChanges>,
     /// Ends a session's shells.
     pub(crate) shells: Arc<ShellTable>,
     /// Closes a session's tool-server connections and opens no new one for it.
@@ -233,6 +242,8 @@ pub(crate) struct SessionPurgeDeps {
     pub(crate) execution_postures: Arc<ExecutionPostureService>,
     /// The questions, which forget the secret answers they kept in memory for a purged session.
     pub(crate) questions: Arc<QuestionsService>,
+    /// The intent the person's Stop left, which drops a purged session's name.
+    pub(crate) stop_intent: Arc<StopIntentFile>,
 }
 
 /// Deletes whole sessions.
@@ -323,6 +334,11 @@ impl SessionPurge {
             .await
             .map_err(SessionPurgeError::Shells)?;
         deps.mcp_client.start_session_close(session_id);
+        // The transition lock held here keeps any opening out while the legs end.
+        deps.changes
+            .end_session_legs(session_id)
+            .await
+            .map_err(SessionPurgeError::Legs)?;
         deps.conversations.delete_conversations(session_id).await?;
         deps.managed_workspaces.delete_folder(session_id).await?;
         remove_session_storage_folder(&deps.data_folder, session_id)
@@ -350,6 +366,14 @@ impl SessionPurge {
             )
             .await?;
         deps.recovery.mark_session_deleted(&session_id);
+        // A name left behind only makes a later start read it and settle nothing.
+        if let Err(error) = deps.stop_intent.drop_named(&session_id).await {
+            tracing::error!(
+                %session_id,
+                error = &error as &(dyn Error + 'static),
+                "a purged session's name was not dropped from the stop intent"
+            );
+        }
         deps.sessions.forget_session_block_cuts(&session_id);
         deps.context_readings.forget_purged_session(session_id);
         deps.turn_readings.forget_purged_session(session_id);

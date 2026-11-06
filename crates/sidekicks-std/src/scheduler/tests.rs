@@ -11,7 +11,7 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use super::test_wall_clock::TestWallClock;
-use super::{JobCondition, ScheduleError, ScheduledJobOutcome, Scheduler};
+use super::{JobCondition, ScheduleError, ScheduledJobOutcome, Scheduler, SchedulerStopError};
 
 // Far longer than any periodic look would wait between two looks.
 const IDLE_SPAN: Duration = Duration::from_secs(600);
@@ -23,6 +23,9 @@ const JUMP_AHEAD: Duration = Duration::from_secs(7_200);
 
 // How long the test waits for a run that must come.
 const RUN_BOUND: Duration = Duration::from_secs(5);
+
+// A stop's deadline no test's task comes near.
+const STOP_BOUND: Duration = Duration::from_secs(60);
 
 // A job that reports its first run on `ran` and counts every run in `run_count`.
 fn reporting_job(
@@ -55,7 +58,10 @@ async fn an_idle_scheduler_arms_nothing_and_turns_no_more() {
     tokio::time::sleep(IDLE_SPAN).await;
 
     assert_eq!(wall_clock.wait_count(), 1);
-    scheduler.stop().await.expect("the task ends");
+    scheduler
+        .stop(Instant::now() + STOP_BOUND)
+        .await
+        .expect("the task ends");
 }
 
 #[tokio::test(start_paused = true)]
@@ -99,7 +105,10 @@ async fn a_wall_clock_job_runs_once_when_the_clock_jumps_past_its_instant() {
 
     tokio::time::sleep(IDLE_SPAN).await;
     assert_eq!(run_count.load(Ordering::Relaxed), 1);
-    scheduler.stop().await.expect("the task ends");
+    scheduler
+        .stop(Instant::now() + STOP_BOUND)
+        .await
+        .expect("the task ends");
 }
 
 #[tokio::test(start_paused = true)]
@@ -165,7 +174,10 @@ async fn a_refused_rearm_is_told_to_its_job_and_later_jobs_still_run() {
         .expect("the third job runs once the clock reaches its instant")
         .expect("the third job reports its run");
     assert_eq!(run_count.load(Ordering::Relaxed), 2);
-    scheduler.stop().await.expect("the task ends");
+    scheduler
+        .stop(Instant::now() + STOP_BOUND)
+        .await
+        .expect("the task ends");
 }
 
 // A job that may run only while the busy count is zero is parked while it is above zero, and the
@@ -208,7 +220,10 @@ async fn a_job_waiting_for_idle_holds_no_other_job_and_runs_when_the_count_falls
         .expect("the parked job runs once the count is zero")
         .expect("the job reports its run");
     assert_eq!(quiet_count.load(Ordering::Relaxed), 1);
-    scheduler.stop().await.expect("the task ends");
+    scheduler
+        .stop(Instant::now() + STOP_BOUND)
+        .await
+        .expect("the task ends");
 }
 
 // A count that rises while an earlier job of the same drain runs parks the job after it, which
@@ -264,7 +279,10 @@ async fn a_count_rising_mid_drain_parks_the_jobs_after_it() {
         .await
         .expect("the parked job runs once the count is zero")
         .expect("the job reports its run");
-    scheduler.stop().await.expect("the task ends");
+    scheduler
+        .stop(Instant::now() + STOP_BOUND)
+        .await
+        .expect("the task ends");
 }
 
 // A job bounded 25 hours ahead on the wall clock runs once that clock reaches the bound though the
@@ -298,5 +316,54 @@ async fn a_bounded_job_runs_at_its_wall_clock_bound_while_still_busy() {
         .expect("the job runs at its bound")
         .expect("the job reports its run");
     assert_eq!(*busy_count.borrow(), 1);
-    scheduler.stop().await.expect("the task ends");
+    scheduler
+        .stop(Instant::now() + STOP_BOUND)
+        .await
+        .expect("the task ends");
+}
+
+// A job that never reads its token holds the stop only to its deadline: the task is aborted, so
+// the job's work is dropped. Killed by awaiting the task with no bound, which the outer bound
+// fails, and by a bound with no abort, which leaves the job's guard held.
+#[tokio::test(start_paused = true)]
+async fn a_stop_aborts_a_job_still_running_at_its_deadline() {
+    let scheduler = Scheduler::start(
+        Arc::new(TestWallClock::default()),
+        None,
+        watch::channel(0).1,
+    );
+    let (started, job_started) = oneshot::channel();
+    let (guard, guard_dropped) = oneshot::channel::<()>();
+    let mut job = Some((started, guard));
+    let _stuck = scheduler
+        .schedule(
+            "stuck test job",
+            JobCondition::Always,
+            Duration::ZERO,
+            move |_token| {
+                let (started, guard) = job.take().expect("the job runs once");
+                Box::pin(async move {
+                    let _guard = guard;
+                    started.send(()).expect("the test waits for the start");
+                    std::future::pending::<ScheduledJobOutcome>().await
+                })
+            },
+        )
+        .expect("the job is scheduled");
+    tokio::time::timeout(RUN_BOUND, job_started)
+        .await
+        .expect("the job starts")
+        .expect("the job reports its start");
+
+    let stopped = tokio::time::timeout(
+        RUN_BOUND,
+        scheduler.stop(Instant::now() + Duration::from_millis(50)),
+    )
+    .await
+    .expect("the stop ends at its deadline");
+    assert!(matches!(stopped, Err(SchedulerStopError::Overran)));
+    tokio::time::timeout(RUN_BOUND, guard_dropped)
+        .await
+        .expect("the aborted job's work is dropped")
+        .expect_err("the guard is dropped, never sent");
 }

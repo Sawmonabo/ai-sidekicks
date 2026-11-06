@@ -1,17 +1,19 @@
 //! The conversations a session left on its provider, over the `left_conversations` table: the one
 //! a fork moved it off, or the one a daemon restart's resume forked away from. Each row is written
 //! in the same write as the binding's new resume handle, so no conversation the session left is
-//! ever both unrecorded and unbound.
+//! ever both unrecorded and unbound. Each row keeps the left leg's own recovery data.
 
 use std::borrow::Cow;
 
 use rusqlite::Connection;
 use rusqlite::types::Type;
+use serde_json::{Map, Value};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::database::stored_column::json_object_column;
 
 /// A conversation a session moved off, on the account whose home holds it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -22,6 +24,9 @@ pub struct LeftConversation {
     pub provider_account_id: ProviderAccountId,
     /// The provider's own id for the conversation.
     pub conversation_id: String,
+    /// The provider's recovery data of the leg that left it, as that leg kept it, so the
+    /// conversation is reached through its own home.
+    pub runtime_metadata: Map<String, Value>,
 }
 
 /// A recorded left conversation, with the provider whose binding recorded it.
@@ -36,17 +41,19 @@ pub struct LeftConversationRecord {
 }
 
 // Lands only beside the binding update stamped `@left_at` in the same write, and takes the
-// provider from that binding.
+// provider from that binding. The recovery data is bound, never read from that binding, whose
+// row by then holds the new leg's data, or another binding's after a fork onto it.
 const INSERT_LEFT_CONVERSATION_SQL: &str = "
   INSERT OR IGNORE INTO left_conversations
-    (session_id, provider_name, provider_account_id, conversation_id, left_at)
-  SELECT @session_id, provider_name, @provider_account_id, @conversation_id, @left_at
+    (session_id, provider_name, provider_account_id, conversation_id, left_at, runtime_metadata)
+  SELECT @session_id, provider_name, @provider_account_id, @conversation_id, @left_at,
+         @runtime_metadata
     FROM runtime_bindings
    WHERE id = @binding_id AND updated_at = @left_at";
 
 // Every row it returns is the asked session's, so the session id is not read back.
 const SELECT_LEFT_CONVERSATIONS_SQL: &str = "
-  SELECT provider_name, provider_account_id, conversation_id, left_at
+  SELECT provider_name, provider_account_id, conversation_id, left_at, runtime_metadata
     FROM left_conversations
    WHERE session_id = ?
    ORDER BY left_at, conversation_id";
@@ -59,6 +66,7 @@ pub(crate) fn compose_left_conversation_insert(
     left_at: &str,
     conversation: &LeftConversation,
 ) -> WriteStatement {
+    let runtime_metadata = Value::Object(conversation.runtime_metadata.clone()).to_string();
     WriteStatement {
         sql: Cow::Borrowed(INSERT_LEFT_CONVERSATION_SQL),
         bindings: StatementBindings::Named(vec![
@@ -70,6 +78,7 @@ pub(crate) fn compose_left_conversation_insert(
                 conversation.provider_account_id.as_str(),
             ),
             text_binding("@conversation_id", &conversation.conversation_id),
+            text_binding("@runtime_metadata", &runtime_metadata),
         ]),
         expected_row_count: None,
     }
@@ -98,6 +107,7 @@ pub fn read_left_conversations(
                 session_id: *session_id,
                 provider_account_id: read_provider_account_id(row.get(1)?)?,
                 conversation_id: row.get(2)?,
+                runtime_metadata: json_object_column(row, 4)?,
             },
             provider_name,
             left_at: row.get(3)?,

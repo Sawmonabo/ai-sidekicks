@@ -54,7 +54,6 @@ impl McpToolDispatch {
     /// then lost, and a refusal reads `CancelRefused` that no stop asked for. A canceled
     /// `cancellation`, a stop asked for before the restart, cancels the task as the caller's
     /// cancel does. Fails with `ClientStopping`, writing nothing, while the client stops.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the restart's sweep"))]
     pub(crate) async fn resume(
         &self,
         standing: &McpStandingConnection,
