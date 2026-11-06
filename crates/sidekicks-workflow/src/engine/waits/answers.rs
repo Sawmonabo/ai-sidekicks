@@ -1,6 +1,6 @@
 //! A person's answer to a step waiting on them, as the tick takes it in: checked against the wait
-//! the step's row holds, then made the step's resume and its settlement, which the step's turn
-//! writes in one write.
+//! the step holds in the tick's live record, then made the step's resume and its settlement, which
+//! the step's turn writes in one write.
 
 use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
