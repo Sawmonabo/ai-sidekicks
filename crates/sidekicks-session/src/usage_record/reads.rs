@@ -141,11 +141,10 @@ static SELECT_PRIOR_EMITTED_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// Where a metered reading's row goes: the binding's run or a helper's own run, none for a copy of
-/// the session's conversation, and the account it is charged to with that account's generation.
+/// Where a metered reading's row goes: the binding's run or a helper's own run, none for the
+/// session's own spend, and the account it is charged to with that account's generation.
 pub(super) struct MeteredTarget {
-    /// The run the row is recorded on and counted toward, `None` for a copy of the session's
-    /// conversation.
+    /// The run the row is recorded on and counted toward, `None` for the session's own spend.
     pub(super) run_id: Option<RunId>,
     /// The account the reading is charged to.
     pub(super) provider_account_id: ProviderAccountId,
@@ -179,7 +178,7 @@ pub(super) fn read_metered_target(
                 subagent_id,
             )?),
         },
-        MeteredUsageOwner::SessionCopy => None,
+        MeteredUsageOwner::Session => None,
     };
     let credential_generation = read_credential_generation(reader, provider_account_id.clone())?;
     Ok(MeteredTarget {

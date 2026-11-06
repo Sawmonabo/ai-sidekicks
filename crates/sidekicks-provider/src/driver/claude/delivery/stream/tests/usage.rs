@@ -212,7 +212,7 @@ async fn a_helpers_usage_records_on_the_helper_and_the_lead_result_confirms_the_
             (
                 match metered.owner {
                     MeteredUsageOwner::Helper(subagent_id) => Some(subagent_id.as_str().to_owned()),
-                    MeteredUsageOwner::Run | MeteredUsageOwner::SessionCopy => None,
+                    MeteredUsageOwner::Run | MeteredUsageOwner::Session => None,
                 },
                 metered.binding_id,
                 metered.delta.axis_deltas.input.unwrap_or(0),

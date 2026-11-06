@@ -525,7 +525,7 @@ impl ClaudeSessionControls {
             let charge = ClaudeOneTurnCharge {
                 session_id: copy.legs.session_id,
                 binding_id: binding_id.clone(),
-                owner: MeteredUsageOwner::SessionCopy,
+                owner: MeteredUsageOwner::Session,
                 provider_account_id: copy.provider_account_id.clone(),
             };
             self.one_turn_pricing.record(spend, charge).await;

@@ -173,7 +173,7 @@ impl UsageRecord {
             MeteredUsageOwner::Helper(subagent_id) => {
                 self.engine.helper_run(&binding_id, subagent_id)
             }
-            MeteredUsageOwner::Run | MeteredUsageOwner::SessionCopy => None,
+            MeteredUsageOwner::Run | MeteredUsageOwner::Session => None,
         };
         let target = self
             .pool
@@ -200,11 +200,11 @@ impl UsageRecord {
                 }
                 Some(subagent_id)
             }
-            MeteredUsageOwner::Run | MeteredUsageOwner::SessionCopy => None,
+            MeteredUsageOwner::Run | MeteredUsageOwner::Session => None,
         };
         let mut payload = usage_row(session_id, &target, helper.clone(), &delta)?;
         let Some(run_id) = target.run_id else {
-            // A copy of the session's conversation is the session's, counted toward no run.
+            // The session's own spend, counted toward no run.
             let outcome = self
                 .dispatch
                 .dispatch(InboundDelivery::SessionEvent {

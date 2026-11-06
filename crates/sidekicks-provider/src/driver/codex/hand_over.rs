@@ -84,7 +84,7 @@ async fn summarize_on_copy(
                 let metered = MeteredUsage {
                     session_id: params.session_id,
                     binding_id: params.binding_id.clone(),
-                    owner: MeteredUsageOwner::SessionCopy,
+                    owner: MeteredUsageOwner::Session,
                     delta: *delta,
                 };
                 file_copy_usage(

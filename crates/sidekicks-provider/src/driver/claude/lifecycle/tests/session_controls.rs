@@ -265,7 +265,7 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_prices_the_copy_a
         .into_iter()
         .map(|metered| {
             let axes = metered.delta.axis_deltas;
-            let is_copy = metered.owner == MeteredUsageOwner::SessionCopy;
+            let is_copy = metered.owner == MeteredUsageOwner::Session;
             (
                 is_copy,
                 metered.session_id,

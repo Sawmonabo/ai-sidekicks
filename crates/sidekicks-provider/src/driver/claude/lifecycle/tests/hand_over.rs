@@ -117,7 +117,7 @@ async fn a_hand_over_summary_is_claude_codes_own_unframed_else_the_templates_ans
         .into_iter()
         .map(|metered| {
             let axes = metered.delta.axis_deltas;
-            let is_copy = metered.owner == MeteredUsageOwner::SessionCopy;
+            let is_copy = metered.owner == MeteredUsageOwner::Session;
             (is_copy, metered.session_id, axes.input, axes.output)
         })
         .collect();
