@@ -4,6 +4,7 @@
 //! hold it until both let go, and the last release closes the signal a start that waits to read
 //! its opening waits on.
 
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::keyed_lock::KeyHold;
 use tokio::sync::watch;
@@ -39,21 +40,26 @@ impl QueueDelivery {
         .await;
     }
 
-    /// Ends the undo hold `hold_id` on `session_id`, answering whether the session's last hold
-    /// went, so its messages may be handed again and a start waiting on
-    /// [`QueueDelivery::undo_release`] goes on; a second release of one hold changes nothing and
-    /// answers false.
-    pub(crate) fn release_undo_hold(&self, session_id: SessionId, hold_id: UndoHoldId) -> bool {
+    /// Ends the undo hold `hold_id` on `session_id`. Once the session's last hold went, its
+    /// messages may be handed again, a start waiting on [`QueueDelivery::undo_release`] goes on,
+    /// and the answer is the runs whose resume the holds held back, in the order their resumes
+    /// came; `None` while another hold stands, and for a second release of one hold, which changes
+    /// nothing.
+    pub(crate) fn release_undo_hold(
+        &self,
+        session_id: SessionId,
+        hold_id: UndoHoldId,
+    ) -> Option<Vec<RunId>> {
         let mut state = self.lock_state();
-        let Some(holders) = state.undo_holds.get_mut(&session_id) else {
-            return false;
-        };
+        let holders = state.undo_holds.get_mut(&session_id)?;
         if !holders.holds.remove(&hold_id) || !holders.holds.is_empty() {
-            return false;
+            return None;
         }
         // Dropping the holders closes their signal.
-        state.undo_holds.remove(&session_id);
-        true
+        state
+            .undo_holds
+            .remove(&session_id)
+            .map(|holders| holders.owed_resumes)
     }
 
     /// Whether an undo of `session_id` is under way.

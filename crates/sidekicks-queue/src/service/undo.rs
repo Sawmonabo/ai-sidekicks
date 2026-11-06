@@ -61,7 +61,7 @@ static LATER_LEAD_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
 /// [`RunQueue::release_undo_hold`] consumes it, so a hold is let go once. A hold dropped
 /// unreleased, its undo canceled or failed, is let go on a task of the queue's own, as a release
 /// with no edit; dropped off the runtime, it is let go in place, without the session's lock, and
-/// opens nothing.
+/// opens and resumes nothing.
 #[must_use = "a session held for an undo is handed nothing until the hold is released"]
 #[derive(Debug)]
 pub struct UndoHold {
@@ -89,8 +89,10 @@ impl Drop for UndoHold {
         let (session_id, undo_key, hold_id) =
             (self.session_id, self.undo_key.clone(), self.hold_id);
         if tokio::runtime::Handle::try_current().is_err() {
-            // Off the runtime nothing can open the lead's next turn, so the hold alone goes.
-            queue.delivery.release_undo_hold(session_id, hold_id);
+            // Off the runtime nothing can open the lead's next turn or resume a run, so the hold
+            // alone goes: the runs whose resume it held back are dropped, each paused run's pause
+            // standing for the person's next press.
+            let _owed_resumes = queue.delivery.release_undo_hold(session_id, hold_id);
             return;
         }
         let releases = queue.releases.clone();
@@ -319,9 +321,11 @@ impl RunQueue {
     /// that reads its opening later (a queued or interrupted run's start, a paused one's resume)
     /// has the resend reserved as that opening, so no reorder or `Send now` meanwhile puts another
     /// message ahead of it; a resume that does not go drops the reservation while it still names
-    /// this resend. The hold is let go and the turn opened whatever the resend answered, on a task
-    /// of the queue's own, so a caller that goes away meanwhile still lets it go; fails afterwards
-    /// with the first failure, the resend's first.
+    /// this resend. Then each run whose resume the session's undos held back is resumed once, in
+    /// the order the resumes came, at its version read then, while it is still pausing or paused;
+    /// one the undo moved on is dropped. The hold is let go and the turn opened whatever the
+    /// resend answered, on a task of the queue's own, so a caller that goes away meanwhile still
+    /// lets it go; fails afterwards with the first failure, the resend's first.
     pub async fn release_undo_hold(
         &self,
         hold: UndoHold,
@@ -378,7 +382,7 @@ impl RunQueue {
                 first_failure = Some(error);
             }
         }
-        let resumes = {
+        let (opened, owed_resumes) = {
             let queue_hold = self.session_lock.hold_session(session_id).await;
             let mut resent = None;
             if first_failure.is_none() {
@@ -387,25 +391,42 @@ impl RunQueue {
                     Err(error) => first_failure = Some(error),
                 }
             }
-            if self.delivery.release_undo_hold(session_id, hold_id) {
-                match self.open_after_undo(&queue_hold, resent).await {
-                    Ok(resumes) => resumes,
+            match self.delivery.release_undo_hold(session_id, hold_id) {
+                Some(owed_resumes) => match self.open_after_undo(&queue_hold, resent).await {
+                    Ok(opened) => (opened, owed_resumes),
                     Err(error) => {
                         first_failure.get_or_insert(error);
-                        None
+                        (None, owed_resumes)
                     }
-                }
-            } else {
-                None
+                },
+                None => (None, Vec::new()),
             }
         };
-        if let Some((run_id, run_version, reserved_id)) = resumes {
+        let opened_run_id = opened.map(|(run_id, _, _)| run_id);
+        if let Some((run_id, run_version, reserved_id)) = opened {
             #[cfg(test)]
             self.resume_pause.pass().await;
-            if !self.resume_for_send(run_id, run_version).await
+            if !self.resume_paused_run(run_id, run_version).await
                 && let Some(reserved_id) = reserved_id
             {
                 self.admission.drop_reservation_naming(run_id, reserved_id);
+            }
+        }
+        // The run the opening resumed is not resumed again.
+        for run_id in owed_resumes {
+            if Some(run_id) == opened_run_id {
+                continue;
+            }
+            match read_run_through::<QueueError>(&self.pool, run_id).await {
+                Ok(Some(run)) if matches!(run.state, RunState::Pausing | RunState::Paused) => {
+                    // A resume that did not go was logged, and the run's messages wait.
+                    let _resumed = self.resume_paused_run(run_id, run.version).await;
+                }
+                // The undo interrupted the run or it ended: its waiting messages go as it moves.
+                Ok(_) => {}
+                Err(error) => {
+                    first_failure.get_or_insert(error);
+                }
             }
         }
         first_failure.map_or(Ok(()), Err)

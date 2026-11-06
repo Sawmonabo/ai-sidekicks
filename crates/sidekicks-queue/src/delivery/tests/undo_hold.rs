@@ -108,8 +108,8 @@ async fn reaches(
 
 // While an undo holds the session, no way a message reaches the provider sends it: no steer, no
 // mark for the next turn, no continue's read; once the hold goes, the same way sends it. Killed by
-// dropping the hold's read from `accept_send`, from `hand_first` or from the read of the unhanded
-// messages that hands, tool boundaries and continues share.
+// dropping the hold's read from `accept_send`, from `hand_first`, from the read of the unhanded
+// messages that hands and tool boundaries share, or from the continue's read.
 #[rstest]
 #[case::a_send_into_a_run_waiting_on_input(Way::AcceptSend)]
 #[case::a_hand(Way::HandWaiting)]
@@ -138,7 +138,8 @@ async fn nothing_of_a_session_held_for_an_undo_reaches_its_provider_until_the_re
     let reached_while_held = reaches(&fixture, way, &item, &steers).await;
     let is_released = fixture
         .delivery
-        .release_undo_hold(fixture.session_id, hold_id);
+        .release_undo_hold(fixture.session_id, hold_id)
+        .is_some();
     let reached_after = reaches(&fixture, way, &item, &steers).await;
 
     assert!(!reached_while_held, "the held session's message stays");
@@ -246,16 +247,19 @@ async fn a_session_two_undos_hold_stays_held_until_both_let_go() {
 
     let first_released = fixture
         .delivery
-        .release_undo_hold(fixture.session_id, first);
+        .release_undo_hold(fixture.session_id, first)
+        .is_some();
     hand(&fixture).await;
     settle(&fixture).await;
     let steers_while_held = steers.load(Ordering::SeqCst);
     let second_released = fixture
         .delivery
-        .release_undo_hold(fixture.session_id, second);
+        .release_undo_hold(fixture.session_id, second)
+        .is_some();
     let released_again = fixture
         .delivery
-        .release_undo_hold(fixture.session_id, second);
+        .release_undo_hold(fixture.session_id, second)
+        .is_some();
 
     assert!(!first_released);
     assert_eq!(steers_while_held, 0);
