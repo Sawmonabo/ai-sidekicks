@@ -16,9 +16,8 @@ use super::usage::{held_keys, metered_filing, recorded_rows};
 use super::{filing_over, locked_down_config};
 use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::lifecycle::naming::lockdown::read_exec_overrides;
-use crate::driver::codex::lifecycle::naming::{
-    CODEX_NAMING_DEADLINE, CODEX_SERVER_LIST_DEADLINE, name_in_one_shot,
-};
+use crate::driver::codex::lifecycle::naming::one_shot::name_in_one_shot;
+use crate::driver::codex::lifecycle::naming::{CODEX_NAMING_DEADLINE, CODEX_SERVER_LIST_DEADLINE};
 use crate::driver::codex::lifecycle::tests::usage::GatedUsage;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::service::supervisor::test_service::{
