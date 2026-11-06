@@ -8,9 +8,10 @@
 //!   and the web searches at the row's per-search rate.
 //! - **A result's rows.** At a lead `result` stating each model's usage and cost since the
 //!   process's previous result, a model whose entry reads `list` or `managed` with a cost takes
-//!   that cost, shared over the model's rows; any other model is priced from the price list. A
-//!   `result` stating no figures leaves the rows for the next one, and the rows still kept when the
-//!   process ends are priced from the price list.
+//!   that cost, shared over the model's rows; any other stated model is priced from the price
+//!   list. A model the result leaves out, or every model where it states no figures, keeps its
+//!   rows for the next result that states them, since a call finishing after a result is stated on
+//!   the next; the rows still kept when the process ends are priced from the price list.
 //! - **The spend no message showed.** What an entry counts past the model's rows since the last
 //!   result (an advisor's calls, a compaction, a title) is recorded as one more row on the model
 //!   before the price is taken; rows past their entry carry over as the model's balance, and a
@@ -397,10 +398,12 @@ impl ClaudeResultPricing {
         unshown
     }
 
-    /// Takes every kept model's rows at a `result` stating `model_costs`, each model's cost since
+    /// Takes the rows of each model `model_costs` states at a `result`, each model's cost since
     /// the process's previous result: a model whose entry reads `list` or `managed` with a cost
-    /// takes that cost, with any figure carried for it; any other takes none. A figure for a model
-    /// with no kept rows is carried to its next. A basis the driver does not know is logged once
+    /// takes that cost, with any figure carried for it; any other takes none. A model the result
+    /// leaves out keeps its rows for the result that states them, since a call that finishes after
+    /// a result is stated on the next. A figure for a model with no kept rows is carried to its
+    /// next. A basis the driver does not know is logged once
     /// per process on `session_id` and `provider_account_id`.
     pub(crate) fn take_at_result(
         &mut self,
@@ -408,7 +411,13 @@ impl ClaudeResultPricing {
         session_id: SessionId,
         provider_account_id: &ProviderAccountId,
     ) -> Vec<ClaudeModelRows> {
-        let mut taken = std::mem::take(&mut self.kept);
+        let is_stated = |model: &ClaudeModelRows| {
+            (model_costs.iter()).any(|entry| entry.model_id == model.model_id)
+        };
+        let (mut taken, waiting) = std::mem::take(&mut self.kept)
+            .into_iter()
+            .partition(is_stated);
+        self.kept = waiting;
         for entry in model_costs {
             let figure = self.provider_figure(entry, session_id, provider_account_id);
             if let Some(model) = taken

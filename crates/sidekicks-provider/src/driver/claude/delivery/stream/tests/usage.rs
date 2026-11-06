@@ -513,6 +513,38 @@ async fn a_result_stating_no_figures_leaves_its_rows_for_the_next() {
     );
 }
 
+// Killed by pricing at once from the list the rows of a model a result leaves out (`derivedExact`
+// 14,000), which the next result's entry then records again as spend no message showed (a
+// {1,000, 500} row priced 20,000).
+#[tokio::test]
+async fn a_model_the_result_leaves_out_keeps_its_rows_for_the_result_that_states_them() {
+    let scratch = tempfile::tempdir().expect("a scratch folder is made");
+    let stop = CancellationToken::new();
+    let session = ScriptedSession::new().await;
+    register_claude_price_list(&session.price_list, &scratch, &stop).await;
+    let opus = "claude-opus-5-5";
+
+    session.hold_lead_turn("lead");
+    session.frame(&init());
+    session.frame(&priced_message("message-1", opus, 1_000, 500));
+    session.frame(&result(&json!({"model_usage_since_last_result": {}})));
+    session.hold_lead_turn("lead");
+    session.frame(&opus_result(1_000, 500, 0.02, &[]));
+    ScriptedDriver::wait_for(|| !session.usage.priced().is_empty()).await;
+    stop.cancel();
+
+    let lead = binding_id("lead");
+    assert_eq!(
+        metered_rows(&session),
+        [(true, lead, opus.to_owned(), 1_000, 500)]
+    );
+    let account = test_provider_account_id().as_str().to_owned();
+    assert_eq!(
+        priced(&session.usage.priced()),
+        [(UsageCostSource::ProviderReported, vec![(account, 20_000)])]
+    );
+}
+
 // Killed by leaving a turn's rows unpriced until a restart when its process ends before its
 // `result`: they are priced from the price list as the process ends. Killed too by reading
 // `not_available` as a region, which holds the request, and by pricing `us` at the base rate.
