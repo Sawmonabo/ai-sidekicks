@@ -25,7 +25,9 @@ use crate::driver::ReportedVersionReading;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::account::api_key::{log_in_with_api_key, read_codex_api_key};
 use crate::driver::codex::app_server_protocol::ThreadLoadedListParams;
-use crate::driver::codex::exec_relay::{CODEX_EXECUTOR_ARGUMENTS, CodexExecRelay, RelayedThread};
+use crate::driver::codex::exec_relay::{
+    CodexExecRelay, RelayedThread, compose_codex_executor_arguments,
+};
 use crate::driver::codex::native_program::resolve_codex_native_program;
 use crate::driver::codex::privacy::read_codex_privacy;
 use crate::driver::codex::service::command_line::{
@@ -206,10 +208,7 @@ async fn start_relayed_service(
     let executor_launch = compose_codex_native_launch(
         &service.dependencies().data_folder,
         executable,
-        CODEX_EXECUTOR_ARGUMENTS
-            .iter()
-            .map(|argument| (*argument).to_owned())
-            .collect(),
+        compose_codex_executor_arguments(&service.home().kind),
     )
     .await?;
     let environment_add = relay.start(executor_launch.into_command()).await?;
