@@ -125,7 +125,7 @@ pub(super) fn counts(input: u64, output: u64) -> UsageAxisCounts {
 // a parent's sum taken off (rows less 100 and 10), the spend no message showed dropped (one row at
 // 20,000), the rows owned as a run's, or the result's figures left untaken (`derivedExact`).
 #[tokio::test]
-async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_prices_its_copys_own_spend() {
+async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_prices_the_copy_at_its_own_spend() {
     let scratch = tempfile::tempdir().expect("a scratch folder is made");
     let stop = CancellationToken::new();
     let fixture = ScriptedDriver::new();
