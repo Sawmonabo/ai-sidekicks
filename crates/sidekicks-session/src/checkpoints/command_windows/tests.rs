@@ -44,7 +44,7 @@ use crate::checkpoints::store::{
     Checkpoint, CheckpointVersion, CommandWindowId, insert_checkpoint_statement,
     insert_version_statement, open_command_window_statement, uncovered_commands, versions_after,
 };
-use crate::run::engine::test_fixture::insert_running_run;
+use crate::run::engine::test_fixture;
 
 /// The size a large file takes in these tests, past the 10 MiB bound.
 const LARGE_FILE_BYTES: usize = 11 * 1024 * 1024;
@@ -141,7 +141,7 @@ impl Fixture {
 
     fn insert_run(&self) -> RunId {
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a run id");
-        insert_running_run(&self.database, self.session_id, run_id);
+        test_fixture::insert_run(&self.database, self.session_id, run_id, "running");
         run_id
     }
 
