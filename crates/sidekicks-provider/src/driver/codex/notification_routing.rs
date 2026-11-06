@@ -285,30 +285,32 @@ impl CodexSessionRouting {
         prior_emitted_cumulative: UsageAxisCounts,
         model: Option<String>,
     ) -> CodexRoutedFrames {
-        self.accountant.establish_thread(
-            helper_thread_id.clone(),
-            ThreadBaseEstablishment::Resume {
-                prior_emitted_cumulative,
-            },
-        );
-        // Kept before its held frames are released, so each usage reading among them names it.
         let model = match model {
             Some(model) => Some(model),
             None => read_codex_helper_thread(record, &helper_thread_id)
                 .await
                 .and_then(|reading| reading.model),
         };
-        if let Some(model) = model {
-            self.helper_models.insert(helper_thread_id.clone(), model);
-        }
         let mut routed = CodexRoutedFrames::default();
-        let registered = self
-            .router
-            .register_child_thread(helper_announcement(helper_thread_id, &record.thread_id));
+        let registered = self.router.register_child_thread(helper_announcement(
+            helper_thread_id.clone(),
+            &record.thread_id,
+        ));
         if let ChildRegistrationResult::Registered {
             released_frames, ..
         } = registered
         {
+            // Kept only for a helper the router took, and before its held frames are released,
+            // so each usage reading among them is metered and names its model.
+            self.accountant.establish_thread(
+                helper_thread_id.clone(),
+                ThreadBaseEstablishment::Resume {
+                    prior_emitted_cumulative,
+                },
+            );
+            if let Some(model) = model {
+                self.helper_models.insert(helper_thread_id, model);
+            }
             for frame in released_frames {
                 self.route_frame(delivery, record, &frame, &mut routed)
                     .await;

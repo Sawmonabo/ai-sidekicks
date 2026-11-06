@@ -294,6 +294,29 @@ async fn a_usage_reading_carries_its_turns_tier_the_threads_tier_and_its_model(
     );
 }
 
+// A restored helper the router refuses (its parent is no conversation the session routes) keeps
+// no model and no usage base. Killed by either kept ahead of the registration.
+#[tokio::test(start_paused = true)]
+async fn a_refused_restored_helper_keeps_no_model_or_usage_base() {
+    let mut session = TestCodexSession::start().await;
+    let delivery = Arc::clone(&session.task.calls.forks.delivery);
+    let task = &mut session.task;
+    task.record.thread_id = "thread-elsewhere".to_owned();
+
+    task.routing
+        .restore_helper_thread(
+            &delivery,
+            &mut task.record,
+            "helper-1".to_owned(),
+            UsageAxisCounts::default(),
+            Some("gpt-5.4-nano".to_owned()),
+        )
+        .await;
+
+    assert!(!task.routing.is_metered_thread("helper-1"));
+    assert!(!task.routing.helper_models.contains_key("helper-1"));
+}
+
 // A notification's params as the wire carries them.
 fn raw(params: &Value) -> Box<RawValue> {
     RawValue::from_string(params.to_string()).expect("the params are JSON")
