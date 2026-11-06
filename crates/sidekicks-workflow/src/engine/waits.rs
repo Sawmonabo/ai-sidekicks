@@ -10,9 +10,9 @@
 //! the scheduler across sleep. The answer's intake, which makes an answer the step's resume and
 //! settlement, is `answers`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::error::Error;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use futures::FutureExt as _;
@@ -38,6 +38,7 @@ use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::WorkflowWaitCause;
 use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseSuspendedPayload;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::scheduler::armed_instant::{ArmedInstant, InstantJob};
 use sidekicks_store::database::connection::read_pool::{
@@ -88,7 +89,8 @@ const DEADLINE_JOB: &str = "workflow person wait deadline";
 )]
 const DEADLINE_RETRY_JOB: &str = "workflow person wait deadline retry";
 
-// Uses the partial index on the deadline, so the earliest is one index step.
+// Reads the partial index on the deadline in its order, with no sort, so the read stops at the
+// first row of a run not dropped.
 #[cfg_attr(
     not(test),
     expect(
@@ -96,8 +98,8 @@ const DEADLINE_RETRY_JOB: &str = "workflow person wait deadline retry";
         reason = "the tick, which opens a person wait and settles it with the answer"
     )
 )]
-const EARLIEST_DEADLINE_SQL: &str =
-    "SELECT MIN(wait_deadline_at) FROM workflow_steps WHERE wait_deadline_at IS NOT NULL";
+const EARLIEST_DEADLINE_SQL: &str = "SELECT workflow_run_id, wait_deadline_at FROM workflow_steps \
+     WHERE wait_deadline_at IS NOT NULL ORDER BY wait_deadline_at";
 
 // A deadline is set only while a person wait holds the step, so no status test is needed.
 #[cfg_attr(
@@ -574,7 +576,8 @@ fn stored_timestamp(row: &Row<'_>, index: usize) -> rusqlite::Result<Timestamp> 
     })
 }
 
-// The earliest deadline of a step waiting on a person, `None` when no wait has one.
+// The earliest deadline of a step waiting on a person in a run not in `skipped`, `None` when no
+// such wait has one.
 #[cfg_attr(
     not(test),
     expect(
@@ -584,15 +587,17 @@ fn stored_timestamp(row: &Row<'_>, index: usize) -> rusqlite::Result<Timestamp> 
 )]
 fn earliest_person_wait_deadline(
     connection: &Connection,
+    skipped: &HashSet<WorkflowRunId>,
 ) -> Result<Option<SystemTime>, PersonWaitDeadlineError> {
-    let earliest = connection
-        .prepare_cached(EARLIEST_DEADLINE_SQL)?
-        .query_row([], |row| {
-            optional_text_column(row, 0, |text| {
-                WireInstant::try_from(text)?.timestamp().ok_or(NotAnInstant)
-            })
-        })?;
-    Ok(earliest.map(SystemTime::from))
+    let mut statement = connection.prepare_cached(EARLIEST_DEADLINE_SQL)?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        let run_id = text_column(row, 0, |text| WorkflowRunId::new(&text))?;
+        if !skipped.contains(&run_id) {
+            return Ok(Some(SystemTime::from(stored_timestamp(row, 1)?)));
+        }
+    }
+    Ok(None)
 }
 
 // A step whose deadline passed, and how long its wait was allowed.
@@ -697,6 +702,9 @@ pub(crate) struct PersonWaitDeadlines {
     reads: Arc<DatabaseReadPool>,
     /// Where a due step's failure is reported, to the tick.
     reports: mpsc::Sender<StepReport>,
+    /// The runs the tick dropped in this daemon life, whose stored waits stay off the clock until
+    /// the restart settles them; one id per failed write, and the restart starts with none.
+    skipped: Mutex<HashSet<WorkflowRunId>>,
 }
 
 impl PersonWaitDeadlines {
@@ -718,7 +726,14 @@ impl PersonWaitDeadlines {
             armed: ArmedInstant::new(scheduler, DEADLINE_JOB, DEADLINE_RETRY_JOB),
             reads,
             reports,
+            skipped: Mutex::new(HashSet::new()),
         })
+    }
+
+    /// Keeps the waits of the dropped run `run_id` off the clock from its next read on.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    pub(crate) fn skip_run(&self, run_id: WorkflowRunId) {
+        lock(&self.skipped).insert(run_id);
     }
 }
 
@@ -727,9 +742,9 @@ impl InstantJob for PersonWaitDeadlines {
         &self.armed
     }
 
-    /// Reports every step whose deadline is at or before `instant` failed, once: it arms nothing
-    /// again, so a deadline is not reported twice before the commit clears it, and the tick calls
-    /// [`InstantJob::rearm`] after that write.
+    /// Reports every step whose deadline is at or before `instant` failed, once, but a dropped
+    /// run's: it arms nothing again, so a deadline is not reported twice before the commit clears
+    /// it, and the tick calls [`InstantJob::rearm`] after that write.
     fn fire(
         self: Arc<Self>,
         instant: SystemTime,
@@ -737,12 +752,16 @@ impl InstantJob for PersonWaitDeadlines {
         async move {
             let instant = WireInstant::from_timestamp(Timestamp::try_from(instant)?)
                 .expect("an instant armed from a stored deadline is after year 0000");
-            let due = self
+            let mut due = self
                 .reads
                 .read(ReadLength::Short, move |connection| {
                     due_person_waits(connection, &instant)
                 })
                 .await?;
+            {
+                let skipped = lock(&self.skipped);
+                due.retain(|due_wait| !skipped.contains(&due_wait.step.workflow_run_id));
+            }
             for DueWait { step, limit_ms } in due {
                 let failure = step_timed_out(&step, limit_ms);
                 let report = StepReport {
@@ -762,13 +781,17 @@ impl InstantJob for PersonWaitDeadlines {
         .boxed()
     }
 
-    /// Reads the earliest stored deadline and arms the clock at it, or disarms it when no wait
-    /// has one; a failed read is tried again a minute later while nothing is armed.
+    /// Reads the earliest stored deadline of a run not dropped and arms the clock at it, or
+    /// disarms it when no such wait has one; a failed read is tried again a minute later while
+    /// nothing is armed.
     fn rearm(self: Arc<Self>) -> BoxFuture<'static, ()> {
         async move {
+            let skipped = lock(&self.skipped).clone();
             match self
                 .reads
-                .read(ReadLength::Short, earliest_person_wait_deadline)
+                .read(ReadLength::Short, move |connection| {
+                    earliest_person_wait_deadline(connection, &skipped)
+                })
                 .await
             {
                 Ok(next) => ArmedInstant::arm(&self, next),

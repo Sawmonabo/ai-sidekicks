@@ -24,6 +24,7 @@ use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::WorkflowStepStatus;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
+use sidekicks_std::scheduler::armed_instant::InstantJob as _;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -257,7 +258,8 @@ impl EngineTick {
 
     /// One turn: each run's share in arrival order, its next batch first and its retries come
     /// `due` with it, committed in one write per run; then one read of the dispatching runs'
-    /// levels, their dispatch, and one weigh of the memory gate.
+    /// levels, their dispatch, one read of the deadline clock where a write moved a deadline, and
+    /// one weigh of the memory gate.
     async fn turn(
         &mut self,
         inputs: Vec<EngineTickInput>,
@@ -296,6 +298,10 @@ impl EngineTick {
         }
         if !dispatching.is_empty() {
             self.dispatch_readied(dispatching).await;
+        }
+        // Awaited, so no two reads of the clock race.
+        if std::mem::take(&mut self.needs_deadline_read) {
+            Arc::clone(&self.deadlines).rearm().await;
         }
         self.admission.weigh();
     }
@@ -477,7 +483,11 @@ impl EngineTick {
                         });
                     }
                 }
+                for (step, line) in std::mem::take(&mut live.deadline_lines) {
+                    live.record.decision(Some(&step), line).await;
+                }
                 self.ask_people(&mut live, asks).await;
+                self.needs_deadline_read |= std::mem::take(&mut live.needs_deadline_read);
                 if live.steps.is_empty() {
                     self.recorder.end_run(run_id);
                     return Some(Vec::new());
@@ -497,13 +507,21 @@ impl EngineTick {
 
     /// Ends the run of `live`, whose turn's write was refused: cancels its steps, deletes every
     /// artifact the write would have named and records the failure; the restart settles what the
-    /// log holds.
-    async fn drop_failed_run(&self, live: LiveRun, failure: RunTurnCommitFailure) {
+    /// log holds. Its stored waits stay off the deadline clock, and an answer to one is not taken.
+    async fn drop_failed_run(&mut self, live: LiveRun, failure: RunTurnCommitFailure) {
         let RunTurnCommitFailure {
             error,
             artifact_ids,
         } = failure;
         live.scope.cancel.cancel();
+        self.dropped_waits.extend(
+            live.steps
+                .values()
+                .filter_map(|live_step| live_step.wait_id),
+        );
+        self.deadlines.skip_run(live.scope.run_id);
+        // The dropped run's deadline may be the one armed.
+        self.needs_deadline_read = true;
         for artifact_id in &artifact_ids {
             if let Err(removal) = self.payloads.delete(artifact_id).await {
                 live.record
