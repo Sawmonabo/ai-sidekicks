@@ -498,11 +498,7 @@ mod tests {
             number: u64,
             queued: &AgentRunQueuedPayload,
         ) -> Result<(), Infallible> {
-            let parent_run_id = match queued {
-                AgentRunQueuedPayload::SessionAgent(payload) => payload.parent_run_id,
-                AgentRunQueuedPayload::ResolvedAgent(payload) => payload.parent_run_id,
-            };
-            self.record(Piece::Run(number, parent_run_id));
+            self.record(Piece::Run(number, queued.parent_run_id()));
             Ok(())
         }
 

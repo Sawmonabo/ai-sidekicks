@@ -284,6 +284,14 @@ impl AgentRunQueuedPayload {
             Self::ResolvedAgent(payload) => payload.run_version,
         }
     }
+
+    /// The run whose call started it, `None` for a run no call started.
+    pub fn parent_run_id(&self) -> Option<RunId> {
+        match self {
+            Self::SessionAgent(payload) => payload.parent_run_id,
+            Self::ResolvedAgent(payload) => payload.parent_run_id,
+        }
+    }
 }
 
 /// The TypeScript module of a run's creation record.
