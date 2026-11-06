@@ -7,7 +7,7 @@ import ajvEqualModule from "ajv/dist/runtime/equal.js";
 import ajvUcs2lengthModule from "ajv/dist/runtime/ucs2length.js";
 
 import { jsonUtf8ByteLength } from "./jsonrpc/byte-length.js";
-import { webAddressFault } from "./web-address.js";
+import { isSiteOrigin, webAddressFault } from "./web-address.js";
 
 /**
  * The byte attachments a message carries beside its JSON; a member written `{"$bytes": n}` is
@@ -27,12 +27,6 @@ export interface SchemaCheckContext {
 export interface SchemaCheck<T> {
   (this: SchemaCheckContext | void, value: unknown): value is T;
   errors?: ErrorObject[] | null;
-}
-
-/** Whether `origin` is exactly a web address's origin: `scheme://host[:port]` and nothing more. */
-function isSiteOrigin(origin: string): boolean {
-  const address = URL.parse(origin);
-  return address !== null && webAddressFault(address) === null && address.origin === origin;
 }
 
 /** Whether `address`, trimmed, parses as an `https:` address. */
