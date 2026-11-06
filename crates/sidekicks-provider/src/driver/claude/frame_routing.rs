@@ -83,16 +83,30 @@ pub(crate) struct ClaudeThreadUsageTally {
 #[derive(Debug)]
 struct ClaudeThreadMessages {
     finished: UsageAxisCounts,
-    open: Option<ClaudeOpenMessage>,
+    open: Option<ClaudeMessageUsageObservation>,
     confirmed: UsageAxisCounts,
 }
 
-// The message a thread is reading: its id, its last counts, and what prices its request so far.
-#[derive(Debug)]
-struct ClaudeOpenMessage {
-    message_id: String,
-    counts: UsageAxisCounts,
-    request: ClaudeMessageRequestFacts,
+impl ClaudeMessageUsageObservation {
+    /// Raises this message to its `later` reading: each count and the longer-lifetime cache write
+    /// and searches to the larger figure, every other fact as `later` reads it.
+    pub(crate) fn raise(&mut self, later: &ClaudeMessageUsageObservation) {
+        let (so_far, read) = (&self.request, &later.request);
+        self.counts = larger_counts(self.counts, later.counts);
+        self.request = ClaudeMessageRequestFacts {
+            cache_write_extended_tokens: combine_count(
+                so_far.cache_write_extended_tokens,
+                read.cache_write_extended_tokens,
+                u64::max,
+            ),
+            web_search_requests: combine_count(
+                so_far.web_search_requests,
+                read.web_search_requests,
+                u64::max,
+            ),
+            ..read.clone()
+        };
+    }
 }
 
 impl ClaudeThreadMessages {
@@ -127,11 +141,13 @@ impl ClaudeThreadMessages {
         {
             self.finished = add_counts(self.finished, closed.counts);
         }
-        let open = self.open.get_or_insert_with(|| ClaudeOpenMessage {
-            message_id: message.message_id.clone(),
-            counts: UsageAxisCounts::default(),
-            request: ClaudeMessageRequestFacts::default(),
-        });
+        let open = self
+            .open
+            .get_or_insert_with(|| ClaudeMessageUsageObservation {
+                message_id: message.message_id.clone(),
+                counts: UsageAxisCounts::default(),
+                request: ClaudeMessageRequestFacts::default(),
+            });
         let read = &message.request;
         let so_far = &open.request;
         let request = UsageRequestFacts {
@@ -142,20 +158,7 @@ impl ClaudeThreadMessages {
             web_search_requests: growth(so_far.web_search_requests, read.web_search_requests),
             ..request_selectors(&message.message_id, read)
         };
-        open.counts = larger_counts(open.counts, message.counts);
-        open.request = ClaudeMessageRequestFacts {
-            cache_write_extended_tokens: combine_count(
-                so_far.cache_write_extended_tokens,
-                read.cache_write_extended_tokens,
-                u64::max,
-            ),
-            web_search_requests: combine_count(
-                so_far.web_search_requests,
-                read.web_search_requests,
-                u64::max,
-            ),
-            ..read.clone()
-        };
+        open.raise(message);
         (self.total(), request)
     }
 

@@ -31,7 +31,7 @@ use crate::driver::claude::delivery::messages::{ClaudeOpenToolCall, close_opened
 use crate::driver::claude::delivery::run_readings::{ClaudeRow, ClaudeRowDelivery};
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::frame_routing::ClaudeMeteredReading;
-use crate::driver::claude::pricing::ClaudeModelRows;
+use crate::driver::claude::pricing::{price_claude_rows, record_for_price};
 use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::driver::claude::session::conversation_home::ClaudeConversationHomeKeep;
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
@@ -40,7 +40,6 @@ use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::reorder_buffer::{ReorderBufferedEvent, ReorderPairingRole};
 use crate::port::held_tool_calls::HeldToolCall;
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner};
-use crate::pricing::live::LiveUsageRow;
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 /// Why usage Claude Code reported is not recorded: no run holds the session's thread, no helper's
@@ -181,22 +180,14 @@ impl ClaudeDeliveryStream {
                 );
                 continue;
             };
-            // A row with no model has no rates; the next start's pass reads it.
-            let priced = (reading.delta.request.model_id.clone())
-                .map(|model_id| (model_id, reading.delta.clone()));
             let metered = MeteredUsage {
                 session_id: session.session_id,
                 binding_id,
                 owner,
                 delta: reading.delta,
             };
-            match sink.record_metered(metered).await {
-                Ok(Some(recorded)) => {
-                    if let Some((model_id, delta)) = priced {
-                        let row = LiveUsageRow::new(&recorded, session.session_id, &delta);
-                        lock(&session.result_pricing).keep(model_id, row, &delta);
-                    }
-                }
+            match record_for_price(&**sink, metered).await {
+                Ok(Some(kept)) => lock(&session.result_pricing).keep(kept),
                 Ok(None) => {}
                 Err(error) => report_engine_failure(session, "metered usage", &*error),
             }
@@ -229,7 +220,7 @@ impl ClaudeDeliveryStream {
             session.session_id,
             &account,
         );
-        self.price_models(session, models).await;
+        price_claude_rows(&self.dependencies.pricing, session.session_id, models).await;
     }
 
     /// Prices the rows `session`'s process kept with no `result` to price them, from the price
@@ -237,21 +228,7 @@ impl ClaudeDeliveryStream {
     pub(crate) async fn price_process_end(&self, session: &ClaudeSessionStream) {
         let account = session.provider_account_id();
         let models = lock(&session.result_pricing).take_all(session.session_id, &account);
-        self.price_models(session, models).await;
-    }
-
-    async fn price_models(&self, session: &ClaudeSessionStream, models: Vec<ClaudeModelRows>) {
-        for model in models {
-            let pricing = &self.dependencies.pricing;
-            pricing
-                .price(
-                    session.session_id,
-                    &model.model_id,
-                    model.rows,
-                    model.provider_figure_usd_micros,
-                )
-                .await;
-        }
+        price_claude_rows(&self.dependencies.pricing, session.session_id, models).await;
     }
 
     /// Moves the session's stream, the binding its lead runs on, every lead run's binding on the

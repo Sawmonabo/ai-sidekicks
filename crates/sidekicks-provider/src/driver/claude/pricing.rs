@@ -17,6 +17,7 @@
 //!   figure with no row to land on carries to the model's next rows.
 
 use std::collections::HashMap;
+use std::error::Error;
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::UsageCostSource;
@@ -32,8 +33,9 @@ use crate::driver::claude::session::transport::declarations::ClaudeModelCost;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics,
 };
+use crate::port::usage_sink::{MeteredUsage, UsageSink};
 use crate::pricing::list::PriceTable;
-use crate::pricing::live::LiveUsageRow;
+use crate::pricing::live::{LivePricing, LiveUsageRow};
 use crate::pricing::quote::{RequestTokenCounts, RequestUsage, quote_request_rows};
 use crate::pricing::rule::{RequestPricer, RequestPricing};
 use crate::usage_delta_accountant::{
@@ -172,14 +174,69 @@ pub(crate) struct ClaudeModelRows {
     region: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
 }
 
+/// A recorded row kept for its price: its model, the row, its input, cached input, cache write,
+/// output and web searches, and its region.
+pub(crate) struct ClaudeKeptRow {
+    model_id: ModelId,
+    row: LiveUsageRow,
+    spent: [u64; SPEND_FIGURES],
+    region: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
+}
+
+/// Records `metered` through `sink`, answering the row to keep for its price where the record
+/// wrote one for a delta naming a model; a row with no model has no rates, and the next start's
+/// pass reads it. Fails as the record fails.
+pub(crate) async fn record_for_price(
+    sink: &dyn UsageSink,
+    metered: MeteredUsage,
+) -> Result<Option<ClaudeKeptRow>, Box<dyn Error + Send + Sync>> {
+    let session_id = metered.session_id;
+    let priced =
+        (metered.delta.request.model_id.clone()).map(|model_id| (model_id, metered.delta.clone()));
+    let recorded = sink.record_metered(metered).await?;
+    let (Some(recorded), Some((model_id, delta))) = (recorded, priced) else {
+        return Ok(None);
+    };
+    let axes = &delta.axis_deltas;
+    let spent = [
+        axes.input,
+        axes.cached_input,
+        axes.cache_write_input,
+        axes.output,
+        delta.request.web_search_requests,
+    ];
+    Ok(Some(ClaudeKeptRow {
+        model_id,
+        row: LiveUsageRow::new(&recorded, session_id, &delta),
+        spent: spent.map(|figure| figure.unwrap_or(0)),
+        region: delta.request.processing_region,
+    }))
+}
+
+/// Prices each of `models`, `session_id`'s rows by model, through `pricing`.
+pub(crate) async fn price_claude_rows(
+    pricing: &LivePricing,
+    session_id: SessionId,
+    models: Vec<ClaudeModelRows>,
+) {
+    for model in models {
+        let figure = model.provider_figure_usd_micros;
+        pricing
+            .price(session_id, &model.model_id, model.rows, figure)
+            .await;
+    }
+}
+
 impl ClaudeResultPricing {
-    /// Keeps `row`, recorded on `model_id` from `delta`, until the process's next lead `result` or
-    /// its end.
-    pub(crate) fn keep(&mut self, model_id: ModelId, row: LiveUsageRow, delta: &MeteredUsageDelta) {
-        let index = self.kept.iter().position(|kept| kept.model_id == model_id);
+    /// Keeps `kept` until the process's next lead `result` or its end.
+    pub(crate) fn keep(&mut self, kept: ClaudeKeptRow) {
+        let index = self
+            .kept
+            .iter()
+            .position(|model| model.model_id == kept.model_id);
         let index = index.unwrap_or_else(|| {
             self.kept.push(ClaudeModelRows {
-                model_id,
+                model_id: kept.model_id,
                 rows: Vec::new(),
                 provider_figure_usd_micros: None,
                 spent: [0; SPEND_FIGURES],
@@ -187,20 +244,12 @@ impl ClaudeResultPricing {
             });
             self.kept.len() - 1
         });
-        let kept = &mut self.kept[index];
-        let axes = &delta.axis_deltas;
-        let figures = [
-            axes.input,
-            axes.cached_input,
-            axes.cache_write_input,
-            axes.output,
-            delta.request.web_search_requests,
-        ];
-        for (spent, figure) in kept.spent.iter_mut().zip(figures) {
-            *spent = spent.saturating_add(figure.unwrap_or(0));
+        let model = &mut self.kept[index];
+        for (spent, figure) in model.spent.iter_mut().zip(kept.spent) {
+            *spent = spent.saturating_add(figure);
         }
-        kept.rows.push(row);
-        kept.region.clone_from(&delta.request.processing_region);
+        model.rows.push(kept.row);
+        model.region = kept.region;
     }
 
     /// The spend each model's entry in `model_costs` states past the rows kept on it since the
