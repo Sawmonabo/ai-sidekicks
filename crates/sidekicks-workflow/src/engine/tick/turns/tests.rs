@@ -228,7 +228,7 @@ async fn a_failed_turn_drops_its_run_and_deletes_its_payloads() {
         .collect();
     assert_eq!(written.len(), 2, "X's output and A's input are artifacts");
     assert_eq!(harness.payloads.deletes(), written);
-    let failed = harness.faults("turnWriteFailed");
+    let failed = harness.record_lines("turnWriteFailed");
     assert_eq!(failed.len(), 1);
     let error = failed[0]["error"].as_str().expect("the error is text");
     assert!(error.contains("UNIQUE constraint failed"), "{error}");
@@ -314,7 +314,7 @@ async fn a_step_whose_payload_cannot_be_stored_fails_in_its_place(
     };
     assert_eq!(run_failures, parks);
     assert_eq!(
-        harness.faults("settlementWriteFailed").len(),
+        harness.record_lines("settlementWriteFailed").len(),
         write_failures
     );
     assert_eq!(harness.payloads.writes().len(), 3);

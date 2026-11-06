@@ -10,6 +10,7 @@ use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::{ComposedText, NonEmptyText};
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::{
     WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
 };
@@ -219,6 +220,70 @@ fn timed_out(limit_ms: u64) -> Value {
         "code": "workflow.step.timedOut",
         "details": {"cause": "stepTimeout", "limitMs": limit_ms},
     })
+}
+
+/// A dropped run's stored wait stays off the clock: the clock arms at the next run's deadline and
+/// reports only that run's step once the clock passes both. Kills: the earliest read ignoring the
+/// skip, which arms the dropped run's deadline; the due read reporting the dropped run's step.
+#[tokio::test]
+async fn a_dropped_runs_deadline_leaves_the_clock() {
+    const DROPPED_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e53";
+    let database = TestDatabase::new(schema_parts());
+    let rows = database.opener()().expect("the test creates its database");
+    insert_workflow_version(&rows, DEFINITION_ID, VERSION_ID, "Review");
+    // Wait ids come from the execution index and are unique, so the two runs' indexes differ.
+    for (run_id, execution_index, deadline_after) in [(DROPPED_RUN_ID, 0, 10), (RUN_ID, 1, 20)] {
+        insert_run(
+            &rows,
+            run_id,
+            VERSION_ID,
+            WorkflowRunStatus::Waiting,
+            OPENED_AT,
+            None,
+        );
+        insert_step(
+            &rows,
+            run_id,
+            &TestStep {
+                execution_index,
+                status: WorkflowStepStatus::Waiting,
+                wait_cause: Some(WorkflowWaitCause::Approval),
+                wait_account_id: None,
+                resume_at: None,
+            },
+        );
+        set_deadline(&rows, execution_index, Duration::from_secs(deadline_after));
+    }
+    let clock = Arc::new(TestWallClock::default());
+    let wall_clock: Arc<TestWallClock> = Arc::clone(&clock);
+    let scheduler = Arc::new(Scheduler::start(wall_clock, None, watch::channel(0).1));
+    let reads = Arc::new(DatabaseReadPool::new(
+        database.path(),
+        PERSON_WAIT_STATEMENT_CAPACITY,
+    ));
+    let (reports, mut received) = mpsc::channel(8);
+    let deadlines = PersonWaitDeadlines::new(scheduler, reads, reports);
+
+    deadlines.skip_run(WorkflowRunId::new(DROPPED_RUN_ID).expect("the test's run id"));
+    Arc::clone(&deadlines).rearm().await;
+    assert_eq!(
+        deadlines.armed.instant(),
+        Some(clock_instant(Duration::from_secs(20)))
+    );
+
+    clock.set_now(clock_instant(Duration::from_secs(15)));
+    tokio::time::sleep(QUIET).await;
+    assert!(received.try_recv().is_err(), "nothing is due yet");
+    clock.set_now(clock_instant(Duration::from_secs(25)));
+    assert_eq!(
+        reported_failure(next_report(&mut received).await),
+        (test_step(1), timed_out(20_000))
+    );
+    tokio::time::sleep(QUIET).await;
+    assert!(
+        received.try_recv().is_err(),
+        "the dropped run's step is not reported"
+    );
 }
 
 /// The clock arms at the earliest stored deadline, fails only the steps due by the instant it

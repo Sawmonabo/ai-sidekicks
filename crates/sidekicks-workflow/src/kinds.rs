@@ -116,9 +116,12 @@ pub(crate) enum StepAdmissionNeed {
 
 /// What a step's run asks of the engine: its output, a wait on a person, or an agent run, which
 /// the engine opens and whose answer or outcome it makes the step's output.
-#[expect(
-    dead_code,
-    reason = "the tick's dispatch, which acts on what each executor answers"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the tick's dispatch, which acts on what each executor answers"
+    )
 )]
 #[derive(Debug)]
 pub(crate) enum StepOutcome {

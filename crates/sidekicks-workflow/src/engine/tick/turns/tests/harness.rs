@@ -13,6 +13,7 @@ use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::id::{UuidTextForm, mint_uuid_v7};
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::text::{ComposedText, NonEmptyText};
 use sidekicks_contracts::workflow::definition::document::{WorkflowEdge, WorkflowNode};
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::events::WorkflowRunStartedPayload;
@@ -23,6 +24,7 @@ use sidekicks_contracts::workflow::run::trigger::{
 };
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::Scheduler;
+use sidekicks_std::scheduler::armed_instant::InstantJob as _;
 use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
@@ -31,10 +33,12 @@ use sidekicks_store::events::session::appender::{
     SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
-use tokio::sync::{Notify, mpsc, watch};
+use tokio::sync::oneshot::error::RecvError;
+use tokio::sync::{Notify, mpsc, oneshot, watch};
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
+use crate::engine::chain::{KeepGoingAnswer, KeepGoingIntake};
 use crate::engine::event_record::EngineRecorder;
 use crate::engine::ports::kept_payloads::KeptPayloads;
 use crate::engine::ports::{
@@ -48,21 +52,28 @@ use crate::engine::tick::turns::{
     ENGINE_TICK_STATEMENT_CAPACITY, EngineTick, EngineTickDependencies, EngineTickInput,
 };
 use crate::engine::tick::{RunGraph, RunScope, StepReport, test_run_scope};
-use crate::engine::waits::{PERSON_WAIT_STATEMENT_CAPACITY, PersonWaitDeadlines, PersonWaitPorts};
+use crate::engine::waits::answers::PersonWaitIntake;
+use crate::engine::waits::{
+    PERSON_WAIT_STATEMENT_CAPACITY, PersonWaitAnswer, PersonWaitDeadlines, PersonWaitPorts,
+    PersonWaitRefusal,
+};
 use crate::kinds::step_context::StepContext;
 use crate::kinds::{
-    NodeExecutor, NodeKindTable, PassThroughExecutor, StepFailure, StepOutcome, test_kind,
-    uncoded_step_error,
+    NodeExecutor, NodeKindTable, PassThroughExecutor, PersonAsk, PersonWait, StepFailure,
+    StepOutcome, test_kind, uncoded_step_error,
 };
 use crate::runs::creation::{
     WorkflowRunCreation, trigger_step_key, workflow_run_creation_statements,
 };
+use crate::runs::gate_resolution::WorkflowGateAnswer;
 use crate::runs::step_payload::write_step_payload;
 use crate::schema::schema_parts;
 use crate::test_rows::insert_workflow_version_body;
 
 /// How long a test waits for what the loop must write.
 pub(in crate::engine::tick::turns) const WAIT: Duration = Duration::from_secs(10);
+/// A wait id no step ever waits under, which the turn barrier answers.
+const NO_WAIT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4eff";
 /// How long a test waits to see that the loop writes nothing more.
 pub(in crate::engine::tick::turns) const QUIET: Duration = Duration::from_millis(300);
 
@@ -89,6 +100,10 @@ enum Script {
     AwaitCancel,
     /// Outputs the level it runs at; the node `A` first waits for the test's release.
     Level,
+    /// Asks an approval that times out after 60 s.
+    Approve,
+    /// Asks for a chat reply that times out after 120 s.
+    Ask,
 }
 
 /// An executor that runs `script`, waking `signal` where the script waits or is canceled.
@@ -163,6 +178,10 @@ impl NodeExecutor for ScriptedExecutor {
                         .expect("a level writes as JSON");
                     vec![vec![item(json!({ "level": level }))]]
                 }
+                Script::Approve => {
+                    return Ok(person_wait(PersonAsk::Approval { prompt: prompt() }, 60));
+                }
+                Script::Ask => return Ok(person_wait(PersonAsk::Reply { prompt: prompt() }, 120)),
             }))
         })
     }
@@ -181,6 +200,19 @@ pub(in crate::engine::tick::turns) fn item(json: Value) -> WorkflowItem {
     }
 }
 
+/// A wait on a person asking `ask`, which times out after `timeout_secs`.
+fn person_wait(ask: PersonAsk, timeout_secs: u64) -> StepOutcome {
+    StepOutcome::PersonWait(PersonWait {
+        ask,
+        timeout: Some(Duration::from_secs(timeout_secs)),
+    })
+}
+
+/// What the test's person waits ask.
+fn prompt() -> ComposedText {
+    ComposedText::new("Ship it?".to_owned()).expect("the test's prompt")
+}
+
 /// Ten items of 7 KiB each, above the inline cap together.
 pub(in crate::engine::tick::turns) fn large_items() -> Vec<WorkflowItem> {
     (0..10)
@@ -188,35 +220,45 @@ pub(in crate::engine::tick::turns) fn large_items() -> Vec<WorkflowItem> {
         .collect()
 }
 
-/// A kind `kind` with `input_count` main inputs and one main output, run by `executor`.
+/// A kind `kind` with `input_count` main inputs and `output_count` main outputs, run by
+/// `executor`.
 fn kind(
     kind: &str,
     category: &str,
-    input_count: usize,
+    (input_count, output_count): (usize, usize),
     executor: Box<dyn NodeExecutor>,
 ) -> crate::kinds::NodeKind {
     let inputs: Vec<Value> = (0..input_count)
         .map(|index| json!({ "type": "main", "id": format!("inputs/main/{index}"), "label": "In" }))
+        .collect();
+    let outputs: Vec<Value> = (0..output_count)
+        .map(|index| json!({ "type": "main", "id": format!("outputs/main/{index}"), "label": "Out" }))
         .collect();
     test_kind(
         json!({
             "kind": kind, "version": 1, "category": category, "displayName": kind,
             "description": "A test kind.", "icon": "test", "params": [],
             "outputsDeriveFromParams": false, "inputs": inputs,
-            "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
+            "outputs": outputs,
         }),
         None,
         executor,
     )
 }
 
-/// The test's kinds: a trigger and a step passing their inputs on, and one kind per script.
+/// The test's kinds: a trigger and a step passing their inputs on, and one kind per script; an
+/// approval has two outputs, which its answer fills.
 fn kinds(signal: &Arc<Signals>) -> Arc<NodeKindTable> {
     let scripted = |name: &str, inputs: usize, script: Script| {
+        let outputs = if matches!(script, Script::Approve) {
+            2
+        } else {
+            1
+        };
         kind(
             name,
             "developer",
-            inputs,
+            (inputs, outputs),
             Box::new(ScriptedExecutor {
                 script,
                 signal: Arc::clone(signal),
@@ -225,9 +267,24 @@ fn kinds(signal: &Arc<Signals>) -> Arc<NodeKindTable> {
     };
     Arc::new(
         NodeKindTable::new(vec![
-            kind("test.trigger", "trigger", 1, Box::new(PassThroughExecutor)),
-            kind("test.step", "developer", 1, Box::new(PassThroughExecutor)),
-            kind("test.pair", "developer", 2, Box::new(PassThroughExecutor)),
+            kind(
+                "test.trigger",
+                "trigger",
+                (1, 1),
+                Box::new(PassThroughExecutor),
+            ),
+            kind(
+                "test.step",
+                "developer",
+                (1, 1),
+                Box::new(PassThroughExecutor),
+            ),
+            kind(
+                "test.pair",
+                "developer",
+                (2, 1),
+                Box::new(PassThroughExecutor),
+            ),
             scripted("test.empty", 1, Script::Empty),
             scripted("test.large", 1, Script::Large),
             scripted("test.wait", 1, Script::AwaitCancel),
@@ -237,6 +294,8 @@ fn kinds(signal: &Arc<Signals>) -> Arc<NodeKindTable> {
             scripted("test.first", 2, Script::First),
             scripted("test.gated", 1, Script::Gated),
             scripted("test.gatedFailure", 1, Script::GatedFailure),
+            scripted("test.approve", 1, Script::Approve),
+            scripted("test.ask", 1, Script::Ask),
         ])
         .expect("the test's kinds build a table"),
     )
@@ -591,10 +650,7 @@ impl Harness {
             trigger_items,
             started_sequence: receipt.sequence,
         };
-        self.inbox
-            .send(EngineTickInput::Started(started))
-            .await
-            .unwrap_or_else(|_| panic!("the loop takes the run"));
+        self.send(EngineTickInput::Started(started)).await;
         cancel
     }
 
@@ -653,16 +709,88 @@ impl Harness {
             .unwrap_or_else(|| panic!("{node_id} has its {event_type}"))
     }
 
-    /// The record lines of the fault `fault`.
-    pub(in crate::engine::tick::turns) fn faults(
+    /// The record lines whose word is `record`: a fault, a decision, an intent or an outcome.
+    pub(in crate::engine::tick::turns) fn record_lines(
         &self,
-        fault: &str,
+        record: &str,
     ) -> Vec<serde_json::Map<String, Value>> {
         self.records
             .lines()
             .into_iter()
-            .filter(|line| line.get("record") == Some(&json!(fault)))
+            .filter(|line| line.get("record") == Some(&json!(record)))
             .collect()
+    }
+
+    /// Sends a person's `answer` to the wait `wait_id`, with an approval's `gate` answer, and
+    /// answers the loop's reply, or the error of a reply the loop dropped unsent.
+    pub(in crate::engine::tick::turns) async fn answer(
+        &self,
+        wait_id: UuidTextForm,
+        answer: PersonWaitAnswer,
+        gate: Option<WorkflowGateAnswer>,
+    ) -> Result<Result<(), PersonWaitRefusal>, RecvError> {
+        let (reply, replied) = oneshot::channel();
+        self.send(EngineTickInput::Answer(PersonWaitIntake {
+            wait_id,
+            answer,
+            gate,
+            at: WireInstant::now(),
+            reply,
+        }))
+        .await;
+        timeout(WAIT, replied)
+            .await
+            .expect("the loop replies in time")
+    }
+
+    /// Sends `answer`'s `Keep going` and answers the loop's reply, or the error of a reply the loop
+    /// dropped unsent.
+    pub(in crate::engine::tick::turns) async fn keep_going(
+        &self,
+        answer: KeepGoingAnswer,
+    ) -> Result<Result<(), PersonWaitRefusal>, RecvError> {
+        let (reply, replied) = oneshot::channel();
+        self.send(EngineTickInput::KeepGoing(KeepGoingIntake {
+            answer,
+            at: WireInstant::now(),
+            reply,
+        }))
+        .await;
+        timeout(WAIT, replied)
+            .await
+            .expect("the loop replies in time")
+    }
+
+    /// Waits until every turn whose write the test has seen has ended, its clock read included:
+    /// an answer naming no wait lands in a later turn, which refuses it.
+    pub(in crate::engine::tick::turns) async fn wait_for_earlier_turns(&self) {
+        let no_wait = UuidTextForm::new(NO_WAIT_ID).expect("the test's wait id");
+        let reply = self
+            .answer(
+                no_wait,
+                PersonWaitAnswer::Reply(NonEmptyText::new("Hello".to_owned()).expect("a reply")),
+                None,
+            )
+            .await;
+        assert_eq!(reply, Ok(Err(PersonWaitRefusal::NotWaiting)));
+    }
+
+    /// The wait id the step of `node_id` waits under.
+    pub(in crate::engine::tick::turns) fn wait_id(&self, node_id: &str) -> UuidTextForm {
+        UuidTextForm::new(&step_column(&self.rows, node_id, "wait_id").expect("the step waits"))
+            .expect("a stored wait id is a UUID")
+    }
+
+    /// The instant the deadline clock is armed at, `None` while nothing is armed.
+    pub(in crate::engine::tick::turns) fn armed(&self) -> Option<SystemTime> {
+        self.deadlines.armed_instant().instant()
+    }
+
+    async fn send(&self, input: EngineTickInput) {
+        self.inbox
+            .send(input)
+            .await
+            .unwrap_or_else(|_| panic!("the loop takes the input"));
     }
 }
 

@@ -283,3 +283,6 @@ fn read_keep_going(
     };
     Ok((held, question))
 }
+
+#[cfg(test)]
+mod tests;
