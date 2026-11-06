@@ -27,8 +27,8 @@ use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTrans
 use crate::driver::codex::turn_evidence::CodexTurnStatus;
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner, UsageSink};
 use crate::usage_delta_accountant::{
-    CumulativeUsageReading, MeteredUsageDelta, ThreadBaseEstablishment, UsageDeltaAccountant,
-    UsageRequestFacts,
+    CumulativeUsageReading, MeteredUsageDelta, ThreadBaseEstablishment, UsageAxisCounts,
+    UsageDeltaAccountant, UsageRequestFacts,
 };
 
 /// The item type of the copy's reply.
@@ -132,6 +132,19 @@ impl CopyTurnMeter {
             ),
             _ => CopyFrameReading::Other,
         }
+    }
+
+    /// Meters `counts` as one cumulative reading on the turn's thread, naming no turn, stamped with
+    /// the turn's facts; `None` for counts that have not grown.
+    pub(crate) fn meter(&mut self, counts: UsageAxisCounts) -> Option<MeteredUsageDelta> {
+        let reading = CumulativeUsageReading {
+            thread_id: self.thread_id.clone(),
+            named_turn_id: None,
+            cumulative: counts,
+            declared_per_turn: None,
+            request: UsageRequestFacts::default(),
+        };
+        self.meter_reading(reading)
     }
 
     // Meters one cumulative reading stamped with the turn's facts; `None` for a reading that has

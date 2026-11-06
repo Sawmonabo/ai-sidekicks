@@ -29,10 +29,11 @@ use crate::driver::codex::app_server_protocol::{
 use crate::driver::codex::attachments::compose_codex_text_input;
 use crate::driver::codex::capabilities::read_codex_service_model_catalog;
 use crate::driver::codex::config_read::read_codex_config;
+use crate::driver::codex::lifecycle::naming::exec_turn::{ExecTurnEnd, read_exec_turn};
 use crate::driver::codex::lifecycle::views::CodexConversationView;
 use crate::driver::codex::output_speed::read_codex_declared_tier;
 use crate::driver::codex::pricing::CodexRecorderPricing;
-use crate::driver::codex::service::command::run_codex_command;
+use crate::driver::codex::service::command::{CodexCommandError, run_codex_command};
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceKind};
 use crate::driver::codex::service::registry::home_exec_switches;
 use crate::driver::codex::service::supervisor::start::compose_codex_native_launch;
@@ -104,8 +105,8 @@ impl CodexDriver {
     /// failed pass or no name, a one-shot pass of Codex's program on the account the session's
     /// leg runs on. `None` when both gave no name, the session never ran, once `cancel` fired, or
     /// once the pass ran past [`CODEX_NAMING_DEADLINE`], its turn then stopped as a cancel stops
-    /// it. What the pass on the service spent is recorded on `params.binding_id` as the session's
-    /// own, on a task of the driver's, so a cancel never drops it. Fails as the session pieces
+    /// it. What either pass spent is recorded on `params.binding_id` as the session's own, each
+    /// pass on a task of the driver's, so a cancel never drops it. Fails as the session pieces
     /// cannot be composed, the stored leg cannot be read, the one-shot pass's launch cannot be
     /// composed or the MCP servers it disables cannot be listed.
     pub(crate) async fn name_session(
@@ -125,11 +126,12 @@ impl CodexDriver {
         let deadline = Instant::now() + CODEX_NAMING_DEADLINE;
         let prompt = compose_title_prompt(&params.first_message, &params.first_reply);
         // The one-shot pass runs on the session's own account, live or at rest.
-        let (service, session_model) =
+        let (service, session_model, account) =
             if let Some(conversation) = self.views.conversation(params.session_id) {
                 let service = Arc::clone(&conversation.service);
                 let session_model = conversation.model.clone();
-                let pass_filing = filing(&conversation.provider_account_id);
+                let account = conversation.provider_account_id.clone();
+                let pass_filing = filing(&account);
                 // On a task of its own, so a caller that stops waiting still has its turn stopped
                 // and what it spent recorded.
                 let pass = self.tasks.spawn(name_on_service(
@@ -154,7 +156,7 @@ impl CodexDriver {
                         "a codex session's naming pass on its service ended unfinished"
                     ),
                 }
-                (service, Some(session_model))
+                (service, Some(session_model), account)
             } else {
                 let leg = tokio::select! {
                     () = cancel.cancelled() => return Ok(None),
@@ -169,15 +171,17 @@ impl CodexDriver {
                 tokio::select! {
                     () = cancel.cancelled() => return Ok(None),
                     () = tokio::time::sleep_until(deadline) => return Ok(None),
-                    service = self.registry.service_for(&account) => (service?, None),
+                    service = self.registry.service_for(&account) => (service?, None, account),
                 }
             };
-        tokio::select! {
-            biased;
-            () = cancel.cancelled() => Ok(None),
-            named = name_in_one_shot(&service, &prompt, session_model.as_deref(), deadline) => {
-                Ok(named?)
-            }
+        let one_shot_filing = filing(&account);
+        let one_shot = self.tasks.spawn(async move {
+            let model = session_model.as_deref();
+            name_in_one_shot(&service, &prompt, model, deadline, &cancel, one_shot_filing).await
+        });
+        match one_shot.await {
+            Ok(named) => Ok(named?),
+            Err(error) => Err(DriverError::Internal(Box::new(error))),
         }
     }
 
@@ -546,14 +550,79 @@ async fn choose_title_model(
 
 // One `codex exec` of the account's home, ephemeral and in an empty folder of its own, under the
 // title conversation's config with each MCP server the home lists disabled, its answer held to the
-// title's schema, all within `deadline`; `None` with nothing launched once it passed. Fails as the
-// launch cannot be composed or the servers cannot be listed.
+// title's schema, all within `deadline`; the counts of its turn, which it prints, filed through
+// `filing` before its answer is read, so a pass that names nothing keeps its spend. `None` with
+// nothing launched once `deadline` passed, and once `cancel` fired before the command ended. Fails
+// as the launch cannot be composed or the servers cannot be listed.
 async fn name_in_one_shot(
     service: &CodexService,
     prompt: &str,
     session_model: Option<&str>,
     deadline: Instant,
+    cancel: &CancellationToken,
+    mut filing: SessionUsageFiling,
 ) -> Result<Option<String>, CodexError> {
+    let ran = tokio::select! {
+        biased;
+        () = cancel.cancelled() => return Ok(None),
+        ran = run_title_exec(service, prompt, session_model, deadline) => ran?,
+    };
+    let Some(TitleExec { folder, model, ran }) = ran else {
+        return Ok(None);
+    };
+    let printed = match ran {
+        Ok(printed) => printed,
+        Err(error) => {
+            tracing::info!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "codex's one-shot naming pass gave no name"
+            );
+            return Ok(None);
+        }
+    };
+    match read_exec_turn(&printed) {
+        // No event states the tier, so the row is at the standard one; zero counts meter nothing.
+        Some(ExecTurnEnd::Completed { thread_id, counts }) => {
+            let delta = CopyTurnMeter::new(thread_id, model.as_deref(), None).meter(counts);
+            if let Some(delta) = delta {
+                filing.file(delta, service, folder.path()).await;
+            }
+        }
+        // A failed turn and one that printed no end state no counts.
+        Some(ExecTurnEnd::Failed) | None => {}
+    }
+    // The answer is read from its file, since the pass prints more than the answer.
+    match tokio::fs::read_to_string(folder.path().join(TITLE_ANSWER_FILE_NAME)).await {
+        Ok(answer) => Ok(read_title(&answer)),
+        Err(error) => {
+            tracing::info!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "codex's one-shot naming pass wrote no answer"
+            );
+            Ok(None)
+        }
+    }
+}
+
+/// A one-shot pass's `codex exec` that ran: the folder it ran in, which holds its answer, the
+/// model it ran on, `None` for the home's default, and what came of the command.
+struct TitleExec {
+    /// The pass's own folder, dropped once its spend is filed and its answer read.
+    folder: tempfile::TempDir,
+    /// The model the pass set, `None` for the home's default.
+    model: Option<String>,
+    /// What the command printed, or why it failed.
+    ran: Result<String, CodexCommandError>,
+}
+
+// The one-shot pass's `codex exec`, run to its end within `deadline`; `None` with nothing launched
+// once it passed. Fails as `name_in_one_shot` fails.
+async fn run_title_exec(
+    service: &CodexService,
+    prompt: &str,
+    session_model: Option<&str>,
+    deadline: Instant,
+) -> Result<Option<TitleExec>, CodexError> {
     let time_left = || deadline.saturating_duration_since(Instant::now());
     if time_left().is_zero() {
         return Ok(None);
@@ -594,6 +663,7 @@ async fn name_in_one_shot(
     overrides.extend(
         title_model
             .model
+            .clone()
             .map(|model| (MODEL_KEY.to_owned(), Value::String(model))),
     );
     overrides.extend(title_model.effort.map(|effort| {
@@ -614,6 +684,8 @@ async fn name_in_one_shot(
         schema_file.to_string_lossy().into_owned(),
         "--output-last-message".to_owned(),
         answer_file.to_string_lossy().into_owned(),
+        // Its events as lines, the turn's counts among them.
+        "--json".to_owned(),
         prompt.to_owned(),
     ]);
     let mut launch =
@@ -623,26 +695,12 @@ async fn name_in_one_shot(
     if left.is_zero() {
         return Ok(None);
     }
-    // The answer is read from its file, since the pass prints more than the answer.
-    match run_codex_command(&dependencies.spawner, launch, left).await {
-        Ok(_printed) => match tokio::fs::read_to_string(&answer_file).await {
-            Ok(answer) => Ok(read_title(&answer)),
-            Err(error) => {
-                tracing::info!(
-                    error = &error as &(dyn std::error::Error + 'static),
-                    "codex's one-shot naming pass wrote no answer"
-                );
-                Ok(None)
-            }
-        },
-        Err(error) => {
-            tracing::info!(
-                error = &error as &(dyn std::error::Error + 'static),
-                "codex's one-shot naming pass gave no name"
-            );
-            Ok(None)
-        }
-    }
+    let ran = run_codex_command(&dependencies.spawner, launch, left).await;
+    Ok(Some(TitleExec {
+        folder,
+        model: title_model.model,
+        ran,
+    }))
 }
 
 /// The MCP servers `codex mcp list --json` names on the home of `home_kind` `executable` runs

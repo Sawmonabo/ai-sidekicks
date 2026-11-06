@@ -29,7 +29,7 @@ const PASS_WAIT: Duration = Duration::from_secs(10);
 // A filing whose rows `usage` records and holds under their keys, since no sign-in kind is read,
 // over a list whose fetch runs in `folder` until `stop`; and the list's server, which the caller
 // keeps.
-async fn metered_filing(
+pub(super) async fn metered_filing(
     usage: &Arc<GatedUsage>,
     folder: &Path,
     stop: &CancellationToken,
@@ -56,7 +56,9 @@ fn usage_counts(input: u64, output: u64) -> Value {
 }
 
 // Each row `usage` recorded: its binding, its owner and its input and output deltas.
-fn recorded_rows(usage: &GatedUsage) -> Vec<(String, MeteredUsageOwner, Option<u64>, Option<u64>)> {
+pub(super) fn recorded_rows(
+    usage: &GatedUsage,
+) -> Vec<(String, MeteredUsageOwner, Option<u64>, Option<u64>)> {
     lock(&usage.metered)
         .iter()
         .map(|metered| {
@@ -72,7 +74,9 @@ fn recorded_rows(usage: &GatedUsage) -> Vec<(String, MeteredUsageOwner, Option<u
 }
 
 // The key each request `usage` held is held under: its model, tier and region.
-fn held_keys(usage: &GatedUsage) -> Vec<(Option<String>, Option<String>, Option<String>)> {
+pub(super) fn held_keys(
+    usage: &GatedUsage,
+) -> Vec<(Option<String>, Option<String>, Option<String>)> {
     lock(&usage.held)
         .iter()
         .map(|held| {

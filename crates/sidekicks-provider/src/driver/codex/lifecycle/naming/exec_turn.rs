@@ -23,10 +23,6 @@ pub(crate) enum ExecTurnEnd {
     /// The turn completed on `thread_id`, its thread's running total `counts`.
     Completed {
         /// The thread exec started.
-        #[expect(
-            dead_code,
-            reason = "the one-shot naming pass meters its counts on this thread"
-        )]
         thread_id: String,
         /// The thread's running total, the one turn's counts.
         counts: UsageAxisCounts,
