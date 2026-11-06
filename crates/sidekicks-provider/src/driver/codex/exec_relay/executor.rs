@@ -241,11 +241,11 @@ impl CodexExecutor {
         lock(&self.clients).len()
     }
 
-    /// Lets the connection `connection` go, closing its queue and forgetting every request it
-    /// has in flight, whose answers then reach no one.
+    /// Lets the connection `connection` go, forgetting every request it has in flight, whose
+    /// answers then reach no one, and then closing its queue.
     pub(super) fn detach_client(&self, connection: RelayConnectionId) {
-        lock(&self.clients).remove(&connection);
         lock(&self.client_requests).retain(|_relay_id, request| request.connection != connection);
+        lock(&self.clients).remove(&connection);
     }
 
     /// `line`, a request the connection `connection` sent under `id`, the slice of `line` its
