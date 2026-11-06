@@ -106,7 +106,8 @@ impl InterventionService {
                     )
                     .await;
                 }
-                // Its undo ended with the old process, so no cut would follow a stop handed now.
+                // The pending read leaves an undo's row out: its undo ended with the old process,
+                // so no cut would follow a stop handed now.
                 InterruptInterventionRecord::Undo(_) => {}
             }
         }

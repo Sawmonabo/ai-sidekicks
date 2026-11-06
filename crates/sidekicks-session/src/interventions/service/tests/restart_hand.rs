@@ -161,8 +161,8 @@ async fn a_limits_accepted_row_left_by_a_restart_is_carried_out_once() {
 
 // An undo's `accepted` row a former process left, on a run whose provider kept its turn, is handed
 // nothing: no driver call, no queue hold, the row still `accepted` for the turn's end and the run
-// still running. Killed by the undo's row handed again as a limit's or a person's (the driver is
-// called, which the mock refuses).
+// still running. Killed by the pending read keeping an undo's row while the restart hands it as a
+// limit's or a person's (the driver is called, which the mock refuses).
 #[tokio::test]
 async fn a_restart_hands_an_undos_interrupt_nothing() {
     let mut driver = MockProviderDriver::new();

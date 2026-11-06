@@ -56,6 +56,8 @@ use crate::run::state_change::RunWriteCompanions;
 // The interrupts with no outcome yet of the run the SQL expression `run_id` names (a parameter or
 // a column of an outer query), the person's or the daemon's own at a limit, in the order they were
 // asked for. An applied one ends its run in the outcome's own write, so a live run never holds one.
+// An undo's is left out: the undo it served ended with its process, so it is no stop, and the
+// run's end or the turn's end settles it.
 fn pending_interrupts_sql(run_id: &str) -> String {
     format!(
         "SELECT id, state, device_id, payload, expected_run_version, client_idempotency_key
@@ -63,6 +65,7 @@ fn pending_interrupts_sql(run_id: &str) -> String {
   WHERE target_run_id = {run_id}
     AND type = '{}'
     AND state IN ('{}', '{}')
+    AND json_extract(payload, '$.undoKey') IS NULL
   ORDER BY created_at, id",
         <&'static str>::from(InterventionType::Interrupt),
         <&'static str>::from(InterventionState::Requested),
@@ -174,7 +177,8 @@ pub(crate) struct PendingInterrupt {
     pub(crate) state: UnresolvedInterventionState,
     /// Who it is from: the device a person's came from, or the daemon for its own.
     pub(crate) actor: InterventionActor,
-    /// Its stored record: a person's, or the daemon's own stop at a limit.
+    /// Its stored record: a person's, or the daemon's own stop at a limit; an undo's is never read
+    /// as pending.
     pub(crate) record: InterruptInterventionRecord,
     /// The run version it was asked against.
     pub(crate) expected_run_version: SafeInt<0>,
@@ -397,7 +401,7 @@ pub(crate) fn settlement_by_stops(
     }
     if pending_interrupts
         .iter()
-        .any(|pending| pending.record.limit().is_none())
+        .any(|pending| matches!(pending.record, InterruptInterventionRecord::Person(_)))
     {
         // The person's interrupt stays theirs: the run carries no trigger of the daemon's.
         return Some(RestartSettlement::Interrupted { trigger: None });
@@ -665,7 +669,8 @@ pub(crate) fn limit_turn_cause(limit: RunLimit) -> TurnEndCause {
 
 /// The interrupts of `run_id` that have no outcome yet, read on `reader`, oldest first. Fails when
 /// SQLite refuses the read or a stored column does not read as its type; a stored record that is
-/// neither a person's interrupt nor the daemon's at a limit fails it too.
+/// neither a person's interrupt nor the daemon's at a limit fails it too. An undo's row is left
+/// out, since it is no stop.
 pub(crate) fn read_pending_interrupts(
     reader: &Connection,
     run_id: &RunId,
