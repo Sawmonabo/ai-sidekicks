@@ -1,4 +1,5 @@
 use std::ffi::OsString;
+use std::fs::{self, FileTimes};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -9,9 +10,7 @@ use sidekicks_platforms::{is_superuser, make_unwritable};
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
-use super::{
-    CaptureFolderSweep, CapturePacking, FOLD_TIMEOUT, is_fold_due, remove_stale_temporary_packs,
-};
+use super::{CaptureFolderSweep, CapturePacking, is_fold_due};
 use crate::git::process::{GitCall, GitRunner, in_folder, read_git_common_folder, test_git_runner};
 use crate::git::turn_snapshot::capture::GitFloorReports;
 use crate::git::turn_snapshot::capture_folder::{CaptureFolder, git_folder_argument};
@@ -27,6 +26,9 @@ use crate::git::worktree::schema::schema_parts;
 // A read of a ref state well after its last write, outside the window in which a later write
 // could keep the facts it read.
 const SETTLED_READ_DELAY: Duration = Duration::from_secs(3);
+
+// Twice the age past which a leftover is removed.
+const LEFTOVER_AGE: Duration = Duration::from_hours(2);
 
 // The value `count-objects -v` reports for `key` in the git folder `folder`.
 async fn counted(git: &GitRunner, folder: &Path, key: &str) -> u64 {
@@ -323,33 +325,96 @@ fn a_fold_is_due_past_ten_packs_past_what_the_last_fold_left_and_an_hour_after_a
     assert_eq!(is_fold_due(packs, left, since_failure), is_due);
 }
 
-// Fails when a temporary pack a git cut short left stays, or when one a live write still holds,
-// or a finished pack, is removed.
-#[test]
-fn only_temporary_packs_older_than_a_fold_may_run_are_removed() {
-    let pack_folder = tempfile::tempdir().expect("the temporary folder is made");
-    let stale_time = SystemTime::now() - FOLD_TIMEOUT - Duration::from_secs(60);
-    let stale = ["tmp_pack_stale", ".tmp-12-pack-stale.pack"];
-    let kept = ["tmp_pack_live", ".tmp-13-pack-live.pack", "pack-0a.pack"];
-    for name in stale.iter().chain(&kept) {
-        std::fs::write(pack_folder.path().join(name), b"").expect("the file is written");
+// Fails when the leftovers are cleared only on a swept pass, when their age is ignored so a fresh
+// entry goes, when any one stale kind is kept, or when a kept index, its `.head` or its lock, or a
+// finished pack, is removed.
+#[tokio::test]
+async fn a_sweep_pass_clears_what_a_cut_git_or_a_crash_left_and_keeps_the_rest() {
+    let git = test_git_runner();
+    let root = tempfile::tempdir().expect("the temporary folder is made");
+    let (repository, _) = repository_with_a_commit(&git, root.path()).await;
+    let common = read_git_common_folder(&git, None, &repository, None)
+        .await
+        .expect("the repository's git folder is read");
+    let database = TestDatabase::new(schema_parts());
+    let (service, packing) = service_and_packing(&git, &database);
+    let owner = root.path().join("owner");
+    stage_file(&git, &repository, "n.txt", "version 1\n").await;
+    service
+        .capture_turn_snapshot(None, &turn_of(&repository, &owner, minted_run_id(), 0))
+        .await;
+    let capture_folder = made_capture_folder(&git, &owner, &repository).await;
+    let folder = capture_folder.folder();
+    let settled = SystemTime::now() + SETTLED_READ_DELAY;
+    let first = packing
+        .sweep_capture_folder(None, &owner, &common, None, &[], settled)
+        .await;
+    let Ok(CaptureFolderSweep::Swept(pass)) = first else {
+        panic!("the folder is swept, got {first:?}");
+    };
+    let fresh_garbage = counted(&git, folder, "garbage").await;
+    let packs_before = counted(&git, folder, "packs").await;
+    let pack_folder = folder.join("objects").join("pack");
+    let indexes = capture_folder.indexes_folder();
+    let captures = owner.join("captures");
+    let kept_index = "ab".repeat(32);
+    let stale = [
+        pack_folder.join("tmp_pack_stale"),
+        pack_folder.join(".tmp-12-pack-stale.pack"),
+        folder.join("objects").join("ab").join("tmp_obj_stale"),
+        indexes.join("scratch-0011223344556677.index"),
+        indexes.join("scratch-0011223344556677.index.lock"),
+    ];
+    let kept = [
+        pack_folder.join("tmp_pack_live"),
+        pack_folder.join(".tmp-13-pack-live.pack"),
+        indexes.join("scratch-live.index"),
+        indexes.join(&kept_index),
+        indexes.join(format!("{kept_index}.head")),
+        indexes.join(format!("{kept_index}.lock")),
+    ];
+    let stale_partial = captures.join("other.8899aabbccddeeff.partial");
+    let fresh_partial = captures.join("other.0123456789abcdef.partial");
+    for path in stale.iter().chain(&kept) {
+        fs::create_dir_all(path.parent().expect("a planted file has a folder"))
+            .expect("the folder is made");
+        fs::write(path, b"").expect("the file is written");
     }
-    for name in stale.iter().chain(&["pack-0a.pack"]) {
-        std::fs::File::options()
-            .write(true)
-            .open(pack_folder.path().join(name))
-            .and_then(|file| file.set_modified(stale_time))
-            .expect("the file is aged");
+    fs::create_dir_all(&stale_partial).expect("the partial folder is made");
+    fs::write(stale_partial.join("HEAD"), b"").expect("the file is written");
+    fs::create_dir_all(&fresh_partial).expect("the partial folder is made");
+    let aged_time = SystemTime::now() - LEFTOVER_AGE;
+    let finished_packs: Vec<PathBuf> = fs::read_dir(&pack_folder)
+        .expect("the pack folder is listed")
+        .map(|entry| entry.expect("the entry reads").path())
+        .filter(|path| {
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with("pack-"))
+        })
+        .collect();
+    assert!(!finished_packs.is_empty(), "the capture wrote a pack");
+    // By path, since git writes its packs read-only.
+    let aged_paths = stale.iter().chain(&kept[3..]).chain(&finished_packs);
+    for path in aged_paths.chain([&stale_partial]) {
+        fs::set_times(path, FileTimes::new().set_modified(aged_time)).expect("the entry is aged");
     }
 
-    remove_stale_temporary_packs(pack_folder.path()).expect("the folder is cleaned");
+    let second = packing
+        .sweep_capture_folder(None, &owner, &common, Some(&pass), &[], settled)
+        .await;
 
-    for name in stale {
-        assert!(!pack_folder.path().join(name).exists(), "{name} is removed");
+    assert!(
+        matches!(second, Ok(CaptureFolderSweep::Skipped(_))),
+        "got {second:?}"
+    );
+    for path in stale.iter().chain([&stale_partial]) {
+        assert!(!path.exists(), "{} is removed", path.display());
     }
-    for name in kept {
-        assert!(pack_folder.path().join(name).exists(), "{name} is kept");
+    for path in kept.iter().chain([&fresh_partial]).chain(&finished_packs) {
+        assert!(path.exists(), "{} is kept", path.display());
     }
+    assert_eq!(counted(&git, folder, "packs").await, packs_before);
+    assert_eq!(fresh_garbage, 0, "a fresh capture folder holds no garbage");
 }
 
 // Fails when the sweep skips the reach pack (the gc then takes the blob only the lost branch

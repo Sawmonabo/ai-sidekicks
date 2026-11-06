@@ -231,9 +231,7 @@ impl SnapshotCheckout<'_> {
         let live_index = self
             .root
             .join(path_from_program_output(reported).map_err(GitError::PathText)?);
-        let mut lock_path = live_index.clone().into_os_string();
-        lock_path.push(".lock");
-        let lock_path = PathBuf::from(lock_path);
+        let lock_path = index_lock_path(&live_index);
 
         let lock = take_index_lock(&lock_path).await?;
         let copied = tokio::fs::copy(&live_index, scratch_index).await;
@@ -728,6 +726,16 @@ fn stage_entry(listing: &mut Vec<u8>, entry: &[u8]) {
 // `entries` as one JSON array; its escapes keep a line end from forging a trailer.
 fn json_list(entries: &[String]) -> String {
     serde_json::to_string(entries).expect("a list of text always writes as JSON")
+}
+
+/// The suffix of git's lock file beside the file it writes.
+pub(crate) const INDEX_LOCK_SUFFIX: &str = ".lock";
+
+/// Git's lock file beside the index `index`: its whole name with [`INDEX_LOCK_SUFFIX`] appended.
+pub(crate) fn index_lock_path(index: &Path) -> PathBuf {
+    let mut lock_path = index.as_os_str().to_owned();
+    lock_path.push(INDEX_LOCK_SUFFIX);
+    PathBuf::from(lock_path)
 }
 
 // Makes git's index lock, waiting a moment between attempts while another git holds it.

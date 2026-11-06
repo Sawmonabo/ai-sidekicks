@@ -3,7 +3,9 @@
 //! file away; once a folder holds more packs than the last fold left, and at each sweep, its packs
 //! are folded. The sweep also packs the trees of captures whose base no ref of the repository
 //! reaches any more, and skips a folder whose refs, packs and loose objects are as its last pass
-//! left them.
+//! left them. Every pass, a skipped one too, first removes what a git cut at its bound or a daemon
+//! stopped mid-write left once it is an hour old: git's temporaries, scratch indexes and their
+//! locks, and the owner's capture folders still being made.
 //!
 //! - Every packing call against a capture folder runs with `--git-dir` alone; of the packing's own
 //!   calls only the pack of a capture's objects attaches the repository, since `prune-packed` and
@@ -11,7 +13,6 @@
 //! - One lock per capture folder orders its packs, folds and sweep passes.
 
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -20,7 +21,6 @@ use std::time::{Duration, SystemTime};
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
-use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
 
@@ -35,9 +35,13 @@ use crate::git::turn_snapshot::refs::SNAPSHOT_REFS_PREFIX;
 use answers::{
     BasePresence, ObjectCounts, read_bases_present, read_object_counts, read_points, read_reach,
 };
+use leftovers::{
+    clear_capture_folder_leftovers, clear_partial_capture_folders, remove_stale_temporary_packs,
+};
 use ref_state::{RefState, read_ref_state};
 
 mod answers;
+mod leftovers;
 mod ref_state;
 
 /// The packs a capture folder may hold before a fold is due, when no fold has run there yet.
@@ -48,7 +52,7 @@ const FOLD_PACK_THRESHOLD: u64 = 10;
 const PACK_SIZE_LIMIT_PIN: [&str; 2] = ["-c", "pack.packSizeLimit=0"];
 
 /// How long one fold may run, past the runner's bound for other calls, since its work grows with
-/// every pack the folder holds; a temporary pack older than this was left by a git cut short.
+/// every pack the folder holds.
 const FOLD_TIMEOUT: Duration = Duration::from_mins(10);
 
 /// How long a folder whose fold failed waits before a fold is due there again, so a failing fold
@@ -57,10 +61,6 @@ const FOLD_RETRY_WAIT: Duration = Duration::from_hours(1);
 
 /// The folder of an object folder that holds its packs.
 const PACK_SEGMENT: &str = "pack";
-
-/// The name prefixes of the temporary files a pack write keeps in the pack folder until it
-/// finishes: `pack-objects`' and `index-pack`'s `tmp_`, and `repack`'s `.tmp-`.
-const TEMPORARY_PACK_PREFIXES: [&str; 2] = ["tmp_", ".tmp-"];
 
 /// One capture's commit in its capture folder and the base it stands on, for its pack.
 #[derive(Clone, Debug)]
@@ -236,7 +236,9 @@ impl CapturePacking {
 
     /// One sweep pass over the capture folder of the owner whose folder is `owner_folder`, for the
     /// repository whose common git folder is `common_folder`, running git for the project at
-    /// `place`. Skipped when the repository's refs read as `last_pass` left them, read at
+    /// `place`. Every pass first removes the owner's capture folders still being made and, once
+    /// git has counted the folder's objects, git's temporaries and the scratch indexes left in it,
+    /// each once it is an hour old. Skipped when the repository's refs read as `last_pass` left them, read at
     /// `read_at`, and the folder holds no loose object and no fold is due; else the trees of the
     /// folder's captures and of `extra_points` whose base no ref reaches are packed and the packs
     /// folded. Fails with the step's failure, so no pass is kept and the next sweep runs it all.
@@ -249,6 +251,11 @@ impl CapturePacking {
         extra_points: &[SnapshotPoint],
         read_at: SystemTime,
     ) -> Result<CaptureFolderSweep, PackingError> {
+        // Owner-wide and before the repository is resolved, so a half-made folder of a repository
+        // since deleted is cleared too.
+        let owner = owner_folder.to_path_buf();
+        joined(tokio::task::spawn_blocking(move || clear_partial_capture_folders(&owner)).await)
+            .map_err(PackingError::Folder)?;
         let Some(capture_folder) = CaptureFolder::open_existing(owner_folder, common_folder)
             .await
             .map_err(PackingError::Folder)?
@@ -263,6 +270,15 @@ impl CapturePacking {
         let folder = capture_folder.folder().to_path_buf();
         let hold = self.folder_lock.acquire(folder.clone()).await;
         let counts = self.count_objects(place, &folder, &hold).await?;
+        // A temporary loose object counts as garbage, so the fan-out folders are listed only then.
+        let (cleared, is_object_folder_walked) = (folder.clone(), counts.garbage > 0);
+        joined(
+            tokio::task::spawn_blocking(move || {
+                clear_capture_folder_leftovers(&cleared, is_object_folder_walked)
+            })
+            .await,
+        )
+        .map_err(PackingError::Folder)?;
         let is_unchanged = last_pass.is_some_and(|last| last.is_unchanged_by(&pass.ref_state));
         if is_unchanged && counts.loose == 0 && !self.is_fold_due(&folder, counts.packs) {
             return Ok(CaptureFolderSweep::Skipped(pass));
@@ -414,7 +430,7 @@ impl CapturePacking {
         folded
     }
 
-    // Removes the temporary packs a fold cut short left, folds `folder`'s packs under the fold's
+    // Removes the stale temporary packs a git cut short left, folds `folder`'s packs under the fold's
     // own bound, and keeps how many packs it left.
     async fn fold(
         &self,
@@ -579,34 +595,6 @@ impl CapturePacking {
 fn is_fold_due(packs: u64, left: Option<u64>, since_failure: Option<Duration>) -> bool {
     since_failure.is_none_or(|since_failure| since_failure >= FOLD_RETRY_WAIT)
         && packs > left.unwrap_or(0).max(FOLD_PACK_THRESHOLD)
-}
-
-// Removes from `pack_folder` each temporary pack file written longer ago than a fold may run, so
-// only what a git cut short at its bound, or a crash, left; a live write's file is never that old.
-fn remove_stale_temporary_packs(pack_folder: &Path) -> io::Result<()> {
-    let Some(entries) = fs::read_dir(pack_folder).none_if_missing()? else {
-        return Ok(());
-    };
-    for entry in entries {
-        let entry = entry?;
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if !TEMPORARY_PACK_PREFIXES
-            .iter()
-            .any(|prefix| name.starts_with(prefix))
-        {
-            continue;
-        }
-        let Some(metadata) = entry.metadata().none_if_missing()? else {
-            continue;
-        };
-        // A write time ahead of the clock reads as just written.
-        let age = metadata.modified()?.elapsed().unwrap_or(Duration::ZERO);
-        if age > FOLD_TIMEOUT {
-            fs::remove_file(entry.path()).none_if_missing()?;
-        }
-    }
-    Ok(())
 }
 
 // Logs that `base`, under the captures of `folder`, is gone or names a `found_type` object.
