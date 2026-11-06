@@ -89,13 +89,13 @@ Worktree lifecycle:
 
 - Example: A person attaches a repository as a project and starts a session in it; the session starts in a new worktree of its own, and its runs work there.
 - Example: A second session of the same project works at the `Read-only` permission level in the project's checkout, reviewing, while the first continues in its own worktree.
-- Example: Two sessions work in one worktree at the same time; nothing holds the folder for either one's turn, and `Undo to here` in one puts back only what that session changed.
+- Example: Two sessions work in one worktree at the same time; nothing holds the folder for either one's turn, and `Undo` in one puts back only what that session changed.
 - Example: A merged feature branch marks its worktree `merged`, after which the worktree can be retired without deleting the historical artifacts tied to that workspace.
 
 ## Edge Cases
 
 - A folder that is not a git repository is refused at attach (`Could not attach: not a git repository`): a project is a repository, and a chat's own folder is one from its first byte.
-- Two sessions may work in one worktree, or in the project's checkout, at the same time: nothing holds a folder for one session's turn, and `Undo to here` puts back only its own session's changes, naming a file another session also changed and leaving it unless the person includes it.
+- Two sessions may work in one worktree, or in the project's checkout, at the same time: nothing holds a folder for one session's turn, and `Undo` puts back only its own session's changes, naming a file another session also changed and leaving it unless the person includes it.
 - A `rootLost` workspace can remain historically linked to completed runs even after the filesystem path is no longer usable.
 
 ## Related Specs

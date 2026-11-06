@@ -201,7 +201,7 @@ export interface SessionRestoreResend {
  * cut conversation is never left with nothing sent unremarked. `clientIdempotencyKey` is unique
  * within the session, so a retried undo never cuts twice. `includeAlsoChanged` puts back the
  * paths another session also changed since the point; it is false unless the person asked.
- * `resend` goes only with the conversation and the files together, as `Undo to here` does.
+ * `resend` goes only with the conversation and the files together, as `Undo` does.
  */
 export interface SessionRestoreRequest {
   sessionId: SessionId;
