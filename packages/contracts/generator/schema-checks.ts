@@ -2,7 +2,7 @@
 // generation time, so the shipped checks hold no `eval` and compile nothing at run time. Ajv's
 // ES-module output still loads its run-time helpers with `require` and leaves its functions
 // untyped; this rewrites both, statement by statement, into TypeScript the package can ship.
-import { Ajv2020, _, type KeywordCxt, type SchemaObject } from "ajv/dist/2020.js";
+import { Ajv2020, Name, _, type Code, type KeywordCxt, type SchemaObject } from "ajv/dist/2020.js";
 import standaloneCode from "ajv/dist/standalone/index.js";
 
 import { MODULE_ID_SCHEME, type ContractModule } from "./emit-folder.ts";
@@ -10,6 +10,12 @@ import type { ModuleImports } from "./module-imports.ts";
 
 /** The hand-written module the generated checks import their type, formats and helpers from. */
 export const SCHEMA_CHECK_MODULE = "schema-check";
+
+/** The `schema-check` export a `maxJsonBytes` check calls to measure its value. */
+const WIRE_BYTE_LENGTH = "wireByteLength";
+
+/** The `schema-check` values the generated code may name, imported where a check names one. */
+const RUN_TIME_VALUES = ["SCHEMA_FORMATS", WIRE_BYTE_LENGTH] as const;
 
 /** The generated check's name for definition `name`. */
 export function checkName(name: string): string {
@@ -35,15 +41,15 @@ function formatNames(schemas: readonly SchemaObject[]): Set<string> {
 }
 
 /**
- * The code of `minBytes` or `maxBytes`: a `{"$bytes": n}` member's attachment, read from the
- * check's context, is within the bound. Without the context, or with no such attachment, it fails.
+ * The code of a keyword on a `{"$bytes": n}` member: its attachment, read from the check's
+ * context, passes `isAccepted`. Without the context, or with no such attachment, it fails.
  */
-function byteBoundCode(comparison: ">=" | "<=") {
+function attachmentCode(isAccepted: (attachment: Code, schema: Code | number) => Code) {
   return (cxt: KeywordCxt): void => {
     const { data, schema } = cxt;
     const attachment = _`this.attachments[${data}.$bytes]`;
     cxt.fail(
-      _`!(${data} && typeof ${data} == "object" && Number.isInteger(${data}.$bytes) && this && Array.isArray(this.attachments) && ${attachment} instanceof Uint8Array && ${attachment}.byteLength ${comparison === ">=" ? _`>=` : _`<=`} ${schema})`,
+      _`!(${data} && typeof ${data} == "object" && Number.isInteger(${data}.$bytes) && this && Array.isArray(this.attachments) && ${attachment} instanceof Uint8Array && ${isAccepted(attachment, schema as Code | number)})`,
     );
   };
 }
@@ -89,8 +95,38 @@ function createAjv(schemas: readonly SchemaObject[]): Ajv2020 {
     code: { source: true, esm: true, lines: false, optimize: true, formats: _`SCHEMA_FORMATS` },
   });
   ajv.addKeyword({ keyword: "tsType", schemaType: "string" });
-  ajv.addKeyword({ keyword: "minBytes", schemaType: "number", code: byteBoundCode(">=") });
-  ajv.addKeyword({ keyword: "maxBytes", schemaType: "number", code: byteBoundCode("<=") });
+  ajv.addKeyword({
+    keyword: "minBytes",
+    schemaType: "number",
+    code: attachmentCode((attachment, bound) => _`${attachment}.byteLength >= ${bound}`),
+  });
+  ajv.addKeyword({
+    keyword: "maxBytes",
+    schemaType: "number",
+    code: attachmentCode((attachment, bound) => _`${attachment}.byteLength <= ${bound}`),
+  });
+  ajv.addKeyword({
+    keyword: "evenBytes",
+    schemaType: "boolean",
+    metaSchema: { const: true },
+    code: attachmentCode((attachment) => _`${attachment}.byteLength % 2 === 0`),
+  });
+  // A string's own UTF-8 length, as garde's `length(bytes)` counts it.
+  ajv.addKeyword({
+    keyword: "maxUtf8Bytes",
+    type: "string",
+    schemaType: "number",
+    code: (cxt) => cxt.fail(_`new TextEncoder().encode(${cxt.data}).byteLength > ${cxt.schema}`),
+  });
+  // A value's JSON bytes with its attachments, as the Rust contracts' byte caps measure them.
+  ajv.addKeyword({
+    keyword: "maxJsonBytes",
+    schemaType: "number",
+    code: (cxt) =>
+      cxt.fail(
+        _`${new Name(WIRE_BYTE_LENGTH)}(${cxt.data}, this && this.attachments) > ${cxt.schema}`,
+      ),
+  });
   ajv.addKeyword({
     keyword: "defaultAmongOptions",
     type: "object",
@@ -247,8 +283,10 @@ export function generateChecks(
     return [typedHead + body, `${functionName}.errors = null;`];
   });
 
-  if (used.some((statement) => statement.includes("SCHEMA_FORMATS"))) {
-    imports.addFromHandWrittenModule(SCHEMA_CHECK_MODULE, "SCHEMA_FORMATS", "value");
+  for (const value of RUN_TIME_VALUES) {
+    if (used.some((statement) => statement.includes(value))) {
+      imports.addFromHandWrittenModule(SCHEMA_CHECK_MODULE, value, "value");
+    }
   }
   imports.addFromHandWrittenModule(SCHEMA_CHECK_MODULE, "SchemaCheck", "type");
 

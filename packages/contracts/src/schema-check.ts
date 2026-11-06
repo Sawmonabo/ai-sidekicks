@@ -1,10 +1,12 @@
 // What a generated schema check needs at run time: the type every check has, the context that
-// carries a message's byte attachments, the two `format` rules no JSON Schema keyword states, and
-// the two Ajv helpers the checks call. The checks are generated from the Rust contracts.
+// carries a message's byte attachments, the two `format` rules no JSON Schema keyword states, the
+// byte measure of a value's byte cap, and the two Ajv helpers the checks call. The checks are
+// generated from the Rust contracts.
 import type { ErrorObject } from "ajv";
 import ajvEqualModule from "ajv/dist/runtime/equal.js";
 import ajvUcs2lengthModule from "ajv/dist/runtime/ucs2length.js";
 
+import { jsonUtf8ByteLength } from "./jsonrpc/byte-length.js";
 import { webAddressFault } from "./web-address.js";
 
 /**
@@ -48,6 +50,38 @@ export const SCHEMA_FORMATS: {
   readonly "site-origin": (origin: string) => boolean;
   readonly "https-url": (address: string) => boolean;
 } = Object.freeze({ "site-origin": isSiteOrigin, "https-url": isHttpsAddress });
+
+/**
+ * The bytes `value` takes in its message, as a byte cap measures them: its JSON's UTF-8 length
+ * plus every attachment its `{"$bytes": n}` members name, since those ride in the same frame. A
+ * member naming no attachment of `attachments` measures infinite, so every cap refuses it.
+ */
+export function wireByteLength(
+  value: unknown,
+  attachments: readonly Uint8Array[] | undefined,
+): number {
+  let byteLength = jsonUtf8ByteLength(value);
+  const pending: unknown[] = [value];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    if (node === null || typeof node !== "object") {
+      continue;
+    }
+    const index = (node as { $bytes?: unknown }).$bytes;
+    if (Number.isInteger(index) && Object.keys(node).length === 1) {
+      const attachment = attachments?.[index as number];
+      if (!(attachment instanceof Uint8Array)) {
+        return Number.POSITIVE_INFINITY;
+      }
+      byteLength += attachment.byteLength;
+    } else {
+      for (const member of Object.values(node)) {
+        pending.push(member);
+      }
+    }
+  }
+  return byteLength;
+}
 
 /**
  * A CommonJS module's `exports.default`: Node, esbuild and Rolldown import such a module from an
