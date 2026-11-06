@@ -2,9 +2,10 @@
 //! stopping a running turn first. A refusal arrives as a success carrying `rewound: false` and a
 //! `reason`, so the answer is read from `rewound`, never from the answer's kind. The reason is one
 //! of a closed set of codes, [`ClaudeRewindRefusal`], some of which Claude Code marks as worth
-//! sending again. The person's undo cuts back to one of their messages, ending the run whose turn
-//! the cut took; a turn too long to fit even after compaction is cut back out, since every later
-//! turn would fail on it again.
+//! sending again. The person's undo cuts back to one of their messages, and the run whose turn the
+//! cut took ends interrupted, its turn ended, before its binding goes, so the next send continues
+//! it; a turn too long to fit even after compaction is cut back out, since every later turn would
+//! fail on it again.
 
 use std::sync::{Arc, Mutex};
 
@@ -18,11 +19,11 @@ use sidekicks_std::port_registration::PortRegistration;
 use strum::EnumString;
 
 use crate::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
-use crate::driver::claude::delivery::stream::ClaudeSessionStreams;
 use crate::driver::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
+use crate::driver::claude::delivery::stream::{ClaudeSessionStream, ClaudeSessionStreams};
 use crate::driver::claude::run::controls::{ClaudeChoiceSettling, settle_claude_choice};
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
-use crate::driver::claude::run::routes::ClaudeRunRoutes;
+use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
@@ -31,8 +32,9 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::rewind::RewindConversationResult;
 use crate::lenient_json::{lenient_object, read_lenient};
 use crate::port::reviewer_denial::ReviewerDenialPort;
-use crate::run::delivery::{DeliveryBinding, InboundDelivery};
+use crate::run::delivery::{DeliveryBinding, InboundDelivery, InboundOutcome};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
+use crate::run::turn_end::{ProviderTurnEnd, TurnOutcome};
 
 // Why a run whose turn a cut took before Claude Code settled it ended failed.
 const CLAUDE_SUPERSEDED_RUN_DETAIL: &str = "The turn carrying this run's words was cut from the \
@@ -163,10 +165,12 @@ pub(crate) struct ClaudeConversationCuts {
 impl ClaudeConversationCuts {
     /// Cuts the live conversation back to before the person's message `target_message_id`. A
     /// choice the running turn is held on is settled as an interrupt's is, and the run whose turn
-    /// the cut took ends failed before its route retires, since no turn end can reach it after. A
-    /// refusal Claude Code marks sendable again, but a missing target, is sent once more after the
-    /// session's turn settles; any other refusal, a second one, or a turn still held at the
-    /// request deadline is `Degraded` with Claude Code's reason. Fails as the settle or a request
+    /// the cut took ends interrupted, its open turn ended, before its binding goes, since no turn
+    /// end can reach it after; a turn end Claude Code sends while the cut is unanswered is held,
+    /// dropped once the cut lands and delivered as sent when it does not. A refusal Claude Code
+    /// marks sendable again, but a missing target, is sent once more after the session's turn
+    /// settles; any other refusal, a second one, or a turn still held at the request deadline is
+    /// `Degraded` with Claude Code's reason. Fails as the settle or a request
     /// fails. An applied cut lets go the held `Allow once` presses of every binding the process
     /// served, through `reviewer_denials` once the approvals are registered.
     pub(crate) async fn rewind(
@@ -175,21 +179,30 @@ impl ClaudeConversationCuts {
         target_message_id: &str,
         reviewer_denials: &PortRegistration<Arc<dyn ReviewerDenialPort>>,
     ) -> Result<RewindConversationResult, DriverError> {
-        if let Some(lead) = self.routes.lead_run_on(live.session_id) {
-            settle_claude_choice(
+        let session_id = live.session_id;
+        // A run whose end the settle already delivered takes no second end from the cut.
+        let mut settled_run = None;
+        if let Some(lead) = self.routes.lead_run_on(session_id)
+            && settle_claude_choice(
                 &self.dialogs,
                 live,
                 lead.run_id,
                 ClaudeChoiceSettling::Interrupt,
             )
-            .await?;
+            .await?
+        {
+            settled_run = Some(lead.run_id);
         }
-        let session_id = live.session_id;
+        let stream = self.streams.get(session_id);
+        let stream = stream.as_deref();
         // Taken before the first send, so a turn released while it goes still wakes the wait.
         let mark = self.routes.turn_mark(session_id);
-        let mut answer = self.cut_to(live, target_message_id).await?;
+        let (mut answer, mut held_lead) = self
+            .cut_holding_lead(live, target_message_id, stream, settled_run)
+            .await?;
         // A refusal Claude Code marks sendable goes once more after the turn settles; one whose
-        // turn is still held at the deadline is final.
+        // turn is still held at the deadline is final. The refusal released the held turn end
+        // first, so the turn the wait watches can change.
         if let ClaudeCutAnswer::Refused(refusal) = &answer
             && refusal.may_be_sent_again()
             && (!self.routes.is_turn_held(session_id)
@@ -198,14 +211,34 @@ impl ClaudeConversationCuts {
                     .when_turn_changed_after(session_id, mark, CLAUDE_REQUEST_DEADLINE)
                     .await)
         {
-            answer = self.cut_to(live, target_message_id).await?;
+            (answer, held_lead) = self
+                .cut_holding_lead(live, target_message_id, stream, settled_run)
+                .await?;
         }
         let cut_message_text = match answer {
             ClaudeCutAnswer::Applied { cut_message_text } => cut_message_text,
             ClaudeCutAnswer::Refused(refusal) => return Ok(refusal.into_degraded()),
         };
-        if let Some(lead) = self.routes.lead_run_on(session_id) {
-            self.fail_superseded_run(live, lead.run_id, lead.binding_id);
+        if let (Some(stream), Some(lead)) = (stream, &held_lead) {
+            let turn_end = stream
+                .take_open_turn_number(lead.run_id)
+                .map(|turn_number| ProviderTurnEnd {
+                    turn_number,
+                    outcome: TurnOutcome::Interrupted(None),
+                });
+            let change = RunStateReport::new(
+                lead.run_id,
+                RunStateEntry::Interrupted {
+                    intended_close: None,
+                    trigger: None,
+                },
+            );
+            // Written before the binding goes, since no end can reach the run after; `None` is a
+            // session task already ended, which delivers nothing more.
+            dispatch_run_end(stream, lead.binding_id.clone(), change, turn_end, true).await;
+            stream.confirm_daemon_end(lead.run_id);
+        }
+        if let Some(lead) = held_lead.or_else(|| self.routes.lead_run_on(session_id)) {
             self.routes.forget_run(lead.run_id);
         }
         self.routes.retire_run_routes(session_id);
@@ -219,17 +252,35 @@ impl ClaudeConversationCuts {
     }
 
     // Sends the cut back to before `target_message_id`, naming the newest message written as it
-    // goes.
-    async fn cut_to(
+    // goes. A turn end the run holding the turn sends meanwhile is held for the daemon's end,
+    // unless the settle already ended that run, and released when the cut is refused or fails;
+    // answers the run held, whose hold an applied cut settles.
+    async fn cut_holding_lead(
         &self,
         live: &LiveClaudeSession,
         target_message_id: &str,
-    ) -> Result<ClaudeCutAnswer, ClaudeSessionError> {
+        stream: Option<&ClaudeSessionStream>,
+        settled_run: Option<RunId>,
+    ) -> Result<(ClaudeCutAnswer, Option<ClaudeBoundRun>), ClaudeSessionError> {
+        let held_lead = stream.and_then(|stream| {
+            let lead = self
+                .routes
+                .lead_run_on(live.session_id)
+                .filter(|lead| Some(lead.run_id) != settled_run)?;
+            stream.hold_turn_end_for_interrupt(lead.run_id);
+            Some(lead)
+        });
         let newest = self
             .lock_prompts()
             .newest_for(live.session_id)
             .map(str::to_owned);
-        cut_claude_conversation(live, target_message_id, newest).await
+        let answer = cut_claude_conversation(live, target_message_id, newest).await;
+        if let (Some(stream), Some(lead)) = (stream, &held_lead)
+            && !matches!(answer, Ok(ClaudeCutAnswer::Applied { .. }))
+        {
+            stream.release_daemon_end(lead.run_id);
+        }
+        Ok((answer?, held_lead))
     }
 
     /// Cuts the newest message of a turn too long to fit back out of the conversation, off the
@@ -292,20 +343,32 @@ impl ClaudeConversationCuts {
                 },
             )
         };
-        drop(stream.arrivals().dispatch(InboundDelivery::RunLifecycle {
-            binding: DeliveryBinding {
-                binding_id,
-                operation: None,
-            },
-            change,
-            turn_end: None,
-            is_daemon_interrupt_end: false,
-        }));
+        drop(dispatch_run_end(&stream, binding_id, change, None, false));
     }
 
     fn lock_prompts(&self) -> std::sync::MutexGuard<'_, ClaudeSentPrompts> {
         lock(&self.prompts)
     }
+}
+
+// Queues a lead run's end on its binding in the session's queue, behind the turn's frames, and
+// answers the dispatch's outcome once the session's task reaches it.
+fn dispatch_run_end(
+    stream: &ClaudeSessionStream,
+    binding_id: RuntimeBindingId,
+    change: RunStateReport,
+    turn_end: Option<ProviderTurnEnd>,
+    is_daemon_interrupt_end: bool,
+) -> impl Future<Output = Option<InboundOutcome>> + Send + 'static {
+    stream.arrivals().dispatch(InboundDelivery::RunLifecycle {
+        binding: DeliveryBinding {
+            binding_id,
+            operation: None,
+        },
+        change,
+        turn_end,
+        is_daemon_interrupt_end,
+    })
 }
 
 // Cuts the live conversation back to before `target_message_id`, naming the newest message the

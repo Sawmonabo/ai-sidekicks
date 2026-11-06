@@ -12,6 +12,7 @@ use futures::FutureExt;
 use futures::future::{BoxFuture, ready};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::integer::SafeInt;
 
 use super::{ClaudeDeliveryStream, ClaudeSessionStream, ClaudeSessionStreams};
 use crate::driver::claude::delivery::dialogs::ClaudeDialogPorts;
@@ -186,6 +187,26 @@ impl ClaudeSessionStream {
     /// [`Self::release_daemon_end`].
     pub(crate) fn hold_turn_end_for_interrupt(&self, run_id: RunId) {
         self.lock().mark_daemon_end(run_id, false, true);
+    }
+
+    /// Takes `run_id`'s open turn for an end the daemon writes, and answers its number; a turn
+    /// whose end Claude Code already sent is held for the daemon's end, so that end's number is
+    /// answered. `None` when no turn of the run is open or held, or the engine could not number it.
+    pub(crate) fn take_open_turn_number(&self, run_id: RunId) -> Option<SafeInt<1>> {
+        let mut readings = self.lock();
+        if readings
+            .turn
+            .as_ref()
+            .is_some_and(|turn| turn.run_id == run_id)
+        {
+            return readings.turn.take().and_then(|turn| turn.turn_number);
+        }
+        readings
+            .daemon_ended
+            .get(&run_id)?
+            .held
+            .as_ref()?
+            .turn_number
     }
 
     /// Marks a run whose turn the driver's own interrupt is stopping, so the turn end Claude Code
