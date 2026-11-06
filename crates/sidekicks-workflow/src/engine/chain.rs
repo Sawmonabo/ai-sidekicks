@@ -26,10 +26,11 @@ use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use sidekicks_platforms::HourField;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::{safe_int_column, text_column};
+use tokio::sync::oneshot;
 
 use crate::engine::ports::WorkflowApprovalCardRequest;
 use crate::engine::tick::commit::RunTurnCommit;
-use crate::engine::waits::step_key;
+use crate::engine::waits::{PersonWaitRefusal, step_key};
 use crate::runs::gate_resolution::{RunEventKeys, WorkflowGateAnswer, gate_resolution_statement};
 
 /// What a chain's question names, read from the chain's first run.
@@ -128,6 +129,36 @@ impl KeepGoingAnswer {
         }
         Ok(Self(answer))
     }
+
+    /// The chain's first run, which the answer is on.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the start's handlers and the tick, which ask and answer a chain's question"
+        )
+    )]
+    pub(crate) fn root(&self) -> WorkflowRunId {
+        self.0.workflow_run_id
+    }
+}
+
+/// A `Keep going` as the tick's inbox takes it: the answer, when it was given, and where the tick
+/// replies once its write commits, or refused because the chain has no question left to answer.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the start's handlers and the tick, which ask and answer a chain's question"
+    )
+)]
+pub(crate) struct KeepGoingIntake {
+    /// The answer that keeps the chain going.
+    pub(crate) answer: KeepGoingAnswer,
+    /// When the person answered.
+    pub(crate) at: WireInstant,
+    /// Where the tick replies.
+    pub(crate) reply: oneshot::Sender<Result<(), PersonWaitRefusal>>,
 }
 
 /// Where the kept-going update sits among [`keep_going_statements`]; a refusal there means the

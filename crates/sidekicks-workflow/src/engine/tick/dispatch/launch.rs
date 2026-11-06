@@ -294,7 +294,7 @@ mod tests {
                 &std::io::Error::other("the start's line"),
             )
             .await;
-        let (mut dispatch, _reports) = test_dispatch_recording(
+        let (mut dispatch, _reports, _sender) = test_dispatch_recording(
             &database,
             refusing_engine_ports(),
             Arc::new(NodeKindTable::new(Vec::new()).expect("an empty table builds")),

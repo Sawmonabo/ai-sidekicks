@@ -1,22 +1,29 @@
 //! The tick loop's test harness: a loop over a test database, the kinds its tests run, and
 //! what the tests read back.
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
 
 use futures::future::BoxFuture;
 use rusqlite::{Connection, params};
 use serde_json::{Value, json};
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::wire::AnyValue;
+use sidekicks_contracts::wire::id::{UuidTextForm, mint_uuid_v7};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::definition::document::{WorkflowEdge, WorkflowNode};
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::events::WorkflowRunStartedPayload;
+use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use sidekicks_contracts::workflow::run::trigger::{
     WorkflowRunChainPlace, WorkflowRunMode, WorkflowRunTrigger, WorkflowStartedBy,
     WorkflowTriggerKind,
 };
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::scheduler::Scheduler;
+use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
@@ -31,15 +38,17 @@ use tokio_util::sync::CancellationToken;
 use crate::engine::event_record::EngineRecorder;
 use crate::engine::ports::kept_payloads::KeptPayloads;
 use crate::engine::ports::{
-    EnginePorts, EngineRecordSink, KeptEngineRecords, ScriptedGate, StepAdmission,
-    StepPayloadArtifacts, refusing_engine_ports,
+    ApprovalCardRaiser, EnginePorts, EngineRecordSink, FormQuestionRequest, KeptEngineRecords,
+    PersonWaitQuestions, PortError, REFUSED_PORT_CALL, ReplyQuestionRequest, ScriptedGate,
+    StepAdmission, StepPayloadArtifacts, WorkflowApprovalCardRequest, refusing_engine_ports,
 };
 use crate::engine::start::StartedRun;
 use crate::engine::tick::dispatch::test_dispatch_recording;
 use crate::engine::tick::turns::{
     ENGINE_TICK_STATEMENT_CAPACITY, EngineTick, EngineTickDependencies, EngineTickInput,
 };
-use crate::engine::tick::{RunGraph, RunScope, test_run_scope};
+use crate::engine::tick::{RunGraph, RunScope, StepReport, test_run_scope};
+use crate::engine::waits::{PERSON_WAIT_STATEMENT_CAPACITY, PersonWaitDeadlines, PersonWaitPorts};
 use crate::kinds::step_context::StepContext;
 use crate::kinds::{
     NodeExecutor, NodeKindTable, PassThroughExecutor, StepFailure, StepOutcome, test_kind,
@@ -274,6 +283,110 @@ pub(in crate::engine::tick::turns) fn edge(
     .expect("the test's edge reads")
 }
 
+/// One call the test's asks took: what it raised or opened, for which step and wait, and the
+/// step's row, its status and wait id, as the call read it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::engine::tick::turns) struct RecordedAsk {
+    /// `approval`, `form` or `reply`.
+    pub(in crate::engine::tick::turns) kind: &'static str,
+    /// The step that waits.
+    pub(in crate::engine::tick::turns) step: WorkflowStepKey,
+    /// The wait the answer settles.
+    pub(in crate::engine::tick::turns) wait_id: UuidTextForm,
+    /// The step row's status at the call, `None` with no row.
+    pub(in crate::engine::tick::turns) row_status: Option<String>,
+    /// The step row's wait id at the call.
+    pub(in crate::engine::tick::turns) row_wait_id: Option<String>,
+}
+
+/// The approval cards and questions of a test, over their own connection to its database: each
+/// call is kept with what the step's row reads at the call, and every call fails while told to.
+pub(in crate::engine::tick::turns) struct RecordingAsks {
+    rows: Mutex<Connection>,
+    calls: Mutex<Vec<RecordedAsk>>,
+    is_refusing: AtomicBool,
+}
+
+impl RecordingAsks {
+    /// Makes every later call fail, as a card or question that cannot be written.
+    pub(in crate::engine::tick::turns) fn refuse_every_call(&self) {
+        self.is_refusing.store(true, Ordering::SeqCst);
+    }
+
+    /// Every call taken, in order.
+    pub(in crate::engine::tick::turns) fn calls(&self) -> Vec<RecordedAsk> {
+        lock(&self.calls).clone()
+    }
+
+    // Keeps the call of `kind` for `step` under `wait_id`, failing it while told to.
+    fn take(
+        &self,
+        kind: &'static str,
+        step: WorkflowStepKey,
+        wait_id: UuidTextForm,
+    ) -> Result<(), PortError> {
+        let (row_status, row_wait_id) = lock(&self.rows)
+            .query_row(
+                "SELECT status, wait_id FROM workflow_steps \
+                 WHERE workflow_run_id = ?1 AND execution_index = ?2",
+                params![
+                    step.workflow_run_id.text().as_str(),
+                    i64::try_from(step.execution_index.get()).expect("a test's index is small")
+                ],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_or((None, None), |(status, wait_id)| (Some(status), wait_id));
+        lock(&self.calls).push(RecordedAsk {
+            kind,
+            step,
+            wait_id,
+            row_status,
+            row_wait_id,
+        });
+        if self.is_refusing.load(Ordering::SeqCst) {
+            return Err("the test's asks refuse every call".into());
+        }
+        Ok(())
+    }
+}
+
+impl ApprovalCardRaiser for RecordingAsks {
+    fn raise(&self, request: WorkflowApprovalCardRequest) -> BoxFuture<'_, Result<(), PortError>> {
+        let step = request.step.expect("a step's approval names its step");
+        let taken = self.take("approval", step, request.wait_id);
+        Box::pin(async move { taken })
+    }
+}
+
+impl PersonWaitQuestions for RecordingAsks {
+    fn open_form(
+        &self,
+        request: FormQuestionRequest,
+    ) -> BoxFuture<'_, Result<QuestionId, PortError>> {
+        let taken = self.take("form", request.step, request.wait_id);
+        Box::pin(async move { taken.map(|()| fresh_question_id()) })
+    }
+
+    fn open_reply(
+        &self,
+        request: ReplyQuestionRequest,
+    ) -> BoxFuture<'_, Result<QuestionId, PortError>> {
+        let taken = self.take("reply", request.step, request.wait_id);
+        Box::pin(async move { taken.map(|()| fresh_question_id()) })
+    }
+
+    fn reattach<'call>(
+        &'call self,
+        _wait_id: &'call UuidTextForm,
+    ) -> BoxFuture<'call, Result<(), PortError>> {
+        Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
+    }
+}
+
+fn fresh_question_id() -> QuestionId {
+    QuestionId::try_from(mint_uuid_v7()).expect("a minted id is a UUID")
+}
+
 /// The loop over a test database, its payload store and record kept for the test, with the
 /// inbox runs start through.
 pub(in crate::engine::tick::turns) struct Harness {
@@ -289,6 +402,14 @@ pub(in crate::engine::tick::turns) struct Harness {
     changes: watch::Receiver<u64>,
     inbox: mpsc::Sender<EngineTickInput>,
     pub(in crate::engine::tick::turns) scope: RunScope,
+    /// The asks the loop's waits go through.
+    pub(in crate::engine::tick::turns) asks: Arc<RecordingAsks>,
+    /// The wall clock the deadline clock's scheduler runs on, set to the real clock at the start.
+    pub(in crate::engine::tick::turns) clock: Arc<TestWallClock>,
+    /// The loop's deadline clock.
+    pub(in crate::engine::tick::turns) deadlines: Arc<PersonWaitDeadlines>,
+    /// A sending end of the loop's report channel, which the test reports on as a driver would.
+    pub(in crate::engine::tick::turns) reports: mpsc::Sender<StepReport>,
 }
 
 impl Harness {
@@ -316,8 +437,26 @@ impl Harness {
             payloads: Arc::clone(&payloads) as Arc<dyn StepPayloadArtifacts>,
             ..refusing_engine_ports()
         };
-        let (dispatch, reports) =
+        let (dispatch, received_reports, reports) =
             test_dispatch_recording(&database, ports, Arc::clone(&kinds), Arc::clone(&recorder));
+        // The stored deadlines are real instants, so the test clock starts at the real clock.
+        let clock = Arc::new(TestWallClock::default());
+        clock.set_now(SystemTime::now());
+        let wall_clock: Arc<TestWallClock> = Arc::clone(&clock);
+        let scheduler = Arc::new(Scheduler::start(wall_clock, None, watch::channel(0).1));
+        let deadlines = PersonWaitDeadlines::new(
+            scheduler,
+            Arc::new(DatabaseReadPool::new(
+                database.path(),
+                PERSON_WAIT_STATEMENT_CAPACITY,
+            )),
+            reports.clone(),
+        );
+        let asks = Arc::new(RecordingAsks {
+            rows: Mutex::new(database.reader()),
+            calls: Mutex::new(Vec::new()),
+            is_refusing: AtomicBool::new(false),
+        });
         let (inbox, received) = mpsc::channel(4);
         let tick = EngineTick::new(EngineTickDependencies {
             dispatch,
@@ -330,8 +469,13 @@ impl Harness {
             recorder: Arc::clone(&recorder),
             payloads: Arc::clone(&payloads) as Arc<dyn StepPayloadArtifacts>,
             admission: gate,
-            reports,
+            reports: received_reports,
             inbox: received,
+            person_waits: PersonWaitPorts {
+                cards: Arc::clone(&asks) as Arc<dyn ApprovalCardRaiser>,
+                questions: Arc::clone(&asks) as Arc<dyn PersonWaitQuestions>,
+            },
+            deadlines: Arc::clone(&deadlines),
         });
         tokio::spawn(tick.run());
         Self {
@@ -346,6 +490,10 @@ impl Harness {
             changes,
             inbox,
             scope,
+            asks,
+            clock,
+            deadlines,
+            reports,
         }
     }
 

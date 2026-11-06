@@ -8,12 +8,13 @@ mod reports;
 #[cfg(test)]
 mod tests;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
 use rusqlite::Connection;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
+use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::definition::document::{WorkflowDefinitionId, WorkflowNode};
 use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowStepError};
@@ -41,15 +42,17 @@ use super::{ReadyStep, RunSnapshot, StepReport, StepReportKind, StepSettlement};
 use crate::engine::event_record::{EngineFault, EngineRecorder};
 use crate::engine::ports::{StepAdmission, StepPayloadArtifacts};
 use crate::engine::start::StartedRun;
+use crate::engine::waits::{PersonWaitDeadlines, PersonWaitPorts};
 use crate::kinds::{NodeKindTable, StepFailure, uncoded_step_error};
 use crate::runs::gate_resolution::RunEventKeys;
 
-/// The most reports one turn takes, and the most starts, so a turn stays bounded.
+/// The most reports one turn takes, and the most inputs from its inbox, so a turn stays bounded.
 const TURN_REPORT_LIMIT: usize = 256;
 
-/// The statements the tick prepares on a read connection: the workflow's level.
+/// The statements the tick prepares on a read connection: the workflow's level, and a chain's
+/// held steps and its question, which Keep going reads.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-pub(crate) const ENGINE_TICK_STATEMENT_CAPACITY: usize = 1;
+pub(crate) const ENGINE_TICK_STATEMENT_CAPACITY: usize = 3;
 
 // The level every step of the workflow's runs runs at, read again at each turn that dispatches.
 const WORKFLOW_LEVEL_SQL: &str = "SELECT permission_level FROM workflow_definitions WHERE id = ?1";
@@ -85,6 +88,11 @@ pub(crate) struct EngineTickDependencies {
     pub(crate) reports: mpsc::Receiver<StepReport>,
     /// The receiving end of the tick's inbox; the loop ends when it closes.
     pub(crate) inbox: mpsc::Receiver<EngineTickInput>,
+    /// The approval cards and questions a step waiting on a person asks through.
+    pub(crate) person_waits: PersonWaitPorts,
+    /// The deadline clock over every step waiting on a person, read again after a write moves a
+    /// deadline.
+    pub(crate) deadlines: Arc<PersonWaitDeadlines>,
 }
 
 /// The engine's tick: the live runs and the one loop that drives them.
@@ -99,6 +107,14 @@ pub(crate) struct EngineTick {
     admission: Arc<dyn StepAdmission>,
     reports: mpsc::Receiver<StepReport>,
     inbox: mpsc::Receiver<EngineTickInput>,
+    person_waits: PersonWaitPorts,
+    deadlines: Arc<PersonWaitDeadlines>,
+    /// Whether this turn's writes armed or cleared a deadline, took a late answer or dropped a
+    /// run, so the deadline clock is read again at the turn's end.
+    needs_deadline_read: bool,
+    /// The waits of the runs dropped in this daemon life, whose rows keep them until the restart
+    /// settles them; an answer to one is not taken.
+    dropped_waits: HashSet<UuidTextForm>,
     /// The runs the tick drives, by id.
     runs: HashMap<WorkflowRunId, LiveRun>,
     /// The runs holding a next batch, in the order the batches were made.
@@ -166,6 +182,8 @@ impl EngineTick {
             admission,
             reports,
             inbox,
+            person_waits,
+            deadlines,
         } = dependencies;
         Self {
             dispatch,
@@ -177,6 +195,10 @@ impl EngineTick {
             admission,
             reports,
             inbox,
+            person_waits,
+            deadlines,
+            needs_deadline_read: false,
+            dropped_waits: HashSet::new(),
             runs: HashMap::new(),
             batched: Vec::new(),
             retries: JoinSet::new(),
@@ -188,7 +210,7 @@ impl EngineTick {
     /// due, and runs the turn.
     pub(crate) async fn run(mut self) {
         let mut reports = Vec::with_capacity(TURN_REPORT_LIMIT);
-        let mut started = Vec::new();
+        let mut inputs = Vec::new();
         let mut due = Vec::new();
         loop {
             // A pinned step or an at-once failure has no driver to wake the loop.
@@ -199,7 +221,7 @@ impl EngineTick {
                         due.extend(retry_due(timer));
                     }
                     input = self.inbox.recv() => match input {
-                        Some(input) => started.push(input),
+                        Some(input) => inputs.push(input),
                         None => return,
                     },
                 }
@@ -209,9 +231,9 @@ impl EngineTick {
             {
                 reports.push(report);
             }
-            while started.len() < TURN_REPORT_LIMIT {
+            while inputs.len() < TURN_REPORT_LIMIT {
                 match self.inbox.try_recv() {
-                    Ok(input) => started.push(input),
+                    Ok(input) => inputs.push(input),
                     Err(TryRecvError::Empty) => break,
                     Err(TryRecvError::Disconnected) => return,
                 }
@@ -220,7 +242,7 @@ impl EngineTick {
                 due.extend(retry_due(timer));
             }
             self.turn(
-                std::mem::take(&mut started),
+                std::mem::take(&mut inputs),
                 std::mem::take(&mut reports),
                 std::mem::take(&mut due),
             )
@@ -233,13 +255,13 @@ impl EngineTick {
     /// levels, their dispatch, and one weigh of the memory gate.
     async fn turn(
         &mut self,
-        started: Vec<EngineTickInput>,
+        inputs: Vec<EngineTickInput>,
         reports: Vec<StepReport>,
         due: Vec<WorkflowStepKey>,
     ) {
         let mut order = std::mem::take(&mut self.batched);
         let mut dispatching: Vec<(WorkflowRunId, Vec<ReadyStep>)> = Vec::new();
-        for EngineTickInput::Started(run) in started {
+        for EngineTickInput::Started(run) in inputs {
             dispatching.push(self.start_run(run));
         }
         let mut arrived: HashMap<WorkflowRunId, Vec<StepReport>> = HashMap::new();

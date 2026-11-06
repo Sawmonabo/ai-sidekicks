@@ -585,18 +585,23 @@ fn test_dispatch(
     let ports = crate::engine::ports::refusing_engine_ports();
     let recorder = Arc::new(EngineRecorder::new(Arc::clone(&ports.records)));
     let kinds = Arc::new(NodeKindTable::new(kinds).expect("the test's kinds build a table"));
-    test_dispatch_recording(database, ports, kinds, recorder)
+    let (dispatch, received, _sender) = test_dispatch_recording(database, ports, kinds, recorder);
+    (dispatch, received)
 }
 
 /// A dispatch as [`test_dispatch`] builds one, over `ports` and the table `kinds`, recording in
-/// `recorder`.
+/// `recorder`, with a sending end of its report channel too, which a test reports on as a driver.
 #[cfg(test)]
 pub(super) fn test_dispatch_recording(
     database: &sidekicks_store::database::writer::test_file::TestDatabase,
     ports: EnginePorts,
     kinds: Arc<NodeKindTable>,
     recorder: Arc<EngineRecorder>,
-) -> (StepDispatch, mpsc::Receiver<StepReport>) {
+) -> (
+    StepDispatch,
+    mpsc::Receiver<StepReport>,
+    mpsc::Sender<StepReport>,
+) {
     let (reports, received) = mpsc::channel(16);
     let dispatch = StepDispatch::new(
         ports,
@@ -610,10 +615,10 @@ pub(super) fn test_dispatch_recording(
         )),
         reqwest::Client::new(),
         kinds,
-        reports,
+        reports.clone(),
         recorder,
     );
-    (dispatch, received)
+    (dispatch, received, reports)
 }
 
 /// The first execution of `node`, the only node of the run of `scope`, readied with an item
