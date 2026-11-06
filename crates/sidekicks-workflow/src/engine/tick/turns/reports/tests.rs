@@ -5,7 +5,7 @@ use rusqlite::{Connection, params};
 use serde_json::{Value, json};
 use tokio::time::timeout;
 
-use crate::engine::tick::turns::tests::{
+use crate::engine::tick::turns::tests::harness::{
     Harness, QUIET, WAIT, edge, item, node, retried, step_column,
 };
 
