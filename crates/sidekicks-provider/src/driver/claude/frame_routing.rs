@@ -88,24 +88,29 @@ struct ClaudeThreadMessages {
 }
 
 impl ClaudeMessageUsageObservation {
-    /// Raises this message to its `later` reading: each count and the longer-lifetime cache write
-    /// and searches to the larger figure, every other fact as `later` reads it.
+    /// Raises this message to its `later` reading: the larger counts, cache write and searches,
+    /// every other fact as `later` reads it.
     pub(crate) fn raise(&mut self, later: &ClaudeMessageUsageObservation) {
         let (so_far, read) = (&self.request, &later.request);
+        let larger = |so_far, read| combine_count(so_far, read, u64::max);
         self.counts = larger_counts(self.counts, later.counts);
         self.request = ClaudeMessageRequestFacts {
-            cache_write_extended_tokens: combine_count(
+            cache_write_extended_tokens: larger(
                 so_far.cache_write_extended_tokens,
                 read.cache_write_extended_tokens,
-                u64::max,
             ),
-            web_search_requests: combine_count(
-                so_far.web_search_requests,
-                read.web_search_requests,
-                u64::max,
-            ),
+            web_search_requests: larger(so_far.web_search_requests, read.web_search_requests),
             ..read.clone()
         };
+    }
+
+    /// What prices this message's whole request, its whole cache write and searches included.
+    pub(crate) fn whole_request(&self) -> UsageRequestFacts {
+        UsageRequestFacts {
+            cache_write_extended_tokens: self.request.cache_write_extended_tokens,
+            web_search_requests: self.request.web_search_requests,
+            ..request_selectors(&self.message_id, &self.request)
+        }
     }
 }
 

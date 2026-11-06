@@ -55,7 +55,7 @@ use crate::driver::claude::inbox::address::ClaudeRegisteredPlacesAddresser;
 use crate::driver::claude::inbox::listener::ClaudeSessionInboxes;
 use crate::driver::claude::intervention::ClaudeInterventions;
 use crate::driver::claude::mcp::connectors::organization_mark::ClaudeOrganizationMarks;
-use crate::driver::claude::pricing::ClaudeRequestPricer;
+use crate::driver::claude::pricing::{ClaudeOneTurnPricing, ClaudeRequestPricer};
 use crate::driver::claude::rate_limit_windows::ClaudeUsageProbeModels;
 use crate::driver::claude::run::controls::ClaudeRunControls;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
@@ -361,6 +361,11 @@ impl ClaudeDriver {
             Arc::clone(&streams),
         ));
         let goal_endings = Arc::new(ClaudeGoalEndings::default());
+        let pricing = Arc::new(LivePricing::new(
+            DESCRIPTOR.provider_id(),
+            Arc::new(ClaudeRequestPricer),
+            ports,
+        ));
         let delivery = Arc::new(ClaudeDeliveryStream::new(ClaudeStreamDependencies {
             engine: Arc::clone(engine),
             dispatch: Arc::clone(dispatch),
@@ -382,11 +387,7 @@ impl ClaudeDriver {
             tool_call_statuses: Arc::clone(&ports.tool_call_statuses),
             goal_endings: Arc::clone(&goal_endings),
             session_message_readings: Arc::clone(&ports.session_message_readings),
-            pricing: Arc::new(LivePricing::new(
-                DESCRIPTOR.provider_id(),
-                Arc::new(ClaudeRequestPricer),
-                ports,
-            )),
+            pricing: Arc::clone(&pricing),
         }));
         let goals = Arc::new(ClaudeGoalCommands::default());
         let cuts = Arc::new(ClaudeConversationCuts {
@@ -446,6 +447,10 @@ impl ClaudeDriver {
                 Arc::clone(&ports.in_process_tool_servers),
                 compose_command_list_reader(slots.clone(), Arc::clone(&handshakes), &routes),
                 Arc::clone(&self.sources.command_channels),
+                ClaudeOneTurnPricing {
+                    usage: Arc::clone(&ports.usage),
+                    live: Arc::clone(&pricing),
+                },
             ));
             let run_controls = ClaudeRunControls {
                 start: run_start.clone(),

@@ -243,6 +243,7 @@ async fn run_naming_turn(
             stop: stop.clone(),
         })
         .await
+        .reply
         .map(|reply| reply.text)
 }
 

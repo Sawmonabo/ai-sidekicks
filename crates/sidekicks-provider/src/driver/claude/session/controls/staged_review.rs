@@ -253,7 +253,7 @@ impl ClaudeSessionControls {
                 &leftover,
             );
         }
-        let reply = match turn {
+        let reply = match turn.reply {
             Ok(reply) => reply,
             Err(turn_failure) => {
                 let cleanup = worktree

@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 use crate::driver::ProviderAccountFolders;
 use crate::driver::claude::session::conversation_home::claude_conversation_home_metadata;
 use crate::driver::claude::session::scripted::driver::{ScriptedDriver, sandbox_cannot_run};
-use crate::driver::claude::spawn::launch::one_turn::ClaudeOneTurnReply;
+use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnOutcome, ClaudeOneTurnReply};
 use crate::driver::session_control::NameSessionParams;
 use crate::driver::test_registry::new_session_id;
 
@@ -82,12 +82,14 @@ async fn a_naming_pass_at_rest_runs_its_one_turn_in_no_mode_of_its_own() {
     let session_id = new_session_id();
     let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
     fixture.record_session_leg(session_id, account, STORED_CONVERSATION, Map::new());
-    fixture.starts.script_one_turn(ClaudeOneTurnReply {
-        text: "Login page fix".to_owned(),
-        provider_message_id: None,
-        refusal: None,
-        usage: None,
-        compaction_summary: None,
+    fixture.starts.script_one_turn(ClaudeOneTurnOutcome {
+        reply: Ok(ClaudeOneTurnReply {
+            text: "Login page fix".to_owned(),
+            provider_message_id: None,
+            refusal: None,
+            compaction_summary: None,
+        }),
+        spend: None,
     });
 
     let named = fixture

@@ -18,22 +18,27 @@
 
 use std::collections::HashMap;
 use std::error::Error;
+use std::sync::Arc;
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::UsageCostSource;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
+use sidekicks_std::port_registration::PortRegistration;
 
 use crate::account::usage_turns::unpriced::{UnpricedRequest, UnpricedUsageKey, UnpricedUsageRow};
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::claude::session::transport::declarations::ClaudeModelCost;
+use crate::driver::claude::spawn::launch::one_turn::ClaudeOneTurnSpend;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics,
 };
-use crate::port::usage_sink::{MeteredUsage, UsageSink};
+use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner, UsageSink};
 use crate::pricing::list::PriceTable;
 use crate::pricing::live::{LivePricing, LiveUsageRow};
 use crate::pricing::quote::{RequestTokenCounts, RequestUsage, quote_request_rows};
@@ -224,6 +229,82 @@ pub(crate) async fn price_claude_rows(
         pricing
             .price(session_id, &model.model_id, model.rows, figure)
             .await;
+    }
+}
+
+/// Where a one-turn process's spend is charged: its session, the binding and owner its rows are
+/// recorded on, and the account it ran on.
+pub(crate) struct ClaudeOneTurnCharge {
+    /// The session.
+    pub(crate) session_id: SessionId,
+    /// The binding the rows are recorded on.
+    pub(crate) binding_id: RuntimeBindingId,
+    /// Whose spend the rows are.
+    pub(crate) owner: MeteredUsageOwner,
+    /// The account the process ran on.
+    pub(crate) provider_account_id: ProviderAccountId,
+}
+
+/// Records and prices what one-turn processes spent, through the usage record and the live
+/// pricing the session's stream shares.
+pub(crate) struct ClaudeOneTurnPricing {
+    /// The usage record, once registered.
+    pub(crate) usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
+    /// The live pricing.
+    pub(crate) live: Arc<LivePricing>,
+}
+
+impl ClaudeOneTurnPricing {
+    /// Records `spend` as `charge` names and prices it: each message a row of its own, with the
+    /// figures its `result` states priced as the stream prices a result's, else from the price
+    /// list. Nothing while no usage record is registered; a failed record is reported.
+    pub(crate) async fn record(&self, spend: ClaudeOneTurnSpend, charge: ClaudeOneTurnCharge) {
+        let Some(sink) = self.usage.port() else {
+            return;
+        };
+        let (sink, mut pricing) = (&**sink, ClaudeResultPricing::default());
+        let thread_id = spend.thread_id;
+        for message in spend.messages {
+            let request = message.whole_request();
+            let provider = DESCRIPTOR.provider_id();
+            let delta = meter_from_zero(provider, thread_id.clone(), message.counts, request);
+            record_one_turn_row(sink, &charge, delta, &mut pricing).await;
+        }
+        let account = &charge.provider_account_id;
+        let mut models = Vec::new();
+        if let Some(model_costs) = spend.model_costs {
+            for delta in pricing.take_unshown_spend(&model_costs, &thread_id) {
+                record_one_turn_row(sink, &charge, delta, &mut pricing).await;
+            }
+            models = pricing.take_at_result(&model_costs, charge.session_id, account);
+        }
+        models.extend(pricing.take_all(charge.session_id, account));
+        price_claude_rows(&self.live, charge.session_id, models).await;
+    }
+}
+
+// Records `delta` as `charge` names it and keeps its row in `pricing`; a failure is reported.
+async fn record_one_turn_row(
+    sink: &dyn UsageSink,
+    charge: &ClaudeOneTurnCharge,
+    delta: MeteredUsageDelta,
+    pricing: &mut ClaudeResultPricing,
+) {
+    let metered = MeteredUsage {
+        session_id: charge.session_id,
+        binding_id: charge.binding_id.clone(),
+        owner: charge.owner.clone(),
+        delta,
+    };
+    match record_for_price(sink, metered).await {
+        Ok(Some(kept)) => pricing.keep(kept),
+        Ok(None) => {}
+        Err(error) => record_unheard_claude_failure(
+            DriverDiagnosticKind::ProcessReportFailed,
+            charge.session_id,
+            "a one-turn process's usage",
+            &*error,
+        ),
     }
 }
 

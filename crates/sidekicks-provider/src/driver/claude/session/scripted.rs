@@ -16,6 +16,7 @@ use std::time::Duration;
 
 use futures::FutureExt;
 use serde_json::Value;
+use sidekicks_contracts::event::usage::UsageCostSource;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -30,6 +31,7 @@ use sidekicks_workspace::git::process::test_git_runner;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 use tempfile::TempDir;
 use tokio::sync::SetOnce;
+use tokio_util::sync::CancellationToken;
 
 use self::channel::ScriptedChannel;
 use self::daemon_services::{
@@ -70,7 +72,9 @@ use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::session_control::CreateSessionParams;
 use crate::driver::test_registry::{new_agent_id, new_run_id, new_session_id};
 use crate::port::run_host::test_host::RecordingRunEngine;
+use crate::port::usage_sink::PricedRequest;
 use crate::pricing::store::HeldPriceList;
+use crate::pricing::test_fixture::{ListServer, started_list};
 use crate::process_identity::ProviderProcessIdentity;
 use crate::run::posture::compose_execution_posture;
 use crate::runtime_binding::test_store::{spawned_build, test_provider_account_id};
@@ -400,4 +404,37 @@ pub(crate) fn exit_scripted_process(listener: &dyn ClaudeProcessListener) {
 /// nothing can run, so a short sleep returns after the session's task drained its queue.
 pub(crate) async fn settle() {
     tokio::time::sleep(Duration::from_millis(1)).await;
+}
+
+// Opus 5.5's rates and `us` multiplier, beside the two models the list fixture keeps.
+const OPUS_COPY: &[u8] =
+    br#"{"m1": {"input_cost_per_token": 3e-06}, "seed-only": {"input_cost_per_token": 2e-06},
+    "claude-opus-5-5": {"input_cost_per_token": 4e-06, "output_cost_per_token": 2e-05,
+        "provider_specific_entry": {"us": 1.1}}}"#;
+
+/// Registers in `price_list` a list in `scratch` with Opus 5.5's rates, run until `stop`, and
+/// answers its stand-in server.
+pub(crate) async fn register_claude_price_list(
+    price_list: &PortRegistration<Arc<HeldPriceList>>,
+    scratch: &TempDir,
+    stop: &CancellationToken,
+) -> Arc<ListServer> {
+    let folder = scratch.path().join("price-list");
+    let (held, server) = started_list(&folder, r#"W/"opus""#, OPUS_COPY, stop).await;
+    price_list
+        .register(held)
+        .expect("the price list registers once");
+    server
+}
+
+/// Each priced request's source and its rows' accounts with their shares.
+pub(crate) fn priced(requests: &[PricedRequest]) -> Vec<(UsageCostSource, Vec<(String, u64)>)> {
+    let shares = |request: &PricedRequest| {
+        let rows = request.rows.iter().map(|priced| {
+            let account = priced.row.provider_account_id.as_str().to_owned();
+            (account, priced.cost_usd_micros.0.get())
+        });
+        (request.cost_source, rows.collect())
+    };
+    requests.iter().map(shares).collect()
 }

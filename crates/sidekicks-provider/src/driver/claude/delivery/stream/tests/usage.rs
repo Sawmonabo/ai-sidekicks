@@ -1,8 +1,6 @@
 //! What a Claude Code session's usage frames write: retries announced and spent, the account's
 //! quota windows, and the spend of the lead and its helpers.
 
-use std::sync::Arc;
-
 use axum::http::StatusCode;
 use jiff::Timestamp;
 use rstest::rstest;
@@ -14,17 +12,16 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::wire::integer::SafeInt;
-use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
 
 use super::{helper_started, init, result};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::session::scripted::driver::ScriptedDriver;
 use crate::driver::claude::session::scripted::{
-    SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
+    SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, priced, register_claude_price_list,
+    settle,
 };
-use crate::port::usage_sink::{MeteredUsageOwner, PricedRequest, ProviderQuotaWindow};
-use crate::pricing::test_fixture::{ListServer, started_list};
+use crate::port::usage_sink::{MeteredUsageOwner, ProviderQuotaWindow};
 use crate::run::delivery::LateAppendableRow;
 use crate::run::state_entry::RunStateEntry;
 use crate::runtime_binding::test_store::test_provider_account_id;
@@ -267,29 +264,6 @@ async fn a_turn_too_long_for_the_window_files_an_exceeded_row_with_no_counts() {
     );
 }
 
-// The list's copy: the fixture's two models kept, and Opus 5.5 at its input and output rates and
-// its `us` multiplier.
-const OPUS_COPY: &[u8] = br#"{"m1": {"input_cost_per_token": 3e-06},
-    "seed-only": {"input_cost_per_token": 2e-06},
-    "claude-opus-5-5": {"input_cost_per_token": 4e-06, "output_cost_per_token": 2e-05,
-        "provider_specific_entry": {"us": 1.1}}}"#;
-
-// A price list in `scratch` that took `OPUS_COPY` from its stand-in server, registered for
-// `session`'s pricing; it runs until `stop`.
-async fn register_price_list(
-    session: &ScriptedSession,
-    scratch: &TempDir,
-    stop: &CancellationToken,
-) -> Arc<ListServer> {
-    let folder = scratch.path().join("price-list");
-    let (price_list, server) = started_list(&folder, r#"W/"opus""#, OPUS_COPY, stop).await;
-    session
-        .price_list
-        .register(price_list)
-        .expect("the price list registers once");
-    server
-}
-
 // An assistant message on `model` of `input` and `output` tokens.
 fn priced_message(message_id: &str, model: &str, input: u64, output: u64) -> Value {
     json!({
@@ -305,22 +279,6 @@ fn priced_message(message_id: &str, model: &str, input: u64, output: u64) -> Val
     })
 }
 
-// Each priced request's source and its rows' accounts with their shares.
-fn priced(requests: &[PricedRequest]) -> Vec<(UsageCostSource, Vec<(String, u64)>)> {
-    requests
-        .iter()
-        .map(|request| {
-            let rows = request.rows.iter().map(|priced| {
-                (
-                    priced.row.provider_account_id.as_str().to_owned(),
-                    priced.cost_usd_micros.0.get(),
-                )
-            });
-            (request.cost_source, rows.collect())
-        })
-        .collect()
-}
-
 // Killed by pricing from `modelUsage`, which a resumed process starts at its earlier turns' totals
 // (5,100,000 first), by subtracting the previous result's figure (25,000 and 25,000), by pricing
 // in dollars rather than micro-dollars, by keeping the larger-window mark on an entry's model (each
@@ -331,7 +289,7 @@ async fn each_result_prices_the_spend_it_states_since_the_previous_result() {
     let scratch = tempfile::tempdir().expect("a scratch folder is made");
     let stop = CancellationToken::new();
     let session = ScriptedSession::new().await;
-    register_price_list(&session, &scratch, &stop).await;
+    register_claude_price_list(&session.price_list, &scratch, &stop).await;
     let opus = "claude-opus-5-5[1m]";
     let stated = |input: u64, output: u64, cost_usd: f64, total_usd: f64| {
         result(&json!({
@@ -389,7 +347,7 @@ async fn a_steers_mid_turn_result_prices_the_spend_it_states() {
     let scratch = tempfile::tempdir().expect("a scratch folder is made");
     let stop = CancellationToken::new();
     let session = ScriptedSession::new().await;
-    register_price_list(&session, &scratch, &stop).await;
+    register_claude_price_list(&session.price_list, &scratch, &stop).await;
     session.hold_lead_turn("lead");
     session.stream.mark_now_steer("now-steer");
 
@@ -446,7 +404,7 @@ async fn the_spend_no_message_showed_is_recorded_at_its_model_and_priced() {
     let scratch = tempfile::tempdir().expect("a scratch folder is made");
     let stop = CancellationToken::new();
     let session = ScriptedSession::new().await;
-    register_price_list(&session, &scratch, &stop).await;
+    register_claude_price_list(&session.price_list, &scratch, &stop).await;
     let (opus, sonnet) = ("claude-opus-5-5", "claude-sonnet-5-5");
 
     session.hold_lead_turn("lead");
@@ -488,7 +446,7 @@ async fn rows_past_their_result_carry_a_balance_and_an_unheld_figure_carries_on(
     let scratch = tempfile::tempdir().expect("a scratch folder is made");
     let stop = CancellationToken::new();
     let session = ScriptedSession::new().await;
-    register_price_list(&session, &scratch, &stop).await;
+    register_claude_price_list(&session.price_list, &scratch, &stop).await;
     let opus = "claude-opus-5-5";
 
     session.hold_lead_turn("lead");
@@ -532,7 +490,7 @@ async fn a_result_stating_no_figures_leaves_its_rows_for_the_next() {
     let scratch = tempfile::tempdir().expect("a scratch folder is made");
     let stop = CancellationToken::new();
     let session = ScriptedSession::new().await;
-    register_price_list(&session, &scratch, &stop).await;
+    register_claude_price_list(&session.price_list, &scratch, &stop).await;
     let opus = "claude-opus-5-5";
 
     session.hold_lead_turn("lead");
@@ -571,7 +529,7 @@ async fn a_process_that_ends_before_its_result_prices_its_rows_from_the_list(
     let scratch = tempfile::tempdir().expect("a scratch folder is made");
     let stop = CancellationToken::new();
     let session = ScriptedSession::new().await;
-    register_price_list(&session, &scratch, &stop).await;
+    register_claude_price_list(&session.price_list, &scratch, &stop).await;
     let mut message = priced_message("message-1", "claude-opus-5-5", 1_000, 500);
     if let Some(region) = region {
         message["message"]["usage"]["inference_geo"] = Value::from(region);
@@ -604,7 +562,7 @@ async fn a_reroute_to_a_model_the_list_lacks_fetches_the_list_at_once() {
     let scratch = tempfile::tempdir().expect("a scratch folder is made");
     let stop = CancellationToken::new();
     let session = ScriptedSession::new().await;
-    let server = register_price_list(&session, &scratch, &stop).await;
+    let server = register_claude_price_list(&session.price_list, &scratch, &stop).await;
     server.script(StatusCode::NOT_MODIFIED, Some(r#"W/"opus""#), b"");
 
     session.hold_lead_turn("lead");

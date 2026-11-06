@@ -13,7 +13,7 @@ use sidekicks_platforms::RUNS_COMMAND_WRAPPER;
 use sidekicks_workspace::git::process::test_git_runner;
 use sidekicks_workspace::git::process::test_repository::make_test_repository;
 
-use super::session_controls::one_turn_reply;
+use super::session_controls::{one_turn_outcome, one_turn_reply};
 use super::start_params;
 use crate::command::running_set::unbound_running_command_sets;
 use crate::driver::claude::run::routes::ClaudeBoundRun;
@@ -151,10 +151,13 @@ async fn a_staged_reviews_process_runs_in_its_levels_own_mode() {
         .expect("the running commands register once");
     let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
     offer_review_skill(&fixture, session_id);
-    fixture.starts.script_one_turn(ClaudeOneTurnReply {
+    let reported = ClaudeOneTurnReply {
         provider_message_id: Some("review".to_owned()),
-        ..one_turn_reply("Nothing to change.", None)
-    });
+        ..one_turn_reply("Nothing to change.")
+    };
+    fixture
+        .starts
+        .script_one_turn(one_turn_outcome(reported, None));
     let run_id = new_run_id();
     let mut params = start_params(session_id, run_id);
     params.opening.item = RunOpeningItem::Review {

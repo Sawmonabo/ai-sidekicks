@@ -30,7 +30,7 @@ use crate::driver::claude::spawn::launch::initialize_reply::ClaudeListedCommand;
 use crate::driver::claude::spawn::launch::installed_build::{
     ClaudeProcessStarts, ClaudeStartedSession,
 };
-use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnReply, ClaudeOneTurnRequest};
+use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnOutcome, ClaudeOneTurnRequest};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::GetCapabilitiesResult;
 use crate::driver::session_control::NameSessionParams;
@@ -72,12 +72,15 @@ impl ClaudeProcessStarts for UnansweredOneTurn {
     fn run_one_turn<'a>(
         &'a self,
         request: ClaudeOneTurnRequest<'a>,
-    ) -> BoxFuture<'a, Result<ClaudeOneTurnReply, ClaudeLaunchError>> {
+    ) -> BoxFuture<'a, ClaudeOneTurnOutcome> {
         *sidekicks_std::mutex_lock::lock(&self.stop) = Some(request.stop.clone());
         self.started.notify_one();
         async move {
             request.stop.cancelled().await;
-            Err(ClaudeLaunchError::TurnStopped)
+            ClaudeOneTurnOutcome {
+                reply: Err(ClaudeLaunchError::TurnStopped),
+                spend: None,
+            }
         }
         .boxed()
     }
