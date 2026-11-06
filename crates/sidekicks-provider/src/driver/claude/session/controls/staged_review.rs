@@ -3,7 +3,7 @@
 //! model, its commands reaching a command channel of its own and landing as rows under its run.
 //! Its report lands as the run's reply and the run completes; a refusal fails it refused, a stop
 //! ends it interrupted unless the daemon writes that end itself, and the worktree and channel go
-//! and the review finishes however the turn ends.
+//! and the review finishes however the turn ends. Its process's spend is recorded on its run.
 
 use std::io;
 use std::path::PathBuf;
@@ -27,6 +27,7 @@ use tokio_util::sync::CancellationToken;
 use super::review::review_text;
 use super::{ClaudeSessionControls, one_turn_legs};
 use crate::driver::claude::delivery::commands::ClaudeCommandChannel;
+use crate::driver::claude::pricing::ClaudeOneTurnCharge;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::claude::session::state::LiveClaudeSession;
@@ -35,6 +36,7 @@ use crate::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::driver::contract::error::bound_failure_detail;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
+use crate::port::usage_sink::MeteredUsageOwner;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
 
@@ -232,16 +234,27 @@ impl ClaudeSessionControls {
                 return Err(ClaudeStagedReviewError::CommandChannel(error));
             }
         };
+        let provider_account_id = live.admitted_provider_account_id();
         let turn = self
             .run_one_turn(
                 &legs,
-                live.admitted_provider_account_id(),
+                provider_account_id.clone(),
                 None,
                 None,
                 review_text(SessionReviewTarget::Staged).text,
                 stop.clone(),
             )
             .await;
+        // The review's spend is its run's however the turn ended, recorded before its end lands.
+        if let Some(spend) = turn.spend {
+            let charge = ClaudeOneTurnCharge {
+                session_id: live.session_id,
+                binding_id: run.binding_id.clone(),
+                owner: MeteredUsageOwner::Run,
+                provider_account_id,
+            };
+            self.one_turn_pricing.record(spend, charge).await;
+        }
         // The channel served only this turn's process, which has ended however the turn did.
         if let Some(command_channel) = command_channel
             && let Err(leftover) = command_channel.close().await

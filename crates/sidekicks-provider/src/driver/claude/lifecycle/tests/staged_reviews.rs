@@ -7,27 +7,36 @@ use std::sync::Arc;
 use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::command::CommandId;
+use sidekicks_contracts::event::usage::UsageCostSource;
+use sidekicks_contracts::run::failure_cause::{RunFailureCause, RunRefusedOrigin};
 use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::RUNS_COMMAND_WRAPPER;
 use sidekicks_workspace::git::process::test_git_runner;
 use sidekicks_workspace::git::process::test_repository::make_test_repository;
+use tokio_util::sync::CancellationToken;
 
-use super::session_controls::{one_turn_outcome, one_turn_reply};
+use super::session_controls::{one_turn_outcome, one_turn_reply, opus_spend};
 use super::start_params;
 use crate::command::running_set::unbound_running_command_sets;
 use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::ScriptedDriver;
-use crate::driver::claude::session::scripted::{binding_id, settle};
+use crate::driver::claude::session::scripted::{
+    binding_id, priced, register_claude_price_list, settle,
+};
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::declarations::ClaudeHandshakeDeclaration;
-use crate::driver::claude::spawn::launch::one_turn::ClaudeOneTurnReply;
+use crate::driver::claude::spawn::launch::ClaudeLaunchError;
+use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnOutcome, ClaudeOneTurnReply};
 use crate::driver::contract::params_and_results::RunOpeningItem;
 use crate::driver::run_control::InterruptRunRequest;
 use crate::driver::test_registry::new_run_id;
 use crate::port::running_command_publisher::RunningCommandParams;
+use crate::port::usage_sink::MeteredUsageOwner;
 use crate::run::state_entry::RunStateEntry;
+use crate::runtime_binding::test_store::test_provider_account_id;
 
 // Lets the session's process run Claude Code's `code-review` skill.
 fn offer_review_skill(fixture: &ScriptedDriver, session_id: SessionId) {
@@ -186,6 +195,82 @@ async fn a_staged_reviews_process_runs_in_its_levels_own_mode() {
         .map(|one_turn| one_turn.permission_mode)
         .collect();
     assert_eq!(modes, [None]);
+}
+
+// Killed by recording only a review that reported, by recording its spend after its run's end,
+// and by owning its rows as the session's copy rather than its run's: a refused review keeps its
+// result's figure and a stopped one is priced from the list, each on the review's own binding.
+#[rstest]
+#[case::refused(true, UsageCostSource::ProviderReported)]
+#[case::stopped(false, UsageCostSource::DerivedExact)]
+#[tokio::test]
+async fn a_staged_reviews_spend_is_recorded_on_its_run_however_it_ends(
+    #[case] is_refused: bool,
+    #[case] cost_source: UsageCostSource,
+) {
+    let scratch = tempfile::tempdir().expect("a scratch folder is made");
+    let stop = CancellationToken::new();
+    let fixture = ScriptedDriver::new();
+    register_claude_price_list(&fixture.services.ports.price_list, &scratch, &stop).await;
+    make_test_repository(&test_git_runner(), fixture.folder.path(), "work").await;
+    fixture
+        .services
+        .ports
+        .command_output
+        .register(unbound_running_command_sets())
+        .expect("the running commands register once");
+    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    offer_review_skill(&fixture, session_id);
+    let outcome = if is_refused {
+        let refused = ClaudeOneTurnReply {
+            refusal: Some(RunFailureCause::Refused {
+                origin: RunRefusedOrigin::Provider,
+                model: FreeFormText::new("claude-opus-5-5".to_owned()).expect("a model id"),
+                sentence: None,
+                explanation: None,
+                safety_category: None,
+            }),
+            ..one_turn_reply("")
+        };
+        let spend = opus_spend(&[(1_000, 500)], Some((1_000, 500, 0.014)));
+        one_turn_outcome(refused, Some(spend))
+    } else {
+        ClaudeOneTurnOutcome {
+            reply: Err(ClaudeLaunchError::TurnStopped),
+            spend: Some(opus_spend(&[(1_000, 500)], None)),
+        }
+    };
+    fixture.starts.script_one_turn(outcome);
+    let run_id = new_run_id();
+    let mut params = start_params(session_id, run_id);
+    params.opening.item = RunOpeningItem::Review {
+        target: SessionReviewTarget::Staged,
+    };
+
+    fixture
+        .driver
+        .start_run(params)
+        .await
+        .expect("the review starts");
+    ScriptedDriver::wait_for(|| {
+        let moves = fixture.engine.moves_of_run(run_id);
+        (moves.iter()).any(|entry| matches!(entry, RunStateEntry::Failed { .. }))
+    })
+    .await;
+    stop.cancel();
+
+    let metered: Vec<_> = fixture
+        .usage
+        .metered()
+        .into_iter()
+        .map(|metered| (metered.owner, metered.binding_id))
+        .collect();
+    assert_eq!(metered, [(MeteredUsageOwner::Run, binding_id("lead"))]);
+    let account = test_provider_account_id().as_str().to_owned();
+    assert_eq!(
+        priced(&fixture.usage.priced()),
+        [(cost_source, vec![(account, 14_000)])]
+    );
 }
 
 // A staged review's run, on a binding of its own.
