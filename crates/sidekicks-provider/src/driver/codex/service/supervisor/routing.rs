@@ -165,17 +165,11 @@ pub(crate) struct CodexSpawnedHelper {
 
 /// The conversation a frame names and the helpers its spawn item names, read in one parse.
 pub(crate) struct CodexFrameThreads {
-    /// The conversation the frame names, `None` when it names none as non-empty text.
+    /// The conversation the frame names, `None` when it names none as non-blank text.
     pub(crate) thread_id: Option<String>,
     /// The helpers a spawn item names: one for v2's `subAgentActivity` of kind `started` on
     /// `item/started` or `item/completed`, one per receiver for v1's completed `spawnAgent`.
     pub(crate) spawned_helpers: Vec<CodexSpawnedHelper>,
-}
-
-// A raw member read as non-empty text.
-fn read_text(raw: Option<&RawValue>) -> Option<String> {
-    raw.and_then(|raw| serde_json::from_str::<String>(raw.get()).ok())
-        .filter(|text| !text.is_empty())
 }
 
 fn read_frame_conversation(params: &RawValue) -> Option<FrameConversation> {
@@ -185,9 +179,16 @@ fn read_frame_conversation(params: &RawValue) -> Option<FrameConversation> {
 // The conversation a read frame names.
 fn frame_thread_id(method: &str, conversation: FrameConversation) -> Option<String> {
     if method == CODEX_THREAD_STARTED_METHOD {
-        return read_text(conversation.thread?.id.as_deref());
+        return conversation
+            .thread?
+            .id
+            .as_deref()
+            .and_then(read_codex_given_text);
     }
-    read_text(conversation.thread_id.as_deref())
+    conversation
+        .thread_id
+        .as_deref()
+        .and_then(read_codex_given_text)
 }
 
 /// The conversation a frame names: `thread.id` on `thread/started`, `threadId` otherwise; `None`
@@ -199,8 +200,16 @@ pub(crate) fn read_codex_frame_thread_id(method: &str, params: &RawValue) -> Opt
 /// The conversation an ask names: its `threadId`, or an older approval's `conversationId`.
 pub(crate) fn read_codex_ask_thread_id(params: &RawValue) -> Option<String> {
     let conversation = read_frame_conversation(params)?;
-    read_text(conversation.thread_id.as_deref())
-        .or_else(|| read_text(conversation.conversation_id.as_deref()))
+    conversation
+        .thread_id
+        .as_deref()
+        .and_then(read_codex_given_text)
+        .or_else(|| {
+            conversation
+                .conversation_id
+                .as_deref()
+                .and_then(read_codex_given_text)
+        })
 }
 
 /// The conversation a frame names and the helpers its spawn item names; the item is read only on
@@ -235,21 +244,33 @@ fn read_spawned_helpers(is_completed: bool, item: &RawValue) -> Vec<CodexSpawned
     else {
         return Vec::new();
     };
-    let call_id = read_text(item.id.as_deref());
+    let call_id = item.id.as_deref().and_then(read_codex_given_text);
     let model = item.model.as_deref().and_then(read_codex_given_text);
     let reasoning_effort = item
         .reasoning_effort
         .as_deref()
         .and_then(read_codex_given_text);
-    match read_text(item.item_type.as_deref()).as_deref() {
+    match item
+        .item_type
+        .as_deref()
+        .and_then(read_codex_given_text)
+        .as_deref()
+    {
         Some(CODEX_SUB_AGENT_ACTIVITY_ITEM_TYPE)
-            if read_text(item.kind.as_deref()).as_deref() == Some(CODEX_SPAWNED_ACTIVITY_KIND) =>
+            if item
+                .kind
+                .as_deref()
+                .and_then(read_codex_given_text)
+                .as_deref()
+                == Some(CODEX_SPAWNED_ACTIVITY_KIND) =>
         {
-            read_text(item.agent_thread_id.as_deref())
+            item.agent_thread_id
+                .as_deref()
+                .and_then(read_codex_given_text)
                 .map(|thread_id| CodexSpawnedHelper {
                     thread_id,
                     call_id,
-                    provider_path: read_text(item.agent_path.as_deref()),
+                    provider_path: item.agent_path.as_deref().and_then(read_codex_given_text),
                     model,
                     reasoning_effort,
                 })
@@ -258,7 +279,12 @@ fn read_spawned_helpers(is_completed: bool, item: &RawValue) -> Vec<CodexSpawned
         }
         Some(CODEX_COLLAB_AGENT_TOOL_CALL_ITEM_TYPE)
             if is_completed
-                && read_text(item.tool.as_deref()).as_deref() == Some(CODEX_SPAWN_AGENT_TOOL) =>
+                && item
+                    .tool
+                    .as_deref()
+                    .and_then(read_codex_given_text)
+                    .as_deref()
+                    == Some(CODEX_SPAWN_AGENT_TOOL) =>
         {
             let receivers = item
                 .receiver_thread_ids
@@ -266,7 +292,7 @@ fn read_spawned_helpers(is_completed: bool, item: &RawValue) -> Vec<CodexSpawned
                 .unwrap_or_default();
             receivers
                 .iter()
-                .filter_map(|receiver| read_text(Some(receiver)))
+                .filter_map(|receiver| read_codex_given_text(receiver))
                 .map(|thread_id| CodexSpawnedHelper {
                     thread_id,
                     call_id: call_id.clone(),
