@@ -1,15 +1,20 @@
 //! Claude Code's requests priced: its rule for pricing a request from the price list, and the
-//! rows each turn recorded, kept by model until the turn's `result` or the process's end prices
-//! them.
+//! rows its process recorded, kept by model until the process's next lead `result` or its end
+//! prices them.
 //!
 //! - **The rule.** A request is its message's rows, priced at the model's exact row, at the
 //!   standard rates or `fast`'s, in no region or `us`, with every rate at the long-context tier
 //!   when the whole request's input passes the row's threshold, the cache writes split by lifetime
 //!   and the web searches at the row's per-search rate.
-//! - **A turn's rows.** At the `result`, a model whose `modelUsage` entry reads `list` or `managed`
-//!   with a cost takes that cost less the last the process reported for it, shared over the model's
-//!   rows; any other model is priced from the price list. The rows still kept when the process ends
-//!   are priced from the price list.
+//! - **A result's rows.** At a lead `result` stating each model's usage and cost since the
+//!   process's previous result, a model whose entry reads `list` or `managed` with a cost takes
+//!   that cost, shared over the model's rows; any other model is priced from the price list. A
+//!   `result` stating no figures leaves the rows for the next one, and the rows still kept when the
+//!   process ends are priced from the price list.
+//! - **The spend no message showed.** What an entry counts past the model's rows since the last
+//!   result (an advisor's calls, a compaction, a title) is recorded as one more row on the model
+//!   before the price is taken; rows past their entry carry over as the model's balance, and a
+//!   figure with no row to land on carries to the model's next rows.
 
 use std::collections::HashMap;
 
@@ -31,9 +36,16 @@ use crate::pricing::list::PriceTable;
 use crate::pricing::live::LiveUsageRow;
 use crate::pricing::quote::{RequestTokenCounts, RequestUsage, quote_request_rows};
 use crate::pricing::rule::{RequestPricer, RequestPricing};
+use crate::usage_delta_accountant::{
+    MeteredUsageDelta, UsageAxisCounts, UsageRequestFacts, meter_from_zero,
+};
 
 // A model id as a usage row carries it.
 type ModelId = FreeFormText<EVENT_FIELD_MAX_LEN>;
+
+// The figures a result states per model that a row records: input, cached input, cache write,
+// output and web searches.
+const SPEND_FIGURES: usize = 5;
 
 // The micro-dollars in a dollar, the unit `costUSD` is reported in.
 const MICRO_DOLLARS_PER_DOLLAR: f64 = 1_000_000.0;
@@ -130,14 +142,18 @@ impl RequestPricer for ClaudeRequestPricer {
     }
 }
 
-/// One process's turn rows waiting for their price, by model, and what it last reported each
-/// model cost.
+/// One process's rows waiting for their price, by model, with what its results' figures and its
+/// rows have not yet matched: the calls streamed ahead of the result that states them, and the
+/// figures no row was kept to carry.
 #[derive(Default)]
-pub(crate) struct ClaudeTurnPricing {
+pub(crate) struct ClaudeResultPricing {
     kept: Vec<ClaudeModelRows>,
-    // The `costUSD` each model's entry last reported on this process, in dollars.
-    last_taken_usd: HashMap<ModelId, f64>,
-    // The `costBasis` words already logged on this process.
+    // Each model's spend its rows showed past what its results have stated, as each figure's
+    // shortfall, zero or below.
+    balances: HashMap<ModelId, [i128; SPEND_FIGURES]>,
+    // Each model's provider figure in micro-dollars that no kept row has carried yet.
+    carried_usd_micros: HashMap<ModelId, f64>,
+    // The `costBasis` words and the dropped figures already logged on this process.
     basis_reports: OnceReportedDiagnostics,
 }
 
@@ -150,25 +166,112 @@ pub(crate) struct ClaudeModelRows {
     pub(crate) rows: Vec<LiveUsageRow>,
     /// The provider's figure, `None` where the price list's rates price them.
     pub(crate) provider_figure_usd_micros: Option<f64>,
+    // The rows' input, cached input, cache write, output and web searches summed.
+    spent: [u64; SPEND_FIGURES],
+    // The region the last row names.
+    region: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
 }
 
-impl ClaudeTurnPricing {
-    /// Keeps `row`, recorded on `model_id`, until the turn's `result` or the process's end.
-    pub(crate) fn keep(&mut self, model_id: ModelId, row: LiveUsageRow) {
-        match self.kept.iter_mut().find(|kept| kept.model_id == model_id) {
-            Some(kept) => kept.rows.push(row),
-            None => self.kept.push(ClaudeModelRows {
+impl ClaudeResultPricing {
+    /// Keeps `row`, recorded on `model_id` from `delta`, until the process's next lead `result` or
+    /// its end.
+    pub(crate) fn keep(&mut self, model_id: ModelId, row: LiveUsageRow, delta: &MeteredUsageDelta) {
+        let index = self.kept.iter().position(|kept| kept.model_id == model_id);
+        let index = index.unwrap_or_else(|| {
+            self.kept.push(ClaudeModelRows {
                 model_id,
-                rows: vec![row],
+                rows: Vec::new(),
                 provider_figure_usd_micros: None,
-            }),
+                spent: [0; SPEND_FIGURES],
+                region: None,
+            });
+            self.kept.len() - 1
+        });
+        let kept = &mut self.kept[index];
+        let axes = &delta.axis_deltas;
+        let figures = [
+            axes.input,
+            axes.cached_input,
+            axes.cache_write_input,
+            axes.output,
+            delta.request.web_search_requests,
+        ];
+        for (spent, figure) in kept.spent.iter_mut().zip(figures) {
+            *spent = spent.saturating_add(figure.unwrap_or(0));
         }
+        kept.rows.push(row);
+        kept.region.clone_from(&delta.request.processing_region);
     }
 
-    /// Takes every kept model's rows at a `result` reporting `model_costs`: a model whose entry
-    /// reads `list` or `managed` with a cost takes that cost less the last taken, which the entry's
-    /// cost then becomes; any other takes none. A basis the driver does not know is logged once per
-    /// process on `session_id` and `provider_account_id`.
+    /// The spend each model's entry in `model_costs` states past the rows kept on it since the
+    /// last result, as one delta per model on `thread_id`: at the entry's model, a request of its
+    /// own at the standard speed, in the kept rows' region. A figure the rows exceed is carried as
+    /// the model's balance, which the model's next stated spend fills before any delta comes of it.
+    pub(crate) fn take_unshown_spend(
+        &mut self,
+        model_costs: &[ClaudeModelCost],
+        thread_id: &str,
+    ) -> Vec<MeteredUsageDelta> {
+        let mut unshown = Vec::new();
+        for entry in model_costs {
+            let kept = self
+                .kept
+                .iter()
+                .find(|kept| kept.model_id == entry.model_id);
+            let spent = kept.map_or([0; SPEND_FIGURES], |kept| kept.spent);
+            let counts = &entry.counts;
+            let stated = [
+                counts.input,
+                counts.cached_input,
+                counts.cache_write_input,
+                counts.output,
+                entry.web_search_requests,
+            ];
+            let balance = self.balances.entry(entry.model_id.clone()).or_default();
+            let mut parts = [0_u64; SPEND_FIGURES];
+            for ((part, balance), (stated, spent)) in parts
+                .iter_mut()
+                .zip(balance.iter_mut())
+                .zip(stated.into_iter().zip(spent))
+            {
+                let signed = i128::from(stated.unwrap_or(0)) - i128::from(spent) + *balance;
+                (*part, *balance) = u64::try_from(signed).map_or((0, signed), |part| (part, 0));
+            }
+            if parts == [0; SPEND_FIGURES] {
+                continue;
+            }
+            let [input, cached_input, cache_write_input, output, web_searches] =
+                parts.map(|part| (part > 0).then_some(part));
+            let request = UsageRequestFacts {
+                model_id: Some(entry.model_id.clone()),
+                processing_region: kept.and_then(|kept| kept.region.clone()),
+                web_search_requests: web_searches,
+                ..UsageRequestFacts::default()
+            };
+            let counts = UsageAxisCounts {
+                input,
+                cached_input,
+                cache_write_input,
+                output,
+                reasoning_output: None,
+                total: None,
+            };
+            let provider = DESCRIPTOR.provider_id();
+            unshown.push(meter_from_zero(
+                provider,
+                thread_id.to_owned(),
+                counts,
+                request,
+            ));
+        }
+        unshown
+    }
+
+    /// Takes every kept model's rows at a `result` stating `model_costs`, each model's cost since
+    /// the process's previous result: a model whose entry reads `list` or `managed` with a cost
+    /// takes that cost, with any figure carried for it; any other takes none. A figure for a model
+    /// with no kept rows is carried to its next. A basis the driver does not know is logged once
+    /// per process on `session_id` and `provider_account_id`.
     pub(crate) fn take_at_result(
         &mut self,
         model_costs: &[ClaudeModelCost],
@@ -176,39 +279,75 @@ impl ClaudeTurnPricing {
         provider_account_id: &ProviderAccountId,
     ) -> Vec<ClaudeModelRows> {
         let mut taken = std::mem::take(&mut self.kept);
-        for model in &mut taken {
-            let Some(entry) = model_costs
-                .iter()
-                .find(|entry| entry.model_id == model.model_id)
-            else {
-                continue;
-            };
-            model.provider_figure_usd_micros = match (entry.cost_basis.as_deref(), entry.cost_usd) {
-                (Some("list" | "managed"), Some(cost_usd)) => {
-                    let last_taken_usd = self.take_last(&model.model_id, cost_usd);
-                    Some((cost_usd - last_taken_usd) * MICRO_DOLLARS_PER_DOLLAR)
-                }
-                (Some("list" | "managed" | "unknown") | None, _) => None,
-                (Some(basis), _) => {
-                    self.report_basis(basis, &model.model_id, session_id, provider_account_id);
-                    None
-                }
-            };
+        for entry in model_costs {
+            let figure = self.provider_figure(entry, session_id, provider_account_id);
+            if let Some(model) = taken
+                .iter_mut()
+                .find(|model| model.model_id == entry.model_id)
+            {
+                model.provider_figure_usd_micros = figure.map(|figure| {
+                    figure
+                        + self
+                            .carried_usd_micros
+                            .remove(&model.model_id)
+                            .unwrap_or(0.0)
+                });
+            } else if let Some(figure) = figure {
+                *self
+                    .carried_usd_micros
+                    .entry(entry.model_id.clone())
+                    .or_default() += figure;
+            }
         }
         taken
     }
 
-    /// Takes every kept model's rows, each to be priced from the price list.
-    pub(crate) fn take_all(&mut self) -> Vec<ClaudeModelRows> {
+    /// Takes every kept model's rows, each to be priced from the price list. A figure still carried
+    /// for a model no row took is dropped, logged once per process on `session_id` and
+    /// `provider_account_id`.
+    pub(crate) fn take_all(
+        &mut self,
+        session_id: SessionId,
+        provider_account_id: &ProviderAccountId,
+    ) -> Vec<ClaudeModelRows> {
+        for (model_id, carried_usd_micros) in std::mem::take(&mut self.carried_usd_micros) {
+            self.basis_reports.report(&DriverDiagnosticRecord {
+                provider: DESCRIPTOR.provider_id(),
+                provider_account_id: Some(provider_account_id.clone()),
+                kind: DriverDiagnosticKind::UsageCrossCheckMismatch,
+                raw_wire_type: Some(model_id.as_str().to_owned()),
+                disposition_reason: "a result's figure for a model found no row to carry it \
+                                     before the process ended, so it is dropped"
+                    .to_owned(),
+                details: Map::from_iter([
+                    ("sessionId".to_owned(), Value::from(session_id.to_string())),
+                    ("modelId".to_owned(), Value::from(model_id.as_str())),
+                    (
+                        "carriedUsdMicros".to_owned(),
+                        Value::from(carried_usd_micros),
+                    ),
+                ]),
+            });
+        }
         std::mem::take(&mut self.kept)
     }
 
-    // Sets `model_id`'s last taken cost to `cost_usd` and answers the one before it, 0 on a model
-    // this process has not reported.
-    fn take_last(&mut self, model_id: &ModelId, cost_usd: f64) -> f64 {
-        self.last_taken_usd
-            .insert(model_id.clone(), cost_usd)
-            .unwrap_or(0.0)
+    // The provider's figure `entry` states, in micro-dollars: its cost where its basis is `list`
+    // or `managed`, else none.
+    fn provider_figure(
+        &mut self,
+        entry: &ClaudeModelCost,
+        session_id: SessionId,
+        provider_account_id: &ProviderAccountId,
+    ) -> Option<f64> {
+        match (entry.cost_basis.as_deref(), entry.cost_usd) {
+            (Some("list" | "managed"), Some(cost_usd)) => Some(cost_usd * MICRO_DOLLARS_PER_DOLLAR),
+            (Some("list" | "managed" | "unknown") | None, _) => None,
+            (Some(basis), _) => {
+                self.report_basis(basis, &entry.model_id, session_id, provider_account_id);
+                None
+            }
+        }
     }
 
     fn report_basis(
@@ -223,8 +362,9 @@ impl ClaudeTurnPricing {
             provider_account_id: Some(provider_account_id.clone()),
             kind: DriverDiagnosticKind::UnmappedWireKind,
             raw_wire_type: Some(basis.to_owned()),
-            disposition_reason: "a `modelUsage` entry's `costBasis` is not one the driver knows, \
-                                 so the model's requests are priced from the price list"
+            disposition_reason: "a `model_usage_since_last_result` entry's `costBasis` is not one \
+                                 the driver knows, so the model's requests are priced from the \
+                                 price list"
                 .to_owned(),
             details: Map::from_iter([
                 ("sessionId".to_owned(), Value::from(session_id.to_string())),
@@ -234,7 +374,8 @@ impl ClaudeTurnPricing {
     }
 }
 
-// A stored row's input, output, cache-read and whole cache-write counts, each 0 where it holds none.
+// A stored row's input, output, cache-read and whole cache-write counts, each 0 where it holds
+// none.
 struct RowCounts {
     input: u64,
     output: u64,

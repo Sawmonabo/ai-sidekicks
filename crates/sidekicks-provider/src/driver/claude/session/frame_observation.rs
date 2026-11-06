@@ -1,13 +1,13 @@
 //! The routing facts of one stream frame Claude Code writes on its output: its kind, the helper it
 //! came from, a helper's start, move to the background and end, the tool calls a `user` frame's
 //! results answer, the `SendMessage` calls an assistant frame makes, an assistant message's usage
-//! with what prices its request and a turn's own usage and cost per model, the `system/init` declaration with its MCP
-//! servers' readings and a later whole `/` list, the compaction boundary, and a start-up hook's
-//! start or end. The frame is untrusted, so it is read once into a struct naming only these
-//! members, each leniently: an absent or malformed one reads as absent, and every other member is
-//! skipped unread. A `result`'s `modelUsage`, the process's sum over every thread, is read only for
-//! each model's cost so far and its basis, never its token counts.
-
+//! with what prices its request and a result's own usage and cost per model, the `system/init`
+//! declaration with its MCP servers' readings and a later whole `/` list, the compaction boundary,
+//! and a start-up hook's start or end. The frame is untrusted, so it is read once into a struct
+//! naming only these members, each leniently: an absent or malformed one reads as absent, and
+//! every other member is skipped unread. A `result`'s cost per model is its
+//! `model_usage_since_last_result`, each model's counts and cost since the process's previous
+//! result; `modelUsage`, the process's running total, is never read.
 use std::fmt;
 use std::marker::PhantomData;
 
@@ -36,6 +36,10 @@ use crate::lenient_json::{
 };
 use crate::record_readers::filter_non_empty;
 use crate::usage_delta_accountant::UsageAxisCounts;
+
+// The `inference_geo` words that name no region: `global`, and `not_available`, which Claude Code
+// sends on most requests and prices at the base rate.
+const CLAUDE_NO_REGION_WORDS: [&str; 2] = ["global", "not_available"];
 
 // The hook events whose run Claude Code reports while it starts, which `initialize`'s wait does
 // not count.
@@ -101,16 +105,27 @@ pub(crate) struct ClaudeStreamFrameRead {
     hook_id: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     hook_event: Option<String>,
-    #[serde(rename = "modelUsage", default, deserialize_with = "read_lenient")]
-    model_usage: Option<ClaudeModelUsage>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    model_usage_since_last_result: Option<ClaudeModelUsage>,
 }
 
-// A `result`'s `modelUsage`: each model's entry that reads as an object, in the frame's order.
+// A `result`'s `model_usage_since_last_result`: each model's entry that reads as an object, in the
+// frame's order.
 struct ClaudeModelUsage(Vec<(String, ClaudeModelUsageEntry)>);
 
-// One model's entry, read only for its cost so far and that cost's basis.
+// One model's entry: its counts, its cost and that cost's basis.
 #[derive(Deserialize)]
 struct ClaudeModelUsageEntry {
+    #[serde(rename = "inputTokens", default)]
+    input_tokens: Option<Box<RawValue>>,
+    #[serde(rename = "cacheReadInputTokens", default)]
+    cache_read_input_tokens: Option<Box<RawValue>>,
+    #[serde(rename = "cacheCreationInputTokens", default)]
+    cache_creation_input_tokens: Option<Box<RawValue>>,
+    #[serde(rename = "outputTokens", default)]
+    output_tokens: Option<Box<RawValue>>,
+    #[serde(rename = "webSearchRequests", default)]
+    web_search_requests: Option<Box<RawValue>>,
     #[serde(rename = "costUSD", default, deserialize_with = "read_lenient")]
     cost_usd: Option<f64>,
     #[serde(rename = "costBasis", default, deserialize_with = "read_lenient")]
@@ -355,10 +370,9 @@ impl ClaudeStreamFrameRead {
             boundary_position: None,
         });
         let model_costs = is_claude_result_frame_kind(&frame_kind)
-            .then_some(self.model_usage)
+            .then_some(self.model_usage_since_last_result)
             .flatten()
-            .map(|usage| usage.0.into_iter().filter_map(read_model_cost).collect())
-            .unwrap_or_default();
+            .map(|usage| usage.0.into_iter().filter_map(read_model_cost).collect());
         ClaudeInboundFrameObservation {
             subagent_id: filter_non_empty(self.agent_id)
                 .or_else(|| filter_non_empty(self.parent_tool_use_id)),
@@ -431,8 +445,8 @@ fn read_token_counts(usage: &ClaudeTokenUsage) -> Option<UsageAxisCounts> {
 }
 
 // What prices a message's request: its model without the larger-window mark, its speed as given,
-// its region where it names one other than `global`, and its longer-lifetime cache write and web
-// searches so far. A text that does not fit its type reads as absent.
+// its region where it names one other than `global` or `not_available`, and its longer-lifetime
+// cache write and web searches so far. A text that does not fit its type reads as absent.
 fn read_request_facts(model: Option<&str>, usage: &ClaudeTokenUsage) -> ClaudeMessageRequestFacts {
     ClaudeMessageRequestFacts {
         model_id: model
@@ -441,7 +455,7 @@ fn read_request_facts(model: Option<&str>, usage: &ClaudeTokenUsage) -> ClaudeMe
         processing_region: usage
             .inference_geo
             .clone()
-            .filter(|region| region != "global")
+            .filter(|region| !CLAUDE_NO_REGION_WORDS.contains(&region.as_str()))
             .and_then(BoundedText::new),
         cache_write_extended_tokens: usage.cache_creation.as_ref().and_then(|cache_creation| {
             read_count(cache_creation.ephemeral_1h_input_tokens.as_deref())
@@ -453,11 +467,20 @@ fn read_request_facts(model: Option<&str>, usage: &ClaudeTokenUsage) -> ClaudeMe
     }
 }
 
-// One model's cost as the stream reads its messages' model, without the larger-window mark; `None`
-// for a model id that does not fit.
+// One model's counts and cost, at the model as the stream reads its messages' model, without the
+// larger-window mark; `None` for a model id that does not fit.
 fn read_model_cost((model, entry): (String, ClaudeModelUsageEntry)) -> Option<ClaudeModelCost> {
     Some(ClaudeModelCost {
         model_id: FreeFormText::new(without_larger_window_mark(&model).to_owned()).ok()?,
+        counts: UsageAxisCounts {
+            input: read_count(entry.input_tokens.as_deref()),
+            cached_input: read_count(entry.cache_read_input_tokens.as_deref()),
+            cache_write_input: read_count(entry.cache_creation_input_tokens.as_deref()),
+            output: read_count(entry.output_tokens.as_deref()),
+            reasoning_output: None,
+            total: None,
+        },
+        web_search_requests: read_count(entry.web_search_requests.as_deref()),
         cost_usd: entry.cost_usd,
         cost_basis: entry.cost_basis,
     })

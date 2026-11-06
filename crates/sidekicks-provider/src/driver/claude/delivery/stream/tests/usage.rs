@@ -11,6 +11,7 @@ use sidekicks_contracts::event::usage::{
     ApiRetryErrorKind, UsageApiRequestRetriedPayload, UsageCostSource,
 };
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::wire::integer::SafeInt;
 use tempfile::TempDir;
@@ -188,8 +189,8 @@ fn usage_message(message_id: &str, agent_id: Option<&str>, input: u64, output: u
 // Fails when a helper's spend is recorded as the lead's, when a message read twice counts twice,
 // when the lead's `result` does not raise its turn to the turn's own `usage`, or when the
 // process-wide `modelUsage` is metered. Mutations: `record_metered` dropping the helper's id;
-// `observe_message` adding each reading of one message; `confirm_turn` skipped; the `result`
-// reading `modelUsage`.
+// `observe_message` adding each reading of one message; `confirm_turn` skipped; a row read from
+// `modelUsage`.
 #[tokio::test(start_paused = true)]
 async fn a_helpers_usage_records_on_the_helper_and_the_lead_result_confirms_the_lead() {
     let session = ScriptedSession::new().await;
@@ -266,10 +267,12 @@ async fn a_turn_too_long_for_the_window_files_an_exceeded_row_with_no_counts() {
     );
 }
 
-// The list's copy: the fixture's two models kept, and Opus 5.5 at its input and output rates.
+// The list's copy: the fixture's two models kept, and Opus 5.5 at its input and output rates and
+// its `us` multiplier.
 const OPUS_COPY: &[u8] = br#"{"m1": {"input_cost_per_token": 3e-06},
     "seed-only": {"input_cost_per_token": 2e-06},
-    "claude-opus-5-5": {"input_cost_per_token": 4e-06, "output_cost_per_token": 2e-05}}"#;
+    "claude-opus-5-5": {"input_cost_per_token": 4e-06, "output_cost_per_token": 2e-05,
+        "provider_specific_entry": {"us": 1.1}}}"#;
 
 // A price list in `scratch` that took `OPUS_COPY` from its stand-in server, registered for
 // `session`'s pricing; it runs until `stop`.
@@ -318,26 +321,30 @@ fn priced(requests: &[PricedRequest]) -> Vec<(UsageCostSource, Vec<(String, u64)
         .collect()
 }
 
-// Killed by taking the process's cumulative `costUSD` again at the second result (250,000), by
-// pricing in dollars rather than micro-dollars, by keeping the larger-window mark on a
-// `modelUsage` model (each turn priced from the table instead), and by charging a turn's rows to
-// one account after its account moved. The record writes one cost event per account a priced
-// request's rows name.
+// Killed by pricing from `modelUsage`, which a resumed process starts at its earlier turns' totals
+// (5,100,000 first), by subtracting the previous result's figure (25,000 and 25,000), by pricing
+// in dollars rather than micro-dollars, by keeping the larger-window mark on an entry's model (each
+// turn priced from the table instead), and by charging a turn's rows to one account after its
+// account moved. The record writes one cost event per account a priced request's rows name.
 #[tokio::test]
-async fn each_result_prices_its_turn_at_the_cost_the_process_added() {
+async fn each_result_prices_the_spend_it_states_since_the_previous_result() {
     let scratch = tempfile::tempdir().expect("a scratch folder is made");
     let stop = CancellationToken::new();
     let session = ScriptedSession::new().await;
     register_price_list(&session, &scratch, &stop).await;
     let opus = "claude-opus-5-5[1m]";
-    let list_cost = |cost_usd: f64| {
-        result(&json!({"modelUsage": {opus: {"costUSD": cost_usd, "costBasis": "list"}}}))
+    let stated = |input: u64, output: u64, cost_usd: f64, total_usd: f64| {
+        result(&json!({
+            "model_usage_since_last_result": {opus: {"inputTokens": input,
+                "outputTokens": output, "costUSD": cost_usd, "costBasis": "list"}},
+            "modelUsage": {opus: {"costUSD": total_usd, "costBasis": "list"}},
+        }))
     };
 
     session.hold_lead_turn("lead");
     session.frame(&init());
     session.frame(&priced_message("message-1", opus, 1_000, 500));
-    session.frame(&list_cost(0.10));
+    session.frame(&stated(1_000, 500, 0.10, 5.10));
     ScriptedDriver::wait_for(|| session.usage.priced().len() == 1).await;
     session.hold_lead_turn("lead");
     session.frame(&priced_message("message-2", opus, 1_000, 500));
@@ -345,7 +352,7 @@ async fn each_result_prices_its_turn_at_the_cost_the_process_added() {
     let moved = ProviderAccountId::new("moved-account".to_owned()).expect("an account id");
     session.usage.charge_to(moved.clone());
     session.frame(&priced_message("message-3", opus, 1_000, 500));
-    session.frame(&list_cost(0.25));
+    session.frame(&stated(2_000, 1_000, 0.15, 5.25));
     ScriptedDriver::wait_for(|| session.usage.priced().len() == 2).await;
     stop.cancel();
 
@@ -365,18 +372,214 @@ async fn each_result_prices_its_turn_at_the_cost_the_process_added() {
     );
 }
 
-// Killed by leaving a turn's rows unpriced until a restart when its process ends before its
-// `result`: they are priced from the price list as the process ends.
+// A lead `result` stating `input` and `output` tokens on Opus 5.5 at `cost_usd`, naming the steers
+// `steers` settles.
+fn opus_result(input: u64, output: u64, cost_usd: f64, steers: &[&str]) -> Value {
+    result(&json!({
+        "user_message_uuids": steers,
+        "model_usage_since_last_result": {"claude-opus-5-5": {"inputTokens": input,
+            "outputTokens": output, "costUSD": cost_usd, "costBasis": "list"}},
+    }))
+}
+
+// Killed by pricing only at the turn-ending `result`, which leaves a steer's mid-turn result's
+// figure untaken (one request, 25,000 and 25,000).
 #[tokio::test]
-async fn a_process_that_ends_before_its_result_prices_its_rows_from_the_list() {
+async fn a_steers_mid_turn_result_prices_the_spend_it_states() {
     let scratch = tempfile::tempdir().expect("a scratch folder is made");
     let stop = CancellationToken::new();
     let session = ScriptedSession::new().await;
     register_price_list(&session, &scratch, &stop).await;
+    session.hold_lead_turn("lead");
+    session.stream.mark_now_steer("now-steer");
+
+    session.frame(&init());
+    session.frame(&priced_message("message-1", "claude-opus-5-5", 1_000, 500));
+    session.frame(&opus_result(1_000, 500, 0.10, &[]));
+    ScriptedDriver::wait_for(|| session.usage.priced().len() == 1).await;
+    session.frame(&priced_message("message-2", "claude-opus-5-5", 1_000, 500));
+    session.frame(&opus_result(1_000, 500, 0.05, &["now-steer"]));
+    ScriptedDriver::wait_for(|| session.usage.priced().len() == 2).await;
+    stop.cancel();
+
+    let account = test_provider_account_id().as_str().to_owned();
+    assert_eq!(
+        priced(&session.usage.priced()),
+        [
+            (
+                UsageCostSource::ProviderReported,
+                vec![(account.clone(), 100_000)]
+            ),
+            (UsageCostSource::ProviderReported, vec![(account, 50_000)]),
+        ]
+    );
+}
+
+// Each metered row's owner, binding, model and input and output.
+fn metered_rows(session: &ScriptedSession) -> Vec<(bool, RuntimeBindingId, String, u64, u64)> {
+    session
+        .usage
+        .metered()
+        .into_iter()
+        .map(|metered| {
+            let model = metered
+                .delta
+                .request
+                .model_id
+                .map(|model| model.as_str().to_owned());
+            (
+                matches!(metered.owner, MeteredUsageOwner::Run),
+                metered.binding_id,
+                model.unwrap_or_default(),
+                metered.delta.axis_deltas.input.unwrap_or(0),
+                metered.delta.axis_deltas.output.unwrap_or(0),
+            )
+        })
+        .collect()
+}
+
+// Killed by recording every entry at the session's model, by recording an entry's counts without
+// the kept rows taken off (Opus {1,400, 600}), and by recording a row only for a model with no
+// message (Opus's figure on the message alone, 20,000).
+#[tokio::test]
+async fn the_spend_no_message_showed_is_recorded_at_its_model_and_priced() {
+    let scratch = tempfile::tempdir().expect("a scratch folder is made");
+    let stop = CancellationToken::new();
+    let session = ScriptedSession::new().await;
+    register_price_list(&session, &scratch, &stop).await;
+    let (opus, sonnet) = ("claude-opus-5-5", "claude-sonnet-5-5");
 
     session.hold_lead_turn("lead");
     session.frame(&init());
-    session.frame(&priced_message("message-1", "claude-opus-5-5", 1_000, 500));
+    session.frame(&priced_message("message-1", opus, 1_000, 500));
+    session.frame(&result(&json!({"model_usage_since_last_result": {
+        opus: {"inputTokens": 1_400, "outputTokens": 600, "costUSD": 0.02, "costBasis": "list"},
+        sonnet: {"inputTokens": 3_000, "outputTokens": 200, "costUSD": 0.01, "costBasis": "list"},
+    }})));
+    ScriptedDriver::wait_for(|| session.usage.priced().len() == 2).await;
+    stop.cancel();
+
+    let lead = binding_id("lead");
+    assert_eq!(
+        metered_rows(&session),
+        [
+            (true, lead.clone(), opus.to_owned(), 1_000, 500),
+            (true, lead.clone(), opus.to_owned(), 400, 100),
+            (true, lead, sonnet.to_owned(), 3_000, 200),
+        ]
+    );
+    let account = test_provider_account_id().as_str().to_owned();
+    assert_eq!(
+        priced(&session.usage.priced()),
+        [
+            (
+                UsageCostSource::ProviderReported,
+                vec![(account.clone(), 15_909), (account.clone(), 4_091)]
+            ),
+            (UsageCostSource::ProviderReported, vec![(account, 10_000)]),
+        ]
+    );
+}
+
+// Killed by dropping the balance, which records a 400-input row at the second result, and by
+// dropping the figure no row carried (14,000 at the third).
+#[tokio::test]
+async fn rows_past_their_result_carry_a_balance_and_an_unheld_figure_carries_on() {
+    let scratch = tempfile::tempdir().expect("a scratch folder is made");
+    let stop = CancellationToken::new();
+    let session = ScriptedSession::new().await;
+    register_price_list(&session, &scratch, &stop).await;
+    let opus = "claude-opus-5-5";
+
+    session.hold_lead_turn("lead");
+    session.frame(&init());
+    session.frame(&priced_message("message-1", opus, 1_000, 500));
+    session.frame(&opus_result(600, 500, 0.01, &[]));
+    ScriptedDriver::wait_for(|| session.usage.priced().len() == 1).await;
+    session.hold_lead_turn("lead");
+    session.frame(&opus_result(400, 0, 0.002, &[]));
+    session.hold_lead_turn("lead");
+    session.frame(&priced_message("message-2", opus, 1_000, 500));
+    session.frame(&opus_result(1_000, 500, 0.014, &[]));
+    ScriptedDriver::wait_for(|| session.usage.priced().len() == 2).await;
+    stop.cancel();
+
+    let lead = binding_id("lead");
+    assert_eq!(
+        metered_rows(&session),
+        [
+            (true, lead.clone(), opus.to_owned(), 1_000, 500),
+            (true, lead, opus.to_owned(), 1_000, 500),
+        ]
+    );
+    let account = test_provider_account_id().as_str().to_owned();
+    assert_eq!(
+        priced(&session.usage.priced()),
+        [
+            (
+                UsageCostSource::ProviderReported,
+                vec![(account.clone(), 10_000)]
+            ),
+            (UsageCostSource::ProviderReported, vec![(account, 16_000)]),
+        ]
+    );
+}
+
+// Killed by pricing a result's rows from the table when it states no figures (a `derivedExact`
+// 14,000 first), which the next result's figures would then price again.
+#[tokio::test]
+async fn a_result_stating_no_figures_leaves_its_rows_for_the_next() {
+    let scratch = tempfile::tempdir().expect("a scratch folder is made");
+    let stop = CancellationToken::new();
+    let session = ScriptedSession::new().await;
+    register_price_list(&session, &scratch, &stop).await;
+    let opus = "claude-opus-5-5";
+
+    session.hold_lead_turn("lead");
+    session.frame(&init());
+    session.frame(&priced_message("message-1", opus, 1_000, 500));
+    session.frame(&result(&json!({})));
+    session.hold_lead_turn("lead");
+    session.frame(&priced_message("message-2", opus, 1_000, 500));
+    session.frame(&opus_result(2_000, 1_000, 0.20, &[]));
+    ScriptedDriver::wait_for(|| !session.usage.priced().is_empty()).await;
+    stop.cancel();
+
+    let account = test_provider_account_id().as_str().to_owned();
+    assert_eq!(
+        priced(&session.usage.priced()),
+        [(
+            UsageCostSource::ProviderReported,
+            vec![(account.clone(), 100_000), (account, 100_000)]
+        )]
+    );
+}
+
+// Killed by leaving a turn's rows unpriced until a restart when its process ends before its
+// `result`: they are priced from the price list as the process ends. Killed too by reading
+// `not_available` as a region, which holds the request, and by pricing `us` at the base rate.
+#[rstest]
+#[case::no_region(None, 14_000)]
+#[case::global(Some("global"), 14_000)]
+#[case::not_available(Some("not_available"), 14_000)]
+#[case::us(Some("us"), 15_400)]
+#[tokio::test]
+async fn a_process_that_ends_before_its_result_prices_its_rows_from_the_list(
+    #[case] region: Option<&str>,
+    #[case] cost_usd_micros: u64,
+) {
+    let scratch = tempfile::tempdir().expect("a scratch folder is made");
+    let stop = CancellationToken::new();
+    let session = ScriptedSession::new().await;
+    register_price_list(&session, &scratch, &stop).await;
+    let mut message = priced_message("message-1", "claude-opus-5-5", 1_000, 500);
+    if let Some(region) = region {
+        message["message"]["usage"]["inference_geo"] = Value::from(region);
+    }
+
+    session.hold_lead_turn("lead");
+    session.frame(&init());
+    session.frame(&message);
     ScriptedDriver::wait_for(|| session.usage.metered().len() == 1).await;
     session.exit();
     ScriptedDriver::wait_for(|| session.usage.priced().len() == 1).await;
@@ -386,7 +589,10 @@ async fn a_process_that_ends_before_its_result_prices_its_rows_from_the_list() {
         priced(&session.usage.priced()),
         [(
             UsageCostSource::DerivedExact,
-            vec![(test_provider_account_id().as_str().to_owned(), 14_000)]
+            vec![(
+                test_provider_account_id().as_str().to_owned(),
+                cost_usd_micros
+            )]
         )]
     );
 }

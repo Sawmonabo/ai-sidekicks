@@ -21,7 +21,7 @@ use crate::driver::claude::delivery::run_readings::{ClaudeOpenTurn, ClaudeStream
 use crate::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
 use crate::driver::claude::delivery::turn_readings::ClaudeTurnReadings;
 use crate::driver::claude::goals::file::ClaudeProcessGoal;
-use crate::driver::claude::pricing::ClaudeTurnPricing;
+use crate::driver::claude::pricing::ClaudeResultPricing;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
 use crate::driver::claude::session::arrivals::{ClaudeArrivalSender, ClaudeTurnAtRead};
@@ -77,7 +77,7 @@ pub(crate) struct ClaudeSessionStream {
     kept_calls: ClaudeKeptCallsSource,
     // The rows the process recorded that wait for their price, behind a lock never held across an
     // await.
-    pub(super) turn_pricing: Mutex<ClaudeTurnPricing>,
+    pub(super) result_pricing: Mutex<ClaudeResultPricing>,
 }
 
 impl ClaudeSessionStream {
@@ -115,7 +115,7 @@ impl ClaudeSessionStream {
             unnumbered_turns: AtomicU64::new(0),
             first_request: Mutex::new(None),
             kept_calls,
-            turn_pricing: Mutex::default(),
+            result_pricing: Mutex::default(),
         }
     }
 
