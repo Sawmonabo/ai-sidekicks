@@ -443,6 +443,8 @@ pub struct ReattachedHelper {
     pub start_call_id: Option<ToolCallId>,
     /// Its path in its provider's tree; `None` on a provider that keeps no tree paths.
     pub provider_path: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    /// The model its first start named, `None` where it named none.
+    pub model_id: Option<ProviderToken>,
     /// Whether its own run was live before the restart. An ancestor included only for its place in
     /// the tree was not.
     pub was_live: bool,

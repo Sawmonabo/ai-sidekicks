@@ -188,6 +188,7 @@ async fn a_recorded_relaunch_reattaches_the_helpers_live_before_it() {
                     parent_subagent_id: None,
                     start_call_id: None,
                     provider_path: None,
+                    model_id: None,
                     was_live: true,
                 }],
             },

@@ -452,6 +452,7 @@ impl CodexSessionEstablishment {
                     &mut record,
                     helper.thread_id.clone(),
                     helper.prior_emitted,
+                    helper.model.clone(),
                 )
                 .await;
             routed.extend(restored);

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use rstest::rstest;
 use serde_json::value::RawValue;
@@ -384,6 +385,62 @@ async fn each_v1_spawn_starts_its_helper_beneath_its_own_call() {
         HashMap::from([
             ("helper-a".to_owned(), Some("call-1".to_owned())),
             ("helper-b".to_owned(), Some("call-2".to_owned())),
+        ])
+    );
+}
+
+// A v1 spawn naming two receivers reads both helpers' conversations together, so the frame waits
+// one read's bound, not one per helper, and each starts named by its own read. Killed by reads
+// sent one after another (the second read comes only once the first is answered).
+#[tokio::test]
+async fn a_v1_spawn_reads_each_of_its_helpers_together() {
+    let mut session = TestCodexSession::start().await;
+    open_live_turn(&mut session, LEAD_TURN);
+    let spawn = item_frame(
+        "item/completed",
+        LEAD_TURN,
+        &json!({
+            "type": "collabAgentToolCall", "id": "call-1", "tool": "spawnAgent",
+            "status": "completed", "senderThreadId": TEST_THREAD,
+            "receiverThreadIds": ["helper-a", "helper-b"], "agentsStates": {},
+        }),
+    );
+    let script = &mut session.scripted.script;
+    let answer_reads = async {
+        let mut reads = Vec::new();
+        for _ in 0..2 {
+            let read = tokio::time::timeout(Duration::from_secs(1), script.next_sent())
+                .await
+                .expect("each read goes out before any is answered");
+            assert_eq!(read["method"], "thread/read", "{read}");
+            reads.push(read);
+        }
+        for read in &reads {
+            let thread_id = read["params"]["threadId"].clone();
+            let nickname = format!("Nick {}", thread_id.as_str().unwrap_or_default());
+            script.answer(
+                read,
+                &json!({"thread": {"id": thread_id, "agentNickname": nickname}}),
+            );
+        }
+    };
+    tokio::join!(session.task.handle(spawn), answer_reads);
+
+    let names: HashMap<String, Option<String>> = child_runs(&session)
+        .into_iter()
+        .map(|(helper, delivery)| {
+            let name = delivery
+                .subagent
+                .and_then(|subagent| subagent.name)
+                .map(|name| name.as_str().to_owned());
+            (helper, name)
+        })
+        .collect();
+    assert_eq!(
+        names,
+        HashMap::from([
+            ("helper-a".to_owned(), Some("Nick helper-a".to_owned())),
+            ("helper-b".to_owned(), Some("Nick helper-b".to_owned())),
         ])
     );
 }

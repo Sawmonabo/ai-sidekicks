@@ -181,10 +181,12 @@ pub(crate) async fn run_codex_session_call(
         CodexSessionCall::RestoreHelper {
             helper,
             prior_emitted,
+            model,
             reply,
         } => {
             routed =
-                restore_reattached_codex_helper(task, dependencies, *helper, prior_emitted).await;
+                restore_reattached_codex_helper(task, dependencies, *helper, prior_emitted, model)
+                    .await;
             let _unheard = reply.send(());
         }
         CodexSessionCall::StopTurnForRetry {

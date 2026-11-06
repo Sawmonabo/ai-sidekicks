@@ -7,6 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use futures::future::join_all;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
@@ -31,6 +32,7 @@ use crate::driver::codex::service::supervisor::routing::{
     CodexFrameThreads, CodexSpawnedHelper, read_codex_frame_threads,
 };
 use crate::driver::codex::session::state::{CODEX_THREAD_FRAME_ROUTER_CONFIG, CodexSessionRecord};
+use crate::driver::codex::thread::view::CodexThreadReading;
 use crate::driver::codex::token_usage::read_codex_token_usage;
 use crate::driver::codex::tools::normalize_codex_mcp_server_status_notification;
 use crate::driver::codex::transport::connection::read_codex_object;
@@ -151,6 +153,14 @@ impl CodexRoutedFrames {
     }
 }
 
+// A helper a spawn item registered, with what its conversation's `thread/read` gave.
+struct CodexRegisteredHelper {
+    child_thread_id: String,
+    attribution: ChildSpendAttribution,
+    helper: CodexSpawnedHelper,
+    reading: Option<CodexThreadReading>,
+}
+
 /// One session's frame router, usage accountant and terminal gate, kept on its task beside its
 /// record, with the model each spawned or restored helper runs on; the gate outlives each record, since a
 /// close covers whichever run is in flight.
@@ -263,15 +273,17 @@ impl CodexSessionRouting {
 
     /// Registers again a helper of the session's conversation that an adoption restored, running
     /// or with its newest turn over, beneath the conversation, its usage based on
-    /// `prior_emitted_cumulative`, what was already metered on it, and its model read from its
-    /// conversation's `thread/read` before the frames that waited for it are delivered. Starts no
-    /// child run: the helper's run is the one it already holds.
+    /// `prior_emitted_cumulative`, what was already metered on it, and its model kept before the
+    /// frames that waited for it are delivered: `model`, the one its reopen or its node named,
+    /// else the one its conversation's `thread/read` gives. Starts no child run: the helper's run
+    /// is the one it already holds.
     pub(crate) async fn restore_helper_thread(
         &mut self,
         delivery: &CodexFrameDelivery,
         record: &mut CodexSessionRecord,
         helper_thread_id: String,
         prior_emitted_cumulative: UsageAxisCounts,
+        model: Option<String>,
     ) -> CodexRoutedFrames {
         self.accountant.establish_thread(
             helper_thread_id.clone(),
@@ -279,11 +291,14 @@ impl CodexSessionRouting {
                 prior_emitted_cumulative,
             },
         );
-        // Read before its held frames are released, so each usage reading among them names it.
-        if let Some(model) = read_codex_helper_thread(record, &helper_thread_id)
-            .await
-            .and_then(|reading| reading.model)
-        {
+        // Kept before its held frames are released, so each usage reading among them names it.
+        let model = match model {
+            Some(model) => Some(model),
+            None => read_codex_helper_thread(record, &helper_thread_id)
+                .await
+                .and_then(|reading| reading.model),
+        };
+        if let Some(model) = model {
             self.helper_models.insert(helper_thread_id.clone(), model);
         }
         let mut routed = CodexRoutedFrames::default();
@@ -341,30 +356,50 @@ impl CodexSessionRouting {
         if frame.method == CODEX_ITEM_COMPLETED_METHOD
             && let Some(parent_thread_id) = &frame.thread_id
         {
+            let mut registered = Vec::new();
             for helper in spawned_helpers {
-                let registered = self.router.register_child_thread(helper_announcement(
-                    helper.thread_id.clone(),
-                    parent_thread_id,
-                ));
                 if let ChildRegistrationResult::Registered {
                     child_thread_id,
                     attribution,
                     released_frames,
-                } = registered
-                {
-                    self.start_registered_child(
-                        delivery,
-                        record,
-                        &child_thread_id,
-                        parent_thread_id,
-                        &attribution,
-                        helper,
-                    )
-                    .await;
-                    for released in released_frames {
-                        self.route_frame(delivery, record, &released, &mut routed)
-                            .await;
+                } = self.router.register_child_thread(helper_announcement(
+                    helper.thread_id.clone(),
+                    parent_thread_id,
+                )) {
+                    registered.push((child_thread_id, attribution, released_frames, helper));
+                }
+            }
+            // Read together, so a spawn naming several helpers waits one read's bound, not one
+            // per helper; a helper already metered or not a subagent starts nothing, so is not read.
+            let shared_record: &CodexSessionRecord = record;
+            let readings = join_all(registered.iter().map(
+                |(child_thread_id, attribution, _, _)| {
+                    let is_read = matches!(attribution, ChildSpendAttribution::Subagent { .. })
+                        && !self.accountant.has_thread(child_thread_id);
+                    async move {
+                        if is_read {
+                            read_codex_helper_thread(shared_record, child_thread_id).await
+                        } else {
+                            None
+                        }
                     }
+                },
+            ))
+            .await;
+            for ((child_thread_id, attribution, released_frames, helper), reading) in
+                registered.into_iter().zip(readings)
+            {
+                let spawned = CodexRegisteredHelper {
+                    child_thread_id,
+                    attribution,
+                    helper,
+                    reading,
+                };
+                self.start_registered_child(delivery, record, parent_thread_id, spawned)
+                    .await;
+                for released in released_frames {
+                    self.route_frame(delivery, record, &released, &mut routed)
+                        .await;
                 }
             }
         }
@@ -375,18 +410,23 @@ impl CodexSessionRouting {
     }
 
     // A helper registered once: its usage based at zero and, for a subagent, its model kept and its
-    // child run started under the names its conversation's `thread/read` gives, and the path, the
+    // child run started under the names its conversation's `reading` gives, and the path, the
     // model and the effort its spawn item gives, the model else the read's. A repeated announcement keeps the base, since re-basing would meter
     // reported spend again, and starts nothing, since a second start would show the helper twice.
     async fn start_registered_child(
         &mut self,
         delivery: &CodexFrameDelivery,
         record: &mut CodexSessionRecord,
-        child_thread_id: &str,
         parent_thread_id: &str,
-        attribution: &ChildSpendAttribution,
-        helper: CodexSpawnedHelper,
+        spawned: CodexRegisteredHelper,
     ) {
+        let CodexRegisteredHelper {
+            child_thread_id,
+            attribution,
+            helper,
+            reading,
+        } = spawned;
+        let child_thread_id = child_thread_id.as_str();
         if self.accountant.has_thread(child_thread_id) {
             report(
                 record,
@@ -400,10 +440,9 @@ impl CodexSessionRouting {
         }
         self.accountant
             .establish_thread(child_thread_id.to_owned(), ThreadBaseEstablishment::Fresh);
-        let ChildSpendAttribution::Subagent { subagent_id } = attribution else {
+        let ChildSpendAttribution::Subagent { subagent_id } = &attribution else {
             return;
         };
-        let reading = read_codex_helper_thread(record, child_thread_id).await;
         let reading = reading.as_ref();
         let model = helper
             .model
