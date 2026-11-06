@@ -169,6 +169,11 @@ impl ClaudeSessionControls {
         }
     }
 
+    /// What records and prices the spend of the session's one-turn processes.
+    pub(crate) fn one_turn_pricing(&self) -> &ClaudeOneTurnPricing {
+        &self.one_turn_pricing
+    }
+
     /// Moves the session between Build and Plan from its next turn: Plan is Claude Code's `plan`
     /// mode and Build its level's own mode, stored once Claude Code takes it. A move that follows
     /// a mode Claude Code reported running sends nothing and takes that mode as the one the

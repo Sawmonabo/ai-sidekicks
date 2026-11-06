@@ -301,14 +301,15 @@ impl ClaudeDriver {
 
     /// Names the session from its first exchange; see the naming pass. The pass runs on the live
     /// process's account, else, at rest, on the one the session's stored leg ran on; a session that
-    /// never ran answers `None`. Fails as the stored leg cannot be read, and as the pass fails.
+    /// never ran answers `None`; its one-turn process's spend is recorded and priced as the
+    /// session's own. Fails as the session pieces cannot be composed, as the stored leg cannot be
+    /// read, and as the pass fails; the daemon registers the pieces' ports before any driver call.
     pub(crate) async fn name_session(
         &self,
         params: NameSessionParams,
     ) -> Result<Option<String>, DriverError> {
-        let live = self
-            .composed_parts()
-            .and_then(|parts| parts.slots().live_session(params.session_id));
+        let parts = self.parts()?;
+        let live = parts.slots().live_session(params.session_id);
         let account = if let Some(live) = &live {
             live.admitted_provider_account_id()
         } else {
@@ -321,6 +322,7 @@ impl ClaudeDriver {
             live.as_deref(),
             &*self.starts,
             &self.sources,
+            parts.session_controls.one_turn_pricing(),
             account,
             params,
         )
