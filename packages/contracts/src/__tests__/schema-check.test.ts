@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import { jsonUtf8ByteLength } from "../jsonrpc/byte-length.js";
@@ -19,14 +21,46 @@ describe("wireByteLength", () => {
   });
 });
 
+// The web-address case table the Rust checks read too, so the two sides cannot drift.
+interface WebAddressCaseTable {
+  readonly faults: readonly { readonly address: string; readonly fault: string | null }[];
+  readonly texts: readonly {
+    readonly name: string;
+    readonly text: string;
+    readonly web: string | null;
+    readonly https: string | null;
+  }[];
+}
+
+const webAddressCases = JSON.parse(
+  readFileSync(
+    new URL(
+      "../../../../crates/sidekicks-contracts/tests/fixtures/web-address.json",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
+) as WebAddressCaseTable;
+
 describe("SCHEMA_FORMATS", () => {
+  // Each format is the parse half of its schema; a `pattern` beside it holds the rest (the
+  // `http` start of a web address, the NUL an https: address may not carry).
   it("takes a web address only when it parses with an http: or https: scheme", () => {
     const isWebAddress = SCHEMA_FORMATS["web-url"];
-    expect(isWebAddress("  https://example.com/  ")).toBe(true);
-    expect(isWebAddress("HTTP://x")).toBe(true);
-    expect(isWebAddress("ftp://example.com/file")).toBe(false);
-    expect(isWebAddress("javascript:alert(1)")).toBe(false);
-    expect(isWebAddress("https://")).toBe(false);
+    for (const { address, fault } of webAddressCases.faults) {
+      expect(isWebAddress(address), address).toBe(fault === null);
+    }
+    for (const { name, text } of webAddressCases.texts.filter(({ web }) => web !== null)) {
+      expect(isWebAddress(text), name).toBe(true);
+    }
+  });
+
+  it("takes an https: address exactly where the Rust address type keeps one", () => {
+    for (const { name, text, https } of webAddressCases.texts.filter(
+      ({ text }) => !text.includes("\0"),
+    )) {
+      expect(SCHEMA_FORMATS["https-url"](text), name).toBe(https !== null);
+    }
   });
 
   it("holds a number to its Rust integer type's range", () => {
