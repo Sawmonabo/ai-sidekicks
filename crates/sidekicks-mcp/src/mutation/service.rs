@@ -814,14 +814,16 @@ fn bindings_of(declarations: &[McpServerDeclaration]) -> Vec<McpServerBindingRef
         .collect()
 }
 
-// A response as its receipt saves it and the wire carries it.
-fn response_value(response: &impl Serialize) -> Value {
+/// A response as its receipt saves it and the wire carries it.
+pub(crate) fn response_value(response: &impl Serialize) -> Value {
     serde_json::to_value(response).expect("a mutation's response writes as JSON")
 }
 
-// `answer`, a response the service built or a receipt saved, as the method's response; a saved
-// one that no longer reads as it fails closed.
-fn response_of<Response: DeserializeOwned>(answer: Value) -> Result<Response, DomainError> {
+/// `answer`, a response the service built or a receipt saved, as the method's response; a saved
+/// one that no longer reads as it fails closed.
+pub(crate) fn response_of<Response: DeserializeOwned>(
+    answer: Value,
+) -> Result<Response, DomainError> {
     serde_json::from_value(answer).map_err(|error| stored_answer_unreadable(error).into())
 }
 

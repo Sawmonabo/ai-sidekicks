@@ -4,11 +4,12 @@
 //! and the life of each server's one open attempt, the browser's return and the code's redemption,
 //! the sign-in through a provider's own client where the server does not admit the daemon's, the
 //! one completion event each settled sign-in appends, the authorizer that presents and
-//! renews its token on each request, the sign-out that forgets and revokes it, and the target
-//! read from a binding.
+//! renews its token on each request, and the sign-out that forgets and revokes it; the target
+//! read from a binding, and the receipted sign-in command the daemon's handler forwards to.
 
 pub(crate) mod admitted_client;
 pub(crate) mod authorizer;
+pub(crate) mod commands;
 pub(crate) mod completion_event;
 pub(crate) mod credential_store;
 pub(crate) mod oauth_http_client;
