@@ -158,7 +158,7 @@ impl InterruptQueue for EngineQueue {
         end: InterruptEnd,
     ) -> BoxFuture<'_, Result<bool, InterruptQueueError>> {
         let (limit, cut_turn) = match end.cause {
-            InterruptCause::Person(_) => (None, None),
+            InterruptCause::Person(_) | InterruptCause::Undo => (None, None),
             InterruptCause::Limit { limit, cut_turn } => (Some(limit), cut_turn),
         };
         async move {

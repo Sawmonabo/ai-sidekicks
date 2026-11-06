@@ -23,7 +23,6 @@ use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::contract::error::DriverError;
-use sidekicks_provider::driver::run_control::{InterruptPayload, InterruptPendingChoice};
 use sidekicks_std::bounded_wait::wait_within;
 use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
 use tokio::sync::oneshot;
@@ -40,7 +39,6 @@ use crate::interventions::store::{
     InterventionTransition, RequestedIntervention, insert_requested_intervention_statement,
     move_intervention_statement, no_pending_limit_interrupt_statement,
 };
-use crate::run::engine::InterruptRoute;
 use crate::run::engine::errors::RunEngineError;
 use crate::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
 use crate::run::read::safe_run_version;
@@ -290,7 +288,10 @@ impl InterventionService {
                     .fail_limit_hand(target, DispatchError::RunContinued)
                     .await);
             }
-            LimitDispatch::Cut => match self.dispatch_limit(run_id, *accepted_run_version).await {
+            LimitDispatch::Cut => match self
+                .interrupt_keeping_waiting(run_id, *accepted_run_version)
+                .await
+            {
                 Ok(verdict) => verdict,
                 Err(dispatch) => return Err(self.fail_limit_hand(target, dispatch).await),
             },
@@ -341,33 +342,6 @@ impl InterventionService {
             RunLimit::StepLimit => LimitDispatch::NothingToCut,
             RunLimit::SpendLimit | RunLimit::TokenLimit => LimitDispatch::LeftToContinuedRun,
         })
-    }
-
-    // Cuts the run's turn: none for a run the engine claimed or that ended meanwhile, else the
-    // driver's interrupt, the waiting messages left waiting.
-    async fn dispatch_limit(
-        &self,
-        run_id: RunId,
-        run_version: i64,
-    ) -> Result<Verdict, DispatchError> {
-        match self.engine.route_interrupt(run_id).await? {
-            InterruptRoute::Claimed | InterruptRoute::Ended => Ok(Verdict::Applied {
-                canceled: Vec::new(),
-            }),
-            InterruptRoute::Driver => {
-                self.interrupt_through_driver(
-                    run_id,
-                    safe_run_version(run_version),
-                    mint_client_key(),
-                    InterruptPayload {
-                        pending: InterruptPendingChoice::KeepWaiting,
-                        reorders_waiting: false,
-                        reason: None,
-                    },
-                )
-                .await
-            }
-        }
     }
 
     // Records the dispatch's failure: no row is left pending once the row is `failed`, and the

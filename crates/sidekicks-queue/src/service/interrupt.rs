@@ -243,6 +243,7 @@ impl RunQueue {
                 Some(limit),
                 cut_turn,
             ),
+            InterruptCause::Undo => (InterruptPendingChoice::KeepWaiting, None, None, None),
         };
         let settled = verdict.settled_interventions.clone();
         let is_ended = self
@@ -561,7 +562,7 @@ impl RunQueue {
                 }
                 Ok(())
             }
-            // The daemon's own at a limit holds no queue.
+            // The daemon's own, at a limit and for an undo, holds no queue.
             InterruptPendingChoice::KeepWaiting => Ok(()),
         }
     }

@@ -11,12 +11,12 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::driver::message_handing::MessageHanding;
 use sidekicks_provider::driver::run_control::WaitingMessage;
 use sidekicks_provider::port::run_pause::{
-    ContinuedMessages, ContinuedMessagesError, SessionOpening,
+    ContinuedMessages, ContinuedMessagesError, ContinuedRead, SessionOpening,
 };
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 
-/// The waiting messages as the queue keeps them: read until taken, given back or kept, and a
-/// kept one read by no later resume.
+/// The waiting messages as the queue keeps them: read until taken, given back or kept, a kept one
+/// read by no later resume, and nothing read while an undo holds the session.
 pub(super) struct WaitingMessages {
     pub(super) waiting: Mutex<Vec<WaitingMessage>>,
     pub(super) kept: Mutex<Vec<WaitingMessage>>,
@@ -25,6 +25,8 @@ pub(super) struct WaitingMessages {
     pub(super) openings: AtomicUsize,
     // Where each opening of the session leaves it.
     pub(super) opening: SessionOpening,
+    // Whether an undo holds the session, so a read answers held.
+    pub(super) is_held_for_undo: bool,
     // The helpers whose held lead's continue was handed over.
     pub(super) held_lead_continues: Mutex<Vec<RunId>>,
     // The kept messages a settle delivered with the run, those it gave back, and those it ended
@@ -44,6 +46,7 @@ impl Default for WaitingMessages {
             admissions: AtomicUsize::default(),
             openings: AtomicUsize::default(),
             opening: SessionOpening::Opened,
+            is_held_for_undo: false,
             held_lead_continues: Mutex::default(),
             settled_taken: Mutex::default(),
             settled_given_back: Mutex::default(),
@@ -92,9 +95,13 @@ impl ContinuedMessages for WaitingMessages {
         _hold: &KeyHold<'_, SessionId>,
         _run_id: RunId,
         _handing: MessageHanding,
-    ) -> BoxFuture<'_, Result<Vec<WaitingMessage>, ContinuedMessagesError>> {
-        let waiting = self.waiting.lock().expect("the messages read").clone();
-        async move { Ok(waiting) }.boxed()
+    ) -> BoxFuture<'_, Result<ContinuedRead, ContinuedMessagesError>> {
+        let read = if self.is_held_for_undo {
+            ContinuedRead::HeldForUndo
+        } else {
+            ContinuedRead::Messages(self.waiting.lock().expect("the messages read").clone())
+        };
+        async move { Ok(read) }.boxed()
     }
 
     fn admit(

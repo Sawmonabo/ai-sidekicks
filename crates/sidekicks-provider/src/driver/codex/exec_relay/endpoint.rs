@@ -1,7 +1,8 @@
 //! The loopback WebSocket the Codex service reaches the relay on: one listener for the relay's
-//! life, each connection admitted by the current token and then made the one the executor answers,
-//! its messages handed to the relay one by one while the executor's messages are written to it
-//! apart, so neither side's full queue holds up the other's.
+//! life, each connection admitted by the current token and attached onto the executor beside the
+//! others, its messages handed to the relay one by one while the executor's messages are written
+//! to it apart, so neither side's full queue holds up the other's. A connection closes once the
+//! executor lets its queue go.
 
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -141,7 +142,8 @@ async fn serve_connection(stream: TcpStream, token: Arc<BearerToken>, relay: Wea
         return;
     };
     let (to_client, mut for_client) = mpsc::channel::<String>(CLIENT_QUEUE_CAPACITY);
-    let Some(executor) = attached.attach_client(to_client.clone()) else {
+    // The executor keeps the queue's only sender, so its detach or end closes the connection.
+    let Some((executor, connection)) = attached.attach_client(to_client) else {
         return;
     };
     drop(attached);
@@ -156,11 +158,17 @@ async fn serve_connection(stream: TcpStream, token: Arc<BearerToken>, relay: Wea
                 return;
             }
         }
+        if let Err(error) = sink.close().await {
+            tracing::debug!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "the Codex relay's client could not be closed"
+            );
+        }
     });
     loop {
         let incoming = tokio::select! {
             incoming = source.next() => incoming,
-            // The client can no longer be written, so the connection ends.
+            // The executor let the queue go or the client can no longer be written.
             _written = &mut writing => break,
         };
         let text = match incoming {
@@ -186,8 +194,8 @@ async fn serve_connection(stream: TcpStream, token: Arc<BearerToken>, relay: Wea
             }
         };
         let Some(relay) = relay.upgrade() else { break };
-        relay.take_client_message(&executor, text).await;
+        relay.take_client_message(&executor, connection, text).await;
     }
-    executor.detach_client(&to_client);
+    executor.detach_client(connection);
     writing.abort();
 }
