@@ -7,11 +7,11 @@ mod inbox;
 mod readying;
 mod reports;
 
-use reports::TurnAsk;
 #[cfg(test)]
 mod tests;
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::error::Error;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,6 +19,7 @@ use rusqlite::Connection;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::{WorkflowDefinitionId, WorkflowNode};
 use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowStepError};
 use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
@@ -35,17 +36,17 @@ use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::{mpsc, oneshot};
-use tokio::task::{JoinError, JoinSet};
+use tokio::task::{Id, JoinError, JoinSet};
 
 use super::commit::{ReportedStep, RunTurnCommit, RunTurnCommitFailure};
 use super::dispatch::{StepDispatch, fill_step_failure};
-use super::live_runs::{LiveRun, LiveStep};
+use super::live_runs::{LiveRun, LiveStep, TurnAsk};
 use super::node_settings::main_inputs;
 use super::walk::WalkReady;
 use super::{ReadyStep, RunSnapshot, StepReport, StepReportKind, StepSettlement};
 use crate::engine::chain::KeepGoingIntake;
 use crate::engine::event_record::{EngineFault, EngineRecorder};
-use crate::engine::ports::{RunSnapshotPoints, StepAdmission, StepPayloadArtifacts};
+use crate::engine::ports::{PortError, RunSnapshotPoints, StepAdmission, StepPayloadArtifacts};
 use crate::engine::start::StartedRun;
 use crate::engine::waits::answers::PersonWaitIntake;
 use crate::engine::waits::{PersonWaitDeadlines, PersonWaitPorts, PersonWaitRefusal};
@@ -134,6 +135,19 @@ pub(crate) struct EngineTick {
     /// One timer per retry attempt waiting out its wait, answering the attempt once it is due, or
     /// `None` when its run is canceled first. Dropping the tick drops them.
     retries: JoinSet<Option<WorkflowStepKey>>,
+    /// One task per approval pause whose point is being taken, answering the capture's end.
+    pause_points: JoinSet<Result<(), PortError>>,
+    /// The pause point of each of those tasks, by the task's id, so a task that panics still
+    /// routes to its ask.
+    pause_point_tasks: HashMap<Id, PausePoint>,
+}
+
+/// An approval pause's point: its run, the wait whose card follows it, and its place among the
+/// run's pauses.
+struct PausePoint {
+    run_id: WorkflowRunId,
+    wait_id: UuidTextForm,
+    ordinal: SafeInt<1>,
 }
 
 /// One run's share of a turn while it is gathered: its write, what it readied, the reports its
@@ -142,7 +156,8 @@ pub(crate) struct EngineTick {
 struct RunTurn {
     commit: RunTurnCommit,
     readied: Vec<TurnReadied>,
-    /// The person waits the turn opened, asked once its write commits.
+    /// The person waits the turn opened and the approvals whose pause point ended, asked once its
+    /// write commits.
     asks: Vec<TurnAsk>,
     /// The replies to the answers the turn settled, sent once its write commits.
     replies: Vec<oneshot::Sender<Result<(), PersonWaitRefusal>>>,
@@ -221,17 +236,21 @@ impl EngineTick {
             runs: HashMap::new(),
             batched: Vec::new(),
             retries: JoinSet::new(),
+            pause_points: JoinSet::new(),
+            pause_point_tasks: HashMap::new(),
         }
     }
 
-    /// Runs turns until the inbox closes: waits for a report, a retry come due or an input unless
-    /// a run holds a next batch, takes what is queued up to the turn's bound and every retry come
-    /// due, and runs the turn.
+    /// Runs turns until the inbox closes: waits for a report, a retry come due, a pause point's end
+    /// or an input unless a run holds a next batch, takes what is queued up to the turn's bound,
+    /// every retry come due and every point ended, and runs the turn. Once the inbox closes, it
+    /// waits for every pending point to end, raising no card, so no capture is cut short.
     pub(crate) async fn run(mut self) {
         let mut reports = Vec::with_capacity(TURN_REPORT_LIMIT);
         let mut inputs = Vec::new();
         let mut due = Vec::new();
-        loop {
+        let mut ended = Vec::new();
+        'turns: loop {
             // A pinned step or an at-once failure has no driver to wake the loop.
             if self.batched.is_empty() {
                 tokio::select! {
@@ -239,9 +258,11 @@ impl EngineTick {
                     Some(timer) = self.retries.join_next(), if !self.retries.is_empty() => {
                         due.extend(retry_due(timer));
                     }
+                    Some(point) = self.pause_points.join_next_with_id(),
+                        if !self.pause_points.is_empty() => ended.push(point),
                     input = self.inbox.recv() => match input {
                         Some(input) => inputs.push(input),
-                        None => return,
+                        None => break 'turns,
                     },
                 }
             }
@@ -254,31 +275,71 @@ impl EngineTick {
                 match self.inbox.try_recv() {
                     Ok(input) => inputs.push(input),
                     Err(TryRecvError::Empty) => break,
-                    Err(TryRecvError::Disconnected) => return,
+                    Err(TryRecvError::Disconnected) => break 'turns,
                 }
             }
             while let Some(timer) = self.retries.try_join_next() {
                 due.extend(retry_due(timer));
             }
+            while let Some(point) = self.pause_points.try_join_next_with_id() {
+                ended.push(point);
+            }
+            let taken = ended
+                .drain(..)
+                .map(|point| self.pause_point_taken(point))
+                .collect();
             self.turn(
                 std::mem::take(&mut inputs),
                 std::mem::take(&mut reports),
                 std::mem::take(&mut due),
+                taken,
             )
             .await;
         }
+        for point in ended {
+            self.pause_point_taken(point);
+        }
+        while let Some(point) = self.pause_points.join_next_with_id().await {
+            self.pause_point_taken(point);
+        }
+    }
+
+    /// The pause point whose task `ended`, its task's entry removed; a capture that failed, or
+    /// whose task panicked, is logged at warn, and its card is still raised.
+    fn pause_point_taken(
+        &mut self,
+        ended: Result<(Id, Result<(), PortError>), JoinError>,
+    ) -> PausePoint {
+        let (task_id, taken) = match ended {
+            Ok(ended) => ended,
+            Err(error) => (error.id(), Err(error.into())),
+        };
+        let point = self
+            .pause_point_tasks
+            .remove(&task_id)
+            .expect("each pause point's task is kept by its id");
+        if let Err(error) = taken {
+            tracing::warn!(
+                workflow_run_id = %point.run_id,
+                ordinal = point.ordinal.get(),
+                error = &*error as &(dyn Error + 'static),
+                "a workflow run's pause point could not be taken"
+            );
+        }
+        point
     }
 
     /// One turn: each `Keep going` as its own write while the inputs are routed, then each run's
-    /// share in arrival order, its next batch first, then the answers
-    /// routed to it, and its retries come `due` with it, committed in one write per run; then one read of the dispatching runs'
-    /// levels, their dispatch, one read of the deadline clock where a write moved a deadline, and
-    /// one weigh of the memory gate.
+    /// share in arrival order, its next batch first, then the answers routed to it, and its
+    /// retries come `due` and its pause points `taken` with it, committed in one write per run;
+    /// then one read of the dispatching runs' levels, their dispatch, one read of the deadline
+    /// clock where a write moved a deadline, and one weigh of the memory gate.
     async fn turn(
         &mut self,
         inputs: Vec<EngineTickInput>,
         reports: Vec<StepReport>,
         due: Vec<WorkflowStepKey>,
+        taken: Vec<PausePoint>,
     ) {
         let mut order = std::mem::take(&mut self.batched);
         let mut dispatching: Vec<(WorkflowRunId, Vec<ReadyStep>)> = Vec::new();
@@ -292,27 +353,15 @@ impl EngineTick {
                 EngineTickInput::KeepGoing(intake) => self.keep_going(intake).await,
             }
         }
-        let mut arrived: HashMap<WorkflowRunId, Vec<StepReport>> = HashMap::new();
-        for report in reports {
-            let run_id = report.step.workflow_run_id;
-            if !order.contains(&run_id) {
-                order.push(run_id);
-            }
-            arrived.entry(run_id).or_default().push(report);
-        }
-        let mut due_by_run: HashMap<WorkflowRunId, Vec<WorkflowStepKey>> = HashMap::new();
-        for step in due {
-            let run_id = step.workflow_run_id;
-            if !order.contains(&run_id) {
-                order.push(run_id);
-            }
-            due_by_run.entry(run_id).or_default().push(step);
-        }
+        let mut arrived = by_run(&mut order, reports, |report| report.step.workflow_run_id);
+        let mut due_by_run = by_run(&mut order, due, |step| step.workflow_run_id);
+        let mut taken_by_run = by_run(&mut order, taken, |point| point.run_id);
         for run_id in order {
             let answers = answers.remove(&run_id).unwrap_or_default();
             let reports = arrived.remove(&run_id).unwrap_or_default();
             let due = due_by_run.remove(&run_id).unwrap_or_default();
-            if let Some(readied) = self.run_turn(run_id, answers, reports, due).await
+            let taken = taken_by_run.remove(&run_id).unwrap_or_default();
+            if let Some(readied) = self.run_turn(run_id, answers, reports, due, taken).await
                 && !readied.is_empty()
             {
                 dispatching.push((run_id, readied));
@@ -390,19 +439,32 @@ impl EngineTick {
     /// The share of the run `run_id` in this turn: its next batch, whose reports an earlier turn
     /// answered, so what that turn decided stands, then `answers`, then `reports`, each through
     /// the run's commit, the walk's answers added, a quiet run flushed, all in one write; each
-    /// settled answer is replied to once the write commits. Answers
-    /// the steps to dispatch, the retry attempts come `due` among them while they are still live,
-    /// `pending` and undispatched, or `None` when the run is not live. A run left with no live
-    /// step is over and leaves the live set; a run whose write fails leaves it with its steps
-    /// canceled.
+    /// settled answer is replied to once the write commits, and each approval whose point is
+    /// `taken` is asked after it. Answers the steps to dispatch, the retry attempts come `due`
+    /// among them while they are still live, `pending` and undispatched, or `None` when the run
+    /// is not live. A run left with no live step is over and leaves the live set; a run whose
+    /// write fails leaves it with its steps canceled.
     async fn run_turn(
         &mut self,
         run_id: WorkflowRunId,
         answers: Vec<PersonWaitIntake>,
         reports: Vec<StepReport>,
         due: Vec<WorkflowStepKey>,
+        taken: Vec<PausePoint>,
     ) -> Option<Vec<ReadyStep>> {
         let mut live = self.runs.remove(&run_id)?;
+        let mut asks = Vec::new();
+        for point in taken {
+            if let Some(place) = live
+                .pausing
+                .iter()
+                .position(|turn_ask| turn_ask.opened.wait_id == point.wait_id)
+            {
+                let mut turn_ask = live.pausing.swap_remove(place);
+                turn_ask.is_point_taken = true;
+                asks.push(turn_ask);
+            }
+        }
         let mut turn = RunTurn {
             commit: RunTurnCommit::new(
                 live.event_keys(),
@@ -412,7 +474,7 @@ impl EngineTick {
                 Arc::clone(&self.payloads),
             ),
             readied: Vec::new(),
-            asks: Vec::new(),
+            asks,
             replies: Vec::new(),
             follow_ups: VecDeque::new(),
             last_readying_event: None,
@@ -698,6 +760,23 @@ fn failed_at_once(step: &WorkflowStepKey, failure: StepFailure) -> Vec<StepRepor
             }),
         },
     ]
+}
+
+/// `items` grouped by the run `run_of` names, each run added to `order` where it is not there yet.
+fn by_run<T>(
+    order: &mut Vec<WorkflowRunId>,
+    items: Vec<T>,
+    run_of: fn(&T) -> WorkflowRunId,
+) -> HashMap<WorkflowRunId, Vec<T>> {
+    let mut grouped: HashMap<WorkflowRunId, Vec<T>> = HashMap::new();
+    for item in items {
+        let run_id = run_of(&item);
+        if !order.contains(&run_id) {
+            order.push(run_id);
+        }
+        grouped.entry(run_id).or_default().push(item);
+    }
+    grouped
 }
 
 /// The attempt a retry's `timer` answers come due, `None` when its run was canceled first. A

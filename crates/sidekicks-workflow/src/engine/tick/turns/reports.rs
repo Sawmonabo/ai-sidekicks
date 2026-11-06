@@ -6,31 +6,24 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 
-use super::{EngineTick, ReadiedNext, RunTurn, TurnReadied, step_failure};
+use super::{EngineTick, PausePoint, ReadiedNext, RunTurn, TurnReadied, step_failure};
 use crate::engine::event_record::{EngineFault, EngineIntent, EngineOutcome};
-use crate::engine::ports::{AgentStepRun, StepAdmissionTicket};
+use crate::engine::ports::{
+    AgentStepRun, WorkflowRunSnapshotPoint, WorkflowRunSnapshotPointRequest,
+};
 use crate::engine::tick::branch_cancellation::WaveSettle;
 use crate::engine::tick::commit::{RunTurnCommit, SettlementAnswer, SettlementWriteFailure};
-use crate::engine::tick::live_runs::{LiveRun, LiveStep};
+use crate::engine::tick::live_runs::{LiveRun, LiveStep, TurnAsk};
 use crate::engine::tick::step_failure::{
     RunSibling, RunStop, SiblingState, SiblingStop, stop_siblings,
 };
 use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
-use crate::engine::waits::OpenedPersonWait;
 use crate::kinds::{PersonAsk, StepFailure};
-
-/// A person wait a turn opened, asked once the turn's write commits: its step, the wait, what the
-/// person is asked and the step's place at the memory gate, dropped once the ask returns.
-pub(super) struct TurnAsk {
-    step: WorkflowStepKey,
-    opened: OpenedPersonWait,
-    ask: PersonAsk,
-    admission: Option<Arc<dyn StepAdmissionTicket>>,
-}
 
 impl EngineTick {
     /// Offers `report` to the run's waves, then adds it to the turn and follows what a settlement
@@ -235,6 +228,7 @@ impl EngineTick {
                     opened,
                     ask,
                     admission,
+                    is_point_taken: false,
                 });
             }
             SettlementAnswer::AccountSpent { run } => {
@@ -250,25 +244,31 @@ impl EngineTick {
     }
 
     /// Asks the person each of `asks`, opened by the run of `live` in the turn whose write just
-    /// committed, whose step still waits under its wait: the intent recorded, the card raised or
-    /// the question opened, and the outcome recorded. A failed ask fails its step with the port's
-    /// error, its report queued on the run's next batch, which routes it by the step's error
-    /// setting.
-    pub(super) async fn ask_people(&self, live: &mut LiveRun, asks: Vec<TurnAsk>) {
-        for TurnAsk {
-            step,
-            opened,
-            ask,
-            admission,
-        } in asks
-        {
+    /// committed, whose step still waits under its wait: an approval whose pause point is not
+    /// taken yet starts its point on its own task and waits on the run, asked once the point
+    /// ends; otherwise the intent recorded, the card raised or the question opened, and the
+    /// outcome recorded. A failed ask fails its step with the port's error, its report queued on
+    /// the run's next batch, which routes it by the step's error setting.
+    pub(super) async fn ask_people(&mut self, live: &mut LiveRun, asks: Vec<TurnAsk>) {
+        for turn_ask in asks {
             let is_waiting = live
                 .steps
-                .get(&step.execution_index.get())
-                .is_some_and(|live_step| live_step.wait_id == Some(opened.wait_id));
+                .get(&turn_ask.step.execution_index.get())
+                .is_some_and(|live_step| live_step.wait_id == Some(turn_ask.opened.wait_id));
             if !is_waiting {
                 continue;
             }
+            if matches!(turn_ask.ask, PersonAsk::Approval { .. }) && !turn_ask.is_point_taken {
+                self.take_pause_point(live, turn_ask);
+                continue;
+            }
+            let TurnAsk {
+                step,
+                opened,
+                ask,
+                admission,
+                ..
+            } = turn_ask;
             let wait_id = opened.wait_id;
             let intent = match ask {
                 PersonAsk::Approval { .. } => EngineIntent::RaisingCard { wait_id },
@@ -303,6 +303,27 @@ impl EngineTick {
                 }),
             });
         }
+    }
+
+    /// Starts the pause point of `turn_ask`, an approval of the run of `live`, on its own task as
+    /// the run's next pause, and keeps the ask on the run until the point ends.
+    fn take_pause_point(&mut self, live: &mut LiveRun, turn_ask: TurnAsk) {
+        live.approval_pauses += 1;
+        let ordinal =
+            SafeInt::new(live.approval_pauses).expect("a run's pause count is a safe integer");
+        let request = WorkflowRunSnapshotPointRequest {
+            session_id: live.scope.session_id,
+            workflow_run_id: live.scope.run_id,
+            point: WorkflowRunSnapshotPoint::Pause { ordinal },
+        };
+        let task = self.pause_points.spawn(self.snapshot_points.take(request));
+        let point = PausePoint {
+            run_id: live.scope.run_id,
+            wait_id: turn_ask.opened.wait_id,
+            ordinal,
+        };
+        self.pause_point_tasks.insert(task.id(), point);
+        live.pausing.push(turn_ask);
     }
 
     /// Fails `step` of `live`, whose failure stops its run as `stop` at `at`, an end replacing a

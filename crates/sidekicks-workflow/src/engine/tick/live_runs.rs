@@ -1,6 +1,7 @@
 //! What the tick keeps of each run it drives between turns: the run's walk, what its steps
 //! recorded, each of its steps still to settle with what its failure route reads and how it is
-//! stopped, the waves of its steps winding down, and how a failure stopped it.
+//! stopped, the waves of its steps winding down, how a failure stopped it, and the approval asks
+//! waiting on their pause points.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -24,15 +25,17 @@ use super::step_failure::RunStop;
 use super::walk::{RunGraph, RunWalk};
 use super::{RunScope, StepReport};
 use crate::engine::event_record::{EngineDeadline, EngineDecision, RunEngineRecord};
-use crate::engine::ports::AgentStepRun;
+use crate::engine::ports::{AgentStepRun, StepAdmissionTicket};
 use crate::engine::waits::OpenedPersonWait;
 use crate::expressions::lineage::StepOutputs;
+use crate::kinds::PersonAsk;
 use crate::runs::gate_resolution::RunEventKeys;
 
 /// A run the tick drives: its scope, its record, its walk, each node's executions so far, the
 /// values it set with `Set variables`, its steps still to settle, the reports its last dispatch
 /// answered, which open its next turn, its step counts and person-wait columns as its last write
-/// left them, the waves of its steps winding down, and how a failure stopped it.
+/// left them, the waves of its steps winding down, how a failure stopped it, and its approval
+/// pauses.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct LiveRun {
     /// What the run's steps share.
@@ -65,6 +68,26 @@ pub(crate) struct LiveRun {
     pub(crate) needs_deadline_read: bool,
     /// The deadline arm and clear lines of the run's turn, recorded once its write commits.
     pub(crate) deadline_lines: Vec<(WorkflowStepKey, EngineDecision<'static>)>,
+    /// The approval pauses the run has taken, so its next pause is this count and 1.
+    pub(crate) approval_pauses: u64,
+    /// The approval asks whose pause point is being taken, each asked once its point ends.
+    pub(crate) pausing: Vec<TurnAsk>,
+}
+
+/// A person wait a turn opened, asked once the turn's write commits: its step, the wait, what the
+/// person is asked, the step's place at the memory gate, dropped once the ask returns, and whether
+/// an approval's pause point has ended, so the ask raises its card.
+pub(crate) struct TurnAsk {
+    /// The step that waits.
+    pub(crate) step: WorkflowStepKey,
+    /// The wait the turn opened.
+    pub(crate) opened: OpenedPersonWait,
+    /// What the person is asked.
+    pub(crate) ask: PersonAsk,
+    /// The step's place at the memory gate, held until the ask returns.
+    pub(crate) admission: Option<Arc<dyn StepAdmissionTicket>>,
+    /// Whether the approval's pause point has ended, always `false` for a form or a reply.
+    pub(crate) is_point_taken: bool,
 }
 
 /// A step of a live run readied and not yet settled: what its failure route and its next attempt
@@ -127,6 +150,8 @@ impl LiveRun {
             stop: None,
             needs_deadline_read: false,
             deadline_lines: Vec::new(),
+            approval_pauses: 0,
+            pausing: Vec::new(),
         }
     }
 
