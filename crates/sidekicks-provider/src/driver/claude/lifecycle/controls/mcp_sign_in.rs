@@ -1,5 +1,6 @@
 //! The sign-in to an MCP server through Claude Code's own client, in a folder the daemon makes
-//! for the sign-in, and the removal of the folders a stopped daemon's sign-ins left.
+//! for the sign-in, the read of the whole address a server's entry declares, and the removal of
+//! the folders a stopped daemon's sign-ins left.
 
 use std::path::Path;
 
@@ -9,12 +10,16 @@ use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::claude::mcp::config::ClaudePersonConfigFiles;
 use crate::driver::claude::mcp::organization::has_readable_managed_mcp_file;
+use crate::driver::claude::mcp::sign_in::address::read_claude_server_address;
 use crate::driver::claude::mcp::sign_in::{
     ClaudeSignInSources, remove_left_claude_sign_ins, sign_in_with_claude_client,
 };
 use crate::driver::claude::spawn::environment::ClaudeProcessHome;
 use crate::driver::contract::error::DriverError;
-use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
+use crate::driver::contract::sign_in::{
+    McpServerAddressRead, McpServerAddressReading, ProviderSignInTakeover,
+    ProviderSignInTakeoverRequest,
+};
 
 impl ClaudeDriver {
     /// Signs in to `request`'s server through Claude Code's own client, in a process whose config
@@ -29,6 +34,21 @@ impl ClaudeDriver {
             self.sign_in_sources().await,
             |folder| self.sign_in_environment(folder),
             request,
+        )
+        .await
+    }
+
+    /// Reads the whole address `request`'s server entry declares, its variables filled from the
+    /// base environment every Claude Code process starts from. Fails as
+    /// `read_claude_server_address` does.
+    pub(crate) async fn read_mcp_server_address(
+        &self,
+        request: McpServerAddressRead,
+    ) -> Result<McpServerAddressReading, DriverError> {
+        read_claude_server_address(
+            &self.sign_in_sources().await,
+            &self.sources.base_environment,
+            &request,
         )
         .await
     }

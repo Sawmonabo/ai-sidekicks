@@ -37,7 +37,7 @@ use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 /// The server signed in to.
-const SERVER_NAME: &str = "docs";
+pub(super) const SERVER_NAME: &str = "docs";
 
 /// Its address as the binding keeps it.
 const SERVER_ADDRESS: &str = "https://docs.example.test/mcp";
@@ -53,14 +53,14 @@ const PERSON_SIGN_INS: &str = concat!(
 );
 
 /// The person's own Claude Code config, declaring the server.
-const PERSON_CONFIG: &str =
+pub(super) const PERSON_CONFIG: &str =
     r#"{"mcpServers":{"docs":{"type":"http","url":"https://docs.example.test/mcp"}}}"#;
 
 /// Where the daemon's receiver takes the browser back, and where the browser came back.
 const REDIRECT_URL: &str = "https://receiver.example.test/callback";
 const RETURNED_URL: &str = "https://receiver.example.test/callback?code=one";
 
-fn name() -> McpServerName {
+pub(super) fn name() -> McpServerName {
     McpServerName::new(SERVER_NAME.to_owned()).expect("a test server name is a name")
 }
 
@@ -68,7 +68,7 @@ fn address() -> McpServerAddress {
     McpServerAddress::new(SERVER_ADDRESS).expect("a test address is a web address")
 }
 
-fn user_binding() -> McpServerBindingRef {
+pub(super) fn user_binding() -> McpServerBindingRef {
     McpServerBindingRef::User {
         provider: DESCRIPTOR.provider_id(),
         server_name: name(),
@@ -141,7 +141,7 @@ fn request(
 }
 
 // A driver on `services`, whose base environment a test sets, over a fixture's starts and engine.
-fn driver_on_environment(
+pub(super) fn driver_on_environment(
     services: &DriverServices,
     starts: &Arc<ScriptedStarts>,
     engine: &Arc<RecordingRunEngine>,

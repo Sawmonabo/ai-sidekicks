@@ -11,16 +11,18 @@ use serde_json::{Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
+use sidekicks_contracts::plugin::PluginToken;
 use sidekicks_platforms::{
     CAN_BIND_A_SOCKET_LISTENER, LeftoverSweep, ProgramStart, bind_socket_listener,
     create_file_atomically, short_socket_folder,
 };
+use sidekicks_store::data_folder::plugin_home;
 use tokio::sync::oneshot;
 use tokio_tungstenite::tungstenite::Message;
 
 use super::{
     CODEX_CREDENTIALS_FILE, OAUTH_LOGIN_COMPLETED_METHOD, OAUTH_LOGIN_METHOD,
-    read_codex_saved_sign_in, sign_in_with_codex_client,
+    read_codex_saved_sign_in, read_codex_server_address, sign_in_with_codex_client,
 };
 use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::DESCRIPTOR;
@@ -33,7 +35,8 @@ use crate::driver::codex::service::supervisor::{CodexProgramResolver, CodexServi
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::sign_in::{
-    ProviderSignInReturn, ProviderSignInTakeover, ProviderSignInTakeoverRequest,
+    McpServerAddressRead, McpServerAddressReading, ProviderSignInReturn, ProviderSignInTakeover,
+    ProviderSignInTakeoverRequest,
 };
 use crate::runtime_binding::test_store::test_provider_account_id;
 use crate::spawned_version::ResolvedProviderExecutable;
@@ -283,19 +286,156 @@ async fn sign_in_with_servers(
         authorization_url,
         browser_return: ProviderSignInReturn::OwnListener,
     };
-    let home_folder = fixture.folder.path().join("person");
+    let home_folder = person_home_folder(fixture);
     let signing_in = tokio::spawn({
         let registry = Arc::clone(&fixture.registry);
         async move { sign_in_with_codex_client(&registry, &home_folder, request).await }
     });
+    answer_config_read(fixture, servers).await;
+    let signed_in = signing_in.await.expect("the sign-in runs");
+    (opened.await.ok(), signed_in)
+}
+
+// The person's home folder the reads take, under `fixture`'s scratch folder.
+fn person_home_folder(fixture: &CodexSignInFixture) -> PathBuf {
+    fixture.folder.path().join("person")
+}
+
+// Answers the next config read on the person's folder with `servers` as their `mcp_servers`.
+async fn answer_config_read(fixture: &mut CodexSignInFixture, servers: Value) {
     let config_read = fixture.script.next_sent().await;
     assert_eq!(config_read["method"], "config/read", "{config_read}");
     fixture.script.answer(
         &config_read,
         &json!({"config": {"mcp_servers": servers}, "origins": {}}),
     );
-    let signed_in = signing_in.await.expect("the sign-in runs");
-    (opened.await.ok(), signed_in)
+}
+
+/// The entry a whole-address read finds, and where.
+enum DeclaredEntry {
+    /// The person's own config declares it as these servers.
+    Person(Value),
+    /// A plugin installed in the daemon's plugin home declares it as these servers.
+    Plugin(Value),
+}
+
+// Reads the address of the server the entry declares on `fixture`'s registry, a user binding for
+// the person's entry and a plugin's binding for the plugin's.
+async fn read_declared_address(
+    fixture: &mut CodexSignInFixture,
+    declared: DeclaredEntry,
+) -> Result<McpServerAddressReading, DriverError> {
+    let home_folder = person_home_folder(fixture);
+    let (binding, servers) = match declared {
+        DeclaredEntry::Person(servers) => (
+            McpServerBindingRef::User {
+                provider: DESCRIPTOR.provider_id(),
+                server_name: name(),
+            },
+            Some(servers),
+        ),
+        DeclaredEntry::Plugin(servers) => {
+            let plugin = plugin_home(&home_folder, &DESCRIPTOR.provider_id())
+                .join("plugins/cache/market/tools/1.0.0");
+            std::fs::create_dir_all(plugin.join(".codex-plugin"))
+                .expect("the plugin folder is made");
+            std::fs::write(
+                plugin.join(".codex-plugin/plugin.json"),
+                json!({"name": "tools", "mcpServers": servers}).to_string(),
+            )
+            .expect("the manifest is written");
+            let binding = McpServerBindingRef::Plugin {
+                provider: DESCRIPTOR.provider_id(),
+                scope_ref: PluginToken::new("tools".to_owned()).expect("a plugin name"),
+                server_name: name(),
+            };
+            (binding, None)
+        }
+    };
+    let request = McpServerAddressRead {
+        binding,
+        provider_account_id: Some(test_provider_account_id()),
+        root_folder: None,
+    };
+    let reading = tokio::spawn({
+        let registry = Arc::clone(&fixture.registry);
+        async move { read_codex_server_address(&registry, &home_folder, &request).await }
+    });
+    if let Some(servers) = servers {
+        answer_config_read(fixture, servers).await;
+    }
+    reading.await.expect("the read runs")
+}
+
+// A person's entry is read whole, its user name and query kept; a plugin's entry answers the
+// `url` its file declares; and a program's entry declares no address to sign in at. Killed by the
+// takeover's address filter left in the shared read (every whole address refused, since none
+// names the request's), and by answering the stripped address.
+#[rstest]
+#[case::the_persons_entry_whole(
+    DeclaredEntry::Person(json!({SERVER_NAME: {
+        "url": "https://user@docs.example.test/mcp?key=k", "enabled": true,
+    }})),
+    Some("https://user@docs.example.test/mcp?key=k")
+)]
+#[case::a_plugins_entry(
+    DeclaredEntry::Plugin(json!({SERVER_NAME: {"url": "https://plugin.example.test/mcp?team=t"}})),
+    Some("https://plugin.example.test/mcp?team=t")
+)]
+#[case::a_program_entry(
+    DeclaredEntry::Person(json!({SERVER_NAME: {"command": "docs-server", "enabled": true}})),
+    None
+)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_codex_entry_is_read_whole(
+    #[case] declared: DeclaredEntry,
+    #[case] expected: Option<&str>,
+) {
+    if !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
+    let mut fixture = codex_sign_in_fixture(StandInLogin::Completes);
+
+    let reading = read_declared_address(&mut fixture, declared).await;
+
+    match (&reading, expected) {
+        (Ok(McpServerAddressReading::Declared(address)), Some(expected)) => {
+            assert_eq!(address.as_str(), expected);
+        }
+        (Err(DriverError::NoPersonServerEntry(_)), None) => {}
+        (reading, expected) => panic!("expected {expected:?}, read {reading:?}"),
+    }
+}
+
+// A connector's sign-in is the account's own, so it has no entry of the person's to read an
+// address from, and no config is read for it. Killed by reading an entry for a connector.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_connector_has_no_address_of_the_persons() {
+    if !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
+    let fixture = codex_sign_in_fixture(StandInLogin::Completes);
+    let connector = McpServerBindingRef::Connector {
+        provider: DESCRIPTOR.provider_id(),
+        scope_ref: test_provider_account_id(),
+        server_name: name(),
+    };
+    let request = McpServerAddressRead {
+        binding: connector.clone(),
+        provider_account_id: Some(test_provider_account_id()),
+        root_folder: None,
+    };
+
+    let refused =
+        read_codex_server_address(&fixture.registry, &person_home_folder(&fixture), &request).await;
+
+    assert!(
+        matches!(
+            &refused,
+            Err(DriverError::NoPersonServerEntry(no_entry)) if no_entry.binding == connector
+        ),
+        "a connector reads the no-entry arm, not {refused:?}"
+    );
 }
 
 // Killed by running the login on the person's own Codex folder, or on any folder but one the

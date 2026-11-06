@@ -1,6 +1,7 @@
 //! The sign-in to an MCP server through a provider's own client: what the daemon asks a driver,
 //! where the browser comes back to, and the credentials the driver reads back from the
-//! folder of the daemon's own that the provider saved them in. Nothing here prints a credential.
+//! folder of the daemon's own that the provider saved them in; and the read of the whole address
+//! a server's entry declares. Nothing here prints a credential or that address.
 
 use std::fmt;
 use std::path::PathBuf;
@@ -112,12 +113,48 @@ pub enum ProviderSignInFailure {
     ReplyUnreadable,
 }
 
-/// A takeover asked for a binding that has no entry of the person's to copy: a connector, whose
-/// sign-in is the account's own, or a server the person's config no longer declares at the
-/// request's address, so this provider's flow cannot sign in to it.
+/// A takeover or an address read asked for a binding that has no entry of the person's to read: a
+/// connector, whose sign-in is the account's own, or a server the person's config no longer
+/// declares at the request's address or declares with no remote address, so this provider's flow
+/// cannot sign in to it.
 #[derive(Debug, thiserror::Error)]
 #[error("the MCP server's binding has no entry of the person's to sign in through")]
 pub struct NoPersonServerEntry {
     /// The binding asked for.
     pub binding: McpServerBindingRef,
+}
+
+/// What the daemon asks a driver for to read the whole address a server's entry declares.
+#[derive(Clone, Debug)]
+pub struct McpServerAddressRead {
+    /// The binding whose entry is read; its server name names the entry.
+    pub binding: McpServerBindingRef,
+    /// The account whose organization's servers a managed binding is read from; `None` reads no
+    /// organization's server.
+    pub provider_account_id: Option<ProviderAccountId>,
+    /// The folder on this computer the binding's project root is read at; `None` for a binding
+    /// with no project root.
+    pub root_folder: Option<PathBuf>,
+}
+
+/// The whole address a server's entry declares, as its provider connects to it. Its `Debug` names
+/// only the arm, never the address.
+pub enum McpServerAddressReading {
+    /// The whole address, its user name and query kept and its variables filled.
+    Declared(McpServerAddress),
+    /// The entry's `url`, once filled, still names a variable with no value or is not a web
+    /// address.
+    Unreadable,
+    /// A server only the provider's own process reads the address of.
+    ReadByProviderOnly,
+}
+
+impl fmt::Debug for McpServerAddressReading {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Declared(_address) => "Declared",
+            Self::Unreadable => "Unreadable",
+            Self::ReadByProviderOnly => "ReadByProviderOnly",
+        })
+    }
 }

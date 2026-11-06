@@ -14,6 +14,7 @@
 //! process is closed and the folder removed whatever the outcome, a dropped sign-in's included.
 //! The person's own folders are only read, for the entry.
 
+pub(crate) mod address;
 pub(crate) mod saved_credentials;
 
 use std::error::Error;
@@ -231,8 +232,12 @@ pub(crate) async fn sign_in_with_claude_client(
         ProviderSignInReturn::OwnListener => return Err(ClaudeSignInError::NoDaemonReceiver.into()),
     };
     let name = request.binding.server_name().clone();
-    let entry =
-        read_sign_in_entry(&sources, &request.binding, &request.provider_account_id).await?;
+    let entry = read_sign_in_entry(
+        &sources,
+        &request.binding,
+        Some(&request.provider_account_id),
+    )
+    .await?;
     let configured_client_id = entry
         .as_ref()
         .and_then(|entry| entry.get(OAUTH_MEMBER))
@@ -411,11 +416,12 @@ fn sign_in_parent(data_folder: &Path) -> PathBuf {
 // since Claude Code fills them only in the plugin's own files; an organization's as `account`'s
 // managed settings declare it; and none for a server of an administrator's MCP file, which the
 // process then loads itself. Fails with `NoPersonServerEntry` for a connector, whose sign-in is
-// the account's own, and where no entry declares the server, so another provider's flow is asked.
+// the account's own, for an organization's server with no `account` to read it for, and where no
+// entry declares the server, so another provider's flow is asked.
 async fn read_sign_in_entry(
     sources: &ClaudeSignInSources<'_>,
     binding: &McpServerBindingRef,
-    account: &ProviderAccountId,
+    account: Option<&ProviderAccountId>,
 ) -> Result<Option<Map<String, Value>>, DriverError> {
     let internal = |error: Box<dyn Error + Send + Sync>| DriverError::Internal(error);
     let no_entry = || {
@@ -426,6 +432,9 @@ async fn read_sign_in_entry(
     let entry = match binding {
         McpServerBindingRef::Connector { .. } => return Err(no_entry()),
         McpServerBindingRef::Managed { server_name, .. } => {
+            let Some(account) = account else {
+                return Err(no_entry());
+            };
             let servers = sources
                 .account_servers
                 .read(account, ClaudeAccountReadAsk::List)
