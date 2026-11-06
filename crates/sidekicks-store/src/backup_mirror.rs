@@ -8,7 +8,8 @@
 //! run passes it over, and deletes each copy whose source is gone, so a session `Delete old data`
 //! removed leaves the mirror at the next run. A file is copied under a temporary name, flushed and
 //! renamed over its copy, so a copy whose size and time reached the disk holds its bytes too. Links
-//! are not followed and not copied.
+//! are not followed and not copied. A run may take a root's copy from a folder other than its place,
+//! or keep the copy as the last run left it, while a restore always writes the copy to the place.
 
 use std::fs::{self, File};
 use std::io;
@@ -49,6 +50,20 @@ const LISTED_PATH_SEPARATOR: char = '/';
 pub struct MirrorRoot {
     name: String,
     source: String,
+    #[serde(skip_serializing)]
+    copy_source: MirrorCopySource,
+}
+
+/// Where a run takes a root's copy from. The mirror's list never holds it, so a root read back for
+/// a restore takes [`MirrorCopySource::Place`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MirrorCopySource {
+    /// The root's own place under the home folder.
+    Place,
+    /// Another folder, absolute, which may lie outside the home folder.
+    Folder(PathBuf),
+    /// Nowhere: the copy stays as the last run left it.
+    KeptAsIs,
 }
 
 // A root as the mirror's list holds it, before its check.
@@ -88,6 +103,7 @@ impl TryFrom<ListedMirrorRoot> for MirrorRoot {
         Ok(Self {
             name: listed.name,
             source: listed.source,
+            copy_source: MirrorCopySource::Place,
         })
     }
 }
@@ -122,6 +138,26 @@ impl MirrorRoot {
             .strip_prefix(home)
             .map_err(|_outside| MirrorRootError::Source)?;
         Self::new(name, source)
+    }
+
+    /// This root with its copy taken from `folder`, an absolute path that may lie outside the home
+    /// folder, while a restore still writes the copy to the root's place.
+    #[must_use]
+    pub fn copied_from(self, folder: PathBuf) -> Self {
+        Self {
+            copy_source: MirrorCopySource::Folder(folder),
+            ..self
+        }
+    }
+
+    /// This root with its copy kept as the last run left it, for a source that cannot be read
+    /// today; a root with no copy yet keeps none.
+    #[must_use]
+    pub fn kept_as_is(self) -> Self {
+        Self {
+            copy_source: MirrorCopySource::KeptAsIs,
+            ..self
+        }
     }
 
     /// The copy's name in the mirror.
@@ -181,9 +217,10 @@ pub enum MirrorError {
 /// Brings the mirror at `mirror_folder` level with `roots`, each a place under `home`: the folder
 /// made owner-only where it is missing and the precision of its times probed, then each changed
 /// file copied, each copy whose source is gone deleted, and every folder of a root no longer
-/// listed deleted. Checks `stop` before each entry. Blocking, so it runs through `spawn_blocking`.
-/// Fails with [`MirrorError::Stopped`] once `stop` fires, and with the first refused read, copy or
-/// removal.
+/// listed deleted. Each root's copy is taken from its [`MirrorCopySource`]; a root kept as it is
+/// is still listed, so its copy is neither leveled nor deleted. Checks `stop` before each entry.
+/// Blocking, so it runs through `spawn_blocking`. Fails with [`MirrorError::Stopped`] once `stop`
+/// fires, and with the first refused read, copy or removal.
 pub fn mirror_roots(
     mirror_folder: &Path,
     home: &Path,
@@ -198,12 +235,16 @@ pub fn mirror_roots(
     let precision = probe_time_precision(mirror_folder).map_err(at(mirror_folder))?;
     let mut report = MirrorReport::default();
     for root in roots {
-        let leveled = bring_level(
-            &root.place(home),
-            &mirror_folder.join(&root.name),
-            precision,
-            stop,
-        )?;
+        let place;
+        let source = match &root.copy_source {
+            MirrorCopySource::Place => {
+                place = root.place(home);
+                &place
+            }
+            MirrorCopySource::Folder(folder) => folder,
+            MirrorCopySource::KeptAsIs => continue,
+        };
+        let leveled = bring_level(source, &mirror_folder.join(&root.name), precision, stop)?;
         report.copied_files += leveled.copied_files;
         report.copied_bytes += leveled.copied_bytes;
         report.removed_entries += leveled.removed_entries;
@@ -425,7 +466,10 @@ mod tests {
     use serde_json::json;
     use tokio_util::sync::CancellationToken;
 
-    use super::{COPY_IN_PROGRESS_SUFFIX, MirrorReport, MirrorRoot, copy_file, mirror_roots};
+    use super::{
+        COPY_IN_PROGRESS_SUFFIX, MirrorReport, MirrorRoot, bring_level, copy_file, mirror_roots,
+        probe_time_precision,
+    };
 
     fn modified(path: &Path) -> std::time::SystemTime {
         fs::metadata(path)
@@ -545,5 +589,94 @@ mod tests {
         in_progress.push(COPY_IN_PROGRESS_SUFFIX);
         assert!(!Path::new(&in_progress).exists());
         assert!(!copy.exists());
+    }
+
+    // A root copied from a folder outside the home folder is copied under its name, listed by its
+    // place alone, and restored there as plain files; a file gone from the folder leaves the copy
+    // at the next run. Killed by the copy taken from the place, by the run-only source written
+    // into the list, and by a gone source's file kept.
+    #[test]
+    fn a_root_copied_from_another_folder_is_restored_to_its_own_place() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let home = scratch.path().join("home");
+        let place = home.join("data/restored-clones/s/v");
+        let volume_folder = scratch.path().join("volume/s");
+        fs::create_dir_all(&volume_folder).expect("the volume folder is made");
+        fs::write(volume_folder.join("first"), b"first clone").expect("written");
+        fs::write(volume_folder.join("second"), b"second clone").expect("written");
+        let mirror = scratch.path().join("backups/mirror");
+        let roots = [
+            MirrorRoot::under_home("restored-clones-s-v".to_owned(), &home, &place)
+                .expect("a root")
+                .copied_from(volume_folder.clone()),
+        ];
+        let stop = CancellationToken::new();
+
+        let first = mirror_roots(&mirror, &home, &roots, &stop).expect("the first run copies");
+
+        assert_eq!(first.copied_files, 2);
+        let copy = mirror.join("restored-clones-s-v");
+        assert_eq!(fs::read(copy.join("first")).expect("read"), b"first clone");
+        assert_eq!(
+            fs::read(copy.join("second")).expect("read"),
+            b"second clone"
+        );
+        assert_eq!(
+            serde_json::to_value(&roots).expect("the list serializes"),
+            json!([{ "name": "restored-clones-s-v", "source": "data/restored-clones/s/v" }])
+        );
+        fs::create_dir_all(&home).expect("the home folder is made");
+        let precision = probe_time_precision(&home).expect("the home's precision is probed");
+        bring_level(&copy, &place, precision, &stop).expect("the restore writes the place");
+        assert_eq!(fs::read(place.join("first")).expect("read"), b"first clone");
+        assert_eq!(
+            fs::read(place.join("second")).expect("read"),
+            b"second clone"
+        );
+        assert!(
+            fs::symlink_metadata(place.join("second"))
+                .expect("the restored copy reads")
+                .is_file()
+        );
+
+        fs::remove_file(volume_folder.join("second")).expect("removed");
+        let second = mirror_roots(&mirror, &home, &roots, &stop).expect("the second run copies");
+
+        assert_eq!(second.removed_entries, 1);
+        assert!(copy.join("first").exists());
+        assert!(!copy.join("second").exists());
+    }
+
+    // A root kept as it is while its folder is away keeps its copy, and is not swept as no longer
+    // listed. Killed by a kept root leveled against its missing source, and by a kept root swept.
+    #[test]
+    fn a_kept_root_keeps_its_copy_while_its_source_is_away() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let home = scratch.path().join("home");
+        let place = home.join("data/restored-clones/s/v");
+        let volume_folder = scratch.path().join("volume/s");
+        fs::create_dir_all(&volume_folder).expect("the volume folder is made");
+        fs::write(volume_folder.join("clone"), b"the clone").expect("written");
+        let mirror = scratch.path().join("backups/mirror");
+        let root = MirrorRoot::under_home("restored-clones-s-v".to_owned(), &home, &place)
+            .expect("a root");
+        let stop = CancellationToken::new();
+        mirror_roots(
+            &mirror,
+            &home,
+            &[root.clone().copied_from(volume_folder.clone())],
+            &stop,
+        )
+        .expect("the first run copies");
+        fs::remove_dir_all(&volume_folder).expect("the volume folder is gone");
+
+        let second = mirror_roots(&mirror, &home, &[root.kept_as_is()], &stop)
+            .expect("the second run reads");
+
+        assert_eq!(second, MirrorReport::default());
+        assert_eq!(
+            fs::read(mirror.join("restored-clones-s-v/clone")).expect("the copy is kept"),
+            b"the clone"
+        );
     }
 }

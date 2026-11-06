@@ -70,12 +70,15 @@ pub fn program_link_folder(data_folder: &Path) -> PathBuf {
     data_folder.join(PROGRAM_LINK_FOLDER_NAME)
 }
 
+/// The folder in `data_folder` that holds every session's own storage folder.
+pub fn session_storage_root(data_folder: &Path) -> PathBuf {
+    data_folder.join(SESSION_STORAGE_FOLDER_NAME)
+}
+
 /// Session `session_id`'s own storage folder in `data_folder`, which holds the files the daemon
 /// keeps for that session alone and goes with the session's purge.
 pub fn session_storage_folder(data_folder: &Path, session_id: &SessionId) -> PathBuf {
-    data_folder
-        .join(SESSION_STORAGE_FOLDER_NAME)
-        .join(session_id.text().as_str())
+    session_storage_root(data_folder).join(session_id.text().as_str())
 }
 
 /// Workflow run `workflow_run_id`'s own folder in `data_folder`, under its workflow
