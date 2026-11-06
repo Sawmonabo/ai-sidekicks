@@ -3,7 +3,9 @@
 //! which lived in memory and ended with the old process, is taken again, a `requested` row is
 //! accepted against the run as a live request is, and an `accepted` row is dispatched as its
 //! accept left it; a limit's `accepted` row, whose hand ended with the old process, is carried out
-//! once as its live hand would. A row the hand leaves pending is settled by the run's end.
+//! once as its live hand would. An undo's row is handed nothing: the undo it served ended with the
+//! old process, so its turn runs on. A row the hand leaves pending, or one handed nothing, is
+//! settled by the run's end or the turn's end.
 
 use std::error::Error;
 
@@ -43,9 +45,9 @@ impl InterventionService {
 
     /// Carries out each interrupt pending on `run_id`, oldest first, each under the run's interrupt
     /// lock, through the live path: a person's as its request would go, a limit's as its live hand
-    /// would, recording its own failure. Each row's state is read again under the lock, so one the
-    /// live path carried out meanwhile is not sent again. Every row is tried, and the person's
-    /// failures are returned together.
+    /// would, recording its own failure; an undo's is left for the turn's end. Each row's state is
+    /// read again under the lock, so one the live path carried out meanwhile is not sent again.
+    /// Every row is tried, and the person's failures are returned together.
     pub(super) async fn carry_out_pending_interrupts(
         &self,
         run_id: RunId,
@@ -104,6 +106,8 @@ impl InterventionService {
                     )
                     .await;
                 }
+                // Its undo ended with the old process, so no cut would follow a stop handed now.
+                InterruptInterventionRecord::Undo(_) => {}
             }
         }
         match settle_all(handed, "handing the pending interrupts again") {
