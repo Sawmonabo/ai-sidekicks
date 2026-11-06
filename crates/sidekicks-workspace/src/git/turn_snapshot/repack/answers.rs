@@ -1,7 +1,7 @@
 //! Readers of git's answers to the packing's questions: how many loose objects, packs and garbage
-//! files a folder holds, which captures its refs name, whether each base is a commit the repository holds, and
-//! whether a ref reaches it. Each refuses an answer in any other form, so no unreadable answer
-//! passes for a count, a capture or a reach.
+//! files a folder holds, which captures its refs name, whether each base is a commit the repository
+//! holds, and whether a ref reaches it. Each refuses an answer in any other form, so no unreadable
+//! answer passes for a count, a capture or a reach.
 
 use sidekicks_contracts::repo::git_reads::GitObjectId;
 

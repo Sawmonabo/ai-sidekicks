@@ -516,3 +516,45 @@ async fn a_sweep_packs_the_captures_whose_base_no_ref_reaches_and_skips_an_idle_
     .await;
     assert_eq!(read, "only on topic");
 }
+
+// Fails when a deleted repository's pass answers a failure rather than its absence, when its
+// capture folder is removed, or when the owner's partial folders are cleared only after the
+// repository resolves.
+#[tokio::test]
+async fn a_sweep_of_a_deleted_repository_answers_its_absence_and_keeps_its_folder() {
+    let git = test_git_runner();
+    let root = tempfile::tempdir().expect("the temporary folder is made");
+    let (repository, _) = repository_with_a_commit(&git, root.path()).await;
+    let common = read_git_common_folder(&git, None, &repository, None)
+        .await
+        .expect("the repository's git folder is read");
+    let database = TestDatabase::new(schema_parts());
+    let (service, packing) = service_and_packing(&git, &database);
+    let owner = root.path().join("owner");
+    service
+        .capture_turn_snapshot(None, &turn_of(&repository, &owner, minted_run_id(), 0))
+        .await;
+    let capture_folder = made_capture_folder(&git, &owner, &repository).await;
+    fs::remove_dir_all(&repository).expect("the repository is removed");
+    let partial = owner.join("captures").join("gone.8899aabbccddeeff.partial");
+    fs::create_dir_all(&partial).expect("the partial folder is made");
+    fs::set_times(
+        &partial,
+        FileTimes::new().set_modified(SystemTime::now() - LEFTOVER_AGE),
+    )
+    .expect("the partial folder is aged");
+
+    let swept = packing
+        .sweep_capture_folder(None, &owner, &common, None, &[], SystemTime::now())
+        .await;
+
+    assert!(
+        matches!(swept, Ok(CaptureFolderSweep::RepositoryGone)),
+        "got {swept:?}"
+    );
+    assert!(
+        capture_folder.folder().exists(),
+        "the capture folder is kept"
+    );
+    assert!(!partial.exists(), "the partial folder is removed");
+}

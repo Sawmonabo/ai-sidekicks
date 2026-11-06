@@ -21,6 +21,7 @@ use std::time::{Duration, SystemTime};
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
+use sidekicks_std::missing_entry::is_gone;
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
 
@@ -132,6 +133,9 @@ impl CaptureFolderPass {
 pub enum CaptureFolderSweep {
     /// The owner has no capture folder for the repository.
     Absent,
+    /// The repository's common git folder no longer resolves, so the pass did nothing beyond its
+    /// owner's partial folders; the capture folder is kept, since the repository can come back.
+    RepositoryGone,
     /// Nothing changed since the last pass, so nothing ran.
     Skipped(CaptureFolderPass),
     /// The folder was swept: its unreached captures packed and its packs folded when due.
@@ -236,12 +240,14 @@ impl CapturePacking {
 
     /// One sweep pass over the capture folder of the owner whose folder is `owner_folder`, for the
     /// repository whose common git folder is `common_folder`, running git for the project at
-    /// `place`. Every pass first removes the owner's capture folders still being made and, once
-    /// git has counted the folder's objects, git's temporaries and the scratch indexes left in it,
-    /// each once it is an hour old. Skipped when the repository's refs read as `last_pass` left them, read at
-    /// `read_at`, and the folder holds no loose object and no fold is due; else the trees of the
-    /// folder's captures and of `extra_points` whose base no ref reaches are packed and the packs
-    /// folded. Fails with the step's failure, so no pass is kept and the next sweep runs it all.
+    /// `place`. A repository whose common git folder is gone answers `RepositoryGone` and keeps its
+    /// capture folder. Every pass first removes the owner's capture folders still being made and,
+    /// once git has counted the folder's objects, git's temporaries and the scratch indexes left in
+    /// it, each once it is an hour old. Skipped when the repository's refs read as `last_pass` left
+    /// them, read at `read_at`, and the folder holds no loose object and no fold is due; else the
+    /// trees of the folder's captures and of `extra_points` whose base no ref reaches are packed
+    /// and the packs folded. Fails with the step's failure, so no pass is kept and the next sweep
+    /// runs it all.
     pub async fn sweep_capture_folder(
         &self,
         place: Option<&Place>,
@@ -262,6 +268,13 @@ impl CapturePacking {
         else {
             return Ok(CaptureFolderSweep::Absent);
         };
+        // A deleted folder still resolves through its nearest parent, so the capture folder is
+        // found; only the common folder itself says the repository is gone.
+        match tokio::fs::metadata(common_folder).await {
+            Ok(_) => {}
+            Err(gone) if is_gone(&gone) => return Ok(CaptureFolderSweep::RepositoryGone),
+            Err(failure) => return Err(PackingError::Folder(failure)),
+        }
         // Read before any work, so a change made during the pass is seen by the next one.
         let common = common_folder.to_path_buf();
         let ref_state = joined(tokio::task::spawn_blocking(move || read_ref_state(&common)).await)
@@ -430,8 +443,8 @@ impl CapturePacking {
         folded
     }
 
-    // Removes the stale temporary packs a git cut short left, folds `folder`'s packs under the fold's
-    // own bound, and keeps how many packs it left.
+    // Removes the stale temporary packs a git cut short left, folds `folder`'s packs under the
+    // fold's own bound, and keeps how many packs it left.
     async fn fold(
         &self,
         place: Option<&Place>,
