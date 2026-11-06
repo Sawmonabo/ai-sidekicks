@@ -34,9 +34,12 @@ use crate::secrets::redaction::RunRedaction;
 
 /// Work the engine is about to dispatch, recorded before it is handed off and paired with its
 /// outcome; it says the work is being dispatched, never that it runs.
-#[expect(
-    dead_code,
-    reason = "the engine's tick and waits, which record the work they dispatch"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the engine's tick and waits, which record the work they dispatch"
+    )
 )]
 pub(crate) enum EngineIntent {
     /// The step is being handed to its driver.

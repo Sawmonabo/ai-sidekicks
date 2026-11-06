@@ -212,17 +212,9 @@ pub(crate) enum SettlementAnswer {
         /// The wait opened.
         opened: OpenedPersonWait,
         /// What the person is asked.
-        #[cfg_attr(
-            test,
-            expect(dead_code, reason = "the tick's loop, which asks the person")
-        )]
         ask: PersonAsk,
         /// The step's place at the memory gate, parked while it waits; `None` for a step the gate
         /// does not weigh.
-        #[cfg_attr(
-            test,
-            expect(dead_code, reason = "the tick's loop, which parks the place")
-        )]
         admission: Option<Arc<dyn StepAdmissionTicket>>,
     },
     /// The step waits on its agent run's spent account.

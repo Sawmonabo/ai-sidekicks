@@ -5,6 +5,8 @@
 
 mod readying;
 mod reports;
+
+use reports::TurnAsk;
 #[cfg(test)]
 mod tests;
 
@@ -125,10 +127,13 @@ pub(crate) struct EngineTick {
 }
 
 /// One run's share of a turn while it is gathered: its write, what it readied, the reports its
-/// cancels queued to apply next, and the last event whose write readies steps.
+/// cancels queued to apply next, the last event whose write readies steps, and the person waits it
+/// opened.
 struct RunTurn {
     commit: RunTurnCommit,
     readied: Vec<TurnReadied>,
+    /// The person waits the turn opened, asked once its write commits.
+    asks: Vec<TurnAsk>,
     /// The reports a cancel or a closed wave queued, applied in order after the report that
     /// queued them, so nothing recurses.
     follow_ups: VecDeque<StepReport>,
@@ -381,6 +386,7 @@ impl EngineTick {
                 Arc::clone(&self.payloads),
             ),
             readied: Vec::new(),
+            asks: Vec::new(),
             follow_ups: VecDeque::new(),
             last_readying_event: None,
         };
@@ -395,7 +401,10 @@ impl EngineTick {
             self.flush(&mut live, &mut turn).await;
         }
         let RunTurn {
-            commit, readied, ..
+            commit,
+            readied,
+            asks,
+            ..
         } = turn;
         match commit
             .append(&self.appender, &live.record, live.live_steps())
@@ -468,6 +477,7 @@ impl EngineTick {
                         });
                     }
                 }
+                self.ask_people(&mut live, asks).await;
                 if live.steps.is_empty() {
                     self.recorder.end_run(run_id);
                     return Some(Vec::new());

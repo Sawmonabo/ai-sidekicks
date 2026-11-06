@@ -147,9 +147,12 @@ pub(crate) struct PersonWait {
 }
 
 /// What a step waiting on a person asks.
-#[expect(
-    dead_code,
-    reason = "the person-wait kinds and the tick's dispatch, which opens their waits"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the person-wait kinds and the tick's dispatch, which opens their waits"
+    )
 )]
 #[derive(Debug)]
 pub(crate) enum PersonAsk {

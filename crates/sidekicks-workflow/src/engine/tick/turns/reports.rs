@@ -11,8 +11,8 @@ use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWai
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 
 use super::{EngineTick, ReadiedNext, RunTurn, TurnReadied, step_failure};
-use crate::engine::event_record::EngineFault;
-use crate::engine::ports::AgentStepRun;
+use crate::engine::event_record::{EngineFault, EngineIntent, EngineOutcome};
+use crate::engine::ports::{AgentStepRun, StepAdmissionTicket};
 use crate::engine::tick::branch_cancellation::WaveSettle;
 use crate::engine::tick::commit::{RunTurnCommit, SettlementAnswer, SettlementWriteFailure};
 use crate::engine::tick::live_runs::{LiveRun, LiveStep};
@@ -20,7 +20,17 @@ use crate::engine::tick::step_failure::{
     RunSibling, RunStop, SiblingState, SiblingStop, stop_siblings,
 };
 use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
-use crate::kinds::StepFailure;
+use crate::engine::waits::OpenedPersonWait;
+use crate::kinds::{PersonAsk, StepFailure};
+
+/// A person wait a turn opened, asked once the turn's write commits: its step, the wait, what the
+/// person is asked and the step's place at the memory gate, dropped once the ask returns.
+pub(super) struct TurnAsk {
+    step: WorkflowStepKey,
+    opened: OpenedPersonWait,
+    ask: PersonAsk,
+    admission: Option<Arc<dyn StepAdmissionTicket>>,
+}
 
 impl EngineTick {
     /// Offers `report` to the run's waves, then adds it to the turn and follows what a settlement
@@ -214,8 +224,18 @@ impl EngineTick {
             }
             SettlementAnswer::Park => self.stop_run(live, turn, step, &at, RunStop::Park).await,
             SettlementAnswer::End => self.stop_run(live, turn, step, &at, RunStop::End).await,
-            SettlementAnswer::PersonWait { opened, .. } => {
+            SettlementAnswer::PersonWait {
+                opened,
+                ask,
+                admission,
+            } => {
                 live.wait_on_person(step.execution_index.get(), &opened);
+                turn.asks.push(TurnAsk {
+                    step: step.clone(),
+                    opened,
+                    ask,
+                    admission,
+                });
             }
             SettlementAnswer::AccountSpent { run } => {
                 let execution_index = step.execution_index.get();
@@ -226,6 +246,62 @@ impl EngineTick {
                     .expect("a step the turn moved is live")
                     .parked_agent_run = Some(run);
             }
+        }
+    }
+
+    /// Asks the person each of `asks`, opened by the run of `live` in the turn whose write just
+    /// committed, whose step still waits under its wait: the intent recorded, the card raised or
+    /// the question opened, and the outcome recorded. A failed ask fails its step with the port's
+    /// error, its report queued on the run's next batch, which routes it by the step's error
+    /// setting.
+    pub(super) async fn ask_people(&self, live: &mut LiveRun, asks: Vec<TurnAsk>) {
+        for TurnAsk {
+            step,
+            opened,
+            ask,
+            admission,
+        } in asks
+        {
+            let is_waiting = live
+                .steps
+                .get(&step.execution_index.get())
+                .is_some_and(|live_step| live_step.wait_id == Some(opened.wait_id));
+            if !is_waiting {
+                continue;
+            }
+            let wait_id = opened.wait_id;
+            let intent = match ask {
+                PersonAsk::Approval { .. } => EngineIntent::RaisingCard { wait_id },
+                PersonAsk::Form { .. } | PersonAsk::Reply { .. } => {
+                    EngineIntent::OpeningQuestion { wait_id }
+                }
+            };
+            let pending = live.record.intent(Some(&step), intent).await;
+            let asked = self
+                .person_waits
+                .ask_person(&live.scope, &step, &opened, &ask, admission.as_ref())
+                .await;
+            // The step settles on its answer and never resumes its place, so it goes now.
+            drop(admission);
+            let error = match asked {
+                Ok(()) => {
+                    live.record.outcome(pending, EngineOutcome::Done).await;
+                    continue;
+                }
+                Err(error) => error,
+            };
+            live.record
+                .outcome(pending, EngineOutcome::Failed { code: None })
+                .await;
+            let failure = step_failure(live, &step, StepFailure::Failed, error.to_string());
+            live.next_batch.push(StepReport {
+                step,
+                at: WireInstant::now(),
+                kind: StepReportKind::Settled(StepSettlement::Failed {
+                    failure,
+                    log_lines: Vec::new(),
+                }),
+            });
         }
     }
 

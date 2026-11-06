@@ -22,7 +22,6 @@ use rusqlite::{Connection, OptionalExtension as _, Row, named_params};
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::approval::ApprovalDecision;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::id::{UuidTextForm, mint_uuid_v7};
@@ -273,21 +272,8 @@ pub(crate) fn suspended_payload(
 
 /// The ports a step waiting on a person asks through, held apart from the dispatch's: the
 /// approval cards and the session's questions.
-#[cfg_attr(
-    test,
-    expect(
-        dead_code,
-        reason = "the program's workflow engine, which hands the tick its ports"
-    )
-)]
 #[derive(Clone)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the tick, which opens a person wait and settles it with the answer"
-    )
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct PersonWaitPorts {
     /// Raises an approval wait's card.
     pub(crate) cards: Arc<dyn ApprovalCardRaiser>,
@@ -298,23 +284,9 @@ pub(crate) struct PersonWaitPorts {
 impl PersonWaitPorts {
     /// Asks the person what `ask` asks for `step` in `scope`'s run, under `opened`'s wait id, after
     /// parking `admission`, the step's place at the memory gate, where it has one. Called once the
-    /// write that stored the wait committed. Answers the question's id for a form or a reply, which
-    /// the step's record carries, and `None` for an approval. A failure fails the step uncoded, and
-    /// the caller reports it.
-    #[cfg_attr(
-        test,
-        expect(
-            dead_code,
-            reason = "the tick, which asks the person once the wait is stored"
-        )
-    )]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the tick, which opens a person wait and settles it with the answer"
-        )
-    )]
+    /// write that stored the wait committed; the question store keeps the wait id, so no question id
+    /// is answered. A failure fails the step uncoded, and the caller reports it.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) async fn ask_person(
         &self,
         scope: &RunScope,
@@ -322,7 +294,7 @@ impl PersonWaitPorts {
         opened: &OpenedPersonWait,
         ask: &PersonAsk,
         admission: Option<&Arc<dyn StepAdmissionTicket>>,
-    ) -> Result<Option<QuestionId>, PortError> {
+    ) -> Result<(), PortError> {
         if let Some(ticket) = admission {
             ticket.park()?;
         }
@@ -336,8 +308,7 @@ impl PersonWaitPorts {
                         wait_id: opened.wait_id,
                         prompt: prompt.clone(),
                     })
-                    .await?;
-                Ok(None)
+                    .await
             }
             PersonAsk::Form {
                 prompt,
@@ -352,7 +323,7 @@ impl PersonWaitPorts {
                     input_schema: input_schema.clone(),
                 })
                 .await
-                .map(Some),
+                .map(|_question| ()),
             PersonAsk::Reply { prompt } => self
                 .questions
                 .open_reply(ReplyQuestionRequest {
@@ -362,7 +333,7 @@ impl PersonWaitPorts {
                     prompt: prompt.clone(),
                 })
                 .await
-                .map(Some),
+                .map(|_question| ()),
         }
     }
 }
