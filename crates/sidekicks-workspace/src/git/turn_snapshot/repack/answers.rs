@@ -1,5 +1,5 @@
-//! Readers of git's answers to the packing's questions: how many loose objects and packs a folder
-//! holds, which captures its refs name, whether each base is a commit the repository holds, and
+//! Readers of git's answers to the packing's questions: how many loose objects, packs and garbage
+//! files a folder holds, which captures its refs name, whether each base is a commit the repository holds, and
 //! whether a ref reaches it. Each refuses an answer in any other form, so no unreadable answer
 //! passes for a count, a capture or a reach.
 
@@ -15,6 +15,8 @@ pub(super) struct ObjectCounts {
     pub(super) loose: u64,
     /// Packs (`packs:`).
     pub(super) packs: u64,
+    /// The files git counts as neither a loose object nor a pack (`garbage:`).
+    pub(super) garbage: u64,
 }
 
 /// Whether a base names a commit the repository holds, as `cat-file --batch-check` answers.
@@ -28,14 +30,15 @@ pub(super) enum BasePresence {
     NotACommit(String),
 }
 
-/// The counts in `count-objects -v`'s answer `stdout`: `count:` and `packs:`, each once and in
-/// decimal, any other line ignored. Fails with `UnreadableAnswer` otherwise.
+/// The counts in `count-objects -v`'s answer `stdout`: `count:`, `packs:` and `garbage:`, each once
+/// and in decimal, any other line ignored. Fails with `UnreadableAnswer` otherwise.
 pub(super) fn read_object_counts(stdout: &[u8]) -> Result<ObjectCounts, PackingError> {
     let unreadable = |reason| PackingError::UnreadableAnswer {
         command: "count-objects",
         reason,
     };
-    let (mut loose, mut packs): (Option<u64>, Option<u64>) = (None, None);
+    let (mut loose, mut packs, mut garbage): (Option<u64>, Option<u64>, Option<u64>) =
+        (None, None, None);
     for line in String::from_utf8_lossy(stdout).lines() {
         let Some((key, value)) = line.split_once(": ") else {
             continue;
@@ -43,6 +46,7 @@ pub(super) fn read_object_counts(stdout: &[u8]) -> Result<ObjectCounts, PackingE
         let slot = match key {
             "count" => &mut loose,
             "packs" => &mut packs,
+            "garbage" => &mut garbage,
             _ => continue,
         };
         if slot.is_some() {
@@ -59,6 +63,7 @@ pub(super) fn read_object_counts(stdout: &[u8]) -> Result<ObjectCounts, PackingE
     Ok(ObjectCounts {
         loose: loose.ok_or_else(|| unreadable("the loose count is missing"))?,
         packs: packs.ok_or_else(|| unreadable("the pack count is missing"))?,
+        garbage: garbage.ok_or_else(|| unreadable("the garbage count is missing"))?,
     })
 }
 
