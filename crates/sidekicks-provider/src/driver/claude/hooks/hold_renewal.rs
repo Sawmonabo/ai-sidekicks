@@ -24,9 +24,9 @@ const HOLD_RENEWAL_JOB: &str = "claude-hold-renewal";
 
 /// Arms the renewal of the helper `agent_id`'s held calls on `session_id`, unless one stands: when
 /// it falls due, each call the helper's pause holds then is denied for the helper to make again,
-/// and `stream` forgets what a denied helper call asked for.
-/// A renewal the scheduler refuses, at once or when it arms the timer, is written to the log and
-/// dropped, so the next hold arms another; the hold then ends at Claude Code's own bound.
+/// and `stream` forgets what a denied helper call asked for. A renewal the scheduler refuses, at
+/// once or when it arms the timer, is written to the log and dropped, so the next hold arms
+/// another; the hold then ends at Claude Code's own bound.
 pub(crate) fn arm_hold_renewal(
     scheduler: &Scheduler,
     pauses: &Arc<Mutex<ClaudeRunPauses>>,

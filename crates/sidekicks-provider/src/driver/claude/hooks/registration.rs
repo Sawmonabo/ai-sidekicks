@@ -116,10 +116,10 @@ impl ClaudeDialogKind {
 }
 
 /// The `initialize` request a session's process is brought up with: the daemon's hooks (a failed
-/// helper call's among them, which forgets what the call asked for), the
-/// session's helper definitions, the two dialogs the console draws, and the per-task stop the
-/// console offers, and the tool servers the daemon hosts in-process, by name. The helper hold, on
-/// the helper and message tools, is registered only where the policy limits helpers at once.
+/// helper call's among them, which forgets what the call asked for), the session's helper
+/// definitions, the two dialogs the console draws, and the per-task stop the console offers, and
+/// the tool servers the daemon hosts in-process, by name. The helper hold, on the helper and
+/// message tools, is registered only where the policy limits helpers at once.
 pub(crate) fn compose_claude_initialize_request(
     subagent_policy: Option<&SubagentPolicy>,
     in_process_servers: Vec<String>,

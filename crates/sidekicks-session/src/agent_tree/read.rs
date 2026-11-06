@@ -235,10 +235,11 @@ pub fn resolve_child(
 /// depth, oldest first, each with its head; the badge's figures; and the refused creates that name
 /// a parent run. What the log reports is read from its events before `read_bound` outside its
 /// skipped ranges; each head's binding and name are its agent's row as it stands now, which no
-/// bound limits, except that a provider helper's model and effort are its own where its start
-/// named them, else those of the nearest helper above it whose start did; each head's spend is its member's own in `agent_spend`, 0 where the list names
-/// none. Fails as a run's agent read does, with [`AgentTreeReadError::RunMissing`] when a run the
-/// tree names has no row, and as SQLite or a stored column does.
+/// bound limits, except that a provider helper's model and effort are its own where its start named
+/// them, else those of the nearest helper above it whose start did; each head's spend is its
+/// member's own in `agent_spend`, 0 where the list names none. Fails as a run's agent read does,
+/// with [`AgentTreeReadError::RunMissing`] when a run the tree names has no row, and as SQLite or a
+/// stored column does.
 pub fn read_agent_tree(
     reader: &Connection,
     session_id: &SessionId,

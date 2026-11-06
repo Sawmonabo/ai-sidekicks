@@ -240,12 +240,12 @@ lenient_object!(HookInput, HookToolInput);
 
 /// Routes one request event off a session's process, at the session's `level`: a withdrawal also
 /// withdraws a held pause or helper start; a call of the helper tool goes to the helper-start
-/// check, carrying the model and effort the call asks for, and a call of the message tool that names a recipient to the message-target check,
-/// before the pause decides; a pause callback, and a helper-limit callback on the helper tool, is
-/// answered or held here, while one on the message tool that names a recipient goes to the
-/// helper-wake check and any other passes; a failed helper call's callback forgets what the call
-/// asked for; a helper's post-tool and stop callbacks carry its
-/// waiting words; the background-work callback is checked; the question hook goes on only at
+/// check, carrying the model and effort the call asks for, and a call of the message tool that
+/// names a recipient to the message-target check, before the pause decides; a pause callback, and a
+/// helper-limit callback on the helper tool, is answered or held here, while one on the message
+/// tool that names a recipient goes to the helper-wake check and any other passes; a failed helper
+/// call's callback forgets what the call asked for; a helper's post-tool and stop callbacks carry
+/// its waiting words; the background-work callback is checked; the question hook goes on only at
 /// Sandboxed and the denial hook only at Reviewed, both registered at every level since a live
 /// process can move, and pass with no decision off them; anything else goes on.
 pub(crate) fn route_claude_request(

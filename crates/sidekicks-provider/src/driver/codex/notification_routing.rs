@@ -162,8 +162,8 @@ struct CodexRegisteredHelper {
 }
 
 /// One session's frame router, usage accountant and terminal gate, kept on its task beside its
-/// record, with the model each spawned or restored helper runs on; the gate outlives each record, since a
-/// close covers whichever run is in flight.
+/// record, with the model each spawned or restored helper runs on; the gate outlives each record,
+/// since a close covers whichever run is in flight.
 pub(crate) struct CodexSessionRouting {
     router: ThreadFrameRouter<CodexRoutableFrame>,
     accountant: UsageDeltaAccountant,
@@ -371,8 +371,8 @@ impl CodexSessionRouting {
                     registered.push((child_thread_id, attribution, released_frames, helper));
                 }
             }
-            // Read together, so a spawn naming several helpers waits one read's bound, not one
-            // per helper; a helper already metered or not a subagent starts nothing, so is not read.
+            // Read together, so a spawn naming several helpers waits one read's bound, not one per
+            // helper; a helper already metered or not a subagent starts nothing, so is not read.
             let shared_record: &CodexSessionRecord = record;
             let readings = join_all(registered.iter().map(
                 |(child_thread_id, attribution, _, _)| {
@@ -412,9 +412,10 @@ impl CodexSessionRouting {
     }
 
     // A helper registered once: its usage based at zero and, for a subagent, its model kept and its
-    // child run started under the names its conversation's `reading` gives, and the path, the
-    // model and the effort its spawn item gives, the model else the read's. A repeated announcement keeps the base, since re-basing would meter
-    // reported spend again, and starts nothing, since a second start would show the helper twice.
+    // child run started with the path, model and effort its spawn item gives, its names and, where
+    // the item names no model, its model from its conversation's `reading`. A repeated announcement
+    // keeps the base, since re-basing would meter reported spend again, and starts nothing, since a
+    // second start would show the helper twice.
     async fn start_registered_child(
         &mut self,
         delivery: &CodexFrameDelivery,
@@ -520,9 +521,9 @@ impl CodexSessionRouting {
 
     // Meters a usage frame and answers its reading; `None` for any other frame or no reading. A
     // reading that cannot be read is reported, since a silent drop is spend no receipt shows. A
-    // helper's reading runs at the thread's tier and names the model its spawn or its conversation's
-    // read named; any other runs at its turn's sent tier and model, else the thread's, as for
-    // a turn the daemon started, which keeps none.
+    // helper's reading runs at the thread's tier and names the model its spawn or its
+    // conversation's read named; any other runs at its turn's sent tier and model, else the
+    // thread's, as for a turn the daemon started, which keeps none.
     fn meter_usage_frame(
         &mut self,
         record: &CodexSessionRecord,

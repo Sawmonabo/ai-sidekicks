@@ -1,10 +1,10 @@
 //! A session's transcript, every run of it or every run created after a given sequence, the lead's
-//! and each helper's, handed to a sink as it is read. Runs come in the order each run's first row, its `agent.run.queued`, is logged;
-//! within a run the canonical fold gives the turns. One read pass over the log under one snapshot
-//! holds at most one hydrated page, the segment being handed on and the run's calls whose result
-//! folds, never the session: each page is folded and handed on before the next is read, a call's
-//! last close is read alone when its first is folded, and a body too long for a page is handed on
-//! a frame at a time as it is read.
+//! and each helper's, handed to a sink as it is read. Runs come in the order each run's first row,
+//! its `agent.run.queued`, is logged; within a run the canonical fold gives the turns. One read
+//! pass over the log under one snapshot holds at most one hydrated page, the segment being handed
+//! on and the run's calls whose result folds, never the session: each page is folded and handed on
+//! before the next is read, a call's last close is read alone when its first is folded, and a body
+//! too long for a page is handed on a frame at a time as it is read.
 
 use std::io;
 use std::ops::ControlFlow;

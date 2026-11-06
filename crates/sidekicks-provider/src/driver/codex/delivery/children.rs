@@ -74,8 +74,8 @@ impl CodexHelperStart {
 const CODEX_HELPER_READ_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Reads a spawned or restored helper's conversation for its names and model, waiting at most
-/// [`CODEX_HELPER_READ_TIMEOUT`]; a read that fails or finds no thread is logged and answers `None`,
-/// and the helper goes without them.
+/// [`CODEX_HELPER_READ_TIMEOUT`]; a read that fails or finds no thread is logged and answers
+/// `None`, and the helper goes without them.
 pub(crate) async fn read_codex_helper_thread(
     record: &CodexSessionRecord,
     helper_thread_id: &str,
