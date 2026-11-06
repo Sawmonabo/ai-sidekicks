@@ -126,6 +126,11 @@ mod server_requests;
 mod service;
 mod session;
 mod shells;
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "Codex's export reader reads exports through it")
+)]
+mod telemetry;
 mod thread;
 mod token_usage;
 mod tools;
