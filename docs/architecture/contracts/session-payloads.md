@@ -314,7 +314,8 @@ interface SessionTokensPerRunUpdateRequest {
 // SessionFork — session.fork. Mints a session of the SAME shape from a message anchor, carrying the
 // transcript prefix up to and including that message with live timers settled and streams stopped
 // in the copy, and carrying the parent's execution posture and tool set. A `project` fork lands on
-// a new worktree cut off the parent's current one at its current commit; a `chat` fork stays a
+// a new worktree cut off the parent's current one at its current commit, its files then put back
+// to the moment of the anchor message from the file checkpoint store; a `chat` fork stays a
 // chat, with a managed workspace of its own, and involves no worktree. Parentage is recorded on the
 // forked session's OWN session-created record (`SessionCreatedPayload.parent`) and NOT as a second
 // event: one read of the new session answers where it came from, and the parent's own history is
