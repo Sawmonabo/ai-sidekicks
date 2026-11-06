@@ -493,13 +493,25 @@ pub enum WorkflowStepSkipReason {
 }
 
 workflow_step_event! {
-    /// `workflow.step.skipped`: why the step was skipped.
+    /// `workflow.step.skipped`: why the step was skipped, what fed it, the input it skipped and
+    /// the output it passed on.
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
     pub struct WorkflowStepSkippedPayload {
         /// Why.
         pub reason: WorkflowStepSkipReason,
+        /// The feed of each main input slot in slot order, `null` for a slot nothing fed.
+        pub sources: Vec<Option<WorkflowStepSource>>,
+        /// The input.
+        #[garde(dive)]
+        pub input_ref: WorkflowPayloadRef,
+        /// The output it passed on.
+        #[garde(dive)]
+        pub output_ref: WorkflowPayloadRef,
+        /// How many items each main output carries on, in output order: the boundaries of the
+        /// output lists `outputRef` stores joined.
+        pub output_item_counts: Vec<SafeInt<0>>,
         /// The steps this event's write readied, each with what its `pending` row stores; empty
         /// where it readied none.
         #[garde(dive)]

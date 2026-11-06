@@ -483,6 +483,15 @@ impl RunTurnCommit {
                 session_id,
                 step,
                 reason: skip.reason,
+                sources: skip.sources.clone(),
+                input_ref: input_ref.clone(),
+                output_ref: output_ref.clone(),
+                output_item_counts: skip
+                    .output_lengths
+                    .iter()
+                    .copied()
+                    .map(SafeInt::from_usize)
+                    .collect(),
                 readied: Vec::new(),
             )),
         });
