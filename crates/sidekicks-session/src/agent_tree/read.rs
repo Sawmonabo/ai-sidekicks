@@ -503,13 +503,17 @@ impl SessionTree {
 
     // The node at `place`, then each node above it, nearest first; none for no place.
     fn lineage(&self, place: Option<usize>) -> impl Iterator<Item = &AgentTreeNode> {
+        self.lineage_places(place).map(|place| &self.nodes[place])
+    }
+
+    // The place of the node at `place`, then of each node above it, nearest first.
+    fn lineage_places(&self, place: Option<usize>) -> impl Iterator<Item = usize> {
         std::iter::successors(place, |&place| {
             self.nodes[place]
                 .parent_child_handle
                 .as_ref()
                 .and_then(|handle| self.node_of_handle.get(handle).copied())
         })
-        .map(|place| &self.nodes[place])
     }
 
     /// The run `run_id`; fails with [`AgentTreeReadError::RunMissing`] when the session has none.
@@ -631,11 +635,7 @@ impl AncestryWalk<'_> {
         let mut seen = HashSet::from([place]);
         let mut upward = Vec::new();
         let mut topmost = place;
-        while let Some(parent) = self.tree.nodes[topmost]
-            .parent_child_handle
-            .as_ref()
-            .and_then(|handle| self.tree.node_of_handle.get(handle).copied())
-        {
+        for parent in self.tree.lineage_places(Some(place)).skip(1) {
             upward.push(self.tree.member(parent)?);
             seen.insert(parent);
             topmost = parent;
