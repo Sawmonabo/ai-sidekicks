@@ -3,6 +3,7 @@
 //! commits each run's share in one write, walks what committed and dispatches what the walk
 //! readied.
 
+mod inbox;
 mod readying;
 mod reports;
 
@@ -32,8 +33,8 @@ use sidekicks_store::database::stored_column::{closed_word, text_column};
 use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
-use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::{JoinError, JoinSet};
 
 use super::commit::{ReportedStep, RunTurnCommit, RunTurnCommitFailure};
@@ -45,7 +46,8 @@ use super::{ReadyStep, RunSnapshot, StepReport, StepReportKind, StepSettlement};
 use crate::engine::event_record::{EngineFault, EngineRecorder};
 use crate::engine::ports::{StepAdmission, StepPayloadArtifacts};
 use crate::engine::start::StartedRun;
-use crate::engine::waits::{PersonWaitDeadlines, PersonWaitPorts};
+use crate::engine::waits::answers::PersonWaitIntake;
+use crate::engine::waits::{PersonWaitDeadlines, PersonWaitPorts, PersonWaitRefusal};
 use crate::kinds::{NodeKindTable, StepFailure, uncoded_step_error};
 use crate::runs::gate_resolution::RunEventKeys;
 
@@ -68,6 +70,8 @@ const KIND_CHECKED: &str = "the start checked that the table lists every node's 
 pub(crate) enum EngineTickInput {
     /// A run the start wrote, which the tick walks from its trigger step.
     Started(StartedRun),
+    /// A person's answer to a step waiting on them.
+    Answer(PersonWaitIntake),
 }
 
 /// What an [`EngineTick`] drives runs through, reads, writes and is woken by.
@@ -128,13 +132,15 @@ pub(crate) struct EngineTick {
 }
 
 /// One run's share of a turn while it is gathered: its write, what it readied, the reports its
-/// cancels queued to apply next, the last event whose write readies steps, and the person waits it
-/// opened.
+/// cancels queued to apply next, the last event whose write readies steps, the person waits it
+/// opened, and the replies to the answers it settled.
 struct RunTurn {
     commit: RunTurnCommit,
     readied: Vec<TurnReadied>,
     /// The person waits the turn opened, asked once its write commits.
     asks: Vec<TurnAsk>,
+    /// The replies to the answers the turn settled, sent once its write commits.
+    replies: Vec<oneshot::Sender<Result<(), PersonWaitRefusal>>>,
     /// The reports a cancel or a closed wave queued, applied in order after the report that
     /// queued them, so nothing recurses.
     follow_ups: VecDeque<StepReport>,
@@ -256,8 +262,8 @@ impl EngineTick {
         }
     }
 
-    /// One turn: each run's share in arrival order, its next batch first and its retries come
-    /// `due` with it, committed in one write per run; then one read of the dispatching runs'
+    /// One turn: each run's share in arrival order, its next batch first, then the answers
+    /// routed to it, and its retries come `due` with it, committed in one write per run; then one read of the dispatching runs'
     /// levels, their dispatch, one read of the deadline clock where a write moved a deadline, and
     /// one weigh of the memory gate.
     async fn turn(
@@ -268,8 +274,14 @@ impl EngineTick {
     ) {
         let mut order = std::mem::take(&mut self.batched);
         let mut dispatching: Vec<(WorkflowRunId, Vec<ReadyStep>)> = Vec::new();
-        for EngineTickInput::Started(run) in inputs {
-            dispatching.push(self.start_run(run));
+        let mut answers: HashMap<WorkflowRunId, Vec<PersonWaitIntake>> = HashMap::new();
+        for input in inputs {
+            match input {
+                EngineTickInput::Started(run) => dispatching.push(self.start_run(run)),
+                EngineTickInput::Answer(intake) => {
+                    self.route_answer(intake, &mut order, &mut answers);
+                }
+            }
         }
         let mut arrived: HashMap<WorkflowRunId, Vec<StepReport>> = HashMap::new();
         for report in reports {
@@ -288,9 +300,10 @@ impl EngineTick {
             due_by_run.entry(run_id).or_default().push(step);
         }
         for run_id in order {
+            let answers = answers.remove(&run_id).unwrap_or_default();
             let reports = arrived.remove(&run_id).unwrap_or_default();
             let due = due_by_run.remove(&run_id).unwrap_or_default();
-            if let Some(readied) = self.run_turn(run_id, reports, due).await
+            if let Some(readied) = self.run_turn(run_id, answers, reports, due).await
                 && !readied.is_empty()
             {
                 dispatching.push((run_id, readied));
@@ -365,8 +378,10 @@ impl EngineTick {
         (run_id, vec![ready])
     }
 
-    /// The share of the run `run_id` in this turn: its next batch, then `reports`, each through
-    /// the run's commit, the walk's answers added, a quiet run flushed, all in one write. Answers
+    /// The share of the run `run_id` in this turn: its next batch, whose reports an earlier turn
+    /// answered, so what that turn decided stands, then `answers`, then `reports`, each through
+    /// the run's commit, the walk's answers added, a quiet run flushed, all in one write; each
+    /// settled answer is replied to once the write commits. Answers
     /// the steps to dispatch, the retry attempts come `due` among them while they are still live,
     /// `pending` and undispatched, or `None` when the run is not live. A run left with no live
     /// step is over and leaves the live set; a run whose write fails leaves it with its steps
@@ -374,6 +389,7 @@ impl EngineTick {
     async fn run_turn(
         &mut self,
         run_id: WorkflowRunId,
+        answers: Vec<PersonWaitIntake>,
         reports: Vec<StepReport>,
         due: Vec<WorkflowStepKey>,
     ) -> Option<Vec<ReadyStep>> {
@@ -393,15 +409,21 @@ impl EngineTick {
             ),
             readied: Vec::new(),
             asks: Vec::new(),
+            replies: Vec::new(),
             follow_ups: VecDeque::new(),
             last_readying_event: None,
         };
-        let batch = std::mem::take(&mut live.next_batch);
-        for report in batch.into_iter().chain(reports) {
+        for report in std::mem::take(&mut live.next_batch) {
             self.apply_report(&mut live, &mut turn, report).await;
-            while let Some(follow_up) = turn.follow_ups.pop_front() {
-                self.apply_report(&mut live, &mut turn, follow_up).await;
-            }
+            self.apply_follow_ups(&mut live, &mut turn).await;
+        }
+        for intake in answers {
+            self.apply_answer(&mut live, &mut turn, intake).await;
+            self.apply_follow_ups(&mut live, &mut turn).await;
+        }
+        for report in reports {
+            self.apply_report(&mut live, &mut turn, report).await;
+            self.apply_follow_ups(&mut live, &mut turn).await;
         }
         if live.steps.is_empty() {
             self.flush(&mut live, &mut turn).await;
@@ -410,6 +432,7 @@ impl EngineTick {
             commit,
             readied,
             asks,
+            replies,
             ..
         } = turn;
         match commit
@@ -483,6 +506,9 @@ impl EngineTick {
                         });
                     }
                 }
+                for reply in replies {
+                    let _unheard = reply.send(Ok(()));
+                }
                 for (step, line) in std::mem::take(&mut live.deadline_lines) {
                     live.record.decision(Some(&step), line).await;
                 }
@@ -502,6 +528,13 @@ impl EngineTick {
                 self.drop_failed_run(live, failure).await;
                 None
             }
+        }
+    }
+
+    /// Applies the reports the turn's last report queued, in order, each queuing its own after it.
+    async fn apply_follow_ups(&self, live: &mut LiveRun, turn: &mut RunTurn) {
+        while let Some(follow_up) = turn.follow_ups.pop_front() {
+            self.apply_report(live, turn, follow_up).await;
         }
     }
 

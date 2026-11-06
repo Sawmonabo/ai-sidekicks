@@ -14,19 +14,9 @@ use crate::runs::gate_resolution::{WorkflowGateAnswer, gate_resolution_statement
 
 /// A person's answer as the tick's inbox takes it: the wait it names, the answer, an approval
 /// card's gate answer, when it was given and where the tick replies once the answer is settled.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the tick's inbox, which takes answers")
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct PersonWaitIntake {
     /// The wait the answer names.
-    #[cfg_attr(
-        test,
-        expect(
-            dead_code,
-            reason = "the tick's inbox, which reads the waiting step by it"
-        )
-    )]
     pub(crate) wait_id: UuidTextForm,
     /// The answer.
     pub(crate) answer: PersonWaitAnswer,
@@ -35,22 +25,12 @@ pub(crate) struct PersonWaitIntake {
     /// When the person answered.
     pub(crate) at: WireInstant,
     /// Where the tick replies: settled, or refused because the step no longer waits on it.
-    #[cfg_attr(
-        test,
-        expect(
-            dead_code,
-            reason = "the tick's inbox, which replies once the answer settles"
-        )
-    )]
     pub(crate) reply: oneshot::Sender<Result<(), PersonWaitRefusal>>,
 }
 
 /// An answer that settles its step: the step's resume, an approval's gate answer before it, and
 /// the step's `Completed` settlement after.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the tick's inbox, which takes answers")
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct AnsweredStep {
     /// The waiting step the answer resumes.
     waiting: WaitingPersonStep,
@@ -66,10 +46,7 @@ pub(crate) struct AnsweredStep {
 /// the step's resume and settlement. Refused `NotWaiting`, nothing written, as
 /// [`settle_person_wait`] refuses, and also when an approval comes without its gate answer or with
 /// one whose outcome differs from its decision, or a form or a reply comes with one.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the tick's inbox, which takes answers")
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn answered_step(
     waiting: &WaitingPersonStep,
     intake: &PersonWaitIntake,
@@ -97,10 +74,7 @@ impl AnsweredStep {
     /// Writes the answer into `commit` in its order: an approval's gate answer row and
     /// `workflow.gate.resolved`, then the step's resume keyed on its wait id; answers the step's
     /// settlement as its report, which the tick hands to the commit's `report` in the same turn.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the tick's inbox, which takes answers")
-    )]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn resume(self, commit: &mut RunTurnCommit) -> StepReport {
         let Self {
             waiting,
