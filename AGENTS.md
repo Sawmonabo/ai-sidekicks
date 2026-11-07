@@ -19,6 +19,7 @@ pnpm 10.33.2, Node ≥ 24.21, and the Rust toolchain `rust-toolchain.toml` pins,
 - `pnpm install` (also installs the git hooks)
 - `pnpm typecheck` · `pnpm lint` · `pnpm test` · `pnpm build` · `pnpm format` — Turbo runs `build`, `lint` and `test` over `crates/` through Cargo beside the pnpm packages, and `pnpm format` also runs `cargo fmt --all`
 - `cargo fmt --all` · `cargo clippy --workspace --all-targets --all-features` · `cargo nextest run --workspace` · `cargo test --workspace --doc` · `cargo shear` for `crates/` alone
+- Every `cargo` command runs through `mbx`, the shared compile cache and scheduler, whose policy is the tracked `.mbx.toml`; the setup is [the Rust build cache runbook](docs/operations/rust-build-cache-runbook.md)
 
 ## How work lands
 
@@ -73,7 +74,7 @@ Rules 2, 4, 9 and 12 are answered by running the tools, not by reading: `knip` o
 - Proceed without asking for normal development and git work; ask only before an action that could damage the machine or the environment outside this repo.
 - Run the package's tests for what you changed, and `pnpm typecheck && pnpm lint` before a PR. Rerun a test only for a new failure.
 - A subagent brief names the goal, the files and symbols that already exist, what not to touch, and what done looks like. Split parallel work by non-overlapping file sets: parallel reading is safe, parallel writing conflicts.
-- Research scratch goes under `.agents/tmp/<topic>/` (gitignored). A committed document never links there; a finding that matters goes into the document that needs it, with its source.
+- Research scratch goes under `.agents/tmp/<topic>/` (gitignored) and is deleted when the work that made it lands; only the design record and the work queue outlive a task. A committed document never links there; a finding that matters goes into the document that needs it, with its source.
 - When reviewing, report every finding with a severity, unfiltered. Fix every review finding, nitpicks included.
 - A design mock is a picture, never source: none of its markup, styles, script, sample data, sizes or figures enter product code or a tracked document. Figures come from data, measurements from the token scale.
 - A requirement is never weakened to fit what a provider or a library offers today. Find the mechanism that meets it; a true gap is reported to the person as a gap, never shipped as a smaller requirement, an absence line, or a provider limitation restated as the design.
