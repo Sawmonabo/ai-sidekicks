@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Instructions for every AI coding tool working in this repo (Claude Code, Codex, Cursor, Copilot, Aider). Claude Code reads it through `CLAUDE.md`, which imports this file and adds only what is specific to Claude Code. This file holds what applies everywhere; [`packages/AGENTS.md`](packages/AGENTS.md), [`crates/AGENTS.md`](crates/AGENTS.md) and [`apps/desktop/AGENTS.md`](apps/desktop/AGENTS.md) add only what is specific to their areas, so read the one for the code you touch.
+Instructions for every AI coding tool working in this repo (Claude Code, Codex, Cursor, Copilot, Aider). Claude Code reads it through `CLAUDE.md`, which imports this file and adds only what is specific to Claude Code. This file holds what applies everywhere; [`packages/AGENTS.md`](packages/AGENTS.md), [`crates/AGENTS.md`](crates/AGENTS.md) and [`apps/desktop/AGENTS.md`](apps/desktop/AGENTS.md) add what is specific to their areas (`apps/desktop/AGENTS.md` also holds the file-naming rules every file outside `crates/` follows), so read the one for the code you touch.
 
 ## What this is
 
@@ -78,7 +78,7 @@ Rules 2, 4, 9 and 12 are answered by running the tools, not by reading: `knip` o
 
 ## Code conventions
 
-All code, every language. These conventions govern code the project writes; a vendored third-party file (rule 6) keeps its upstream names, comments and formatting. Before changing a lint rule, read how each check is scoped in [Desktop Structure §Other Checks](docs/architecture/desktop-structure.md#other-checks). A TypeScript file's name and a closed set's form follow [`apps/desktop/AGENTS.md`](apps/desktop/AGENTS.md#file-and-folder-names), wherever the file sits.
+All code, every language. These conventions govern code the project writes; a vendored third-party file (rule 6) keeps its upstream names, comments and formatting. Before changing a lint rule, read how each check is scoped in [Desktop Structure §Other Checks](docs/architecture/desktop-structure.md#other-checks). The names of files and folders outside `crates/`, and the form of a TypeScript closed set, follow [`apps/desktop/AGENTS.md`](apps/desktop/AGENTS.md#file-and-folder-names), wherever the file sits.
 
 ### Names
 
@@ -87,6 +87,7 @@ All code, every language. These conventions govern code the project writes; a ve
 - **An existing name changes only when** its concept is obsolete, the name is inaccurate, the design replaces the concept it names, or [Folders by topic](#folders-by-topic) calls for the rename or a move. Never because a screen name changed, never only to start with a verb, read as a question, put its head noun last or add a prefix, and no suffix is added or removed mechanically. A rename of a TypeScript name goes through the language service's rename; every rename or move updates producer, consumer, contract, tests, docs and tool config in the same change, and a renamed class or token keeps its styling. A word swap needs the same meaning on both sides.
 - **Name a thing for what it is,** by its responsibility and owner, never by how it works and never by swapping one word for another. A generic word (`Surface`, `Feature`, `State`, `Act`, `seat`, `slot`, `door`, `plane`, `family`, `deck`, `Host`) never stands in for that; "Control plane" is the real name of `crates/sidekicks-control-plane`. `Console` is no prefix on code structure, only the product's own term. No dumping-ground folders (`utils/`, `util/`, `helpers/`, `common/`, `misc/`, `managers/`); `tests/helpers/` is the one exception.
 - **Names read as English.** Things that act (functions, hooks, controls) start with the verb: `takeShell`, `useTakeShell`. Things that hold data are noun phrases, head noun last: `TakeShellAvailability`, `take-shell-availability.ts`. A verb is never forced into a noun. Booleans read as questions: `isHeld`, `canTake`.
+- **An interface takes no `I` prefix:** `User`, never `IUser` (ESLint: `@typescript-eslint/naming-convention`).
 - **American spelling everywhere:** identifiers, CSS, on-screen text and docs (`color`, `behavior`, `canceled`, `organization`). A spelling a provider's wire sends stays as sent.
 - **A wire name** (a request, an event or an error code) follows the wire grammar, `domain[.resource].action`, two to four lowerCamelCase segments joined by dots with the action, occurrence or condition last: `session.hook.list`, `agent.run.completed`, `session.notFound` ([Local IPC Payload Contracts §Wire-Name Grammar](docs/architecture/contracts/local-ipc-payloads.md#wire-name-grammar)).
 - **`shell` means a terminal or command shell.**

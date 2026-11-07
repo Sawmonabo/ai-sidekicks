@@ -97,12 +97,11 @@ Held in review; a checker would get both wrong.
 - **`transcript` and `preview`** name the transcript and the Preview pane; a name about the real browser the pane drives keeps "browser".
 - **Keybindings** are `Keybinding`, `keybinding`, `keybindings` in identifiers.
 - **`shared`** means code both Electron processes use.
-- Electron's main process is `main`; persistent interface chrome is `layout` or `AppShell`.
-- **An interface takes no `I` prefix:** `User`, never `IUser` (ESLint: `@typescript-eslint/naming-convention`).
+- **Electron's main process is `main`;** persistent interface chrome is `layout` or `AppShell`.
 
 ## File and folder names
 
-These two sections bind every TypeScript file in the repository, not only the desktop's.
+This section binds every file outside `crates/`, not only the desktop's; the next, Closed sets of values, binds every TypeScript file.
 
 A name's case says what the file is responsible for; `.ts` or `.tsx` says only whether it contains JSX (ESLint refuses a `.tsx` with no JSX).
 
