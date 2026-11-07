@@ -30,7 +30,7 @@ Your design rests on current practice, not memory, so build it in two passes:
 
 - The recommendation first, in two or three lines, so the user can decide without reading further.
 - Each option: what it is, a short example, its trade-offs, and why it won or lost.
-- The plan: ordered steps, each naming the responsibility it builds, the folders it touches, and how you know it is done. Name responsibilities rather than today's file paths, because paths can move before the build.
+- The plan: ordered steps, each naming the responsibility it builds, the folders it touches, and how you know it is done. Name responsibilities rather than today's file paths, because paths can move before the build, unless the brief asks for file and line cites verified at a named commit, as a lane brief does.
 - Risks, and the open questions only the user can decide.
 - For each design choice or open question you put to the user: the question in plain words (what is being decided and why it matters), a short example where it helps, every option with its trade-off in a line, and your recommendation, backed by the research, with its sources cited.
 - Sources: the files and URLs your conclusions rest on.
