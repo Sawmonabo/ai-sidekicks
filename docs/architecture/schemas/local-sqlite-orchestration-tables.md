@@ -139,12 +139,14 @@ CREATE INDEX idx_agent_tree_nodes_own_run ON agent_tree_nodes(own_run_id);
 CREATE INDEX idx_agent_tree_nodes_parent ON agent_tree_nodes(parent_child_handle); -- a deleted node's children
 
 -- Two sessions trading messages. [Spec-014 §State And Data Implications](../../specs/014-multi-agent-orchestration.md#state-and-data-implications)
--- declares both of the tables below durable, session-scoped daemon state, because a daemon restart
--- mid-exchange must deliver what it was holding and must not forget which two sessions were talking.
+-- declares the four tables below durable, session-scoped daemon state, because a daemon restart
+-- mid-exchange must deliver what it was holding, answer or wake every call still waiting, fire every
+-- reminder still due and not forget which two sessions were talking. No table refers to `sessions`:
+-- a session's purge deletes its rows here before its directory row.
 -- The session directory those tables are read against is the daemon's `sessions` table (local-sqlite-session-tables.md §Session Directory),
 -- and an address that moved with a restarted provider process is looked up again rather than remembered.
 --
--- Neither table holds a message. The send and the arrival are the ordinary tool events of the two
+-- No table holds a message. The send and the arrival are the ordinary tool events of the two
 -- sessions' own logs ([Spec-014 §Sessions Talking To Each Other](../../specs/014-multi-agent-orchestration.md#sessions-talking-to-each-other)),
 -- which is where the words live; a queue row names the send it is holding and nothing else.
 CREATE TABLE session_exchanges (
@@ -158,18 +160,47 @@ CREATE TABLE session_exchanges (
   CHECK (session_id < peer_session_id)  -- the canonical ordering that makes the pair one row. An interrupt taken on either session reads this row to reach the other, so the pair is what is stored and the direction of the last message is not
 ) STRICT;
 
+CREATE INDEX idx_session_exchanges_peer ON session_exchanges(peer_session_id);
+
 -- Every message addressed to a PAUSED session, in arrival order. The daemon holds them while the
 -- session is paused and delivers them one at a time in this order when it continues; a row is deleted
 -- when its message is delivered, so the table is empty whenever nothing is being held.
 CREATE TABLE session_paused_message_queue (
   target_session_id  TEXT NOT NULL,   -- the paused session the message is addressed to
-  arrival_sequence   INTEGER NOT NULL,  -- arrival order at the daemon, per target session. Delivery follows it exactly: a queue that delivered out of order would rewrite the conversation the sending session believes it had
+  arrival_sequence   INTEGER NOT NULL CHECK (arrival_sequence >= 1),  -- arrival order at the daemon, per target session. Delivery follows it exactly: a queue that delivered out of order would rewrite the conversation the sending session believes it had
   source_session_id  TEXT NOT NULL,   -- the sending session
   source_event_id    TEXT NOT NULL,   -- the send's own tool event on the SENDING session's log, which is where the message text already lives (session_events.content_payload holds tool-call arguments). No foreign key, for the reason the event log's own session_id carries none, and no body column: a second copy of the words would be a second record of them
   arrived_at         TEXT NOT NULL,
   PRIMARY KEY (target_session_id, arrival_sequence),
   UNIQUE (target_session_id, source_event_id)  -- one hold per send, so a re-delivery attempt after a restart queues nothing twice
 ) STRICT;
+
+-- What each session waits on: one row per awaited session of one waiting call, so the call is
+-- answered or woken at the first of them to finish or need the person, and still is after a restart.
+CREATE TABLE session_waits (
+  session_id          TEXT NOT NULL,   -- the waiting session
+  tool_call_id        TEXT NOT NULL,   -- the provider's id of the call that waits
+  awaited_session_id  TEXT NOT NULL,
+  form                TEXT NOT NULL
+                      CHECK (form IN ('held', 'answeredThenWoken')),  -- how the caller's provider waits: the call held open and answered with the awaited session's result, or answered at once and the waiting session woken with a new turn
+  created_at          TEXT NOT NULL,
+  PRIMARY KEY (session_id, tool_call_id, awaited_session_id)
+) STRICT;
+
+CREATE INDEX idx_session_waits_awaited ON session_waits(awaited_session_id);  -- the calls a session's finish or its need of the person wakes
+
+-- Each reminder a session set, kept until it fires, so one due while the daemon was down fires when
+-- it is back, naming both when it was set and when it was due.
+CREATE TABLE session_reminders (
+  id          TEXT PRIMARY KEY,   -- minted, so two reminders set in one millisecond stay two
+  session_id  TEXT NOT NULL,
+  note        TEXT NOT NULL,      -- the session's own words for what to do when it wakes
+  set_at      TEXT NOT NULL,
+  due_at      TEXT NOT NULL       -- RFC 3339 UTC, ms precision, so text order is time order
+) STRICT;
+
+CREATE INDEX idx_session_reminders_due ON session_reminders(due_at);  -- the earliest due, which the scheduler's one timer is armed at, and those now due
+CREATE INDEX idx_session_reminders_session ON session_reminders(session_id);
 ```
 
 A run's token limit (`tokenLimit`, input and output together for one run) is `Unlimited` by default; the session's `Tokens per run` value is resolved onto each run at admission as a per-run `OrchestrationRunConfig` value and persisted durably as the `agent.run.queued` payload's `effectiveRunConfig` (Plan-013 D-013-5; api-payload `RunStateChangeEvent`), and enforcement rebuilds from that event field, never by re-merging session values that may have changed mid-run. The service ends a run `stopped` with `trigger: tokenLimit` at the first usage report past its limit, so one request can overshoot slightly, and the agent's next message starts a new run with a fresh count. Budget _accounting_ (tokens/cost consumed) has no **accumulator** table: the daemon's `BudgetAccountant` is an in-memory projection rebuilt from `usageTelemetry` + `agent.run.*` events (D-013-5). `provider_account_usage_turns` (in [Provider Account Tables (Plan-023)](local-sqlite-provider-account-tables.md)) is not a second accountant: it projects the same `usageTelemetry` events into one row per turn so the figures can be sliced by account, by day and by model, which a running total cannot be (Spec-025 §State And Data Implications).

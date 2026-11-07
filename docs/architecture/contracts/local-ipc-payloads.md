@@ -49,7 +49,7 @@ The grammar rejects:
 | --- | --- | --- |
 | `session.create` | `mutation` | Materialize new session row + emit `session.created`. |
 | `session.read` | `query` | Resolve session by id. |
-| `session.event.subscribe` | `subscription` (`SubscribeAckResponse`, then `SessionStreamFrame` notifications) | Event stream that catches up, then follows. |
+| `session.event.subscribe` | `subscription` (`SubscribeAcknowledgmentResponse`, then `SessionStreamFrame` notifications) | Event stream that catches up, then follows. |
 
 Each domain's methods are documented in the section of the plan that owns them, and [§Operations Not Yet Built](./api-payload-contracts.md#operations-not-yet-built) lists every documented method no handler serves yet.
 
@@ -155,21 +155,21 @@ interface DaemonStatusReadResponse {
   // directory is held, not merely that something is.
   dataDirectory: string;
   // The file the daemon keeps its secrets in, mode 0600, present ONLY on Linux while the file
-  // holds an item or cannot be opened, and on a Mac while its secrets are in `secrets.json`: from
-  // the approved logged-out service's takeover until `sidekicks daemon uninstall` moves them back,
-  // including after that service is turned off in Login Items & Extensions, and never while it
-  // waits for approval. Settings › Runtime then shows the notice for the file's place, or why the
-  // sealed file cannot be opened, with `path` in its own row under the notice's line (Spec-020
-  // §Daemon Secrets). Absent on every other machine.
+  // holds an item or cannot be opened, and on a Mac while its secrets are in `secrets.json`:
+  // from the logged-out service's takeover until `sidekicks daemon uninstall` moves them back,
+  // including after that service is turned off in Login Items & Extensions. Settings › Runtime
+  // then shows the notice for the file's place, or why the sealed file cannot be opened, with
+  // `path` in its own row under the notice's line (Spec-020 §Daemon Secrets). Absent on every
+  // other machine.
   // A union tagged by `protection`.
   secretsFile?:
     | {
         // A sealed file, by the weakest key any item is sealed with.
         protection: "sealedWithChip" | "sealedWithSystemKey";
         path: string;
-        // Why it cannot be opened: the service is gone or cannot open the key form that sealed an
-        // item, it does not answer or the items file cannot be read, the chip cannot be used, or
-        // the key changed. Absent while it opens.
+        // Why it cannot be opened: the service is not running or cannot open the key form that
+        // sealed an item, it does not answer or the items file cannot be read, the chip cannot be
+        // used, or the key changed. Absent while it opens.
         cannotOpen?: "sealServiceMissing" | "sealServiceFailing" | "chipUnavailable" | "keyChanged";
       }
     | {

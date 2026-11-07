@@ -2,7 +2,7 @@
 
 The MCP server governance tables of the daemon's one SQLite schema. The [Local SQLite Schema](local-sqlite-schema.md) holds its pragmas, its conventions and every other area.
 
-Machine-scoped governance state for [Spec-024](../../specs/024-mcp-server-configuration-and-governance.md) (V1 feature #15): the binding store (each binding's enabled overlay and native-tool baseline), the per-tool override store, the per-project switch for the servers Claude Code brings itself, the governance-mutation idempotency receipt store, and the record of which OAuth client each server admitted. Provider config files remain the config source of truth — the daemon persists only governance state and derives the unified inventory on read, so no table here mirrors provider config ([Spec-024 § State And Data Implications](../../specs/024-mcp-server-configuration-and-governance.md#state-and-data-implications)). All the tables here are daemon-local with no session FK; settled sign-ins are the `mcp.*` event type in the `mcpGovernance` category, appended through the Plan-004 `EventLogService` path, and a status change is a live notice on `mcp.subscribe` written to no log (receipts are retry-window dedup evidence, deliberately not audit rows).
+Machine-scoped governance state for [Spec-024](../../specs/024-mcp-server-configuration-and-governance.md) (V1 feature #15): the binding store (each binding's enabled overlay and native-tool baseline), the per-tool override store, the per-project switch for the servers Claude Code brings itself, the governance-mutation idempotency receipt store with the pin of the key its digests are taken under, and the record of which OAuth client each server admitted. Provider config files remain the config source of truth — the daemon persists only governance state and derives the unified inventory on read, so no table here mirrors provider config ([Spec-024 § State And Data Implications](../../specs/024-mcp-server-configuration-and-governance.md#state-and-data-implications)). All the tables here are daemon-local with no session FK; settled sign-ins are the `mcp.*` event type in the `mcpGovernance` category, appended through the Plan-004 `EventLogService` path, and a status change is a live notice on `mcp.subscribe` written to no log (receipts are retry-window dedup evidence, deliberately not audit rows).
 
 ```sql
 -- Owner: Plan-022
@@ -14,7 +14,7 @@ CREATE TABLE mcp_server_bindings (
   scope_place        TEXT NOT NULL DEFAULT '',  -- the WSL 2 distribution a project or local root is in; '' for a root outside one and for every other scope
   server_name        TEXT NOT NULL,
   enabled_override   INTEGER
-                     CHECK(enabled_override IS NULL OR enabled_override IN (0, 1)),  -- the daemon's per-server enabled overlay (Claude bindings and every plugin binding — Claude user scope has no enabled field, and a plugin's declaration is the plugin's; Codex's own bindings use its native `enabled` config field); NULL = no overlay
+                     CHECK(enabled_override IS NULL OR enabled_override IN (0, 1)),  -- the daemon's own switch for a binding whose provider keeps none: Claude bindings, every plugin binding and a Codex `local` binding the daemon emulates — Claude user scope has no enabled field, a plugin's declaration is the plugin's, and an emulated `local` add's receipt carries the switch its config asks (on for a new server asking nothing), which the landed commit writes; Codex's other bindings use its native `enabled` config field; NULL = no overlay
   native_tool_baseline_json TEXT,        -- pre-governance snapshot of the binding's native override-projection fields (enabled_tools / disabled_tools / tools.<t>.approval_mode), captured at the first facet materialization, held while any facet is materialized, dropped once facet-free; Codex-materialized bindings only (Claude facets are daemon-enforced — no native writes, no baseline). mcp.toolOverride.clear restores from it (Spec-024 §Tool-Level Overrides) — without it, restore-on-clear would invent values
   first_observed_at  TEXT NOT NULL,
   updated_at         TEXT NOT NULL,
@@ -92,6 +92,17 @@ CREATE TABLE mcp_mutation_receipts (
 ```
 
 Receipts are **two-phase** because the provider config write is an external side effect no SQLite transaction can span. The `'pending'` intent row (key and operation) commits in its **own transaction before** the provider leg runs; finalization — `status = 'committed'` plus the recorded response — commits in the **same transaction** as the mutation's governance-store writes, making the acknowledgment and the saved result atomic. That closes both crash windows: crash before the provider leg leaves a pending intent with no provider effect (startup reconciliation expires it — the caller retries fresh); crash after a durable provider write but before finalization leaves a pending intent whose provider state startup reconciliation verifies, completing the store writes **exactly once, late**, then finalizing. An identical-key retry that meets a pending row first drives that reconciliation, then returns the finalized response; a lost IPC response after commit can re-drive only the provider leg (safe by construction — sanctioned provider writes are upserts, full-set replacements, or version-guarded), never a second acknowledgment. A retry with the same key is matched by the keyed digest of its request, and the digests of the binding's declaration before and after the write let a pending intent's provider state be settled at start. Receipts carry no config values: the digests are keyed, and no column holds a declaration.
+
+```sql
+-- Owner: Plan-022
+-- The keyed hash of a fixed label under the receipt key the credential store holds, never the key,
+-- which tells that key from another. One row, written when a key is first held and replaced when a
+-- lost key is made again.
+CREATE TABLE mcp_receipt_key_pin (
+  singleton  INTEGER PRIMARY KEY CHECK (singleton = 1),
+  pin        BLOB NOT NULL CHECK(length(pin) = 32)
+) STRICT;
+```
 
 ```sql
 -- Owner: Plan-022 (T22.2.12)

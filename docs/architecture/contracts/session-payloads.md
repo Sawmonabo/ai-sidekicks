@@ -91,9 +91,10 @@ interface SessionReadRequest {
 interface SessionReadResponse {
   session: SessionRecord;
   // `earliest` is required: the position just before the oldest surviving row. A reader opens its
-  // window at `acknowledged ?? latest` with a `transcript.read` window and follows the stream after
-  // that window's newest row (Plan-004 T4.1, Plan-010 T2.4).
-  transcriptCursors: { earliest: EventCursor; latest: EventCursor; acknowledged?: EventCursor };
+  // window at `latest` with a `transcript.read` window and follows the stream after that window's
+  // newest row (Plan-004 T4.1, Plan-010 T2.4); where a device last read is its own, kept on the
+  // device, never in the contract.
+  transcriptCursors: { earliest: EventCursor; latest: EventCursor };
   // Every run of the session not yet ended, with its state now, so a window opened below a run's
   // earlier events still knows whether the run is working or waiting.
   liveRuns: Array<{
@@ -128,7 +129,7 @@ interface SessionEventSubscribeRequest {
 // `$/subscription/end` frame (`completed`, or `refused` with its error); a client ends one with
 // `$/subscription/cancel`.
 type SubscriptionId = string & { readonly __brand: "SubscriptionId" }; // allocated by the daemon per subscription
-interface SubscribeAckResponse {
+interface SubscribeAcknowledgmentResponse {
   subscriptionId: SubscriptionId;
 }
 // Each notify's value, framed by the rule of Spec-006 §Required Behavior: the first event of a quiet
@@ -623,7 +624,8 @@ interface SessionFileSearchEntry {
 }
 interface SessionFileSearchResponse {
   entries: SessionFileSearchEntry[];
-  // The files listed: folders left out, files whose names no row can carry counted. That the
+  // The files listed: folders left out, files whose names no row can carry counted, and their
+  // number written to the service log once per search. That the
   // `file` rows are at most this count is garde's check at the daemon, since Ajv's `$data`
   // cannot count the rows of one kind.
   searchedFileCount: number;
@@ -648,7 +650,7 @@ type TranscriptSearchResponse =
 interface TranscriptSearchHit {
   rowId: string;
   cursor: EventCursor; // the row's position, which a `transcript.read` around it loads from
-  snippet: string; // the line the match sits in, at most TRANSCRIPT_SEARCH_TEXT_MAX_LEN (4096) code units
+  snippet: string; // the line the match sits in, at most TRANSCRIPT_SEARCH_TEXT_MAX_LEN (4096) code points
   // At least one, in UTF-16 code units of `snippet`; they run in order, never overlap, and sit inside it.
   matchRanges: SearchMatchRange[];
 }
@@ -687,6 +689,8 @@ type SessionListEntry = (
   pinnedAt?: string;
   muted: boolean;
   exchange?: { peerSessionId: SessionId; peerName: string; messageCount: number };
+  // The newest event's time. A reasoning update (`agent.thinking.updated`), which arrives many
+  // times within one turn, and the log's own maintenance events never move it.
   lastActivityAt: string;
 };
 

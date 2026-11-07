@@ -182,3 +182,29 @@ interface RelayNegotiationResponse {
 ```
 
 **The channel.** Each channel is the Noise Protocol Framework's KK handshake and transport in one of two profiles, run afresh on every connection and every 10 minutes on a long one ([Spec-027 §The encryption envelope](../../specs/027-remote-control.md#the-encryption-envelope)). The connection's first frame, before any handshake message, is `{channelVersion, profiles}`: the channel version and the profiles the connecting device runs, in its order of preference. The machine answers `{profile}`, the first of them it also runs, or closes the connection with `channel.noCommonProfile` ([Error Contracts §Relay](./error-contracts.md#relay)), with nothing to fall back to. Both ends bind the offer and the answer into the handshake's prologue. A profile is one full Noise protocol name, and there are two, `Noise_KK_25519_AESGCM_SHA256` offered first and `Noise_KK_25519_ChaChaPoly_SHA256` second, on `snow` (built with `ring-accelerated`) on the machine. The first frame's shape, the profile names and `channel.noCommonProfile` are wire, so they live in `crates/sidekicks-contracts`, and the channel's TypeScript side for the web client and the iPhone app, under `packages/`, imports their generated TypeScript.
+
+**The direct path's setup.** Two methods, served only in the channel's method table, so the local socket answers them as an unknown method ([Spec-027 §The direct path](../../specs/027-remote-control.md#the-direct-path)):
+
+```ts
+// channel.directPath.subscribe — the device's offer; a subscription whose value is the newest
+// state, the whole candidate list of this generation each time. A newer offer ends the older
+// subscription, so the subscription is the ICE generation. The offer carries no candidates.
+// Refused `channel.directPath.offerInvalid` (invalidArgument) for an offer the machine cannot
+// read, and `channel.directPath.alreadyDirect` (failedPrecondition) for a fresh offer while the
+// connection rides the direct carrier, where a device restarts ICE instead.
+interface ChannelDirectPathSubscribeRequest {
+  offer: string; // the offer's SDP
+}
+interface ChannelDirectPathState {
+  answer: string; // the answer's SDP
+  candidates: string[]; // the machine's candidates of this generation so far
+  restartRequests: number; // raised when the machine asks the device to restart ICE
+}
+
+// channel.directPath.candidate.add → `{}`; a candidate for a subscription that is no longer the
+// current generation is answered `{}` and dropped, never refused.
+interface ChannelDirectPathCandidateAddRequest {
+  subscriptionId: SubscriptionId;
+  candidate: string;
+}
+```

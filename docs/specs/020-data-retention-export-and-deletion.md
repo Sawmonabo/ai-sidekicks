@@ -66,7 +66,8 @@ This spec covers:
 
 ### Provider Privacy Settings
 
-- The person's own provider privacy settings follow into every account home the daemon manages. At each start the daemon reads Claude Code's `DISABLE_TELEMETRY`, `DISABLE_ERROR_REPORTING`, `DISABLE_FEEDBACK_COMMAND` and `CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY` from the person's own Claude Code settings and passes them through `--settings`, and reads Codex's `analytics.enabled` and `feedback.enabled` from the person's own Codex config and passes them through `-c`, as every provider setting is passed. It never writes them into a home, so a change the person makes in their own files reaches the next process the daemon starts.
+- The person's own provider privacy settings follow into every account home the daemon manages, and on Codex into every process the daemon starts off the person's own folder, the service that reads Codex's capabilities among them. At each start the daemon reads Claude Code's `DISABLE_TELEMETRY`, `DISABLE_ERROR_REPORTING`, `DISABLE_FEEDBACK_COMMAND` and `CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY` from the person's own Claude Code settings and passes them through `--settings`, and reads Codex's `analytics.enabled` and `feedback.enabled` from the person's own Codex config and passes them through `-c`, as every provider setting is passed. It never writes them into a home, so a change the person makes in their own files reaches the next process the daemon starts.
+- A Codex config the daemon reads that fails to load is named by its path, its line and the TOML parser's message, never by the file's text. A privacy table or switch of the wrong type fails the start.
 - The keys are each provider's own: Claude Code's are documented in its [data usage](https://code.claude.com/docs/en/data-usage) page, and Codex's in its [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference). There is no switch of the app's own for them.
 
 ### Erasure In The Daemon's Database

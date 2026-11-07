@@ -23,7 +23,7 @@ This model explains how agents exist between runs, how agents in one session rea
 
 - An agent is not a provider thread id: the provider's thread or session is the agent's conversation.
 - A run is not the same thing as an agent.
-- An agent reaching another agent of the same session is not a direct run-to-run message: it goes through persisted run links, the session transcript, artifact references or approvals.
+- An agent reaching another agent of the same session is not a direct run-to-run message: it goes through the parent link each child run's own record keeps, the session transcript, artifact references or approvals.
 
 ## Invariants
 
