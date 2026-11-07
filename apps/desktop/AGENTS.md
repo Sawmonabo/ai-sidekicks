@@ -92,10 +92,40 @@ Held in review; a checker would get both wrong.
 
 - **Renames.** Beyond when the root rename rule allows ([Names](../../AGENTS.md#names)), an identifier, file, CSS class or token here also changes when it is unclear or its responsibility or owner changes.
 - **Screens.** A destination's view is a screen (`Screen<Id, Params>`, `SessionScreen`, `AgentsScreen`), and "screen" names nothing else. `ScreenView` is only the frame region showing the screen the rail picked. Routing stays in `app/AppRouter.tsx`. A session's arrangement of panes is its pane layout, never "screen view" or "deck".
+- **A product screen or page keeps one name end to end:** folder, component, route or destination id, address, navigation label and page heading.
 - **"Workspace"** means only the managed folder on disk a session is bound to; there is no `features/workspace/`.
 - **`transcript` and `preview`** name the transcript and the Preview pane; a name about the real browser the pane drives keeps "browser".
 - **Keybindings** are `Keybinding`, `keybinding`, `keybindings` in identifiers.
 - **`shared`** means code both Electron processes use.
+- Electron's main process is `main`; persistent interface chrome is `layout` or `AppShell`.
+- **An interface takes no `I` prefix:** `User`, never `IUser` (ESLint: `@typescript-eslint/naming-convention`).
+
+## File and folder names
+
+These two sections bind every TypeScript file in the repository, not only the desktop's.
+
+A name's case says what the file is responsible for; `.ts` or `.tsx` says only whether it contains JSX (ESLint refuses a `.tsx` with no JSX).
+
+- A React component or page has a PascalCase basename. Working `createElement()` code is never rewritten into JSX to fit a file name.
+- A reusable or exported component normally has its own file; a tiny private helper component may stay with its sole owner when extracting it would be ceremony rather than a real reusable boundary.
+- A shared component or group owner has a PascalCase folder, holding a small cohesive set of components that share one owner, styling, contracts or infrastructure; never a generic bucket.
+- A hook is `useThing.ts` and holds no presentation JSX; that becomes a component when it has a real interface responsibility.
+- Every other module is kebab-case, `.tsx` only when it genuinely contains JSX. Every other folder is `kebab-case/`.
+- A test keeps its subject's stem and casing: `.test.tsx` only when the test contains JSX, otherwise `.test.ts`. No `.spec` file anywhere. Subject-specific test support sits beside the subject as `*.test-support.ts(x)`; broader helpers live in `tests/helpers/`, named for what they provide, without the suffix.
+- `__tests__/` is allowed only in the packages and the repository's tooling, and `__fixtures__/` only in the packages.
+- Tool- and framework-required names, generated files and established config file names keep their tool's spelling.
+- `index.ts` exists only for an intentional public API: named exports only, and never a barrel chain (an `index.ts` re-exporting another). No `export *` in any authored TypeScript file except `*.d.ts` (ESLint).
+- ESLint checks the case of every name (`eslint-plugin-check-file`). Whether a file is a component, whether a reusable or exported component has its own file, and what test support is named for, are checked by reading.
+
+## Closed sets of values
+
+No TypeScript `enum` or `const enum` in application or domain code (ESLint refuses one). A closed set is declared once and every consumer derives from it; a second union that mirrors the first is a defect. Use:
+
+- a string-literal union when only the type is needed: `type RunState = "queued" | "running" | "completed" | "failed";`
+- an `as const` object and its derived union when the values are needed at runtime: `const RunState = { Queued: "queued", Running: "running" } as const;` with `type RunState = (typeof RunState)[keyof typeof RunState];`
+- a discriminated union when each state carries its own data: `{ state: "running"; startedAt: string } | { state: "failed"; error: string }`.
+
+An enum is allowed only where an external, generated or platform contract requires one; it stays at that boundary, behind a file-scoped lint exemption, and is translated there into one of these forms.
 
 ## Styling
 
