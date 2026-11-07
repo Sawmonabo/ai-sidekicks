@@ -19,7 +19,7 @@ pnpm 10.33.2, Node ≥ 24.21, and the Rust toolchain `rust-toolchain.toml` pins,
 - `pnpm install` (also installs the git hooks)
 - `pnpm typecheck` · `pnpm lint` · `pnpm test` · `pnpm build` · `pnpm format` — Turbo runs `build`, `lint` and `test` over `crates/` through Cargo beside the pnpm packages, and `pnpm format` also runs `cargo fmt --all`
 - `cargo fmt --all` · `cargo clippy --workspace --all-targets --all-features` · `cargo nextest run --workspace` · `cargo test --workspace --doc` · `cargo shear` for `crates/` alone
-- Every `cargo` command runs through `mbx`, the shared compile cache and scheduler, whose policy is the tracked `.mbx.toml`; the setup is [the Rust build cache runbook](docs/operations/rust-build-cache-runbook.md)
+- On a development machine every `cargo` command runs through `mbx`, the shared compile cache and scheduler, whose policy is the tracked `.mbx.toml`; CI builds through plain Cargo. The setup is [the Rust build cache runbook](docs/operations/rust-build-cache-runbook.md)
 
 ## How work lands
 
