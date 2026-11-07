@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The reference behind [`apps/desktop/AGENTS.md`](../../apps/desktop/AGENTS.md): what each folder of `apps/desktop` holds, and the exact scope of each check that enforces its rules. It also records how the repo-wide ESLint checks behind the root `AGENTS.md` Code conventions are scoped. The rules themselves are in those files; this document describes, and adds no rule of its own.
+The reference behind [`apps/desktop/AGENTS.md`](../../apps/desktop/AGENTS.md): what each folder of `apps/desktop` holds, and the exact scope of each check that enforces its rules. It also records how the repo-wide ESLint checks behind the root `AGENTS.md` Code conventions and the TypeScript conventions in `apps/desktop/AGENTS.md` are scoped. The rules themselves are in those files; this document describes, and adds no rule of its own.
 
 ## Scope
 
