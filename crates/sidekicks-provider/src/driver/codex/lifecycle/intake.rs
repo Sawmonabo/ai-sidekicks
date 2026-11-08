@@ -280,6 +280,9 @@ impl CodexSessionIntake {
         let parts = Arc::clone(&self.parts);
         if let Some(diverted) = parts.side_questions.divert(&method, &params) {
             if let Some(usage) = diverted.usage {
+                self.routing
+                    .streamed_responses()
+                    .record(&usage.delta.thread_id, usage.delta.axis_deltas);
                 self.record_usage(vec![usage]).await;
             }
             return;
