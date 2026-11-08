@@ -111,10 +111,11 @@ fn joined_list_sql(held: &str, returned: &str, path: &str) -> String {
 /// Why a draft was not read, stored or followed; a refused store keeps nothing.
 #[derive(Debug, thiserror::Error)]
 pub enum SessionDraftError {
-    /// The session is not one this daemon holds (`session.notFound`).
+    /// A follow asked for a session this daemon holds no row for (`session.notFound`).
     #[error(transparent)]
     Refused(#[from] DomainError),
-    /// The session is not one this daemon holds (`session.notFound`), or the save was not kept.
+    /// A save named a session this daemon holds no row for (`session.notFound`), or the writer did
+    /// not keep it.
     #[error(transparent)]
     Write(#[from] SessionWriteError),
     /// The draft changed since the revision the save was typed over
