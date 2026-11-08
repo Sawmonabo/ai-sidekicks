@@ -26,6 +26,18 @@ pub(super) fn is_process_notification(method: &str) -> bool {
     )
 }
 
+/// The kind of id a client's method names, each kept in a table of its own: a process, an open
+/// file's handle or an http request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RelayIdKind {
+    /// A process's `processId`.
+    Process,
+    /// An open file's `handleId`.
+    FileHandle,
+    /// An http request's `requestId`.
+    HttpRequest,
+}
+
 /// How the relay carries one method a client sends.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ClientMethod {

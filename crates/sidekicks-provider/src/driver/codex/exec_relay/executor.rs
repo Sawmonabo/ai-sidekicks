@@ -31,7 +31,7 @@ use self::policy_requests::{PolicyRequests, deny_answer};
 use crate::driver::codex::exec_relay::message::{RoutedMessage, RoutedParams, splice, text_of};
 use crate::driver::codex::exec_relay::methods::{
     ClientMethod, INITIALIZE_METHOD, INITIALIZED_METHOD, NETWORK_POLICY_REQUEST_METHOD,
-    PROCESS_CLOSED_METHOD, PROCESS_EXITED_METHOD, is_process_notification,
+    PROCESS_CLOSED_METHOD, PROCESS_EXITED_METHOD, RelayIdKind, is_process_notification,
 };
 use crate::driver::codex::session::errors::CodexError;
 
@@ -161,7 +161,7 @@ impl CodexExecutor {
             next_connection: AtomicU64::new(1),
             client_requests: Mutex::new(HashMap::new()),
             next_client_request: AtomicU64::new(1),
-            process_ids: Mutex::new(ConnectionIds::default()),
+            process_ids: Mutex::new(ConnectionIds::new(RelayIdKind::Process)),
             policy_requests: Mutex::new(PolicyRequests::default()),
             exits: Mutex::new(HashMap::new()),
             client_replies: Mutex::new(HashMap::new()),
@@ -488,8 +488,10 @@ impl CodexExecutor {
             .and_then(|result| serde_json::from_str::<RoutedParams<'_>>(result.get()).ok())
             .and_then(|result| result.process_id)
             .and_then(|raw| {
-                let owner = ids.owner(&text_of(raw)?)?;
-                Some((raw, serde_json::to_string(&owner.own_id).ok()?))
+                let relay_id = text_of(raw)?;
+                let own_id = serde_json::to_string(&ids.owner(&relay_id)?.own_id).ok()?;
+                ids.mark_live(&relay_id);
+                Some((raw, own_id))
             });
         drop(ids);
         splice(
@@ -592,7 +594,7 @@ impl CodexExecutor {
         }
         lock(&self.clients).clear();
         lock(&self.client_requests).clear();
-        *lock(&self.process_ids) = ConnectionIds::default();
+        lock(&self.process_ids).clear();
         lock(&self.policy_requests).clear();
     }
 }
