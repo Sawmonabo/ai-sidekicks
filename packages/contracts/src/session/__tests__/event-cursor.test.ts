@@ -1,11 +1,10 @@
 // The event cursor codec must refuse a corrupted cursor with the typed error rather than resume a
 // read at a wrong position, and must write each position in the one spelling it reads back. The
 // daemon's codec reads the same case table, so a cursor one side writes the other reads.
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import { readCaseTable } from "../../__tests__/case-table.test-support.js";
 import {
   EVENT_CURSOR_UNRESOLVABLE_CODE,
   EventCursorUnresolvableError,
@@ -14,24 +13,18 @@ import {
 } from "../event-cursor.js";
 import { EventCursorSchema } from "../id.js";
 
-const eventCursorCases = z
-  .object({
-    // A number, not a safe integer: a row past the safe range is one the codec must refuse.
-    encode: z.array(z.object({ position: z.number(), cursor: z.string().nullable() }).strict()),
-    decode: z.array(z.object({ cursor: EventCursorSchema, position: z.int().nullable() }).strict()),
-  })
-  .strict()
-  .parse(
-    JSON.parse(
-      readFileSync(
-        new URL(
-          "../../../../../crates/sidekicks-contracts/tests/fixtures/event-cursor.json",
-          import.meta.url,
-        ),
-        "utf8",
+const eventCursorCases = readCaseTable(
+  z
+    .object({
+      // A number, not a safe integer: a row past the safe range is one the codec must refuse.
+      encode: z.array(z.object({ position: z.number(), cursor: z.string().nullable() }).strict()),
+      decode: z.array(
+        z.object({ cursor: EventCursorSchema, position: z.int().nullable() }).strict(),
       ),
-    ),
-  );
+    })
+    .strict(),
+  "event-cursor.json",
+);
 
 describe("the event cursor codec — a log position of at least -1, one spelling each", () => {
   it.each(eventCursorCases.encode)("writes $position as $cursor", ({ position, cursor }) => {

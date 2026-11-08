@@ -1,8 +1,7 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import { readCaseTable } from "./case-table.test-support.js";
 import { jsonUtf8ByteLength } from "../jsonrpc/byte-length.js";
 import { SCHEMA_FORMATS, ucs2length, wireByteLength } from "../schema-check.js";
 import { WEB_ADDRESS_FAULTS, webAddressFault } from "../web-address.js";
@@ -34,27 +33,19 @@ const webAddressText = z
   })
   .strict();
 
-const webAddressCases = z
-  .object({
-    faults: z.array(
-      z.object({ address: z.string(), fault: z.enum(WEB_ADDRESS_FAULTS).nullable() }).strict(),
-    ),
-    texts: z.array(webAddressText),
-    httpsCap: z.int().positive(),
-    capped: z.array(webAddressText.omit({ web: true })),
-  })
-  .strict()
-  .parse(
-    JSON.parse(
-      readFileSync(
-        new URL(
-          "../../../../crates/sidekicks-contracts/tests/fixtures/web-address.json",
-          import.meta.url,
-        ),
-        "utf8",
+const webAddressCases = readCaseTable(
+  z
+    .object({
+      faults: z.array(
+        z.object({ address: z.string(), fault: z.enum(WEB_ADDRESS_FAULTS).nullable() }).strict(),
       ),
-    ),
-  );
+      texts: z.array(webAddressText),
+      httpsCap: z.int().positive(),
+      capped: z.array(webAddressText.omit({ web: true })),
+    })
+    .strict(),
+  "web-address.json",
+);
 
 describe("SCHEMA_FORMATS", () => {
   // Each format is the parse half of its schema; a `pattern` beside it holds the rest (the

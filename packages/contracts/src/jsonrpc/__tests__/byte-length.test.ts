@@ -1,32 +1,22 @@
 // The message limit and every page budget measure a value by its JSON's UTF-8 bytes. The daemon
 // measures by the same case table, so a reply one side fits the other never refuses for its size.
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import { readCaseTable } from "../../__tests__/case-table.test-support.js";
 import { jsonUtf8ByteLength } from "../byte-length.js";
 
 // A row gives its value as JSON, or as `valueText`, JSON text whose number JavaScript reads in its
 // own way (`1.0` as 1, a figure past 2^53 rounded).
-const byteLengthCases = z
-  .array(
+const byteLengthCases = readCaseTable(
+  z.array(
     z.union([
       z.object({ note: z.string(), value: z.json(), bytes: z.int().nonnegative() }).strict(),
       z.object({ note: z.string(), valueText: z.string(), bytes: z.int().nonnegative() }).strict(),
     ]),
-  )
-  .parse(
-    JSON.parse(
-      readFileSync(
-        new URL(
-          "../../../../../crates/sidekicks-contracts/tests/fixtures/jsonrpc/byte-length.json",
-          import.meta.url,
-        ),
-        "utf8",
-      ),
-    ),
-  );
+  ),
+  "jsonrpc/byte-length.json",
+);
 
 describe("jsonUtf8ByteLength", () => {
   it.each(byteLengthCases)("measures $note", (byteLengthCase) => {

@@ -1,14 +1,13 @@
 // The run a payload names, which files every transcript row under its run group. The daemon's
 // projection reads the same case table, so both file a row under the same run.
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import { readCaseTable } from "../../__tests__/case-table.test-support.js";
 import { transcriptOwnRunIdOf, transcriptRunIdOf } from "../run-attribution.js";
 
-const runAttributionCases = z
-  .array(
+const runAttributionCases = readCaseTable(
+  z.array(
     z
       .object({
         note: z.string(),
@@ -17,18 +16,9 @@ const runAttributionCases = z
         ownRunId: z.string().nullable(),
       })
       .strict(),
-  )
-  .parse(
-    JSON.parse(
-      readFileSync(
-        new URL(
-          "../../../../../crates/sidekicks-contracts/tests/fixtures/transcript/run-attribution.json",
-          import.meta.url,
-        ),
-        "utf8",
-      ),
-    ),
-  );
+  ),
+  "transcript/run-attribution.json",
+);
 
 describe("reading the run a payload names", () => {
   it.each(runAttributionCases)("$note", ({ payload, runId, ownRunId }) => {

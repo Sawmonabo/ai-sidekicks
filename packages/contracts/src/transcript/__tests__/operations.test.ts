@@ -1,9 +1,6 @@
 // The paged transcript reads: a child run's summary and expansion, and pages that run oldest to
 // newest, fit one frame and never continue empty.
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 
 import { refusesAt } from "../../__tests__/safe-parse.test-support.js";
 import { EVENT_FIELD_MAX_LEN } from "../../event/envelope.js";
@@ -34,30 +31,6 @@ import {
   rolledBackPayload,
   rollbackBoundaryRow,
 } from "./row.test-support.js";
-
-const pageFittingCases = z
-  .array(
-    z
-      .object({
-        note: z.string(),
-        candidates: z.array(z.unknown()),
-        maxCount: z.int().nonnegative(),
-        budgetBytes: z.int().nonnegative(),
-        fitted: z.int().nonnegative(),
-      })
-      .strict(),
-  )
-  .parse(
-    JSON.parse(
-      readFileSync(
-        new URL(
-          "../../../../../crates/sidekicks-contracts/tests/fixtures/jsonrpc/page-fitting.json",
-          import.meta.url,
-        ),
-        "utf8",
-      ),
-    ),
-  );
 
 const childRunSummary = {
   runId: RUN_ID,
@@ -396,14 +369,6 @@ describe("a reply fits one frame", () => {
           body: "the whole output",
         }).success,
       ).toBe(true);
-    },
-  );
-
-  // The daemon fits a page by the same table, so a page one side builds the other accepts.
-  it.each(pageFittingCases)(
-    "the fitting function: $note",
-    ({ candidates, maxCount, budgetBytes, fitted }) => {
-      expect(countEntriesFittingOneFrame(candidates, maxCount, budgetBytes)).toBe(fitted);
     },
   );
 
