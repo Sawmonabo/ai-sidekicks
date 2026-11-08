@@ -4,7 +4,7 @@
 use serde_json::Value;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 
-use super::{ClaudeSignInSources, read_sign_in_entry};
+use super::{ClaudeMcpSignInSources, read_sign_in_entry};
 use crate::driver::claude::mcp::config::URL_MEMBER;
 use crate::driver::claude::mcp::machine_probe::variables::expand_remote_address;
 use crate::driver::contract::error::DriverError;
@@ -21,7 +21,7 @@ const VARIABLE_OPENING: &str = "${";
 /// [`DriverError::NoPersonServerEntry`] for a connector, an organization's server read for no
 /// account, and an entry that is gone or names no `url`, and as the entry's read fails.
 pub(crate) async fn read_claude_server_address(
-    sources: &ClaudeSignInSources<'_>,
+    sources: &ClaudeMcpSignInSources<'_>,
     environment: &[(String, String)],
     request: &McpServerAddressRead,
 ) -> Result<McpServerAddressReading, DriverError> {

@@ -196,7 +196,7 @@ pub(crate) struct ClaudeMcpSignInStart {
 }
 
 /// Where a sign-in reads the server's entry and the saved sign-in, and makes its own folder.
-pub(crate) struct ClaudeSignInSources<'sources> {
+pub(crate) struct ClaudeMcpSignInSources<'sources> {
     /// The person's own config files, as their environment places them.
     pub(crate) person: ClaudePersonConfigFiles,
     /// The daemon's plugin home for Claude Code.
@@ -220,7 +220,7 @@ pub(crate) struct ClaudeSignInSources<'sources> {
 /// folder removed either way.
 pub(crate) async fn sign_in_with_claude_client(
     starts: &dyn ClaudeProcessStarts,
-    sources: ClaudeSignInSources<'_>,
+    sources: ClaudeMcpSignInSources<'_>,
     environment_on: impl FnOnce(&Path) -> Result<Vec<(String, String)>, DriverError>,
     request: ProviderSignInTakeoverRequest,
 ) -> Result<ProviderSignInTakeover, DriverError> {
@@ -419,7 +419,7 @@ fn sign_in_parent(data_folder: &Path) -> PathBuf {
 // the account's own, for an organization's server with no `account` to read it for, and where no
 // entry declares the server, so another provider's flow is asked.
 async fn read_sign_in_entry(
-    sources: &ClaudeSignInSources<'_>,
+    sources: &ClaudeMcpSignInSources<'_>,
     binding: &McpServerBindingRef,
     account: Option<&ProviderAccountId>,
 ) -> Result<Option<Map<String, Value>>, DriverError> {

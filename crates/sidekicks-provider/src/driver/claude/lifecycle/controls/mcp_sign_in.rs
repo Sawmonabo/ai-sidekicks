@@ -12,7 +12,7 @@ use crate::driver::claude::mcp::config::ClaudePersonConfigFiles;
 use crate::driver::claude::mcp::organization::has_readable_managed_mcp_file;
 use crate::driver::claude::mcp::sign_in::address::read_claude_server_address;
 use crate::driver::claude::mcp::sign_in::{
-    ClaudeSignInSources, remove_left_claude_sign_ins, sign_in_with_claude_client,
+    ClaudeMcpSignInSources, remove_left_claude_sign_ins, sign_in_with_claude_client,
 };
 use crate::driver::claude::spawn::environment::ClaudeProcessHome;
 use crate::driver::contract::error::DriverError;
@@ -65,9 +65,9 @@ impl ClaudeDriver {
     // Where an MCP sign-in reads its server's entry and saved sign-in: the person's files as the
     // base environment places them, the plugin home, and whether an administrator's MCP file is
     // deployed.
-    async fn sign_in_sources(&self) -> ClaudeSignInSources<'_> {
+    async fn sign_in_sources(&self) -> ClaudeMcpSignInSources<'_> {
         let managed_settings_folder = DESCRIPTOR.managed_settings_folder();
-        ClaudeSignInSources {
+        ClaudeMcpSignInSources {
             person: ClaudePersonConfigFiles::resolve(
                 &self.sources.base_environment,
                 &self.sources.home_folder,
