@@ -203,7 +203,7 @@ async fn connect_handler(socket_path: &Path) -> Result<CrashHandler, DaemonStart
 // monitor running then. A failed attempt is followed by a pause of the connect's own bound, so a
 // registration the system has not yet dropped or a program file being replaced gets time. Past
 // `RESTART_LIMIT` attempts within `RESTART_WINDOW` it logs once and starts no more, answering none;
-// once the service is going down after a crash it starts none, answering none.
+// once the service is going down after a panic it starts none, answering none.
 async fn watch_monitor(
     start: MonitorStart,
     mut monitor: ConnectedMonitor,
@@ -224,7 +224,7 @@ async fn watch_monitor(
             ),
         }
         monitor = loop {
-            // A monitor ends once it has written a crash's dump; the process is then aborting.
+            // A panic's abort ends the monitor once it has written the dump; the process is ending.
             if is_crashing() {
                 return None;
             }

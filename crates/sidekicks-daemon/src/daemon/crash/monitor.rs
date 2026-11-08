@@ -92,7 +92,9 @@ const SERVICE_WAIT_BOUND: Duration = CONNECT_BOUND.saturating_mul(2);
 // A dump or panic record readable by the person alone.
 const CRASH_FILE_MODE: u32 = 0o600;
 
-// Set once the service is going down after a crash or a panic, before it aborts.
+// Set by the panic hook before the panic's abort. A crash that reaches the crash handler sets no
+// flag: the monitor ends only after it has written that crash's dump, so the restart that may
+// follow while the service goes down costs a start and loses nothing.
 static IS_CRASHING: AtomicBool = AtomicBool::new(false);
 
 /// What a panic said, as the service sends it to the monitor before it aborts: unstripped, since
@@ -325,20 +327,19 @@ pub(crate) fn connect_crash_monitor(socket_path: &Path) -> Result<Client, CrashM
     }
 }
 
-/// Marks the service as going down after a crash or a panic, so no new crash monitor is started
-/// for a process about to abort. Safe to call from a crash handler.
+/// Marks the service as going down after a panic, before the abort that asks the monitor for a
+/// dump, so no new crash monitor is started for a process about to end.
 pub(crate) fn mark_crashing() {
     IS_CRASHING.store(true, Ordering::SeqCst);
 }
 
-/// Whether the service is going down after a crash or a panic.
+/// Whether the service is going down after a panic.
 pub(crate) fn is_crashing() -> bool {
     IS_CRASHING.load(Ordering::SeqCst)
 }
 
-/// Attaches the crash handler, which marks the service as crashing and asks the monitor `client`
-/// reaches for a dump when the process crashes or aborts, as a panic does. Fails when the system
-/// refuses the handler.
+/// Attaches the crash handler, which asks the monitor `client` reaches for a dump when the process
+/// crashes or aborts, as a panic does. Fails when the system refuses the handler.
 #[expect(
     unsafe_code,
     reason = "the crash handler's event is built through its library's one unsafe constructor"
@@ -346,12 +347,11 @@ pub(crate) fn is_crashing() -> bool {
 pub(crate) fn attach_crash_handler(
     client: Arc<Client>,
 ) -> Result<CrashHandler, crash_handler::Error> {
-    // SAFETY: the closure runs in the crashed process's handler, where it only stores one atomic
-    // flag and sends the dump request over the monitor's already open channel, allocating nothing
-    // beyond it, as the library's own example does.
+    // SAFETY: the closure runs in the crashed process's handler, where it only sends the dump
+    // request over the monitor's already open channel and allocates nothing beyond it, as the
+    // library's own example does.
     let on_crash = unsafe {
         make_crash_event(move |context: &CrashContext| {
-            mark_crashing();
             CrashEventResult::Handled(client.request_dump(context).is_ok())
         })
     };
