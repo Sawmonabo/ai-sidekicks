@@ -32,7 +32,7 @@ use sidekicks_contracts::session::methods::{
 use sidekicks_contracts::transcript::content::TranscriptRowContent;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
-use sidekicks_ipc::stream::feed::{ChangeRecord, DistanceRead, Feed, RecordDistance, RecordPage};
+use sidekicks_ipc::stream::feed::{ChangeRecord, DistanceRead, Feed, RecordPage};
 use sidekicks_ipc::stream::frame_batcher::{ChangeFeed, FrameRead};
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::registry::ProviderRegistry;
@@ -375,10 +375,11 @@ impl ChangeRecord for SessionEventRecord {
     ) -> DistanceRead<'_, EventCursor, SessionEventStreamError> {
         let cursor = cursor.clone();
         async move {
-            Ok(Some(
-                read_log_stream_distance(&self.log, self.session_id, &cursor, max_events, None)
-                    .await?,
-            ))
+            let distance = self
+                .log
+                .read_stream_distance(self.session_id, &cursor, max_events, None)
+                .await?;
+            Ok(Some(distance.into()))
         }
         .boxed()
     }
@@ -397,30 +398,6 @@ impl ChangeRecord for SessionEventRecord {
             SessionEventStreamError::Attribution(_) | SessionEventStreamError::Rows(_) => false,
         }
     }
-}
-
-/// How far `session_id`'s log head stands past `cursor` for a stream of `event_types` (every type
-/// when `None`), counted over at most `max_events` events, with the head as a cursor. Fails as the
-/// log's read fails.
-pub(crate) async fn read_log_stream_distance(
-    log: &EventLogService,
-    session_id: SessionId,
-    cursor: &EventCursor,
-    max_events: usize,
-    event_types: Option<&'static [&'static str]>,
-) -> Result<RecordDistance<EventCursor>, EventLogReadError> {
-    let after_position = decode_event_cursor(cursor)?;
-    let distance = log
-        .read_stream_distance(session_id, after_position, max_events, event_types)
-        .await?;
-    let head = distance
-        .head
-        .map_or(after_position, |head| head.max(after_position));
-    Ok(RecordDistance {
-        head: encode_event_cursor(head)?,
-        events: distance.events,
-        bytes: distance.bytes,
-    })
 }
 
 /// The most bytes a change takes beside its event, its piece's body and its starts: its cursor,

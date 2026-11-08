@@ -6,6 +6,8 @@
 use std::error::Error;
 
 use futures::future::BoxFuture;
+use sidekicks_contracts::session::event_cursor::EventCursor;
+use sidekicks_store::events::log_service::EventStreamDistance;
 use tokio::sync::watch;
 
 use crate::registry::HandlerError;
@@ -87,6 +89,16 @@ pub struct RecordDistance<Head> {
     pub events: usize,
     /// Those events' stored bytes.
     pub bytes: usize,
+}
+
+impl From<EventStreamDistance> for RecordDistance<EventCursor> {
+    fn from(distance: EventStreamDistance) -> Self {
+        Self {
+            head: distance.head,
+            events: distance.events,
+            bytes: distance.bytes,
+        }
+    }
 }
 
 /// One read of a change record: its changes, where it read through, and whether it stopped at its

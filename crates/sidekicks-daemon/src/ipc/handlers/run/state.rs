@@ -43,7 +43,6 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use crate::ipc::handlers::run::safety_holds::{RunSafetyHolds, SafetyHoldsFollow};
-use crate::ipc::handlers::session::event_subscribe::read_log_stream_distance;
 
 /// The type of a stored rollback, which the stream carries beside the state changes.
 const ROLLBACK_EVENT_TYPE: &str = SessionEventType::AgentRunRolledBack.as_str();
@@ -294,16 +293,16 @@ impl ChangeRecord for RunStateRecord {
     ) -> DistanceRead<'_, EventCursor, RunStateStreamError> {
         let cursor = cursor.clone();
         async move {
-            Ok(Some(
-                read_log_stream_distance(
-                    &self.log,
+            let distance = self
+                .log
+                .read_stream_distance(
                     self.session_id,
                     &cursor,
                     max_events,
                     Some(RUN_STATE_STREAM_EVENT_TYPES.as_slice()),
                 )
-                .await?,
-            ))
+                .await?;
+            Ok(Some(distance.into()))
         }
         .boxed()
     }

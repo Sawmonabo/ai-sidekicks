@@ -135,22 +135,33 @@ static AFTER_OF_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The events after a position, of the given types when the list is not null, counted with their
-// stored payloads' UTF-8 bytes over at most the given number of events.
-static DISTANCE_SQL: LazyLock<String> = LazyLock::new(|| {
+// The events after a position, counted over at most the given number of them with their stored
+// bytes: the payload's and the body's, which counts a body of 1 KiB or more as compressed.
+static DISTANCE_SQL: LazyLock<String> = LazyLock::new(|| distance_sql("", ""));
+
+// The same, only of the given types. It names the type index, since the planner otherwise walks
+// the sequence index and reads every event between the position and the matching ones.
+static DISTANCE_OF_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
+    distance_sql(
+        "INDEXED BY idx_session_events_type",
+        "AND type IN (SELECT value FROM json_each(?5))",
+    )
+});
+
+fn distance_sql(index: &str, type_filter: &str) -> String {
     format!(
-        "SELECT COUNT(*), COALESCE(SUM(LENGTH(CAST(payload AS BLOB))), 0)
-       FROM (SELECT event.payload
-               FROM session_events AS event
-              WHERE session_id = ?1 AND sequence > ?2 AND sequence < ?3
-                AND (?4 IS NULL OR type IN (SELECT value FROM json_each(?4)))
+        "SELECT COUNT(*), COALESCE(SUM(bytes), 0)
+       FROM (SELECT LENGTH(CAST(event.payload AS BLOB))
+                    + COALESCE(LENGTH(CAST(event.content_payload AS BLOB)), 0) AS bytes
+               FROM session_events AS event {index}
+              WHERE session_id = ?1 AND sequence > ?2 AND sequence < ?3 {type_filter}
                 AND {} AND NOT {}
               ORDER BY sequence ASC
-              LIMIT ?5)",
+              LIMIT ?4)",
         outside_skipped_ranges_sql("event"),
         stored_patch_part_sql("event"),
     )
-});
+}
 
 static WINDOW_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -438,8 +449,8 @@ where
     }
 
     /// How many of the events [`Self::read_after`] reads after `after_position`, at most `limit`,
-    /// lie past it, and their stored payloads' UTF-8 bytes; only events of `event_types` when
-    /// given.
+    /// lie past it, and their stored bytes, payload and body, a compressed body as stored; only
+    /// events of `event_types` when given, read through the type index.
     pub fn read_distance(
         &self,
         session_id: &SessionId,
@@ -448,24 +459,31 @@ where
         event_types: Option<&[&str]>,
     ) -> Result<(usize, usize), SessionLogReadError> {
         let before = self.read_bound(session_id, None);
-        let event_types = event_types
-            .map(serde_json::to_string)
-            .transpose()
-            .expect("a list of strings serializes");
-        let (events, bytes): (i64, i64) = self.reader.prepare_cached(&DISTANCE_SQL)?.query_row(
-            params![
-                session_id.text().as_str(),
-                after_position,
-                before,
-                event_types,
-                limit
-            ],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )?;
-        // A count and a sum of lengths are never negative.
+        let session_id = session_id.text();
+        let read_count_and_bytes = |row: &Row<'_>| Ok((row.get(0)?, row.get(1)?));
+        let (events, bytes): (i64, i64) = match event_types {
+            None => self.reader.prepare_cached(&DISTANCE_SQL)?.query_row(
+                params![session_id.as_str(), after_position, before, limit],
+                read_count_and_bytes,
+            )?,
+            Some(event_types) => self
+                .reader
+                .prepare_cached(&DISTANCE_OF_TYPES_SQL)?
+                .query_row(
+                    params![
+                        session_id.as_str(),
+                        after_position,
+                        before,
+                        limit,
+                        serde_json::to_string(event_types).expect("a list of strings serializes"),
+                    ],
+                    read_count_and_bytes,
+                )?,
+        };
+        let never_negative = "a count and a sum of lengths are never negative";
         Ok((
-            usize::try_from(events).unwrap_or(0),
-            usize::try_from(bytes).unwrap_or(0),
+            usize::try_from(events).expect(never_negative),
+            usize::try_from(bytes).expect(never_negative),
         ))
     }
 
