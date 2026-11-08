@@ -39,9 +39,8 @@ use crate::driver::claude::delivery::requests::{
 };
 use crate::driver::claude::delivery::reviewer::ClaudeReviewerCapture;
 use crate::driver::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
-use crate::driver::claude::delivery::stream::{
-    ClaudeDeliveryStream, ClaudeSessionStreams, ClaudeStreamDependencies,
-};
+use crate::driver::claude::delivery::stream::dependencies::ClaudeStreamDependencies;
+use crate::driver::claude::delivery::stream::{ClaudeDeliveryStream, ClaudeSessionStreams};
 use crate::driver::claude::frame_routing::ClaudeFrameRouting;
 use crate::driver::claude::goals::ClaudeGoalCommands;
 use crate::driver::claude::goals::endings::ClaudeGoalEndings;
