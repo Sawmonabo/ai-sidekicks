@@ -121,10 +121,16 @@ static AFTER_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// A read of given types names the type index: unhinted, the planner walks the sequence index and
+// reads every event between the position and the matching ones, to the log's end when few match.
+// Through the type index it reads, per type, the matching events after the position up to the
+// limit.
+const TYPE_INDEX: &str = "INDEXED BY idx_session_events_type";
+
 static AFTER_OF_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT {SELECTED_COLUMNS}
-       FROM session_events AS event
+       FROM session_events AS event {TYPE_INDEX}
       WHERE session_id = ? AND sequence > ? AND sequence < ?
         AND type IN (SELECT value FROM json_each(?))
         AND {} AND NOT {}
@@ -139,14 +145,9 @@ static AFTER_OF_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
 // bytes: the payload's and the body's, which counts a body of 1 KiB or more as compressed.
 static DISTANCE_SQL: LazyLock<String> = LazyLock::new(|| distance_sql("", ""));
 
-// The same, only of the given types. It names the type index, since the planner otherwise walks
-// the sequence index and reads every event between the position and the matching ones.
-static DISTANCE_OF_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
-    distance_sql(
-        "INDEXED BY idx_session_events_type",
-        "AND type IN (SELECT value FROM json_each(?5))",
-    )
-});
+// The same, only of the given types.
+static DISTANCE_OF_TYPES_SQL: LazyLock<String> =
+    LazyLock::new(|| distance_sql(TYPE_INDEX, "AND type IN (SELECT value FROM json_each(?5))"));
 
 fn distance_sql(index: &str, type_filter: &str) -> String {
     format!(
