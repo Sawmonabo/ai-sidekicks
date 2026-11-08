@@ -91,10 +91,10 @@ use crate::create::provisioning::{SessionFinishFailure, SessionToFinish};
 /// The statements the creation's reads keep prepared on each read connection: a recorded create,
 /// the current account and whether any is registered, a project's target, the sessions left
 /// provisioning, a session's mount, whether a project clones, the unborn chats, whether one chat
-/// is unborn, a session's state, a session's state with whether a hand-off names it, for a
-/// hand-off's birth its record, the planning session's working folder and its project, and for
-/// the start pass every hand-off and its seed's queue item.
-pub const SESSION_CREATION_STATEMENT_CAPACITY: usize = 16;
+/// is unborn, a session's state, a session's state with whether a hand-off names it, the key a
+/// session's create was recorded under, for a hand-off's birth its record, the planning session's
+/// working folder and its project, and for the start pass every hand-off and its seed's queue item.
+pub const SESSION_CREATION_STATEMENT_CAPACITY: usize = 17;
 
 // Each statement's position in `session.created`'s write: the request's record, then the account
 // guard; a project session's project and folder guards and its group guard follow.
