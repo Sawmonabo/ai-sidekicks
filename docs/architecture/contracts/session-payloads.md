@@ -379,8 +379,9 @@ interface SessionWorkingFolderUpdateResponse {
 // the draft put back read the same: a lead message taken back joins the draft whole, its words on
 // their own line ahead of the held words, its files and skill picks after the held ones, and its
 // turn speed and repository only where the held draft names none; a file or a skill pick both
-// already hold is kept once, at its first place. `attachments` holds a returned message's files,
-// which rejoin the staged set when the composer reads the draft.
+// already hold is kept once, at its first place. `attachments` holds a returned message's files by
+// artifact id: they stay the artifacts they are, never moved into the staged set, and go out as
+// `agent.queueItem.create`'s `attachments` ids on the next send.
 interface SessionDraftExtras {
   attachments?: ArtifactId[]; // the files, in staging order
   skills?: { name: string; folderPath: string }[]; // the skills picked, in the order picked

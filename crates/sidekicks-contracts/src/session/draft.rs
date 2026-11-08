@@ -35,8 +35,8 @@ use crate::wire::text::{BoundedText, NonEmptyText};
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionDraftExtras {
-    /// The files, in staging order. A returned message's files wait here and rejoin the staged set
-    /// when the composer reads the draft.
+    /// The files, in staging order, by artifact id. A returned message's files stay here as the
+    /// artifacts they are and go out as the next send's `attachments`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
