@@ -1,6 +1,7 @@
 //! A run and its steps as their rows store them, and the mapping from those rows. A run's read and
 //! the runs list share the run's mapping; the run read alone carries the steps.
 
+use std::borrow::Cow;
 use std::sync::LazyLock;
 
 use rusqlite::{Connection, OptionalExtension as _, Row, named_params};
@@ -26,6 +27,9 @@ use sidekicks_contracts::workflow::run::trigger::{
     WorkflowRunMode, WorkflowStartedBy, WorkflowTriggerKind,
 };
 use sidekicks_store::database::sql_list::sql_list_of;
+use sidekicks_store::database::statement::{
+    StatementBindings, WriteStatement, nullable_text_binding, text_binding,
+};
 use sidekicks_store::database::stored_column::{
     closed_word, optional_text_column, safe_int_column, text_column,
 };
@@ -134,6 +138,46 @@ pub(crate) fn finished_run_condition(alias: &str) -> String {
         going = *GOING_RUN_STATUSES_SQL,
         parked = parked_failed_run_condition(alias),
     )
+}
+
+// Ends a run not yet finished: its status, end and error, and its open wait on people closed by
+// adding the whole milliseconds from that wait's start to the end, never fewer than 0. The stored
+// instants carry whole milliseconds, so the rounded difference is exact.
+static END_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE workflow_runs AS run
+  SET status = @status, finished_at = @finished_at, error_json = @error_json,
+      person_wait_ms = person_wait_ms + COALESCE(MAX(0, CAST(ROUND(
+        (unixepoch(@finished_at, 'subsec') - unixepoch(person_wait_since, 'subsec')) * 1000
+      ) AS INTEGER)), 0),
+      person_wait_since = NULL
+  WHERE run.id = @workflow_run_id AND NOT {finished}",
+        finished = finished_run_condition("run"),
+    )
+});
+
+/// The one statement that ends run `workflow_run_id`'s row: `status`, ended at `finished_at` with
+/// `error`, its open wait on people closed into its total. It expects one row, so the write is
+/// refused, changing nothing, for a run that has already finished or that no row answers to.
+pub(crate) fn end_run_row(
+    workflow_run_id: WorkflowRunId,
+    status: WorkflowRunStatus,
+    finished_at: &WireInstant,
+    error: Option<&WorkflowStepError>,
+) -> WriteStatement {
+    let error_json = error.map(|error| {
+        serde_json::to_string(error).expect("a step error writes as JSON, holding only text")
+    });
+    WriteStatement {
+        sql: Cow::Borrowed(END_RUN_SQL.as_str()),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@status", <&'static str>::from(status)),
+            text_binding("@finished_at", finished_at.as_str()),
+            nullable_text_binding("@error_json", error_json.as_deref()),
+            text_binding("@workflow_run_id", workflow_run_id.text().as_str()),
+        ]),
+        expected_row_count: Some(1),
+    }
 }
 
 /// How far a run has come: still going, a failed run parked on its failed step, or finished.
