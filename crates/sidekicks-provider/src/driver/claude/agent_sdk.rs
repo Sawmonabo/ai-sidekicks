@@ -1,5 +1,6 @@
 //! The Agent SDK's one file, fetched for a Claude Code version from the npm registry on a task of
-//! its own and checked by the registry's SHA-512 before it is unpacked.
+//! its own and checked by the registry's SHA-512 before it is unpacked, and the fork of a Claude
+//! Code conversation its `forkSession` makes under bun.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -32,6 +33,8 @@ use sidekicks_std::outbound_http::{CappedBodyError, outbound_client_builder, rea
 use sidekicks_std::retry::waits::retry_wait;
 use tokio::sync::{Mutex, watch};
 use tokio_util::task::AbortOnDropHandle;
+
+mod fork;
 
 // The registry's full record of the SDK's releases, the one form that names each release's
 // Claude Code.
@@ -103,7 +106,8 @@ impl AgentSdkFetchState {
     }
 }
 
-/// The version folder holding `sdk.mjs`, which the fork's script imports as `./sdk.mjs`.
+/// The version folder holding `sdk.mjs`; the fork runs bun in this folder and imports `sdk.mjs`
+/// from it by path.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AgentSdkModule {
     /// The folder `sdk.mjs` is in.
