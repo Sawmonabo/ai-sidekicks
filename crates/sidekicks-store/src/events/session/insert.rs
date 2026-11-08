@@ -289,6 +289,38 @@ mod tests {
     use crate::events::test_log::{AT, SessionTestLog};
     use crate::transcript::rejoin::RowReads;
 
+    // The row each of `sequences` joins, `None` for an anchor.
+    fn joins_of(reader: &rusqlite::Connection, sequences: &[i64]) -> Vec<Option<i64>> {
+        sequences
+            .iter()
+            .map(|sequence| {
+                reader
+                    .query_row(
+                        "SELECT joins_sequence FROM session_events WHERE sequence = ?1",
+                        [sequence],
+                        |row| row.get(0),
+                    )
+                    .expect("the test reads the stamp")
+            })
+            .collect()
+    }
+
+    // Killed by a join key without the piece's block: a later block of the message, such as its
+    // text after a tool call, or a retried response's block under the same message id, joining
+    // the first block's row.
+    #[test]
+    fn a_piece_joins_only_its_own_block_of_its_own_response() {
+        let log = SessionTestLog::new(schema_parts());
+        let (anchor, _) = log.reply("m1", Some((0, 1)), "First ");
+        let (joined, _) = log.reply("m1", Some((0, 1)), "block.");
+        let (later_block, _) = log.reply("m1", Some((2, 1)), "After the tool call.");
+        let (retried, _) = log.reply("m1", Some((0, 2)), "Retried.");
+
+        let joins = joins_of(&log.reader(), &[anchor, joined, later_block, retried]);
+
+        assert_eq!(joins, [None, Some(anchor), None, None]);
+    }
+
     // Killed by the guard checking the head rather than its successor, which fails the write on
     // the log's unique sequence as a database error, and by a sequence past the safe integers
     // being written.
@@ -364,13 +396,13 @@ mod tests {
     ) {
         let log = SessionTestLog::new(schema_parts());
         let other_run = RunId::try_from(mint_uuid_v7()).expect("a run id");
-        let (anchor, _) = log.reply("m1", Some(0), "Before ");
-        let (joined, _) = log.reply("m1", Some(0), "the end.");
+        let (anchor, _) = log.reply("m1", Some((0, 1)), "Before ");
+        let (joined, _) = log.reply("m1", Some((0, 1)), "the end.");
         let (other, _) = log.piece(
             "agent.message.sent",
             other_run,
             "m1",
-            Some(0),
+            Some((0, 1)),
             "Elsewhere.",
             AT,
         );
@@ -380,21 +412,10 @@ mod tests {
             json!({ "type": ending_type, "payload": ending_payload }),
             None,
         );
-        let (after, _) = log.reply("m1", Some(0), "After the end.");
+        let (after, _) = log.reply("m1", Some((0, 1)), "After the end.");
 
         let reader = log.reader();
-        let joins: Vec<Option<i64>> = [anchor, joined, other, after]
-            .iter()
-            .map(|sequence| {
-                reader
-                    .query_row(
-                        "SELECT joins_sequence FROM session_events WHERE sequence = ?1",
-                        [sequence],
-                        |row| row.get(0),
-                    )
-                    .expect("the test reads the stamp")
-            })
-            .collect();
+        let joins = joins_of(&reader, &[anchor, joined, other, after]);
         let after_joins = (!is_row_ending).then_some(anchor);
         assert_eq!(joins, [None, Some(anchor), None, after_joins]);
         let reads = SessionEventReads::new(&reader, &|_: &SessionId| None);

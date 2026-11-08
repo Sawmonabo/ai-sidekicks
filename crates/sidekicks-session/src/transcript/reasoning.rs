@@ -261,12 +261,13 @@ mod tests {
         let session_log = &log.session_log;
         let piece = "a".repeat(6_000);
         let (_, row_id) =
-            session_log.piece(THINKING, session_log.run_id, "m1", Some(0), &piece, AT);
+            session_log.piece(THINKING, session_log.run_id, "m1", Some((0, 1)), &piece, AT);
         let (second, _) =
-            session_log.piece(THINKING, session_log.run_id, "m1", Some(0), &piece, AT);
-        let (third, _) = session_log.piece(THINKING, session_log.run_id, "m1", Some(0), &piece, AT);
+            session_log.piece(THINKING, session_log.run_id, "m1", Some((0, 1)), &piece, AT);
+        let (third, _) =
+            session_log.piece(THINKING, session_log.run_id, "m1", Some((0, 1)), &piece, AT);
         let (other, other_row_id) =
-            session_log.piece(THINKING, session_log.run_id, "m2", Some(0), "b", AT);
+            session_log.piece(THINKING, session_log.run_id, "m2", Some((0, 1)), "b", AT);
 
         let page = read(&log, session_log.run_id, None);
         let entries: Vec<(i64, String, usize)> = page["reasoningEntries"]
@@ -302,7 +303,9 @@ mod tests {
     #[test]
     fn reasoning_is_unavailable_only_on_a_first_read_of_a_run_with_none() {
         let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
-        let (head, _) = log.session_log.reply("m1", Some(0), "No reasoning here.");
+        let (head, _) = log
+            .session_log
+            .reply("m1", Some((0, 1)), "No reasoning here.");
 
         assert_eq!(
             read(&log, log.session_log.run_id, None)["availability"],

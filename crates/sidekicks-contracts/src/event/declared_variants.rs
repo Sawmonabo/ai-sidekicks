@@ -163,6 +163,16 @@ pub struct ProviderBlock {
     pub attempt: SafeInt<1>,
 }
 
+impl ProviderBlock {
+    /// The block `index` of response `attempt` under its message's id; `None` out of range.
+    pub fn new(index: u64, attempt: u64) -> Option<Self> {
+        Some(Self {
+            index: SafeInt::new(index)?,
+            attempt: SafeInt::new(attempt)?,
+        })
+    }
+}
+
 agent_output_arm! {
     /// An agent row of a run: every agent row but a voice call's spoken answer. It takes
     /// the epoch stamp.
@@ -174,7 +184,8 @@ agent_output_arm! {
     RunAgentOutputPayload {
         /// The run the row belongs to.
         pub run_id: RunId,
-        /// The content block the piece belongs to, where the provider's message holds several.
+        /// The content block of its provider message the piece belongs to; present on every run's
+        /// piece.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
