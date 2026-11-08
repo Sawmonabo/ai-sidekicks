@@ -1,6 +1,8 @@
 //! A workflow document's content hash and the canonical body it is taken over. Only the hashed
 //! members reach the preimage, so moving a node, pinning data or tagging never changes the hash.
+//! The same hash is taken over the items pinned onto a node.
 
+use serde_json::Value;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::{
     WorkflowContentHash, WorkflowDocumentHashedBody,
@@ -10,10 +12,11 @@ use sidekicks_store::events::canonicalizer::{CanonicalizationRefusal, canonicali
 /// What every content hash starts with: the hash function's name.
 const CONTENT_HASH_PREFIX: &str = "b3:";
 
-/// A document's hashed body as stored, and the content hash over exactly those bytes.
+/// A value's canonical JSON as stored, such as a document's hashed body, and the content hash over
+/// exactly those bytes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct WorkflowDocumentHash {
-    /// The RFC 8785 canonical JSON of the hashed body, the text a version row stores.
+    /// The RFC 8785 canonical JSON of the value, for a hashed body the text a version row stores.
     pub(crate) canonical_body: String,
     /// `b3:` and the 64 lowercase hex digits of BLAKE3 over the canonical body's UTF-8 bytes.
     pub(crate) content_hash: WorkflowContentHash,
@@ -24,8 +27,15 @@ pub(crate) struct WorkflowDocumentHash {
 pub(crate) fn hash_workflow_body(
     hashed_body: &WorkflowDocumentHashedBody,
 ) -> Result<WorkflowDocumentHash, CanonicalizationRefusal> {
-    let body = serde_json::to_value(hashed_body)?;
-    let canonical_bytes = canonicalize_json(&body)?;
+    hash_canonical_json(&serde_json::to_value(hashed_body)?)
+}
+
+/// Canonicalizes `value` and hashes it, so key order never changes the hash and array order does;
+/// refuses what the canonicalizer refuses, such as a value nesting deeper than its ceiling.
+pub(crate) fn hash_canonical_json(
+    value: &Value,
+) -> Result<WorkflowDocumentHash, CanonicalizationRefusal> {
+    let canonical_bytes = canonicalize_json(value)?;
     let content_hash = format!(
         "{CONTENT_HASH_PREFIX}{}",
         blake3::hash(canonical_bytes.as_bytes()).to_hex()
@@ -47,7 +57,7 @@ mod tests {
         WorkflowDocument, pick_workflow_document_hashed_body,
     };
 
-    use super::hash_workflow_body;
+    use super::{hash_canonical_json, hash_workflow_body};
 
     /// A document whose objects, `params` among them, list their keys in one order.
     const KEYS_FORWARD: &str = concat!(
@@ -114,5 +124,21 @@ mod tests {
                 .expect("the document hashes")
         });
         assert_eq!(forward, reversed);
+    }
+
+    /// A pin's hash tells a changed pin from an unchanged one, so it must not move when an item's
+    /// keys are reordered. Mutation: hash `serde_json::to_string` in place of the canonical bytes
+    /// in `hash_canonical_json`.
+    #[test]
+    fn a_pinned_item_list_hashes_the_same_whatever_its_key_order() {
+        let [forward, reversed] = [
+            r#"[{"json":{"name":"a","size":1},"pairedItem":{"item":0}}]"#,
+            r#"[{"pairedItem":{"item":0},"json":{"size":1,"name":"a"}}]"#,
+        ]
+        .map(|text| {
+            let items: serde_json::Value = serde_json::from_str(text).expect("the text reads");
+            hash_canonical_json(&items).expect("the items hash")
+        });
+        assert_eq!(forward.content_hash, reversed.content_hash);
     }
 }
