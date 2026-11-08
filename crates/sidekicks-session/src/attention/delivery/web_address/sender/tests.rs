@@ -35,6 +35,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use super::{Passes, RETRY_DELAYS, WebAddressSender, WebAddressSenderDependencies};
+use crate::attention::delivery::web_address::post::ANSWER_TIMEOUT;
 use crate::attention::delivery::web_address::queue::MAX_WAITING_MESSAGES;
 use crate::attention::delivery::web_address::receiver_double::{
     Answer, ReceivedRequests, closed_port, serve_answers,
@@ -422,10 +423,9 @@ enum Address {
 // any other ending is retried 5 s, 5 min and 30 min after it ended and the fourth gives up,
 // counted, its entry left present and unresolved. The address that never answers holds its try
 // while the wall clock moves 15 s on; tokio's clock, paused for that step alone, runs out the
-// answer's timeout. Mutations: a
-// redirect followed; a retry past the third, on another schedule, due from the try's start or tried
-// before it is due; a keychain that does not open left uncounted; a give-up left uncounted or its
-// entry resolved; the sender woken by its own write.
+// answer's timeout. Mutations: a redirect followed; a retry past the third, on another schedule,
+// due from the try's start or tried before it is due; a keychain that does not open left uncounted;
+// a give-up left uncounted or its entry resolved; the sender woken by its own write.
 #[rstest]
 #[case::delivered(
     Address::Answering(Answer::Status(StatusCode::OK)),
@@ -471,10 +471,9 @@ async fn each_try_ends_as_the_address_answers(
     fixture.start().await;
     if let Address::Answering(Answer::Hang) = address {
         until_received(&received, 1).await;
-        let answer_timeout = Duration::from_secs(15);
-        fixture.advance(answer_timeout);
+        fixture.advance(ANSWER_TIMEOUT);
         tokio::time::pause();
-        tokio::time::advance(answer_timeout).await;
+        tokio::time::advance(ANSWER_TIMEOUT).await;
         tokio::time::resume();
     }
 
@@ -813,7 +812,8 @@ async fn a_waiting_message_whose_entry_went_is_dropped_uncounted() {
 // Removing the address while an attempt is in flight abandons it: no outcome and no message stay,
 // and the delivery reads undelivered, uncounted. The address answers only once the removal
 // returned. Mutations: the removal leaving the attempt to end, which writes its `refused` outcome
-// once the answer comes; the removal waiting on the attempt without ending it, which never returns.
+// once the answer comes; the removal waiting on the attempt without ending it, which returns only
+// at the answer's timeout, its try counted.
 #[tokio::test]
 async fn removing_the_address_abandons_the_attempt_in_flight() {
     let release = Arc::new(Notify::new());
