@@ -489,7 +489,8 @@ async fn start_title_thread(
         }
     }
     let folder = &request.working_directory;
-    let config = read_codex_config::<Map<String, Value>>(connection, folder, false).await?;
+    let config =
+        read_codex_config::<Map<String, Value>>(connection, Some(folder.as_path()), false).await?;
     let server_names = lockdown::read_config_server_names(&config.config);
     let title_model = choose_title_model(Some(connection), request.session_model.as_deref()).await;
     let reply = connection
@@ -593,8 +594,9 @@ pub(crate) async fn list_mcp_server_names(
 ) -> Result<Vec<String>, CodexError> {
     let mut arguments = home_exec_switches(home_kind);
     arguments.extend(["mcp".to_owned(), "list".to_owned(), "--json".to_owned()]);
-    let launch =
-        compose_codex_native_launch(&dependencies.data_folder, executable, arguments).await?;
+    let launch = compose_codex_native_launch(&dependencies.data_folder, executable, arguments)
+        .await?
+        .launch;
     let listing = run_codex_command(&dependencies.spawner, launch, deadline)
         .await
         .map_err(|error| CodexError::Transport {

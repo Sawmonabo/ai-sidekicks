@@ -42,7 +42,7 @@ pub(crate) async fn read_codex_starting_level(
     service
         .ensure_started(service.dependencies().startup_timeout)
         .await?;
-    let read = read_codex_config(&*service.connection()?, working_folder, true).await?;
+    let read = read_codex_config(&*service.connection()?, Some(working_folder), true).await?;
     Ok(StartingLevel {
         level: compose_starting_level(&read),
         session_mode: SessionMode::Build,

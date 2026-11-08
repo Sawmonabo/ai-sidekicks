@@ -324,8 +324,10 @@ impl MachineContentDescriptor for AgentOutputPayload {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum ToolCallEndCause {
-    /// A restart of the background service ended the call.
+    /// A restart of the background service ended the call; it reads `Service restarted`.
     DaemonRestart,
+    /// The person stopped the service while the call ran; it reads `Service stopped`.
+    DaemonStop,
     /// The provider's process ended while the service ran on.
     ProcessExit,
     /// No result came and no one asked: the task was stopped, a saved ending cancelled it, or the
@@ -428,9 +430,9 @@ tool_activity_payload! {
 
 tool_activity_payload! {
     /// The payload of `agent.toolCall.failed`, whose error body is kept apart from it; `endCause`
-    /// is present only when the call ended with no result, and names why. A row with
-    /// `endCause: stopped` and no body reads `Stopped`; any body is the provider's own reason,
-    /// never the task's name.
+    /// is present only when the call ended with no result, and names why. A row with no body reads
+    /// its cause's label (`Stopped`, `Process exited`, `Service restarted`, `Service stopped`); any
+    /// body is the provider's own reason, never the task's name.
     pub struct ToolCallFailedPayload {
         /// Why the call ended with no result; absent when the call failed with a result.
         #[serde(

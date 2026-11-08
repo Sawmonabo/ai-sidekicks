@@ -6,7 +6,8 @@
 //! an MCP sign-in's process is the next scripted channel, the next scripted saved sign-ins kept
 //! where it was scripted to keep them: its credential folder's file, or the keychain item named
 //! for that folder.
-//! Each start is recorded with what it asked for.
+//! Each start is recorded with what it asked for. The stop of every process records its deadline
+//! and marks it in each channel started, where the order of the channel's writes shows it.
 
 use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
@@ -19,6 +20,7 @@ use serde_json::Value;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::CredentialStore;
 use tokio::sync::{Notify, mpsc, oneshot};
+use tokio::time::Instant;
 
 use super::channel::{ScriptedAnswer, ScriptedChannel};
 use crate::driver::claude::account::credentials::{
@@ -116,6 +118,9 @@ struct ScriptedStartTables {
     mcp_probes: VecDeque<(Arc<ScriptedChannel>, Vec<Value>)>,
     mcp_probe_starts: Vec<ClaudeMcpProbeProcessRequest>,
     started: Vec<ScriptedStartRecord>,
+    started_channels: Vec<Arc<ScriptedChannel>>,
+    stop_deadlines: Vec<Instant>,
+    stop_hold: Option<oneshot::Receiver<()>>,
     next_process_id: u32,
 }
 
@@ -201,6 +206,19 @@ impl ScriptedStarts {
         let (release, held) = oneshot::channel();
         self.lock().session_holds.push_back(held);
         release
+    }
+
+    /// Holds the stop of every process, once marked in each channel, until the returned sender
+    /// fires or drops.
+    pub(crate) fn hold_stop(&self) -> oneshot::Sender<()> {
+        let (release, held) = oneshot::channel();
+        self.lock().stop_hold = Some(held);
+        release
+    }
+
+    /// Takes the deadline of each stop of every process so far.
+    pub(crate) fn take_stop_deadlines(&self) -> Vec<Instant> {
+        std::mem::take(&mut self.lock().stop_deadlines)
     }
 
     /// Scripts the next model catalog read to answer `initialize` as its `initialize` reply.
@@ -357,6 +375,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 };
                 tables.next_process_id += 1;
                 channel.hand_exit_to(Arc::clone(&request.listener));
+                tables.started_channels.push(Arc::clone(&channel));
                 tables.started.push(ScriptedStartRecord {
                     conversation: request.conversation,
                     listener: request.listener,
@@ -525,13 +544,12 @@ impl ClaudeProcessStarts for ScriptedStarts {
         let (channel, hold) = {
             let mut tables = self.lock();
             tables.account_server_reads += 1;
-            (
-                tables
-                    .account_server_channels
-                    .pop_front()
-                    .unwrap_or_default(),
-                tables.account_server_holds.pop_front(),
-            )
+            let channel = tables
+                .account_server_channels
+                .pop_front()
+                .unwrap_or_default();
+            tables.started_channels.push(Arc::clone(&channel));
+            (channel, tables.account_server_holds.pop_front())
         };
         async move {
             if let Some(hold) = hold {
@@ -565,6 +583,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 place,
                 writes,
             } = scripted.ok_or_else(|| spawn_failure("no sign-in process scripted"))?;
+            self.lock().started_channels.push(Arc::clone(&channel));
             match place {
                 ScriptedSignInPlace::File => {
                     let credential_folder = start
@@ -609,6 +628,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
         };
         async move {
             let (channel, frames) = probe.ok_or_else(|| spawn_failure("no probe scripted"))?;
+            self.lock().started_channels.push(Arc::clone(&channel));
             let channel: Arc<dyn ClaudeProcessChannel> = channel;
             Ok(ClaudeMcpProcess {
                 channel,
@@ -618,8 +638,25 @@ impl ClaudeProcessStarts for ScriptedStarts {
         .boxed()
     }
 
-    fn stop_every_process(&self) -> BoxFuture<'_, ()> {
-        async {}.boxed()
+    fn stop_every_process(&self, deadline: Instant) -> BoxFuture<'_, ()> {
+        let (channels, hold) = {
+            let mut tables = self.lock();
+            tables.stop_deadlines.push(deadline);
+            (
+                std::mem::take(&mut tables.started_channels),
+                tables.stop_hold.take(),
+            )
+        };
+        for channel in &channels {
+            channel.mark_processes_stopped();
+        }
+        async move {
+            if let Some(hold) = hold {
+                // A dropped sender releases the stop too.
+                hold.await.unwrap_or(());
+            }
+        }
+        .boxed()
     }
 }
 

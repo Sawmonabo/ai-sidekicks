@@ -467,15 +467,19 @@ pub struct WorkflowRunReadRequest {
         },
     },
     {
-        "if": { "type": "object", "required": ["review"] },
+        "if": { "type": "object", "required": ["review"], "properties": { "review": true } },
         "then": {
             "type": "object",
-            "properties": { "executionContextCaptured": { "const": true } },
+            "properties": { "executionContextCaptured": { "const": true }, "finishedAt": true },
             "required": ["finishedAt"],
         },
     },
     {
-        "if": { "type": "object", "required": ["chainQuestion"] },
+        "if": {
+            "type": "object",
+            "required": ["chainQuestion"],
+            "properties": { "chainQuestion": true },
+        },
         "then": {
             "type": "object",
             "properties": { "chainRoot": {

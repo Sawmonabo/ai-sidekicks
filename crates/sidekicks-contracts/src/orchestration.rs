@@ -31,8 +31,8 @@ use crate::wire::list::BoundedVec;
 use crate::wire::text::FreeFormText;
 
 /// Why the daemon itself interrupted a run: a step or spend limit the person set was reached, the
-/// run's workflow phase was canceled, or the daemon restarted while the run was a child held in a
-/// pause. The person's own interrupt has none.
+/// run's workflow phase was canceled, the daemon restarted under the run, or the person stopped the
+/// service while the run was live. The person's own interrupt has none.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum InterruptReason {
@@ -42,8 +42,11 @@ pub enum InterruptReason {
     SpendLimit,
     /// The run's workflow phase was canceled.
     WorkflowPhaseCanceled,
-    /// The daemon restarted while the run was a child held in a pause.
+    /// The daemon restarted under the run: a child held in a pause, a provider's helper whose
+    /// lead's stop won, or a run whose turn its provider no longer held.
     DaemonRestart,
+    /// The person stopped the service while the run was live.
+    DaemonStop,
 }
 
 /// A run's own limits: `tokenLimit` is its `Tokens per run`, input and output together, absent

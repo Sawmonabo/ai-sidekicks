@@ -42,7 +42,7 @@ use crate::driver::codex::service::switching::test_sign_in::{
 };
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::connection::scripted_service::{
-    ScriptedService, connect_scripted_service,
+    SCRIPTED_MESSAGE_LIMIT, ScriptedService, connect_scripted_service,
 };
 use crate::driver::schema::schema_parts;
 use crate::driver::test_registry::NothingServed;
@@ -53,9 +53,6 @@ const WORKSPACE: &str = "workspace-renewed";
 
 /// How long a test watches for an answer that must not come yet.
 const QUIET_WAIT: Duration = Duration::from_millis(200);
-
-/// The largest message a detached test connection takes, far above any a test sends.
-const DETACHED_MESSAGE_LIMIT: usize = 1 << 20;
 
 /// What may appear in the log while a refresh is answered: a refusal's line, or the pinned
 /// service's `-32601` line naming the method alone, never a token.
@@ -176,7 +173,7 @@ impl Fixture {
     // A second connection on the switching service that belongs to no session, with its script.
     fn open_detached(&self) -> (CodexAppServerConnection, ScriptedService) {
         connect_scripted_service(
-            DETACHED_MESSAGE_LIMIT,
+            SCRIPTED_MESSAGE_LIMIT,
             self.switching
                 .service
                 .detached_connection_handlers(Arc::new(DetachedConnectionEvents)),

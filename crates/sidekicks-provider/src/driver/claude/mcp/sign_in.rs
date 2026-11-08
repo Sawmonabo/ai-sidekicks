@@ -41,7 +41,8 @@ use crate::driver::claude::account::credentials::{
 };
 use crate::driver::claude::mcp::ClaudeMcpProcess;
 use crate::driver::claude::mcp::config::{
-    ClaudeDeclaredEntry, ClaudePersonConfigFiles, ClaudeServerEntryReader,
+    ClaudeDeclaredEntry, ClaudePersonConfigFiles, ClaudeServerEntryReader, MCP_SERVERS_MEMBER,
+    OAUTH_MEMBER, URL_MEMBER,
 };
 use crate::driver::claude::mcp::machine_probe::variables::{
     ClaudePluginPlaceholders, expand_remote_address, fill_entry_plugin_placeholders,
@@ -78,14 +79,7 @@ const SIGN_IN_FOLDER_NAME_BYTES: usize = 8;
 /// The file in the sign-in's folder that declares its one server, which the process loads.
 const SIGN_IN_SERVERS_FILE: &str = "sign-in-servers.json";
 
-/// The member of a server file that lists servers by name.
-const MCP_SERVERS_MEMBER: &str = "mcpServers";
-
-/// The member of a server entry naming the server's address.
-const URL_MEMBER: &str = "url";
-
-/// The member of a server entry naming the client its owner issued, and that client's id.
-const OAUTH_MEMBER: &str = "oauth";
+/// The member of a server entry's `oauth` naming the id of the client its owner issued.
 const OAUTH_CLIENT_ID_MEMBER: &str = "clientId";
 
 /// The `redirectScheme` Claude Code answers when the authorization server took the redirect

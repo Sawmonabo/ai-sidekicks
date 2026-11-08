@@ -26,7 +26,7 @@ use tempfile::TempDir;
 use super::{TURN_CAPTURE_STATEMENT_CAPACITY, TurnCapture};
 use crate::checkpoints::schema::schema_parts;
 use crate::run::engine::RunEngine;
-use crate::run::engine::test_fixture::{insert_running_run, test_engine};
+use crate::run::engine::test_fixture::{insert_run, test_engine};
 use crate::run::engine::undo::RunCut;
 use crate::run::state_change::RunWriteCompanions;
 
@@ -59,7 +59,7 @@ impl Fixture {
             .expect("the nested file is written");
         let session_id = minted_session_id();
         let run_id = minted_run_id();
-        insert_running_run(&database, session_id, run_id);
+        insert_run(&database, session_id, run_id, "running");
         let rows = database.reader();
         insert_worktree_rows(&rows);
         let run_key = run_id.to_string();
@@ -198,7 +198,7 @@ async fn a_turn_end_captures_the_whole_checkout_and_a_run_without_a_checkout_cap
     let fixture = Fixture::new().await;
     let chat_session_id = minted_session_id();
     let chat_run_id = minted_run_id();
-    insert_running_run(&fixture.database, chat_session_id, chat_run_id);
+    insert_run(&fixture.database, chat_session_id, chat_run_id, "running");
     let capturing = fixture.capture().start(&fixture.log.followers);
 
     fixture.start_turn(fixture.run_id).await;

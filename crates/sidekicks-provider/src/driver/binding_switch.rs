@@ -162,7 +162,7 @@ mod tests {
     use futures::FutureExt;
     use rstest::rstest;
     use serde_json::Value;
-    use sidekicks_contracts::agent::definition::binding::{AgentProviderBinding, ProviderToken};
+    use sidekicks_contracts::agent::definition::binding::AgentProviderBinding;
     use sidekicks_contracts::agent::provider_binding::{
         AgentBindingSwitchBoundary, AgentBindingSwitchTarget,
     };
@@ -183,20 +183,22 @@ mod tests {
     };
     use crate::driver::contract::params_and_results::{LeadBindingCheckParams, ListModelsParams};
     use crate::driver::contract::{MockProviderDriver, ProviderDriver};
+    use crate::driver::registry::test_token;
     use crate::driver::test_registry::{
         fixed_session_id, new_agent_id, registry_of_first_providers,
     };
 
-    fn token(word: &str) -> ProviderToken {
-        FreeFormText::new(word.to_owned()).expect("a provider token")
-    }
-
     fn row(model_id: &str, effort_levels: &[&str]) -> ProviderModel {
         ProviderModel {
-            id: token(model_id),
-            name: token(model_id),
+            id: test_token(model_id),
+            name: test_token(model_id),
             capabilities: Vec::new(),
-            effort_levels: Some(effort_levels.iter().map(|level| token(level)).collect()),
+            effort_levels: Some(
+                effort_levels
+                    .iter()
+                    .map(|level| test_token(level))
+                    .collect(),
+            ),
             output_speed_levels: None,
             fast: false,
             larger_window: false,
@@ -229,24 +231,24 @@ mod tests {
     #[case::unregistered_provider(
         AgentBindingSwitchTarget {
             provider_name: Some(PROVIDERS[1].provider_id()),
-            effort: Some(token("high")),
+            effort: Some(test_token("high")),
             ..no_move()
         },
         1, false, None,
         Err((RefusalCode::AgentProviderAxisInvalid, Some("providerName")))
     )]
     #[case::speed_without_the_flag(
-        AgentBindingSwitchTarget { output_speed: Some(token("on")), ..no_move() },
+        AgentBindingSwitchTarget { output_speed: Some(test_token("on")), ..no_move() },
         1, false, None,
         Err((RefusalCode::ProviderCapabilityUnsupported, None))
     )]
     #[case::effort_the_model_does_not_list(
-        AgentBindingSwitchTarget { effort: Some(token("turbo")), ..no_move() },
+        AgentBindingSwitchTarget { effort: Some(test_token("turbo")), ..no_move() },
         1, false, Some(vec![row("model-a", &["low", "high"])]),
         Err((RefusalCode::AgentProviderAxisInvalid, Some("effort")))
     )]
     #[case::speed_neither_row_nor_driver_lists(
-        AgentBindingSwitchTarget { output_speed: Some(token("warp")), ..no_move() },
+        AgentBindingSwitchTarget { output_speed: Some(test_token("warp")), ..no_move() },
         1, true, Some(vec![row("model-a", &["high"])]),
         Err((RefusalCode::AgentProviderAxisInvalid, Some("outputSpeed")))
     )]
@@ -260,9 +262,9 @@ mod tests {
     )]
     #[case::unlisted_model_with_any_effort_and_window(
         AgentBindingSwitchTarget {
-            model_id: Some(token("model-new")),
+            model_id: Some(test_token("model-new")),
             larger_window: Some(Some(SafeInt::new(1_000_000).expect("a window"))),
-            effort: Some(token("anything")),
+            effort: Some(test_token("anything")),
             ..no_move()
         },
         1, false, Some(vec![row("model-a", &["high"])]),
@@ -271,14 +273,14 @@ mod tests {
     #[case::provider_move_with_an_effort(
         AgentBindingSwitchTarget {
             provider_name: Some(PROVIDERS[1].provider_id()),
-            effort: Some(token("high")),
+            effort: Some(test_token("high")),
             ..no_move()
         },
         2, false, Some(vec![row("model-a", &["high"])]),
         Ok(AgentBindingSwitchBoundary::RunBoundary)
     )]
     #[case::effort_alone(
-        AgentBindingSwitchTarget { effort: Some(token("high")), ..no_move() },
+        AgentBindingSwitchTarget { effort: Some(test_token("high")), ..no_move() },
         1, false, Some(vec![row("model-a", &["high"])]),
         Ok(AgentBindingSwitchBoundary::TurnBoundary)
     )]
@@ -339,7 +341,7 @@ mod tests {
         }
         let current = AgentProviderBinding {
             provider_name: PROVIDERS[0].provider_id(),
-            model_id: token("model-a"),
+            model_id: test_token("model-a"),
             effort: None,
             output_speed: None,
             options: None,
@@ -395,7 +397,7 @@ mod tests {
         let providers = registry_of_first_providers(vec![Arc::new(driver) as _]);
         let current = AgentProviderBinding {
             provider_name: PROVIDERS[0].provider_id(),
-            model_id: token("model-a"),
+            model_id: test_token("model-a"),
             effort: None,
             output_speed: None,
             options: options(&[("plan", true)]),

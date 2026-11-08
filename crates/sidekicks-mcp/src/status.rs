@@ -16,7 +16,9 @@ use sidekicks_contracts::mcp::governance::{
     McpServerStatusChangedNotice, McpServerStatusChangedType,
 };
 use sidekicks_contracts::mcp::server::inventory::McpServerLegStatus;
-use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus, McpToolName};
+use sidekicks_contracts::mcp::server::{
+    McpServerBindingRef, McpServerName, McpServerStatus, McpToolName,
+};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
@@ -72,6 +74,11 @@ impl McpServerStatusTracker {
             board,
             first_observations: Mutex::new(Some(first_observations)),
         }
+    }
+
+    /// The board the tracker sends its status notices on, which a session's server feed follows.
+    pub fn notice_board(&self) -> &Arc<McpNoticeBoard> {
+        &self.board
     }
 
     /// Ends the first-observation drain once it has read what was sent before, whoever still
@@ -149,6 +156,15 @@ impl McpServerStatusTracker {
     /// The status of the binding `binding` keys.
     pub(crate) fn reading(&self, binding: &McpBindingKey) -> McpBindingStatusReading {
         lock(&self.legs).reading(binding)
+    }
+
+    /// What each live leg of `session_id` last saw of each server it reports, by the server's
+    /// name; a server switched off for a leg, or one it never gave a status, is left out.
+    pub fn session_server_statuses(
+        &self,
+        session_id: SessionId,
+    ) -> Vec<(McpServerName, McpServerLegStatus)> {
+        lock(&self.legs).session_server_statuses(session_id)
     }
 
     /// How many legs are remembered, retired ones included.
@@ -289,13 +305,7 @@ pub async fn open_test_tracker() -> (
     use sidekicks_ipc::stream::latest_value::KeyedLatestValueFeed;
 
     let board = Arc::new(McpNoticeBoard::default());
-    let subscriber_board = Arc::clone(&board);
-    let subscriber = KeyedLatestValueFeed::open(move |outlet| {
-        let id = subscriber_board.attach(outlet);
-        std::future::ready(Ok(move || subscriber_board.detach(id)))
-    })
-    .await
-    .expect("the board's follow succeeds");
+    let subscriber = board.follow().await.expect("the board's follow succeeds");
     let mut first_observations = None;
     let first_observation_feed = KeyedLatestValueFeed::open(|outlet| {
         first_observations = Some(outlet);

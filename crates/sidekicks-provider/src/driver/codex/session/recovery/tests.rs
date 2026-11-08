@@ -168,6 +168,7 @@ async fn serve_resumes(
     loop {
         let sent = script.next_sent().await;
         let answer = match sent["method"].as_str() {
+            Some("config/read") => json!({"config": {}, "origins": {}}),
             Some("thread/resume") => {
                 steps.push("resume".to_owned());
                 fork_reply(TEST_THREAD, &settings)
@@ -774,6 +775,7 @@ async fn refuse_resumes(mut script: ScriptedService) {
     loop {
         let sent = script.next_sent().await;
         match sent["method"].as_str() {
+            Some("config/read") => script.answer(&sent, &json!({"config": {}, "origins": {}})),
             Some("thread/resume") => script.send(&json!({
                 "jsonrpc": "2.0",
                 "id": sent["id"],

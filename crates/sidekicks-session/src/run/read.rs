@@ -11,6 +11,7 @@ use std::sync::LazyLock;
 
 use rusqlite::{Connection, OptionalExtension, Row, named_params};
 use sidekicks_contracts::agent::definition::AgentId;
+use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::event::envelope::EventCategory;
 use sidekicks_contracts::event::registry::{RUN_LIFECYCLE_EVENT_TYPES, SessionEventType};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -108,6 +109,30 @@ const SELECT_RUN_SQL: &str = "SELECT session_id, state, run_version FROM runs WH
 const SELECT_RUN_PARENTAGE_SQL: &str =
     "SELECT session_id, parent_run_id, state FROM runs WHERE run_id = ?";
 
+// The run a provider's helper was dispatched beneath; no row for a run reached any other way.
+static SELECT_HELPER_LEAD_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT parent_run_id FROM runs WHERE run_id = @run_id AND reached_by = '{}'",
+        <&'static str>::from(ChildRunProvenance::ProviderSubagent)
+    )
+});
+
+/// The run `run_id` was dispatched beneath where it is a provider's own helper, whose process it
+/// runs in; `None` for a run reached any other way, a lead or an unknown run. Fails as the read
+/// fails.
+pub(crate) fn read_helper_lead(
+    reader: &Connection,
+    run_id: &RunId,
+) -> rusqlite::Result<Option<RunId>> {
+    Ok(reader
+        .prepare_cached(&SELECT_HELPER_LEAD_SQL)?
+        .query_row(named_params! { "@run_id": run_id.text().as_str() }, |row| {
+            optional_text_column(row, 0, |text| RunId::new(&text))
+        })
+        .optional()?
+        .flatten())
+}
+
 // The run's own `agent.run.failed` row naming a setup failure, found on the index of one session's
 // runs' events by type, so the read never walks the log.
 static SELECT_FAILED_AT_SETUP_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -193,7 +218,7 @@ static SELECT_LIVE_RUNS_SQL: LazyLock<SessionScopedSql> = LazyLock::new(|| {
 
 // A session's live runs in the order they were written, each with the run it was started beneath,
 // the provider's id of the helper it is, from the newest helper start naming it as the helper's own
-// run, and its state.
+// run, its state, and the model the helper's node keeps, the one its first start named.
 static SELECT_LIVE_RUN_SUBAGENTS_SQL: LazyLock<String> = LazyLock::new(|| {
     let started = SessionEventType::AgentSubagentStarted;
     format!(
@@ -206,7 +231,9 @@ static SELECT_LIVE_RUN_SUBAGENTS_SQL: LazyLock<String> = LazyLock::new(|| {
         AND json_extract(started.payload, '$.childRunId') = runs.run_id
       ORDER BY started.sequence DESC
       LIMIT 1) AS subagent_id,
-    runs.state
+    runs.state,
+    (SELECT nodes.model_id FROM agent_tree_nodes AS nodes WHERE nodes.own_run_id = runs.run_id)
+      AS model_id
   FROM runs
   WHERE runs.session_id = @session_id
     AND runs.state NOT IN ({terminal_states})
@@ -394,6 +421,7 @@ impl<'connection> RunStateReader<'connection> {
                     parent_run_id: optional_text_column(row, 1, |text| RunId::new(&text))?,
                     open_turns: Vec::new(),
                     subagent_id: optional_text_column(row, 2, SubagentId::new)?,
+                    model_id: optional_text_column(row, 4, ProviderToken::new)?,
                     is_stopping: read_is_run_stopping(self.reader, &run_id)?,
                     run_state: text_column(row, 3, closed_word)?,
                 })

@@ -49,6 +49,7 @@ use sidekicks_provider::runtime_binding::store::{
 };
 use sidekicks_session::agent_tree::reattach::HELPER_REATTACH_STATEMENT_CAPACITY;
 use sidekicks_session::console_state::read_session_mode;
+use sidekicks_session::directory::provider_port::OpeningToolServers;
 use sidekicks_session::idle_sleep::openings::SessionProcessFollower;
 use sidekicks_session::run::agent::RunAgentReader;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
@@ -98,13 +99,14 @@ pub struct ProviderSessionOpening {
     pub function_legs_for: Arc<dyn Fn(&RuntimeBindingId) -> ResumeFunctionLegs + Send + Sync>,
 }
 
-/// Composes a session's opening from its lead, on the account given, which its create carries.
-/// Fails when the session has no lead or no workspace, or its repository's git folder cannot be
-/// read.
+/// Composes a session's opening from its lead, on the account given, which its create carries,
+/// with the tool servers the [`OpeningToolServers`] names. Fails when the session has no lead or no
+/// workspace, or its repository's git folder cannot be read.
 pub type ProviderSessionOpeningComposer = Arc<
     dyn Fn(
             SessionId,
             ProviderAccountId,
+            OpeningToolServers,
         )
             -> BoxFuture<'static, Result<ProviderSessionOpening, Box<dyn Error + Send + Sync>>>
         + Send
@@ -256,7 +258,13 @@ impl ProviderSessions {
         }
         posture_of(
             session_id,
-            &self.compose(session_id, provider_account_id).await?,
+            &self
+                .compose(
+                    session_id,
+                    provider_account_id,
+                    OpeningToolServers::Composed,
+                )
+                .await?,
         )
     }
 
@@ -422,7 +430,13 @@ impl ProviderSessions {
         run_id: RunId,
     ) -> Result<OpenedSession, ProviderSessionError> {
         let provider_account_id = self.read_admitted_account(session_id, run_id).await?;
-        let opening = self.compose(session_id, provider_account_id).await?;
+        let opening = self
+            .compose(
+                session_id,
+                provider_account_id,
+                OpeningToolServers::Composed,
+            )
+            .await?;
         let execution_posture = posture_of(session_id, &opening)?;
         let ProviderSessionOpening {
             provider,
@@ -515,8 +529,9 @@ impl ProviderSessions {
         &self,
         session_id: SessionId,
         provider_account_id: ProviderAccountId,
+        tool_servers: OpeningToolServers,
     ) -> Result<ProviderSessionOpening, ProviderSessionError> {
-        (self.deps.compose_opening)(session_id, provider_account_id)
+        (self.deps.compose_opening)(session_id, provider_account_id, tool_servers)
             .await
             .map_err(|cause| ProviderSessionError::Compose { session_id, cause })
     }

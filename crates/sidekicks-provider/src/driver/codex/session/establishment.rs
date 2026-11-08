@@ -7,6 +7,7 @@ mod adoption;
 pub(crate) mod answer_steer;
 pub(crate) mod continuation;
 pub(crate) mod helpers;
+pub(super) mod mcp_read;
 mod settings;
 
 use std::path::PathBuf;
@@ -47,6 +48,9 @@ use crate::driver::codex::session::context_reading::CodexFixedStart;
 use crate::driver::codex::session::controls::update_codex_session_mode;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::establishment::answer_steer::CodexAnswerSteer;
+use crate::driver::codex::session::establishment::mcp_read::{
+    compose_codex_call_table, send_with_stale_name_resend,
+};
 use crate::driver::codex::session::history::{
     CodexListedTurn, compose_codex_newest_turn_page, read_codex_resumed_newest_turn,
     read_codex_turns,
@@ -219,8 +223,8 @@ impl CodexSessionEstablishment {
     /// first. Fails as the settings' composition, the service's start, the larger window's check
     /// (`CodexError::LargerWindowUnavailable` for one the catalog does not offer at that figure
     /// now), the effort's check (`agent.providerAxisInvalid` for an effort the catalog's row for
-    /// the model does not list), the request or the profile's read-back fails, and when the
-    /// service reported no version.
+    /// the model does not list), the tool servers' reads, the request or the profile's read-back
+    /// fails, and when the service reported no version.
     pub(crate) async fn create(
         &self,
         params: &CreateSessionParams,
@@ -298,11 +302,33 @@ impl CodexSessionEstablishment {
         .await
         .map_err(CodexError::Driver)?;
         let claim = service.begin_thread_claim();
-        let mut start =
-            compose_codex_thread_start_params(&settings, self.tool_server_route().as_deref());
-        start.service_tier =
+        let service_tier =
             compose_codex_service_tier(output_speed.as_deref()).map(CodexServiceTierChange);
-        let reply = connection.request(THREAD_START_METHOD, &start).await?;
+        let route = self.tool_server_route();
+        let (services, route) = (&*self.dependencies.services, route.as_deref());
+        let (start_settings, start_connection, start_service) =
+            (&settings, &*connection, &*service);
+        let reply = send_with_stale_name_resend(
+            start_connection,
+            &settings.working_directory,
+            move |loaded| {
+                let service_tier = service_tier.clone();
+                async move {
+                    let table = compose_codex_call_table(
+                        services,
+                        start_service,
+                        start_settings,
+                        route,
+                        &loaded,
+                    )
+                    .await?;
+                    let mut start = compose_codex_thread_start_params(start_settings, table);
+                    start.service_tier = service_tier;
+                    start_connection.request(THREAD_START_METHOD, &start).await
+                }
+            },
+        )
+        .await?;
         let thread = read_thread(&reply, THREAD_START_METHOD)?;
         // A conversation that started under the wrong level is let go before the fault surfaces.
         if let Err(error) = assert_codex_thread_profile(&reply, &settings, THREAD_START_METHOD) {
@@ -426,6 +452,7 @@ impl CodexSessionEstablishment {
                     &mut record,
                     helper.thread_id.clone(),
                     helper.prior_emitted,
+                    helper.model.clone(),
                 )
                 .await;
             routed.extend(restored);
@@ -595,7 +622,7 @@ impl CodexSessionEstablishment {
         let connection = service.connection()?;
         let _claim = service.begin_thread_claim();
         let reply = self
-            .request_resume_with_settings(record, &connection)
+            .request_resume_with_settings(record, service, &connection)
             .await?;
         let was_held = service
             .threads_of(&record.session_id)
@@ -613,12 +640,14 @@ impl CodexSessionEstablishment {
         }
     }
 
-    // `thread/resume` of the record's conversation with every setting the record holds, its
-    // output speed rebuilt from the record, and the reply. Fails as the request does, and when
-    // the reply names another conversation or runs it under another profile.
+    // `thread/resume` of the record's conversation on `service` with every setting the record
+    // holds, its output speed rebuilt from the record and its tool servers against the resume's own
+    // read, and the reply. Fails as the reads or the request do, and when the reply names another
+    // conversation or runs it under another profile.
     async fn request_resume_with_settings(
         &self,
         record: &CodexSessionRecord,
+        service: &CodexService,
         connection: &CodexAppServerConnection,
     ) -> Result<Box<RawValue>, CodexError> {
         let settings = &record.thread_settings;
@@ -630,17 +659,28 @@ impl CodexSessionEstablishment {
         )
         .await
         .map_err(CodexError::Driver)?;
-        let mut resume = compose_codex_thread_resume_params(
-            settings,
-            self.tool_server_route().as_deref(),
-            record.thread_id.clone(),
-        );
-        // The history is paged afterwards instead of arriving on one reply.
-        resume.exclude_turns = Some(true);
-        resume.initial_turns_page = Some(compose_codex_newest_turn_page());
-        resume.service_tier =
+        let service_tier =
             compose_codex_service_tier(output_speed.as_deref()).map(CodexServiceTierChange);
-        let reply = request_thread_resume(connection, &record.thread_id, &resume).await?;
+        let route = self.tool_server_route();
+        let (services, route) = (&*self.dependencies.services, route.as_deref());
+        let thread_id = record.thread_id.as_str();
+        let reply =
+            send_with_stale_name_resend(connection, &settings.working_directory, move |loaded| {
+                let service_tier = service_tier.clone();
+                async move {
+                    let table =
+                        compose_codex_call_table(services, service, settings, route, &loaded)
+                            .await?;
+                    let mut resume =
+                        compose_codex_thread_resume_params(settings, table, thread_id.to_owned());
+                    // The history is paged afterwards instead of arriving on one reply.
+                    resume.exclude_turns = Some(true);
+                    resume.initial_turns_page = Some(compose_codex_newest_turn_page());
+                    resume.service_tier = service_tier;
+                    request_thread_resume(connection, thread_id, &resume).await
+                }
+            })
+            .await?;
         assert_codex_thread_profile(&reply, settings, THREAD_RESUME_METHOD)?;
         Ok(reply)
     }

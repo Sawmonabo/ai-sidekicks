@@ -191,6 +191,8 @@ pub(crate) enum CodexSessionCall {
         helper: Box<ReattachedHelper>,
         /// What was already metered on its conversation, which its usage is based on.
         prior_emitted: UsageAxisCounts,
+        /// The model its reopen named, else its node's, which its usage readings name.
+        model: Option<String>,
         /// Answered once it is restored.
         reply: oneshot::Sender<()>,
     },

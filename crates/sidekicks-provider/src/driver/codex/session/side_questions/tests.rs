@@ -195,6 +195,13 @@ async fn serve_held_reply(
     release: oneshot::Receiver<()>,
 ) -> Vec<Value> {
     let mut socket = accept_copy(&listener).await;
+    let read = next_socket_request(&mut socket).await;
+    assert_eq!(read["method"], "config/read");
+    send_on_socket(
+        &mut socket,
+        json!({"id": read["id"], "result": {"config": {}, "origins": {}}}),
+    )
+    .await;
     let fork = next_socket_request(&mut socket).await;
     assert_eq!(fork["method"], "thread/fork");
     if let HeldReply::TurnStart = held {
@@ -332,6 +339,9 @@ async fn a_live_copy_whose_session_closes_during_its_fork_starts_no_turn() {
 
     let (asked, ()) = tokio::time::timeout(SERVE_WAIT, async {
         tokio::join!(side_questions.ask(&session.task.record, &params), async {
+            let read = script.next_sent().await;
+            assert_eq!(read["method"], "config/read");
+            script.answer(&read, &json!({"config": {}, "origins": {}}));
             let fork = script.next_sent().await;
             assert_eq!(fork["method"], "thread/fork");
             side_questions.forget_session(session_id).await;
@@ -433,6 +443,9 @@ async fn a_live_copy_let_go_before_its_turn_ends_has_its_turn_stopped_first(
 
     let (asked, ()) = tokio::time::timeout(SERVE_WAIT, async {
         tokio::join!(side_questions.ask(&session.task.record, &params), async {
+            let read = script.next_sent().await;
+            assert_eq!(read["method"], "config/read");
+            script.answer(&read, &json!({"config": {}, "origins": {}}));
             let fork = script.next_sent().await;
             assert_eq!(fork["method"], "thread/fork");
             script.answer(

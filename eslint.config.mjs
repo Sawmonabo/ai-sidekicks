@@ -112,7 +112,7 @@ const SCRIPT_FILES = ["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"];
 const RENDERER_FILES = ["**/src/renderer/src/**/*.{ts,tsx}"];
 
 /** Where the file and folder naming rules these messages enforce are written. */
-const NAMING_RULES_SOURCE = "File and folder names under Code conventions in the root AGENTS.md";
+const NAMING_RULES_SOURCE = "File and folder names in apps/desktop/AGENTS.md";
 
 /** A `.tsx` file with no JSX in it, which is named `.ts` instead. */
 const TSX_WITHOUT_JSX = {

@@ -28,7 +28,9 @@ use crate::driver::codex::app_server_protocol::ThreadLoadedListParams;
 use crate::driver::codex::exec_relay::{
     CodexExecRelay, RelayedThread, compose_codex_executor_arguments,
 };
-use crate::driver::codex::native_program::resolve_codex_native_program;
+use crate::driver::codex::native_program::{
+    CodexNativeCommand, CodexNativeProgram, resolve_codex_native_program,
+};
 use crate::driver::codex::privacy::read_codex_privacy;
 use crate::driver::codex::service::command_line::{
     CodexServiceCommandLineInput, compose_codex_service_arguments,
@@ -43,6 +45,9 @@ use crate::driver::codex::service::record::{
 };
 use crate::driver::codex::service::start_lock::{CodexStartLock, take_codex_start_lock};
 use crate::driver::codex::service::supervisor::CodexService;
+use crate::driver::codex::service::supervisor::own_record::{
+    EarlierRecordFile, PublishedRecordFile,
+};
 use crate::driver::codex::service::supervisor::start::account::start_account_home_service;
 use crate::driver::codex::service::supervisor::start::kept_records::on_record;
 use crate::driver::codex::service::supervisor::start::terminal::start_terminal_service;
@@ -126,6 +131,10 @@ pub(super) struct StartedService {
     /// Whether a terminal service a former daemon left runs other hooks than this daemon's, so a
     /// planned restart is owed once it is up.
     pub(super) is_restart_owed: bool,
+    /// The name the start's launch or join published its own over, which a failure or a teardown
+    /// before the service is adopted puts back once it stopped `process`; `None` where the start
+    /// published no name.
+    pub(super) earlier_record_file: Option<Box<EarlierRecordFile>>,
 }
 
 /// A start that failed, with the process it launched, which the runner tears down.
@@ -134,6 +143,9 @@ pub(super) struct StartFailure {
     pub(super) error: CodexError,
     /// What it launched, if anything, boxed so the failure stays small.
     pub(super) process: Option<Box<CodexServiceProcess>>,
+    /// The name the failed launch or join published its own over, which the teardown puts back
+    /// once it stopped `process`, boxed as `process` is; `None` where the failure published none.
+    pub(super) earlier_record_file: Option<Box<EarlierRecordFile>>,
 }
 
 impl From<CodexError> for StartFailure {
@@ -141,6 +153,7 @@ impl From<CodexError> for StartFailure {
         Self {
             error,
             process: None,
+            earlier_record_file: None,
         }
     }
 }
@@ -155,7 +168,8 @@ struct LoadedThreadsPage {
 
 /// Starts or joins `service` under the start ticket `launch`; `cancel` stands the start down.
 /// `start_lock` is Codex's start lock, held from the stop of the managed daemon this start takes
-/// the place of, so no terminal starts another in between.
+/// the place of, so no terminal starts another in between. The service keeps the native program
+/// its launch ran, or for a service only joined the one resolved once here.
 pub(super) async fn start_codex_service(
     service: Arc<CodexService>,
     launch: u64,
@@ -171,7 +185,8 @@ pub(super) async fn start_codex_service(
             detail: "The Codex command could not be resolved.".to_owned(),
             cause: Some(Box::new(error)),
         })?;
-    match service.home().kind {
+    service.set_native_command(None);
+    let started = match service.home().kind {
         CodexHomeKind::Account(_) | CodexHomeKind::ApiKeyAccount(_) | CodexHomeKind::Switching => {
             start_relayed_service(&service, launch, &cancel, &executable).await
         }
@@ -187,6 +202,28 @@ pub(super) async fn start_codex_service(
         }
         CodexHomeKind::PersonalFolder => {
             start_terminal_service(&service, launch, &cancel, &executable, start_lock).await
+        }
+    }?;
+    if started.process.is_none() {
+        service.set_native_command(resolve_joined_native_command(&executable).await);
+    }
+    Ok(started)
+}
+
+// The native command of a service the daemon only joined, which launched none, so its stdio
+// servers can run in the sandbox; `None`, logged, where it cannot be found, which fails only a
+// sandboxed call's table.
+async fn resolve_joined_native_command(
+    executable: &ResolvedProviderExecutable,
+) -> Option<CodexNativeCommand> {
+    match resolve_native_program_off_thread(executable).await {
+        Ok(native) => Some(CodexNativeCommand::of(native.program, &executable.start)),
+        Err(error) => {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "the joined Codex service's native program was not found"
+            );
+            None
         }
     }
 }
@@ -210,7 +247,8 @@ async fn start_relayed_service(
         executable,
         compose_codex_executor_arguments(&service.home().kind),
     )
-    .await?;
+    .await?
+    .launch;
     let environment_add = relay.start(executor_launch.into_command()).await?;
     let started = start_account_home_service(service, launch, cancel, executable).await?;
     let readied = async {
@@ -247,6 +285,7 @@ async fn start_relayed_service(
         Err(error) => Err(StartFailure {
             error,
             process: started.process.map(Box::new),
+            earlier_record_file: started.earlier_record_file,
         }),
     }
 }
@@ -323,10 +362,12 @@ async fn start_own_child_service(
             version,
             physical_socket,
             is_restart_owed: false,
+            earlier_record_file: None,
         }),
         Err(error) => Err(StartFailure {
             error,
             process: process.map(Box::new),
+            earlier_record_file: None,
         }),
     }
 }
@@ -342,6 +383,8 @@ pub(super) struct LaunchedLastingService {
     pub(super) reply: Box<RawValue>,
     /// Where its socket really is.
     pub(super) physical_socket: PathBuf,
+    /// The name its launch published its own over.
+    pub(super) earlier_record_file: EarlierRecordFile,
 }
 
 /// Names the log every lasting service on `service`'s home writes and records it as the service's.
@@ -358,10 +401,11 @@ pub(super) fn name_lasting_log_file(service: &CodexService) -> Result<PathBuf, S
 }
 
 /// Launches `process_launch` as a lasting service writing `log_file`, keeps its record under
-/// `locked` as launched and, once it answers on `launch_socket` under the ticket `launch`, with
-/// where its socket really is; `cancel` stands the wait down. Fails as the launch, the connect,
-/// the socket's read or a record's write does, a launched process handed back with the failure
-/// for the start's teardown.
+/// `locked`, published on `service` first, as launched and, once it answers on `launch_socket`
+/// under the ticket `launch`, with where its socket really is; `cancel` stands the wait down.
+/// Fails as the launch, the connect, the socket's read or a record's write does, a launched
+/// process handed back for the start's teardown with the name published before, which that
+/// teardown puts back once it stopped the process.
 pub(super) async fn launch_lasting_service(
     service: &Arc<CodexService>,
     launch: u64,
@@ -376,6 +420,8 @@ pub(super) async fn launch_lasting_service(
             .await
             .map_err(|error| start_failed("The Codex service could not be started.", error))?;
     let record_file = locked.file().clone();
+    // Published before the write, so a daemon stop under way leaves the record to this service.
+    let published = PublishedRecordFile::publish(service, record_file.clone());
     let launched = LastingServiceRecord::launched(
         lasting.record().clone(),
         service.socket.home_socket.clone(),
@@ -387,6 +433,7 @@ pub(super) async fn launch_lasting_service(
                 service: lasting,
                 record_file,
             })),
+            earlier_record_file: Some(Box::new(published.hand_back())),
         });
     }
     let opened = connect(
@@ -426,10 +473,12 @@ pub(super) async fn launch_lasting_service(
             connection,
             reply,
             physical_socket,
+            earlier_record_file: published.hand_back(),
         }),
         Err(error) => Err(StartFailure {
             error,
             process: Some(Box::new(process)),
+            earlier_record_file: Some(Box::new(published.hand_back())),
         }),
     }
 }
@@ -595,43 +644,42 @@ async fn compose_launch(
         listen_address: service.listen_address(launch_socket),
         additional_config_overrides: config_overrides,
     });
-    let mut launch =
-        compose_codex_native_launch(&service.dependencies().data_folder, executable, arguments)
-            .await?;
+    let CodexNativeLaunch {
+        mut launch,
+        command,
+    } = compose_codex_native_launch(&service.dependencies().data_folder, executable, arguments)
+        .await?;
     launch.environment.extend(switches.environment);
+    service.set_native_command(Some(command));
     Ok(launch)
+}
+
+/// A launch of the native Codex program, with the command it runs, which a command run beside a
+/// service takes too.
+pub(crate) struct CodexNativeLaunch {
+    /// The launch.
+    pub(crate) launch: CodexProcessLaunch,
+    /// The native program and the arguments its start puts before the caller's.
+    pub(crate) command: CodexNativeCommand,
 }
 
 /// The launch of `executable`'s native Codex program, never the npm launcher, with `arguments`
 /// after the leading arguments the build's own start carries, the launcher's variables set, in the
-/// dedicated empty working folder under `data_folder`. Fails with `CodexError::Transport` when the
-/// program cannot be found or the folder made.
+/// dedicated empty working folder under `data_folder`, with the native command it runs. Fails with
+/// `CodexError::Transport` when the program cannot be found or the folder made.
 pub(crate) async fn compose_codex_native_launch(
     data_folder: &Path,
     executable: &ResolvedProviderExecutable,
     arguments: Vec<String>,
-) -> Result<CodexProcessLaunch, CodexError> {
-    let not_found = |error: Box<dyn std::error::Error + Send + Sync>| CodexError::Transport {
-        detail: "Codex's program could not be found.".to_owned(),
-        cause: Some(error),
-    };
-    let start = executable.start.clone();
-    let environment = executable.environment.clone();
-    let native =
-        tokio::task::spawn_blocking(move || resolve_codex_native_program(&start, &environment))
-            .await
-            .map_err(|error| not_found(Box::new(error)))?
-            .map_err(|error| not_found(Box::new(error)))?;
-    let mut launch_arguments: Vec<String> = if native.program == executable.start.program {
-        executable
-            .start
-            .leading_arguments
-            .iter()
-            .map(|argument| argument.to_string_lossy().into_owned())
-            .collect()
-    } else {
-        Vec::new()
-    };
+) -> Result<CodexNativeLaunch, CodexError> {
+    let native = resolve_native_program_off_thread(executable)
+        .await
+        .map_err(|error| CodexError::Transport {
+            detail: "Codex's program could not be found.".to_owned(),
+            cause: Some(Box::new(error)),
+        })?;
+    let command = CodexNativeCommand::of(native.program.clone(), &executable.start);
+    let mut launch_arguments = command.leading_arguments.clone();
     launch_arguments.extend(arguments);
     let mut environment = executable.environment.clone();
     native.set_launcher_environment(&mut environment);
@@ -640,12 +688,27 @@ pub(crate) async fn compose_codex_native_launch(
         detail: "The Codex service's folder could not be made.".to_owned(),
         cause: Some(Box::new(error)),
     })?;
-    Ok(CodexProcessLaunch {
-        program: native.program,
-        arguments: launch_arguments,
-        environment,
-        working_folder,
+    Ok(CodexNativeLaunch {
+        launch: CodexProcessLaunch {
+            program: native.program,
+            arguments: launch_arguments,
+            environment,
+            working_folder,
+        },
+        command,
     })
+}
+
+// The native program `executable` runs, resolved off the async threads since it reads the file
+// system. Fails as the resolve or its blocking task does.
+async fn resolve_native_program_off_thread(
+    executable: &ResolvedProviderExecutable,
+) -> io::Result<CodexNativeProgram> {
+    let start = executable.start.clone();
+    let environment = executable.environment.clone();
+    tokio::task::spawn_blocking(move || resolve_codex_native_program(&start, &environment))
+        .await
+        .map_err(io::Error::other)?
 }
 
 async fn take_start_lock(

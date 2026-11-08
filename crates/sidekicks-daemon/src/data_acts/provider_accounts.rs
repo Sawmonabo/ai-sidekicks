@@ -1,5 +1,6 @@
-//! The registered provider accounts a mode acts on with the service stopped: their homes, read on
-//! a database connection of the mode's own, and the bundle their providers' helper-mode legs read.
+//! The provider accounts a mode acts on with the service stopped: their homes, read on a database
+//! connection of the mode's own, the homes an erase deletes, and the bundle their providers'
+//! helper-mode legs read.
 
 use std::error::Error;
 use std::io;
@@ -7,7 +8,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use sidekicks_platforms::Spawner;
-use sidekicks_provider::account::homes::{AccountHome, query_account_homes};
+use sidekicks_provider::account::homes::{
+    AccountHome, HomeToErase, homes_to_erase, query_account_homes,
+};
 use sidekicks_provider::command_search::ProviderCommandSearch;
 use sidekicks_provider::driver::{HelperModeServices, PROVIDERS};
 use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
@@ -26,7 +29,7 @@ const ACCOUNT_HOMES_STATEMENTS: usize = 1;
 /// Why a mode could not reach the provider accounts or what their legs read.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ModeAccountsError {
-    /// The accounts table could not be read.
+    /// The accounts table, or the marks kept beside the homes, could not be read.
     #[error("the provider accounts could not be read")]
     Read(#[source] Box<dyn Error + Send + Sync>),
     /// The read ended before it answered.
@@ -53,6 +56,30 @@ pub(crate) async fn read_account_homes(
             }
             let connection = open_database_reader(&database_path, ACCOUNT_HOMES_STATEMENTS)?;
             Ok(query_account_homes(&connection)?)
+        },
+    )
+    .await
+    .map_err(ModeAccountsError::ReadEnded)?
+    .map_err(ModeAccountsError::Read)
+}
+
+/// Every home an erase of `data_folder` deletes, as [`homes_to_erase`] reads them: the rows the
+/// accounts table lists, none when the daemon never made its database, and the marked homes, read
+/// either way. Fails when the table or the marks cannot be read.
+pub(crate) async fn read_homes_to_erase(
+    data_folder: &Path,
+) -> Result<Vec<HomeToErase>, ModeAccountsError> {
+    let data_folder = data_folder.to_path_buf();
+    tokio::task::spawn_blocking(
+        move || -> Result<Vec<HomeToErase>, Box<dyn Error + Send + Sync>> {
+            let database_path = data_folder.join(DAEMON_DATABASE_FILE_NAME);
+            let rows = if database_path.try_exists()? {
+                let connection = open_database_reader(&database_path, ACCOUNT_HOMES_STATEMENTS)?;
+                query_account_homes(&connection)?
+            } else {
+                Vec::new()
+            };
+            Ok(homes_to_erase(rows, &data_folder)?)
         },
     )
     .await

@@ -45,7 +45,7 @@ use crate::questions::projection::question_projection_statements;
 use crate::questions::schema::schema_parts;
 #[cfg(test)]
 use crate::run::engine::RunEngine;
-use crate::run::engine::test_fixture::{insert_running_run, test_engine};
+use crate::run::engine::test_fixture::{insert_run, test_engine};
 use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 
 /// Each answer the stand-in driver was handed: its request id and its answers.
@@ -106,7 +106,7 @@ impl Fixture {
         let home = tempfile::tempdir().expect("the test makes a home folder");
         let session_id = test_session_id();
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-        insert_running_run(&database, session_id, run_id);
+        insert_run(&database, session_id, run_id, "running");
         bind_run_to_first_provider(&database, run_id);
         let engine = test_engine(&database, Arc::clone(&event_log), home.path());
         let handed = HandedAnswers::default();

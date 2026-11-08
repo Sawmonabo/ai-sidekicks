@@ -33,6 +33,10 @@ pub enum ProviderAccountRegistryError {
     /// The account's credential home could not be made or removed.
     #[error("the provider account's credential home could not be made or removed")]
     CredentialHome(#[source] io::Error),
+    /// A removed account's mark could not be written beside the homes, or the minted mark beside
+    /// it not cleared, so its row was kept.
+    #[error("the account's marks beside its home could not be written")]
+    RemovedMark(#[source] io::Error),
     /// No connection could read the accounts.
     #[error("the provider accounts could not be read")]
     Read(#[from] DatabaseReadError),
@@ -76,6 +80,7 @@ impl From<ProviderAccountRegistryError> for HandlerError {
                 .with_source(failure),
             ),
             error @ (ProviderAccountRegistryError::Mint(_)
+            | ProviderAccountRegistryError::RemovedMark(_)
             | ProviderAccountRegistryError::Read(_)
             | ProviderAccountRegistryError::Query(_)
             | ProviderAccountRegistryError::Write(_)) => Self::Internal(Box::new(error)),

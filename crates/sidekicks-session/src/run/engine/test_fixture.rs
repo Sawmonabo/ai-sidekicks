@@ -152,14 +152,14 @@ impl SessionPostureSource for TestSessionPostures {
     }
 }
 
-/// Writes `run_id` of `session_id` running at version 1.
-pub fn insert_running_run(database: &TestDatabase, session_id: SessionId, run_id: RunId) {
+/// Writes `run_id` of `session_id` at version 1 in `state`, its stored word.
+pub fn insert_run(database: &TestDatabase, session_id: SessionId, run_id: RunId, state: &str) {
     let connection = database.reader();
     connection
         .execute(
             "INSERT INTO runs (run_id, session_id, state, run_version)
-             VALUES (?1, ?2, 'running', 1)",
-            params![run_id.text().as_str(), session_id.text().as_str()],
+             VALUES (?1, ?2, ?3, 1)",
+            params![run_id.text().as_str(), session_id.text().as_str(), state],
         )
         .expect("the test writes the run");
 }

@@ -13,6 +13,8 @@ use std::time::SystemTime;
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
+use sidekicks_contracts::mcp::server::config::McpServerConfigInput;
+use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpWritableBindingRef};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{
     ObservedProviderOptions, ProviderRow, ProviderSessionOption,
@@ -21,9 +23,11 @@ use sidekicks_contracts::provider::driver::capabilities::{ProviderMode, Provider
 use sidekicks_contracts::provider::driver::commands::ProviderCommandBindingGroup;
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::controls::methods::TerminalProviderSession;
 use sidekicks_contracts::session::id::SessionId;
+use tokio::time::Instant;
 
 use crate::driver::contract::account::ProviderAccountLegs;
 use crate::driver::contract::error::DriverError;
@@ -37,6 +41,11 @@ use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTak
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
 use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
+use crate::driver::mcp_server::resources::McpResourceSource;
+use crate::driver::mcp_server::session_switch::McpSessionSwitch;
+use crate::driver::mcp_server::write::{
+    McpServerEntry, McpServerObserved, McpServerWrite, McpServerWriteOutcome, McpServerWriteRefusal,
+};
 use crate::driver::message_handing::MessageHanding;
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{
@@ -49,12 +58,12 @@ use crate::driver::run_control::{
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
     CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverHandoverBriefResult,
-    DriverResumeResult, EndKeptTurnsParams, ExportHandoverBriefParams, MoveSessionToForkParams,
-    MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderCommandsListener,
-    ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
-    SessionCommandAnswer, SetSessionGoalParams, SettleHeldToolCallsParams, StartingLevel,
-    StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
-    UpdateSessionModeParams,
+    DriverResumeResult, EndKeptTurnsParams, ExportHandoverBriefParams, KeptTurnsEnding,
+    MoveSessionToForkParams, MoveSessionToForkResult, NameSessionParams, ProviderBuildChange,
+    ProviderCommandsListener, ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams,
+    RevokeRuleParams, SessionCommandAnswer, SessionToolServer, SetSessionGoalParams,
+    SettleHeldToolCallsParams, StartingLevel, StartingLevelParams, SubscribeProviderCommandsParams,
+    UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
@@ -88,8 +97,12 @@ pub trait ProviderDriver: Send + Sync {
 
     /// Ends on the provider each turn a restart kept running in a session the start does not
     /// resume. Answers once the driver holds the session for the work, which then runs on the
-    /// driver's own tasks under `params.stop`, each turn's outcome logged.
-    fn end_kept_turns(&self, params: EndKeptTurnsParams) -> BoxFuture<'_, Result<(), DriverError>>;
+    /// driver's own tasks under `params.stop`, each turn's outcome logged; the ending answered
+    /// resolves once that work has ended.
+    fn end_kept_turns(
+        &self,
+        params: EndKeptTurnsParams,
+    ) -> BoxFuture<'_, Result<KeptTurnsEnding, DriverError>>;
 
     /// Waits until the session's process no longer comes back on its own, so a run's binding is
     /// opened on the leg it settles on: answers once the process is live, and fails
@@ -316,7 +329,8 @@ pub trait ProviderDriver: Send + Sync {
     fn close_session(&self, params: CloseSessionParams) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// Settles the tool calls a session held in the background while no process of it runs, after
-    /// a restart of the daemon: each ends as the provider kept it or as the restart ended it, and
+    /// a restart or the person's Stop of the daemon: each ends as the provider kept it or as the
+    /// restart or Stop ended it, one its record keeps under a Stop waits for the next resume, and
     /// every one of a closed session ends.
     fn settle_held_tool_calls(
         &self,
@@ -394,6 +408,57 @@ pub trait ProviderDriver: Send + Sync {
     fn reread_live_mcp_statuses(&self) -> BoxFuture<'_, ()> {
         Box::pin(async {})
     }
+
+    /// What the provider's own config holds for `binding`, with the version and files a write
+    /// after it is checked against; a provider whose config keeps no switch never answers one.
+    /// Fails as the provider's config cannot be read.
+    fn observe_mcp_server(
+        &self,
+        binding: McpServerBindingRef,
+    ) -> BoxFuture<'_, Result<McpServerObserved, DriverError>>;
+
+    /// The entry the provider's config holds for `binding` once `config` is written over
+    /// `before`, every member the declaration does not model kept as it was. Refused before any
+    /// write: `EntryInvalid` for a transport, member or value the provider does not take, and
+    /// `Provider` over a switch by a provider whose config keeps none.
+    fn compose_mcp_server(
+        &self,
+        binding: &McpWritableBindingRef,
+        config: &McpServerConfigInput,
+        before: &McpServerObserved,
+    ) -> Result<McpServerEntry, McpServerWriteRefusal>;
+
+    /// Writes `write` to the provider's own config against `before`, the binding as observed,
+    /// answering `Unknown` where the write may or may not have landed. A provider whose config
+    /// keeps no switch answers a `SetEnabled` `Refused(Provider)`, though the daemon keeps that
+    /// switch itself and never sends one.
+    fn write_mcp_server(
+        &self,
+        write: McpServerWrite,
+        before: McpServerObserved,
+    ) -> BoxFuture<'_, McpServerWriteOutcome>;
+
+    /// Where the resources of `server_name`, one of `session_id`'s own servers, come from: the
+    /// provider's own list, how the daemon reaches the server to list them, or the provider's own
+    /// sign-in, which the daemon never reads. Refused `mcp.server.notRunning` for a name that is
+    /// not the session's, and as the provider's read fails.
+    fn list_mcp_resources(
+        &self,
+        session_id: SessionId,
+        server_name: McpServerName,
+    ) -> BoxFuture<'_, Result<McpResourceSource, DriverError>>;
+
+    /// Switches `session_id`'s tool servers to `tool_servers`, the whole set with each server's
+    /// switch: written first to the stored set of run `run_id`'s leg, which a relaunch reads, then
+    /// carried to the live conversation, answering when the provider takes it. Fails only as the
+    /// stored write fails, with nothing applied; once the set is stored, a live apply that cannot
+    /// land now answers that the switch waits for the next turn, or the next start once closed.
+    fn switch_session_mcp_servers(
+        &self,
+        session_id: SessionId,
+        run_id: RunId,
+        tool_servers: Vec<SessionToolServer>,
+    ) -> BoxFuture<'_, Result<McpSessionSwitch, DriverError>>;
 
     /// Compacts the bound session's provider-side context on the person's request (gated on
     /// `contextCompaction`), settling on the provider's own compaction evidence, never on the
@@ -591,8 +656,9 @@ pub trait ProviderDriver: Send + Sync {
 
     /// Stops every provider process this driver started; under `Restart` a service that outlives
     /// the daemon is only disconnected. The daemon calls it once while it stops; a service the
-    /// person runs themselves is never stopped.
-    fn shutdown(&self, intent: DaemonStopIntent) -> BoxFuture<'_, Result<(), DriverError>>;
+    /// person runs themselves is never stopped. Every wait inside ends by `deadline`, the one
+    /// instant the whole stop shares.
+    fn shutdown(&self, intent: DaemonStopIntent, deadline: Instant) -> BoxFuture<'_, ()>;
 
     /// The inbox addresses the daemon holds for every session, where this provider's sessions
     /// must answer them; `None` for a provider whose sessions answer no inbox.

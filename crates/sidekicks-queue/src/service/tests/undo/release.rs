@@ -269,7 +269,8 @@ async fn a_reserved_edit_opens_its_run_whatever_the_order_says(#[case] reserved:
         }
         ReservedRun::Paused => {
             let run_id = fixture.insert_run("paused").await;
-            bind_run_to_first_provider(&fixture.database, run_id);
+            // Paused in this daemon, so its session's process is open.
+            fixture.open_session(run_id).await;
             Some(run_id)
         }
         ReservedRun::Queued => None,

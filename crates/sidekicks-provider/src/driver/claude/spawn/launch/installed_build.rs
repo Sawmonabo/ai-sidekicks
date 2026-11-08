@@ -12,6 +12,7 @@ use futures::future::BoxFuture;
 use serde_json::{Value, json};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::PathRules;
+use tokio::time::Instant;
 
 use crate::capability::probe::CapabilityProbeExchange;
 use crate::command_search::{ProviderCommandSearch, list_command_folders};
@@ -159,8 +160,8 @@ pub(crate) trait ClaudeProcessStarts: Send + Sync {
         request: ClaudeMcpProbeProcessRequest,
     ) -> BoxFuture<'_, Result<ClaudeMcpProcess, ClaudeLaunchError>>;
 
-    /// Stops every live process and starts none after.
-    fn stop_every_process(&self) -> BoxFuture<'_, ()>;
+    /// Stops every live process, each killed by `deadline` at the latest, and starts none after.
+    fn stop_every_process(&self, deadline: Instant) -> BoxFuture<'_, ()>;
 }
 
 /// The build the configured command names, resolved at every start, run through one launcher.
@@ -518,8 +519,8 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
         .boxed()
     }
 
-    fn stop_every_process(&self) -> BoxFuture<'_, ()> {
-        self.launcher.stop_every_process().boxed()
+    fn stop_every_process(&self, deadline: Instant) -> BoxFuture<'_, ()> {
+        self.launcher.stop_every_process(deadline).boxed()
     }
 }
 

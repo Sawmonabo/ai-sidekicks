@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::{BoxFuture, ready};
-use sidekicks_contracts::agent::provider_binding::AgentBindingSwitchBoundary;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
-use sidekicks_contracts::mcp::server::config::McpTransport;
+use sidekicks_contracts::mcp::server::config::McpServerConfigInput;
+use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpWritableBindingRef};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{
     ObservedProviderOptions, ProviderRow, ProviderSessionOption,
@@ -15,30 +15,19 @@ use sidekicks_contracts::provider::driver::capabilities::{ProviderMode, Provider
 use sidekicks_contracts::provider::driver::commands::ProviderCommandBindingGroup;
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
-use sidekicks_contracts::run::children::ChildStoppedState;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::voice::VoiceKind;
 use sidekicks_contracts::wire::text::NonEmptyText;
-use sidekicks_platforms::{
-    LinuxSystemFolder, MacosSystemFolder, PerSystem, SystemFolder, SystemFolders,
-    WindowsSystemFolder,
-};
 
 use crate::command::running_set::takes_no_input;
-use crate::driver::claude::account::credentials::{
-    CONFIG_FOLDER_VARIABLE, OAUTH_TOKEN_VARIABLE, SECURE_STORAGE_FOLDER_VARIABLE,
-};
 use crate::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
 use crate::driver::claude::delivery::turn_readings::read_claude_task_list_change;
 use crate::driver::claude::lifecycle::ClaudeDriver;
+use crate::driver::claude::mcp::config::compose_claude_mcp_entry;
 use crate::driver::claude::mcp::{read_claude_mcp_servers, reread_claude_live_mcp_statuses};
 use crate::driver::claude::session::establishment::context::{
     CLAUDE_ADVISOR_ROW_ID, read_claude_row_choice,
-};
-use crate::driver::claude::spawn::environment::{
-    CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE, CLAUDE_RESUME_INTERRUPTED_TURN_KEY,
-    CLAUDE_RESUME_MAX_AGE_KEY, CLAUDE_RESUME_PROMPT_KEY, CLAUDE_RESUME_SHOWS_CUT_OFF_CALLS_KEY,
 };
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::account::{HelperModeAccountLegs, ProviderAccountLegs};
@@ -54,6 +43,11 @@ use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::error_causes::ProviderAxisInvalid;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
 use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
+use crate::driver::mcp_server::resources::McpResourceSource;
+use crate::driver::mcp_server::session_switch::McpSessionSwitch;
+use crate::driver::mcp_server::write::{
+    McpServerEntry, McpServerObserved, McpServerWrite, McpServerWriteOutcome, McpServerWriteRefusal,
+};
 use crate::driver::message_handing::{HandMoment, MessageHanding};
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{
@@ -66,19 +60,15 @@ use crate::driver::run_control::{
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
     CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverHandoverBriefResult,
-    DriverResumeResult, EndKeptTurnsParams, ExportHandoverBriefParams, MoveSessionToForkParams,
-    MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderCommandsListener,
-    ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
-    SessionCommandAnswer, SetSessionGoalParams, SettleHeldToolCallsParams, StartingLevel,
-    StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
-    UpdateSessionModeParams,
+    DriverResumeResult, EndKeptTurnsParams, ExportHandoverBriefParams, KeptTurnsEnding,
+    MoveSessionToForkParams, MoveSessionToForkResult, NameSessionParams, ProviderBuildChange,
+    ProviderCommandsListener, ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams,
+    RevokeRuleParams, SessionCommandAnswer, SessionToolServer, SetSessionGoalParams,
+    SettleHeldToolCallsParams, StartingLevel, StartingLevelParams, SubscribeProviderCommandsParams,
+    UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
-use crate::driver::{
-    BackgroundWork, CommandSandboxNeeds, DriverServices, HelperModeServices, InstallFolder,
-    InstallFolderBase, ProviderCommand, ProviderCommandLookup, ProviderDescriptor,
-    ProviderMemoryEstimates, ProviderSwitchBoundaries,
-};
+use crate::driver::{DriverServices, HelperModeServices};
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 use crate::port::session_inbox_address::SessionInboxAddresser;
 use crate::pricing::rule::RequestPricer;
@@ -90,6 +80,7 @@ mod capability_probe;
 mod command_shape;
 mod compaction;
 mod delivery;
+mod descriptor;
 mod event_normalizer;
 mod frame_routing;
 mod goals;
@@ -117,215 +108,7 @@ mod turn_evidence;
 mod version;
 mod written_names;
 
-/// Claude Code's fixed facts. Its plan ids read as their own words, and it reads no tool-server
-/// declaration member beyond the shared ones.
-pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
-    id: "claude",
-    name: "Claude Code",
-    release_notes_address: release_notes::release_notes_address,
-    plan_words: &[],
-    built_in_tools: &tools::CLAUDE_BUILT_IN_TOOLS,
-    command: ProviderCommand {
-        windows: Some(ProviderCommandLookup {
-            names: &["claude"],
-            install_folders: &[InstallFolder {
-                base: InstallFolderBase::Home,
-                components: &[".local", "bin"],
-            }],
-        }),
-        unix: Some(ProviderCommandLookup {
-            names: &["claude"],
-            install_folders: &[
-                InstallFolder {
-                    base: InstallFolderBase::Home,
-                    components: &[".local", "bin"],
-                },
-                // Claude Code's own local install.
-                InstallFolder {
-                    base: InstallFolderBase::Home,
-                    components: &[".claude", "local"],
-                },
-            ],
-        }),
-    },
-    // Where `managed-settings.json`, `managed-settings.d/` and `managed-mcp.json` sit.
-    managed_settings_folders: SystemFolders {
-        macos: Some(SystemFolder {
-            base: MacosSystemFolder::ApplicationSupport,
-            components: &["ClaudeCode"],
-        }),
-        linux: Some(SystemFolder {
-            base: LinuxSystemFolder::Etc,
-            components: &["claude-code"],
-        }),
-        windows: Some(SystemFolder {
-            base: WindowsSystemFolder::ProgramFiles,
-            components: &["ClaudeCode"],
-        }),
-    },
-    // Seatbelt on macOS and bubblewrap on Linux; on Windows it runs commands unsandboxed.
-    command_sandbox: PerSystem {
-        macos: true,
-        linux: true,
-        windows: false,
-    },
-    // On Linux its sandbox runs the system's bubblewrap and socat in a user namespace; macOS
-    // ships Seatbelt.
-    command_sandbox_needs: PerSystem {
-        macos: CommandSandboxNeeds::NOTHING,
-        linux: CommandSandboxNeeds {
-            programs: &["bwrap", "socat"],
-            user_namespace: true,
-            service_readiness: false,
-        },
-        windows: CommandSandboxNeeds::NOTHING,
-    },
-    // Each conversation is a process of its own, measured at a peak of 182 MB.
-    memory: ProviderMemoryEstimates {
-        process_bytes: 182_000_000,
-        conversation_bytes: None,
-    },
-    standard_output_speed: "off",
-    // Its `stop_task` ends a child for good; it refuses every later message to that child.
-    stop_all_row_word: ChildStoppedState::Stopped,
-    // Its declared state has a third value, which the provider enters after a rate limit and no
-    // request asks for.
-    output_speed_levels: Some(&["off", "on"]),
-    // Claude Code takes each in its running process between turns.
-    switch_boundaries: ProviderSwitchBoundaries {
-        model_id: AgentBindingSwitchBoundary::TurnBoundary,
-        effort: AgentBindingSwitchBoundary::TurnBoundary,
-        output_speed: AgentBindingSwitchBoundary::TurnBoundary,
-        options: AgentBindingSwitchBoundary::TurnBoundary,
-        larger_window: AgentBindingSwitchBoundary::TurnBoundary,
-    },
-    process_environment: &[
-        // Its two update switches, so the build recorded at start is the one that runs.
-        ("DISABLE_AUTOUPDATER", "1"),
-        ("DISABLE_UPDATES", "1"),
-        // A tool-server call or a helper still running after 120 s moves to the background.
-        ("CLAUDE_AUTO_BACKGROUND_TASKS", "1"),
-        // A waiting dialog arms no deadline.
-        ("CLAUDE_CODE_USER_DIALOG_TIMEOUT_MS", "0"),
-        // A background command's `timeout` is honored up to Claude Code's own cap.
-        ("BASH_MAX_TIMEOUT_MS", "2147483647"),
-        // The question tool's two switches: options carry markdown previews, and the tool also
-        // asks text and number questions under a title; unset, a process asks neither.
-        ("CLAUDE_CODE_QUESTION_PREVIEW_FORMAT", "markdown"),
-        ("CLAUDE_CODE_QUESTION_EXTENDED", "1"),
-        // Claude Code's own helper caps are lifted: the daemon applies the person's limit itself,
-        // and nothing bounds how deep helpers nest.
-        (
-            "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
-            "9223372036854775807",
-        ),
-        (
-            "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
-            "9223372036854775807",
-        ),
-    ],
-    launch_environment_names: &[],
-    // The account's configuration home, its credential store, and the scratch folder the daemon
-    // keeps per account home, so a session's temporary files sit where its purge finds them.
-    credential_home_environment_names: &[
-        CONFIG_FOLDER_VARIABLE,
-        SECURE_STORAGE_FOLDER_VARIABLE,
-        "CLAUDE_CODE_TMPDIR",
-    ],
-    withheld_environment_names: &[
-        // Forces the permission mode to `default`.
-        "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
-        // Ends a process that holds a pending wake-up.
-        "CLAUDE_CODE_EXIT_AFTER_STOP_DELAY",
-        // Hands a flagged removal to the auto-mode classifier.
-        "CLAUDE_CODE_DISABLE_DANGEROUS_RM_TIMEOUT",
-        // Joins the per-session memories the daemon keeps apart.
-        "CLAUDE_CODE_REMOTE_MEMORY_DIR",
-        // A shell's own sign-in token, which would beat the account's.
-        OAUTH_TOKEN_VARIABLE,
-        // Names the pipe a pasted token is handed on, which only the daemon's start sets.
-        CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE,
-        // Continue an interrupted turn, which only a resume's own process does.
-        CLAUDE_RESUME_INTERRUPTED_TURN_KEY,
-        CLAUDE_RESUME_SHOWS_CUT_OFF_CALLS_KEY,
-        CLAUDE_RESUME_PROMPT_KEY,
-        CLAUDE_RESUME_MAX_AGE_KEY,
-    ],
-    screen_reader_environment_names: &["CLAUDE_AX_SCREEN_READER"],
-    voice_kinds: &[VoiceKind::Dictation],
-    mcp_transports: &[McpTransport::Stdio, McpTransport::Http, McpTransport::Sse],
-    mcp_config_members: &[],
-    mcp_server_names: mcp::server_name::CLAUDE_MCP_SERVER_NAMES,
-    // It keeps a project's `local` servers in its own config.
-    is_mcp_local_scope_emulated: false,
-    skill_name_max_length: None,
-    written_name_forms: &written_names::CLAUDE_WRITTEN_NAME_FORMS,
-    permission_identifiers: &[
-        "ExitPlanMode",
-        "plan mode",
-        "permission mode",
-        "auto-accept",
-    ],
-    callback_tools_asked: true,
-    // Its sign-in takes the daemon's receiver's address when the authorization server accepts it.
-    can_mcp_sign_in_return_to_daemon_receiver: true,
-    background_work: Some(BackgroundWork {
-        // Background sessions and their supervisor, a restart of them, and every form that serves
-        // or runs a session from elsewhere: Remote Control, a self-hosted runner, the gateway.
-        subcommands: &[
-            "agents",
-            "daemon",
-            "respawn",
-            "remote-control",
-            "self-hosted-runner",
-            "gateway",
-        ],
-        // A prompt sent to the background (`--exec` runs only beside `--bg`), to Remote Control,
-        // to the cloud, or taken over from it.
-        flags: &[
-            "--bg",
-            "--background",
-            "--remote-control",
-            "--rc",
-            "--cloud",
-            "--remote",
-            "--teleport",
-        ],
-        refusal: "`claude agents`, `claude daemon`, `claude --bg` and every other `claude` form \
-                  that starts or serves work outside this session are refused inside it: their \
-                  work would run outside the session's agents, outside Stop and Interrupt, and \
-                  off its receipt.",
-        // Turns off `claude agents`, `--bg`, `/background` and the on-demand supervisor; no
-        // setting turns them back on.
-        off_switch: ("CLAUDE_CODE_DISABLE_AGENT_VIEW", "1"),
-    }),
-    // Large pastes, shell snapshots, feedback bundles and drafts, and `/insights` reports: Claude
-    // Code's own age-swept folders that hold no session's files. `debug/` is not among them: it
-    // holds one log per session, which `delete_claude_conversations` deletes with its session.
-    account_home_diagnostic_folders: &[
-        &["paste-cache"],
-        &["shell-snapshots"],
-        &["feedback-bundles"],
-        &["feedback", "drafts"],
-        &["usage-data"],
-    ],
-    // Transcripts with their subagents' and tools' files, the pre-edit snapshots a checkpoint
-    // restores, task lists, uploads and dev mods, each kept per conversation.
-    account_home_conversation_folders: &[
-        &["projects"],
-        &["file-history"],
-        &["tasks"],
-        &["uploads"],
-        &["dev-mods"],
-    ],
-    // Each agent's user-scope memory, which every account's agents share with the daemon's own.
-    account_home_memory_folder: Some(&["agent-memory"]),
-    switching_home_folder: None,
-    // The sign-in's own folder, which `CLAUDE_SECURESTORAGE_CONFIG_DIR` names.
-    account_home_credential_store_folder: &["store"],
-    shell_prefix_command: Some(command_shape::CLAUDE_SHELL_PREFIX_COMMAND),
-    terminal_resume_command: "claude --resume",
-};
+pub(super) use self::descriptor::DESCRIPTOR;
 
 /// Builds the Claude Code driver over the shared services; it stores handles and does no I/O.
 pub(super) fn build(services: &DriverServices) -> Arc<dyn ProviderDriver> {
@@ -374,8 +157,8 @@ impl ProviderDriver for ClaudeDriver {
     fn end_kept_turns(
         &self,
         _params: EndKeptTurnsParams,
-    ) -> BoxFuture<'_, Result<(), DriverError>> {
-        ready(Ok(())).boxed()
+    ) -> BoxFuture<'_, Result<KeptTurnsEnding, DriverError>> {
+        ready(Ok(KeptTurnsEnding::ended_now())).boxed()
     }
 
     fn settle_session(&self, session_id: SessionId) -> BoxFuture<'_, Result<(), DriverError>> {
@@ -639,6 +422,48 @@ impl ProviderDriver for ClaudeDriver {
         reread_claude_live_mcp_statuses(self).boxed()
     }
 
+    fn observe_mcp_server(
+        &self,
+        binding: McpServerBindingRef,
+    ) -> BoxFuture<'_, Result<McpServerObserved, DriverError>> {
+        async move { self.observe_mcp_server(&binding).await }.boxed()
+    }
+
+    fn compose_mcp_server(
+        &self,
+        _binding: &McpWritableBindingRef,
+        config: &McpServerConfigInput,
+        before: &McpServerObserved,
+    ) -> Result<McpServerEntry, McpServerWriteRefusal> {
+        compose_claude_mcp_entry(config, &before.entry)
+    }
+
+    fn write_mcp_server(
+        &self,
+        write: McpServerWrite,
+        before: McpServerObserved,
+    ) -> BoxFuture<'_, McpServerWriteOutcome> {
+        async move { self.write_mcp_server(&write, &before).await }.boxed()
+    }
+
+    fn list_mcp_resources(
+        &self,
+        session_id: SessionId,
+        server_name: McpServerName,
+    ) -> BoxFuture<'_, Result<McpResourceSource, DriverError>> {
+        self.list_mcp_resources(session_id, server_name).boxed()
+    }
+
+    fn switch_session_mcp_servers(
+        &self,
+        session_id: SessionId,
+        run_id: RunId,
+        tool_servers: Vec<SessionToolServer>,
+    ) -> BoxFuture<'_, Result<McpSessionSwitch, DriverError>> {
+        self.switch_session_mcp_servers(session_id, run_id, tool_servers)
+            .boxed()
+    }
+
     fn compact_context(
         &self,
         params: CompactContextParams,
@@ -790,8 +615,12 @@ impl ProviderDriver for ClaudeDriver {
         self.subscribe_provider_commands(&params, listener)
     }
 
-    fn shutdown(&self, intent: DaemonStopIntent) -> BoxFuture<'_, Result<(), DriverError>> {
-        self.shutdown(intent).boxed()
+    fn shutdown(
+        &self,
+        intent: DaemonStopIntent,
+        deadline: tokio::time::Instant,
+    ) -> BoxFuture<'_, ()> {
+        self.shutdown(intent, deadline).boxed()
     }
 
     fn session_inbox_addresser(&self) -> Option<Arc<dyn SessionInboxAddresser>> {

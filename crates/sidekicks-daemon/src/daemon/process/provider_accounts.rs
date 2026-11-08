@@ -26,6 +26,7 @@ use sidekicks_contracts::transcript::run_facts::RunStateEventType;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::{Spawner, WallClock, wake_helper};
+use sidekicks_provider::account::credential_home::ACCOUNT_SIGN_OUT_BOUND;
 use sidekicks_provider::account::errors::ProviderAccountRegistryError;
 use sidekicks_provider::account::home_lock::AccountHomeLock;
 use sidekicks_provider::account::observer::window_store::read_usage_windows;
@@ -67,7 +68,6 @@ use tokio::task::JoinHandle;
 
 use crate::daemon::process::start_error::DaemonStartError;
 use crate::daemon::process::stop::{DaemonStopFailure, end_start_tasks};
-use crate::data_acts::erase::ACCOUNT_SIGN_OUT_BOUND;
 use crate::ipc::handlers::provider_account::ProviderAccountMethodSources;
 use crate::ipc::handlers::provider_account::notifications::ProviderAccountNotifications;
 use crate::orchestration::account_switch::{
@@ -235,6 +235,7 @@ pub(crate) async fn build_provider_account_plane(
     let sign_in = Arc::new(ProviderSignInBroker::new(
         Arc::clone(&registry),
         sign_in_legs,
+        account_legs.clone(),
         Arc::clone(&publisher) as _,
         Arc::clone(&observer) as Arc<dyn SignedInAccountWatcher>,
         Arc::clone(&home_lock),
@@ -436,7 +437,8 @@ impl ProviderAccountObservation {
     }
 
     /// Cancels every sign-in under way and waits up to `bound` for each to settle, a new
-    /// account's minted home removed, answering whether all did.
+    /// account's minted home signed out, where its provider ran there, and removed, answering
+    /// whether all did.
     pub(crate) async fn end_sign_ins(&self, bound: Duration) -> bool {
         self.sign_in.stop(bound).await
     }

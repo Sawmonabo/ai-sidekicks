@@ -152,7 +152,11 @@ pub enum WorkflowStepResolutionKind {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 #[schemars(extend("allOf" = [{
-    "if": { "type": "object", "required": ["declineReason"] },
+    "if": {
+        "type": "object",
+        "required": ["declineReason"],
+        "properties": { "declineReason": true },
+    },
     "then": { "type": "object", "properties": { "kind": { "const": "declined" } } },
 }]))]
 pub struct WorkflowStepResolution {

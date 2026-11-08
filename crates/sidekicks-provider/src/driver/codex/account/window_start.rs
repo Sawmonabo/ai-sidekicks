@@ -95,8 +95,9 @@ async fn start_codex_window(
         detail: "The folder of Codex's window-start turn could not be made.".to_owned(),
         cause: Some(Box::new(error)),
     })?;
-    let mut launch =
-        compose_codex_native_launch(&dependencies.data_folder, &executable, arguments).await?;
+    let mut launch = compose_codex_native_launch(&dependencies.data_folder, &executable, arguments)
+        .await?
+        .launch;
     launch.working_folder = folder.path().to_owned();
     let printed = run_codex_command(&dependencies.spawner, launch, CODEX_WINDOW_TURN_DEADLINE)
         .await

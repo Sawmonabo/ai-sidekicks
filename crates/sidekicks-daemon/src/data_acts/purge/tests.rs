@@ -1,10 +1,13 @@
 //! The purge's tests, by behavior, and the fixture they share: a purge over a fresh database whose
 //! file steps all succeed, and the rows and log it reads back.
 
-use std::sync::Arc;
+use std::collections::BTreeSet;
+use std::io;
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use futures::FutureExt as _;
+use rstest::rstest;
 use rusqlite::{Connection, params};
 use serde_json::json;
 use sidekicks_approval::rules::{APPROVAL_RULES_STATEMENT_CAPACITY, ApprovalRules};
@@ -19,15 +22,22 @@ use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_mcp::client::McpClient;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_provider::driver::PROVIDERS;
+use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::session_control::SessionCloseCause;
 use sidekicks_provider::driver::test_registry::{
-    registrations_of_mock_drivers, test_driver_services,
+    registrations_of_mock_drivers, registry_of_first_provider, test_driver_services,
 };
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_recovery::status::RecoveryStatusTracker;
-use sidekicks_session::conversation_purge::{
-    CONVERSATION_PURGE_STATEMENT_CAPACITY, ConversationPurge,
+use sidekicks_recovery::stop_intent::{StopIntent, StopIntentFile};
+use sidekicks_session::changes::{
+    SESSION_CHANGES_STATEMENT_CAPACITY, SessionChangeError, SessionChanges,
 };
+use sidekicks_session::conversations::SESSION_CONVERSATIONS_STATEMENT_CAPACITY;
+use sidekicks_session::conversations::purge::ConversationPurge;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::directory::run_activity::ProjectSessionActivityReader;
 use sidekicks_session::questions::service::QuestionsService;
@@ -39,8 +49,9 @@ use sidekicks_session::run::engine::test_fixture::test_engine;
 use sidekicks_session::run::live_count::test_log::counted_log;
 use sidekicks_session::service::SessionService;
 use sidekicks_shell::test_table::{TableFixture, table_fixture};
-use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
+use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::wal_truncation::WriteAheadLogTruncation;
@@ -62,8 +73,8 @@ use sidekicks_workspace::repo::root_resolver::RepoRootResolver;
 use tempfile::TempDir;
 use tokio::sync::{mpsc, watch};
 
-use super::rows::SESSION_PURGE_STATEMENT_CAPACITY;
-use super::{SessionPurge, SessionPurgeDeps, SessionPurgeOutcome};
+use super::rows::{PurgeCaller, SESSION_PURGE_STATEMENT_CAPACITY};
+use super::{SessionPurge, SessionPurgeDeps, SessionPurgeError, SessionPurgeOutcome};
 use crate::daemon::release_version::this_build_release_version;
 use crate::daemon::schema::schema_parts;
 
@@ -93,6 +104,15 @@ pub(crate) struct PurgeFixture {
 
 /// A purge over a fresh database; a provider driver it calls fails the test.
 pub(crate) async fn purge_fixture() -> PurgeFixture {
+    let providers = Arc::new(ProviderRegistry::register_from(
+        &registrations_of_mock_drivers(),
+        &test_driver_services(),
+    ));
+    purge_fixture_over(providers).await
+}
+
+/// A purge over a fresh database whose drivers are `providers`.
+pub(crate) async fn purge_fixture_over(providers: Arc<ProviderRegistry>) -> PurgeFixture {
     let database = TestDatabase::new(schema_parts());
     let (log, live_runs) = counted_log(&database).await;
     let recovery = Arc::new(RecoveryStatusTracker::new());
@@ -102,7 +122,7 @@ pub(crate) async fn purge_fixture() -> PurgeFixture {
         mcp_client,
         shells,
         home,
-    } = test_purge(&database, &log, Arc::clone(&recovery)).await;
+    } = test_purge(&database, &log, Arc::clone(&recovery), providers).await;
     PurgeFixture {
         database,
         log,
@@ -126,18 +146,19 @@ pub(crate) struct TestPurge {
     pub(crate) home: TempDir,
 }
 
-/// A purge on `database` through `log`, clearing removed sessions from `recovery`; a provider
-/// driver it calls fails the test.
+/// A purge on `database` through `log` and the drivers `providers`, clearing removed sessions from
+/// `recovery`.
 pub(crate) async fn test_purge(
     database: &TestDatabase,
     log: &TestLog,
     recovery: Arc<RecoveryStatusTracker>,
+    providers: Arc<ProviderRegistry>,
 ) -> TestPurge {
     let reads = Arc::new(DatabaseReadPool::new(
         database.path(),
         EVENT_LOG_STATEMENT_CAPACITY
             + SESSION_PURGE_STATEMENT_CAPACITY
-            + CONVERSATION_PURGE_STATEMENT_CAPACITY
+            + SESSION_CONVERSATIONS_STATEMENT_CAPACITY
             + APPROVAL_RULES_STATEMENT_CAPACITY
             + ARTIFACT_STATEMENT_CAPACITY
             + REPO_MOUNT_SERVICE_STATEMENT_CAPACITY,
@@ -154,10 +175,14 @@ pub(crate) async fn test_purge(
         .expect("the client builds"),
     );
 
-    // A driver with no expectations fails the test on any call.
-    let table = registrations_of_mock_drivers();
-    let services = test_driver_services();
-    let providers = Arc::new(ProviderRegistry::register_from(&table, &services));
+    let changes = Arc::new(SessionChanges::new(
+        Arc::new(DatabaseReadPool::new(
+            database.path(),
+            SESSION_CHANGES_STATEMENT_CAPACITY,
+        )),
+        Arc::clone(&log.service),
+        Arc::clone(&providers),
+    ));
     let conversations = Arc::new(ConversationPurge::new(
         Arc::clone(&reads),
         Arc::clone(&providers),
@@ -210,7 +235,8 @@ pub(crate) async fn test_purge(
         reads: Arc::clone(&reads),
         event_log: Arc::clone(&log.service),
         machine_id,
-        transition_lock: Arc::new(KeyedLock::new()),
+        transition_lock: Arc::clone(changes.transition_lock()),
+        changes,
         shells: Arc::clone(&shells.table),
         mcp_client: Arc::clone(&mcp_client),
         conversations,
@@ -242,6 +268,7 @@ pub(crate) async fn test_purge(
             home.path().join("daemon.token"),
         )),
         questions,
+        stop_intent: Arc::new(StopIntentFile::new(&database.path())),
     });
     TestPurge {
         purge,
@@ -343,4 +370,132 @@ fn only_outcome(report: super::SessionPurgeReport) -> SessionPurgeOutcome {
     let mut outcomes = report.outcomes;
     assert_eq!(outcomes.len(), 1, "one session was asked for");
     outcomes.remove(0).1
+}
+
+// What the first provider's driver was asked, in order.
+#[derive(Debug, PartialEq, Eq)]
+enum DriverCall {
+    CloseSession(SessionCloseCause),
+    PurgeSession,
+}
+
+// A purge of a damaged session that is still active ends its provider leg, the person the cause,
+// before it deletes the provider's conversations, and once its rows are gone drops its name from
+// the stop intent, keeping every other name; a leg that will not end refuses the purge with every
+// row and every name kept. Killed by the leg loop dropped or run after the delete, by the name's
+// drop missing, and by a failed leg swallowed.
+#[rstest]
+#[case::the_leg_ends_first(true)]
+#[case::a_leg_that_will_not_end(false)]
+#[tokio::test]
+async fn a_purge_ends_its_sessions_legs_and_drops_its_stop_intent_name(#[case] does_leg_end: bool) {
+    let calls: Arc<Mutex<Vec<DriverCall>>> = Arc::default();
+    let mut driver = MockProviderDriver::new();
+    driver.expect_close_session().returning({
+        let calls = Arc::clone(&calls);
+        move |params| {
+            lock(&calls).push(DriverCall::CloseSession(params.cause));
+            async move {
+                if does_leg_end {
+                    Ok(())
+                } else {
+                    Err(DriverError::Internal(Box::new(io::Error::other(
+                        "the leg would not end",
+                    ))))
+                }
+            }
+            .boxed()
+        }
+    });
+    driver.expect_purge_session().returning({
+        let calls = Arc::clone(&calls);
+        move |_params| {
+            lock(&calls).push(DriverCall::PurgeSession);
+            async { Ok(()) }.boxed()
+        }
+    });
+    let fixture = purge_fixture_over(Arc::new(registry_of_first_provider(Arc::new(driver)))).await;
+    // The intent beside the purge's database, the one the purge drops a name from.
+    let stop_intent = StopIntentFile::new(&fixture.database.path());
+    let reader = fixture.database.reader();
+    let session_id = SessionId::try_from(mint_uuid_v7()).expect("a session id");
+    let other_session_id = SessionId::try_from(mint_uuid_v7()).expect("a session id");
+    store_session(&reader, session_id, SessionState::Active);
+    append_event(&fixture.log, session_id, "Read").await;
+    let run_id = mint_uuid_v7().to_string();
+    reader
+        .execute(
+            "INSERT INTO runs (run_id, session_id, state, run_version)
+             VALUES (?1, ?2, 'completed', 1)",
+            params![run_id, session_id.text().as_str()],
+        )
+        .expect("the test writes the run");
+    reader
+        .execute(
+            "INSERT INTO runtime_bindings
+               (id, run_id, provider_name, contract_version, cli_version_raw, resume_handle,
+                spawn_config, created_at, updated_at)
+             VALUES (?1, ?2, ?3, '1.0.0', '2.1.0', 'conversation',
+                     '{\"providerAccountId\":\"account-1\",
+                       \"resolvedExecutablePath\":\"/bin/provider\"}',
+                     '2026-10-19T09:00:00.000Z', '2026-10-19T09:00:00.000Z')",
+            params![mint_uuid_v7().to_string(), run_id, PROVIDERS[0].id],
+        )
+        .expect("the test writes the binding");
+    stop_intent
+        .write_whole()
+        .await
+        .expect("the intent is written");
+    let named = BTreeSet::from([session_id, other_session_id]);
+    stop_intent
+        .name_sessions(&StopIntent::Whole, named.clone())
+        .await
+        .expect("the intent names the sessions");
+
+    let outcome = only_outcome(
+        fixture
+            .purge
+            .purge(
+                &[session_id],
+                PurgeCaller::DamagedHistory,
+                &ProcessorMeter::default(),
+            )
+            .await,
+    );
+
+    let closed = DriverCall::CloseSession(SessionCloseCause::Person);
+    if does_leg_end {
+        assert!(
+            matches!(outcome, SessionPurgeOutcome::Removed { .. }),
+            "the purge finishes, got {outcome:?}"
+        );
+        assert_eq!(*lock(&calls), [closed, DriverCall::PurgeSession]);
+        assert_eq!(state_of(&reader, session_id), None);
+        assert_eq!(
+            stop_intent.read().await,
+            Some(StopIntent::Sessions(BTreeSet::from([other_session_id]))),
+            "only the purged session's name is dropped"
+        );
+    } else {
+        assert!(
+            matches!(
+                outcome,
+                SessionPurgeOutcome::Refused(SessionPurgeError::Legs(SessionChangeError::Driver(
+                    _
+                )))
+            ),
+            "the leg refuses the purge, got {outcome:?}"
+        );
+        assert_eq!(*lock(&calls), [closed]);
+        assert_eq!(
+            state_of(&reader, session_id).as_deref(),
+            Some(<&'static str>::from(SessionState::PurgeRequested))
+        );
+        assert_eq!(event_count(&reader, session_id), 1);
+        assert_eq!(
+            stop_intent.read().await,
+            Some(StopIntent::Sessions(named)),
+            "a refused purge keeps every name"
+        );
+    }
 }

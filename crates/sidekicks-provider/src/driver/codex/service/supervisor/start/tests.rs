@@ -1,3 +1,5 @@
+mod kept_stop;
+
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
@@ -9,12 +11,11 @@ use interprocess::local_socket::traits::tokio::Listener as _;
 use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_platforms::{
-    CAN_LINK_A_SOCKET, LeftoverSweep, ProcessRecord, Spawner, connect_unix_domain_socket,
-    create_file_atomically, harness_test_name, pin_child_process, read_socket_link,
-    replace_socket_link,
+    LeftoverSweep, Spawner, connect_unix_domain_socket, create_file_atomically, harness_test_name,
 };
 use tokio::io::AsyncReadExt as _;
 use tokio::sync::mpsc;
+use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::{HeaderValue, header};
@@ -357,7 +358,10 @@ async fn an_account_start_adds_the_relay_environment_before_it_answers() {
     // it runs before any assertion can fail.
     stop_kept_services(
         service.dependencies().data_folder.clone(),
-        KeptServicesStop::DaemonStop,
+        KeptServicesStop::DaemonStop {
+            deadline: Instant::now() + Duration::from_secs(60),
+        },
+        &[],
     )
     .await;
 
@@ -398,45 +402,6 @@ async fn an_account_start_adds_the_relay_environment_before_it_answers() {
             is_admitted
         );
     }
-}
-
-// Fails when the erase's end of a recorded service that is gone leaves the home's link naming the
-// socket the service really listened on, so a plain `codex` meets a link to a dead socket.
-#[tokio::test]
-async fn an_erase_takes_the_home_link_off_a_gone_service_s_socket() {
-    if !CAN_LINK_A_SOCKET {
-        return;
-    }
-    let folder = tempfile::tempdir().expect("a scratch folder is made");
-    let home_socket = folder.path().join("home.sock");
-    let physical_socket = folder.path().join("own.sock");
-    replace_socket_link(&home_socket, &physical_socket).expect("the home's link is made");
-    // This test's own process with another start mark, as a record whose process ended reads.
-    let own = pin_child_process(std::process::id())
-        .expect("this process pins")
-        .record()
-        .expect("the record reads")
-        .expect("this process runs");
-    let mut gone = serde_json::to_value(own).expect("a process record writes as JSON");
-    gone["start"] = (gone["start"].as_u64().expect("the start mark is a number") + 1).into();
-    let gone: ProcessRecord = serde_json::from_value(gone).expect("the changed record reads");
-    LastingServiceRecordFile::of_socket(folder.path(), folder.path(), &physical_socket)
-        .expect("the record file is named")
-        .lock()
-        .expect("the records lock")
-        .write(&LastingServiceRecord {
-            physical_socket: Some(physical_socket.clone()),
-            ..LastingServiceRecord::launched(gone, home_socket.clone())
-        })
-        .expect("the record is written");
-
-    let failures = stop_kept_services(folder.path().to_owned(), KeptServicesStop::Erase).await;
-
-    assert!(failures.is_empty(), "{failures:?}");
-    assert_eq!(
-        read_socket_link(&home_socket).expect("the link reads"),
-        None
-    );
 }
 
 // Killed by any service's launch left without the person's privacy choices, the capability read's

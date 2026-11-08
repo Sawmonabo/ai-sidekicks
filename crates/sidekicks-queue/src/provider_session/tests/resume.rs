@@ -15,6 +15,7 @@ use rstest::rstest;
 use rusqlite::params;
 use serde_json::{Value, json};
 use sidekicks_contracts::event::registry::SessionEventType;
+use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::run::subagent::SubagentId;
@@ -27,12 +28,12 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::idle_sleep::{KeptSchedule, SessionSleepState};
 use sidekicks_provider::driver::session_control::{
-    LiveRunResume, OpenTurnResume, ProviderTurnAnswer, ResumedRunAnswer,
+    LiveRunResume, OpenTurnResume, ProviderTurnAnswer, ResumedRunAnswer, SessionToolServer,
 };
 use sidekicks_provider::driver::test_registry::new_run_id;
 use sidekicks_provider::runtime_binding::store::mint_runtime_binding_id;
 use sidekicks_session::idle_sleep::openings::SessionProcessWaker;
-use sidekicks_session::run::engine::test_fixture::insert_running_run;
+use sidekicks_session::run::engine::test_fixture::insert_run;
 use sidekicks_session::run::stored_leg::read_session_leg;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -171,6 +172,7 @@ async fn a_resume_names_each_live_run_with_its_open_turns_and_helper_id() {
                 started_event_id: FreeFormText::new(started_event_id).expect("an event id"),
             }],
             subagent_id: None,
+            model_id: None,
             is_stopping: false,
             run_state: RunState::Running,
         }
@@ -182,6 +184,7 @@ async fn a_resume_names_each_live_run_with_its_open_turns_and_helper_id() {
             parent_run_id: Some(lead),
             open_turns: Vec::new(),
             subagent_id: Some(SubagentId::new(SUBAGENT_ID.to_owned()).expect("a helper id")),
+            model_id: None,
             is_stopping: false,
             run_state: RunState::Running,
         }
@@ -269,7 +272,12 @@ async fn a_failed_binding_after_a_resume_leaves_one_process_for_the_next_message
         .execute_batch("DROP TRIGGER refuse_the_runs_binding")
         .expect("the test lets the binding through");
     let next_run_id = new_run_id();
-    insert_running_run(&opening.database, opening.session_id, next_run_id);
+    insert_run(
+        &opening.database,
+        opening.session_id,
+        next_run_id,
+        "running",
+    );
     timeout(WAIT, opening.sessions.open(opening.session_id, next_run_id))
         .await
         .expect("the open takes its own lock once")
@@ -311,7 +319,12 @@ async fn a_run_bound_on_the_leg_carries_its_recovery_data() {
         )
         .expect("the test stores the leg's fixed start");
     let next_run_id = new_run_id();
-    insert_running_run(&opening.database, opening.session_id, next_run_id);
+    insert_run(
+        &opening.database,
+        opening.session_id,
+        next_run_id,
+        "running",
+    );
 
     let next_binding = timeout(
         WAIT,
@@ -401,21 +414,36 @@ async fn a_wake_resumes_a_sleeping_session_once_with_its_kept_schedules() {
 // the copy runs under no binding of the session's; only the queue's own relaunch opens the legs of
 // the binding it hands its process. A leg opened by the compose would be retired by its drop,
 // taking the woken process's leg on the same binding with it. Killed by the compose opening the
-// legs of the binding it composes for.
+// legs of the binding it composes for. The stored resume's opening takes the set its leg stored, so
+// it waits on no first fill of the tool-server table; killed by a resume that composes its own.
 #[tokio::test]
 async fn only_a_relaunch_opens_status_legs_and_a_composed_resume_opens_none() {
     let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |_, _| {}).await;
     let pool = DatabaseReadPool::new(opening.database.path(), READ_STATEMENT_CAPACITY);
-    let leg = read_session_leg(&pool, opening.session_id)
+    let mut leg = read_session_leg(&pool, opening.session_id)
         .await
         .expect("the leg reads")
         .expect("the session ran");
+    // One stored server, so a resume that sends an empty set or none fails too.
+    let stored_set = vec![SessionToolServer {
+        binding: McpServerBindingRef::User {
+            provider: first_provider(),
+            server_name: McpServerName::new("tracker".to_owned()).expect("a server name"),
+        },
+        is_enabled: true,
+    }];
+    leg.spawn_config.tool_servers = Some(stored_set.clone());
 
     let stored = opening
         .sessions
         .compose_resume(opening.session_id, &leg, mint_runtime_binding_id())
         .await
         .expect("the stored resume composes");
+    assert_eq!(
+        lock(&opening.stored_sets).last(),
+        Some(&Some(Some(stored_set))),
+        "the stored resume's opening takes its leg's set"
+    );
     let side_question = opening
         .sessions
         .side_question_source(opening.session_id)

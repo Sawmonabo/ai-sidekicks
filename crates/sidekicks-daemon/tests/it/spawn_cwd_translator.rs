@@ -5,44 +5,19 @@
 use std::path::Path;
 use std::time::Duration;
 
-use alacritty_terminal::event::EventListener;
 use bytes::Bytes;
 use sidekicks_platforms::{
     SHELL_FOLDER_PROBES, ShellFolderProbe, default_shell, real_path, run_test_as_own_root,
 };
 use sidekicks_shell::spawn_cwd_translator::{SpawnCwdStrategy, translate_spawn_cwd};
 use sidekicks_terminal::{
-    CommandLine, OutputFilter, ScreenListener, ShellCommand, SpawnRequest, TerminalEvent,
-    TerminalOutput, Terminals,
+    CommandLine, ShellCommand, SpawnRequest, TerminalEvent, TerminalOutput, Terminals,
 };
 
-use crate::helpers::{DAEMON_PROGRAM, spawner};
+use crate::helpers::{DAEMON_PROGRAM, KeepAllOutput, NoListener, spawner};
 
 /// The bound on each wait for the shell's prompt, so a shell that never shows it fails the test.
 const PROMPT_BOUND: Duration = Duration::from_secs(30);
-
-/// Keeps every byte of the output.
-struct KeepAllOutput;
-
-impl OutputFilter for KeepAllOutput {
-    fn filter(&mut self, chunk: &[u8], kept: &mut Vec<u8>) {
-        kept.extend_from_slice(chunk);
-    }
-
-    fn finish(&mut self, _kept: &mut Vec<u8>) {}
-}
-
-/// A screen-copy listener that hears nothing and answers nothing.
-#[derive(Clone)]
-struct NoListener;
-
-impl EventListener for NoListener {}
-
-impl ScreenListener for NoListener {
-    fn find_questions(&mut self, _output: &[u8], _ends: &mut Vec<usize>) {}
-
-    fn answer_question(&mut self) {}
-}
 
 /// Reads `program`'s output until it holds `prompt`; fails when the output ends first or the
 /// prompt takes past [`PROMPT_BOUND`].

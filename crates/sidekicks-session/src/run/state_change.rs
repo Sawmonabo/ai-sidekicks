@@ -35,7 +35,7 @@ use sidekicks_store::events::session::appender::{
     SessionEventLinkage,
 };
 
-use crate::run::engine::turns::guards::open_turns_sql;
+use crate::run::engine::turns::guards::no_open_turn_statement;
 use crate::run::engine::undo::RunCut;
 use crate::run::projection::{
     RunStateSwap, rolled_back_run_version_statement, swap_run_state_statement,
@@ -51,11 +51,6 @@ pub(crate) const TERMINAL_GUARD_INDEX: usize = 0;
 
 // How many times a change is read and written before a run that keeps moving under it is refused.
 const MAX_WRITE_ATTEMPTS: usize = 3;
-
-// Finds a turn of the run that started and holds no end, inside the write, so no rollback lands
-// between a turn's start and its end.
-static SELECT_OPEN_TURN_SQL: LazyLock<String> =
-    LazyLock::new(|| open_turns_sql("@run_id", "LIMIT 1"));
 
 // Reads the log inside the write by the event's own run columns, which the append set from the
 // typed event, so no read outside the write decides a terminal.
@@ -684,15 +679,6 @@ pub(crate) fn rolled_back_event(
         run_id,
         run_version: safe_run_version(written.version),
         target_position,
-    }
-}
-
-// Refuses the write while `run_id` holds a turn that started and has no end.
-fn no_open_turn_statement(run_id: &RunId) -> WriteStatement {
-    WriteStatement {
-        sql: Cow::Borrowed(SELECT_OPEN_TURN_SQL.as_str()),
-        bindings: StatementBindings::Named(vec![text_binding("@run_id", run_id.text().as_str())]),
-        expected_row_count: Some(0),
     }
 }
 

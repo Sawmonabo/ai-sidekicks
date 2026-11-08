@@ -4,7 +4,8 @@
 //! inbound frame.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+
+use sidekicks_contracts::free_form_string::FilesystemPath;
 
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
@@ -73,8 +74,9 @@ pub(crate) struct ClaudeInitializeDeclaration {
     /// The commands it lists, by name without the `/`, in its order.
     pub(crate) commands: Vec<String>,
     /// The folders of Claude Code's auto-memory and team-memory stores, each kept where the reply
-    /// names it as an absolute path, the auto-memory store first when it is kept.
-    pub(crate) memory_stores: Vec<PathBuf>,
+    /// names it as an absolute path a filesystem path carries, the auto-memory store first when it
+    /// is kept.
+    pub(crate) memory_stores: Vec<FilesystemPath>,
 }
 
 impl ClaudeInitializeDeclaration {

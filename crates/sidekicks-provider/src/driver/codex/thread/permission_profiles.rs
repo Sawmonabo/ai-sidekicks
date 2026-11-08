@@ -145,40 +145,16 @@ pub(crate) fn correct_codex_permission_profile_drift(
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
     use std::sync::Arc;
 
     use serde_json::json;
     use serde_json::value::RawValue;
-    use sidekicks_contracts::session::controls::methods::PermissionLevel;
-    use sidekicks_contracts::session::id::SessionId;
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     use super::{CodexThreadPermissionProfiles, correct_codex_permission_profile_drift};
-    use crate::driver::codex::permission_level::{CodexProfileFolders, compose_codex_profile_name};
+    use crate::driver::codex::permission_level::compose_codex_profile_name;
     use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
-    use crate::driver::codex::thread::settings::CodexThreadSettings;
-
-    fn ask_settings() -> CodexThreadSettings {
-        CodexThreadSettings {
-            session_id: SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id"),
-            working_directory: PathBuf::from("/work/repository"),
-            model: "gpt-5".to_owned(),
-            model_context_window: None,
-            level: PermissionLevel::Ask,
-            profile_folders: CodexProfileFolders {
-                working_directory: PathBuf::from("/work/repository"),
-                git_common_folder: None,
-                deny_paths: Vec::new(),
-                command_channel_folder: PathBuf::from("/data/command-channels/session"),
-            },
-            command_environment: Vec::new(),
-            subagent_policy: None,
-            helper_roles: Vec::new(),
-            tool_servers: Vec::new(),
-            base_instructions: None,
-        }
-    }
+    use crate::driver::codex::session::test_fixture::test_thread_settings;
+    use crate::driver::test_registry::new_session_id;
 
     fn settings_updated(thread_id: &str, profile: Option<&str>) -> Box<RawValue> {
         let profile = profile.map(|id| json!({"id": id}));
@@ -226,7 +202,7 @@ mod tests {
     #[tokio::test]
     async fn a_permission_profile_drift_asks_the_session_s_posture_back() {
         let mut scripted = start_scripted_codex_service();
-        let settings = ask_settings();
+        let settings = test_thread_settings(new_session_id());
         let own_profile = compose_codex_profile_name(settings.level, &settings.profile_folders);
         let mut profiles = CodexThreadPermissionProfiles::established(&settings);
         let service = Arc::clone(&scripted.service);

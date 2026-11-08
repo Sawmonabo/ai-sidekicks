@@ -15,8 +15,7 @@ use std::time::{SystemTime, SystemTimeError};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use bytes::{Bytes, BytesMut};
-use futures::StreamExt as _;
+use bytes::Bytes;
 use jwt_simple::prelude::{ES256KeyPair, ES256PublicKey};
 use p256::ecdsa::signature::Signer as _;
 use p256::ecdsa::{Signature, SigningKey};
@@ -28,6 +27,7 @@ use sidekicks_contracts::dpop::{
     DPOP_NONCE_HEADER_NAME, DPOP_PROOF_ALGORITHM, DPOP_PROOF_HEADER_NAME, DPOP_PROOF_TYPE,
 };
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::outbound_http::{CappedBodyError, read_capped_body};
 use sidekicks_std::random_hex::random_hex;
 
 /// The most bytes of an authorization server's response body the send reads, rmcp's own bound
@@ -225,21 +225,16 @@ pub(crate) async fn read_response(
 ) -> Result<AuthorizationServerResponse, DpopSendError> {
     let status = response.status();
     let headers = response.headers().clone();
-    let mut body = BytesMut::new();
-    let mut chunks = response.bytes_stream();
-    while let Some(chunk) = chunks.next().await {
-        let chunk = chunk?;
-        if chunk.len() > MAX_RESPONSE_BODY_BYTES - body.len() {
-            return Err(DpopSendError::BodyTooLarge {
-                max_bytes: MAX_RESPONSE_BODY_BYTES,
-            });
-        }
-        body.extend_from_slice(&chunk);
-    }
+    let body = read_capped_body(response, MAX_RESPONSE_BODY_BYTES)
+        .await
+        .map_err(|error| match error {
+            CappedBodyError::Read(error) => DpopSendError::Http(error),
+            CappedBodyError::TooLarge { max_bytes } => DpopSendError::BodyTooLarge { max_bytes },
+        })?;
     Ok(AuthorizationServerResponse {
         status,
         headers,
-        body: body.freeze(),
+        body: Bytes::from(body),
     })
 }
 

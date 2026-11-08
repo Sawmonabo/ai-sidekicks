@@ -11,12 +11,14 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
+use tokio::time::Instant;
 
 use super::{LiveCodexSession, TEST_TURN, answer_stopping_request, driver_holding};
 use crate::driver::codex::run::start::CODEX_TURN_START_TIMEOUT;
 use crate::driver::codex::run::start::record::CodexTurnRequest;
 use crate::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
 use crate::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
+use crate::driver::codex::service::supervisor::test_service::start_scripted_joined_service;
 use crate::driver::codex::service::supervisor::test_service::{
     bind_test_listener, start_scripted_codex_service,
 };
@@ -294,7 +296,7 @@ async fn the_daemons_stop_refuses_a_create_and_lets_go_one_claimed_before_it_wit
         .await
         .expect("a create claims a free slot before the stop");
 
-    let shutdown = driver.shutdown(DaemonStopIntent::Restart);
+    let shutdown = driver.shutdown(DaemonStopIntent::Restart, Instant::now() + CLOSE_BOUND);
     tokio::pin!(shutdown);
     tokio::select! {
         biased;
@@ -365,7 +367,8 @@ async fn the_daemons_stop_stops_the_turn_of_a_resting_sessions_side_question() {
         )
         .await
         .expect("the copy takes the question");
-    tokio::time::timeout(CLOSE_BOUND, driver.shutdown(DaemonStopIntent::Restart))
+    let shutdown = driver.shutdown(DaemonStopIntent::Restart, Instant::now() + CLOSE_BOUND);
+    tokio::time::timeout(CLOSE_BOUND, shutdown)
         .await
         .expect("the stop ends once the copy's turn is stopped");
     wait_for_side_question_answer(answer)
@@ -551,6 +554,9 @@ async fn a_conversation_not_resumed_in_place_tells_the_queue(#[case] failure: Re
                     Some("account/rateLimits/read") => {
                         scripted.script.answer(&sent, &json!({"rateLimits": null}));
                     }
+                    Some("config/read") => {
+                        scripted.script.answer(&sent, &json!({"config": {}, "origins": {}}));
+                    }
                     _ => scripted.script.answer(&sent, &json!({})),
                 },
             }
@@ -600,4 +606,77 @@ fn turn_request() -> CodexTurnRequest {
         output_schema: None,
         level: Some(PermissionLevel::Ask),
     }
+}
+
+/// The service a session runs on at the daemon's stop, and the stop's intent.
+#[derive(Clone, Copy, Debug)]
+enum JoinedStop {
+    /// A person's Stop, the session on a service the daemon only joined.
+    JoinedUnderStop,
+    /// A person's Stop, the session on a service the daemon started.
+    DaemonsOwnUnderStop,
+    /// A restart of the daemon, the session on a service the daemon only joined.
+    JoinedUnderRestart,
+}
+
+// Real time under a timeout, as above. Killed by dropping the interrupts from `shutdown` (none on
+// the joined service), by sending them after the registry's shutdown (the service no longer
+// serving when they arrive), by sending them under `Restart`, and by sending them to a service
+// the daemon started, whose own stop aborts the turn.
+#[rstest]
+#[case::joined_under_stop(JoinedStop::JoinedUnderStop)]
+#[case::daemons_own_under_stop(JoinedStop::DaemonsOwnUnderStop)]
+#[case::joined_under_restart(JoinedStop::JoinedUnderRestart)]
+#[tokio::test]
+async fn a_daemon_stop_interrupts_open_turns_only_on_a_joined_codex_service(
+    #[case] joined_stop: JoinedStop,
+) {
+    let scripted = match joined_stop {
+        JoinedStop::JoinedUnderStop | JoinedStop::JoinedUnderRestart => {
+            start_scripted_joined_service()
+        }
+        JoinedStop::DaemonsOwnUnderStop => start_scripted_codex_service(),
+    };
+    let intent = match joined_stop {
+        JoinedStop::JoinedUnderStop | JoinedStop::DaemonsOwnUnderStop => DaemonStopIntent::Stop,
+        JoinedStop::JoinedUnderRestart => DaemonStopIntent::Restart,
+    };
+    let turns = [TEST_TURN, "turn-2"];
+    let mut live = LiveCodexSession::on_held_service(scripted, &turns).await;
+    let LiveCodexSession {
+        driver, scripted, ..
+    } = &mut live;
+
+    let shutdown = driver.shutdown(intent, Instant::now() + CLOSE_BOUND);
+    tokio::pin!(shutdown);
+    let mut interrupted = Vec::new();
+    let deadline = tokio::time::sleep(CLOSE_BOUND);
+    tokio::pin!(deadline);
+    loop {
+        tokio::select! {
+            () = &mut deadline => panic!("the stop ends within its bound"),
+            () = &mut shutdown => break,
+            sent = scripted.script.next_sent() => {
+                if sent["method"] == "turn/interrupt" {
+                    // Whether the registry had yet to shut the service down when it arrived.
+                    interrupted.push((sent["params"].clone(), scripted.service.is_serving()));
+                }
+                answer_stopping_request(&scripted.script, &sent);
+            }
+        }
+    }
+
+    let expected = match joined_stop {
+        JoinedStop::JoinedUnderStop => vec![
+            (json!({"threadId": TEST_THREAD, "turnId": TEST_TURN}), true),
+            (json!({"threadId": TEST_THREAD, "turnId": "turn-2"}), true),
+        ],
+        JoinedStop::DaemonsOwnUnderStop | JoinedStop::JoinedUnderRestart => Vec::new(),
+    };
+    interrupted.sort_by_key(|(params, _)| params["turnId"].as_str().map(str::to_owned));
+    assert_eq!(interrupted, expected);
+    assert!(
+        !scripted.service.is_serving(),
+        "the registry's shutdown left the service serving"
+    );
 }

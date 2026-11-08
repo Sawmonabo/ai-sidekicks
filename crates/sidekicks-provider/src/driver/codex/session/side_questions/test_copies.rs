@@ -126,6 +126,13 @@ pub(crate) async fn open_copy(
     profile: &str,
 ) -> (CopySocket, Map<String, Value>, Value) {
     let mut socket = accept_copy(listener).await;
+    let read = next_socket_request(&mut socket).await;
+    assert_eq!(read["method"], "config/read");
+    send_on_socket(
+        &mut socket,
+        json!({"id": read["id"], "result": {"config": {}, "origins": {}}}),
+    )
+    .await;
     let fork = next_socket_request(&mut socket).await;
     assert_eq!(fork["method"], "thread/fork");
     send_on_socket(

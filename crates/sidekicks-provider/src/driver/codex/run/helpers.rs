@@ -131,23 +131,27 @@ impl CodexRunControl {
             }
             // A Codex helper's id is its own conversation's.
             let thread_id = helper.subagent_id.as_str();
-            let reopened = reopen_registered_codex_helper(
+            let reopened = match reopen_registered_codex_helper(
                 &reading.service,
                 &connection,
                 params.session_id,
                 thread_id,
+                reading.auto_memory,
             )
-            .await;
-            if let Err(error) = reopened {
-                tracing::warn!(
-                    session_id = %params.session_id,
-                    run_id = %helper.run_id,
-                    thread_id = %thread_id,
-                    error = &error as &(dyn Error + 'static),
-                    "codex refused the reopen of a helper after a restart"
-                );
-                continue;
-            }
+            .await
+            {
+                Ok(reopened) => reopened,
+                Err(error) => {
+                    tracing::warn!(
+                        session_id = %params.session_id,
+                        run_id = %helper.run_id,
+                        thread_id = %thread_id,
+                        error = &error as &(dyn Error + 'static),
+                        "codex refused the reopen of a helper after a restart"
+                    );
+                    continue;
+                }
+            };
             if !helper.was_live {
                 continue;
             }
@@ -158,9 +162,17 @@ impl CodexRunControl {
                 thread_id,
             )
             .await;
+            // The reopen names the model the helper runs on now, else its node names its first.
+            let model = reopened.model.or_else(|| {
+                helper
+                    .model_id
+                    .as_ref()
+                    .map(|model| model.as_str().to_owned())
+            });
             let restored = call_codex_session(&inbound, |reply| CodexSessionCall::RestoreHelper {
                 helper: Box::new(helper.clone()),
                 prior_emitted,
+                model,
                 reply,
             })
             .await;
@@ -278,6 +290,7 @@ mod tests {
 
     use rstest::rstest;
     use serde_json::json;
+    use sidekicks_contracts::agent::definition::binding::ProviderToken;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::run::subagent::SubagentId;
     use sidekicks_std::port_registration::PortRegistration;
@@ -547,6 +560,7 @@ mod tests {
             parent_subagent_id: parent.map(subagent_id),
             start_call_id: None,
             provider_path: None,
+            model_id: None,
             was_live: true,
         }
     }
@@ -554,11 +568,14 @@ mod tests {
     // The helpers are reopened in the order given, parents first: one an adoption already reopened,
     // which holds a route, is skipped, and a reopen Codex refuses is passed over, the next helper
     // still reopened. Kills: the routed helper reopened (its resume comes first), a stop at the
-    // refusal (the last helper's resume never comes, or the call fails), and the order reversed
-    // (the child's resume comes before its parent's).
+    // refusal (the last helper's resume never comes, or the call fails), the order reversed (the
+    // child's resume comes before its parent's), and a helper loaded again with no memory keys,
+    // which starts it under the home's own settings. A reopen whose reply names no model takes the
+    // node's, so no read follows; killed by the node's model ignored (a `thread/read` is sent).
     #[tokio::test(start_paused = true)]
     async fn reattached_helpers_reopen_in_order_past_a_refusal() {
         let mut session = TestCodexSession::start().await;
+        session.task.record.thread_settings.auto_memory = Some(false);
         let session_id = session.task.record.session_id;
         let routed_run = new_run_id();
         session
@@ -570,7 +587,12 @@ mod tests {
             helpers: vec![
                 reattached(routed_run, "helper-routed", None),
                 reattached(new_run_id(), "helper-refused", Some("helper-routed")),
-                reattached(new_run_id(), "helper-reopened", Some("helper-refused")),
+                ReattachedHelper {
+                    model_id: Some(
+                        ProviderToken::new("gpt-5.4-mini".to_owned()).expect("a model id"),
+                    ),
+                    ..reattached(new_run_id(), "helper-reopened", Some("helper-refused"))
+                },
             ],
         };
         let control = Arc::clone(&session.task.run_control);
@@ -593,6 +615,11 @@ mod tests {
             assert_eq!(reopened["method"], "thread/resume");
             assert_eq!(reopened["params"]["threadId"], "helper-reopened");
             assert_eq!(reopened["params"]["excludeTurns"], true);
+            assert_eq!(
+                reopened["params"]["config"],
+                json!({"memories.use_memories": false, "memories.generate_memories": false}),
+                "the helper loads under the session's memory switch"
+            );
             script.answer(
                 &reopened,
                 &json!({
@@ -629,8 +656,9 @@ mod tests {
     // ends that run with its `subagent.completed` row; no new run is started. The ancestor listed
     // only for its place in the tree is reopened first and bound to nothing. Kills: the service
     // registration missing (the service drops the frame and the wait runs out), the routing's
-    // registration or the child run's binding missing (the run never moves), and a helper whose run
-    // was not live bound all the same (the ancestor holds a route).
+    // registration or the child run's binding missing (the run never moves), a helper whose run
+    // was not live bound all the same (the ancestor holds a route), and the reply's model ignored
+    // (a `thread/read` is sent).
     #[tokio::test(start_paused = true)]
     async fn a_reattached_helpers_later_turn_reaches_its_run() {
         let mut session = TestCodexSession::start().await;
@@ -669,6 +697,7 @@ mod tests {
                 &reopened,
                 &json!({
                     "thread": {"id": "helper-reopened", "sessionId": "codex-session"},
+                    "model": "gpt-5.4-mini",
                     "initialTurnsPage": {
                         "data": [{"id": HELPER_TURN, "status": "interrupted"}],
                         "nextCursor": null,
@@ -689,6 +718,10 @@ mod tests {
         .await
         .expect("the re-attach is answered");
         assert!(reattached.is_ok(), "{reattached:?}");
+        assert!(
+            session.scripted.script.sent.try_recv().is_err(),
+            "nothing more was sent"
+        );
         assert!(
             !run_routes.has_helper_route(ancestor_run),
             "the ancestor's ended run holds no route"

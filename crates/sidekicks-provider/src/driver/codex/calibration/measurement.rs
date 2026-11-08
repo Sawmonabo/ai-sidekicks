@@ -286,8 +286,9 @@ async fn run_calibration_turn(
             Value::from(catalog.display().to_string()),
         ),
     ]));
-    let mut launch =
-        compose_codex_native_launch(&dependencies.data_folder, &executable, arguments).await?;
+    let mut launch = compose_codex_native_launch(&dependencies.data_folder, &executable, arguments)
+        .await?
+        .launch;
     for (name, value) in [
         ("CODEX_HOME", home.display().to_string()),
         ("RUST_LOG", LIMIT_TRACE_FILTER.to_owned()),

@@ -34,24 +34,16 @@ use crate::driver::codex::service::supervisor::test_service::{
 use crate::driver::codex::service::supervisor::{
     CodexProgramResolver, CodexService, CodexServiceSocket,
 };
-use crate::driver::codex::session::detached_conversation::{
-    CODEX_DETACHED_INTERRUPT_DEADLINE, CodexDetachedFrames,
-};
+use crate::driver::codex::session::detached_conversation::CODEX_DETACHED_INTERRUPT_DEADLINE;
 use crate::driver::codex::session::errors::{CodexError, CodexUnansweredCause};
 use crate::driver::codex::transport::connection::scripted_service::{
-    ScriptedService, connect_scripted_service,
-};
-use crate::driver::codex::transport::connection::{
-    CodexAppServerConnection, CodexConnectionHandlers,
+    ScriptedService, scripted_connection,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::{EndKeptTurnsParams, KeptRunTurns};
 use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::runtime_binding::test_store::test_provider_account_id;
 use crate::spawned_version::ResolvedProviderExecutable;
-
-/// The largest message the scripted connection takes, far above any a test sends.
-const MESSAGE_LIMIT: usize = 1 << 20;
 
 /// The conversation the kept turn runs on.
 const THREAD: &str = "conversation-1";
@@ -65,19 +57,6 @@ const CONTINUED_TURN: &str = "turn-continued";
 // The bound of one kept turn's end, from now.
 fn kept_turn_deadline() -> tokio::time::Instant {
     tokio::time::Instant::now() + CODEX_DETACHED_INTERRUPT_DEADLINE
-}
-
-// A connection whose service the test scripts.
-fn scripted_connection() -> (CodexAppServerConnection, ScriptedService) {
-    let (events, _frames) = CodexDetachedFrames::new();
-    connect_scripted_service(
-        MESSAGE_LIMIT,
-        CodexConnectionHandlers {
-            events,
-            responder: None,
-            token_refresher: None,
-        },
-    )
 }
 
 // Answers the request `sent` with `answer`, a JSON-RPC `result` or `error` member.
@@ -191,7 +170,7 @@ async fn a_kept_turn_is_ended_by_codexs_answer_and_followed_once_for_a_stop(
     #[case] follow: Option<Follow>,
     #[case] expected: KeptTurnInterrupt,
 ) {
-    let (connection, mut script) = scripted_connection();
+    let (connection, mut script, _frames) = scripted_connection();
     let ending = tokio::spawn(async move {
         let ended = end_kept_turn(
             &connection,
@@ -231,7 +210,7 @@ async fn a_kept_turn_is_ended_by_codexs_answer_and_followed_once_for_a_stop(
 // answers, naming its longer wait).
 #[tokio::test(start_paused = true)]
 async fn an_unanswered_interrupt_fails_at_its_bound() {
-    let (connection, mut script) = scripted_connection();
+    let (connection, mut script, _frames) = scripted_connection();
     let ending = tokio::spawn(async move {
         let ended = end_kept_turn(&connection, THREAD, KEPT_TURN, true, kept_turn_deadline()).await;
         (connection, ended)
@@ -271,9 +250,10 @@ fn kept_lead_turn(stop: CancellationToken) -> EndKeptTurnsParams {
 }
 
 // The entry answers once its task holds the session's slot, before the interrupt is answered, and
-// a resume's claim of the slot waits until the work lets it go, then takes it. Killed by the claim
-// dropped or taken after the interrupt (the resume's claim is not held back), and by the slot
-// closed (the resume's claim is refused).
+// a resume's claim of the slot waits until the work lets it go, then takes it; the ending reads
+// ended only once the interrupt has answered. Killed by the claim dropped or taken after the
+// interrupt (the resume's claim is not held back), by the slot closed (the resume's claim is
+// refused), and by the ending sent at the claim (it reads ended while the interrupt is held).
 #[tokio::test(flavor = "multi_thread")]
 async fn the_session_is_held_until_its_kept_turns_are_ended() {
     let folder = tempfile::tempdir().expect("a scratch folder is made");
@@ -286,7 +266,7 @@ async fn the_session_is_held_until_its_kept_turns_are_ended() {
     let params = kept_lead_turn(CancellationToken::new());
     let session_id = params.session_id;
 
-    driver.end_kept_turns(params).await;
+    let ending = driver.end_kept_turns(params).await;
     let interrupt = next_interrupt(&mut scripted.script, KEPT_TURN).await;
     // The stand-in outlives the test otherwise, so it ends before any assertion can fail.
     own.kill().expect("the stand-in is ended");
@@ -295,15 +275,25 @@ async fn the_session_is_held_until_its_kept_turns_are_ended() {
         futures::poll!(resume_claim.as_mut()).is_pending(),
         "the resume waits while the kept turn is ended"
     );
+    let mut ended = pin!(ending.ended());
+    assert!(
+        futures::poll!(ended.as_mut()).is_pending(),
+        "the ending waits while the interrupt is held"
+    );
     scripted.script.answer(&interrupt, &json!({}));
 
     resume_claim
         .await
         .expect("the resume claims the slot once the work let it go");
+    assert!(
+        ended.await,
+        "the ending reads ended once the interrupt answered"
+    );
 }
 
-// The pass's stop ends the work where it stands, an interrupt still unanswered. Killed by the
-// stop not selected (the work waits for the interrupt's bound, past the test's).
+// The pass's stop ends the work where it stands, an interrupt still unanswered, and the ending
+// reads cut. Killed by the stop not selected (the work waits for the interrupt's bound, past the
+// test's), and by a stop read as answered (the ending reads ended).
 #[tokio::test(flavor = "multi_thread")]
 async fn the_stop_ends_the_work_at_once() {
     let folder = tempfile::tempdir().expect("a scratch folder is made");
@@ -315,7 +305,7 @@ async fn the_stop_ends_the_work_at_once() {
     scripted.report_process(own.record().id());
     let stop = CancellationToken::new();
 
-    driver.end_kept_turns(kept_lead_turn(stop.clone())).await;
+    let ending = driver.end_kept_turns(kept_lead_turn(stop.clone())).await;
     next_interrupt(&mut scripted.script, KEPT_TURN).await;
     // The stand-in outlives the test otherwise, so it ends before any assertion can fail.
     own.kill().expect("the stand-in is ended");
@@ -325,6 +315,7 @@ async fn the_stop_ends_the_work_at_once() {
     tokio::time::timeout(Duration::from_secs(1), driver.tasks.wait())
         .await
         .expect("the work ended at the stop");
+    assert!(!ending.ended().await, "the ending reads cut by the stop");
 }
 
 // A program resolver that counts each start that asks for Codex's command and fails it.
@@ -376,15 +367,16 @@ fn driver_with_unstarted_service(
 }
 
 // Where no service listens on the conversation's home, its turns ended with the old one: nothing
-// is sent and no service is started. Killed by a start in place of the join (the start asks for
-// Codex's command, a fresh service launched for turns that ended).
+// is sent, no service is started and the ending reads ended. Killed by a start in place of the
+// join (the start asks for Codex's command, a fresh service launched for turns that ended), and by
+// the early return dropping the ending's sender (it reads cut, which keeps the name for good).
 #[tokio::test]
 async fn no_service_is_started_where_none_kept_the_turns() {
     let folder = short_socket_folder().expect("a scratch folder is made");
     let starts = Arc::new(CountedStarts::default());
     let (driver, service) = driver_with_unstarted_service(folder.path(), &starts);
 
-    driver
+    let ending = driver
         .end_kept_turns(kept_lead_turn(CancellationToken::new()))
         .await;
     driver.tasks.close();
@@ -392,6 +384,7 @@ async fn no_service_is_started_where_none_kept_the_turns() {
 
     assert_eq!(starts.0.load(Ordering::SeqCst), 0);
     assert!(service.connection().is_err());
+    assert!(ending.ended().await, "the turns ended with the old service");
 }
 
 // A kept service draining toward its exit still runs the turn the restart kept, on a socket of

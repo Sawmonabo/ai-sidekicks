@@ -3,7 +3,7 @@ use std::sync::Arc;
 use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET};
 
 use super::stand_in::{last_launch_arguments, stand_in_services, this_daemon};
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 // Fails when the terminal service is launched with the daemon's hook switches, or trusts hooks,
@@ -25,7 +25,9 @@ async fn a_terminal_service_with_no_hook_mode_launches_and_trusts_no_hook() {
         .ensure_started(services.dependencies.startup_timeout)
         .await;
     let is_launched = service.process_id().is_some();
-    daemon.shutdown(DaemonStopIntent::Stop).await;
+    daemon
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
     let arguments = last_launch_arguments(&services);
 
     assert!(started.is_ok(), "{started:?}");

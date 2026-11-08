@@ -24,7 +24,8 @@ use crate::driver::codex::session::errors::CodexError;
 /// What a read on the person's own Codex folder is, which decides the service it runs on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PersonalFolderRead {
-    /// Codex's config read, which starts no conversation, so any service on the folder serves it.
+    /// Codex's config read or write, which starts no conversation, so any service on the folder
+    /// serves it.
     Config,
     /// The machine probe, whose throwaway conversation must unload as its connection drops: only
     /// the terminal service, or a transient one that unloads at once.

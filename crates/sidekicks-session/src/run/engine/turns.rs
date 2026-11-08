@@ -747,9 +747,17 @@ impl RunEngine {
         }
     }
 
-    /// Forgets every cut of `turn_number` on `run_id`, once its end is written.
+    /// Forgets every cut of `turn_number` on `run_id`, with their rows' marks, once its end is
+    /// written.
     pub(super) fn forget_cut_turn(&self, run_id: &RunId, turn_number: SafeInt<1>) {
-        lock(&self.live).cut_turns.remove(&(*run_id, turn_number));
+        let mut live = lock(&self.live);
+        for cut in live
+            .cut_turns
+            .remove(&(*run_id, turn_number))
+            .unwrap_or_default()
+        {
+            live.rowed_cuts.remove(&cut.stop_id);
+        }
     }
 }
 

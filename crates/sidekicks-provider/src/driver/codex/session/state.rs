@@ -38,8 +38,9 @@ const CODEX_INTERRUPTED_ROUTE_MEMORY: usize = 64;
 /// How many settled turn ids a session remembers, oldest dropped first.
 const CODEX_SETTLED_TURN_MEMORY: usize = 64;
 
-/// The thread-frame router's bounds. The hold covers one short race, a helper's frames ahead of
-/// its `thread/started`, so its timeout is far below any delay a person notices.
+/// The thread-frame router's bounds, which the service's own hold shares. The hold covers one short
+/// race, a spawned helper's frames ahead of the spawn item that registers it, so its timeout is far
+/// below any delay a person notices.
 pub(crate) const CODEX_THREAD_FRAME_ROUTER_CONFIG: ThreadFrameRouterConfig =
     ThreadFrameRouterConfig {
         max_quarantined_frames: 64,

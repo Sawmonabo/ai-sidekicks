@@ -1,6 +1,6 @@
 //! An interrupt's hold on its run and its end's writes: while an interrupt of a run is under way
 //! nothing more is handed to that run, a hand already inside its driver call is waited out, and at
-//! the interrupt's end the messages waiting for the run are canceled, placed or left as the
+//! the interrupt's end the messages waiting for the run are returned, placed or left as the
 //! interrupt's choice says.
 
 use sidekicks_contracts::run::id::RunId;
@@ -10,17 +10,16 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_provider::driver::run_control::InterruptPendingChoice;
-use sidekicks_session::queue_store::{
-    QueueItemOutcome, QueueItemReader, QueueItemRecord, placement_statements,
-};
+use sidekicks_session::queue_store::{QueueItemReader, QueueItemRecord, placement_statements};
 use sidekicks_session::run::read::RunStateReader;
 use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::events::session::appender::SessionEventDraft;
 
+use crate::delivery::run_end::stop_message_ends;
 use crate::delivery::{DeliveryError, QueueDelivery, reordered_of};
-use crate::recorder::{QueueRecordError, outcome_draft_of};
+use crate::recorder::QueueRecordError;
 
 /// What one interrupt's release did to its run's hold.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,12 +34,12 @@ pub(crate) enum InterruptHoldRelease {
 
 /// The interrupt's end writes for the messages waiting for its run.
 pub(crate) struct InterruptEndWrites {
-    /// The row moves, committed with the run's end.
+    /// The row moves and any draft write, committed with the run's end.
     pub(crate) statements: Vec<WriteStatement>,
     /// The item events, committed before the run's end event.
     pub(crate) preceding_events: Vec<SessionEventDraft>,
-    /// The items the writes change, which the caller forgets (a cancel) and raises once they
-    /// commit.
+    /// The items the writes change, which the caller forgets (a return to the draft) and raises
+    /// once they commit.
     pub(crate) changed: Vec<QueueItemRecord>,
     /// Whether no item event records the change (a placement), as `raise_committed` takes it.
     pub(crate) moves_order: bool,
@@ -49,9 +48,10 @@ pub(crate) struct InterruptEndWrites {
 impl QueueDelivery {
     /// The interrupt's end writes for the lead messages waiting for `run_id`, called on the
     /// session's chain: `canceled` is given back first, then the messages not handed and not an
-    /// opening (a starting run's opening goes with the rest) are canceled for `ReturnToDraft`,
-    /// placed with `deliver_first` first for `NextTurn`, and left for `KeepWaiting`. Writes nothing
-    /// itself. Fails when a read fails or an event cannot be drafted.
+    /// opening (a starting run's opening goes with the rest) are returned for `ReturnToDraft` as
+    /// the Stop returns them, the words of those canceled put back into the draft, placed with
+    /// `deliver_first` first for `NextTurn`, and left for `KeepWaiting`. Writes nothing itself.
+    /// Fails when a read fails or an event cannot be drafted.
     pub(crate) async fn interrupt_end_writes(
         &self,
         run_id: RunId,
@@ -82,18 +82,10 @@ impl QueueDelivery {
         let now = WireInstant::now();
         match pending {
             InterruptPendingChoice::ReturnToDraft => {
-                let mut statements = Vec::with_capacity(kept.len());
-                let mut preceding_events = Vec::with_capacity(kept.len());
-                for item in &kept {
-                    let (draft, statement) =
-                        outcome_draft_of(item, &QueueItemOutcome::Canceled, &now)
-                            .map_err(QueueRecordError::from)?;
-                    statements.push(statement);
-                    preceding_events.push(draft);
-                }
+                let ends = stop_message_ends(&kept, &now).map_err(QueueRecordError::from)?;
                 Ok(InterruptEndWrites {
-                    statements,
-                    preceding_events,
+                    statements: ends.statements,
+                    preceding_events: ends.preceding_events,
                     changed: kept,
                     moves_order: false,
                 })

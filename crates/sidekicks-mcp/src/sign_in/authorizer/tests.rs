@@ -24,6 +24,8 @@ use secrecy::SecretBox;
 use serde_json::{Value, json};
 use sidekicks_contracts::dpop::DPOP_PROOF_HEADER_NAME;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
+use sidekicks_store::credential_store::service::KeychainService;
+use sidekicks_store::credential_store::test_keychain::test_keychain;
 use tempfile::TempDir;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
@@ -34,7 +36,6 @@ use crate::oauth::dpop_proof::DpopKey;
 use crate::sign_in::canonical_server_address;
 use crate::sign_in::credential_store::{DpopKeyScalar, SignInCustody};
 use crate::sign_in::oauth_http_client::OAuthHttpPools;
-use crate::sign_in::test_keychain::test_keychain;
 
 /// How the fake token endpoint answers a renewal.
 #[derive(Clone, Copy)]
@@ -178,7 +179,7 @@ async fn expired_sign_in_issued_by(
     Arc<SignInCustody>,
     Result<SignInAuthorizer, SignInAuthorizationError>,
 ) {
-    let (data_folder, _platform_store, keychain) = test_keychain();
+    let (data_folder, _platform_store, keychain) = test_keychain(KeychainService::McpSignIns);
     let custody = SignInCustody::new(keychain);
     let address = McpServerAddress::new(&format!("{base}/mcp")).expect("a server address");
     let token_response = serde_json::from_value(json!({
@@ -525,7 +526,7 @@ async fn keep_run_out_sign_in(
 #[tokio::test]
 async fn only_the_sign_in_a_request_found_unrenewable_is_marked_signed_out() {
     let (base, renewals) = serve_token_endpoint(TokenAnswer::Rotate).await;
-    let (_data_folder, _platform_store, keychain) = test_keychain();
+    let (_data_folder, _platform_store, keychain) = test_keychain(KeychainService::McpSignIns);
     let custody = SignInCustody::new(keychain);
     let address = McpServerAddress::new(&format!("{base}/mcp")).expect("a server address");
     let canonical_address = canonical_server_address(&address);

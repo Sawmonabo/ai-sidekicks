@@ -1,10 +1,7 @@
-use std::collections::HashMap;
 use std::error::Error;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use ed25519_dalek::SigningKey;
-use futures::future::BoxFuture;
 use rstest::rstest;
 use rusqlite::params;
 use secrecy::{ExposeSecret as _, SecretString};
@@ -18,15 +15,16 @@ use sidekicks_contracts::trust::chain::verify_ed25519;
 use sidekicks_contracts::trust_statement::{ChannelPublicKey, MachineIdentityKey};
 use sidekicks_contracts::wire::base64::Base64Array;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::pause_point::PausePoint;
+use tempfile::TempDir;
 use x25519_dalek::StaticSecret;
 
 use super::{
-    IdentityKeyError, KEY_LENGTH, MachineIdentity, MachinePublicKeys, MintAgainUnregisteredError,
-    PinnedKey,
+    IdentityKeyError, MachineIdentity, MachinePublicKeys, MintAgainUnregisteredError, PinnedKey,
 };
-use crate::credential_store::{KeychainRefusal, SecretKeychain};
+use crate::credential_store::SecretKeychain;
+use crate::credential_store::seed_item::SEED_LENGTH;
+use crate::credential_store::service::KeychainService;
+use crate::credential_store::test_keychain::{CountingKeychain, test_keychain};
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::schema::schema_parts;
 use crate::database::writer::test_file::TestDatabase;
@@ -35,83 +33,16 @@ use crate::machine::local::LocalMachine;
 
 // Fixed seeds, so a case knows the public halves its items make; their hex holds letters, so its
 // uppercase form differs.
-const IDENTITY_SEED: [u8; KEY_LENGTH] = [0xa7; KEY_LENGTH];
-const CHANNEL_SEED: [u8; KEY_LENGTH] = [0xc9; KEY_LENGTH];
-const OTHER_IDENTITY_SEED: [u8; KEY_LENGTH] = [11; KEY_LENGTH];
-const OTHER_CHANNEL_SEED: [u8; KEY_LENGTH] = [13; KEY_LENGTH];
-
-/// A credential store in memory that counts its reads and writes, refuses the next read with a
-/// cause it is given, and holds a read where a test arms its pause.
-#[derive(Default)]
-struct CountingKeychain {
-    items: Mutex<HashMap<String, String>>,
-    reads: AtomicUsize,
-    writes: AtomicUsize,
-    refused_read: Mutex<Option<KeychainRefusalCause>>,
-    read_pause: PausePoint,
-}
-
-impl CountingKeychain {
-    fn file(&self, account: String, text: String) {
-        lock(&self.items).insert(account, text);
-    }
-
-    fn item(&self, account: &str) -> Option<String> {
-        lock(&self.items).get(account).cloned()
-    }
-
-    fn reads(&self) -> usize {
-        self.reads.load(Ordering::SeqCst)
-    }
-
-    fn writes(&self) -> usize {
-        self.writes.load(Ordering::SeqCst)
-    }
-}
-
-impl SecretKeychain for CountingKeychain {
-    fn write<'call>(
-        &'call self,
-        account: &'call str,
-        value: &'call SecretString,
-    ) -> BoxFuture<'call, Result<(), KeychainRefusal>> {
-        self.writes.fetch_add(1, Ordering::SeqCst);
-        self.file(account.to_owned(), value.expose_secret().to_owned());
-        Box::pin(async { Ok(()) })
-    }
-
-    fn read<'call>(
-        &'call self,
-        account: &'call str,
-    ) -> BoxFuture<'call, Result<Option<SecretString>, KeychainRefusal>> {
-        self.reads.fetch_add(1, Ordering::SeqCst);
-        let answer = match lock(&self.refused_read).take() {
-            Some(cause) => Err(KeychainRefusal::new(cause, "the test store refuses")),
-            None => Ok(self.item(account).map(SecretString::from)),
-        };
-        Box::pin(async move {
-            self.read_pause.pass().await;
-            answer
-        })
-    }
-
-    fn remove<'call>(
-        &'call self,
-        account: &'call str,
-    ) -> BoxFuture<'call, Result<bool, KeychainRefusal>> {
-        let removed = lock(&self.items).remove(account).is_some();
-        Box::pin(async move { Ok(removed) })
-    }
-
-    fn accounts(&self) -> BoxFuture<'_, Result<Vec<String>, KeychainRefusal>> {
-        let accounts = lock(&self.items).keys().cloned().collect();
-        Box::pin(async move { Ok(accounts) })
-    }
-}
+const IDENTITY_SEED: [u8; SEED_LENGTH] = [0xa7; SEED_LENGTH];
+const CHANNEL_SEED: [u8; SEED_LENGTH] = [0xc9; SEED_LENGTH];
+const OTHER_IDENTITY_SEED: [u8; SEED_LENGTH] = [11; SEED_LENGTH];
+const OTHER_CHANNEL_SEED: [u8; SEED_LENGTH] = [13; SEED_LENGTH];
 
 /// A database holding this machine's row with the pins a test sets, and the store of its keys.
 struct Fixture {
     database: TestDatabase,
+    /// The folder the keychain keeps its place record in.
+    _keychain_folder: TempDir,
     machine: LocalMachine,
     keychain: Arc<CountingKeychain>,
     reads: Arc<DatabaseReadPool>,
@@ -143,11 +74,14 @@ impl Fixture {
                 ],
             )
             .expect("the test stores this machine's row");
+        let (keychain_folder, _platform_store, keychain) =
+            test_keychain(KeychainService::MachineKeys);
         Self {
             reads: Arc::new(DatabaseReadPool::new(database.path(), 0)),
             database,
+            _keychain_folder: keychain_folder,
             machine,
-            keychain: Arc::new(CountingKeychain::default()),
+            keychain: Arc::new(CountingKeychain::new(keychain)),
             writer: Arc::new(writer),
         }
     }
@@ -169,10 +103,29 @@ impl Fixture {
         )
     }
 
-    fn items(&self) -> (Option<String>, Option<String>) {
+    // Files `text` under `account` past the counting keychain, so no write is counted.
+    async fn file(&self, account: String, text: String) {
+        self.keychain
+            .inner()
+            .write(&account, &SecretString::from(text))
+            .await
+            .expect("the test keychain files the item");
+    }
+
+    // The item under `account`, read past the counting keychain.
+    async fn item(&self, account: String) -> Option<String> {
+        self.keychain
+            .inner()
+            .read(&account)
+            .await
+            .expect("the test keychain reads the item")
+            .map(|item| item.expose_secret().to_owned())
+    }
+
+    async fn items(&self) -> (Option<String>, Option<String>) {
         (
-            self.keychain.item(&self.identity_account()),
-            self.keychain.item(&self.channel_account()),
+            self.item(self.identity_account()).await,
+            self.item(self.channel_account()).await,
         )
     }
 
@@ -192,12 +145,15 @@ fn machine_id() -> MachineId {
     MachineId::new(mint_uuid_v7().to_string()).expect("a minted UUID is a machine id")
 }
 
-fn hex(seed: &[u8; KEY_LENGTH]) -> String {
+fn hex(seed: &[u8; SEED_LENGTH]) -> String {
     base16ct::lower::encode_string(seed)
 }
 
 // The public halves the two seeds make.
-fn public_halves(identity: &[u8; KEY_LENGTH], channel: &[u8; KEY_LENGTH]) -> ([u8; 32], [u8; 32]) {
+fn public_halves(
+    identity: &[u8; SEED_LENGTH],
+    channel: &[u8; SEED_LENGTH],
+) -> ([u8; 32], [u8; 32]) {
     (
         SigningKey::from_seed(identity).public_half(),
         StaticSecret::from_seed(channel).public_half(),
@@ -239,7 +195,7 @@ enum Items {
 }
 
 impl Items {
-    fn text(self, seed: &[u8; KEY_LENGTH]) -> Option<String> {
+    fn text(self, seed: &[u8; SEED_LENGTH]) -> Option<String> {
         match self {
             Self::Absent => None,
             Self::Keys => Some(hex(seed)),
@@ -322,14 +278,10 @@ async fn a_read_mints_adopts_holds_or_refuses_as_the_pins_and_items_say(
     let fixture = Fixture::new(pins_before.clone()).await;
     let items_before = (items.text(&IDENTITY_SEED), items.text(&CHANNEL_SEED));
     if let Some(text) = &items_before.0 {
-        fixture
-            .keychain
-            .file(fixture.identity_account(), text.clone());
+        fixture.file(fixture.identity_account(), text.clone()).await;
     }
     if let Some(text) = &items_before.1 {
-        fixture
-            .keychain
-            .file(fixture.channel_account(), text.clone());
+        fixture.file(fixture.channel_account(), text.clone()).await;
     }
     let identity = fixture.identity();
     identity.stop().await;
@@ -337,7 +289,7 @@ async fn a_read_mints_adopts_holds_or_refuses_as_the_pins_and_items_say(
 
     let read = identity.key().await;
 
-    let items_after = fixture.items();
+    let items_after = fixture.items().await;
     let pins_after = fixture.pins();
     let recorded = identity.machine_key().await;
     match expected {
@@ -426,8 +378,10 @@ async fn a_read_mints_adopts_holds_or_refuses_as_the_pins_and_items_say(
 #[tokio::test]
 async fn a_status_read_waits_for_the_key_read_and_reads_a_refused_store_again() {
     let fixture = Fixture::new((None, None)).await;
-    *lock(&fixture.keychain.refused_read) = Some(KeychainRefusalCause::Locked);
-    let first_read = fixture.keychain.read_pause.arm();
+    fixture
+        .keychain
+        .refuse_next_read(KeychainRefusalCause::Locked);
+    let first_read = fixture.keychain.read_pause().arm();
     let identity = fixture.identity();
     let locked = Some(DaemonMachineKey {
         state: DaemonMachineKeyState::NotMinted,
@@ -449,9 +403,11 @@ async fn a_status_read_waits_for_the_key_read_and_reads_a_refused_store_again() 
     assert_eq!(identity.machine_key().await, locked);
     assert_eq!(fixture.keychain.writes(), 1);
 
-    *lock(&fixture.keychain.refused_read) = Some(KeychainRefusalCause::Locked);
+    fixture
+        .keychain
+        .refuse_next_read(KeychainRefusalCause::Locked);
     let reads_before = fixture.keychain.reads();
-    let held = fixture.keychain.read_pause.arm();
+    let held = fixture.keychain.read_pause().arm();
     assert_eq!(identity.machine_key().await, locked);
     assert_eq!(identity.machine_key().await, locked);
     assert_eq!(fixture.keychain.reads(), reads_before + 1);
@@ -471,7 +427,9 @@ async fn a_status_read_waits_for_the_key_read_and_reads_a_refused_store_again() 
 #[tokio::test]
 async fn a_status_read_after_the_stop_starts_no_read() {
     let fixture = Fixture::new((None, None)).await;
-    *lock(&fixture.keychain.refused_read) = Some(KeychainRefusalCause::Locked);
+    fixture
+        .keychain
+        .refuse_next_read(KeychainRefusalCause::Locked);
     let identity = fixture.identity();
     let locked = Some(DaemonMachineKey {
         state: DaemonMachineKeyState::NotMinted,
@@ -508,14 +466,14 @@ async fn a_lost_or_changed_channel_key_refuses_only_the_channel(
     let pins_before = (Some(identity_half.to_vec()), Some(channel_half.to_vec()));
     let fixture = Fixture::new(pins_before.clone()).await;
     fixture
-        .keychain
-        .file(fixture.identity_account(), hex(&IDENTITY_SEED));
+        .file(fixture.identity_account(), hex(&IDENTITY_SEED))
+        .await;
     if let ChannelItem::OtherKey = channel_item {
         fixture
-            .keychain
-            .file(fixture.channel_account(), hex(&OTHER_CHANNEL_SEED));
+            .file(fixture.channel_account(), hex(&OTHER_CHANNEL_SEED))
+            .await;
     }
-    let items_before = fixture.items();
+    let items_before = fixture.items().await;
     let identity = fixture.identity();
     identity.stop().await;
     let refused = DaemonMachineKey { state, cause: None };
@@ -546,7 +504,7 @@ async fn a_lost_or_changed_channel_key_refuses_only_the_channel(
         .expect("the signature verifies under the identity key");
     assert_eq!(identity.machine_key().await, Some(refused));
     assert!(
-        fixture.items() == items_before,
+        fixture.items().await == items_before,
         "the items are kept as they were"
     );
     assert_eq!(fixture.pins(), pins_before);

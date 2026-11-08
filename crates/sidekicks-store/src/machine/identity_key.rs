@@ -17,7 +17,6 @@ use std::time::Duration;
 use ed25519_dalek::{Signature, Signer as _, SigningKey};
 use rusqlite::types::Value;
 use rusqlite::{OptionalExtension as _, named_params};
-use secrecy::{ExposeSecret as _, SecretString};
 use sidekicks_contracts::daemon::status::{
     DaemonMachineKey, DaemonMachineKeyCause, DaemonMachineKeyState,
 };
@@ -27,13 +26,12 @@ use sidekicks_contracts::trust_statement::{ChannelPublicKey, MachineIdentityKey}
 use sidekicks_contracts::wire::base64::Base64Array;
 use sidekicks_std::bounded_wait::wait_within;
 use sidekicks_std::mutex_lock::lock;
-use subtle::ConstantTimeEq as _;
 use tokio::sync::watch;
 use tokio_util::task::AbortOnDropHandle;
 use x25519_dalek::{PublicKey, StaticSecret};
-use zeroize::Zeroizing;
 
 use crate::credential_store::items::SecretItems;
+use crate::credential_store::seed_item::{SEED_LENGTH, Seed, encode_seed, item_seed, random_seed};
 use crate::credential_store::service::KeychainService;
 use crate::credential_store::{KeychainRefusal, SecretKeychain};
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
@@ -41,7 +39,7 @@ use crate::database::statement::{StatementBindings, WriteStatement, text_binding
 use crate::database::writer::{DatabaseWriter, WriteError};
 use crate::machine::local::LocalMachine;
 
-// The bytes of a seed and of a public half.
+// The bytes of a public half and of the channel key's secret.
 const KEY_LENGTH: usize = 32;
 
 const SELECT_IDENTITY_PIN_SQL: &str =
@@ -422,14 +420,10 @@ impl MachineKeyStore {
     }
 
     // Writes `seed` under `account` and reads it back before the key is used.
-    async fn write_item(
-        &self,
-        account: &str,
-        seed: &Zeroizing<[u8; KEY_LENGTH]>,
-    ) -> Result<(), KeychainRefusal> {
-        // Encoded from the wiped buffer, so no unwiped copy of the seed is left.
-        let item = SecretString::from(base16ct::lower::encode_string(seed.as_slice()));
-        self.keychain.write_verified(account, &item).await
+    async fn write_item(&self, account: &str, seed: &Seed) -> Result<(), KeychainRefusal> {
+        self.keychain
+            .write_verified(account, &encode_seed(seed))
+            .await
     }
 
     // The pin of the key `role` names, `None` until set. Fails with `StoredPin` when it is not 32
@@ -683,7 +677,7 @@ trait PinnedKey: Sized {
     const ROLE: KeyRole;
 
     /// The key `seed` makes.
-    fn from_seed(seed: &[u8; KEY_LENGTH]) -> Self;
+    fn from_seed(seed: &[u8; SEED_LENGTH]) -> Self;
 
     /// The key's public half, which its pin holds.
     fn public_half(&self) -> [u8; KEY_LENGTH];
@@ -695,7 +689,7 @@ trait PinnedKey: Sized {
 impl PinnedKey for SigningKey {
     const ROLE: KeyRole = KeyRole::Identity;
 
-    fn from_seed(seed: &[u8; KEY_LENGTH]) -> Self {
+    fn from_seed(seed: &[u8; SEED_LENGTH]) -> Self {
         Self::from_bytes(seed)
     }
 
@@ -711,7 +705,7 @@ impl PinnedKey for SigningKey {
 impl PinnedKey for StaticSecret {
     const ROLE: KeyRole = KeyRole::Channel;
 
-    fn from_seed(seed: &[u8; KEY_LENGTH]) -> Self {
+    fn from_seed(seed: &[u8; SEED_LENGTH]) -> Self {
         Self::from(*seed)
     }
 
@@ -731,35 +725,13 @@ struct Resolved<Key> {
 }
 
 impl<Key: PinnedKey> Resolved<Key> {
-    fn of_seed(seed: &Zeroizing<[u8; KEY_LENGTH]>) -> Self {
+    fn of_seed(seed: &Seed) -> Self {
         let key = Key::from_seed(seed);
         Self {
             public_half: key.public_half(),
             key,
         }
     }
-}
-
-// A fresh seed from the system's random source.
-fn random_seed() -> Result<Zeroizing<[u8; KEY_LENGTH]>, getrandom::Error> {
-    let mut seed = Zeroizing::new([0; KEY_LENGTH]);
-    getrandom::fill(seed.as_mut_slice())?;
-    Ok(seed)
-}
-
-// The seed `item` holds, or `None` when it is not exactly 64 lowercase hex characters or is all
-// zero, the one seed no mint makes.
-fn item_seed(item: &SecretString) -> Option<Zeroizing<[u8; KEY_LENGTH]>> {
-    let text = item.expose_secret();
-    if text.len() != KEY_LENGTH * 2 {
-        return None;
-    }
-    let mut seed = Zeroizing::new([0; KEY_LENGTH]);
-    base16ct::lower::decode(text, seed.as_mut_slice()).ok()?;
-    if bool::from(seed.as_slice().ct_eq(&[0; KEY_LENGTH])) {
-        return None;
-    }
-    Some(seed)
 }
 
 #[cfg(test)]

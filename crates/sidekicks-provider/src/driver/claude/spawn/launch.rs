@@ -20,11 +20,11 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
 
 use secrecy::SecretString;
-use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_TERMINAL_DRAIN_MS;
 use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
 use sidekicks_platforms::Spawner;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
+use tokio::time::Instant;
 
 use crate::driver::ProviderAccountReader;
 use crate::driver::child_records::DaemonChildRecords;
@@ -125,11 +125,11 @@ pub(crate) struct ClaudeProcessLauncher {
     live: Mutex<LiveProcesses>,
 }
 
-// The processes started and not yet exited, and whether the daemon's stop began.
+// The processes started and not yet exited, and the deadline of the daemon's stop once it began.
 #[derive(Default)]
 struct LiveProcesses {
     processes: Vec<Weak<ClaudeCodeProcess>>,
-    is_stopped: bool,
+    stop_deadline: Option<Instant>,
 }
 
 impl ClaudeProcessLauncher {
@@ -166,7 +166,7 @@ impl ClaudeProcessLauncher {
         listener: Arc<dyn ClaudeProcessListener>,
         turn_holds: Option<ClaudeTurnHolds>,
     ) -> Result<Arc<ClaudeCodeProcess>, ClaudeLaunchError> {
-        if self.lock().is_stopped {
+        if self.lock().stop_deadline.is_some() {
             return Err(ClaudeLaunchError::Stopping);
         }
         if launch.token.is_none()
@@ -188,33 +188,41 @@ impl ClaudeProcessLauncher {
             .await
             .map_err(ClaudeLaunchError::Spawn)?,
         );
-        let is_stopped = {
+        let stop_deadline = {
             let mut live = self.lock();
             live.processes
                 .retain(|kept| kept.upgrade().is_some_and(|kept| !kept.is_closed()));
             live.processes.push(Arc::downgrade(&process));
-            live.is_stopped
+            live.stop_deadline
         };
         // A stop that ran while the process was starting has already gone past it.
-        if is_stopped {
-            process.stop(drain()).await;
+        if let Some(deadline) = stop_deadline {
+            process
+                .stop(half_of_what_is_left(deadline), Some(deadline))
+                .await;
             return Err(ClaudeLaunchError::Stopping);
         }
         Ok(process)
     }
 
-    /// Stops every live process together, each given the daemon's stop drain to exit on its own,
-    /// and refuses every later start.
-    pub(crate) async fn stop_every_process(&self) {
+    /// Stops every live process together, each given half of what is left before `deadline` to
+    /// exit on its input's close and the rest to answer the stop ask, and killed at `deadline`;
+    /// refuses every later start, and stops one that was starting against the same deadline.
+    pub(crate) async fn stop_every_process(&self, deadline: Instant) {
         let processes: Vec<Arc<ClaudeCodeProcess>> = {
             let mut live = self.lock();
-            live.is_stopped = true;
+            live.stop_deadline = Some(deadline);
             live.processes
                 .drain(..)
                 .filter_map(|kept| kept.upgrade())
                 .collect()
         };
-        futures::future::join_all(processes.iter().map(|process| process.stop(drain()))).await;
+        futures::future::join_all(
+            processes
+                .iter()
+                .map(|process| process.stop(half_of_what_is_left(deadline), Some(deadline))),
+        )
+        .await;
     }
 
     /// The empty folder a process that keeps nothing runs in, made at first use. Fails with
@@ -231,8 +239,10 @@ impl ClaudeProcessLauncher {
     }
 }
 
-fn drain() -> Duration {
-    Duration::from_millis(DAEMON_STOP_TERMINAL_DRAIN_MS)
+// The input close's share of a process's stop: half of what is left before `deadline`, the stop
+// ask taking the other half.
+fn half_of_what_is_left(deadline: Instant) -> Duration {
+    deadline.saturating_duration_since(Instant::now()) / 2
 }
 
 /// The token sealed for `provider_account_id`'s account where it signs in with a pasted token, as

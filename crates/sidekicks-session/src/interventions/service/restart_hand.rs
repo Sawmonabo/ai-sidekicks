@@ -14,7 +14,6 @@ use sidekicks_contracts::run::intervention::{
 };
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::database::connection::read_pool::ReadLength;
-use tracing::Instrument as _;
 
 use crate::interventions::service::errors::InterventionError;
 use crate::interventions::service::request::{interrupt_choice_of, person_request_of};
@@ -23,25 +22,23 @@ use crate::interventions::store::UnresolvedInterventionState;
 use crate::run::restart::{PendingInterrupt, read_pending_interrupts};
 
 impl InterventionService {
-    /// Hands again, on a task of its own carrying the caller's span, each interrupt pending on
-    /// `run_id`, a person's or a limit's, whose provider runs its turn again after a restart; a
-    /// failure is logged, and a row left pending is settled by the run's end. Spawned, since the
-    /// resume that calls it holds the session while the run's end goes through the run queue.
+    /// Hands again, on the engine's interrupt hand carrying the caller's span, each interrupt
+    /// pending on `run_id`, a person's or a limit's, whose provider runs its turn again after a
+    /// restart; a failure is logged, and a row left pending, a hand the daemon's stop cut among
+    /// them, is settled by the run's end. Spawned, since the resume that calls it holds the session
+    /// while the run's end goes through the run queue.
     pub fn hand_pending_interrupts_again(&self, run_id: RunId) {
         let service = self.clone();
-        tokio::spawn(
-            async move {
-                if let Err(error) = service.carry_out_pending_interrupts(run_id).await {
-                    tracing::warn!(
-                        run_id = %run_id,
-                        error = &error as &(dyn Error + 'static),
-                        "an interrupt pending at the restart could not be handed again; \
-                         the run's end settles it"
-                    );
-                }
+        self.engine.hand_interrupt(run_id, async move {
+            if let Err(error) = service.carry_out_pending_interrupts(run_id).await {
+                tracing::warn!(
+                    run_id = %run_id,
+                    error = &error as &(dyn Error + 'static),
+                    "an interrupt pending at the restart could not be handed again; the run's end \
+                     settles it"
+                );
             }
-            .instrument(tracing::Span::current()),
-        );
+        });
     }
 
     /// Carries out each interrupt pending on `run_id`, oldest first, each under the run's interrupt

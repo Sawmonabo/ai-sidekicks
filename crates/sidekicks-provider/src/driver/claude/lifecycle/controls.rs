@@ -36,7 +36,9 @@ use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
 };
 use crate::driver::claude::session::establishment::context::resolve_claude_spawn_context;
-use crate::driver::claude::session::establishment::spawn_sources::ClaudeSpawnSources;
+use crate::driver::claude::session::establishment::spawn_sources::{
+    ClaudeSpawnSources, claude_account_config_folder, claude_account_settings_file,
+};
 use crate::driver::claude::session::permission_level::{
     can_run_claude_level, is_offered_on_system, list_claude_modes, move_claude_permission_level,
     read_claude_sandbox_support, read_claude_starting_level,
@@ -46,15 +48,13 @@ use crate::driver::claude::session::permissions::{
     revoke_claude_project_rule,
 };
 use crate::driver::claude::session::restart::ClaudeSessionStanding;
-use crate::driver::claude::session::settings_file::{
-    ClaudeSettingsSources, read_claude_settings_file,
-};
+use crate::driver::claude::session::settings_file::read_claude_settings_file;
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::readings::ClaudeSessionFolderReadRequest;
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::session::ultracode::{claude_session_options, observe_claude_options};
 use crate::driver::claude::settings_rows::compose_claude_rows;
-use crate::driver::claude::spawn::environment::{ClaudeProcessHome, claude_config_folder};
+use crate::driver::claude::spawn::environment::ClaudeProcessHome;
 use crate::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
 use crate::driver::claude::spawn::launch::{
     ClaudeLaunchError, initialize_reply::read_claude_initialize_declaration,
@@ -90,9 +90,6 @@ const OUTPUT_STYLE_KEY: &str = "outputStyle";
 /// The key of an account home's own advisor in Claude Code's settings, empty for none.
 const ADVISOR_MODEL_KEY: &str = "advisorModel";
 
-/// The file of an account home's own settings, in its config folder.
-const SETTINGS_FILE_NAME: &str = "settings.json";
-
 /// The folder under the daemon's data folder the capability read runs on.
 const CLAUDE_CAPABILITY_READ_FOLDER: &str = "claude-capability-read";
 
@@ -124,27 +121,18 @@ impl ClaudeDriver {
             .sources
             .account_environment(&params.provider_account_id)
             .await?;
-        let (offered, repository) = tokio::join!(
+        let (offered, settings) = tokio::join!(
             self.read_offered_levels(
                 &environment,
                 &params.working_folder,
                 params.provider_account_id.clone(),
             ),
-            self.read_repository(&params.working_folder),
+            self.sources
+                .read_settings_sources(&environment, &params.working_folder),
         );
-        let managed_settings_folder = DESCRIPTOR.managed_settings_folder();
-        let project_folder = claude_project_folder(&params.working_folder, repository.as_ref());
-        let account_settings_file = account_config_folder(&environment).join(SETTINGS_FILE_NAME);
-        let starting = read_claude_starting_level(
-            &ClaudeSettingsSources {
-                managed_settings_folder: managed_settings_folder.as_deref(),
-                project_folder: &project_folder,
-                home_folder: &self.sources.home_folder,
-                account_settings_file: &account_settings_file,
-                path_rules: PathRules::NATIVE,
-            },
-            |level| offered.offers(level, params.model.as_str()),
-        )
+        let starting = read_claude_starting_level(&settings.sources(), |level| {
+            offered.offers(level, params.model.as_str())
+        })
         .await
         .map_err(internal)?;
         Ok(StartingLevel {
@@ -281,18 +269,15 @@ impl ClaudeDriver {
         let parts = self.composed_parts();
         let live = parts.and_then(|parts| parts.slots().live_session(params.session_id));
         if let Some(project_folder) = &params.project_folder {
-            let ended =
-                parts.and_then(|parts| parts.restarts.ended_conversation(params.session_id));
-            let spawn_environment = match (&live, ended) {
-                (Some(live), _) => live.spawn_bound_legs.spawn_environment.clone(),
-                (None, Some(ended)) => ended.spawn_environment,
-                (None, None) => {
+            let spawn_environment =
+                if let Some(conversation) = self.last_conversation(params.session_id) {
+                    conversation.spawn_environment
+                } else {
                     let account = self.resting_account(params.session_id).await?;
                     self.sources.account_environment(&account).await?
-                }
-            };
-            let config_folder = account_config_folder(&spawn_environment);
-            let repository = self.read_repository(project_folder).await;
+                };
+            let config_folder = claude_account_config_folder(&spawn_environment);
+            let repository = self.sources.read_repository(project_folder).await;
             let managed_settings_folder = DESCRIPTOR.managed_settings_folder();
             revoke_claude_project_rule(
                 &params.rule,
@@ -601,7 +586,7 @@ impl ClaudeDriver {
             .sources
             .account_environment(&provider_account_id)
             .await?;
-        let settings_file = account_config_folder(&environment).join(SETTINGS_FILE_NAME);
+        let settings_file = claude_account_settings_file(&environment);
         let place = ClaudeSessionFolderReadRequest {
             spawn_environment: environment,
             working_directory: self.sources.home_folder.clone(),
@@ -818,13 +803,6 @@ impl ClaudeDriver {
             }
         }
     }
-}
-
-// The config folder of a Claude Code process's environment, which every home the driver starts a
-// process on names.
-fn account_config_folder(environment: &[(String, String)]) -> PathBuf {
-    claude_config_folder(environment, PathRules::NATIVE)
-        .expect("every Claude Code home names its config folder")
 }
 
 // The copy of a session at rest, from its resume material: the legs a resume starts with, in the

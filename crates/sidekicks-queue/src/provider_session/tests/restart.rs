@@ -112,7 +112,7 @@ async fn a_session_this_daemon_opened_keeps_its_held_calls_for_its_process() {
 
     opening
         .sessions
-        .settle_held_tool_calls(opening.session_id)
+        .settle_held_tool_calls(opening.session_id, false)
         .await
         .expect("the settle answers");
 }

@@ -164,16 +164,22 @@ impl ClaudeHelperLimit {
         helpers.admit_held_starts()
     }
 
-    /// Drops a held start Claude Code withdrew.
-    pub(crate) fn withdraw_start(&mut self, session_id: &SessionId, request_id: &str) {
-        if let Some(helpers) = self.sessions.get_mut(session_id)
-            && let Some(index) = helpers
-                .held_starts
-                .iter()
-                .position(|held| held.request_id == request_id)
-        {
-            helpers.held_starts.remove(index);
-        }
+    /// Drops a held start Claude Code withdrew, and answers the tool call it held, `None` where
+    /// the request held no start.
+    pub(crate) fn withdraw_start(
+        &mut self,
+        session_id: &SessionId,
+        request_id: &str,
+    ) -> Option<String> {
+        let helpers = self.sessions.get_mut(session_id)?;
+        let index = helpers
+            .held_starts
+            .iter()
+            .position(|held| held.request_id == request_id)?;
+        helpers
+            .held_starts
+            .remove(index)
+            .map(|held| held.tool_use_id)
     }
 
     /// Forgets a session whose process is gone; its helpers went with it.
@@ -309,7 +315,10 @@ mod tests {
     fn a_withdrawn_hold_is_never_admitted() {
         let one = one_admitted_one_held();
         let session_id = fixed_session_id();
-        lock(&one.limit).withdraw_start(&session_id, "r2");
+        assert_eq!(
+            lock(&one.limit).withdraw_start(&session_id, "r2"),
+            Some("t2".to_owned())
+        );
 
         assert_eq!(
             lock(&one.limit).turn_ended(&session_id),

@@ -10,9 +10,9 @@ use std::time::SystemTime;
 
 use futures::FutureExt;
 use futures::future::{BoxFuture, ready};
-use sidekicks_contracts::agent::provider_binding::AgentBindingSwitchBoundary;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
-use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
+use sidekicks_contracts::mcp::server::config::McpServerConfigInput;
+use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpWritableBindingRef};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{
     ObservedProviderOptions, ProviderRow, ProviderSessionOption,
@@ -21,21 +21,16 @@ use sidekicks_contracts::provider::driver::capabilities::{ProviderMode, Provider
 use sidekicks_contracts::provider::driver::commands::ProviderCommandBindingGroup;
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
-use sidekicks_contracts::run::children::ChildStoppedState;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::controls::methods::TerminalProviderSession;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::voice::VoiceKind;
-use sidekicks_platforms::{
-    LinuxSystemFolder, MacosSystemFolder, PerSystem, SystemFolder, SystemFolders,
-    WindowsSystemFolder,
-};
 #[cfg(any(test, feature = "test-support"))]
 use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::codex::lifecycle::CodexDriver;
+use crate::driver::codex::mcp::compose_codex_mcp_entry;
 use crate::driver::codex::permission_level::list_codex_modes;
-use crate::driver::codex::service::registry::CODEX_SWITCHING_HOME_FOLDER;
 #[cfg(any(test, feature = "test-support"))]
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::start::kept_records::{
@@ -57,6 +52,11 @@ use crate::driver::daemon_stop::{DaemonStopIntent, RecordedServicesStopError};
 use crate::driver::error_causes::ProviderAxisInvalid;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
 use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
+use crate::driver::mcp_server::resources::McpResourceSource;
+use crate::driver::mcp_server::session_switch::McpSessionSwitch;
+use crate::driver::mcp_server::write::{
+    McpServerEntry, McpServerObserved, McpServerWrite, McpServerWriteOutcome, McpServerWriteRefusal,
+};
 use crate::driver::message_handing::{HandMoment, MessageHanding};
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{
@@ -72,16 +72,12 @@ use crate::driver::session_control::{
     DriverResumeResult, EndKeptTurnsParams, ExportHandoverBriefParams, MoveSessionToForkParams,
     MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderCommandsListener,
     ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
-    SessionCommandAnswer, SetSessionGoalParams, SettleHeldToolCallsParams, StartingLevel,
-    StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
-    UpdateSessionModeParams,
+    SessionCommandAnswer, SessionToolServer, SetSessionGoalParams, SettleHeldToolCallsParams,
+    StartingLevel, StartingLevelParams, SubscribeProviderCommandsParams,
+    UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
-use crate::driver::{
-    CommandSandboxNeeds, DriverServices, HelperModeServices, InstallFolder, InstallFolderBase,
-    ProviderCommand, ProviderCommandLookup, ProviderDescriptor, ProviderMemoryEstimates,
-    ProviderSwitchBoundaries,
-};
+use crate::driver::{DriverServices, HelperModeServices};
 use crate::port::running_command_publisher::{
     RunningCommandParams, WriteCommandInputParams, command_act_unsupported,
 };
@@ -100,6 +96,7 @@ mod commands;
 mod compaction;
 mod config_read;
 mod delivery;
+mod descriptor;
 mod event_normalizer;
 mod exec_relay;
 mod goals;
@@ -142,168 +139,13 @@ mod vendored_schema;
 mod version;
 mod written_names;
 
+pub(super) use self::descriptor::DESCRIPTOR;
+
 #[cfg(any(test, feature = "test-support"))]
 pub use service::supervisor::test_service::{
     CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, RESUMED_TURN_NAME,
     ScriptedCodexService, serve_as_codex_service_stand_in, stand_in_codex_service,
     start_scripted_codex_service, write_codex_service_script,
-};
-
-/// Codex's fixed facts.
-pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
-    id: "codex",
-    name: "Codex",
-    release_notes_address: release_notes::release_notes_address,
-    plan_words: &[
-        ("free", "Free"),
-        ("go", "Go"),
-        ("plus", "Plus"),
-        ("prolite", "Pro"),
-        ("pro", "Pro (More)"),
-        ("promax", "Pro (Max)"),
-        ("team", "Business"),
-        ("self_serve_business_usage_based", "Business"),
-        ("self_serve_business_prolite", "Business Premium"),
-        ("business", "Enterprise"),
-        ("ent26", "Enterprise"),
-        ("enterprise_cbp_usage_based", "Enterprise"),
-        ("enterprise", "Enterprise"),
-        ("enterprise_cbp_automation", "Enterprise (Automation)"),
-        ("edu", "Edu"),
-        ("edu_plus", "Edu Plus"),
-        ("edu_pro", "Edu Pro"),
-    ],
-    built_in_tools: &tools::CODEX_BUILT_IN_TOOLS,
-    command: ProviderCommand {
-        windows: Some(ProviderCommandLookup {
-            names: &["codex"],
-            install_folders: &[InstallFolder {
-                base: InstallFolderBase::UserPrograms,
-                components: &["OpenAI", "Codex", "bin"],
-            }],
-        }),
-        unix: Some(ProviderCommandLookup {
-            names: &["codex"],
-            install_folders: &[InstallFolder {
-                base: InstallFolderBase::Home,
-                components: &[".local", "bin"],
-            }],
-        }),
-    },
-    // Where its system `config.toml` and `requirements.toml` sit; macOS reads the Unix folder.
-    managed_settings_folders: SystemFolders {
-        macos: Some(SystemFolder {
-            base: MacosSystemFolder::Etc,
-            components: &["codex"],
-        }),
-        linux: Some(SystemFolder {
-            base: LinuxSystemFolder::Etc,
-            components: &["codex"],
-        }),
-        windows: Some(SystemFolder {
-            base: WindowsSystemFolder::ProgramData,
-            components: &["OpenAI", "Codex"],
-        }),
-    },
-    // It sandboxes its commands on every system with helpers of its own, its own bubblewrap among
-    // them, which on Linux makes a user namespace.
-    command_sandbox: PerSystem {
-        macos: true,
-        linux: true,
-        windows: true,
-    },
-    command_sandbox_needs: PerSystem {
-        macos: CommandSandboxNeeds::NOTHING,
-        linux: CommandSandboxNeeds {
-            programs: &[],
-            user_namespace: true,
-            service_readiness: false,
-        },
-        // On Windows its sandbox needs a setup the service reports: the driver asks the service's
-        // `windowsSandbox/readiness` over its connection, and offers the sandbox only on `Ready`,
-        // never on `NotConfigured` or `UpdateRequired`.
-        windows: CommandSandboxNeeds {
-            programs: &[],
-            user_namespace: false,
-            service_readiness: true,
-        },
-    },
-    // The whole service measured at 53 to 61 MB, and each conversation on a running service at
-    // 1.8 to 3.0 MB more.
-    memory: ProviderMemoryEstimates {
-        process_bytes: 61_000_000,
-        conversation_bytes: Some(3_000_000),
-    },
-    // Listed first on every model that publishes a tier, and requested by clearing the thread's.
-    standard_output_speed: "default",
-    // Its `turn/interrupt` leaves a helper interrupted, and a send continues it.
-    stop_all_row_word: ChildStoppedState::Interrupted,
-    // It lists its service tiers on each model of its catalog.
-    output_speed_levels: None,
-    // Each turn carries the model, effort, service tier and window it runs on.
-    switch_boundaries: ProviderSwitchBoundaries {
-        model_id: AgentBindingSwitchBoundary::TurnBoundary,
-        effort: AgentBindingSwitchBoundary::TurnBoundary,
-        output_speed: AgentBindingSwitchBoundary::TurnBoundary,
-        options: AgentBindingSwitchBoundary::TurnBoundary,
-        larger_window: AgentBindingSwitchBoundary::TurnBoundary,
-    },
-    // It documents no update switch; the driver runs one exact build path instead.
-    process_environment: &[],
-    // Carries the app-server binary's path into the launch prelude, which never interpolates it;
-    // and opens the shutdown request on the lasting service's control socket, which Codex reads on
-    // Windows alone.
-    launch_environment_names: &["CODEX_APP_SERVER_BIN", "CODEX_DAEMON_SHUTDOWN_SOCKET"],
-    // The account's own `CODEX_HOME`.
-    credential_home_environment_names: &["CODEX_HOME"],
-    withheld_environment_names: &[
-        // Sends the service's sign-in to another issuer than the one its login names.
-        "CODEX_APP_SERVER_LOGIN_ISSUER",
-    ],
-    screen_reader_environment_names: &[],
-    voice_kinds: &[VoiceKind::Call],
-    // It reaches no server over server-sent events.
-    mcp_transports: &[McpTransport::Stdio, McpTransport::Http],
-    mcp_config_members: &[
-        McpDeclaredConfigMember::EnvVars,
-        McpDeclaredConfigMember::Required,
-        McpDeclaredConfigMember::StartupTimeoutSec,
-        McpDeclaredConfigMember::ToolTimeoutSec,
-        McpDeclaredConfigMember::BearerTokenEnvVar,
-        McpDeclaredConfigMember::EnvHttpHeaders,
-        McpDeclaredConfigMember::OauthScopes,
-        McpDeclaredConfigMember::OauthResource,
-    ],
-    mcp_server_names: mcp::server_name::CODEX_MCP_SERVER_NAMES,
-    // It has no `local` scope: a project's `local` server is a user entry, off, switched on in the
-    // sessions of that project alone.
-    is_mcp_local_scope_emulated: true,
-    // Codex's own limit on a skill's name.
-    skill_name_max_length: Some(64),
-    written_name_forms: &written_names::CODEX_WRITTEN_NAME_FORMS,
-    permission_identifiers: &[
-        "sandbox_permissions",
-        "sandbox_mode",
-        "request_user_input",
-        "<proposed_plan>",
-    ],
-    background_work: None,
-    callback_tools_asked: false,
-    // Its login runs its own loopback listener for the browser's return.
-    can_mcp_sign_in_return_to_daemon_receiver: false,
-    // Codex's log folder; the rows its service logs into the home's database the driver's own
-    // expiry deletes.
-    account_home_diagnostic_folders: &[&["log"]],
-    // Each thread's rollout, a spawned child thread's under its own id.
-    account_home_conversation_folders: &[&["sessions"]],
-    // Its memories stay each home's own, read in by the memory import.
-    account_home_memory_folder: None,
-    // The home of the one service every session that follows the current account runs in.
-    switching_home_folder: Some(CODEX_SWITCHING_HOME_FOLDER),
-    // `auth.json` sits in the home `CODEX_HOME` names.
-    account_home_credential_store_folder: &[],
-    shell_prefix_command: None,
-    terminal_resume_command: "codex resume",
 };
 
 /// Builds the Codex driver over the shared services; it stores handles and does no I/O.
@@ -319,7 +161,8 @@ pub(super) fn stop_recorded_services(
 ) -> BoxFuture<'static, Result<(), RecordedServicesStopError>> {
     let data_folder = data_folder.to_owned();
     async move {
-        let failures = stop_kept_services(data_folder, KeptServicesStop::Erase).await;
+        // No daemon runs, so no live service holds a record.
+        let failures = stop_kept_services(data_folder, KeptServicesStop::Erase, &[]).await;
         if failures.is_empty() {
             return Ok(());
         }
@@ -386,7 +229,10 @@ impl ProviderDriver for CodexDriver {
         self.resume_session(params).boxed()
     }
 
-    fn end_kept_turns(&self, params: EndKeptTurnsParams) -> BoxFuture<'_, Result<(), DriverError>> {
+    fn end_kept_turns(
+        &self,
+        params: EndKeptTurnsParams,
+    ) -> BoxFuture<'_, Result<crate::driver::session_control::KeptTurnsEnding, DriverError>> {
         self.end_kept_turns(params).map(Ok).boxed()
     }
 
@@ -629,6 +475,53 @@ impl ProviderDriver for CodexDriver {
         self.read_mcp_servers(request).boxed()
     }
 
+    fn observe_mcp_server(
+        &self,
+        binding: McpServerBindingRef,
+    ) -> BoxFuture<'_, Result<McpServerObserved, DriverError>> {
+        async move {
+            self.observe_mcp_server(&binding)
+                .await
+                .map_err(DriverError::from)
+        }
+        .boxed()
+    }
+
+    fn compose_mcp_server(
+        &self,
+        binding: &McpWritableBindingRef,
+        config: &McpServerConfigInput,
+        before: &McpServerObserved,
+    ) -> Result<McpServerEntry, McpServerWriteRefusal> {
+        compose_codex_mcp_entry(binding, config, &before.entry)
+    }
+
+    fn write_mcp_server(
+        &self,
+        write: McpServerWrite,
+        before: McpServerObserved,
+    ) -> BoxFuture<'_, McpServerWriteOutcome> {
+        async move { self.write_mcp_server(&write, &before).await }.boxed()
+    }
+
+    fn list_mcp_resources(
+        &self,
+        session_id: SessionId,
+        server_name: McpServerName,
+    ) -> BoxFuture<'_, Result<McpResourceSource, DriverError>> {
+        self.list_mcp_resources(session_id, server_name).boxed()
+    }
+
+    fn switch_session_mcp_servers(
+        &self,
+        session_id: SessionId,
+        run_id: RunId,
+        tool_servers: Vec<SessionToolServer>,
+    ) -> BoxFuture<'_, Result<McpSessionSwitch, DriverError>> {
+        self.switch_session_mcp_servers(session_id, run_id, tool_servers)
+            .boxed()
+    }
+
     fn compact_context(
         &self,
         params: CompactContextParams,
@@ -790,8 +683,12 @@ impl ProviderDriver for CodexDriver {
         self.subscribe_provider_commands(&params, listener)
     }
 
-    fn shutdown(&self, intent: DaemonStopIntent) -> BoxFuture<'_, Result<(), DriverError>> {
-        self.shutdown(intent).map(Ok).boxed()
+    fn shutdown(
+        &self,
+        intent: DaemonStopIntent,
+        deadline: tokio::time::Instant,
+    ) -> BoxFuture<'_, ()> {
+        self.shutdown(intent, deadline).boxed()
     }
 
     // A Codex session takes a message through the daemon's own steer and turn start, never

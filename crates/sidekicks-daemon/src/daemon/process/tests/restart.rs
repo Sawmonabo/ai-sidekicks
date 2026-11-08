@@ -14,7 +14,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::{create_missing_private_folders, short_socket_folder};
-use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::test_registry::{
     CodexServiceStandIn, RESUMED_TURN_NAME, serve_as_codex_service_stand_in, stand_in_codex_service,
 };
@@ -36,6 +35,7 @@ use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
 
 use super::{STOP_WAIT, TestHome};
+use crate::daemon::process::stop::DaemonStopReason;
 use crate::daemon::schema::schema_parts;
 
 // The provider turn the seeded run was running when the daemon stopped.
@@ -50,7 +50,7 @@ async fn codex_service_stand_in() {
 }
 
 // The stand-in test's path in this program, which its script runs.
-fn stand_in_test() -> String {
+pub(super) fn stand_in_test() -> String {
     format!(
         "{}::codex_service_stand_in",
         module_path!()
@@ -64,16 +64,16 @@ fn stand_in_test() -> String {
 // provider's current account, whose home stands in its own folder; a chat session in a git
 // repository whose lead runs on Codex; its run, running its seeded turn; and the run's binding,
 // holding the conversation a resume brings back.
-struct SeededCodexRun {
+pub(super) struct SeededCodexRun {
     session_id: SessionId,
-    run_id: RunId,
+    pub(super) run_id: RunId,
     account_home: PathBuf,
     _folders: [TempDir; 2],
 }
 
 impl SeededCodexRun {
     // Seeds the run in `home`'s store, made with the daemon's schema.
-    async fn seed(home: &TestHome) -> Self {
+    pub(super) async fn seed(home: &TestHome) -> Self {
         let data_folder = home.data_folder();
         create_missing_private_folders(&data_folder).expect("the data folder is made");
         let database_path = data_folder.join(DAEMON_DATABASE_FILE_NAME);
@@ -136,7 +136,7 @@ impl SeededCodexRun {
     // The environment the stand-in serves in, the seeded turn listed as `turn_status` on every
     // conversation it resumes, with this program's git after the stand-in's `codex` on the search
     // path, since the session's opening reads its repository through git.
-    fn provider_environment(
+    pub(super) fn provider_environment(
         stand_in: &CodexServiceStandIn,
         turn_status: &str,
     ) -> Vec<(String, String)> {
@@ -159,7 +159,7 @@ impl SeededCodexRun {
 
 // Writes the seeded run's rows on `connection`: the account on `account_home`, the session in
 // `repository` with its lead, the run on its turn, each as the daemon stores it.
-fn seed_rows(
+pub(super) fn seed_rows(
     connection: &Connection,
     account_home: &Path,
     repository: &Path,
@@ -239,7 +239,7 @@ fn seed_rows(
 }
 
 // The state the store holds for `run_id` in `home`.
-fn stored_run_state(home: &TestHome, run_id: RunId) -> String {
+pub(super) fn stored_run_state(home: &TestHome, run_id: RunId) -> String {
     Connection::open(home.data_folder().join(DAEMON_DATABASE_FILE_NAME))
         .expect("the store opens")
         .query_row(
@@ -299,11 +299,11 @@ async fn a_restart_keeps_the_terminal_service_and_the_next_start_joins_it_first(
     let launches = stand_in.launches();
     let connections = stand_in.connections();
     second
-        .stop(DaemonStopIntent::Stop)
+        .stop(DaemonStopReason::Stop)
         .await
         .expect("the second daemon's stop fails nothing");
 
-    assert_eq!(asked, DaemonStopIntent::Restart);
+    assert_eq!(asked, DaemonStopReason::Restart);
     assert_eq!(launched.len(), 1, "the first daemon launches its service");
     assert_eq!(launches, launched, "the second daemon launched a service");
     let second_daemons = connections
@@ -380,11 +380,11 @@ async fn a_restart_keeps_a_resumed_runs_account_service_and_the_next_pass_resume
     let connections = account_connections(&stand_in, account_process);
     let run_state = stored_run_state(&home, seeded.run_id);
     second
-        .stop(DaemonStopIntent::Stop)
+        .stop(DaemonStopReason::Stop)
         .await
         .expect("the second daemon's stop fails nothing");
 
-    assert_eq!(asked, DaemonStopIntent::Restart);
+    assert_eq!(asked, DaemonStopReason::Restart);
     assert_eq!(launches, launched, "the second daemon launched a service");
     let second_daemons = connections
         .get(first_daemons_connections..)
@@ -449,7 +449,7 @@ async fn a_run_the_recovery_pass_ends_has_its_binding_cursors_dropped_at_the_nex
         .as_ref()
         .is_some_and(|binding_id| binding_cursors.is_binding_open(binding_id));
     daemon
-        .stop(DaemonStopIntent::Stop)
+        .stop(DaemonStopReason::Stop)
         .await
         .expect("the daemon's stop fails nothing");
 

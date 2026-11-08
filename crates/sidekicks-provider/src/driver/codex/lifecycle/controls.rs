@@ -1,8 +1,8 @@
-//! A Codex session's controls and the driver's reads: a level or mode move, a side question, a
-//! compaction, its goal, a revoked rule, its command list and declared speed; the models, modes,
-//! capabilities, sign-in, MCP servers and starting level read on a service; an MCP server's
-//! sign-in through Codex's own client; the terminal-reach row; and the expiry of an account home's
-//! log rows.
+//! A Codex session's controls and the driver's reads: a level or mode move, a switch of its tool
+//! servers, a side question, a compaction, its goal, a revoked rule, its command list and declared
+//! speed; the models, modes, capabilities, sign-in, MCP servers and starting level read on a
+//! service; an MCP server's sign-in through Codex's own client; the terminal-reach row; and the
+//! expiry of an account home's log rows.
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -21,6 +21,7 @@ use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
 use sidekicks_contracts::provider::driver::commands::ProviderCommandBindingGroup;
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::record::Record;
 use sidekicks_ipc::domain_error::DomainError;
@@ -49,11 +50,12 @@ use crate::driver::contract::params_and_results::{
 };
 use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
 use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
+use crate::driver::mcp_server::session_switch::McpSessionSwitch;
 use crate::driver::read_current_account;
 use crate::driver::session_control::{
     AskSideQuestionParams, ClearSessionGoalParams, DriverAuthProbeResult, DriverAuthProbeStatus,
-    DriverGoalResult, ProviderCommandsListener, RevokeRuleParams, SetSessionGoalParams,
-    StartingLevel, StartingLevelParams, SubscribeProviderCommandsParams,
+    DriverGoalResult, ProviderCommandsListener, RevokeRuleParams, SessionToolServer,
+    SetSessionGoalParams, StartingLevel, StartingLevelParams, SubscribeProviderCommandsParams,
     UpdatePermissionLevelParams, UpdateSessionModeParams, build_auth_probe_result,
 };
 
@@ -84,6 +86,54 @@ impl CodexDriver {
         })
         .await??;
         Ok(())
+    }
+
+    /// Switches the session's tool servers to `tool_servers`: the set is written to run `run_id`'s
+    /// stored leg first, then put on the live record, which owes a fork onto it. Answers
+    /// `AtNextStart` with no live record or once the session closed before the fork, `Applied` once
+    /// an idle session moved onto the fork, and `AtNextTurn` while a turn holds the fork back or
+    /// once the fork failed: the set is kept and the fork still owed, its failure reported on its
+    /// own, so the next turn forks first. Fails as the stored write fails, with nothing applied.
+    pub(crate) async fn switch_session_mcp_servers(
+        &self,
+        session_id: SessionId,
+        run_id: RunId,
+        tool_servers: Vec<SessionToolServer>,
+    ) -> Result<McpSessionSwitch, DriverError> {
+        self.runtime_bindings
+            .replace_tool_servers(run_id, tool_servers.clone())
+            .await
+            .map_err(DriverError::Internal)?;
+        self.config_forks.join(session_id).await;
+        // A session at rest has no conversation to move; its next start or resume reads the set.
+        let Ok((inbound, turn)) = self.slots.require_live_settled(session_id).await else {
+            return Ok(McpSessionSwitch::AtNextStart);
+        };
+        // A task that let its record go meanwhile left the session at rest.
+        let Ok(switched) =
+            call_codex_lifecycle(&inbound, |reply| CodexLifecycleCall::SwitchToolServers {
+                tool_servers,
+                reply,
+            })
+            .await
+        else {
+            return Ok(McpSessionSwitch::AtNextStart);
+        };
+        if switched != McpSessionSwitch::Applied {
+            return Ok(switched);
+        }
+        // The idle session's fork is in flight and waits on the turn held here, so this joins it.
+        let fork = self.config_forks.fork(session_id, &inbound);
+        drop(turn);
+        match fork.await {
+            Ok(true) => Ok(McpSessionSwitch::Applied),
+            Err(error) if matches!(*error, CodexError::SessionClosed { .. }) => {
+                Ok(McpSessionSwitch::AtNextStart)
+            }
+            // A turn began before the fork ran, whose end runs it; or the fork failed, reported on
+            // its own path, and stays owed to the next turn.
+            Ok(false) | Err(_) => Ok(McpSessionSwitch::AtNextTurn),
+        }
     }
 
     /// Moves the live conversation between Build and Plan from its next turn. Fails as the level's
@@ -146,8 +196,8 @@ impl CodexDriver {
         params: CompactContextParams,
     ) -> Result<AgentRunContextCompactResponse, DriverError> {
         let inbound = self.slots.require_live(params.session_id)?;
-        let reading = call_codex_lifecycle(&inbound, |reply| CodexLifecycleCall::ReadCompaction {
-            reply,
+        let reading = call_codex_lifecycle(&inbound, |reply| {
+            CodexLifecycleCall::ReadConversation { reply }
         })
         .await?;
         let connection = reading.connection?;

@@ -19,17 +19,20 @@ pub enum KeychainService {
     McpSignIns,
     /// The delivery channels' secrets: the web address and its signing secret.
     DeliverySecrets,
+    /// The key every MCP mutation receipt's digests are keyed with, under one account.
+    McpReceiptKey,
 }
 
 impl KeychainService {
     /// Every service, in the order a move and an erase walk them.
-    pub(crate) const ALL: [Self; 6] = [
+    pub(crate) const ALL: [Self; 7] = [
         Self::WorkflowSecrets,
         Self::Probe,
         Self::MachineKeys,
         Self::ProviderTokens,
         Self::McpSignIns,
         Self::DeliverySecrets,
+        Self::McpReceiptKey,
     ];
 
     /// The service's name in the store.
@@ -41,6 +44,7 @@ impl KeychainService {
             Self::ProviderTokens => "ai-sidekicks-provider-tokens",
             Self::McpSignIns => "ai-sidekicks-mcp-sign-ins",
             Self::DeliverySecrets => "ai-sidekicks-delivery-secrets",
+            Self::McpReceiptKey => "ai-sidekicks-mcp-receipt-key",
         }
     }
 
@@ -52,7 +56,8 @@ impl KeychainService {
             | Self::MachineKeys
             | Self::ProviderTokens
             | Self::McpSignIns
-            | Self::DeliverySecrets => true,
+            | Self::DeliverySecrets
+            | Self::McpReceiptKey => true,
             Self::Probe => false,
         }
     }

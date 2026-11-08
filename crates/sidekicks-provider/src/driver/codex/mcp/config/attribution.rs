@@ -13,7 +13,9 @@ use sidekicks_contracts::place::PlacedPath;
 use sidekicks_platforms::PathRules;
 
 use crate::driver::codex::DESCRIPTOR;
-use crate::driver::codex::config_read::{CODEX_CONFIG_FILE_NAME, CodexConfigLayer};
+use crate::driver::codex::config_read::{
+    CODEX_CONFIG_FILE_NAME, CodexConfigLayer, CodexConfigLayerSource,
+};
 use crate::driver::codex::mcp::config::server_entry::{
     CodexServerTransport, has_transport, is_switched_off, read_codex_server_entry,
     read_codex_server_transport, read_switch, sets_other_members,
@@ -269,8 +271,8 @@ fn rank_layer<'read>(
 ) -> Option<RankedLayer<'read>> {
     let source = &layer.name;
     let role = match source.kind.as_str() {
-        "user" => LayerRole::User,
-        "project" => LayerRole::Project,
+        CodexConfigLayerSource::USER_KIND => LayerRole::User,
+        CodexConfigLayerSource::PROJECT_KIND => LayerRole::Project,
         "mdm"
         | "system"
         | "enterpriseManaged"

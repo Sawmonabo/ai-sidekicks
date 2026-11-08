@@ -508,6 +508,7 @@ mod tests {
                     .expect("an event id fits"),
             }],
             subagent_id: None,
+            model_id: None,
             is_stopping,
             run_state: RunState::Running,
         }

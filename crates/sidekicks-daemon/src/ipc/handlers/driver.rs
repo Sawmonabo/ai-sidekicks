@@ -44,6 +44,7 @@ use sidekicks_provider::driver::contract::params_and_results::{
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::pricing::store::HeldPriceList;
 use sidekicks_session::directory::lookups::session_exists;
+use sidekicks_session::driver_resolution::read_session_driver;
 use sidekicks_session::run::agent::{SessionLead, read_session_lead};
 use sidekicks_session::run::live_bindings::{
     AgentBindingResolution, RunBindingResolution, resolve_agent_bindings, resolve_run_binding,
@@ -70,6 +71,25 @@ pub(crate) struct DriverMethodSources {
     pub(crate) read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
     /// The held price list, on which every model a provider lists is marked in use.
     pub(crate) price_list: Arc<PortRegistration<Arc<HeldPriceList>>>,
+}
+
+impl DriverMethodSources {
+    /// The provider `session_id`'s lead runs on and its driver, once the session and its provider
+    /// pass. Fails with [`DriverMethodReadError::Refused`] for a session the daemon does not hold
+    /// or whose provider no driver answers, and as the read fails.
+    pub(crate) async fn resolve_driver(
+        &self,
+        session_id: SessionId,
+    ) -> Result<(ProviderId, Arc<dyn ProviderDriver>), DriverMethodReadError> {
+        let (provider, _, driver) = read_session_driver::<DriverMethodReadError>(
+            &self.pool,
+            &self.providers,
+            self.read_damaged_from_sequence.as_ref(),
+            session_id,
+        )
+        .await?;
+        Ok((provider, driver))
+    }
 }
 
 /// Why a driver method's read of a session did not answer: a refusal the caller reads by its code,

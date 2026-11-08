@@ -7,7 +7,10 @@ use sidekicks_contracts::run::queued::AgentRunQueuedPayload;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_store::database::writer::test_file::test_session_id;
 
-use super::{BriefCoverage, BriefFrame, BriefFrameParts, BriefHistory, WorkingDiff, frame_text};
+use super::{
+    BriefCoverage, BriefFrame, BriefFrameParts, BriefHistory, EXCHANGES_HEADING, STEPS_HEADING,
+    WorkingDiff, frame_text,
+};
 use crate::hand_over::canonical_transcript::{
     CanonicalToolResultOutcome, CanonicalToolResultProvenance, CanonicalTranscriptRole,
     CanonicalTranscriptSegment,
@@ -247,7 +250,7 @@ fn the_steps_leave_outputs_out_and_the_tail_keeps_the_newest_two_exchanges_whole
     );
     let roomy =
         BriefFrame::for_context_window(1_000_000).render(&parts, four_exchanges(GOAL, false));
-    let steps = section(&roomy.text, "## 3.", "## 4.");
+    let steps = section(&roomy.text, STEPS_HEADING, EXCHANGES_HEADING);
     assert_eq!(
         steps.trim(),
         "- read: {\"n\":1} \u{2192} succeeded\n\

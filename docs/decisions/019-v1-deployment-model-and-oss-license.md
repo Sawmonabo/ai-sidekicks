@@ -66,7 +66,7 @@ The daemon pins the relay's TLS key only when the relay's certificate does not c
 ### Relay Infrastructure
 
 - **Workers relay:** Cloudflare Workers + Durable Objects, deployed into the person's own Cloudflare account: one account object holds the account's data, and each machine's channels pass through a forwarding object of its own, which that machine's own relay connection creates, so it sits near the machine, as `deployment-topology.md` §Relay Scaling Strategy lays out. It hands out Cloudflare's STUN address, `stun.cloudflare.com:3478`, for the direct path.
-- **Compose relay:** `sidekicks-control-plane`'s native program, a second target of the crate the Worker is built from, serving the same v2 relay protocol from the same handlers, shipped alongside the daemon in the same repo with a `docker-compose.yml` (the relay's native program and Caddy) for single-command deployment on the person's own server, the account's data in a SQLite file on the server's disk. It answers STUN itself on UDP 3478 for the direct path, through `str0m`'s `is` crate, rate-limited as its DNS is, so the direct path's setup reaches no infrastructure beyond what the person holds. Its Caddy takes `ACME_PROFILE`, empty by default, which leaves Caddy's own profile; `shortlived` requests Let's Encrypt's 160-hour certificates.
+- **Compose relay:** `sidekicks-control-plane`'s native program, a second target of the crate the Worker is built from, serving the same v2 relay protocol from the same handlers, shipped alongside the daemon in the same repo with a `docker-compose.yml` (the relay's native program and Caddy) for single-command deployment on the person's own server, the account's data in a SQLite file on the server's disk. It answers STUN itself on UDP 3478 for the direct path, through the one maintained STUN crate the service's direct path also uses, rate-limited as its DNS is, so the direct path's setup reaches no infrastructure beyond what the person holds. Its Caddy takes `ACME_PROFILE`, empty by default, which leaves Caddy's own profile; `shortlived` requests Let's Encrypt's 160-hour certificates.
 
 Both backends implement the v2 relay protocol behind one shared contract so protocol-level changes land once and ship to both.
 
@@ -134,6 +134,12 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 - **What:** Every device-to-machine channel is peer-to-peer over WebRTC, using STUN and a TURN server for NAT traversal, with no relay.
 - **Steel man:** No relay to deploy; no intermediary on any frame.
 - **Why rejected:** A direct pair does not form behind every pair of routers, and a TURN server is a relay by another name, so the person would still deploy one. The channel's setup needs a path both ends already reach, and the machine never advertises itself on the network, so something must carry the setup, reachability and presence that [Spec-027](../specs/027-remote-control.md) reads from the relay connection. The relay does all of that, and the direct path ([ADR-008](./008-default-transports-and-relay-boundaries.md)) takes every channel the network allows off it, so the relay stays and is the fallback in TURN's place.
+
+### Option F: A Mesh Network or Another Host in Place of Cloudflare (Rejected)
+
+- **What:** Reach the machine over a Tailscale or iroh mesh, or run the relay program on Fly.io, in place of the Workers relay.
+- **Steel man:** A mesh needs no relay of the person's own for most connections, and Fly.io carries raw TCP and UDP, so dev-server ports could open in a browser tab without a server of the person's own.
+- **Why rejected:** Tailscale's free plan is "only suitable for non-commercial use" ([tailscale.com/pricing](https://tailscale.com/pricing)), a phone needs its VPN app, and a plain browser reaches the machine only through Funnel, whose per-machine address breaks one account's passkeys. iroh and WebRTC are transports, not a control plane: they can carry a channel beside the relay ([ADR-008](./008-default-transports-and-relay-boundaries.md)) but replace none of the sign-in, the account's data or presence. Fly.io costs money every month and runs in one region, while the Workers relay runs on the person's free Cloudflare account with nothing to keep running.
 
 ## Assumptions Audit
 

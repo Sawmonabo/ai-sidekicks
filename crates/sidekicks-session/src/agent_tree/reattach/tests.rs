@@ -1,3 +1,4 @@
+use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::run::subagent::SubagentId;
@@ -19,6 +20,7 @@ fn helper(
         parent_subagent_id: None,
         start_call_id: None,
         provider_path: None,
+        model_id: None,
         was_live,
     }
 }
@@ -27,7 +29,8 @@ fn helper(
 // started before it; P completed under L1 with the live child C; Q completed with nothing live
 // below it; X runs under L1 but is not in the list. Killed by a child before its parent, by P
 // missing, by Q or X included, by P marked live, by the store's order alone (H2 first), and by
-// H1's `parent_run_id` read off its first own run (L0).
+// H1's `parent_run_id` read off its first own run (L0); C carries the model its node names,
+// killed by the node's model left off.
 #[test]
 fn live_helpers_come_with_their_ancestors_parents_first() {
     let mut session = SessionLog::new();
@@ -45,7 +48,13 @@ fn live_helpers_come_with_their_ancestors_parents_first() {
     let p_run = session.own_run(lead_run, "p", RunState::Completed, &at(8));
     let p = session.node(p_run, "p", None, &at(8));
     let c_run = session.own_run(p_run, "c", RunState::Running, &at(9));
-    session.node(c_run, "c", Some(&p), &at(9));
+    session.node_on(
+        c_run,
+        "c",
+        Some(&p),
+        &at(9),
+        (Some("gpt-5.4-mini"), Some("low")),
+    );
 
     let q_run = session.own_run(lead_run, "q", RunState::Completed, &at(10));
     session.node(q_run, "q", None, &at(10));
@@ -65,7 +74,10 @@ fn live_helpers_come_with_their_ancestors_parents_first() {
             helper(h1_run, lead_run, "h1", true),
             helper(p_run, lead_run, "p", false),
             helper(h2_run, h1_run, "h2", true),
-            helper(c_run, p_run, "c", true),
+            ReattachedHelper {
+                model_id: Some(ProviderToken::new("gpt-5.4-mini".to_owned()).expect("a model id")),
+                ..helper(c_run, p_run, "c", true)
+            },
         ]
     );
 }

@@ -50,6 +50,10 @@ CREATE TABLE workflow_definitions (
   webhook_last_fire_at       TEXT,
   webhook_last_fire_outcome  TEXT
                              CHECK(webhook_last_fire_outcome IS NULL OR webhook_last_fire_outcome IN ('started','skipped','waiting','tokenMismatch')),
+  -- The workflow's own session, where every run no chat asked for lives: stored here when that
+  -- session is made, on the workflow's first such run; NULL until then. The end-of-run results
+  -- row skips a run in this session, and a child run.
+  own_session_id       TEXT,
   created_at           TEXT NOT NULL,
   created_by           TEXT,                           -- the device the save came from
   updated_at           TEXT NOT NULL,                  -- the last change to the row: a save, a rename, a layout, tags, level or pin write, or the soft delete; the Workflows tab's row reads it

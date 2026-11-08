@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use sidekicks_contracts::plan::PlanId;
-use sidekicks_contracts::run::queue::{PlanMessageKind, QueueItemId, QueueItemNotDeliveredReason};
+use sidekicks_contracts::run::queue::{PlanMessageKind, QueueItemNotDeliveredReason};
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::ports::MessageTakenListener as _;
 use sidekicks_session::queue_store::RecordedQueueItemState;
@@ -15,7 +15,7 @@ use tokio::time::timeout;
 
 use super::sends::{PLAN_MESSAGE_TEXT, new_plan_id, queue_item_id_of};
 use super::{DriverCalls, Fixture, WAIT, client_key, fixture, recording_driver};
-use crate::service::withdrawal::PlanMessageWithdrawal;
+use crate::service::withdrawal::CancelOutcome;
 
 /// The reason a seed whose run failed to start reads not delivered.
 const START_FAILED: RecordedQueueItemState = RecordedQueueItemState::NotDelivered {
@@ -24,7 +24,7 @@ const START_FAILED: RecordedQueueItemState = RecordedQueueItemState::NotDelivere
 
 impl Fixture {
     /// Withdraws the session's hand-off seed of `plan_id` as the hand-off's end does.
-    async fn withdraw_seed(&self, plan_id: PlanId) -> Option<PlanMessageWithdrawal> {
+    async fn withdraw_seed(&self, plan_id: PlanId) -> Option<CancelOutcome> {
         timeout(
             WAIT,
             self.queue
@@ -33,19 +33,6 @@ impl Fixture {
         .await
         .expect("the withdrawal answers")
         .expect("the withdrawal reads and writes")
-    }
-
-    /// The `event_type` events the session's log holds for `item_id`.
-    fn count_item_events(&self, event_type: &str, item_id: QueueItemId) -> i64 {
-        self.database
-            .reader()
-            .query_row(
-                "SELECT COUNT(*) FROM session_events
-                 WHERE type = ?1 AND json_extract(payload, '$.queueItemId') = ?2",
-                [event_type, item_id.to_string().as_str()],
-                |row| row.get(0),
-            )
-            .expect("the test counts the item's events")
     }
 }
 
@@ -66,13 +53,13 @@ async fn a_waiting_seed_is_canceled_and_the_message_beside_it_stays() {
     let withdrawn = fixture.withdraw_seed(plan_id).await;
     fixture.queue.stop().await;
 
-    assert_eq!(withdrawn, Some(PlanMessageWithdrawal::Canceled));
+    assert_eq!(withdrawn, Some(CancelOutcome::Canceled));
     assert_eq!(
         fixture.stored_state(seed_id),
         RecordedQueueItemState::Canceled
     );
     assert_eq!(
-        fixture.count_item_events("agent.queueItem.canceled", seed_id),
+        fixture.count_events(Some("agent.queueItem.canceled"), Some(seed_id)),
         1
     );
     assert_eq!(
@@ -110,17 +97,17 @@ async fn a_seed_not_delivered_is_canceled_and_stays_so_when_taken_late() {
         .expect("the late admission settles");
     fixture.queue.stop().await;
 
-    assert_eq!(withdrawn, Some(PlanMessageWithdrawal::Canceled));
+    assert_eq!(withdrawn, Some(CancelOutcome::Canceled));
     assert_eq!(
         fixture.stored_state(seed_id),
         RecordedQueueItemState::Canceled
     );
     assert_eq!(
-        fixture.count_item_events("agent.queueItem.canceled", seed_id),
+        fixture.count_events(Some("agent.queueItem.canceled"), Some(seed_id)),
         1
     );
     assert_eq!(
-        fixture.count_item_events("agent.queueItem.admitted", seed_id),
+        fixture.count_events(Some("agent.queueItem.admitted"), Some(seed_id)),
         0
     );
 }
@@ -152,7 +139,7 @@ async fn a_seed_sent_again_by_its_retry_is_found_by_its_plan() {
     let withdrawn = fixture.withdraw_seed(plan_id).await;
     fixture.queue.stop().await;
 
-    assert_eq!(withdrawn, Some(PlanMessageWithdrawal::Canceled));
+    assert_eq!(withdrawn, Some(CancelOutcome::Canceled));
     assert_eq!(
         fixture.stored_state(retried_id),
         RecordedQueueItemState::Canceled
@@ -174,16 +161,16 @@ async fn a_seed_a_run_took_is_answered_taken() {
         .send_plan_message(plan_id, PlanMessageKind::Seed, client_key())
         .await;
     fixture.queue.stop().await;
-    let events = fixture.count_events();
+    let events = fixture.count_events(None, None);
 
     let withdrawn = fixture.withdraw_seed(plan_id).await;
 
-    assert_eq!(withdrawn, Some(PlanMessageWithdrawal::Taken));
+    assert_eq!(withdrawn, Some(CancelOutcome::Taken));
     assert_eq!(
         fixture.stored_state(seed_id),
         RecordedQueueItemState::Admitted
     );
-    assert_eq!(fixture.count_events(), events);
+    assert_eq!(fixture.count_events(None, None), events);
 }
 
 // A seed its run is starting with is answered as taken while it still reads queued, and the run
@@ -207,7 +194,7 @@ async fn a_seed_a_starting_run_opens_with_is_answered_taken() {
     start.release.send(()).expect("the start waits");
     fixture.queue.stop().await;
 
-    assert_eq!(withdrawn, Some(PlanMessageWithdrawal::Taken));
+    assert_eq!(withdrawn, Some(CancelOutcome::Taken));
     assert_eq!(state_during_start, RecordedQueueItemState::Queued);
     assert_eq!(
         fixture.stored_state(seed_id),
@@ -230,13 +217,13 @@ async fn with_no_seed_of_the_plan_the_withdrawal_answers_none() {
     let other_seed_id = fixture
         .send_plan_message(new_plan_id(), PlanMessageKind::Seed, client_key())
         .await;
-    let events = fixture.count_events();
+    let events = fixture.count_events(None, None);
 
     let withdrawn = fixture.withdraw_seed(plan_id).await;
     fixture.queue.stop().await;
 
     assert_eq!(withdrawn, None);
-    assert_eq!(fixture.count_events(), events);
+    assert_eq!(fixture.count_events(None, None), events);
     assert_eq!(
         fixture.stored_state(build_id),
         RecordedQueueItemState::Queued

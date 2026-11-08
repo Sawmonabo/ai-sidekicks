@@ -23,6 +23,7 @@ use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 
 use super::{Placed, QueueAdmission, is_invalid_transition, is_waiting, log_failure};
+use crate::delivery::run_end::FAILED_DELIVERY_REASON;
 use crate::error::QueueError;
 use crate::recorder::lead_run_queued;
 
@@ -129,7 +130,7 @@ impl QueueAdmission {
                 return Err(QueueError::ContinueTakenOver { run_id });
             }
             if current.as_ref().is_some_and(is_waiting) {
-                self.record_not_delivered(&opening, QueueItemNotDeliveredReason::Failed {})
+                self.record_not_delivered(&opening, FAILED_DELIVERY_REASON)
                     .await?;
             }
             return Err(error);
@@ -187,7 +188,7 @@ impl QueueAdmission {
         self.release(run_id);
         let hold = self.deps.session_lock.hold_session(session_id).await;
         let marked = self
-            .mark_waiting_undelivered(&hold, run_id, QueueItemNotDeliveredReason::Failed {})
+            .mark_waiting_undelivered(&hold, run_id, FAILED_DELIVERY_REASON)
             .await;
         if let Err(mark) = marked {
             log_failure(

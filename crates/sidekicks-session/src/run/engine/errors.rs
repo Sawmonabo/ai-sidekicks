@@ -63,8 +63,9 @@ pub enum RunEngineError {
         #[source]
         source: Box<dyn Error + Send + Sync>,
     },
-    /// The interventions service was never handed to the engine or has shut down, so the run the
-    /// daemon stopped at a limit was not interrupted.
+    /// The interventions service was never handed to the engine or has shut down, or the daemon's
+    /// stop cut the limit stop's hand or let none start, so the run the daemon stopped at a limit
+    /// was not interrupted.
     #[error("no interventions service interrupts run {run_id}, stopped at a limit")]
     LimitInterrupterGone {
         /// The run.

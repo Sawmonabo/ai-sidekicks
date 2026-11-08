@@ -70,7 +70,9 @@ pub(super) async fn run_codex_sign_out(
     let executable = program.resolve(&home).await?;
     let mut arguments = home_exec_switches(&home.kind);
     arguments.push(CODEX_SIGN_OUT_SUBCOMMAND.to_owned());
-    let launch = compose_codex_native_launch(data_folder, &executable, arguments).await?;
+    let launch = compose_codex_native_launch(data_folder, &executable, arguments)
+        .await?
+        .launch;
     run_codex_command_to_exit(spawner, launch)
         .await
         .map_err(|error| DriverError::Internal(Box::new(error)))
