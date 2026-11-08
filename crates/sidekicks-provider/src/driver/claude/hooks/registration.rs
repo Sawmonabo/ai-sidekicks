@@ -56,11 +56,13 @@ pub(crate) enum ClaudeHookCallback {
     CaptureAfterTool,
     /// Closes the window of a command that ran with no wrapper once its call fails.
     CaptureAfterFailedTool,
+    /// Forgets what a helper call asked for once the call fails, so no start will take it.
+    HelperCallFailed,
 }
 
 impl ClaudeHookCallback {
     /// Every hook, so a callback id is read back against each.
-    const ALL: [Self; 10] = [
+    const ALL: [Self; 11] = [
         Self::PauseBeforeTool,
         Self::PauseAfterBatch,
         Self::HelperLimit,
@@ -71,6 +73,7 @@ impl ClaudeHookCallback {
         Self::HelperSteerAtStop,
         Self::CaptureAfterTool,
         Self::CaptureAfterFailedTool,
+        Self::HelperCallFailed,
     ];
 
     /// The callback id the hook is registered under.
@@ -86,6 +89,7 @@ impl ClaudeHookCallback {
             Self::HelperSteerAtStop => "sidekicks-helper-steer-at-stop",
             Self::CaptureAfterTool => "sidekicks-capture-after-tool",
             Self::CaptureAfterFailedTool => "sidekicks-capture-after-failed-tool",
+            Self::HelperCallFailed => "sidekicks-helper-call-failed",
         }
     }
 
@@ -118,10 +122,11 @@ impl ClaudeDialogKind {
     }
 }
 
-/// The `initialize` request a session's process is brought up with: the daemon's hooks, the
-/// session's helper definitions, the two dialogs the console draws, and the per-task stop the
-/// console offers, and the tool servers the daemon hosts in-process, by name. The helper hold, on
-/// the helper and message tools, is registered only where the policy limits helpers at once.
+/// The `initialize` request a session's process is brought up with: the daemon's hooks (a failed
+/// helper call's among them, which forgets what the call asked for), the session's helper
+/// definitions, the two dialogs the console draws, and the per-task stop the console offers, and
+/// the tool servers the daemon hosts in-process, by name. The helper hold, on the helper and
+/// message tools, is registered only where the policy limits helpers at once.
 pub(crate) fn compose_claude_initialize_request(
     subagent_policy: Option<&SubagentPolicy>,
     in_process_servers: Vec<String>,
@@ -179,10 +184,16 @@ pub(crate) fn compose_claude_initialize_request(
                     ClaudeHookCallback::CaptureAfterTool,
                 ),
             ],
-            post_tool_use_failure: vec![unheld(
-                Some(compose_command_capture_matcher()),
-                ClaudeHookCallback::CaptureAfterFailedTool,
-            )],
+            post_tool_use_failure: vec![
+                unheld(
+                    Some(compose_command_capture_matcher()),
+                    ClaudeHookCallback::CaptureAfterFailedTool,
+                ),
+                unheld(
+                    Some(format!("^{CLAUDE_HELPER_TOOL_NAME}$")),
+                    ClaudeHookCallback::HelperCallFailed,
+                ),
+            ],
             post_tool_batch: vec![unheld(None, ClaudeHookCallback::PauseAfterBatch)],
             permission_denied: vec![unheld(None, ClaudeHookCallback::PermissionDenied)],
             subagent_stop: vec![unheld(None, ClaudeHookCallback::HelperSteerAtStop)],

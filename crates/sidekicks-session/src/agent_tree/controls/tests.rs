@@ -47,14 +47,13 @@ use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::events::log_service::test_fixture::open_log;
-use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
-use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 use super::{AgentChildRunControlRefusedReason, ChildRunControlError, ChildRunControls};
 use crate::agent_tree::read::AGENT_TREE_READ_STATEMENT_CAPACITY;
 use crate::agent_tree::read::tests::{HELPER_PROVIDER, SessionLog, at};
 use crate::agent_tree::store::{NewAgentTreeNode, insert_node, mint_child_handle};
+use crate::agent_tree::sweep::stops::tests::appender;
 use crate::agents::projection::test_fixture::{binding, run_statements, session_created};
 use crate::interventions::limit_stop::tests::owed_limit::NoWaitingMessages;
 use crate::interventions::service::tests::{Harness, applied, harness};
@@ -97,10 +96,7 @@ async fn controls(
         (*harness.service).clone(),
         Arc::new(pauses),
         Arc::new(NoWaitingMessages(KeyedLock::new())),
-        Arc::new(SessionEventAppender::new(
-            open_log(database, None).await.service,
-            SESSION_EVENT_VERSION.clone(),
-        )),
+        appender(open_log(database, None).await.service),
         read_damaged_from_sequence,
     )
 }
@@ -162,6 +158,8 @@ async fn child_of_a_run(
             name: None,
             role: None,
             provider_path: None,
+            model_id: None,
+            effort: None,
             start_call_id: None,
             own_run_id: harness.run_id,
             started_at: WireInstant::now(),

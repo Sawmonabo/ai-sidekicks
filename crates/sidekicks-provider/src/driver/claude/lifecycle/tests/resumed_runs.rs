@@ -42,6 +42,7 @@ fn lead_run(run_id: RunId, open_turns: Vec<OpenTurnResume>) -> LiveRunResume {
         parent_run_id: None,
         open_turns,
         subagent_id: None,
+        model_id: None,
         is_stopping: false,
         run_state: RunState::Running,
     }
@@ -54,6 +55,7 @@ fn helper_run(run_id: RunId, parent_run_id: RunId) -> LiveRunResume {
         parent_run_id: Some(parent_run_id),
         open_turns: vec![open_turn(1)],
         subagent_id: Some(SubagentId::new("helper-1".to_owned()).expect("a helper id fits")),
+        model_id: None,
         is_stopping: false,
         run_state: RunState::Running,
     }
@@ -116,6 +118,7 @@ async fn a_resume_the_live_process_answers_holds_only_the_turn_it_runs() {
         parent_run_id: None,
         open_turns: Vec::new(),
         subagent_id: None,
+        model_id: None,
         is_stopping: false,
         run_state: RunState::Running,
     };

@@ -30,9 +30,9 @@ There is one recording and one call at a time on this computer, so the verbs on 
 | `voice.call.start` | `mutation` | `VoiceCallStartRequest` | `VoiceCallStartResponse` |
 | `voice.call.stop` | `mutation` | `EmptyPayload` | `EmptyPayload` |
 | `voice.call.subscribe` | `subscription` | `EmptyPayload` | `VoiceCallFrame` (stream) |
-| `voice.list` | `query` | `EmptyPayload` | `VoiceListResponse` |
+| `voice.list` | `query` | `VoiceListRequest` | `VoiceListResponse` |
 
-Voice on an account whose sign-in kind its provider gives no voice (on Claude Code, an API-key or cloud-provider account) is refused with `voice.accountNotEntitled` (403), `data.fields` `{reason: signInKindNotEntitled, provider}`, `provider` the session's, and the strip draws one sentence, the same on every provider: `Voice isn't available on <account>.` A provider or installed build without voice refuses `voice.dictation.start` and `voice.call.start` with `provider.capability.unsupported`. `voice.call.start` refuses with `voice.call.startFailed` (503) when the provider's realtime service or the network failed before its answer arrived, with `provider.account.notAuthenticated` when the provider refused the account's sign-in, with `provider.account.allowanceExhausted` (429) when the account's allowance is spent, and with `provider.timeout` when no answer came in time.
+Voice on an account whose sign-in kind its provider gives no voice (on Claude Code, an API-key or cloud-provider account) is refused with `voice.accountNotEntitled` (403), `data.fields` `{reason: signInKindNotEntitled, provider}`, `provider` the session's, and the strip draws one sentence, the same on every provider: `Voice isn't available on <account>.` A provider or installed build without voice refuses `voice.dictation.start` and `voice.call.start` with `provider.capability.unsupported`. `voice.call.start` refuses with `voice.call.startFailed` (503) when the provider's realtime service or the network failed before its answer arrived, with `provider.account.notAuthenticated` when the provider refused the account's sign-in, with `provider.account.allowanceExhausted` (429) when the account's allowance is spent, and with `provider.timeout` when no answer came in time. `voice.dictation.start` and `voice.call.start` in a session voice is not on in refuse with `voice.notOn` (409). A second start in the same session stops the recording or call in progress without canceling it, keeping its words, and starts the new one.
 
 ```ts
 // Which session voice is on in, or null when it is off: the request of `voice.state.update`, its
@@ -111,9 +111,14 @@ type VoiceCallEndCause =
   | { cause: "closed"; reason: string | null }
   | { cause: "error"; message: string }; // non-empty
 
-// The voices Codex offers a call (its own `v1` list) and the one it uses until the person picks
-// another, for the `Voice` row of Settings › Providers › Codex. The pick is written to the
-// machine's settings file, never into Codex's configuration.
+// The provider whose voices are listed; the handler asks that provider's driver, so no shared code
+// branches on which provider it is.
+interface VoiceListRequest {
+  provider: ProviderId;
+}
+// The voices the provider offers a call (Codex's own `v1` list) and the one it uses until the
+// person picks another, for the `Voice` row in that provider's section of Settings › Providers. The
+// pick is written to the machine's settings file, never into the provider's configuration.
 interface VoiceListResponse {
   voices: string[]; // each non-empty
   defaultVoice: string; // non-empty

@@ -27,7 +27,9 @@ interface DaemonRecoveryStatus {
     // reconciliation in a multi-run session — a Plan-012 T12.5 divergence halt or a failed resume
     // each land one entry. Absent when no run-level recovery condition exists. Entry contract: a
     // divergence-halt entry carries no failureCategory (the run did not fail), and there is no
-    // failure to drill into; a failed-resume entry carries failureCategory REQUIRED.
+    // failure to drill into; a failed-resume entry carries failureCategory REQUIRED. A failed
+    // resume's entry clears when the session's next run starts; a divergence halt's entry leaves
+    // once its run has ended or its question is answered.
     haltedRuns?: Array<{
       runId: RunId;
       recoveryCondition: RecoveryCondition;
@@ -119,6 +121,9 @@ type SessionRestoreSkipReason =
   | "notARegularFile"
   | "directoryMoved"
   | "tooLarge" // a file over 10 MiB that a command changed, on a volume that cannot clone it
+  // a file over 10 MiB that a command changed, whose checkout is its volume's top, so no place on
+  // that volume could hold its clone
+  | "noPlaceOnVolume"
   // changed by a command that moved the branch (a commit, a checkout, a reset, a pull); putting it
   // back would turn the branch's commits into uncommitted reversals
   | "branchMovedByCommand";

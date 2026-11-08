@@ -63,7 +63,9 @@ interface AgentChildRunLinkListRequest {
 type AgentTreeMember =
   | { kind: "agent"; agentId: AgentId }
   | { kind: "providerChild"; runId: RunId; childHandle: string };
-// What a child's head reads after its name.
+// What a child's head reads after its name. A provider's own helper takes its model from its newest
+// usage row, then the nearest node in its lineage, then its parent's binding, and its effort from its
+// node, then its parent's binding.
 interface ChildRunHead {
   modelId: string;
   effort?: string; // one word from the one effort ladder
@@ -199,7 +201,9 @@ interface AgentConfigUpdateRequest {
   // provider surface through `provider.account.current.update` (provider-account-payloads.md
   // §Plan-023), which moves every unpinned running session on that provider. A caller supplying an
   // account member is refused, not served — a per-session account switch beside a provider-wide
-  // current account would let the two disagree.
+  // current account would let the two disagree. A provider move that names no `modelId` keeps the
+  // current model when the target provider lists it and is otherwise refused
+  // `agent.providerAxisInvalid` on `modelId`; no default model is ever taken.
   providerName?: string;
   effort?: string;
   // The output-speed axis ([Spec-014 §The mutation surface](../../specs/014-multi-agent-orchestration.md#the-mutation-surface)). Gated on the
@@ -604,7 +608,7 @@ type AgentRunQueuedPayload = {
 );
 
 // A provider's own helper as the run it starts names it: the handle the daemon minted for it at its
-// first start and the ids its provider gave it and its parent.
+// first start, the ids its provider gave it and its parent, and the model and effort the start names.
 interface ProviderChildStart {
   childHandle: string; // UUID
   provider: ProviderId;
@@ -614,6 +618,8 @@ interface ProviderChildStart {
   name?: string;
   role?: string;
   providerPath?: string;
+  modelId?: string; // the model its provider started it on, where the start names one
+  effort?: string; // the effort it was started at, in the provider's word
   startCallId?: ToolCallId; // the provider's call that started this run of the helper
 }
 
@@ -644,7 +650,7 @@ interface OrchestrationRunLinkCarrier {
 | `session.goal.clear` | `mutation` | `SessionGoalClearRequest` → `SessionAcknowledgment` | An accepted clear emits `session.goal.cleared` (clearing is the distinct operation — an update without a goal is malformed) |
 | `agent.config.update` | `mutation` | `AgentConfigUpdateRequest` → `AgentConfigUpdateResponse` | The running agent's model, window, effort, speed, session options and provider; never the account, which is `provider.account.current.update` (provider-account-payloads.md §Plan-023). Settles with `agent.providerBinding.changed` or `agent.providerBinding.changeFailed` |
 | `agent.subscribe` | `subscription` | `AgentSubscribeRequest` → `AgentSubscribeResponse` | Agents-table projection, live: the list, then each change |
-| `provider.terminalSession.list` | `query` | `EmptyPayload` → `ProviderTerminalSessionListResponse` | The provider sessions typed in a terminal, each a `TerminalProviderSession` with its `provider`, and `providers`, the name and resume command of each provider with at least one; refusals `provider.unavailable` and `provider.timeout`; shapes in local-ipc-payloads.md §Plan-005; empty while `Reach Codex sessions started in a terminal` is off |
+| `provider.terminalSession.list` | `query` | `EmptyPayload` → `ProviderTerminalSessionListResponse` | The provider sessions typed in a terminal, each a `TerminalProviderSession` with its `provider`, and `providers`, the name and resume command of each provider with at least one; each session is read with a 2 s bound, a session whose read fails is listed as unreachable, named by its thread id, and only a failed read of the whole list fails the call, with `provider.unavailable` or `provider.timeout`; shapes in local-ipc-payloads.md §Plan-005; empty while `Reach Codex sessions started in a terminal` is off |
 
 `session.maxSteps.update`, `session.spendLimit.update` and `session.tokensPerRun.update`, the session's own `Max steps per turn`, `Spend limit` and `Tokens per run`, are registered with their shapes in session-payloads.md §Session Method-Name Registry.
 

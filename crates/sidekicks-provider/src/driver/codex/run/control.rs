@@ -208,9 +208,7 @@ impl CodexRunControl {
                 Ok(self.continue_run(&inbound, params).await?)
             }
         };
-        continued.map(|()| ResumeRunOutcome {
-            is_hold_lost: false,
-        })
+        continued.map(|()| ResumeRunOutcome::default())
     }
 
     /// Acts on the end of a step of the turn `turn_id`, on the session's task: a pause waiting

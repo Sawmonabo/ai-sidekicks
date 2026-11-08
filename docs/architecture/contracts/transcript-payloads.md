@@ -533,7 +533,8 @@ interface TurnTasksUpdate {
 // count opens the card on it. The answered mark is the answering turn's `user.message.sent` row
 // whose `answersQuestionId?` names the question it answers: the message `question.resolve` writes
 // for a held question, and the taken message for a non-waiting one. A question no message names is
-// unanswered.
+// unanswered. Beside `answersQuestionId?` the same row carries `cloudTaskId?`, which marks a message
+// sent to the provider's cloud with `cloud.task.start`: the agent never received it.
 
 // question.asked — the record the screen renders, registered in Spec-005's `interactiveRequest`
 // category, which owns the name and the census. A tool server's question and a workflow step
@@ -623,7 +624,9 @@ interface QuestionCanceledPayload {
   sessionId: SessionId;
   questionId: QuestionId;
   // Its turn was interrupted, its provider withdrew the request, or its run ended, a restart of
-  // the background service among the ways a run ends.
+  // the background service among the ways a run ends. Where the run ended, the reason is read from
+  // its end state, never from which report arrived first: every `interrupted` end (the person's,
+  // an undo, a spend limit) is `interrupted`.
   reason: "interrupted" | "withdrawn" | "runEnded";
 }
 
@@ -666,8 +669,8 @@ Plan-010's transcript surface is exposed as the `transcript.*` methods below, re
 | `transcript.patch.list` | `query` | `TranscriptPatchListRequest` | `TranscriptPatchListResponse` |
 | `transcript.search` | `query` | `TranscriptSearchRequest` | `TranscriptSearchResponse` |
 | `transcript.path.resolve` | `query` | `TranscriptPathResolveRequest` | `TranscriptPathResolveResponse` |
-| `agent.turn.usage.subscribe` | `subscription` | `AgentTurnSubscribeRequest` | `SubscribeAckResponse`, then `TurnUsageUpdate` frames |
-| `agent.turn.task.subscribe` | `subscription` | `AgentTurnSubscribeRequest` | `SubscribeAckResponse`, then `TurnTasksUpdate` frames |
+| `agent.turn.usage.subscribe` | `subscription` | `AgentTurnSubscribeRequest` | `SubscribeAcknowledgmentResponse`, then `TurnUsageUpdate` frames |
+| `agent.turn.task.subscribe` | `subscription` | `AgentTurnSubscribeRequest` | `SubscribeAcknowledgmentResponse`, then `TurnTasksUpdate` frames |
 | `question.resolve` | `mutation` | `QuestionResolveRequest` | `QuestionResolveResponse` |
 
 `agent.turn` and `question` are two further registered namespaces on this same transport. They sit here rather than under `transcript` because a namespace names the thing it is about: the two subscriptions are readings of ONE TURN that end with it, while `transcript.*` reads the session's whole flow, and a question is a record with its own lifecycle rather than a row. Neither `agent.turn.*` subscription is polled, and no `question.ask` exists to register — the record is minted by the daemon from the provider's own held request, a tool server's question or a workflow step's wait, never by a client.

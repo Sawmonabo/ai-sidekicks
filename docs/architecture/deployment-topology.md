@@ -155,6 +155,8 @@ The 256 MB local daemon budget above is an operating target for one user's sessi
 
 **Measurement.** Footprint and RSS on macOS, the service counted apart from Claude Code, Codex, Chromium and terminals: idle, with four sessions while all four stream, and two minutes after. Comparable compiled services idle at 25–33 MB; that is the reason the service is written in Rust, not a promised figure; a tighter target than the 256 MB budget is set from the service's first measurement under this workload.
 
+**Start and idle against comparable apps.** The service's time from start to its first answer, and its idle processor use over 10 minutes, are measured once beside Zed and the other comparable desktop agent apps on the same Mac, each run under a private HOME, and must beat every one of them. The figures are written here beside the memory target.
+
 **Flat over time.** The same four-session run, idle again after streaming, returns to its idle figure, and nothing in the service keeps an unbounded queue or cache.
 
 **The direct path.** With no device on a direct path the service holds nothing for it: no UDP socket, router mapping or mDNS thread. Each direct peer costs the service at most 512 KiB idle and 2 MiB with its buffers full, one task and no thread, and a 1 MB a second live picture over the direct path at most 20 ms of the service's processor a second; a page with one direct channel streaming adds at most 8 MB. These are first settings, measured once by the direct path's unit ([Plan-025](../plans/025-remote-control.md) Phase 9).

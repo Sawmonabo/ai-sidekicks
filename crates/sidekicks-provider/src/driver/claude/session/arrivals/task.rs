@@ -275,6 +275,7 @@ impl ClaudeSessionTask {
             ClaudeRequestRoute::CheckHelperStart {
                 request_id,
                 agent_id,
+                helper_call,
             } => {
                 let posture = lock(&live.settings).execution_posture.clone();
                 let settled = route_helper_start(
@@ -285,6 +286,20 @@ impl ClaudeSessionTask {
                     agent_id,
                 )
                 .await;
+                // Kept before the hook is answered, so the start it allows finds it; a denied call
+                // starts no helper.
+                let is_denied = matches!(
+                    settled,
+                    ClaudeRequestRoute::Answer {
+                        answer: ClaudeHookAnswer::Deny { .. },
+                        ..
+                    }
+                );
+                if let Some(helper_call) = helper_call
+                    && !is_denied
+                {
+                    self.stream.record_helper_call(helper_call);
+                }
                 Box::pin(self.take_route(settled, level)).await;
             }
             ClaudeRequestRoute::CheckMessageTarget {
@@ -321,6 +336,22 @@ impl ClaudeSessionTask {
                 )
                 .await;
                 Box::pin(self.take_route(settled, level)).await;
+            }
+            ClaudeRequestRoute::ForgetHelperCall {
+                request_id,
+                call_id,
+            } => {
+                if let Some(call_id) = call_id {
+                    self.stream.forget_helper_call(&call_id);
+                }
+                answer_claude_request(
+                    &*live.channel,
+                    &session_id,
+                    account,
+                    request_id,
+                    &ClaudeHookAnswer::Pass,
+                )
+                .await;
             }
             ClaudeRequestRoute::Answer { request_id, answer } => {
                 answer_claude_request(&*live.channel, &session_id, account, request_id, &answer)
@@ -392,6 +423,7 @@ impl ClaudeSessionTask {
                         &services.scheduler,
                         &services.pauses,
                         &services.self_started.start.slots,
+                        &self.stream,
                         session_id,
                         helper.agent_id,
                     );
@@ -423,6 +455,18 @@ impl ClaudeSessionTask {
                 }
                 answer_claude_request(&*live.channel, &session_id, account, request_id, &answer)
                     .await;
+            }
+            // A withdrawn helper call starts no helper, whichever of its hooks was withdrawn.
+            ClaudeRequestRoute::Withdrawn {
+                request_id,
+                held_call_id,
+            } => {
+                if let Some(call_id) = held_call_id {
+                    self.stream.forget_helper_call(&call_id);
+                }
+                self.stream.forget_helper_call_of_request(&request_id);
+                let withdrawal = ClaudeInboundRequestEvent::Cancel { request_id };
+                Box::pin(self.take_route(ClaudeRequestRoute::Forward(withdrawal), level)).await;
             }
             ClaudeRequestRoute::Forward(event) => {
                 let running_model = lock(&live.settings).running_model.clone();
@@ -541,6 +585,7 @@ impl ClaudeSessionArrivalHandler for ClaudeSessionTask {
             match arrival {
                 ClaudeSessionArrival::Frame(routed) => self.take_frame(*routed).await,
                 ClaudeSessionArrival::Terminal => {
+                    self.stream.forget_lead_helper_calls();
                     let is_settled = self.services.settlement.settle_turn(&self.live).await;
 
                     if is_settled {

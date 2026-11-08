@@ -27,7 +27,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::MockProviderDriver;
-use sidekicks_provider::driver::registry::test_provider;
+use sidekicks_provider::driver::registry::{test_provider, test_token};
 use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
 };
@@ -51,6 +51,7 @@ use crate::run::engine::test_fixture::{
 };
 use crate::run::engine::tests::{started_turn, turn_start};
 use crate::run::engine::{RunEngine, SubagentRunStart};
+use crate::run::read::RunStateReader;
 use crate::run::start_request::RunStartRequest;
 
 // The posture at `level` over `git_folder`.
@@ -132,6 +133,8 @@ fn helper(
         name: None,
         role: None,
         provider_path: None,
+        model_id: None,
+        effort: None,
         start_call_id: Some(ToolCallId::new(start_call_id.to_owned()).expect("a call id")),
     }
 }
@@ -592,11 +595,14 @@ async fn a_helpers_start_writes_its_node_in_its_runs_own_append() {
     );
 }
 
-// A helper's later start binds its node to the newer run, keeping its handle and its first start; a
-// helper started beneath it hangs under its node; and the fold rebuilds every row as the live
-// writes left it. Killed by an insert per start, which the unique key refuses, a new handle per
-// start, `started_at` rewritten on a bind, the parent link left unresolved, and by a fold that
-// mints a handle, inserts a handle it already wrote or times a row by the clock.
+// A helper's later start binds its node to the newer run, keeping its handle and its first start,
+// the model and effort that start named included; a helper started beneath it hangs under its node;
+// and the fold rebuilds every row as the live writes left it. Killed by an insert per start, which
+// the unique key refuses, a new handle per start, `started_at` rewritten on a bind, the parent link
+// left unresolved, the payload or the node dropping the model or effort, a bind that rewrites them,
+// a live resume that names the newer run's own start's model, which is none, and by a fold that
+// mints a handle, inserts a handle it already wrote, drops the model or effort, or times a row by
+// the clock.
 #[tokio::test]
 async fn a_helpers_later_start_binds_its_node_and_a_rebuild_writes_the_same_rows() {
     let database = TestDatabase::new(subagent_schema_parts());
@@ -613,7 +619,14 @@ async fn a_helpers_later_start_binds_its_node_and_a_rebuild_writes_the_same_rows
 
     let first = running(
         engine
-            .start_provider_subagent_run(parent, helper("helper-1", None, "call-1"))
+            .start_provider_subagent_run(
+                parent,
+                ChildRunSubagent {
+                    model_id: Some(test_token("gpt-5.4-mini")),
+                    effort: Some(test_token("low")),
+                    ..helper("helper-1", None, "call-1")
+                },
+            )
             .await
             .expect("the first start is answered"),
     );
@@ -634,7 +647,11 @@ async fn a_helpers_later_start_binds_its_node_and_a_rebuild_writes_the_same_rows
     let (second_queued, second_at) = queued_event(&database, &second);
     let session_id = SessionId::new(first_queued["sessionId"].as_str().expect("a session id"))
         .expect("the queued run names its session");
+    assert_eq!(first_queued["providerChild"]["modelId"], "gpt-5.4-mini");
+    assert_eq!(first_queued["providerChild"]["effort"], "low");
     let helper_one = stored_node(&database, session_id, "helper-1");
+    assert_eq!(helper_one.model_id, Some(test_token("gpt-5.4-mini")));
+    assert_eq!(helper_one.effort, Some(test_token("low")));
     assert_eq!(helper_one.child_handle, queued_child_handle(&first_queued));
     assert_eq!(helper_one.child_handle, queued_child_handle(&second_queued));
     assert_eq!(helper_one.own_run_id, second);
@@ -643,6 +660,15 @@ async fn a_helpers_later_start_binds_its_node_and_a_rebuild_writes_the_same_rows
         Some("call-2")
     );
     assert_eq!(helper_one.started_at.as_str(), first_at);
+    let live_runs = RunStateReader::new(&database.reader())
+        .list_live_run_resumes(&session_id)
+        .expect("the live runs read");
+    let resumed = live_runs.iter().find(|run| run.run_id == second);
+    assert_eq!(
+        resumed.and_then(|run| run.model_id.clone()),
+        Some(test_token("gpt-5.4-mini")),
+        "a resume of the node's newer run names the model its first start named"
+    );
     assert_eq!(helper_one.updated_at.as_str(), second_at);
     let helper_two = stored_node(&database, session_id, "helper-2");
     assert_eq!(

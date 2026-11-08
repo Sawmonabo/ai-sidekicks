@@ -314,12 +314,7 @@ async fn a_limit_owed_through_a_pause_is_handed_once_the_provider_runs(
                     })
                     .expect("the test reads the run");
                 assert_eq!((rows, state.as_str()), (1, state_before));
-                async {
-                    Ok(ResumeRunOutcome {
-                        is_hold_lost: false,
-                    })
-                }
-                .boxed()
+                async { Ok(ResumeRunOutcome::default()) }.boxed()
             });
     }
     let harness = harness(driver).await;

@@ -15,7 +15,9 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_std::mutex_lock::lock;
 
-use super::adopted_helpers::{HELPER_TURN, adopt_with_helpers, helper_run, loaded, unloaded};
+use super::adopted_helpers::{
+    HELPER_TURN, adopt_with_helpers, helper_run, loaded, open_answering_reads, unloaded,
+};
 use super::adoption::{
     ADOPTED_THREAD, AdoptionScript, CONTINUATION_TURN, ROOT_TURN, adopt, cut_turn_end,
     cut_turn_listed, lead_run, page_turn, turn_ends,
@@ -283,11 +285,12 @@ async fn a_held_helpers_ended_turn_leaves_its_run_waiting() {
             .held_continuation_turn_ids
             .contains(HELPER_TURN)
     );
-    let folder = tempfile::tempdir().expect("the test makes a folder");
-    let opened = session
-        .establishment(folder.path())
-        .open(established, UsageAxisCounts::default())
-        .await;
+    let (opened, read_threads) = open_answering_reads(&mut session, established).await;
+    assert_eq!(
+        read_threads,
+        ["thread-helper-a"],
+        "a listed helper's model is read"
+    );
 
     assert_eq!(session.engine.moves_of_run(helper_run_id), Vec::new());
     assert_eq!(subagent_completed_rows(&session, helper_run_id), 0);
@@ -330,11 +333,12 @@ async fn a_stopped_held_helper_ends_as_its_stop() {
     );
     let established = adoption.established.expect("the session is established");
     assert!(established.record.held_continuation_turn_ids.is_empty());
-    let folder = tempfile::tempdir().expect("the test makes a folder");
-    let opened = session
-        .establishment(folder.path())
-        .open(established, UsageAxisCounts::default())
-        .await;
+    let (opened, read_threads) = open_answering_reads(&mut session, established).await;
+    assert_eq!(
+        read_threads,
+        Vec::<Value>::new(),
+        "a reopened helper's model is its reply's"
+    );
     session.task.record = opened.record;
     session.task.routing = opened.routing;
     assert!(

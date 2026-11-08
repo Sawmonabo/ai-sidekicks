@@ -35,12 +35,7 @@ async fn a_paused_lead_in_an_unopened_session_is_opened_before_its_driver_is_cal
         .returning(move |_params| {
             let openings = counted.openings.load(Ordering::SeqCst);
             *recorded.lock().expect("the openings read") = Some(openings);
-            async {
-                Ok(ResumeRunOutcome {
-                    is_hold_lost: false,
-                })
-            }
-            .boxed()
+            async { Ok(ResumeRunOutcome::default()) }.boxed()
         });
     let fixture = fixture(driver, "paused").await;
 

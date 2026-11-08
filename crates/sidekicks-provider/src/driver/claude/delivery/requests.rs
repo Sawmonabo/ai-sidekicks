@@ -569,7 +569,8 @@ impl ClaudeInboundRequests {
                 | RegisteredHook::HelperSteerAfterTool
                 | RegisteredHook::CaptureAfterTool
                 | RegisteredHook::CaptureAfterFailedTool
-                | RegisteredHook::HelperSteerAtStop,
+                | RegisteredHook::HelperSteerAtStop
+                | RegisteredHook::HelperCallFailed,
             )
             | None => record_unattributed(session, "hook_callback", &request_id),
         }

@@ -62,6 +62,7 @@ pub(super) fn lead_run(run_id: RunId, run_state: RunState) -> LiveRunResume {
                 .expect("a minted UUID is an event id"),
         }],
         subagent_id: None,
+        model_id: None,
         is_stopping: false,
         run_state,
     }
@@ -303,7 +304,10 @@ pub(super) async fn adopt_continuing(
     }
 }
 
-// Answers `helper`'s resume `sent` with its page, or with its refusal.
+/// The model each helper's resume names.
+pub(super) const HELPER_MODEL: &str = "gpt-5.4-mini";
+
+// Answers `helper`'s resume `sent` with its page and [`HELPER_MODEL`], or with its refusal.
 fn answer_helper_resume(script: &ScriptedService, sent: &Value, helper: &HelperScript) {
     if helper.resume_page.get("error").is_some() {
         send_refusal(script, sent, &helper.resume_page);
@@ -317,6 +321,7 @@ fn answer_helper_resume(script: &ScriptedService, sent: &Value, helper: &HelperS
                 "sessionId": "codex-session",
                 "status": {"type": "active"},
             },
+            "model": HELPER_MODEL,
             "initialTurnsPage": {"data": helper.resume_page, "nextCursor": null},
         }),
     );

@@ -8,10 +8,12 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::run::subagent::SubagentId;
 
 use super::adoption::{
-    ADOPTED_THREAD, Adoption, AdoptionScript, CUT_TURN, HelperScript, ROOT_TURN, adopt, lead_run,
-    page_turn,
+    ADOPTED_THREAD, Adoption, AdoptionScript, CUT_TURN, HELPER_MODEL, HelperScript, ROOT_TURN,
+    adopt, lead_run, page_turn,
 };
+use crate::driver::codex::session::establishment::{CodexEstablishedSession, CodexOpenedSession};
 use crate::driver::codex::session::test_fixture::TestCodexSession;
+use crate::driver::registry::test_token;
 use crate::driver::session_control::{LiveRunResume, ProviderTurnAnswer};
 use crate::driver::test_registry::new_run_id;
 use crate::run::delivery::LateAppendableRow;
@@ -28,6 +30,7 @@ pub(super) fn helper_run(run_id: RunId, parent_run_id: RunId, thread_id: &str) -
         parent_run_id: Some(parent_run_id),
         open_turns: Vec::new(),
         subagent_id: Some(SubagentId::new(thread_id.to_owned()).expect("a helper id")),
+        model_id: None,
         is_stopping: false,
         run_state: RunState::Running,
     }
@@ -83,6 +86,30 @@ pub(super) async fn adopt_with_helpers(
     adopt(session, live_runs, script).await
 }
 
+// Opens `established`, answering each `thread/read` it sends with [`HELPER_MODEL`], and answers
+// the opened session and the conversations it read.
+pub(super) async fn open_answering_reads(
+    session: &mut TestCodexSession,
+    established: CodexEstablishedSession,
+) -> (CodexOpenedSession, Vec<Value>) {
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let establishment = session.establishment(folder.path());
+    let mut opening = Box::pin(establishment.open(established, UsageAxisCounts::default()));
+    let script = &mut session.scripted.script;
+    let mut read_threads = Vec::new();
+    loop {
+        tokio::select! {
+            opened = &mut opening => return (opened, read_threads),
+            sent = script.next_sent() => {
+                assert_eq!(sent["method"], "thread/read", "the open asks only reads: {sent}");
+                let thread_id = sent["params"]["threadId"].clone();
+                script.answer(&sent, &json!({"thread": {"id": thread_id, "model": HELPER_MODEL}}));
+                read_threads.push(thread_id);
+            }
+        }
+    }
+}
+
 // Each helper beneath a running lead is answered from its newest turn: a loaded one is reopened
 // after the lead with no turns and the newest-turn page, an unloaded one only listed. A loaded
 // helper whose turn runs still runs, with its run routed to its conversation; one whose turn is
@@ -93,27 +120,32 @@ pub(super) async fn adopt_with_helpers(
 // running (the loaded completed case), by the unloaded read skipped (the unloaded completed case
 // reads gone), by no route bound, by the owed end not routed (no end at the open) or read as the
 // daemon's interrupt, by a refusal that stops the reads, and by a refused helper left running (no
-// interrupt).
+// interrupt). A restored helper keeps the model its reopen named, else the one its node keeps, so
+// only one listed whose node names no model is read as the session opens; killed by every restored
+// helper read (a loaded helper's read) and by the node's model dropped (the node-model case).
 #[rstest]
 #[case::loaded_running(vec![
-    (loaded("thread-helper-a", "inProgress"), ProviderTurnAnswer::StillRunning),
+    (loaded("thread-helper-a", "inProgress"), ProviderTurnAnswer::StillRunning, None),
 ])]
 #[case::loaded_completed(vec![
-    (loaded("thread-helper-a", "completed"), ProviderTurnAnswer::EndedByProvider),
+    (loaded("thread-helper-a", "completed"), ProviderTurnAnswer::EndedByProvider, None),
 ])]
 #[case::unloaded_completed(vec![
-    (unloaded("thread-helper-a", "completed"), ProviderTurnAnswer::EndedByProvider),
+    (unloaded("thread-helper-a", "completed"), ProviderTurnAnswer::EndedByProvider, None),
+])]
+#[case::unloaded_completed_with_its_nodes_model(vec![
+    (unloaded("thread-helper-a", "completed"), ProviderTurnAnswer::EndedByProvider, Some("gpt-5.4")),
 ])]
 #[case::unloaded_in_progress(vec![
-    (unloaded("thread-helper-a", "inProgress"), ProviderTurnAnswer::Gone),
+    (unloaded("thread-helper-a", "inProgress"), ProviderTurnAnswer::Gone, None),
 ])]
 #[case::resume_refused(vec![
-    (refused("thread-helper-a"), ProviderTurnAnswer::Gone),
-    (loaded("thread-helper-b", "inProgress"), ProviderTurnAnswer::StillRunning),
+    (refused("thread-helper-a"), ProviderTurnAnswer::Gone, None),
+    (loaded("thread-helper-b", "inProgress"), ProviderTurnAnswer::StillRunning, None),
 ])]
 #[tokio::test(start_paused = true)]
 async fn an_adopted_helper_is_answered_from_its_newest_turn(
-    #[case] helpers: Vec<(HelperScript, ProviderTurnAnswer)>,
+    #[case] helpers: Vec<(HelperScript, ProviderTurnAnswer, Option<&str>)>,
 ) {
     let mut session = TestCodexSession::start().await;
     let lead_run_id = new_run_id();
@@ -122,11 +154,21 @@ async fn an_adopted_helper_is_answered_from_its_newest_turn(
     let mut scripts = Vec::new();
     let mut expected_resumes = vec![json!(ADOPTED_THREAD)];
     let mut expected_interrupts = Vec::new();
-    for (script, answer) in helpers {
+    let mut expected_reads = Vec::new();
+    for (script, answer, node_model) in helpers {
         let run_id = new_run_id();
-        live_runs.push(helper_run(run_id, lead_run_id, script.thread_id));
+        live_runs.push(LiveRunResume {
+            model_id: node_model.map(test_token),
+            ..helper_run(run_id, lead_run_id, script.thread_id)
+        });
         if script.is_loaded {
             expected_resumes.push(json!(script.thread_id));
+        }
+        if !script.is_loaded
+            && answer == ProviderTurnAnswer::EndedByProvider
+            && node_model.is_none()
+        {
+            expected_reads.push(json!(script.thread_id));
         }
         if script.resume_page.get("error").is_some() {
             expected_interrupts.push(json!({
@@ -169,12 +211,9 @@ async fn an_adopted_helper_is_answered_from_its_newest_turn(
         );
     }
 
-    let folder = tempfile::tempdir().expect("the test makes a folder");
     let established = adoption.established.expect("the session is established");
-    session
-        .establishment(folder.path())
-        .open(established, UsageAxisCounts::default())
-        .await;
+    let (_, read_threads) = open_answering_reads(&mut session, established).await;
+    assert_eq!(read_threads, expected_reads);
 
     let deliveries = session.engine.deliveries();
     for (run_id, answer) in &expected {

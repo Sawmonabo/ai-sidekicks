@@ -178,11 +178,12 @@ interface ProviderReadiness {
 // at all, and `noCurrent` deliberately resolved to none of several accounts, so composing either
 // reply would have required inventing an account or arbitrarily picking one — precisely the
 // arbitrary selection I-023-5's single-default rule exists to prevent. The discriminant is `kind`,
-// and it is NOT redundant with `state`: `reauthRequired` maps to `signIn` or, on a token or API-key
-// account, to `pasteToken`; `homeMissing` maps to `signIn`; and `indeterminate` maps to
-// `lookAgain`, never to a sign-in, because "cannot tell right now" means look again and conflating
-// it with a lost login walks a person through a sign-in over a passing fault. A client renders off
-// `kind` without re-deriving it.
+// and it is NOT redundant with `state`: `reauthRequired` maps to `pasteToken` on a token or API-key
+// account and to `signIn` on every other, an account whose sign-in mode reads `unknown`, `none` or
+// `external` or was never observed included; `homeMissing` maps to `signIn`; and `indeterminate`
+// maps to `lookAgain`, never to a sign-in, because "cannot tell right now" means look again and
+// conflating it with a lost login walks a person through a sign-in over a passing fault. A client
+// renders off `kind` without re-deriving it.
 type ProviderRemedy =
   | ProviderRegisterRemedy
   | ProviderChooseCurrentRemedy
@@ -279,8 +280,11 @@ interface ProviderAccountRegisterRequest {
   // `reauthRequired` remedy is to mint a fresh token and re-supply it, and deregister-then-register
   // would daemon-mint a NEW immutable identity — discarding the spend, quota, and attention history
   // keyed to the account the person is trying to repair. A successful replacement bumps
-  // `credentialGeneration` and re-runs the registration-time observation. There is still exactly one
-  // credential-accepting input: this adds a selector, not a second credential input.
+  // `credentialGeneration` and re-runs the registration-time observation. It reaches the account's
+  // running sessions too: each live Claude Code session on the account starts again between turns
+  // on the new token and resumes by its id, and a running Codex service is handed the new key
+  // without a restart. There is still exactly one credential-accepting input: this adds a
+  // selector, not a second credential input.
   //
   // NEVER ADMITTED ALONE. `accountId` names a re-supply, and a re-supply with nothing to supply is
   // not a request this verb can serve: it is not a registration (an identity already exists) and not
@@ -461,8 +465,11 @@ interface ProviderAccountCurrentUpdateResponse {
 // readings are kept for the same reason and are NOT cleared — the provider-side allowance kept
 // running while the home was empty — but each carries the generation it was observed under, so a
 // consumer renders a pre-rebuild reading as stale. The stored health pair is the opposite case:
-// the bump invalidates it, which is why `healthState` is returned here. A sign-in in flight on the
-// account refuses the reset as `provider.account.signInInFlight`, leaving the home as it is.
+// the bump invalidates it, which is why `healthState` is returned here. The reset signs the
+// provider out of the home first and then empties it, its conversation folders included, so what
+// the home held is gone; a sign-out that fails fails the reset and empties nothing. A sign-in in
+// flight on the account refuses the reset as `provider.account.signInInFlight`, leaving the home as
+// it is.
 interface ProviderAccountCredentialHomeResetRequest {
   accountId: ProviderAccountId;
 }

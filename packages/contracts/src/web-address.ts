@@ -30,3 +30,12 @@ export function webAddressFault(address: URL): WebAddressFault | null {
   }
   return null;
 }
+
+/**
+ * Whether `origin` is exactly a web address's origin, `scheme://host[:port]` and nothing more:
+ * it parses, passes {@link webAddressFault}, and is its own `URL.origin`.
+ */
+export function isSiteOrigin(origin: string): boolean {
+  const address = URL.parse(origin);
+  return address !== null && webAddressFault(address) === null && address.origin === origin;
+}
