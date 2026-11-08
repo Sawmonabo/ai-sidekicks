@@ -1,7 +1,7 @@
 use std::io::{BufRead as _, BufReader};
 use std::time::Duration;
 
-use serde_json::json;
+use serde_json::{Value, json};
 use sidekicks_contracts::command::CommandId;
 use sidekicks_contracts::provider::driver::capabilities::{CredentialPolicyRef, ExecutionPosture};
 use sidekicks_platforms::RUNS_COMMAND_WRAPPER;
@@ -22,8 +22,12 @@ use crate::port::running_command_publisher::{
     CommandStopCause, RunningCommandParams, StopCommandParams,
 };
 
-fn running_command(session: &ScriptedSession, command_id: &str) -> StopCommandParams {
-    stop_for(session, command_id, CommandStopCause::Person)
+fn running_command(session: &ScriptedSession, command_id: &str) -> RunningCommandParams {
+    RunningCommandParams {
+        session_id: session.session_id,
+        binding_id: binding_id("lead"),
+        command_id: CommandId::new(command_id.to_owned()).expect("a command id"),
+    }
 }
 
 fn stop_for(
@@ -32,11 +36,7 @@ fn stop_for(
     cause: CommandStopCause,
 ) -> StopCommandParams {
     StopCommandParams {
-        command: RunningCommandParams {
-            session_id: session.session_id,
-            binding_id: binding_id("lead"),
-            command_id: CommandId::new(command_id.to_owned()).expect("a command id"),
-        },
+        command: running_command(session, command_id),
         cause,
     }
 }
@@ -91,16 +91,16 @@ async fn a_stop_answers_only_once_claude_code_acknowledged_it() {
     session.channel.answer("stop_task", ScriptedAnswer::Refused);
 
     let refused = controls
-        .stop_command(&running_command(&session, "task-1"))
+        .stop_command(&stop_for(&session, "task-1", CommandStopCause::Person))
         .await;
     let stopped = controls
-        .stop_command(&running_command(&session, "task-1"))
+        .stop_command(&stop_for(&session, "task-1", CommandStopCause::Person))
         .await;
     session
         .channel
         .answer("stop_task", ScriptedAnswer::WriteCut);
     let cut = controls
-        .stop_command(&running_command(&session, "task-1"))
+        .stop_command(&stop_for(&session, "task-1", CommandStopCause::Person))
         .await;
 
     assert!(refused.is_err(), "a refused stop fails");
@@ -195,9 +195,9 @@ async fn an_undo_stop_tells_the_run_nothing() {
 
     assert_eq!(requests().last(), Some(&DaemonRequest::Stop {}));
     assert_eq!(stopped.process_ids(), [party]);
-    assert!(session.channel.user_frames().is_empty());
+    assert_eq!(session.channel.user_frames(), Vec::<Value>::new());
     controls
-        .stop_command(&running_command(&session, "task-1"))
+        .stop_command(&stop_for(&session, "task-1", CommandStopCause::Person))
         .await
         .expect("the person's stop is acknowledged");
     let told = session.channel.user_frames();

@@ -235,7 +235,10 @@ async fn a_stop_reaches_the_wrapper_and_each_nested_party() {
     wait_until(|| sent_requests(&channel, &nested_keys, nested_id) == [DaemonRequest::Stop {}])
         .await;
     tokio::time::sleep(Duration::from_millis(100)).await;
-    assert!(sent_requests(&channel, &stopped_keys, stopped_id).is_empty());
+    assert_eq!(
+        sent_requests(&channel, &stopped_keys, stopped_id),
+        Vec::new()
+    );
     assert!(!stopping.is_finished());
     let killed = Command::new("/bin/kill")
         .args(["-KILL", &nested_id.to_string()])
@@ -255,8 +258,11 @@ async fn a_stop_reaches_the_wrapper_and_each_nested_party() {
     let mut expected = vec![stopped_id, nested_id];
     expected.sort_unstable();
     assert_eq!(parties.process_ids(), expected);
-    assert!(sent_requests(&channel, &other_keys, other_id).is_empty());
-    assert!(sent_requests(&channel, &other_nested_keys, other_nested_id).is_empty());
+    assert_eq!(sent_requests(&channel, &other_keys, other_id), Vec::new());
+    assert_eq!(
+        sent_requests(&channel, &other_nested_keys, other_nested_id),
+        Vec::new()
+    );
     end_party(stopped);
     end_party(other);
 }

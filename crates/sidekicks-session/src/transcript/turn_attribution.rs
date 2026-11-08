@@ -113,6 +113,9 @@ static SELECT_TURNS_BETWEEN_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// A call's opening as its row holds it: its sequence and its payload.
+type ToolCallOpening = (i64, serde_json::Map<String, serde_json::Value>);
+
 // The latest opening wins: a provider may reuse a call's key after a cut.
 static SELECT_TOOL_CALL_OPENING_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -234,8 +237,7 @@ where
         run_id: &RunId,
         tool_call_id: &str,
         before_sequence: i64,
-    ) -> Result<Option<(i64, serde_json::Map<String, serde_json::Value>)>, TurnAttributionError>
-    {
+    ) -> Result<Option<ToolCallOpening>, TurnAttributionError> {
         let read_bound = session_read_bound(&self.read_damaged_from_sequence, session_id, None);
         Ok(self
             .reader
