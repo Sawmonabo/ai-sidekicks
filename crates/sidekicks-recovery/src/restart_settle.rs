@@ -153,7 +153,7 @@ pub(crate) enum LiveRunsEnd<'detail> {
     AfterRestart(&'detail str),
     /// At the person's stop of the service: no run fails with words, and the messages waiting for
     /// each run end in its write, one its provider took admitted into it and a lead message
-    /// carrying only words put back into the draft.
+    /// put back into the draft whole.
     AtStop,
 }
 

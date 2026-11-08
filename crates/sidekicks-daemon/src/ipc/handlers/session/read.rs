@@ -221,11 +221,16 @@ mod tests {
         let registry = builder.freeze();
         let read_params = json!({ "sessionId": session_id });
 
-        for draft in ["Half a thought about the", ""] {
+        // A saved file reads back from its stored extras, and a cleared draft reads empty.
+        let saved = json!({
+            "text": "Half a thought about the",
+            "extras": { "attachments": ["01900000-0000-7000-8000-000000000001"] },
+        });
+        for draft in [saved, json!({ "text": "", "extras": {} })] {
             call(
                 &registry,
                 SessionDraftUpdate::DESCRIPTOR.method,
-                &json!({ "sessionId": session_id, "text": draft }),
+                &json!({ "sessionId": session_id, "draft": draft }),
             )
             .await;
             let read = call(&registry, SessionRead::DESCRIPTOR.method, &read_params).await;

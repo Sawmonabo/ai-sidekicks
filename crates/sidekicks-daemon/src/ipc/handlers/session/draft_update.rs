@@ -1,6 +1,6 @@
 //! `session.draft.update`: the session's unsent composer draft, held in the daemon so every device
-//! opens the same half-written message. The text replaces the draft held; an empty text clears it,
-//! which is how Send clears it.
+//! opens the same half-written message. The draft, its words and extras, replaces the one held; an
+//! empty draft clears it, which is how Send clears it.
 
 use std::sync::Arc;
 
@@ -21,7 +21,7 @@ pub(crate) fn register_session_draft_update(
         move |request: SessionDraftUpdateRequest, _context: HandlerContext| {
             let drafts = Arc::clone(&drafts);
             async move {
-                let updated_at = drafts.write(request.session_id, request.text).await?;
+                let updated_at = drafts.write(request.session_id, request.draft).await?;
                 Ok(SessionDraftUpdateResponse {
                     session_id: request.session_id,
                     updated_at,
