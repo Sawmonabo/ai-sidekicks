@@ -32,7 +32,7 @@ const CRASH_MONITOR_END_BOUND: Duration = Duration::from_secs(1);
 // The most new monitors the watch starts within `RESTART_WINDOW`; one more ending stops the
 // restarts for the service's life, so a monitor that dies at once does not loop.
 const RESTART_LIMIT: usize = 3;
-const RESTART_WINDOW: Duration = Duration::from_secs(10 * 60);
+const RESTART_WINDOW: Duration = Duration::from_mins(10);
 
 /// The crash monitor: the `minidump` child and, once it is reached, the handler that asks it for a
 /// dump on a crash and the watch that replaces it when it ends.
