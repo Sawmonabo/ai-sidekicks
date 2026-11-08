@@ -2,6 +2,7 @@
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use rstest::rstest;
 use rusqlite::params;
@@ -250,12 +251,16 @@ enum Target {
     Healthy,
     Unknown,
     Unreadable,
-    UnfinishedCreate,
+    UnfinishedCreate(SessionState),
+    // A session whose create never finished, whose purge then finds it left the states it takes.
+    FinishedDuringDelete,
 }
 
 // Killed by the two refusal reasons swapped, by a delete that purges a session before refusing
 // it, by a delete that answers done without purging, by a delete of a session whose create never
-// finished refused or purged as damaged, and by one of a damaged session purged as such a create.
+// finished, archived or closed since, refused or purged as damaged, by one of a damaged session
+// purged as such a create, and by a purge that found the session left its states answered as a
+// fault rather than the not-damaged refusal.
 #[rstest]
 #[case::continue_a_healthy_session(
     Target::Healthy,
@@ -276,11 +281,30 @@ enum Target {
 )]
 #[case::delete_an_unreadable_session(Target::Unreadable, false, ActionEnd::Done)]
 #[case::continue_an_unfinished_create(
-    Target::UnfinishedCreate,
+    Target::UnfinishedCreate(SessionState::Provisioning),
     true,
     ActionEnd::Refused(SessionRecoveryRefusedReason::NotDamaged)
 )]
-#[case::delete_an_unfinished_create(Target::UnfinishedCreate, false, ActionEnd::Done)]
+#[case::delete_an_unfinished_create(
+    Target::UnfinishedCreate(SessionState::Provisioning),
+    false,
+    ActionEnd::Done
+)]
+#[case::delete_an_archived_unfinished_create(
+    Target::UnfinishedCreate(SessionState::Archived),
+    false,
+    ActionEnd::Done
+)]
+#[case::delete_a_closed_unfinished_create(
+    Target::UnfinishedCreate(SessionState::Closed),
+    false,
+    ActionEnd::Done
+)]
+#[case::delete_a_create_finished_meanwhile(
+    Target::FinishedDuringDelete,
+    false,
+    ActionEnd::Refused(SessionRecoveryRefusedReason::NotDamaged)
+)]
 #[tokio::test]
 async fn a_recovery_action_fits_only_a_damaged_session(
     #[case] target: Target,
@@ -292,20 +316,10 @@ async fn a_recovery_action_fits_only_a_damaged_session(
         Target::Healthy => fixture.store.session_id,
         Target::Unknown => test_session_id(),
         Target::Unreadable => fixture.stale_session(2, Some(0)).await.0,
-        Target::UnfinishedCreate => {
-            let session_id = test_session_id();
-            let reader = fixture.store.database.reader();
-            insert_session_row(&reader, session_id.text().as_str(), None, None);
-            reader
-                .execute(
-                    "UPDATE sessions SET state = ?1 WHERE id = ?2",
-                    params![
-                        <&'static str>::from(SessionState::Provisioning),
-                        session_id.text().as_str()
-                    ],
-                )
-                .expect("the session is left provisioning");
-            session_id
+        Target::UnfinishedCreate(state) => insert_unfinished_create(&fixture, state),
+        Target::FinishedDuringDelete => {
+            fixture.purges.is_refusing.store(true, Ordering::SeqCst);
+            insert_unfinished_create(&fixture, SessionState::Provisioning)
         }
     };
     fixture
@@ -330,8 +344,9 @@ async fn a_recovery_action_fits_only_a_damaged_session(
     };
     assert_eq!(ended, expected);
     let purged = match target {
+        Target::FinishedDuringDelete => vec![(session_id, SessionDeletion::UnfinishedCreate)],
         _ if is_continue || !matches!(expected, ActionEnd::Done) => Vec::new(),
-        Target::UnfinishedCreate => vec![(session_id, SessionDeletion::UnfinishedCreate)],
+        Target::UnfinishedCreate(_) => vec![(session_id, SessionDeletion::UnfinishedCreate)],
         Target::Healthy | Target::Unknown | Target::Unreadable => {
             vec![(session_id, SessionDeletion::DamagedHistory)]
         }
@@ -344,4 +359,18 @@ async fn a_recovery_action_fits_only_a_damaged_session(
             .expect("no purge panics while it records"),
         purged
     );
+}
+
+// A session row in `state` whose create never finished: no event of it was ever written.
+fn insert_unfinished_create(fixture: &PassFixture, state: SessionState) -> SessionId {
+    let session_id = test_session_id();
+    let reader = fixture.store.database.reader();
+    insert_session_row(&reader, session_id.text().as_str(), None, None);
+    reader
+        .execute(
+            "UPDATE sessions SET state = ?1 WHERE id = ?2",
+            params![<&'static str>::from(state), session_id.text().as_str()],
+        )
+        .expect("the session is left in its state");
+    session_id
 }
