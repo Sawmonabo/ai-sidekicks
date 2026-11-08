@@ -6,12 +6,13 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use memchr::{memchr, memmem};
+use memchr::memmem;
 use sidekicks_contracts::place::Place;
 use sidekicks_platforms::path_from_program_output;
 use sidekicks_std::file::real_location::resolve_real_path;
 use sidekicks_std::missing_entry::{MissingEntry, is_missing_entry};
 
+use crate::git::index_objects::read_stage_entry;
 use crate::git::process::{GitCall, GitError, GitRunner, background_read};
 use crate::git::{GIT_ENTRY_NAME, GITLINK_MODE};
 
@@ -133,16 +134,11 @@ async fn checked_out_submodules(
     Ok(submodules)
 }
 
-// The path of one `ls-files --stage` entry (`<mode> <object> <stage>\t<path>`) when its mode
-// records a submodule.
+// The path of one `ls-files --stage` entry when its mode records a submodule.
 fn gitlink_path(entry: &[u8]) -> Option<&[u8]> {
-    let tab = memchr(b'\t', entry)?;
-    let (fields, path) = entry.split_at(tab);
-    let after_mode = fields.strip_prefix(GITLINK_MODE.as_bytes())?;
-    if !after_mode.starts_with(b" ") {
-        return None;
-    }
-    path.get(1..)
+    read_stage_entry(entry)
+        .filter(|entry| entry.mode == GITLINK_MODE)
+        .map(|entry| entry.path)
 }
 
 // Whether `folder` has its `.git` entry, which git writes when it checks a submodule out; a

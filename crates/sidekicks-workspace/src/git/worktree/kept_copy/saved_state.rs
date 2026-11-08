@@ -22,6 +22,7 @@ use tokio::task::JoinError;
 
 use crate::git::GITLINK_MODE;
 use crate::git::cat_file::{BatchRecord, CatFileAnswerError, object_lines, read_batch_records};
+use crate::git::index_objects::read_stage_entry;
 use crate::git::process::{CONFIG_UNSET_EXIT_CODE, GitCall, GitError, GitRunner, background_read};
 use crate::git::worktree::kept_copy::pins::{KeptPin, KeptWorktreePins};
 use crate::git::worktree::kept_copy::{KEPT_LFS_ENTRY, KEPT_REF_STORE_ENTRY};
@@ -236,21 +237,10 @@ async fn list_conflict_stage_objects(
         if entry.is_empty() {
             continue;
         }
-        let header = entry
-            .split(|byte| *byte == b'\t')
-            .next()
-            .unwrap_or_default();
-        let mut parts = std::str::from_utf8(header)
-            .ok()
-            .into_iter()
-            .flat_map(|header| header.split(' '));
-        let (Some(mode), Some(object)) = (parts.next(), parts.next()) else {
-            return Err(SavedStateError::Unexpected(CONFLICT_STAGE_UNEXPECTED));
-        };
-        let object = GitObjectId::new(object.to_owned())
+        let entry = read_stage_entry(entry)
             .ok_or(SavedStateError::Unexpected(CONFLICT_STAGE_UNEXPECTED))?;
-        if mode != GITLINK_MODE {
-            objects.push(object);
+        if entry.mode != GITLINK_MODE {
+            objects.push(entry.object);
         }
     }
     Ok(objects)
