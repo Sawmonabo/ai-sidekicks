@@ -23,6 +23,10 @@ mod session_kept_schedules;
 /// by name use.
 pub const SESSION_EVENTS_TABLE: &str = "session_events";
 
+/// The index of a session's events by type in log order, by the name the schema creates it under
+/// and the reads that name it use.
+pub const SESSION_EVENTS_TYPE_INDEX: &str = "idx_session_events_type";
+
 /// One named piece of the database schema: the tables, indexes and triggers one module owns.
 #[derive(Clone, Debug)]
 pub struct SchemaPart {

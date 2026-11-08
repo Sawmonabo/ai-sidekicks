@@ -428,8 +428,9 @@ pub struct SessionStreamEndedRow {
 }
 
 stream_frame! {
-    /// The value of each `session.event.subscribe` notify: the changes since the previous frame.
-    pub struct SessionStreamFrame(SessionStreamChange);
+    /// The value of each `session.event.subscribe` notify: the changes since the previous frame,
+    /// or the mark that the stream was moved to the log's head.
+    pub enum SessionStreamFrame(SessionStreamChange, EventCursor);
 }
 
 /// The request of every verb that acts on one session and takes nothing else.

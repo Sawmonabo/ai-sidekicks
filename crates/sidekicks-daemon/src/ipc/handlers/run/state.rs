@@ -6,7 +6,8 @@
 //! resuming from it skips no row; a hold on when the stream opens goes out the same way. The stream
 //! reads its first frame when the call is taken and every later one from the log at its cursor
 //! only once the subscription's lane has credit and the connection has room, so nothing is
-//! dropped. A session the daemon does not hold, a cursor it cannot read, or a first frame that
+//! dropped; a stream far behind the log's head is sent the head instead and follows on from it.
+//! A session the daemon does not hold, a cursor it cannot read, or a first frame that
 //! cannot be read is refused before anything opens, and a read that fails later ends the
 //! subscription with the failure.
 
@@ -30,8 +31,8 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::run_facts::{RUN_STATE_EVENT_TYPES, RunStateEventType};
 use sidekicks_contracts::wire::instant::{NotAnInstant, WireInstant};
 use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
-use sidekicks_ipc::stream::feed::{ChangeRecord, Feed, RecordPage};
-use sidekicks_ipc::stream::frame_batcher::ChangeFeed;
+use sidekicks_ipc::stream::feed::{ChangeRecord, DistanceRead, Feed, RecordPage};
+use sidekicks_ipc::stream::frame_batcher::{ChangeFeed, FrameRead};
 use sidekicks_session::run::stored_state_change::{
     StoredRunStateChange, read_stored_run_state_change,
 };
@@ -78,15 +79,21 @@ pub(crate) fn register_run_state_subscribe(
                     .map_or(FollowStart::Newest, FollowStart::After);
                 let cursor = log.read_follow_start(request.session_id, start).await?;
                 let record = Arc::new(RunStateRecord::open(log, request.session_id, &holds));
-                let feed: Box<dyn Feed<Emission = RunStateStreamFrame>> = Box::new(
-                    ChangeFeed::open(record, cursor, |changes| RunStateStreamFrame { changes })
-                        .await?,
-                );
+                let feed: Box<dyn Feed<Emission = RunStateStreamFrame>> =
+                    Box::new(ChangeFeed::open(record, cursor, frame_of).await?);
                 Ok((SubscribeAcknowledgmentResponse { subscription_id }, feed))
             }
             .boxed()
         },
     )
+}
+
+// The frame of what the stream read: its changes, or the head it was moved to.
+fn frame_of(read: FrameRead<RunStateStreamChange, EventCursor>) -> RunStateStreamFrame {
+    match read {
+        FrameRead::Changes(changes) => RunStateStreamFrame::Changes { changes },
+        FrameRead::Behind(head_cursor) => RunStateStreamFrame::Behind { head_cursor },
+    }
 }
 
 /// Why a page of a run state stream could not be read.
@@ -196,6 +203,7 @@ impl ChangeRecord for RunStateRecord {
     type Cursor = EventCursor;
     type Change = RunStateStreamChange;
     type Error = RunStateStreamError;
+    type Head = EventCursor;
 
     fn read_after(
         &self,
@@ -267,15 +275,40 @@ impl ChangeRecord for RunStateRecord {
                     }
                 }));
             }
-            // A run's state changes are small, so a read is cut by its count alone: the log's
-            // short of its head, or the holds' past the frame.
+            // A run's state changes are small, so a read is cut by its count alone. Holds past a
+            // full frame stay held, and the batcher reads again after a full frame.
             Ok(RecordPage {
-                is_cut_short: !has_reached_head || changes.len() == max,
+                is_cut_short: !has_reached_head,
                 changes,
                 read_through,
             })
         }
         .boxed()
+    }
+
+    fn read_distance(
+        &self,
+        cursor: &EventCursor,
+        max_events: usize,
+    ) -> DistanceRead<'_, EventCursor, RunStateStreamError> {
+        let cursor = cursor.clone();
+        async move {
+            let distance = self
+                .log
+                .read_stream_distance(
+                    self.session_id,
+                    &cursor,
+                    max_events,
+                    Some(RUN_STATE_STREAM_EVENT_TYPES.as_slice()),
+                )
+                .await?;
+            Ok(Some(distance.into()))
+        }
+        .boxed()
+    }
+
+    fn cursor_at(head: &EventCursor) -> EventCursor {
+        head.clone()
     }
 
     fn change_count(&self) -> watch::Receiver<u64> {
@@ -510,8 +543,10 @@ mod tests {
             .expect("the stream goes on");
         let frame: RunStateStreamFrame =
             serde_json::from_slice(&value.json).expect("the frame reads as its type");
-        frame
-            .changes
+        let RunStateStreamFrame::Changes { changes } = frame else {
+            panic!("the stream was moved to the head: {frame:?}");
+        };
+        changes
             .into_vec()
             .into_iter()
             .map(|change| serde_json::to_value(change).expect("a change writes"))

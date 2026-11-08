@@ -5,7 +5,8 @@
 //! leaves it, and the stream reads on past it; the driver is the lead's provider's, resolved again
 //! when the lead moves to another provider. The stream reads its first frame when the call is taken
 //! and every later one from the log at its cursor only once the subscription's lane has credit and
-//! the connection has room, so the catch-up goes at the connection's pace and nothing is dropped. A
+//! the connection has room, so the catch-up goes at the connection's pace and nothing is dropped;
+//! a stream far behind the log's head is sent the head instead and follows on from it. A
 //! session the daemon does not hold, a cursor it cannot read, or a first frame that cannot be read
 //! is refused before anything opens, and a read that fails later ends the subscription with the
 //! failure.
@@ -31,8 +32,8 @@ use sidekicks_contracts::session::methods::{
 use sidekicks_contracts::transcript::content::TranscriptRowContent;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
-use sidekicks_ipc::stream::feed::{ChangeRecord, Feed, RecordPage};
-use sidekicks_ipc::stream::frame_batcher::ChangeFeed;
+use sidekicks_ipc::stream::feed::{ChangeRecord, DistanceRead, Feed, RecordPage};
+use sidekicks_ipc::stream::frame_batcher::{ChangeFeed, FrameRead};
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_session::run::agent::read_session_lead;
@@ -76,15 +77,21 @@ pub(crate) fn register_session_event_subscribe(
                     request.session_id,
                     MARKDOWN_PARSE,
                 ));
-                let feed: Box<dyn Feed<Emission = SessionStreamFrame>> = Box::new(
-                    ChangeFeed::open(record, cursor, |changes| SessionStreamFrame { changes })
-                        .await?,
-                );
+                let feed: Box<dyn Feed<Emission = SessionStreamFrame>> =
+                    Box::new(ChangeFeed::open(record, cursor, frame_of).await?);
                 Ok((SubscribeAcknowledgmentResponse { subscription_id }, feed))
             }
             .boxed()
         },
     )
+}
+
+// The frame of what the stream read: its changes, or the head it was moved to.
+fn frame_of(read: FrameRead<SessionStreamChange, EventCursor>) -> SessionStreamFrame {
+    match read {
+        FrameRead::Changes(changes) => SessionStreamFrame::Changes { changes },
+        FrameRead::Behind(head_cursor) => SessionStreamFrame::Behind { head_cursor },
+    }
 }
 
 /// Why a page of a session's event stream could not be read.
@@ -127,6 +134,11 @@ struct SessionEventRecord {
     /// The stored facts, texts included, of the events a size cut left for the next read, so a
     /// piece's text is loaded once however many frames its page takes.
     left_pieces: Arc<Mutex<HashMap<i64, StreamedPiece>>>,
+    /// The parse the rows' cuts run, kept to start them afresh.
+    parse: BlockParse,
+    /// Where the last read ended, which the folds above follow; a read from anywhere else is a
+    /// stream moved to the log's head.
+    followed_through: Mutex<Option<EventCursor>>,
 }
 
 /// One page of the stream's changes, read through its cursor.
@@ -155,6 +167,22 @@ impl SessionEventRecord {
             attribution: Arc::new(Mutex::new(SessionTurnAttribution::new(session_id))),
             rows: Arc::new(Mutex::new(TranscriptStreamState::new(parse))),
             left_pieces: Arc::new(Mutex::new(HashMap::new())),
+            parse,
+            followed_through: Mutex::new(None),
+        }
+    }
+
+    /// Starts the folds afresh when `cursor` is not where the last read ended, so a stream moved
+    /// to the log's head meets its runs and rows partway, as a stream opened there does.
+    fn follow_from(&self, cursor: &EventCursor) {
+        let followed_through = lock(&self.followed_through);
+        if followed_through
+            .as_ref()
+            .is_some_and(|followed_through| followed_through != cursor)
+        {
+            *lock(&self.attribution) = SessionTurnAttribution::new(self.session_id);
+            *lock(&self.rows) = TranscriptStreamState::new(self.parse);
+            lock(&self.left_pieces).clear();
         }
     }
 }
@@ -163,6 +191,7 @@ impl ChangeRecord for SessionEventRecord {
     type Cursor = EventCursor;
     type Change = SessionStreamChange;
     type Error = SessionEventStreamError;
+    type Head = EventCursor;
 
     fn read_after(
         &self,
@@ -175,10 +204,12 @@ impl ChangeRecord for SessionEventRecord {
         let attribution = Arc::clone(&self.attribution);
         let rows = Arc::clone(&self.rows);
         let left_pieces = Arc::clone(&self.left_pieces);
+        self.follow_from(&cursor);
         async move {
             let after_position = decode_event_cursor(&cursor).map_err(EventLogReadError::from)?;
-            self.log
-                .read_stream_page(
+            let page = self
+                .log
+                .read_stream_page::<SessionStreamPage, SessionEventStreamError>(
                     self.session_id,
                     after_position,
                     max,
@@ -330,9 +361,31 @@ impl ChangeRecord for SessionEventRecord {
                         })
                     },
                 )
-                .await
+                .await?;
+            *lock(&self.followed_through) = Some(page.read_through.clone().unwrap_or(cursor));
+            Ok(page)
         }
         .boxed()
+    }
+
+    fn read_distance(
+        &self,
+        cursor: &EventCursor,
+        max_events: usize,
+    ) -> DistanceRead<'_, EventCursor, SessionEventStreamError> {
+        let cursor = cursor.clone();
+        async move {
+            let distance = self
+                .log
+                .read_stream_distance(self.session_id, &cursor, max_events, None)
+                .await?;
+            Ok(Some(distance.into()))
+        }
+        .boxed()
+    }
+
+    fn cursor_at(head: &EventCursor) -> EventCursor {
+        head.clone()
     }
 
     fn change_count(&self) -> watch::Receiver<u64> {

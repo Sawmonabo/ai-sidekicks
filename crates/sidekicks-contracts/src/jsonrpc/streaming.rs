@@ -1,8 +1,10 @@
 //! The wire shapes of a streaming subscription: the acknowledgment every `*.subscribe` method
 //! answers with, the `$/subscription/notify` frame carrying one value, the `$/subscription/end`
 //! frame the daemon ends a stream with, and the `$/subscription/cancel` call a client tears one
-//! down with. A subscription holds only its place, never a queue, so a stream loses nothing; only a
-//! shell's output stream marks a drop, when a watcher falls behind its scrollback.
+//! down with. A subscription holds only its place, never a queue, so a stream loses nothing it
+//! cannot read back: a stream over a stored record far behind its head is sent one frame saying so
+//! with the head cursor, and a shell's output stream marks a drop when a watcher falls behind its
+//! scrollback.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -30,6 +32,12 @@ ts_constants! {
     /// The most changes one frame carries. The daemon coalesces a stream's changes into one frame
     /// per short window or this many changes, whichever comes first.
     pub const STREAM_FRAME_MAX_CHANGES: usize = 50;
+    /// The most events a stream over a stored record may stand behind the record's head when its
+    /// next frame is read; past it the stream is sent the behind frame and moved to the head.
+    pub const STREAM_BEHIND_MAX_EVENTS: usize = 1_024;
+    /// The most bytes of stored events, 1 MB, a stream over a stored record may stand behind the
+    /// record's head when its next frame is read; past it the stream is sent the behind frame.
+    pub const STREAM_BEHIND_MAX_BYTES: usize = 1_000_000;
 }
 
 branded_uuid_id! {
@@ -82,16 +90,61 @@ pub struct SubscriptionNotifyParams<T> {
     pub value: T,
 }
 
-/// Declares one stream's frame: the changes since the previous frame, oldest first, at least one
-/// and at most [`STREAM_FRAME_MAX_CHANGES`], each carrying its own cursor.
+/// Declares one stream's frame. A stream over a current state declares a struct: the changes since
+/// the previous frame, oldest first, at least one and at most [`STREAM_FRAME_MAX_CHANGES`], each
+/// carrying its own cursor. A stream over a stored record declares an enum tagged on `kind`: those
+/// changes, or `behind` with the record's head cursor and no change, sent when the stream stood
+/// more than [`STREAM_BEHIND_MAX_EVENTS`] events or [`STREAM_BEHIND_MAX_BYTES`] bytes behind the
+/// head; its consumer takes one snapshot read, and the stream carries on from the head.
 ///
 /// ```ignore
 /// stream_frame! {
 ///     /// One `agent.queueItem.subscribe` emission.
 ///     pub struct RunQueueStreamFrame(RunQueueStreamChange);
 /// }
+/// stream_frame! {
+///     /// One `agent.run.subscribe` emission.
+///     pub enum RunStateStreamFrame(RunStateStreamChange, EventCursor);
+/// }
 /// ```
 macro_rules! stream_frame {
+    ($(#[doc = $doc:literal])+ pub enum $name:ident($change:ty, $cursor:ty);) => {
+        $(#[doc = $doc])+
+        #[derive(
+            Clone,
+            Debug,
+            PartialEq,
+            serde::Serialize,
+            serde::Deserialize,
+            schemars::JsonSchema,
+            garde::Validate,
+        )]
+        #[serde(
+            tag = "kind",
+            rename_all = "camelCase",
+            rename_all_fields = "camelCase",
+            deny_unknown_fields
+        )]
+        pub enum $name {
+            /// The changes since the previous frame.
+            Changes {
+                /// The changes, oldest first.
+                #[garde(dive)]
+                changes: $crate::wire::list::BoundedVec<
+                    $change,
+                    1,
+                    { $crate::jsonrpc::streaming::STREAM_FRAME_MAX_CHANGES },
+                >,
+            },
+            /// The stream stood too far behind the record's head and was moved to it: its
+            /// consumer takes one snapshot read in place of the changes it skipped.
+            Behind {
+                /// The head the stream carries on from.
+                #[garde(skip)]
+                head_cursor: $cursor,
+            },
+        }
+    };
     ($($(#[doc = $doc:literal])+ pub struct $name:ident($change:ty);)+) => {$(
         $(#[doc = $doc])+
         #[derive(
@@ -174,7 +227,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The wire shapes of a streaming subscription: `$/subscription/notify`, \
           `$/subscription/end` and `$/subscription/cancel`, and the acknowledgment every \
           `*.subscribe` method answers with. A subscription holds only its place, never a queue, \
-          so nothing is dropped from its frames.",
+          so its frames drop nothing a consumer cannot read back.",
     definitions: &[
         Definition::read::<SubscriptionId>().checked(),
         Definition::read::<SubscriptionEndParams>().checked(),
@@ -186,3 +239,27 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: TS_CONSTANTS,
     method_tables: &[],
 };
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::run::control::RunStateStreamFrame;
+    use crate::session::event_cursor::encode_event_cursor;
+
+    // Killed by a behind frame written without its tag, or under another tag or member name.
+    #[test]
+    fn a_behind_frame_is_written_as_its_kind_and_the_head_cursor_alone() {
+        let head_cursor = encode_event_cursor(1_025).expect("the position has a cursor");
+        let frame = RunStateStreamFrame::Behind {
+            head_cursor: head_cursor.clone(),
+        };
+        let written = serde_json::to_value(&frame).expect("a frame writes");
+        assert_eq!(
+            written,
+            json!({ "kind": "behind", "headCursor": head_cursor })
+        );
+        let read: RunStateStreamFrame = serde_json::from_value(written).expect("the frame reads");
+        assert_eq!(read, frame);
+    }
+}
