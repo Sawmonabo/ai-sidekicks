@@ -148,7 +148,7 @@ where
         }
     }
 
-    /// The epoch and turn the run stands at just before `before_sequence`.
+    /// The epoch and run position the run stands at just before `before_sequence`.
     pub(crate) fn read_standing_before(
         &self,
         session_id: &SessionId,
@@ -190,8 +190,8 @@ where
         Ok(standing)
     }
 
-    /// The epoch and turn the run's latest call `tool_call_id` opened in before `before_sequence`,
-    /// or `None` when no such call opened.
+    /// The epoch and run position the run's latest call `tool_call_id` opened at before
+    /// `before_sequence`, or `None` when no such call opened.
     pub(crate) fn read_tool_call_opening_before(
         &self,
         session_id: &SessionId,

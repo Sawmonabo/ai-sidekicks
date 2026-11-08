@@ -205,7 +205,8 @@ impl CommandWindowId {
     }
 }
 
-/// A checkpoint as a turn's start records it: the point before one of the person's prompts.
+/// A checkpoint as a turn's start or a steer's landing records it: the point before one of the
+/// person's prompts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Checkpoint {
     /// The checkpoint, by the snapshot id a client names it with.
@@ -214,9 +215,9 @@ pub struct Checkpoint {
     pub session_id: SessionId,
     /// The prompt's sequence in the session's log.
     pub message_sequence: SafeInt<0>,
-    /// The run the prompt started a turn of.
+    /// The run the prompt opened or steered a turn of.
     pub run_id: RunId,
-    /// The run's execution epoch and the turn's position in it.
+    /// The run's execution epoch and the prompt's run position in it.
     pub turn: EpochPosition,
 }
 
@@ -263,7 +264,7 @@ pub struct StoredCheckpointVersion {
 pub struct CommandWindowOpening {
     /// The window.
     pub window_id: CommandWindowId,
-    /// The checkpoint of the turn the command runs in.
+    /// The session's newest checkpoint when the command runs: its turn's opening or a later steer.
     pub checkpoint_id: SnapshotId,
     /// The before-capture's tree, `None` when it failed.
     pub tree_before: Option<GitObjectId>,
@@ -356,8 +357,8 @@ impl From<SupersededTurnsReadError> for CheckpointReadError {
 #[error("the stored checkpoint's {0} does not read")]
 struct StoredCheckpointMemberInvalid(&'static str);
 
-/// The checkpoint row `checkpoint` writes at its turn's start. A prompt already kept writes
-/// nothing; an id already kept is refused by SQLite.
+/// The checkpoint row `checkpoint` writes at its turn's start or its steer's landing. A prompt
+/// already kept writes nothing; an id already kept is refused by SQLite.
 pub fn insert_checkpoint_statement(checkpoint: &Checkpoint) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(INSERT_CHECKPOINT_SQL.as_str()),

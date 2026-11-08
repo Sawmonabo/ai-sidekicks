@@ -400,6 +400,7 @@ fn sessions_named(event: &CommittedEvent) -> Result<Vec<SessionId>, serde_json::
         | SessionEventType::AgentRunParentCorrected
         | SessionEventType::AgentRunProviderInitialized
         | SessionEventType::AgentTurnStarted
+        | SessionEventType::AgentTurnSteered
         | SessionEventType::AgentTurnCompleted
         | SessionEventType::AgentTurnInterrupted
         | SessionEventType::AgentChildrenStopped

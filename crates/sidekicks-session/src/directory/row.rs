@@ -290,6 +290,7 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         | SessionEventType::AgentRunParentCorrected
         | SessionEventType::AgentRunProviderInitialized
         | SessionEventType::AgentTurnStarted
+        | SessionEventType::AgentTurnSteered
         | SessionEventType::AgentTurnCompleted
         | SessionEventType::AgentTurnInterrupted
         | SessionEventType::AgentChildrenStopped

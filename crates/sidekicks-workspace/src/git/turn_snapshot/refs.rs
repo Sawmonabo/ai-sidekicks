@@ -27,7 +27,8 @@ pub enum RunSnapshotPoint {
         run_id: RunId,
         /// 0 before any rollback, advanced by each accepted rollback.
         epoch: u64,
-        /// The turn's ordinal within the epoch.
+        /// The run position the turn's opening message took within the epoch, which counts the
+        /// person's messages the run took (a turn's opening or a steer), so no two turns share it.
         ordinal: u64,
     },
     /// A workflow run's start, one of its approval pauses, or its end.
