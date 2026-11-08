@@ -649,9 +649,8 @@ mod tests {
     const PROMPT_BOUND: Duration = Duration::from_secs(20);
 
     // How long a reader that must read as in a `select` has its wait channel read before it fails.
-    // The test's three terminals each take up to `PROMPT_BOUND` and `end_inner_terminal`'s 10 s
-    // teardown read; with this and two `WAIT_BOUND` reads, the test ends short of nextest's
-    // two-minute kill.
+    // With three times `PROMPT_BOUND` and `TEARDOWN_READ_BOUND`, one of these and two `WAIT_BOUND`
+    // reads, the test ends within 111 s, short of nextest's 120 s kill.
     const SELECT_WAIT_BOUND: Duration = Duration::from_secs(20);
 
     // The terminal's descriptor the set marks, the last bit of the set's first byte.

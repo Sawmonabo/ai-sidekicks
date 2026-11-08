@@ -218,10 +218,10 @@ fn wait_without_reaping(pid: u32, options: libc::c_int) -> io::Result<libc::c_in
 
 /// How long a test waits for a stop it sent to land before it fails naming the stop.
 #[cfg(test)]
-const STOP_BOUND: Duration = Duration::from_secs(5);
+pub(crate) const STOP_BOUND: Duration = Duration::from_secs(5);
 
 /// Blocks until the child `pid` has stopped, leaving its state for the next wait. Fails with the
-/// system's error from the wait, and panics naming the stop if it has not landed within
+/// system's error from the wait, or `TimedOut` naming the stop if it has not landed within
 /// [`STOP_BOUND`].
 #[cfg(test)]
 pub(crate) fn wait_for_stop(pid: u32) -> io::Result<()> {
@@ -229,12 +229,15 @@ pub(crate) fn wait_for_stop(pid: u32) -> io::Result<()> {
     // The wait blocks on the stop itself; a stop that never lands leaves the thread blocked until
     // the child ends.
     std::thread::spawn(move || {
-        // The receiver is gone only once the test has failed on the bound.
+        // The receiver is gone only once the wait has timed out.
         let _gone = stopped.send(wait_without_reaping(pid, libc::WSTOPPED).map(drop));
     });
-    was_stopped
-        .recv_timeout(STOP_BOUND)
-        .unwrap_or_else(|_| panic!("the stop of {pid} never landed within {STOP_BOUND:?}"))
+    was_stopped.recv_timeout(STOP_BOUND).unwrap_or_else(|_| {
+        Err(io::Error::new(
+            ErrorKind::TimedOut,
+            format!("the stop of {pid} never landed within {STOP_BOUND:?}"),
+        ))
+    })
 }
 
 #[cfg(test)]

@@ -83,10 +83,10 @@ mod tests {
     // How long a command gets to print its marker.
     const PROMPT_BOUND: Duration = Duration::from_secs(20);
 
-    // How long a waiting command is read before it fails as never reading as waiting. Summed with
-    // `PROMPT_BOUND`, `wait_for_stop`'s 5 s, `WAIT_BOUND` after a stop and `end_inner_terminal`'s
-    // 10 s teardown read, a case ends short of nextest's two-minute kill, so a hang names itself,
-    // and no passing case comes near it.
+    // How long a waiting command is read before it fails as never reading as waiting. With
+    // `PROMPT_BOUND`, `STOP_BOUND`, `WAIT_BOUND` after a stop and `TEARDOWN_READ_BOUND`, a case
+    // ends within 115.5 s, short of nextest's 120 s kill, so a hang names itself, and no passing
+    // case comes near it.
     const READING_BOUND: Duration = Duration::from_secs(80);
 
     // How long a command that waits on nothing settles before it is read, where the test cannot
@@ -365,7 +365,7 @@ mod tests {
         let peer_failure_noted = Once::new();
         let read_master = || read_terminal_master(&terminal.pty, &peer_failure_noted);
         let leader = Pid::from_raw(i32::try_from(terminal.pty.process_id()).expect("a process id"));
-        let prompt = read_until_marker(&terminal.pty, "ready", Duration::from_secs(20));
+        let prompt = read_until_marker(&terminal.pty, "ready", PROMPT_BOUND);
         let before_typing = prompt.is_ok().then(read_master);
         // The line stays queued: the program stops itself before its read.
         let typing = prompt
@@ -388,7 +388,7 @@ mod tests {
         let continued = prompt.is_ok().then(|| killpg(leader, Signal::SIGCONT));
         let ending = prompt
             .is_ok()
-            .then(|| read_until_marker(&terminal.pty, "done", Duration::from_secs(20)));
+            .then(|| read_until_marker(&terminal.pty, "done", PROMPT_BOUND));
         let after_reading = ending.as_ref().is_some_and(Result::is_ok).then(read_master);
         end_inner_terminal(terminal);
 
