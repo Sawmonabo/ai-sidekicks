@@ -4,7 +4,7 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use rstest::rstest;
 use secrecy::SecretString;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
@@ -13,8 +13,8 @@ use sidekicks_store::data_folder::plugin_home;
 use tokio::sync::oneshot;
 use url::Url;
 
-use super::CLAUDE_MCP_SIGN_IN_FOLDER;
 use super::saved_credentials::read_claude_saved_sign_in;
+use super::{CLAUDE_MCP_SIGN_IN_FOLDER, sign_in_with_claude_client};
 use crate::driver::DriverServices;
 use crate::driver::claude::account::credentials::{
     CLAUDE_CREDENTIALS_FILE, SECURE_STORAGE_FOLDER_VARIABLE, claude_keychain_account,
@@ -372,8 +372,10 @@ async fn a_plugin_binding_signs_in_with_its_entry_and_a_connector_reads_the_no_e
         },
         "oauth": {"clientId": "client-one"},
     });
-    assert_eq!(start.servers, json!({"mcpServers": {SERVER_NAME: filled}}));
-    assert!(start.loads_only_its_servers);
+    assert_eq!(
+        start.servers,
+        Some(json!({"mcpServers": {SERVER_NAME: filled}}))
+    );
 
     let connector = McpServerBindingRef::Connector {
         provider: DESCRIPTOR.provider_id(),
@@ -391,6 +393,78 @@ async fn a_plugin_binding_signs_in_with_its_entry_and_a_connector_reads_the_no_e
         "a connector reads the no-entry arm, not {refused:?}"
     );
     assert!(scripted.starts.take_sign_in_starts().is_empty());
+}
+
+// Beside an administrator's MCP file that declares the server, a sign-in for its organization
+// binding starts one process handed no servers file, and one for the person's own binding of the
+// same name starts none and makes no folder, since Claude Code loads no server of a person's
+// there. Killed by `--mcp-config` passed beside the file, and by a person's server started where
+// Claude Code cannot load it.
+#[rstest]
+#[case::managed(
+    McpServerBindingRef::Managed { provider: DESCRIPTOR.provider_id(), server_name: name() },
+    true
+)]
+#[case::person(user_binding(), false)]
+#[tokio::test]
+async fn a_sign_in_beside_a_managed_file_passes_no_servers_file(
+    #[case] binding: McpServerBindingRef,
+    #[case] is_signed_in: bool,
+) {
+    let scripted = ScriptedDriver::new();
+    std::fs::create_dir_all(&scripted.home).expect("the person's home is made");
+    std::fs::write(scripted.home.join(".claude.json"), PERSON_CONFIG)
+        .expect("the person's config is written");
+    scripted.starts.script_mcp_sign_in(
+        custom_scheme_channel(),
+        json!({"mcpOAuth": {"docs|key": saved(SERVER_NAME, SERVER_ADDRESS, "access-one")}}),
+        ScriptedSignInPlace::File,
+        Vec::new(),
+    );
+    let servers: Map<String, Value> =
+        serde_json::from_value(json!({SERVER_NAME: {"type": "http", "url": SERVER_ADDRESS}}))
+            .expect("the file's servers are an object");
+    let (request, opened, returned) = request(binding.clone());
+    let driver = Arc::clone(&scripted.driver);
+    let signing_in = tokio::spawn(async move {
+        sign_in_with_claude_client(
+            &*driver.starts,
+            driver.sign_in_sources_for(Some(servers)).await,
+            |folder| driver.sign_in_environment(folder),
+            request,
+        )
+        .await
+    });
+    if is_signed_in {
+        opened
+            .await
+            .expect("the authorization address is handed out");
+        returned
+            .send(Url::parse(RETURNED_URL).expect("an address"))
+            .expect("the sign-in waits for the browser");
+    }
+
+    let signed_in = signing_in.await.expect("the sign-in runs");
+
+    let starts = scripted.starts.take_sign_in_starts();
+    if is_signed_in {
+        assert_eq!(
+            signed_in.expect("the sign-in reads back").access_token,
+            "access-one"
+        );
+        let [start] = starts.try_into().ok().expect("one");
+        assert_eq!(start.servers, None);
+    } else {
+        assert!(
+            matches!(
+                &signed_in,
+                Err(DriverError::NoPersonServerEntry(no_entry)) if no_entry.binding == binding
+            ),
+            "a person's server reads the no-entry arm, not {signed_in:?}"
+        );
+        assert!(starts.is_empty());
+        assert!(!sign_ins_folder(&scripted).exists());
+    }
 }
 
 // A binding whose server the person's config no longer declares, or declares at another address,
@@ -483,7 +557,7 @@ async fn a_user_entry_is_read_from_the_config_folder_the_persons_environment_nam
         .expect("one");
     assert_eq!(
         start.servers,
-        json!({"mcpServers": {SERVER_NAME: {"type": "http", "url": SERVER_ADDRESS}}})
+        Some(json!({"mcpServers": {SERVER_NAME: {"type": "http", "url": SERVER_ADDRESS}}}))
     );
 }
 
@@ -581,7 +655,7 @@ async fn an_entry_address_with_variables_matches_as_the_sign_in_process_fills_it
         .expect("one");
     assert_eq!(
         start.servers,
-        json!({"mcpServers": {SERVER_NAME: declared}})
+        Some(json!({"mcpServers": {SERVER_NAME: declared}}))
     );
 }
 

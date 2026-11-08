@@ -205,12 +205,10 @@ mod tests {
         .await
         .expect("the file's entry reads");
 
-        match &reading {
-            McpServerAddressReading::Declared(address) => {
-                assert_eq!(address.as_str(), "https://docs.example.test/mcp?key=k");
-            }
-            reading => panic!("the file's address is declared, not {reading:?}"),
-        }
+        let McpServerAddressReading::Declared(address) = &reading else {
+            panic!("the file's address is declared, not {reading:?}");
+        };
+        assert_eq!(address.as_str(), "https://docs.example.test/mcp?key=k");
         assert_eq!(scripted.starts.take_account_servers_read_count(), 0);
     }
 }
