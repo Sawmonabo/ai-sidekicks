@@ -27,37 +27,25 @@
     {
       "system": "darwin",
       "runtimeFolder": "/run/user/1000",
-      "home": "/home/ada",
-      "folder": "/home/ada/.ai-sidekicks/run"
+      "home": "/Users/ada",
+      "folder": "/Users/ada/.ai-sidekicks/run"
     },
     {
       "system": "darwin",
       "runtimeFolder": "/run/user/1000/",
-      "home": "/home/ada",
-      "folder": "/home/ada/.ai-sidekicks/run"
+      "home": "/Users/ada",
+      "folder": "/Users/ada/.ai-sidekicks/run"
     },
     {
       "system": "darwin",
       "runtimeFolder": "",
-      "home": "/home/ada",
-      "folder": "/home/ada/.ai-sidekicks/run"
-    },
-    {
-      "system": "darwin",
-      "runtimeFolder": null,
-      "home": "/home/ada/",
-      "folder": "/home/ada/.ai-sidekicks/run"
-    },
-    {
-      "system": "darwin",
-      "runtimeFolder": "/run/user/1000",
       "home": "/Users/ada",
       "folder": "/Users/ada/.ai-sidekicks/run"
     },
     {
       "system": "darwin",
       "runtimeFolder": null,
-      "home": "/Users/ada",
+      "home": "/Users/ada/",
       "folder": "/Users/ada/.ai-sidekicks/run"
     }
   ],

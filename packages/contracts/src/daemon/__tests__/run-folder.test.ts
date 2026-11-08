@@ -3,33 +3,47 @@
 import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import { resolveDaemonRunFolder } from "../run-folder.js";
 
-interface RunFolderCaseTable {
-  readonly posix: readonly {
-    readonly system: "darwin" | "linux";
-    readonly runtimeFolder: string | null;
-    readonly home: string;
-    readonly folder: string;
-  }[];
-  readonly windows: readonly {
-    readonly localAppData: string;
-    readonly userSid: string;
-    readonly folder: string;
-    readonly pipe: string;
-  }[];
-}
-
-const runFolderCases = JSON.parse(
-  readFileSync(
-    new URL(
-      "../../../../../crates/sidekicks-contracts/tests/fixtures/run-folder.json",
-      import.meta.url,
+// Parsed, not cast, so a row naming any other system fails here as it fails the Rust suite.
+const runFolderCaseTable = z
+  .object({
+    posix: z.array(
+      z
+        .object({
+          system: z.enum(["darwin", "linux"]),
+          runtimeFolder: z.string().nullable(),
+          home: z.string(),
+          folder: z.string(),
+        })
+        .strict(),
     ),
-    "utf8",
+    windows: z.array(
+      z
+        .object({
+          localAppData: z.string(),
+          userSid: z.string(),
+          folder: z.string(),
+          pipe: z.string(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+
+const runFolderCases = runFolderCaseTable.parse(
+  JSON.parse(
+    readFileSync(
+      new URL(
+        "../../../../../crates/sidekicks-contracts/tests/fixtures/run-folder.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
   ),
-) as RunFolderCaseTable;
+);
 
 describe("the run folder on macOS and Linux", () => {
   it.each(runFolderCases.posix)(
