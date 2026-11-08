@@ -515,17 +515,32 @@ mod tests {
         );
     }
 
-    // Killed by a far-behind check that reads the events alone, or needs both limits passed.
+    // Killed by moving a stream at the byte limit, and by a far-behind check that reads the events
+    // alone or needs both limits passed.
     #[tokio::test(start_paused = true)]
     async fn a_stream_behind_by_more_bytes_than_the_limit_is_moved_over_few_events() {
-        let behind = STREAM_FRAME_MAX_CHANGES as u64 + 1;
+        let gate = CreditGate::with_credit(1);
+        let full_frame = STREAM_FRAME_MAX_CHANGES as u64;
         let change_bytes = STREAM_BEHIND_MAX_BYTES / STREAM_FRAME_MAX_CHANGES;
         let record = NumberedRecord::with_change_bytes(change_bytes);
-        record.append(behind);
+        // One full frame is cut short, so it is measured, and stands exactly at the byte limit.
+        record.append(full_frame);
+        let mut at_limit = FrameBatcher::open(Arc::clone(&record), 0)
+            .await
+            .expect("the record never fails");
+        let frame = at_limit.next_frame(&gate).await;
+        assert_eq!(
+            changes_of(frame.expect("the record never fails")),
+            Some((1..=full_frame).collect::<Vec<u64>>()),
+            "a stream at the byte limit is sent its changes"
+        );
+
+        record.append(1);
+        let behind = full_frame + 1;
         let mut batcher = FrameBatcher::open(Arc::clone(&record), 0)
             .await
             .expect("the record never fails");
-        let frame = batcher.next_frame(&CreditGate::with_credit(1)).await;
+        let frame = batcher.next_frame(&gate).await;
         assert_eq!(
             frame.expect("the record never fails"),
             Some(FrameRead::Behind(behind))
