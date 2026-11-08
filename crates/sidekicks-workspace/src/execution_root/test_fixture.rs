@@ -112,6 +112,7 @@ impl ExecutionRootFixture {
         let setup = Arc::new(test_setup_runner(
             git.clone(),
             Arc::clone(&reads),
+            Arc::clone(&log.writer),
             Arc::clone(&events),
             Arc::new(NoSetupSteps),
         ));

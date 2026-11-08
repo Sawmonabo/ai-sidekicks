@@ -18,8 +18,10 @@
 //!   receivers.
 //! - Every folder's changes, its watch's start and its end also reach the folder-change
 //!   receivers by its key, whether or not a session subscribes, with how its tree is followed.
-//! - The daemon's worktree at a folder moves `-> dirty` or `-> merged` with its event, checked at
-//!   the watch's start and before each change goes out, so a reader the change wakes reads it.
+//! - The daemon's worktree at a folder moves `-> dirty`, back to `ready` or `-> merged` with its
+//!   event, checked at the watch's start and before each change goes out, so a reader the change
+//!   wakes reads it; whether its branch merged back is read only at the start and after a change in
+//!   its git folder.
 
 use std::collections::HashMap;
 use std::io;
@@ -39,6 +41,7 @@ use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
+use sidekicks_store::database::writer::DatabaseWriter;
 use tokio::sync::{Notify, broadcast, watch};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -51,12 +54,13 @@ use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::working_folder::{WorkingFolderReadError, read_working_folder};
 
 mod branch_write_back;
-mod dirty_and_merged;
 mod folder;
 mod ignored_paths;
+mod merged;
 mod slow_tick;
 #[cfg(test)]
 mod tests;
+mod tree_state;
 
 /// How often a folder too large to watch is checked, and the mount-health re-probe's own tick:
 /// what it shows is minutes old at most, while git runs a few times an hour.
@@ -66,9 +70,10 @@ pub const SLOW_TICK_INTERVAL: Duration = Duration::from_secs(180);
 // probing every mount.
 const REPOSITORY_CHANGE_CAPACITY: usize = 16;
 
-/// The statements the watch prepares on a read connection: the live worktree at a folder, which
-/// the dirty and merged moves read.
-pub const WORKING_FOLDER_WATCH_STATEMENT_CAPACITY: usize = 1;
+/// The statements the watch prepares on a read connection: a session's working folder, which a
+/// subscription and a follow read, and the standing worktree at a folder, which the state moves
+/// read.
+pub const WORKING_FOLDER_WATCH_STATEMENT_CAPACITY: usize = 2;
 
 /// Folder changes a receiver may fall behind before it reads a lag, which it answers by opening
 /// the feed again, since a change was missed.
@@ -144,9 +149,12 @@ pub struct WorkingFolderWatcherDeps {
     pub git: GitRunner,
     /// The pool a session's working folder is read on.
     pub reads: Arc<DatabaseReadPool>,
+    /// The writer a worktree's record that its branch held commits of its own goes through.
+    pub writer: Arc<DatabaseWriter>,
     /// The sessions standing in a folder, for the branch write-back.
     pub occupancy: MountOccupancyReader,
-    /// Where `session.branch.changed`, `worktree.dirtied` and `worktree.merged` are appended.
+    /// Where `session.branch.changed`, `worktree.dirtied`, `worktree.cleaned` and
+    /// `worktree.merged` are appended.
     pub events: Arc<WorktreeEventEmitter>,
     /// The daemon's scheduler, which runs each slow tick.
     pub scheduler: Arc<Scheduler>,

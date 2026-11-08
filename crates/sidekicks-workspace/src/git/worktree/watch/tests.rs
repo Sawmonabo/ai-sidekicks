@@ -78,6 +78,7 @@ impl Fixture {
             git: git.clone(),
             reads: Arc::clone(&reads),
             occupancy: MountOccupancyReader::new(reads),
+            writer: Arc::clone(&log.writer),
             events: Arc::new(WorktreeEventEmitter::new(Arc::clone(&log.service))),
             scheduler: Arc::new(Scheduler::start(
                 Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),
@@ -591,12 +592,27 @@ async fn a_file_added_to_a_folder_of_ignored_files_is_seen() {
     assert_eq!(next_change(&mut changes).await.session_id, session_id);
 }
 
-// A fresh tree's branch is its base's commit, then new uncommitted work moves its row `-> dirty`
-// and its branch merged back, once the tree is clean, `-> merged`, each with its one event. Kills
-// a move written without its event, an event appended without its move, and a branch whose tip
-// its base reaches read as merged before it has a commit of its own.
+/// How a test merges a tree's branch into its base.
+#[derive(Clone, Copy, Debug)]
+enum MergeStyle {
+    /// The base moves to the branch's tip.
+    FastForward,
+    /// The branch's changes land on the base as one new commit.
+    Squash,
+}
+
+// A fresh tree, and one whose branch only caught up with its base, read neither dirty nor merged;
+// new uncommitted work moves its row `-> dirty`, committing it back to `ready`, and its branch
+// merged back `-> merged`, each with its one event. Kills a move written without its event, an
+// event appended without its move, a fast-forward sync read as merged, the clean move dropped, and
+// a squash merge left unseen.
+#[rstest]
+#[case::fast_forward(MergeStyle::FastForward)]
+#[case::squash(MergeStyle::Squash)]
 #[tokio::test]
-async fn a_tree_reads_dirty_on_uncommitted_work_then_merged_once_its_branch_merges_back() {
+async fn a_tree_reads_dirty_then_ready_then_merged_once_its_own_commits_merge_back(
+    #[case] style: MergeStyle,
+) {
     let fixture = Fixture::new(no_ceiling, Duration::from_secs(180)).await;
     let repository = fixture.repository("one").await;
     let tree = fixture.scratch.path().join("feature");
@@ -639,7 +655,7 @@ async fn a_tree_reads_dirty_on_uncommitted_work_then_merged_once_its_branch_merg
             .prepare(
                 "SELECT type || ' ' || json_extract(payload, '$.worktreeId') || ' ' || \
                  json_extract(payload, '$.state') FROM session_events \
-                 WHERE type IN ('worktree.dirtied', 'worktree.merged') ORDER BY sequence",
+                 WHERE type LIKE 'worktree.%' ORDER BY sequence",
             )
             .expect("the query prepares")
             .query_map([], |row| row.get(0))
@@ -648,10 +664,34 @@ async fn a_tree_reads_dirty_on_uncommitted_work_then_merged_once_its_branch_merg
             .expect("each event reads");
         (state, events)
     };
+    let common_folder = canonical_folder_path(&repository.join(".git"))
+        .await
+        .expect("the common folder resolves");
+    let tell_ref_moved = async |branch: &str| {
+        fixture
+            .feeds(&tree)
+            .await
+            .git_folder
+            .expect("the git folders are watched")
+            .handle_event(Ok(written([common_folder
+                .join("refs")
+                .join("heads")
+                .join(branch)])));
+    };
     assert_eq!(
         tree_state(),
         ("ready".to_owned(), Vec::new()),
         "a fresh tree is neither dirty nor merged"
+    );
+
+    commit_empty(&fixture.git, &repository, "elsewhere").await;
+    git_in(&fixture.git, &tree, &["merge", "--ff-only", "main"]).await;
+    tell_ref_moved("feature").await;
+    next_change(&mut changes).await;
+    assert_eq!(
+        tree_state(),
+        ("ready".to_owned(), Vec::new()),
+        "a branch that only caught up with its base has not merged"
     );
 
     std::fs::write(tree.join("work.txt"), "work").expect("written");
@@ -675,24 +715,21 @@ async fn a_tree_reads_dirty_on_uncommitted_work_then_merged_once_its_branch_merg
 
     git_in(&fixture.git, &tree, &["add", "work.txt"]).await;
     commit_empty(&fixture.git, &tree, "work").await;
-    git_in(
-        &fixture.git,
-        &repository,
-        &["merge", "--ff-only", "feature"],
-    )
-    .await;
-    let common_folder = canonical_folder_path(&repository.join(".git"))
-        .await
-        .expect("the common folder resolves");
-    fixture
-        .feeds(&tree)
-        .await
-        .git_folder
-        .expect("the git folders are watched")
-        .handle_event(Ok(written([common_folder
-            .join("refs")
-            .join("heads")
-            .join("main")])));
+    match style {
+        MergeStyle::FastForward => {
+            git_in(
+                &fixture.git,
+                &repository,
+                &["merge", "--ff-only", "feature"],
+            )
+            .await;
+        }
+        MergeStyle::Squash => {
+            git_in(&fixture.git, &repository, &["merge", "--squash", "feature"]).await;
+            commit_empty(&fixture.git, &repository, "the feature").await;
+        }
+    }
+    tell_ref_moved("main").await;
     next_change(&mut changes).await;
     assert_eq!(
         tree_state(),
@@ -700,6 +737,7 @@ async fn a_tree_reads_dirty_on_uncommitted_work_then_merged_once_its_branch_merg
             "merged".to_owned(),
             vec![
                 format!("worktree.dirtied {worktree_id} dirty"),
+                format!("worktree.cleaned {worktree_id} ready"),
                 format!("worktree.merged {worktree_id} merged"),
             ]
         )

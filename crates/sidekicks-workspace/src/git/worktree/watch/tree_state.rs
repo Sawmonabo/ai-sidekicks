@@ -1,45 +1,48 @@
-//! The dirty and merged moves: the daemon's worktree at a watched folder moves `-> dirty` when
-//! uncommitted work is seen there, and `-> merged` once the tree is clean and its branch has merged
-//! back into the base it was cut from, each with its event in the row's own write.
+//! The worktree state moves the working-folder watch writes: the daemon's standing tree at a
+//! watched folder moves `-> dirty` when uncommitted work is seen there, `dirty -> ready` once it
+//! reads clean again, and `ready -> merged` once its branch has merged back, each with its event in
+//! the row's own write.
 //!
-//! - A tree holding uncommitted work reads dirty, from `ready` or `merged`; a clean tree whose
-//!   branch merged back reads merged, from `ready` or `dirty`. A clean tree whose branch has not
-//!   merged keeps its state, since no event moves a tree back to `ready`.
-//! - A branch has merged back when it has commits of its own, its tip no longer the commit its
-//!   reflog says it was made at, and that tip is reachable from its base. A new tree's branch is
-//!   its base's commit, so it never reads merged; a squash merge leaves no ancestry, so is not
-//!   seen.
-//! - A folder that holds no live daemon worktree costs one row read per check, and git runs only
-//!   for a tree. Every failure is logged, and the folder's next change checks again.
+//! - Whether the tree is clean is one `git status` on each change burst; a folder holding no
+//!   standing tree costs one row read and runs no git.
+//! - Whether its branch merged back is read only at the watch's start and after a change in the
+//!   tree's git folder, which every commit, merge, fetch or ref move makes, never after a burst of
+//!   file changes alone ([`super::merged`]).
+//! - Every failure is logged, and the folder's next change checks again.
 
 use std::error::Error;
 use std::path::Path;
 use std::sync::LazyLock;
 
 use rusqlite::{OptionalExtension, named_params};
-use sidekicks_contracts::place::Place;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::worktree::lifecycle::WorktreeState;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadError, ReadLength};
 use sidekicks_store::events::session::appender::SessionEventLinkage;
 
+use super::merged::MergedCheck;
 use super::{WatchTarget, WatcherShared};
-use crate::git::process::{GitCall, GitError, GitRunner, background_read};
 use crate::git::worktree::event_emitter::EmitWorktreeEventInput;
-use crate::git::worktree::reads::{BRANCH_REF_PREFIX, read_ref_heads, read_uncommitted_paths};
-use crate::git::worktree::rows::{WorktreeRow, transition_statement};
+use crate::git::worktree::reads::has_uncommitted_work;
+use crate::git::worktree::rows::{
+    WorktreeRow, newest_branch_context_join, standing_worktree_state_predicate,
+    transition_statement,
+};
 use crate::git::worktree::service::{WORKTREE_ROW_COLUMNS, worktree_row_of};
 
-// The newest live tree the daemon made at a folder, as stored.
-static SELECT_LIVE_TREE_AT_SQL: LazyLock<String> = LazyLock::new(|| {
+// The newest standing tree the daemon made at a folder, with the base its newest branch context
+// names, else its own, and whether its branch has held commits of its own.
+static SELECT_STANDING_TREE_AT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT {WORKTREE_ROW_COLUMNS} FROM worktrees AS wt
-  WHERE wt.fs_root = @fs_root AND wt.state IN ('{ready}', '{dirty}', '{merged}')
+        "SELECT {WORKTREE_ROW_COLUMNS}, COALESCE(newest.base_branch, wt.base_ref),
+        wt.has_own_commits
+   FROM worktrees AS wt
+   {newest}
+  WHERE wt.fs_root = @fs_root AND {standing}
   ORDER BY wt.created_at DESC, wt.id DESC
   LIMIT 1",
-        ready = <&'static str>::from(WorktreeState::Ready),
-        dirty = <&'static str>::from(WorktreeState::Dirty),
-        merged = <&'static str>::from(WorktreeState::Merged),
+        newest = newest_branch_context_join("wt"),
+        standing = standing_worktree_state_predicate("wt"),
     )
 });
 
@@ -54,157 +57,150 @@ static MARK_DIRTY_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// `-> merged`, from `ready` or `dirty`.
-static MARK_MERGED_SQL: LazyLock<String> = LazyLock::new(|| {
+// `dirty -> ready`.
+static MARK_CLEANED_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "UPDATE worktrees SET state = '{merged}', updated_at = @now
-  WHERE id = @worktree_id AND state IN ('{ready}', '{dirty}')",
-        merged = <&'static str>::from(WorktreeState::Merged),
+        "UPDATE worktrees SET state = '{ready}', updated_at = @now
+  WHERE id = @worktree_id AND state = '{dirty}'",
         ready = <&'static str>::from(WorktreeState::Ready),
         dirty = <&'static str>::from(WorktreeState::Dirty),
     )
 });
 
-// `merge-base --is-ancestor`'s exit when the first commit is not reachable from the second.
-const NOT_AN_ANCESTOR_EXIT_CODE: i32 = 1;
+// `ready -> merged`.
+static MARK_MERGED_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE worktrees SET state = '{merged}', updated_at = @now
+  WHERE id = @worktree_id AND state = '{ready}'",
+        merged = <&'static str>::from(WorktreeState::Merged),
+        ready = <&'static str>::from(WorktreeState::Ready),
+    )
+});
+
+/// The daemon's standing tree at a watched folder, as the state moves read it.
+pub(super) struct StandingTree {
+    /// Its row.
+    pub(super) row: WorktreeRow,
+    /// The base its branch merges back into: its newest branch context's, else its own as given.
+    pub(super) base: String,
+    /// Whether a check has seen its branch hold a commit of its own.
+    pub(super) has_own_commits: bool,
+}
 
 // The move a check found due.
 #[derive(Clone, Copy, Debug)]
 enum TreeMove {
     Dirtied,
+    Cleaned,
     Merged,
 }
 
-// Why the live tree at a folder could not be read.
+// Why the standing tree at a folder could not be read.
 #[derive(Debug, thiserror::Error)]
-enum LiveTreeReadError {
+enum StandingTreeReadError {
     #[error("the worktree rows did not reach the database")]
     Pool(#[from] DatabaseReadError),
     #[error("the worktree row at a working folder could not be read")]
     Row(#[from] rusqlite::Error),
 }
 
-/// Reads the daemon's live tree at `target`'s folder and, when its state is no longer what the
-/// folder at `key` shows, moves it `-> dirty` or `-> merged` with its event in the same write. A
-/// write the row refused, its tree retired or moved meanwhile, appends nothing.
-pub(super) async fn check_dirty_or_merged(
+/// Reads the daemon's standing tree at `target`'s folder and writes each move what the folder at
+/// `key` shows makes due, with its event in the same write; whether its branch merged back is read
+/// only when `is_merged_check_due`. A write the row refused, its tree retired or moved meanwhile,
+/// appends nothing.
+pub(super) async fn check_tree_state(
     shared: &WatcherShared,
     key: &Path,
     target: &WatchTarget,
+    merged: &mut MergedCheck,
+    is_merged_check_due: bool,
 ) {
-    let tree = match read_live_tree(shared, target).await {
+    let tree = match read_standing_tree(shared, target).await {
         Ok(Some(tree)) => tree,
         Ok(None) => return,
         Err(error) => {
             tracing::warn!(
                 error = &error as &(dyn Error + 'static),
-                "the worktree at a working folder could not be read, so whether it is dirty or \
-                 merged is not written yet"
+                "the worktree at a working folder could not be read, so its state is not written \
+                 yet"
             );
             return;
         }
     };
-    match due_move(&shared.deps.git, target.place.as_ref(), key, &tree).await {
-        Ok(Some(due)) => write_move(shared, &tree, due).await,
-        Ok(None) => {}
+    let place = target.place.as_ref();
+    let is_dirty = match has_uncommitted_work(&shared.deps.git, place, key).await {
+        Ok(is_dirty) => is_dirty,
+        Err(error) => {
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "a worktree's uncommitted work could not be read, so its state is not written yet"
+            );
+            return;
+        }
+    };
+    if is_dirty {
+        if tree.row.state != WorktreeState::Dirty {
+            write_move(shared, &tree.row, TreeMove::Dirtied).await;
+        }
+        return;
+    }
+    let is_ready = match tree.row.state {
+        WorktreeState::Dirty => write_move(shared, &tree.row, TreeMove::Cleaned).await,
+        WorktreeState::Ready => true,
+        WorktreeState::Merged
+        | WorktreeState::Creating
+        | WorktreeState::Retired
+        | WorktreeState::Failed => false,
+    };
+    if !is_ready || !is_merged_check_due {
+        return;
+    }
+    match merged
+        .has_merged_back(&shared.deps, place, key, &tree)
+        .await
+    {
+        Ok(true) => {
+            write_move(shared, &tree.row, TreeMove::Merged).await;
+        }
+        Ok(false) => {}
         Err(error) => tracing::warn!(
             error = &error as &(dyn Error + 'static),
-            "a worktree's uncommitted work or its branch could not be read, so whether it is dirty \
-             or merged is not written yet"
+            "whether a worktree's branch merged back could not be read; the next change in its git \
+             folder reads it again"
         ),
     }
 }
 
-async fn read_live_tree(
+async fn read_standing_tree(
     shared: &WatcherShared,
     target: &WatchTarget,
-) -> Result<Option<WorktreeRow>, LiveTreeReadError> {
+) -> Result<Option<StandingTree>, StandingTreeReadError> {
     let fs_root = target.folder.to_string_lossy().into_owned();
     shared
         .deps
         .reads
         .read(ReadLength::Short, move |connection| {
             Ok(connection
-                .prepare_cached(&SELECT_LIVE_TREE_AT_SQL)?
-                .query_row(named_params! { "@fs_root": fs_root }, worktree_row_of)
+                .prepare_cached(&SELECT_STANDING_TREE_AT_SQL)?
+                .query_row(named_params! { "@fs_root": fs_root }, |row| {
+                    Ok(StandingTree {
+                        row: worktree_row_of(row)?,
+                        base: row.get(7)?,
+                        has_own_commits: row.get(8)?,
+                    })
+                })
                 .optional()?)
         })
         .await
 }
 
-// The move the tree at `folder` is due: dirty while it holds uncommitted work, merged once it is
-// clean and its branch merged back, none when its state already says so.
-async fn due_move(
-    git: &GitRunner,
-    place: Option<&Place>,
-    folder: &Path,
-    tree: &WorktreeRow,
-) -> Result<Option<TreeMove>, GitError> {
-    if !read_uncommitted_paths(git, place, folder).await?.is_empty() {
-        return Ok((tree.state != WorktreeState::Dirty).then_some(TreeMove::Dirtied));
-    }
-    if tree.state == WorktreeState::Merged {
-        return Ok(None);
-    }
-    Ok(has_merged_back(git, place, folder, tree)
-        .await?
-        .then_some(TreeMove::Merged))
-}
-
-// Whether the tree's branch has commits of its own, all reachable from its base. A branch gone,
-// or one git keeps no reflog for, has not.
-async fn has_merged_back(
-    git: &GitRunner,
-    place: Option<&Place>,
-    folder: &Path,
-    tree: &WorktreeRow,
-) -> Result<bool, GitError> {
-    let ref_name = format!("{BRANCH_REF_PREFIX}{}", tree.branch_name.as_str());
-    let Some(tip) = read_ref_heads(git, place, folder, &[ref_name.as_str()])
-        .await?
-        .remove(&ref_name)
-        .map(|head| head.commit)
-    else {
-        return Ok(false);
-    };
-    // The reflog lists the branch's commits newest first; its oldest is where it was made.
-    let reflog = git
-        .run(
-            place,
-            GitCall::read(background_read(
-                folder,
-                &["rev-list", "--walk-reflogs", &ref_name, "--"],
-            )),
-        )
-        .await?;
-    let made_at = reflog
-        .stdout
-        .split(|byte| *byte == b'\n')
-        .rfind(|line| !line.is_empty());
-    if made_at.is_none_or(|made_at| made_at == tip.as_bytes()) {
-        return Ok(false);
-    }
-    let ancestry = git
-        .run(
-            place,
-            GitCall::read(background_read(
-                folder,
-                &["merge-base", "--is-ancestor", &tip, tree.base_ref.as_str()],
-            )),
-        )
-        .await;
-    match ancestry {
-        Ok(_) => Ok(true),
-        Err(error) if error.exit_code() == Some(NOT_AN_ANCESTOR_EXIT_CODE) => Ok(false),
-        Err(error) => Err(error),
-    }
-}
-
-// Writes the row's move and its event in one write, the move guarded on its legal predecessors.
-async fn write_move(shared: &WatcherShared, tree: &WorktreeRow, due: TreeMove) {
+// Writes the row's move and its event in one write, the move guarded on its legal predecessor;
+// whether the move was written.
+async fn write_move(shared: &WatcherShared, tree: &WorktreeRow, due: TreeMove) -> bool {
     let now = WireInstant::now();
     let sql = match due {
         TreeMove::Dirtied => MARK_DIRTY_SQL.as_str(),
+        TreeMove::Cleaned => MARK_CLEANED_SQL.as_str(),
         TreeMove::Merged => MARK_MERGED_SQL.as_str(),
     };
     // The row's own session: the event belongs to its maker, and the watch acts for no one.
@@ -223,18 +219,23 @@ async fn write_move(shared: &WatcherShared, tree: &WorktreeRow, due: TreeMove) {
     let events = &shared.deps.events;
     let written = match due {
         TreeMove::Dirtied => events.emit_worktree_dirtied(input, linkage).await,
+        TreeMove::Cleaned => events.emit_worktree_cleaned(input, linkage).await,
         TreeMove::Merged => events.emit_worktree_merged(input, linkage).await,
     };
     match written {
-        Ok(_) => {}
-        Err(error) if error.refused_statement_index() == Some(0) => tracing::debug!(
-            "a worktree left the state its dirty or merged move expected before the move was \
-             written"
-        ),
-        Err(error) => tracing::warn!(
-            error = &error as &(dyn Error + 'static),
-            "a worktree's dirty or merged move could not be written; the folder's next change \
-             tries again"
-        ),
+        Ok(_) => true,
+        Err(error) if error.refused_statement_index() == Some(0) => {
+            tracing::debug!(
+                "a worktree left the state its move expected before the move was written"
+            );
+            false
+        }
+        Err(error) => {
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "a worktree's state move could not be written; the folder's next change tries again"
+            );
+            false
+        }
     }
 }

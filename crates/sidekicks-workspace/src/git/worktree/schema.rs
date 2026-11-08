@@ -89,6 +89,9 @@ CREATE TABLE worktrees (
     CHECK(state IN ({worktree_states})),
   created_at            TEXT NOT NULL,
   updated_at            TEXT NOT NULL,
+  -- 1 once a check has seen the branch hold a commit of its own, so a branch that only caught up
+  -- with its base never reads merged.
+  has_own_commits       INTEGER NOT NULL DEFAULT 0 CHECK (has_own_commits IN (0, 1)),
   -- What the risk read showed when the daemon retired a tree it made and could not hand over, as
   -- a digest; NULL for any other retirement, whose removal showed nothing to lose. The sweep
   -- deletes the folder only while a read shows nothing to lose or this same digest.

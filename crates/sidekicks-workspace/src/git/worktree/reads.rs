@@ -1,9 +1,10 @@
 //! The git reads behind the switcher's rows, the branch list, the working-folder watch, creation
 //! and Put back: the trees git lists for a repository, each branch's distance from its upstream,
-//! refs' commits and a branch's holding tree, every branch's name, the paths a tree has
-//! uncommitted, the branch a folder is on, its own git folder, a linked tree's record, the record a
-//! `.git` file names and the `.git` a record names. Every answer but the last two is git's own;
-//! those read git's files themselves, so they answer even when what the file names is gone.
+//! refs' commits, a branch's holding tree and its upstream, every branch's name, the paths a tree
+//! has uncommitted and whether it has any, the branch a folder is on, its own git folder, a linked
+//! tree's record, the record a `.git` file names and the `.git` a record names. Every answer but
+//! the last two is git's own; those read git's files themselves, so they answer even when what the
+//! file names is gone.
 //!
 //! Each git read runs in the background with no optional lock, so it never rewrites the index
 //! under a run working in the same tree. Output stays bytes, and a path git prints is read back as
@@ -119,13 +120,15 @@ pub(crate) fn tree_name_of(folder: &Path) -> Result<FreeFormText<FILE_PATH_MAX_L
     )
 }
 
-/// A ref's commit and, for a branch, the tree git lists with it checked out.
+/// A ref's commit and, for a branch, the tree git lists with it checked out and its upstream.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RefHead {
     /// The commit the ref names.
     pub(crate) commit: String,
     /// The folder of a tree git lists with the branch checked out, or `None` when none has.
     pub(crate) checked_out_at: Option<PathBuf>,
+    /// The full name of the branch's upstream, or `None` when it follows none.
+    pub(crate) upstream: Option<String>,
 }
 
 /// Why the record of a linked tree could not be read.
@@ -417,8 +420,8 @@ fn parse_upstream_track(track: &[u8]) -> Result<Option<(u64, u64)>, GitError> {
     Ok(Some((ahead, behind)))
 }
 
-/// Reads, in one git call, the commit and holding tree of each of `ref_names` (full names) that
-/// exists in the repository at `repository_folder`, by full name; a ref that does not exist has
+/// Reads, in one git call, the commit, holding tree and upstream of each of `ref_names` (full
+/// names) that exists in the repository at `repository_folder`, by full name; a ref that does not exist has
 /// no entry. Fails as [`GitRunner::run`] does, with `PathText` for a holding tree this system
 /// cannot name.
 pub(crate) async fn read_ref_heads(
@@ -429,7 +432,7 @@ pub(crate) async fn read_ref_heads(
 ) -> Result<HashMap<String, RefHead>, GitError> {
     let mut arguments = vec![
         "for-each-ref",
-        "--format=%(refname)%00%(objectname)%00%(worktreepath)%00",
+        "--format=%(refname)%00%(objectname)%00%(worktreepath)%00%(upstream)%00",
     ];
     arguments.extend_from_slice(ref_names);
     let output = git
@@ -442,7 +445,7 @@ pub(crate) async fn read_ref_heads(
     for record in ref_records(&output.stdout) {
         let mut fields = record.split(|byte| *byte == 0);
         let mut field = || fields.next().unwrap_or_default();
-        let (ref_name, commit, checked_out_at) = (field(), field(), field());
+        let (ref_name, commit, checked_out_at, upstream) = (field(), field(), field(), field());
         // A pattern also matches the refs below it, so only the names asked for are kept.
         let Some(asked) = ref_names.iter().find(|asked| asked.as_bytes() == ref_name) else {
             continue;
@@ -452,6 +455,8 @@ pub(crate) async fn read_ref_heads(
             RefHead {
                 commit: String::from_utf8_lossy(commit).into_owned(),
                 checked_out_at: optional_path(checked_out_at)?,
+                upstream: (!upstream.is_empty())
+                    .then(|| String::from_utf8_lossy(upstream).into_owned()),
             },
         );
     }
@@ -592,6 +597,26 @@ pub(crate) async fn read_uncommitted_paths(
         paths.push(path_from_program_output(path.to_vec()).map_err(GitError::PathText)?);
     }
     Ok(paths)
+}
+
+/// Whether `git status` lists anything in `folder`: a changed, staged or unmerged file, or an
+/// untracked one, a new folder counted once; ignored files are not. Fails as [`GitRunner::run`]
+/// does.
+pub(crate) async fn has_uncommitted_work(
+    git: &GitRunner,
+    place: Option<&Place>,
+    folder: &Path,
+) -> Result<bool, GitError> {
+    let output = git
+        .run(
+            place,
+            GitCall::live_index_read(
+                folder,
+                &["status", "--porcelain=v2", "-z", "--untracked-files=normal"],
+            ),
+        )
+        .await?;
+    Ok(!output.stdout.is_empty())
 }
 
 // The last of `part_count` space-separated parts of a status entry, the path.

@@ -1,7 +1,7 @@
 //! One watched folder's task: it starts the folder's watches, picks the tree's mode (a watch, or
 //! the slow tick where the machine's watch limit has no room), reads every notice, tick and raise
 //! one at a time, sends one change per burst, writes a changed branch back and moves the folder's
-//! worktree `-> dirty` or `-> merged`. The folder-change receivers hear each change, the watch's
+//! worktree `-> dirty`, back to `ready` or `-> merged`. The folder-change receivers hear each change, the watch's
 //! start and each fall to the slow tick, with the mode.
 
 use std::collections::HashSet;
@@ -20,12 +20,13 @@ use sidekicks_std::scheduler::{JobCondition, ScheduledJobHandle};
 use tokio::sync::{Notify, watch};
 
 use super::branch_write_back::BranchWriteBack;
-use super::dirty_and_merged::check_dirty_or_merged;
 use super::ignored_paths::{
     IGNORE_FILE_NAME, IgnoredPaths, TreeCoverage, count_git_folder_watches, count_kept_folders,
     git_folder_roots, is_git_pointer, may_move_head, read_ignored_paths,
 };
+use super::merged::MergedCheck;
 use super::slow_tick::{StatusEntry, read_status_digest};
+use super::tree_state::check_tree_state;
 use super::{
     FolderKey, FolderSignals, FolderStartError, FolderWatchChangeKind, StartOutcome, WatchTarget,
     WatcherShared, WatcherState,
@@ -58,6 +59,8 @@ pub(super) async fn run_folder<W: Watcher + Send + 'static>(
         mode: WorkingTreeChangeMode::Watch,
         branch: BranchWriteBack::default(),
         is_raise_pending: false,
+        merged: MergedCheck::default(),
+        is_merged_check_due: false,
         ignored_read: None,
         is_ignored_read_due: false,
     };
@@ -100,6 +103,9 @@ struct WatchedFolder<W> {
     branch: BranchWriteBack,
     // A change waits to be sent once no notice is ready.
     is_raise_pending: bool,
+    // What the merged checks keep, and whether the git folder changed since the last one.
+    merged: MergedCheck,
+    is_merged_check_due: bool,
     // Reads of what git ignores run one at a time; one more is due when a change asked meanwhile.
     ignored_read: Option<IgnoredRead>,
     is_ignored_read_due: bool,
@@ -181,7 +187,7 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
         self.branch
             .check(&self.shared, &self.folder.key, &self.target)
             .await;
-        check_dirty_or_merged(&self.shared, &self.folder.key, &self.target).await;
+        self.check_tree_state(true).await;
         Ok(())
     }
 
@@ -205,7 +211,8 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
                 FolderEvent::Tick => self.take_tick().await,
                 FolderEvent::IgnoredRead(read) => self.take_ignored_read(read).await,
                 FolderEvent::Flush => {
-                    check_dirty_or_merged(&self.shared, &self.folder.key, &self.target).await;
+                    let is_merged_check_due = std::mem::take(&mut self.is_merged_check_due);
+                    self.check_tree_state(is_merged_check_due).await;
                     self.send_change();
                 }
             }
@@ -290,6 +297,7 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
                         .await;
                 }
                 self.is_raise_pending |= !paths.is_empty();
+                self.is_merged_check_due |= !paths.is_empty();
             }
             Some(FileWatchNotice::Incomplete) => tracing::warn!(
                 "the machine's watch limit refused a working folder's git folder watch; it is \
@@ -549,6 +557,17 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
         if let Some(job) = self.tick.take().and_then(|tick| tick.job) {
             job.cancel();
         }
+    }
+
+    async fn check_tree_state(&mut self, is_merged_check_due: bool) {
+        check_tree_state(
+            &self.shared,
+            &self.folder.key,
+            &self.target,
+            &mut self.merged,
+            is_merged_check_due,
+        )
+        .await;
     }
 
     // Sends one change to each subscriber on the folder and to the folder-change receivers.
