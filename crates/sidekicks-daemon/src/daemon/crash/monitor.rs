@@ -79,8 +79,10 @@ pub(crate) fn is_partial_dump_name(file_name: &str) -> bool {
         .is_some_and(|stem| stem.ends_with('.'))
 }
 
-// How long the service tries to reach a monitor that is still starting, and how often.
-const CONNECT_BOUND: Duration = Duration::from_secs(10);
+/// How long the service tries to reach a monitor that is still starting.
+pub(crate) const CONNECT_BOUND: Duration = Duration::from_secs(10);
+
+// How often the service tries to reach a monitor that is still starting.
 const CONNECT_RETRY_INTERVAL: Duration = Duration::from_millis(100);
 
 // How long the monitor waits for a service to say it is connected before it ends on its own:

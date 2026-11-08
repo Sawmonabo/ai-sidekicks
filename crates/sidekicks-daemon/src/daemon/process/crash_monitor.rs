@@ -19,7 +19,7 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon::crash::monitor::{
-    CRASH_MONITOR_MODE, attach_crash_handler, connect_crash_monitor,
+    CONNECT_BOUND, CRASH_MONITOR_MODE, attach_crash_handler, connect_crash_monitor,
 };
 use crate::daemon::panic_hook::send_panics_to_monitor;
 use crate::daemon::process::start_error::DaemonStartError;
@@ -29,8 +29,9 @@ use crate::daemon::process::stop::{CrashMonitorEndFailure, DaemonStopFailure};
 // since a kill is sent before the wait begins.
 const CRASH_MONITOR_END_BOUND: Duration = Duration::from_secs(1);
 
-// The most new monitors the watch starts within `RESTART_WINDOW`; one more ending stops the
-// restarts for the service's life, so a monitor that dies at once does not loop.
+// The most attempts the watch makes to start a new monitor within `RESTART_WINDOW`, a failed one
+// counted too; past them it makes no more for the service's life, so a monitor that dies at once
+// does not loop.
 const RESTART_LIMIT: usize = 3;
 const RESTART_WINDOW: Duration = Duration::from_mins(10);
 
@@ -193,8 +194,9 @@ async fn connect_handler(socket_path: &Path) -> Result<CrashHandler, DaemonStart
 }
 
 // Waits for `monitor` to end and starts a new one in its place, until `end` fires, answering the
-// monitor running then. Past `RESTART_LIMIT` starts within `RESTART_WINDOW` it logs once and
-// starts no more, answering none.
+// monitor running then. A failed attempt is followed by a pause of the connect's own bound, so a
+// registration the system has not yet dropped or a program file being replaced gets time. Past
+// `RESTART_LIMIT` attempts within `RESTART_WINDOW` it logs once and starts no more, answering none.
 async fn watch_monitor(
     start: MonitorStart,
     mut monitor: ConnectedMonitor,
@@ -237,11 +239,18 @@ async fn watch_monitor(
                 started = start.start_connected() => started,
             };
             match started {
-                Ok(started) => break started,
+                Ok(started) => {
+                    tracing::info!("the crash monitor was restarted");
+                    break started;
+                }
                 Err(error) => tracing::error!(
                     error = &error as &(dyn Error + 'static),
-                    "a new crash monitor could not be started"
+                    "the crash monitor could not be restarted"
                 ),
+            }
+            tokio::select! {
+                () = end.cancelled() => return None,
+                () = tokio::time::sleep(CONNECT_BOUND) => {}
             }
         };
     }
