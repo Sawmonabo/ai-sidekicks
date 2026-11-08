@@ -21,9 +21,10 @@ async fn next_line(client: &mut mpsc::Receiver<String>) -> Value {
     serde_json::from_str(&line).expect("the relay writes JSON")
 }
 
-// Once the executor ends, a command running on it is reported ended after the last event the client
-// got of it, the read waiting on the executor and a start sent after it are answered with the
-// error naming the end, and the connection stays open. Killed by numbering the end from the
+// Once the executor ends, a command running on it is reported ended under the connection's own
+// process id after the last event the connection got of it, the read waiting on the executor and a
+// start sent after it are answered under their own ids with the error naming the end, and the
+// connection stays open. Killed by numbering the end from the
 // command's start rather than its last event, by reporting no end, by leaving the read unanswered
 // and by passing the later start on to the ended executor, each failing a wait or an assertion.
 #[tokio::test]
@@ -33,7 +34,7 @@ async fn an_ended_executor_s_commands_end_and_its_requests_are_answered() {
     let (executor, mut fake) = initialized_executor().await;
     relay.take_executor(Arc::clone(&executor));
     let (client, mut received) = mpsc::channel(16);
-    let executor = relay.attach_client(client).expect("an executor runs");
+    let (executor, connection) = relay.attach_client(client).expect("an executor runs");
 
     let start = json!({ "id": 1, "method": "process/start", "params": {
         "processId": "running",
@@ -44,22 +45,30 @@ async fn an_ended_executor_s_commands_end_and_its_requests_are_answered() {
         "arg0": null,
     }});
     relay
-        .take_client_message(&executor, start.to_string())
+        .take_client_message(&executor, connection, start.to_string())
         .await;
-    assert_eq!(fake.next_sent().await["method"], "process/start");
-    fake.write(&json!({ "id": 1, "result": { "processId": "running" } }))
+    let sent = fake.next_sent().await;
+    assert_eq!(sent["method"], "process/start");
+    let relay_process = sent["params"]["processId"].clone();
+    fake.write(&json!({ "id": sent["id"], "result": { "processId": relay_process } }))
         .await;
     assert_eq!(next_line(&mut received).await["id"], 1);
-    let output = json!({ "method": "process/output", "params": {
-        "processId": "running", "seq": 1, "stream": "stdout", "chunk": "aGk=",
-    }});
-    fake.write(&output).await;
-    assert_eq!(next_line(&mut received).await, output);
+    let output = |process: &Value| {
+        json!({ "method": "process/output", "params": {
+            "processId": process, "seq": 1, "stream": "stdout", "chunk": "aGk=",
+        }})
+    };
+    fake.write(&output(&relay_process)).await;
+    assert_eq!(next_line(&mut received).await, output(&json!("running")));
     let read = json!({ "id": 2, "method": "process/read", "params": {
         "processId": "running", "afterSeq": 1, "waitMs": 30_000,
     }});
-    relay.take_client_message(&executor, read.to_string()).await;
-    assert_eq!(fake.next_sent().await, read);
+    relay
+        .take_client_message(&executor, connection, read.to_string())
+        .await;
+    let sent = fake.next_sent().await;
+    assert_eq!(sent["method"], "process/read");
+    assert_eq!(sent["params"]["processId"], relay_process);
 
     drop(fake);
 
@@ -106,7 +115,7 @@ async fn an_ended_executor_s_commands_end_and_its_requests_are_answered() {
         "arg0": null,
     }});
     relay
-        .take_client_message(&executor, later.to_string())
+        .take_client_message(&executor, connection, later.to_string())
         .await;
     assert_eq!(next_line(&mut received).await, ended_answer(3));
 }

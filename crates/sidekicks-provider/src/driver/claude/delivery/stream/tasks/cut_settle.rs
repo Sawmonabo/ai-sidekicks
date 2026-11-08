@@ -35,6 +35,7 @@ impl ClaudeDeliveryStream {
                         end_cause: Some(ToolCallEndCause::Stopped),
                     },
                     text: None,
+                    notification: None,
                 }
             })
             .collect()
