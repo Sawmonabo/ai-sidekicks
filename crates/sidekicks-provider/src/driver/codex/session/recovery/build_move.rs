@@ -1,6 +1,6 @@
 //! Restarting a service on the program as it is now, after a Codex update, when the service asks
-//! for a restart before it lists models, or when it left a purge's delete unanswered, with its
-//! conversations resumed on the new process. An account's service restarts in place once every
+//! for a restart before it lists models or its supervisor asks for a planned restart, or when it
+//! left a purge's delete unanswered, with its conversations resumed on the new process. An account's service restarts in place once every
 //! session on it is idle, each held in its slot so no turn starts meanwhile. A terminal service,
 //! which terminals the person joined share, gets a second service each conversation moves to as its
 //! session goes idle: the conversation leaves the first, which unloads it, since Codex refuses to
@@ -151,15 +151,6 @@ impl CodexServiceRecovery {
             CodexServiceKind::Terminal => Ok(()),
             // The redial's recovery resumes its conversations as a reconnect does.
             CodexServiceKind::Joined => service.restart_planned().await,
-        }
-    }
-
-    /// A terminal service's planned restart its supervisor asked for: a second service on the
-    /// program as it is now, and each session moved to it once idle; the first is retired once it
-    /// holds none. A failure is reported.
-    pub(crate) async fn move_terminal_service(self: &Arc<Self>, service: &Arc<CodexService>) {
-        if let Err(error) = self.replace_terminal_service(service, None).await {
-            report_restart_failed(service, &error);
         }
     }
 

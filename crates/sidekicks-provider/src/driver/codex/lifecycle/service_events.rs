@@ -113,8 +113,10 @@ impl CodexServiceEvents for CodexDriverServiceEvents {
     }
 
     fn planned_restart_requested(&self, service: &Arc<CodexService>) {
-        self.spawn(service, "planned restart", |parts, service| async move {
-            parts.recovery.move_terminal_service(&service).await;
-        });
+        let Some(parts) = self.link.parts() else {
+            log_event_before_any_session(service, "planned restart");
+            return;
+        };
+        parts.recovery.request_restart(service, None);
     }
 }
