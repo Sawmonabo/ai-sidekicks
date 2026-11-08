@@ -643,8 +643,9 @@ type WorkflowPhaseSuspendedPayload = WorkflowStepEventPayload &
 interface WorkflowPhaseWaitingOnPoolPayload extends WorkflowStepEventPayload {
   waitingSinceSeq: number;
 }
-// The step boundaries. A started event names the input it ran on and, on an agent step whose
-// account cannot run its run's level, the level it runs at in its place; a finished event the
+// The step boundaries. A started event names the input it ran on, on an agent step whose account
+// cannot run its run's level the level it runs at in its place, and on a step that gave its node's
+// pinned items in a manual run the content hash of that pin; a finished event the
 // output and log it produced, how many items each of its main outputs holds, plus its cost where a
 // provider was billed; a failed event the error, the item index that failed, the words typed with
 // the `Decline` that failed a command step, its log and, where its node's `onError` passed its
@@ -655,6 +656,7 @@ interface WorkflowPhaseWaitingOnPoolPayload extends WorkflowStepEventPayload {
 interface WorkflowStepStartedPayload extends WorkflowStepEventPayload {
   inputRef: WorkflowPayloadRef;
   permissionLevel?: PermissionLevel;
+  pinHash?: string; // only on a step that gave its node's pinned items in place of running
 }
 interface WorkflowStepCompletedPayload extends WorkflowStepEventPayload {
   outputRef: WorkflowPayloadRef;

@@ -220,6 +220,8 @@ pub(crate) enum StepReportKind {
         input_ref: WorkflowPayloadRef,
         /// The level the step runs at, where its account runs it at another level than the run's.
         permission_level: Option<PermissionLevel>,
+        /// The hash of the pin the step gave in place of running, where it gave one.
+        pin_hash: Option<WorkflowContentHash>,
     },
     /// The step passed a turn end or a tool call.
     Progressed,

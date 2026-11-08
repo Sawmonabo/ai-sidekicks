@@ -189,6 +189,7 @@ impl StepDispatch {
                                 permission_level: (start.permission_level
                                     != snapshot.permission_level)
                                     .then_some(start.permission_level),
+                                pin_hash: None,
                             };
                             if self.report(&step, &cancel, started_kind).await {
                                 progressed = Some(run_progressed);

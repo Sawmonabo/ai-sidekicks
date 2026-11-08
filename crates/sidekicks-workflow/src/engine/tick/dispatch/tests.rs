@@ -20,6 +20,7 @@ use tokio::sync::{Notify, mpsc};
 use tokio::time::timeout;
 
 use super::{test_dispatch, test_ready_step, test_run_snapshot};
+use crate::definitions::content_hash::hash_canonical_json;
 use crate::engine::ports::{AgentStepRequest, ScriptedGate, StepAdmission};
 use crate::engine::start::hash_run_pins;
 use crate::engine::tick::{RunScope, StepReport, StepReportKind, StepSettlement, test_run_scope};
@@ -262,7 +263,14 @@ pub(super) fn report_json(report: &StepReport, step: &WorkflowStepKey) -> Value 
         StepReportKind::Started {
             input_ref,
             permission_level,
-        } => json!({ "started": { "inputRef": input_ref, "permissionLevel": permission_level } }),
+            pin_hash,
+        } => {
+            let mut started = json!({ "inputRef": input_ref, "permissionLevel": permission_level });
+            if let Some(pin_hash) = pin_hash {
+                started["pinHash"] = json!(pin_hash);
+            }
+            json!({ "started": started })
+        }
         StepReportKind::Progressed => json!("progressed"),
         StepReportKind::Canceling | StepReportKind::BranchesCanceled { .. } => {
             panic!("no dispatched step winds a branch down")
@@ -402,12 +410,16 @@ fn pin_data() -> Record<String, Vec<WorkflowPinnedItem>> {
         .expect("the test's pins read")
 }
 
-/// What the dispatch answers for a node pinned in a manual run: admitted, started and completed
-/// with the pinned item.
+/// What the dispatch answers for a node pinned in a manual run: admitted, started with the hash of
+/// its pinned item list and completed with the pinned item.
 fn pinned_settlement() -> Vec<Value> {
+    let pinned_items = serde_json::to_value(&pin_data().as_map()["step"]).expect("pins write");
+    let pin_hash = hash_canonical_json(&pinned_items).expect("the test's pins hash");
+    let mut started = started();
+    started["started"]["pinHash"] = json!(pin_hash.content_hash);
     vec![
         json!({ "admitted": null }),
-        started(),
+        started,
         completed(&json!([[{ "json": { "pinned": true } }]]), &json!({})),
     ]
 }

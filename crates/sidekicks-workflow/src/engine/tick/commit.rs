@@ -40,7 +40,7 @@ use crate::runs::gate_resolution::RunEventKeys;
 use crate::runs::step_payload::StepPayloadWriteError;
 use crate::runs::step_rows::{
     add_step_pool_wait, admit_step, hold_step, insert_pending_step, insert_skipped_step,
-    set_step_permission_level,
+    record_step_start,
 };
 
 /// A step event's payload: the step `$step` names in `$session_id`, then `$member`s.
@@ -363,10 +363,14 @@ impl RunTurnCommit {
             StepReportKind::Started {
                 input_ref,
                 permission_level,
+                pin_hash,
             } => {
-                if let Some(permission_level) = permission_level {
-                    self.statements
-                        .push(set_step_permission_level(&step, permission_level));
+                if permission_level.is_some() || pin_hash.is_some() {
+                    self.statements.push(record_step_start(
+                        &step,
+                        permission_level,
+                        pin_hash.as_ref(),
+                    ));
                 }
                 self.push(
                     &at,
@@ -384,6 +388,7 @@ impl RunTurnCommit {
                         step,
                         input_ref: input_ref,
                         permission_level: permission_level,
+                        pin_hash: pin_hash,
                     )),
                 );
                 self.moves.push((step, StepMove::Started));

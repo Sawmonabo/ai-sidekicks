@@ -57,6 +57,7 @@ fn workflow_schema_sql() -> String {
     let approval_categories = sql_list_of_every::<WorkflowGateApprovalCategory>();
     let approval_decisions = sql_list_of_every::<ApprovalDecision>();
     let step_statuses = sql_list_of_every::<WorkflowStepStatus>();
+    let pending = <&'static str>::from(WorkflowStepStatus::Pending);
     let waiting = <&'static str>::from(WorkflowStepStatus::Waiting);
     let failed = <&'static str>::from(WorkflowStepStatus::Failed);
     let wait_causes = sql_list_of_every::<WorkflowWaitCause>();
@@ -344,6 +345,10 @@ CREATE TABLE workflow_steps (
                     CHECK(json_valid(output_ref)),
   log_ref           TEXT NOT NULL
                     CHECK(json_valid(log_ref)),
+  -- The content hash of the pinned items a step gave in place of running, from its
+  -- workflow.step.started; NULL on a step that gave no pin.
+  pin_hash          TEXT
+                    CHECK(pin_hash IS NULL OR status <> '{pending}'),
   -- JSON array: how many items each main output holds, in output order, so the one joined
   -- list output_ref stores splits back into one list per output handle.
   output_item_counts_json TEXT NOT NULL DEFAULT '[]'
