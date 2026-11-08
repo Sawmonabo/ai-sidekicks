@@ -142,6 +142,7 @@ pub(crate) fn compose_claude_launcher(services: &DriverServices) -> Arc<ClaudePr
         Arc::clone(&services.child_records),
         Arc::clone(&services.processes),
         Arc::clone(&services.ports.provider_accounts),
+        Arc::clone(&services.ports.telemetry_target),
         &services.data_folder,
     ))
 }

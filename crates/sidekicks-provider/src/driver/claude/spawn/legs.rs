@@ -36,11 +36,13 @@ use crate::driver::claude::spawn::environment::{
     compose_claude_process_environment, interrupted_turn_resume_environment,
 };
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
+use crate::driver::claude::spawn::settings::private_file::compose_claude_settings_folder;
 use crate::driver::contract::params_and_results::StartRunParams;
 use crate::driver::mcp_server::status::McpServerStatusProducer;
 use crate::driver::session_control::{SessionToolServer, SubagentPolicy};
 use crate::run::posture::{
-    CURATED_CREDENTIAL_POLICY_REF, CredentialPolicyResolveError, ExecutionPostureService,
+    CURATED_CREDENTIAL_POLICY_REF, CredentialDenyPath, CredentialDenyPathKind,
+    CredentialPolicyResolveError, ExecutionPostureService,
 };
 use crate::spawn_environment::{
     ReservedEnvironmentNames, SessionEnvironment, SpawnEnvironmentError,
@@ -233,7 +235,10 @@ pub(crate) async fn build_claude_spawn_bound_legs(
         tool_servers: request.tool_servers.unwrap_or_default(),
         output_schema: request.output_schema,
         on_mcp_server_status: request.on_mcp_server_status,
-        credential_deny_paths: credential_policy.deny_paths,
+        credential_deny_paths: compose_claude_deny_paths(
+            credential_policy.deny_paths,
+            Path::new(services.data_folder.as_ref()),
+        ),
         memory_folders: context.memory_folders,
         background_work: Arc::clone(services.background_work),
         spawn_environment,
@@ -241,6 +246,19 @@ pub(crate) async fn build_claude_spawn_bound_legs(
         output_style: context.output_style,
         command_channel: request.command_channel,
     })
+}
+
+// The curated `deny_paths` with the settings folder beside them: its files hold the telemetry
+// token, which lets whoever holds it post records the receiver prices.
+fn compose_claude_deny_paths(
+    mut deny_paths: Vec<CredentialDenyPath>,
+    data_folder: &Path,
+) -> Vec<CredentialDenyPath> {
+    deny_paths.push(CredentialDenyPath {
+        path: compose_claude_settings_folder(data_folder),
+        kind: CredentialDenyPathKind::Folder,
+    });
+    deny_paths
 }
 
 /// Installs the callback-tool registry of the session `legs` start, in `registry`, and returns

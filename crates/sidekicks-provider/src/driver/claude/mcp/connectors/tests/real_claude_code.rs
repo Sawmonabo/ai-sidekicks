@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use serde_json::json;
 use sidekicks_platforms::{ProgramStart, Spawner};
+use sidekicks_std::port_registration::PortRegistration;
 use tokio::runtime::Handle;
 
 use crate::driver::CurrentProviderAccount;
@@ -61,6 +62,7 @@ async fn a_real_claude_code_reports_and_loads_connectors_and_organization_server
         Arc::new(UnrecordedChildren),
         Arc::new(ProviderProcessRegistry::default()),
         registered_test_accounts(CurrentProviderAccount::NoneRegistered),
+        Arc::new(PortRegistration::new("telemetry target")),
         folder.path(),
     );
     let mut environment: Vec<(String, String)> = std::env::vars()
@@ -234,6 +236,7 @@ async fn start_probe(
         working_folder,
         Some(test_provider_account_id()),
         None,
+        false,
     )
     .await
     .expect("the probe starts");

@@ -17,6 +17,7 @@ use super::{
 use crate::driver::child_records::{DaemonChildRecords, SPAWN_NONCE_ENVIRONMENT_NAME};
 use crate::driver::claude::session::control_requests::ClaudeControlRequests;
 use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
+use crate::driver::claude::spawn::settings::ClaudeSpawnSettings;
 use crate::process_registry::ProviderProcessRegistry;
 
 /// The nonce the recording records hand every child.
@@ -83,6 +84,7 @@ async fn a_claude_code_process_is_recorded_from_its_start_to_its_reap() {
                 nonce_file.display()
             ),
         ],
+        settings: ClaudeSpawnSettings::short_process(false),
         environment: Vec::new(),
         working_folder: folder.path().to_owned(),
         provider_session_id: "conversation".to_owned(),
@@ -95,6 +97,7 @@ async fn a_claude_code_process_is_recorded_from_its_start_to_its_reap() {
         &child_records,
         &ProviderProcessRegistry::default(),
         launch,
+        folder.path(),
         Arc::new(NoSession::default()),
         None,
     )
@@ -138,6 +141,7 @@ async fn a_stop_with_a_deadline_kills_a_process_that_ignores_its_input_and_its_s
             "-c".to_owned(),
             r#"trap '' TERM; echo '{"type":"system"}'; while :; do sleep 0.1; done"#.to_owned(),
         ],
+        settings: ClaudeSpawnSettings::short_process(false),
         environment: vec![("PATH".to_owned(), "/bin:/usr/bin".to_owned())],
         working_folder: folder.path().to_owned(),
         provider_session_id: "conversation".to_owned(),
@@ -150,6 +154,7 @@ async fn a_stop_with_a_deadline_kills_a_process_that_ignores_its_input_and_its_s
         &child_records,
         &ProviderProcessRegistry::default(),
         launch,
+        folder.path(),
         Arc::clone(&listener) as Arc<dyn ClaudeProcessListener>,
         None,
     )

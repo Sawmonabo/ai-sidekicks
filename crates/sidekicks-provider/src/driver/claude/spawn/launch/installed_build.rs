@@ -202,6 +202,7 @@ impl ClaudeInstalledBuild {
             working_folder,
             Some(provider_account_id),
             None,
+            false,
         )
         .await?;
         if let Err(error) = short.initialize().await {

@@ -11,6 +11,7 @@ use sidekicks_contracts::mcp::server::{
 };
 use sidekicks_contracts::place::PlacedPath;
 use sidekicks_platforms::Spawner;
+use sidekicks_std::port_registration::PortRegistration;
 use tempfile::TempDir;
 use tokio::runtime::Handle;
 use tokio::time::Instant;
@@ -610,6 +611,7 @@ async fn a_real_claude_code_probe_reads_a_sent_server_connected_with_its_tools()
             Arc::new(UnrecordedChildren),
             Arc::new(ProviderProcessRegistry::default()),
             registered_test_accounts(CurrentProviderAccount::NoneRegistered),
+            Arc::new(PortRegistration::new("telemetry target")),
             home.path(),
         )),
         Arc::new(ProviderCommandSearch::new(spawner)),
