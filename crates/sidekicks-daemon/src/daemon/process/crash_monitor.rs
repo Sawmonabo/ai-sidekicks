@@ -2,7 +2,6 @@
 //! dump when the daemon crashes, and the watch that starts a new monitor when one ends, so a later
 //! crash still leaves a dump.
 
-use std::collections::VecDeque;
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -14,6 +13,7 @@ use crash_handler::CrashHandler;
 use sidekicks_platforms::Spawner;
 use sidekicks_std::helper_mode::child::start_helper_mode_child;
 use tokio::process::{Child, Command};
+use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
@@ -29,11 +29,9 @@ use crate::daemon::process::stop::{CrashMonitorEndFailure, DaemonStopFailure, Ta
 // since a kill is sent before the wait begins.
 const CRASH_MONITOR_END_BOUND: Duration = Duration::from_secs(1);
 
-// The most attempts the watch makes to start a new monitor within `RESTART_WINDOW`, a failed one
-// counted too; past them it makes no more for the service's life, so a monitor that dies at once
-// does not loop.
-const RESTART_LIMIT: usize = 3;
-const RESTART_WINDOW: Duration = Duration::from_mins(10);
+// The longest gap the watch leaves between two attempts to start a monitor; the shortest is the
+// connect's own bound.
+const RESTART_GAP_MAX: Duration = Duration::from_mins(10);
 
 /// The crash monitor: the `minidump` child and, once it is reached, the handler that asks it for a
 /// dump on a crash and the watch that replaces it when it ends.
@@ -63,6 +61,18 @@ struct ConnectedMonitor {
 struct MonitorWatch {
     end: CancellationToken,
     task: JoinHandle<Option<ConnectedMonitor>>,
+    // The count of new monitors the watch has connected to.
+    #[cfg(test)]
+    restarted: watch::Receiver<usize>,
+}
+
+// The gap the watch leaves between two attempts to start a monitor: it doubles, up to
+// `RESTART_GAP_MAX`, after each monitor that ends before it has lived the gap and after each
+// failed attempt, and goes back to `CONNECT_BOUND` once a monitor has lived a full gap.
+struct RestartGap {
+    gap: Duration,
+    attempted_at: Instant,
+    connected_at: Instant,
 }
 
 impl CrashMonitor {
@@ -98,12 +108,21 @@ impl CrashMonitor {
             .take()
             .expect("the monitor is connected once, after its spawn");
         let end = CancellationToken::new();
+        let restarted = watch::Sender::new(0);
+        #[cfg(test)]
+        let restarted_count = restarted.subscribe();
         let task = tokio::spawn(watch_monitor(
             self.start.clone(),
             ConnectedMonitor { child, handler },
             end.clone(),
+            restarted,
         ));
-        self.watch = Some(MonitorWatch { end, task });
+        self.watch = Some(MonitorWatch {
+            end,
+            task,
+            #[cfg(test)]
+            restarted: restarted_count,
+        });
         Ok(())
     }
 
@@ -111,6 +130,12 @@ impl CrashMonitor {
     #[cfg(test)]
     pub(super) fn unwatched_child_id(&self) -> Option<u32> {
         self.unwatched.as_ref().and_then(Child::id)
+    }
+
+    /// The count of new monitors the watch has connected to, once the first monitor is connected.
+    #[cfg(test)]
+    pub(super) fn restarted_count(&self) -> Option<watch::Receiver<usize>> {
+        self.watch.as_ref().map(|watch| watch.restarted.clone())
     }
 
     /// Ends the watch, detaches the crash handler, ends the monitor, waiting at most its own bound
@@ -199,69 +224,94 @@ async fn connect_handler(socket_path: &Path) -> Result<CrashHandler, DaemonStart
     Ok(handler)
 }
 
+impl RestartGap {
+    // A gap of `CONNECT_BOUND` from a monitor attempted and connected now.
+    fn new() -> Self {
+        let now = Instant::now();
+        Self {
+            gap: CONNECT_BOUND,
+            attempted_at: now,
+            connected_at: now,
+        }
+    }
+
+    // When the next attempt starts, after the connected monitor ended (`has_failed` false) or the
+    // last attempt failed: at once for a monitor that lived a full gap, which resets the gap, and
+    // otherwise a gap after the last attempt, which doubles the gap for the attempt after it.
+    fn next_attempt_at(&mut self, has_failed: bool) -> Instant {
+        if !has_failed && self.connected_at.elapsed() >= self.gap {
+            self.gap = CONNECT_BOUND;
+            return Instant::now();
+        }
+        let next_attempt_at = self.attempted_at + self.gap;
+        self.gap = self.gap.saturating_mul(2).min(RESTART_GAP_MAX);
+        next_attempt_at
+    }
+}
+
 // Waits for `monitor` to end and starts a new one in its place, until `end` fires, answering the
-// monitor running then. A failed attempt is followed by a pause of the connect's own bound, so a
-// registration the system has not yet dropped or a program file being replaced gets time. Past
-// `RESTART_LIMIT` attempts within `RESTART_WINDOW` it logs once and starts no more, answering none;
-// once the service is going down after a panic it starts none, answering none.
+// monitor running then. The attempts never stop: each waits the `RestartGap` after the last, and a
+// stop ends any wait at once. Each monitor the watch connects to is counted on `restarted`. Once
+// the service is going down after a panic it starts none, answering none.
 async fn watch_monitor(
     start: MonitorStart,
     mut monitor: ConnectedMonitor,
     end: CancellationToken,
+    restarted: watch::Sender<usize>,
 ) -> Option<ConnectedMonitor> {
-    let mut restarts = VecDeque::with_capacity(RESTART_LIMIT);
+    let mut gap = RestartGap::new();
     loop {
         let exit = tokio::select! {
+            biased;
             () = end.cancelled() => return Some(monitor),
             exit = monitor.child.wait() => exit,
         };
         drop(monitor);
+        let mut next_attempt_at = gap.next_attempt_at(false);
+        let next_attempt_seconds = next_attempt_at
+            .saturating_duration_since(Instant::now())
+            .as_secs();
         match exit {
-            Ok(status) => tracing::warn!(%status, "the crash monitor ended"),
+            Ok(status) => tracing::warn!(%status, next_attempt_seconds, "the crash monitor ended"),
             Err(error) => tracing::warn!(
                 error = &error as &(dyn Error + 'static),
+                next_attempt_seconds,
                 "the wait for the crash monitor failed"
             ),
         }
         monitor = loop {
+            tokio::select! {
+                biased;
+                () = end.cancelled() => return None,
+                () = tokio::time::sleep_until(next_attempt_at) => {}
+            }
             // A panic's abort ends the monitor once it has written the dump; the process is ending.
             if is_crashing() {
                 return None;
             }
-            let now = Instant::now();
-            while restarts
-                .front()
-                .is_some_and(|started: &Instant| now.duration_since(*started) >= RESTART_WINDOW)
-            {
-                restarts.pop_front();
-            }
-            if restarts.len() >= RESTART_LIMIT {
-                tracing::error!(
-                    restarts = RESTART_LIMIT,
-                    window_seconds = RESTART_WINDOW.as_secs(),
-                    "the crash monitor kept ending, so no new one is started and a later crash \
-                     leaves no dump"
-                );
-                return None;
-            }
-            restarts.push_back(now);
+            gap.attempted_at = Instant::now();
             let started = tokio::select! {
+                biased;
                 () = end.cancelled() => return None,
                 started = start.start_connected() => started,
             };
             match started {
                 Ok(started) => {
+                    gap.connected_at = Instant::now();
+                    restarted.send_modify(|count| *count += 1);
                     tracing::info!("the crash monitor was restarted");
                     break started;
                 }
-                Err(error) => tracing::error!(
-                    error = &error as &(dyn Error + 'static),
-                    "the crash monitor could not be restarted"
-                ),
-            }
-            tokio::select! {
-                () = end.cancelled() => return None,
-                () = tokio::time::sleep(CONNECT_BOUND) => {}
+                Err(error) => {
+                    next_attempt_at = gap.next_attempt_at(true);
+                    tracing::error!(
+                        error = &error as &(dyn Error + 'static),
+                        next_attempt_seconds = next_attempt_at
+                            .saturating_duration_since(Instant::now())
+                            .as_secs(),
+                        "the crash monitor could not be restarted"
+                    );
+                }
             }
         };
     }

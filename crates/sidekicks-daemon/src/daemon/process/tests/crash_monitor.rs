@@ -5,17 +5,21 @@ use sidekicks_platforms::{
 };
 
 use super::TestHome;
-use crate::daemon::crash::monitor::connect_crash_monitor;
+use crate::daemon::crash::monitor::{CONNECT_BOUND, connect_crash_monitor};
 use crate::daemon::process::crash_monitor::CrashMonitor;
 
 // The longest the test waits for the killed monitor to end.
 const END_WAIT: Duration = Duration::from_secs(10);
 
+// The longest the test waits for the watch to connect to a new monitor: the first gap after the
+// killed monitor's attempt, then the connect's own bound, with room to spare.
+const RESTART_WAIT: Duration = CONNECT_BOUND.saturating_mul(3);
+
 // A crash monitor whose child is killed is replaced: once the killed one has ended, so its socket
-// answers no more, a new monitor answers there within the connect's bound, and the end then fails
-// nothing. The test's own connection stays up until the end, so its disconnect never ends the new
-// monitor. Killed by a watch that never starts a new monitor, by a restart bound that admits none
-// and by no watch at all, where the connect finds no monitor.
+// answers no more, the watch connects to a new monitor, which then answers the test's own connect
+// too, and the end fails nothing. The test's connection stays up until the end, so its disconnect
+// never ends the new monitor. Killed by a watch that never starts or never connects to a new
+// monitor and by no watch at all.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_killed_crash_monitor_is_replaced_by_one_that_answers() {
     if !CAN_BIND_A_SOCKET_LISTENER {
@@ -30,6 +34,7 @@ async fn a_killed_crash_monitor_is_replaced_by_one_that_answers() {
         .expect("the monitor starts");
     let killed_id = monitor.unwatched_child_id().expect("the monitor runs");
     monitor.connect().await.expect("the monitor answers");
+    let mut restarted = monitor.restarted_count().expect("the monitor is watched");
 
     let killed = pin_running_process(killed_id)
         .expect("the monitor reads")
@@ -42,6 +47,10 @@ async fn a_killed_crash_monitor_is_replaced_by_one_that_answers() {
         .await
         .expect("the killed monitor ends")
         .expect("the wait for its end reads");
+    tokio::time::timeout(RESTART_WAIT, restarted.wait_for(|count| *count >= 1))
+        .await
+        .expect("the watch connects to a new monitor")
+        .expect("the watch counts it");
     let client = tokio::task::spawn_blocking(move || connect_crash_monitor(&socket_path))
         .await
         .expect("the connect ends")
