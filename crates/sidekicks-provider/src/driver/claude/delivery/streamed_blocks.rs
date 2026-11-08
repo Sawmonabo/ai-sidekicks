@@ -6,7 +6,7 @@
 //! id it came in, since Claude Code can send a second response under an id it already sent. The
 //! frames are untrusted, so each member is read leniently.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -199,8 +199,22 @@ struct AbandonedBlocks {
 
 lenient_object!(StreamEventFrame, StreamEvent, StreamDelta, AbandonedBlocks);
 
+/// Where an assistant frame's blocks sit in their response.
+pub(crate) enum ClaudeFrameBlocks {
+    /// The frame finishes the block its response last started.
+    Started(ClaudeStreamedBlockKey),
+    /// The frame finishes no started block: its blocks come after the `offset` blocks the earlier
+    /// frames of response `attempt` carried.
+    Unstarted {
+        /// How many blocks the earlier frames of the response carried.
+        offset: u64,
+        /// The response, from 1.
+        attempt: u64,
+    },
+}
+
 /// Which response under each API message id is streaming and the block it last started, as one
-/// process's `stream_event` frames say.
+/// process's `stream_event` frames say, and how many blocks each response's frames carried.
 #[derive(Debug, Default)]
 pub(crate) struct ClaudeStreamedResponses {
     // Which response under each id is streaming, from 1: a `message_start` under an id already
@@ -209,10 +223,14 @@ pub(crate) struct ClaudeStreamedResponses {
     // The key of the block each response last started, kept past the block's stop until an
     // assistant frame finishes it, whichever of the two comes first.
     started_block_by_message: HashMap<String, ClaudeStreamedBlockKey>,
+    // The ids whose response a `message_stop` closed and no `message_start` has reopened.
+    closed_messages: HashSet<String>,
+    // The response each id's last frame belonged to and how many blocks its frames carried.
+    carried_blocks_by_message: HashMap<String, (u64, u64)>,
 }
 
 impl ClaudeStreamedResponses {
-    /// Takes a response's opening or a block's start; any other event changes nothing.
+    /// Takes a response's opening or end or a block's start; a piece changes nothing.
     pub(crate) fn observe(&mut self, event: &ClaudeStreamEvent) {
         match event {
             ClaudeStreamEvent::MessageStarted { message_id } => {
@@ -222,6 +240,7 @@ impl ClaudeStreamedResponses {
                     .or_default() += 1;
                 // A block the response before left unfinished gets no frame of this one.
                 self.started_block_by_message.remove(message_id);
+                self.closed_messages.remove(message_id);
             }
             ClaudeStreamEvent::BlockStarted {
                 message_id,
@@ -235,7 +254,10 @@ impl ClaudeStreamedResponses {
                 self.started_block_by_message
                     .insert(message_id.clone(), key);
             }
-            ClaudeStreamEvent::ProsePiece { .. } | ClaudeStreamEvent::MessageStopped { .. } => {}
+            ClaudeStreamEvent::MessageStopped { message_id, .. } => {
+                self.closed_messages.insert(message_id.clone());
+            }
+            ClaudeStreamEvent::ProsePiece { .. } => {}
         }
     }
 
@@ -248,19 +270,42 @@ impl ClaudeStreamedResponses {
             .unwrap_or(1)
     }
 
-    /// The key of the block the response under `message_id` last started, which the assistant
-    /// frame now arriving finishes; `None` where no block started since the last one finished.
-    pub(crate) fn take_started_block(
-        &mut self,
-        message_id: &str,
-    ) -> Option<ClaudeStreamedBlockKey> {
-        self.started_block_by_message.remove(message_id)
+    /// Where the blocks of the assistant frame now arriving under `message_id`, holding
+    /// `block_count` blocks, sit: the block its response last started, or, where none started since
+    /// the last frame, after what the response's earlier frames carried. A frame of no started
+    /// block under an id a `message_stop` closed opens the id's next response.
+    pub(crate) fn take_frame(&mut self, message_id: &str, block_count: u64) -> ClaudeFrameBlocks {
+        let started = self.started_block_by_message.remove(message_id);
+        let attempt = if let Some(key) = &started {
+            key.attempt
+        } else {
+            if self.closed_messages.remove(message_id) {
+                let next = self.attempt_of(message_id) + 1;
+                self.attempt_by_message.insert(message_id.to_owned(), next);
+            }
+            self.attempt_of(message_id)
+        };
+        let carried = self
+            .carried_blocks_by_message
+            .entry(message_id.to_owned())
+            .or_insert((attempt, 0));
+        if carried.0 != attempt {
+            *carried = (attempt, 0);
+        }
+        let offset = carried.1;
+        carried.1 += block_count;
+        match started {
+            Some(key) => ClaudeFrameBlocks::Started(key),
+            None => ClaudeFrameBlocks::Unstarted { offset, attempt },
+        }
     }
 
     /// Forgets every response.
     fn clear(&mut self) {
         self.attempt_by_message.clear();
         self.started_block_by_message.clear();
+        self.closed_messages.clear();
+        self.carried_blocks_by_message.clear();
     }
 }
 
@@ -379,14 +424,18 @@ impl ClaudeStreamedBlocks {
         let Some(message_id) = frame.provider_message_id() else {
             return (Vec::new(), rows);
         };
-        let Some(key) = self.responses.take_started_block(message_id) else {
-            // A frame that finishes no started block belongs to the response streaming now.
-            let attempt = self.responses.attempt_of(message_id);
-            let rows = rows
-                .into_iter()
-                .map(|row| stamp_attempt(row, attempt))
-                .collect();
-            return (Vec::new(), rows);
+        let key = match self.responses.take_frame(message_id, frame.block_count()) {
+            ClaudeFrameBlocks::Started(key) => key,
+            // A frame that finishes no started block belongs to the response streaming now, or to
+            // the next one once a `message_stop` closed its id, after the blocks earlier frames of
+            // that response carried.
+            ClaudeFrameBlocks::Unstarted { offset, attempt } => {
+                let rows = rows
+                    .into_iter()
+                    .map(|row| stamp_block(row, offset, attempt))
+                    .collect();
+                return (Vec::new(), rows);
+            }
         };
         let (message_id, block_index) = (key.message_id.clone(), key.block_index);
         let mut pieces = Vec::new();
@@ -591,8 +640,9 @@ fn read_block_index(value: &Value) -> Option<u64> {
     value.as_u64()
 }
 
-// A prose row with its block named under response `attempt`; any other row as it is.
-fn stamp_attempt(mut row: ClaudeMessageRow, attempt: u64) -> ClaudeMessageRow {
+// A prose row with its block moved past `offset` earlier blocks and named under response
+// `attempt`; any other row as it is.
+fn stamp_block(mut row: ClaudeMessageRow, offset: u64, attempt: u64) -> ClaudeMessageRow {
     if let ClaudeMessageRowKind::Thinking { payload, .. }
     | ClaudeMessageRowKind::Session {
         row: LateAppendableRow::AgentMessageSent(payload),
@@ -601,7 +651,7 @@ fn stamp_attempt(mut row: ClaudeMessageRow, attempt: u64) -> ClaudeMessageRow {
     {
         payload.provider_block = payload
             .provider_block
-            .and_then(|block| ProviderBlock::new(block.index.get(), attempt));
+            .and_then(|block| ProviderBlock::new(offset + block.index.get(), attempt));
     }
     row
 }
@@ -664,7 +714,8 @@ mod tests {
     }
 
     // A frame after its block's stop finishes that block, a second response under one id is a
-    // new attempt, and a frame of no streamed block names the response streaming now.
+    // new attempt, a frame of no streamed block names the response streaming now or the next one
+    // once its id closed, and frames of no streamed block follow the blocks before them.
     #[test]
     fn each_piece_names_its_own_block_and_response() {
         let session_id =
@@ -700,24 +751,25 @@ mod tests {
             &mut blocks,
             stream_event(&json!({"type": "content_block_stop", "index": 2})),
         );
-        let finish = |blocks: &mut ClaudeStreamedBlocks, uuid: &str, text: &str| {
-            let frame = json!({
-                "type": "assistant",
-                "uuid": uuid,
-                "message": {"id": "m1", "content": [{"type": "text", "text": text}]},
-            });
-            let frame: ClaudeMessageFrame =
-                serde_json::from_str(&frame.to_string()).expect("the assistant frame reads");
-            let rows = read_claude_assistant_rows(
-                &frame,
-                session_id,
-                &run,
-                &mut HashMap::new(),
-                Timestamp::now(),
-            );
-            blocks.finish(&frame, rows, &account)
-        };
-        let (last_pieces, unstreamed) = finish(&mut blocks, "frame-2", "World!");
+        let finish =
+            |blocks: &mut ClaudeStreamedBlocks, message_id: &str, uuid: &str, text: &str| {
+                let frame = json!({
+                    "type": "assistant",
+                    "uuid": uuid,
+                    "message": {"id": message_id, "content": [{"type": "text", "text": text}]},
+                });
+                let frame: ClaudeMessageFrame =
+                    serde_json::from_str(&frame.to_string()).expect("the assistant frame reads");
+                let rows = read_claude_assistant_rows(
+                    &frame,
+                    session_id,
+                    &run,
+                    &mut HashMap::new(),
+                    Timestamp::now(),
+                );
+                blocks.finish(&frame, rows, &account)
+            };
+        let (last_pieces, unstreamed) = finish(&mut blocks, "m1", "frame-2", "World!");
         observe(&mut blocks, stream_event(&json!({"type": "message_start"})));
         observe(
             &mut blocks,
@@ -726,7 +778,11 @@ mod tests {
         observe(&mut blocks, text_delta(0, "Again"));
         let retried_pieces = blocks.due(started + STREAMED_TEXT_PIECE_INTERVAL * 2);
         observe(&mut blocks, stream_event(&json!({"type": "message_start"})));
-        let (whole_pieces, whole_rows) = finish(&mut blocks, "frame-3", "Whole.");
+        let (whole_pieces, whole_rows) = finish(&mut blocks, "m1", "frame-3", "Whole.");
+        observe(&mut blocks, stream_event(&json!({"type": "message_stop"})));
+        let (_, after_close_rows) = finish(&mut blocks, "m1", "frame-4", "After.");
+        let (_, first_unstreamed_rows) = finish(&mut blocks, "m2", "frame-5", "One.");
+        let (_, second_unstreamed_rows) = finish(&mut blocks, "m2", "frame-6", "Two.");
 
         assert_eq!(
             stamps(&first_pieces),
@@ -739,6 +795,18 @@ mod tests {
         assert_eq!(
             whole_rows.iter().map(stamp).collect::<Vec<_>>(),
             [(block(0, 3), "Whole.")]
+        );
+        assert_eq!(
+            after_close_rows.iter().map(stamp).collect::<Vec<_>>(),
+            [(block(0, 4), "After.")]
+        );
+        assert_eq!(
+            first_unstreamed_rows
+                .iter()
+                .chain(&second_unstreamed_rows)
+                .map(stamp)
+                .collect::<Vec<_>>(),
+            [(block(0, 1), "One."), (block(1, 1), "Two.")]
         );
     }
 }

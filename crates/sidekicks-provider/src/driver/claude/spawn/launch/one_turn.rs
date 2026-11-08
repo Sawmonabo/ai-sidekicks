@@ -13,13 +13,12 @@ use sidekicks_contracts::event::declared_variants::ProviderBlock;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_contracts::wire::integer::SafeInt;
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::claude::delivery::commands::ClaudeCommandChannel;
 use crate::driver::claude::delivery::messages::ClaudeMessageFrame;
 use crate::driver::claude::delivery::streamed_blocks::{
-    ClaudeStreamedResponses, read_stream_event,
+    ClaudeFrameBlocks, ClaudeStreamedResponses, read_stream_event,
 };
 use crate::driver::claude::delivery::system::read_claude_refusal_without_fallback;
 use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
@@ -302,15 +301,13 @@ fn read_lead_frame(frame: &ClaudeStreamFrame, reading: &mut OneTurnReading) {
             };
             if let Some(id) = message.provider_message_id() {
                 reading.provider_message_id = Some(id.to_owned());
-                reading.provider_block = match reading.responses.take_started_block(id) {
-                    Some(started) => started.provider_block(),
-                    None => message.last_text_index().and_then(|index| {
-                        ProviderBlock::new(
-                            SafeInt::from_usize(index).get(),
-                            reading.responses.attempt_of(id),
-                        )
-                    }),
-                };
+                reading.provider_block =
+                    match reading.responses.take_frame(id, message.block_count()) {
+                        ClaudeFrameBlocks::Started(started) => started.provider_block(),
+                        ClaudeFrameBlocks::Unstarted { offset, attempt } => message
+                            .last_text_index()
+                            .and_then(|index| ProviderBlock::new(offset + index, attempt)),
+                    };
             }
             if let Some(refusal) = message.refusal() {
                 reading.refusal = Some(refusal);

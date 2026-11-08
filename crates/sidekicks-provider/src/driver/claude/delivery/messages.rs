@@ -85,7 +85,8 @@ struct ClaudeMessage {
 // a list of blocks.
 enum ClaudeMessageContent {
     Text(String),
-    Blocks(Vec<ClaudeContentBlock>),
+    // The blocks that read, and how many the list held.
+    Blocks(Vec<ClaudeContentBlock>, u64),
 }
 
 impl<'de> serde::de::Visitor<'de> for LenientVisitor<ClaudeMessageContent> {
@@ -107,7 +108,7 @@ impl<'de> serde::de::Visitor<'de> for LenientVisitor<ClaudeMessageContent> {
             read.extend(block.0.map(|block| ClaudeContentBlock { index, ..block }));
             index += 1;
         }
-        Ok(Some(ClaudeMessageContent::Blocks(read)))
+        Ok(Some(ClaudeMessageContent::Blocks(read, index)))
     }
 
     skip_other_shapes!(
@@ -140,7 +141,7 @@ struct ClaudeStopDetails {
 #[derive(Deserialize)]
 struct ClaudeContentBlock {
     #[serde(skip)]
-    index: usize,
+    index: u64,
     #[serde(rename = "type", default, deserialize_with = "read_lenient")]
     block_type: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
@@ -357,15 +358,28 @@ impl ClaudeMessageFrame {
     pub(crate) fn text(&self) -> Option<&str> {
         match self.message.as_ref()?.content.as_ref()? {
             ClaudeMessageContent::Text(text) => Some(text.as_str()),
-            ClaudeMessageContent::Blocks(blocks) => blocks
+            ClaudeMessageContent::Blocks(blocks, _) => blocks
                 .iter()
                 .filter(|block| block.block_type.as_deref() == Some("text"))
                 .find_map(|block| block.text.as_deref().filter(|text| !text.is_empty())),
         }
     }
 
+    /// How many blocks the frame's content holds, one where it is a single string.
+    pub(crate) fn block_count(&self) -> u64 {
+        match self
+            .message
+            .as_ref()
+            .and_then(|message| message.content.as_ref())
+        {
+            Some(ClaudeMessageContent::Blocks(_, count)) => *count,
+            Some(ClaudeMessageContent::Text(_)) => 1,
+            None => 0,
+        }
+    }
+
     /// The index in the message's content of its last non-empty text block.
-    pub(crate) fn last_text_index(&self) -> Option<usize> {
+    pub(crate) fn last_text_index(&self) -> Option<u64> {
         self.blocks()
             .iter()
             .rev()
@@ -418,7 +432,7 @@ impl ClaudeMessageFrame {
             .as_ref()
             .and_then(|message| message.content.as_ref())
         {
-            Some(ClaudeMessageContent::Blocks(blocks)) => blocks,
+            Some(ClaudeMessageContent::Blocks(blocks, _)) => blocks,
             Some(ClaudeMessageContent::Text(_)) | None => &[],
         }
     }
@@ -444,14 +458,13 @@ pub(crate) fn read_claude_assistant_rows(
         .unwrap_or_else(|| {
             EventText::new(mint_uuid_v7().to_string()).expect("a uuid is a field's text")
         });
-    let output_payload = |index: usize| RunAgentOutputPayload {
+    let output_payload = |index: u64| RunAgentOutputPayload {
         session_id,
         provider_message_id: provider_message_id.clone(),
         content_type: None,
         run_id,
         provider_block: Some(
-            ProviderBlock::new(SafeInt::from_usize(index).get(), 1)
-                .expect("a held block's index is a safe integer"),
+            ProviderBlock::new(index, 1).expect("a held block's index is a safe integer"),
         ),
         origin: None,
         source_epoch: None,
