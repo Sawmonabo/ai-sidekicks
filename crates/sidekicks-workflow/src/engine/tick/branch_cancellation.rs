@@ -197,6 +197,7 @@ mod tests {
             StepReportKind::WaitingOnPool { .. }
             | StepReportKind::Admitted { .. }
             | StepReportKind::Started { .. }
+            | StepReportKind::ResumeDue
             | StepReportKind::Settled(
                 StepSettlement::Completed { .. }
                 | StepSettlement::Failed { .. }

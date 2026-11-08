@@ -272,8 +272,10 @@ pub(super) fn report_json(report: &StepReport, step: &WorkflowStepKey) -> Value 
             json!({ "started": started })
         }
         StepReportKind::Progressed => json!("progressed"),
-        StepReportKind::Canceling | StepReportKind::BranchesCanceled { .. } => {
-            panic!("no dispatched step winds a branch down")
+        StepReportKind::Canceling
+        | StepReportKind::BranchesCanceled { .. }
+        | StepReportKind::ResumeDue => {
+            panic!("no dispatched step winds a branch down or comes due")
         }
         StepReportKind::Settled(settlement) => settlement_json(settlement),
     }

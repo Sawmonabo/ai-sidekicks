@@ -16,6 +16,8 @@ use std::error::Error;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
+#[cfg(test)]
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use futures::future::BoxFuture;
 use secrecy::SecretString;
@@ -234,6 +236,10 @@ pub trait AgentStepRun: Send + Sync {
 
     /// Asks the run to stop. Fails when the stop cannot be sent.
     fn cancel(&self) -> BoxFuture<'_, Result<(), PortError>>;
+
+    /// Takes the run's turn the spent account refused again, on the run's account; the run's
+    /// next outcome then answers. Fails when the ask cannot be sent.
+    fn resume(&self) -> BoxFuture<'_, Result<(), PortError>>;
 }
 
 /// What a step process runs.
@@ -566,7 +572,7 @@ pub(crate) struct ScriptedGate {
     /// Woken at each enqueue; a wake with no waiter is kept for the next.
     entered: tokio::sync::Notify,
     /// How many of its tickets were dropped.
-    dropped_tickets: Arc<std::sync::atomic::AtomicUsize>,
+    dropped_tickets: Arc<AtomicUsize>,
 }
 
 #[cfg(test)]
@@ -599,8 +605,7 @@ impl ScriptedGate {
 
     /// How many of its tickets were dropped.
     pub(crate) fn dropped_tickets(&self) -> usize {
-        self.dropped_tickets
-            .load(std::sync::atomic::Ordering::SeqCst)
+        self.dropped_tickets.load(Ordering::SeqCst)
     }
 }
 
@@ -624,7 +629,7 @@ struct ScriptedTicket {
     /// The gate's outcome.
     outcome: watch::Receiver<Option<StepAdmissionOutcome>>,
     /// The gate's count of dropped tickets.
-    dropped_tickets: Arc<std::sync::atomic::AtomicUsize>,
+    dropped_tickets: Arc<AtomicUsize>,
 }
 
 #[cfg(test)]
@@ -653,8 +658,7 @@ impl StepAdmissionTicket for ScriptedTicket {
 #[cfg(test)]
 impl Drop for ScriptedTicket {
     fn drop(&mut self) {
-        self.dropped_tickets
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.dropped_tickets.fetch_add(1, Ordering::SeqCst);
     }
 }
 
@@ -671,8 +675,14 @@ struct ScriptedAgentRunControls {
     outcome: watch::Sender<Option<AgentStepOutcome>>,
     /// Woken at each run's `cancel()`; a wake with no waiter is kept for the next.
     canceled: tokio::sync::Notify,
+    /// Woken at each run's `resume()`; a wake with no waiter is kept for the next.
+    resumed: tokio::sync::Notify,
     /// Whether every run's `cancel()` fails.
-    is_stop_failing: std::sync::atomic::AtomicBool,
+    is_stop_failing: AtomicBool,
+    /// How many times a run's `resume()` was called.
+    resumes: AtomicUsize,
+    /// Whether every run's `resume()` fails.
+    is_resume_failing: AtomicBool,
 }
 
 /// An agent step runner for a test: it records each request, holds each creation until the test
@@ -703,7 +713,10 @@ impl ScriptedAgentRunner {
                 start: watch::Sender::new(None),
                 outcome: watch::Sender::new(None),
                 canceled: tokio::sync::Notify::new(),
-                is_stop_failing: std::sync::atomic::AtomicBool::new(false),
+                resumed: tokio::sync::Notify::new(),
+                is_stop_failing: AtomicBool::new(false),
+                resumes: AtomicUsize::new(0),
+                is_resume_failing: AtomicBool::new(false),
             }),
             requests: std::sync::Mutex::new(Vec::new()),
             requested: tokio::sync::Notify::new(),
@@ -729,9 +742,19 @@ impl ScriptedAgentRunner {
 
     /// Fails every run's `cancel()` from now on.
     pub(crate) fn fail_stops(&self) {
+        self.controls.is_stop_failing.store(true, Ordering::SeqCst);
+    }
+
+    /// Fails every run's `resume()` from now on.
+    pub(crate) fn fail_resumes(&self) {
         self.controls
-            .is_stop_failing
-            .store(true, std::sync::atomic::Ordering::SeqCst);
+            .is_resume_failing
+            .store(true, Ordering::SeqCst);
+    }
+
+    /// How many times a run's `resume()` was called.
+    pub(crate) fn resumes(&self) -> usize {
+        self.controls.resumes.load(Ordering::SeqCst)
     }
 
     /// Admits every run at the gate.
@@ -759,6 +782,11 @@ impl ScriptedAgentRunner {
     /// Returns once a run's `cancel()` was called, at once when one was since the last return.
     pub(crate) async fn wait_for_cancel(&self) {
         self.controls.canceled.notified().await;
+    }
+
+    /// Returns once a run's `resume()` was called, at once when one was since the last return.
+    pub(crate) async fn wait_for_resume(&self) {
+        self.controls.resumed.notified().await;
     }
 
     /// A run reading the controls, as each creation answers.
@@ -830,16 +858,24 @@ impl AgentStepRun for ScriptedAgentRun {
 
     fn cancel(&self) -> BoxFuture<'_, Result<(), PortError>> {
         self.controls.canceled.notify_one();
-        let is_failing = self
-            .controls
-            .is_stop_failing
-            .load(std::sync::atomic::Ordering::SeqCst);
+        let is_failing = self.controls.is_stop_failing.load(Ordering::SeqCst);
         Box::pin(async move {
             if is_failing {
                 return Err("the run's process did not take the stop".into());
             }
             Ok(())
         })
+    }
+
+    /// Counts the call and clears the outcome, so the test ends the resumed run again.
+    fn resume(&self) -> BoxFuture<'_, Result<(), PortError>> {
+        self.controls.resumes.fetch_add(1, Ordering::SeqCst);
+        if self.controls.is_resume_failing.load(Ordering::SeqCst) {
+            return Box::pin(async { Err("the run's provider did not take the turn".into()) });
+        }
+        self.controls.outcome.send_replace(None);
+        self.controls.resumed.notify_one();
+        Box::pin(async { Ok(()) })
     }
 }
 

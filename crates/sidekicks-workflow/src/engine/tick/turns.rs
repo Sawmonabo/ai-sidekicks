@@ -51,7 +51,9 @@ use crate::definitions::kept_values::remove_dropped;
 use crate::engine::chain::KeepGoingIntake;
 use crate::engine::deadlines::EngineDeadlines;
 use crate::engine::event_record::{EngineFault, EngineRecorder};
-use crate::engine::ports::{PortError, RunSnapshotPoints, StepAdmission, StepPayloadArtifacts};
+use crate::engine::ports::{
+    AgentStepRun, PortError, RunSnapshotPoints, StepAdmission, StepPayloadArtifacts,
+};
 use crate::engine::start::StartedRun;
 use crate::engine::waits::answers::PersonWaitIntake;
 use crate::engine::waits::{PersonWaitPorts, PersonWaitRefusal};
@@ -171,6 +173,9 @@ struct RunTurn {
     /// The reports a cancel or a closed wave queued, applied in order after the report that
     /// queued them, so nothing recurses.
     follow_ups: VecDeque<StepReport>,
+    /// The steps the turn resumed from a spent account, each with its kept agent run, taken
+    /// again once the write commits.
+    resumes: Vec<(WorkflowStepKey, Box<dyn AgentStepRun>)>,
     /// The index and instant of the turn's last event that carries readied steps.
     last_readying_event: Option<(usize, WireInstant)>,
 }
@@ -516,6 +521,7 @@ impl EngineTick {
             asks,
             replies: Vec::new(),
             follow_ups: VecDeque::new(),
+            resumes: Vec::new(),
             last_readying_event: None,
         };
         for report in std::mem::take(&mut live.next_batch) {
@@ -543,6 +549,7 @@ impl EngineTick {
             readied,
             asks,
             replies,
+            resumes,
             ..
         } = turn;
         match commit
@@ -609,6 +616,7 @@ impl EngineTick {
                 for (step, line) in std::mem::take(&mut live.deadline_lines) {
                     live.record.decision(step.as_ref(), line).await;
                 }
+                self.resume_parked(&live, resumes);
                 self.ask_people(&mut live, asks).await;
                 self.needs_deadline_read |= std::mem::take(&mut live.needs_deadline_read);
                 if let Some(ending_sequence) = ending_sequence {

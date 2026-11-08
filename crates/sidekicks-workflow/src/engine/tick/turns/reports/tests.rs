@@ -417,6 +417,7 @@ async fn a_reset_before_the_cap_arms_the_parked_steps_resume_at_the_boundary() {
     let armed = resume_lines(&harness, "deadlineArmed");
     assert_eq!(armed.len(), 1, "the resume is armed once");
     assert_eq!(armed[0]["at"], json!(resets_at));
+    assert_eq!(harness.armed(), Some(wall_instant(&resets_at)));
 }
 
 /// A spent account whose stated reset falls at the run's cap deadline or past it parks its step
@@ -524,4 +525,95 @@ async fn the_cap_passing_during_an_account_park_ends_the_run() {
     assert_eq!(cleared.len(), 1, "the ending clears the cap");
     assert_eq!(cleared[0]["at"], json!(cap_at));
     assert_eq!(harness.armed(), None, "nothing of the run stays armed");
+}
+
+/// A, parked on its spent account until a reset a minute away, its resume armed.
+async fn park_until_a_minute_from_now(harness: &mut Harness) -> WireInstant {
+    start_agent_run(harness).await;
+    let resets_at = instant_after(Timestamp::now(), 60_000);
+    harness.agents.end(spent(Some(resets_at.clone())));
+    harness
+        .wait_until(|rows| step_column(rows, "A", "status").as_deref() == Some("waiting"))
+        .await;
+    harness.wait_for_earlier_turns().await;
+    assert_eq!(harness.armed(), Some(wall_instant(&resets_at)));
+    resets_at
+}
+
+/// A resumes when its reset passes: its row back to `running` with no resume, the step's and the
+/// run's resume in one write, its kept run taken again once after that write with the clear
+/// recorded, and its next outcome settling it. Kills: the resume never fired; `resume()` before
+/// the write; a second driver; the clear line missing.
+#[tokio::test]
+async fn a_parked_step_resumes_once_its_reset_passes() {
+    let mut harness = Harness::new(None).await;
+    let resets_at = park_until_a_minute_from_now(&mut harness).await;
+
+    harness
+        .clock
+        .set_now(wall_instant(&resets_at) + Duration::from_secs(1));
+    timeout(WAIT, harness.agents.wait_for_resume())
+        .await
+        .expect("A's kept run is taken again");
+    assert_eq!(
+        step_column(&harness.rows, "A", "status").as_deref(),
+        Some("running"),
+        "the resume is written before the run is taken again"
+    );
+    assert_eq!(step_column(&harness.rows, "A", "resume_at"), None);
+    let (phase_resumed, ..) = harness.event("workflow.phase.resumed", "A");
+    let (run_resumed, ..) = harness
+        .events()
+        .into_iter()
+        .find(|(_, event_type, _, _)| event_type == "workflow.run.resumed")
+        .expect("the run resumes");
+    assert_eq!(
+        run_resumed,
+        phase_resumed + 1,
+        "one write resumes the step and the run"
+    );
+    let cleared = resume_lines(&harness, "deadlineCleared");
+    assert_eq!(cleared.len(), 1, "the resume is cleared once");
+    assert_eq!(cleared[0]["at"], json!(resets_at));
+
+    harness.agents.end(AgentStepOutcome::Completed {
+        items: vec![item(json!({ "answer": 1 }))],
+        cost: None,
+    });
+    harness
+        .wait_until(|rows| step_column(rows, "A", "status").as_deref() == Some("succeeded"))
+        .await;
+    tokio::time::sleep(QUIET).await;
+    assert_eq!(
+        harness.agents.resumes(),
+        1,
+        "one driver takes the run again"
+    );
+}
+
+/// A person's cancel of the run while A's resume is armed cancels A, stops its kept run, empties
+/// its resume and disarms the clock. Kills: the account wait's clear skipped when A leaves it.
+#[tokio::test]
+async fn a_cancel_while_the_resume_is_armed_disarms_it() {
+    let mut harness = Harness::new(None).await;
+    let resets_at = park_until_a_minute_from_now(&mut harness).await;
+
+    let replied = harness.cancel("not now").await;
+    timeout(WAIT, replied)
+        .await
+        .expect("the loop replies in time")
+        .expect("the reply is sent")
+        .expect("the cancel is taken");
+    timeout(WAIT, harness.agents.wait_for_cancel())
+        .await
+        .expect("A's kept run is stopped");
+    harness.wait_for_earlier_turns().await;
+
+    assert_eq!(harness.status("A").as_deref(), Some("canceled"));
+    assert_eq!(step_column(&harness.rows, "A", "resume_at"), None);
+    let cleared = resume_lines(&harness, "deadlineCleared");
+    assert_eq!(cleared.len(), 1, "the cancel clears the resume");
+    assert_eq!(cleared[0]["at"], json!(resets_at));
+    assert_eq!(harness.armed(), None, "the clock is disarmed");
+    assert_eq!(harness.agents.resumes(), 0);
 }

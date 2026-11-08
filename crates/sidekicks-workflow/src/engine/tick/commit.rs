@@ -470,6 +470,9 @@ impl RunTurnCommit {
             StepReportKind::BranchesCanceled { reason, count } => {
                 self.branches_canceled(step, &at, reason, count);
             }
+            StepReportKind::ResumeDue => {
+                self.resume_step(&step, None, WorkflowWaitCause::Account, &at);
+            }
             StepReportKind::Settled(settlement) => {
                 return self
                     .settle(step, &at, settlement, &reported)

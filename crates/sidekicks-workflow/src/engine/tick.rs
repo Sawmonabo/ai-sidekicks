@@ -233,6 +233,9 @@ pub(crate) enum StepReportKind {
         /// How many running branches the wave canceled.
         count: usize,
     },
+    /// The step's armed resume came due; the tick resumes it while it still waits on its spent
+    /// account.
+    ResumeDue,
     /// The step ended.
     Settled(StepSettlement),
 }

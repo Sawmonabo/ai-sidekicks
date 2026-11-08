@@ -10,7 +10,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
 use sidekicks_contracts::workflow::run::snapshot::WorkflowRunPauseNumber;
-use sidekicks_contracts::workflow::run::status::WorkflowStepStatus;
+use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseCancellationReason;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 
@@ -116,6 +116,11 @@ impl EngineTick {
                     live_step.is_winding_down = true;
                 }
                 None
+            }
+            StepReportKind::ResumeDue => {
+                self.resume_account_park(live, turn, report.step, report.at)
+                    .await;
+                return;
             }
             StepReportKind::Started { .. }
             | StepReportKind::Progressed
@@ -287,6 +292,73 @@ impl EngineTick {
             SettlementAnswer::AccountSpent { run, resume_at } => {
                 live.wait_on_account(step.execution_index.get(), run, resume_at);
             }
+        }
+    }
+
+    /// Resumes `step` of `live` from its spent account at `at`, as its armed resume coming due
+    /// does, only while it still waits on the account, is not winding down and its run's ending is
+    /// undecided; else nothing is written. A failed park beside it does not hold it back, since
+    /// its attempt is in flight. Its row goes back to `running` in the turn's write, its resume is
+    /// disarmed, it takes a fresh cancel, a child of the run's, and its kept agent run waits on
+    /// the turn, taken again once the write commits.
+    pub(super) async fn resume_account_park(
+        &self,
+        live: &mut LiveRun,
+        turn: &mut RunTurn,
+        step: WorkflowStepKey,
+        at: WireInstant,
+    ) {
+        let execution_index = step.execution_index.get();
+        let is_parked = live.ending.is_none()
+            && live.steps.get(&execution_index).is_some_and(|live_step| {
+                live_step.status == WorkflowStepStatus::Waiting
+                    && live_step.wait_cause == Some(WorkflowWaitCause::Account)
+                    && !live_step.is_winding_down
+            });
+        if !is_parked {
+            return;
+        }
+        let resumed = StepReport {
+            step: step.clone(),
+            at,
+            kind: StepReportKind::ResumeDue,
+        };
+        turn.commit
+            .report(resumed, self.reported(live, &step))
+            .await
+            .expect("only a settlement stores a payload");
+        live.move_step(execution_index, WorkflowStepStatus::Running, None);
+        let cancel = live.scope.cancel.child_token();
+        let live_step = live
+            .steps
+            .get_mut(&execution_index)
+            .expect("a resumed step is live");
+        live_step.cancel = Some(cancel);
+        let run = live_step
+            .parked_agent_run
+            .take()
+            .expect("a step waiting on its spent account keeps its run");
+        turn.resumes.push((step, run));
+    }
+
+    /// Hands each of `resumes`, a step of `live` whose resume the turn's write just committed,
+    /// with its kept agent run to the dispatch, which takes the run again under the step's cancel.
+    pub(super) fn resume_parked(
+        &self,
+        live: &LiveRun,
+        resumes: Vec<(WorkflowStepKey, Box<dyn AgentStepRun>)>,
+    ) {
+        for (step, run) in resumes {
+            let live_step = live
+                .steps
+                .get(&step.execution_index.get())
+                .expect("a resumed step stays live until its run settles it");
+            let cancel = live_step
+                .cancel
+                .clone()
+                .expect("a resumed step holds its cancel");
+            self.dispatch
+                .resume_agent_step(&live.scope, step, &live_step.inputs, run, cancel);
         }
     }
 

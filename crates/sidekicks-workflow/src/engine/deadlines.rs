@@ -38,9 +38,10 @@ use crate::engine::waits::step_key;
 use crate::kinds::{StepFailure, coded_step_error};
 
 /// The statements the deadline clock runs on a read connection: the earliest person wait
-/// deadline, the steps due by an instant, the unfinished runs and a run's lowest-index step.
+/// deadline and resume, the steps due by an instant on each, the unfinished runs and a run's
+/// lowest-index step.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-pub(crate) const ENGINE_DEADLINE_STATEMENT_CAPACITY: usize = 4;
+pub(crate) const ENGINE_DEADLINE_STATEMENT_CAPACITY: usize = 6;
 
 /// The deadline clock's job, as the program's log names it.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
@@ -55,6 +56,17 @@ const DEADLINE_RETRY_JOB: &str = "workflow engine deadline retry";
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 const EARLIEST_DEADLINE_SQL: &str = "SELECT workflow_run_id, wait_deadline_at FROM workflow_steps \
      WHERE wait_deadline_at IS NOT NULL ORDER BY wait_deadline_at";
+
+// Reads the partial index on the resume in its order, as the deadline's read does.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+const EARLIEST_RESUME_SQL: &str = "SELECT workflow_run_id, resume_at FROM workflow_steps \
+     WHERE resume_at IS NOT NULL ORDER BY resume_at";
+
+// A resume is set only while a spent account holds the step, so no status test is needed.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+const DUE_RESUMES_SQL: &str = "SELECT workflow_run_id, node_id, attempt, execution_index \
+     FROM workflow_steps WHERE resume_at IS NOT NULL AND resume_at <= @instant \
+     ORDER BY resume_at, execution_index";
 
 // A deadline is set only while a person wait holds the step, so no status test is needed.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
@@ -96,14 +108,15 @@ fn stored_timestamp(row: &Row<'_>, index: usize) -> rusqlite::Result<Timestamp> 
     })
 }
 
-// The earliest deadline of a step waiting on a person in a run not in `skipped`, `None` when no
-// such wait has one.
+// The earliest instant `sql` reads, a run id then a stored instant in its order, of a run not in
+// `skipped`, `None` when there is none.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-fn earliest_person_wait_deadline(
+fn earliest_step_instant(
     connection: &Connection,
+    sql: &str,
     skipped: &HashSet<WorkflowRunId>,
 ) -> Result<Option<SystemTime>, EngineDeadlineError> {
-    let mut statement = connection.prepare_cached(EARLIEST_DEADLINE_SQL)?;
+    let mut statement = connection.prepare_cached(sql)?;
     let mut rows = statement.query([])?;
     while let Some(row) = rows.next()? {
         let run_id = text_column(row, 0, |text| WorkflowRunId::new(&text))?;
@@ -138,15 +151,16 @@ fn unfinished_run_caps(
     Ok(caps)
 }
 
-// The earliest deadline of a run not in `skipped`: a person wait's, or a run's cap under `limit`
-// where one is set; `None` when there is none.
+// The earliest deadline of a run not in `skipped`: a person wait's, a parked step's resume, or a
+// run's cap under `limit` where one is set; `None` when there is none.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn earliest_deadline(
     connection: &Connection,
     skipped: &HashSet<WorkflowRunId>,
     limit: Option<RunTimeLimitMinutes>,
 ) -> Result<Option<SystemTime>, EngineDeadlineError> {
-    let wait = earliest_person_wait_deadline(connection, skipped)?;
+    let wait = earliest_step_instant(connection, EARLIEST_DEADLINE_SQL, skipped)?;
+    let resume = earliest_step_instant(connection, EARLIEST_RESUME_SQL, skipped)?;
     let cap = match limit {
         Some(limit) => unfinished_run_caps(connection, limit, skipped)?
             .into_iter()
@@ -154,12 +168,13 @@ fn earliest_deadline(
             .min(),
         None => None,
     };
-    Ok(wait.into_iter().chain(cap).min())
+    Ok(wait.into_iter().chain(resume).chain(cap).min())
 }
 
 // Every report due at `instant` of a run not in `skipped`: each person wait past its deadline
-// fails timed out, earliest first, then each run past its cap under `limit` fails on its
-// lowest-index step with the cap's failure.
+// fails timed out, earliest first, each parked step whose resume passed comes due, earliest
+// first, then each run past its cap under `limit` fails on its lowest-index step with the cap's
+// failure.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn due_reports(
     connection: &Connection,
@@ -181,6 +196,16 @@ fn due_reports(
             (step, failed(failure))
         })
         .collect();
+    let resumes = connection
+        .prepare_cached(DUE_RESUMES_SQL)?
+        .query_map(named_params! { "@instant": instant.as_str() }, step_key)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    due.extend(
+        resumes
+            .into_iter()
+            .filter(|step| !skipped.contains(&step.workflow_run_id))
+            .map(|step| (step, StepReportKind::ResumeDue)),
+    );
     let Some(limit) = limit else {
         return Ok(due);
     };
@@ -266,9 +291,10 @@ pub(crate) enum EngineDeadlineError {
     ReportsClosed,
 }
 
-/// The engine's one deadline clock over every step waiting on a person and every unfinished
-/// run: armed at the earliest stored deadline or run cap, it fails each step whose deadline passed
-/// with `workflow.step.timedOut`, and each run past its cap on its lowest-index step.
+/// The engine's one deadline clock over every step waiting on a person or a spent account and
+/// every unfinished run: armed at the earliest stored deadline, resume or run cap, it fails each
+/// step whose deadline passed with `workflow.step.timedOut`, resumes each parked step whose resume
+/// came due, and fails each run past its cap on its lowest-index step.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct EngineDeadlines {
     /// The clock's one job on the wall clock.
@@ -336,8 +362,8 @@ impl InstantJob for EngineDeadlines {
         &self.armed
     }
 
-    /// Reports every step whose deadline is at or before `instant` failed, and every run past its
-    /// cap, once, but a dropped run's: it arms nothing again, so a deadline is not reported twice
+    /// Reports every step whose deadline is at or before `instant` failed, every parked step whose
+    /// resume came due, and every run past its cap, once, but a dropped run's: it arms nothing again, so a deadline is not reported twice
     /// before the commit clears it, and the tick calls [`InstantJob::rearm`] after that write.
     fn fire(
         self: Arc<Self>,
@@ -369,8 +395,8 @@ impl InstantJob for EngineDeadlines {
         .boxed()
     }
 
-    /// Reads the earliest stored deadline or run cap of a run not dropped, under `Stop a run
-    /// after` as set now, and arms the clock at it, or disarms it when there is none; a failed
+    /// Reads the earliest stored deadline, resume or run cap of a run not dropped, under `Stop a
+    /// run after` as set now, and arms the clock at it, or disarms it when there is none; a failed
     /// read is tried again a minute later while nothing is armed.
     fn rearm(self: Arc<Self>) -> BoxFuture<'static, ()> {
         async move {
