@@ -189,7 +189,7 @@ fn a_rejoined_reply_reads_as_one_row_at_its_first_piece() {
         REPLY,
         session_log.run_id,
         "m1",
-        Some(0),
+        Some((0, 1)),
         "Hello, ",
         first_at,
     );
@@ -197,7 +197,7 @@ fn a_rejoined_reply_reads_as_one_row_at_its_first_piece() {
         REPLY,
         session_log.run_id,
         "m1",
-        Some(0),
+        Some((0, 1)),
         "world.",
         "2026-10-14T09:00:05.000Z",
     );
@@ -218,7 +218,7 @@ fn a_rejoined_reply_reads_as_one_row_at_its_first_piece() {
 #[derive(Clone, Copy, Debug)]
 enum Step {
     // A reply piece: its message, its block and its text.
-    Reply(&'static str, Option<u64>, &'static str),
+    Reply(&'static str, Option<(u64, u64)>, &'static str),
     // A completed tool call.
     Tool,
 }
@@ -227,30 +227,30 @@ enum Step {
 #[rstest]
 #[case::blocks_of_one_message_stay_apart(
     &[
-        Step::Reply("m1", Some(0), "Let me look."),
+        Step::Reply("m1", Some((0, 1)), "Let me look."),
         Step::Tool,
-        Step::Reply("m1", Some(2), "Found it."),
+        Step::Reply("m1", Some((2, 1)), "Found it."),
     ],
     &["Let me look.", "tool", "Found it."]
 )]
 #[case::a_tool_result_inside_a_block(
     &[
-        Step::Reply("m1", Some(0), "Reading "),
+        Step::Reply("m1", Some((0, 1)), "Reading "),
         Step::Tool,
-        Step::Reply("m1", Some(0), "the file."),
+        Step::Reply("m1", Some((0, 1)), "the file."),
     ],
     &["Reading the file.", "tool"]
 )]
 #[case::a_plan_block_inside_a_message(
     &[
-        Step::Reply("item", Some(0), "Step one, "),
-        Step::Reply("item", Some(1), "1. Read"),
-        Step::Reply("item", Some(0), "step two."),
+        Step::Reply("item", Some((0, 1)), "Step one, "),
+        Step::Reply("item", Some((1, 1)), "1. Read"),
+        Step::Reply("item", Some((0, 1)), "step two."),
     ],
     &["Step one, step two.", "1. Read"]
 )]
 #[case::the_same_block_of_two_messages(
-    &[Step::Reply("m1", Some(0), "First."), Step::Reply("m2", Some(0), "Second.")],
+    &[Step::Reply("m1", Some((0, 1)), "First."), Step::Reply("m2", Some((0, 1)), "Second.")],
     &["First.", "Second."]
 )]
 fn a_reply_rejoins_only_the_pieces_of_its_message_and_block(
@@ -278,9 +278,9 @@ fn a_reply_rejoins_only_the_pieces_of_its_message_and_block(
 #[test]
 fn rejoin_pages_count_rows_and_end_at_the_head_or_their_bound() {
     let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
-    log.session_log.reply("a", Some(0), "A1 ");
-    let (reply_b, _) = log.session_log.reply("b", Some(0), "B");
-    let (head, _) = log.session_log.reply("a", Some(0), "A2");
+    log.session_log.reply("a", Some((0, 1)), "A1 ");
+    let (reply_b, _) = log.session_log.reply("b", Some((0, 1)), "B");
+    let (head, _) = log.session_log.reply("a", Some((0, 1)), "A2");
 
     let first = read(&log, json!({ "limit": 1 }));
     assert_eq!(row_bodies(&first), ["A1 A2"]);
@@ -295,7 +295,7 @@ fn rejoin_pages_count_rows_and_end_at_the_head_or_their_bound() {
     assert_eq!(second["nextCursor"], cursor(head));
     assert_eq!(second["joinedThrough"], cursor(head));
 
-    let (later, _) = log.session_log.reply("c", Some(0), "C");
+    let (later, _) = log.session_log.reply("c", Some((0, 1)), "C");
     let bounded = read(
         &log,
         json!({ "afterCursor": cursor(reply_b - 1), "beforeCursor": cursor(head), "limit": 5 }),
@@ -315,9 +315,9 @@ fn a_rejoined_body_over_a_page_reads_back_whole_in_parts() {
         .iter()
         .map(|character| format!("{}.", character.repeat(120_000)))
         .collect();
-    let (_, row_id) = log.session_log.reply("long", Some(0), &pieces[0]);
-    log.session_log.reply("long", Some(0), &pieces[1]);
-    log.session_log.reply("long", Some(0), &pieces[2]);
+    let (_, row_id) = log.session_log.reply("long", Some((0, 1)), &pieces[0]);
+    log.session_log.reply("long", Some((0, 1)), &pieces[1]);
+    log.session_log.reply("long", Some((0, 1)), &pieces[2]);
     let whole = pieces.concat();
     assert!(whole.len() > sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES);
 
@@ -456,10 +456,10 @@ fn row_with_body<'page>(page: &'page Value, body: &str) -> &'page Value {
 fn a_window_cuts_reply_rows_into_blocks_and_a_failed_cut_fails_its_row_alone() {
     let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
     let text = "First.\n\nSecond.\n\nThird.\n\nFourth.\n";
-    log.session_log.reply("m1", Some(0), &text[..17]);
-    log.session_log.reply("m1", Some(0), &text[17..]);
+    log.session_log.reply("m1", Some((0, 1)), &text[..17]);
+    log.session_log.reply("m1", Some((0, 1)), &text[17..]);
     let stalling = format!("Before.\n\n{STALLING_TEXT}\n");
-    log.session_log.reply("m2", Some(0), &stalling);
+    log.session_log.reply("m2", Some((0, 1)), &stalling);
 
     let (open_page, open_attachments) = read_with_attachments(&log, json!({}), stalling_parse);
     let open = wire_block_starts(
@@ -490,11 +490,11 @@ fn a_body_read_spreads_starts_past_a_page_across_its_parts() {
     let whole = "a\n\n".repeat(paragraphs);
     // Four pieces, each under the stored cut, take a body whose starts alone pass one page.
     let piece_length = whole.len() / 4;
-    let (_, row_id) = session_log.reply("long", Some(0), &whole[..piece_length]);
+    let (_, row_id) = session_log.reply("long", Some((0, 1)), &whole[..piece_length]);
     for index in 1..4 {
         session_log.reply(
             "long",
-            Some(0),
+            Some((0, 1)),
             &whole[index * piece_length..(index + 1) * piece_length],
         );
     }

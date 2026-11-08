@@ -88,8 +88,8 @@ fn a_malformed_stored_row_is_refused_naming_its_event_and_session(
 fn a_hydrated_read_joins_each_rows_decoded_bodies() {
     let log = SessionTestLog::new(schema_parts());
     let opening = "\u{e9}".repeat(1_500);
-    let (row, _) = log.reply("m1", Some(0), &opening);
-    log.reply("m1", Some(0), " and the rest.");
+    let (row, _) = log.reply("m1", Some((0, 1)), &opening);
+    log.reply("m1", Some((0, 1)), " and the rest.");
     let (bare, _) = log.tool_completion(log.run_id, "call-1", None, None);
     let reader = log.reader();
     let stored_payload: String = reader

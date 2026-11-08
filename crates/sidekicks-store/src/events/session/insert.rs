@@ -305,19 +305,10 @@ mod tests {
     #[test]
     fn a_piece_joins_only_its_own_block_of_its_own_response() {
         let log = SessionTestLog::new(schema_parts());
-        let (anchor, _) = log.reply("m1", Some(0), "First ");
-        let (joined, _) = log.reply("m1", Some(0), "block.");
-        let (later_block, _) = log.reply("m1", Some(2), "After the tool call.");
-        let retried_payload = json!({
-            "sessionId": log.session_id,
-            "runId": log.run_id,
-            "providerMessageId": "m1",
-            "providerBlock": { "index": 0, "attempt": 2 },
-        });
-        let (retried, _) = log.write(
-            json!({ "type": "agent.message.sent", "payload": retried_payload }),
-            Some("Retried."),
-        );
+        let (anchor, _) = log.reply("m1", Some((0, 1)), "First ");
+        let (joined, _) = log.reply("m1", Some((0, 1)), "block.");
+        let (later_block, _) = log.reply("m1", Some((2, 1)), "After the tool call.");
+        let (retried, _) = log.reply("m1", Some((0, 2)), "Retried.");
 
         let joins = joins_of(&log.reader(), &[anchor, joined, later_block, retried]);
 
@@ -351,13 +342,13 @@ mod tests {
     ) {
         let log = SessionTestLog::new(schema_parts());
         let other_run = RunId::try_from(mint_uuid_v7()).expect("a run id");
-        let (anchor, _) = log.reply("m1", Some(0), "Before ");
-        let (joined, _) = log.reply("m1", Some(0), "the end.");
+        let (anchor, _) = log.reply("m1", Some((0, 1)), "Before ");
+        let (joined, _) = log.reply("m1", Some((0, 1)), "the end.");
         let (other, _) = log.piece(
             "agent.message.sent",
             other_run,
             "m1",
-            Some(0),
+            Some((0, 1)),
             "Elsewhere.",
             AT,
         );
@@ -367,7 +358,7 @@ mod tests {
             json!({ "type": ending_type, "payload": ending_payload }),
             None,
         );
-        let (after, _) = log.reply("m1", Some(0), "After the end.");
+        let (after, _) = log.reply("m1", Some((0, 1)), "After the end.");
 
         let reader = log.reader();
         let joins = joins_of(&reader, &[anchor, joined, other, after]);
