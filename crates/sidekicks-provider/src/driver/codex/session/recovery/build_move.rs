@@ -114,38 +114,12 @@ impl CodexServiceRecovery {
             }
         }
         drop(state);
-        let recovery = Arc::clone(self);
-        let service = Arc::clone(service);
-        self.dependencies.tasks.spawn(async move {
-            let mut change = change;
-            let (restarted, waiters) = loop {
-                let restarted = recovery
-                    .restart_service(&service, change)
-                    .await
-                    .map_err(Arc::new);
-                // Taken and cleared in one step, so a request between the two is never lost.
-                let mut state = recovery.lock();
-                let mut restart = state.restarting.remove(&service.id()).unwrap_or_default();
-                let Some(joined) = restart.joined_change.take() else {
-                    break (restarted, restart.waiters);
-                };
-                state.restarting.insert(service.id(), restart);
-                drop(state);
-                if let Err(error) = &restarted {
-                    report_restart_failed(&service, error);
-                }
-                change = Some(joined);
-            };
-            let heard = waiters
-                .into_iter()
-                .filter_map(|waiter| waiter.send(restarted.clone()).ok())
-                .count();
-            if heard == 0
-                && let Err(error) = &restarted
-            {
-                report_restart_failed(&service, error);
-            }
-        });
+        let mark = RestartMark {
+            recovery: Arc::clone(self),
+            service: Arc::clone(service),
+            is_removed: false,
+        };
+        self.dependencies.tasks.spawn(mark.run(change));
     }
 
     /// Restarts `service` on the program as it is now, its conversations resumed on the new
@@ -404,13 +378,72 @@ impl CodexServiceRecovery {
 type RestartEnded = oneshot::Sender<Result<(), Arc<CodexError>>>;
 
 /// A restart begun on a service that has not ended, with the callers waiting for its end.
-#[derive(Default)]
 pub(super) struct ServiceRestart {
     /// The build change a request brought while the restart ran, run in one more restart once it
     /// ends.
     joined_change: Option<ProviderBuildChange>,
     /// Each told how the last restart ended.
     waiters: Vec<RestartEnded>,
+}
+
+/// A service's restart mark, held by the task that runs its restarts. Dropped before that task
+/// removed it, as a panic in a restart drops it, it removes the mark, so the service no longer
+/// reads as restarting and each waiter, its sender dropped, hears the restart ended unanswered.
+struct RestartMark {
+    /// The recovery whose state holds the mark.
+    recovery: Arc<CodexServiceRecovery>,
+    /// The service restarting.
+    service: Arc<CodexService>,
+    /// Whether the task removed the mark itself, its waiters then told.
+    is_removed: bool,
+}
+
+impl RestartMark {
+    // Restarts the service, then once more with each change a request joined meanwhile, and tells
+    // each waiter how the last restart ended; a failure no waiter heard is reported.
+    async fn run(mut self, mut change: Option<ProviderBuildChange>) {
+        let service_id = self.service.id();
+        let (restarted, waiters) = loop {
+            let restarted = self
+                .recovery
+                .restart_service(&self.service, change)
+                .await
+                .map_err(Arc::new);
+            // Taken and cleared in one step, so a request between the two is never lost.
+            let mut state = self.recovery.lock();
+            let mut restart = state
+                .restarting
+                .remove(&service_id)
+                .expect("the restart's own entry");
+            let Some(joined) = restart.joined_change.take() else {
+                self.is_removed = true;
+                break (restarted, restart.waiters);
+            };
+            state.restarting.insert(service_id, restart);
+            drop(state);
+            if let Err(error) = &restarted {
+                report_restart_failed(&self.service, error);
+            }
+            change = Some(joined);
+        };
+        let heard = waiters
+            .into_iter()
+            .filter_map(|waiter| waiter.send(restarted.clone()).ok())
+            .count();
+        if heard == 0
+            && let Err(error) = &restarted
+        {
+            report_restart_failed(&self.service, error);
+        }
+    }
+}
+
+impl Drop for RestartMark {
+    fn drop(&mut self) {
+        if !self.is_removed {
+            let _unanswered = self.recovery.lock().restarting.remove(&self.service.id());
+        }
+    }
 }
 
 /// A session's slot as a move found it.
