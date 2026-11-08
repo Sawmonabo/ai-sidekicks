@@ -17,7 +17,7 @@ use crate::driver::claude::session::scripted::driver::{ScriptedDriver, sandbox_c
 use crate::driver::claude::session::scripted::{binding_id, priced, register_claude_price_list};
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnOutcome, ClaudeOneTurnReply};
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::driver::session_control::NameSessionParams;
 use crate::driver::test_registry::new_session_id;
 use crate::port::usage_sink::MeteredUsageOwner;
@@ -214,9 +214,8 @@ async fn a_canceled_naming_pass_s_spend_lands_after_the_cancel() {
     cancel.cancel();
     fixture
         .driver
-        .shutdown(DaemonStopIntent::Restart)
-        .await
-        .expect("the stop ends");
+        .shutdown(DaemonStopIntent::Restart, daemon_stop_deadline())
+        .await;
     stop.cancel();
 
     assert_the_session_s_naming_spend(&fixture, UsageCostSource::DerivedExact);

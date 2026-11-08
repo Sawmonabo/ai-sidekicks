@@ -162,8 +162,9 @@ async fn run_title_exec(
         "--json".to_owned(),
         prompt.to_owned(),
     ]);
-    let mut launch =
-        compose_codex_native_launch(&dependencies.data_folder, &executable, arguments).await?;
+    let mut launch = compose_codex_native_launch(&dependencies.data_folder, &executable, arguments)
+        .await?
+        .launch;
     launch.working_folder = folder.path().to_owned();
     let left = time_left();
     if left.is_zero() {

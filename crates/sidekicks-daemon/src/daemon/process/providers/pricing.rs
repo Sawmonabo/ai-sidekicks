@@ -21,7 +21,7 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::daemon::process::method_inputs::MethodInputsError;
+use crate::daemon::process::method_inputs::error::MethodInputsError;
 use crate::daemon::process::providers::Providers;
 use crate::daemon::process::stop::TaskStopFailure;
 use crate::price_list_seed::price_list_seed;
