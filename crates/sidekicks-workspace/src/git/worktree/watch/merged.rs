@@ -3,15 +3,18 @@
 //!
 //! - The row records the branch's newest commit of its own: each check that finds a commit on the
 //!   branch that changes a path, merge commits not counted, and that neither the base nor its
-//!   upstream holds records the newest such commit; while it records none and the tip is
-//!   contained, the newest commit, amend or pick in the branch's reflog that changed a path and
-//!   that the base or its upstream holds seeds it. A branch that only caught up with its base, by a
-//!   fast-forward or a merge commit, never left it or made only empty commits records none and
+//!   upstream holds records the newest such commit, or the tip where that commit lacks some of
+//!   them, as when a merge joined two lines of the branch's own work; while it records none and the
+//!   tip is contained, the newest commit, amend or pick in the branch's reflog that changed a path
+//!   and that the base or its upstream holds seeds it. A branch that only caught up with its base,
+//!   by a fast-forward or a merge commit, never left it or made only empty commits records none and
 //!   never reads merged.
-//! - The checks run on the recorded commit, never on a later tip that discarded its work: it has
-//!   merged when the base or its upstream holds it, or, where neither does, when nothing on it is
-//!   left unapplied there: each of its commits' patches found on that side, or all of its changes
-//!   as one squashed patch. The patch test runs once per combination of the commit it tests, the
+//! - The checks run on the tip while it holds work of its own, else on the recorded commit, never
+//!   on a later tip that discarded its work: it has merged when the base or its upstream holds it,
+//!   or, where neither does, when nothing on it is left unapplied there: the patch of each of its
+//!   commits whose changes the branch kept found on that side, or all of its changes as one
+//!   squashed patch. A commit whose changes a sync merge replaced with the base's has nothing left
+//!   to land. The patch test runs once per combination of the commit it tests, the
 //!   base's tip and the upstream's.
 //! - A merged branch reads reopened once a check finds such a commit of its own past its recorded
 //!   one.
@@ -64,7 +67,8 @@ pub(super) struct MergedCheck {
 
 // The commits a check reads: the branch's tip, and the targets it merges back into: the base's,
 // then the upstream's where it holds commits the base lacks, or the upstream's alone where it holds
-// the base, since then it holds all the base holds. The patch test's tip is the recorded one.
+// the base, since then it holds all the base holds. The patch test's tip is the branch's while
+// it holds work of its own, else the recorded commit.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct BranchTips {
     tip: String,
@@ -100,12 +104,12 @@ impl MergedCheck {
         else {
             return Ok(false);
         };
-        if let Some(newest) =
-            newest_own_commit_past(git, place, folder, &tips.tip, &tips.targets).await?
+        if let Some(own) =
+            own_commit_to_record(git, place, folder, &tips.tip, &tips.targets).await?
         {
             // The tip holds work the base and its upstream lack, so neither contains it.
-            if tree.newest_own_commit.as_deref() != Some(newest.as_str()) {
-                record_newest_own_commit(deps, tree, &newest).await?;
+            if tree.newest_own_commit.as_deref() != Some(own.as_str()) {
+                record_newest_own_commit(deps, tree, &own).await?;
             }
         } else {
             let recorded = if let Some(recorded) = &tree.newest_own_commit {
@@ -150,9 +154,9 @@ impl MergedCheck {
         Ok(verdict)
     }
 
-    /// The newest commit of its own on `tree`'s merged branch, checked out at `folder`, past the
-    /// recorded one that neither the base nor its upstream holds, which the row then records;
-    /// `None` while it holds none. Fails as git does.
+    /// The commit the row of `tree`'s merged branch, checked out at `folder`, records once the
+    /// branch holds commits of its own past the recorded one that neither the base nor its upstream
+    /// holds, as `own_commit_to_record` picks it; `None` while it holds none. Fails as git does.
     pub(super) async fn reopened_commit(
         &mut self,
         git: &GitRunner,
@@ -169,12 +173,12 @@ impl MergedCheck {
         };
         let mut past = tips.targets.clone();
         past.extend(tree.newest_own_commit.iter().cloned());
-        match newest_own_commit_past(git, place, folder, &tips.tip, &past).await {
-            Ok(newest) => Ok(newest),
+        match own_commit_to_record(git, place, folder, &tips.tip, &past).await {
+            Ok(own) => Ok(own),
             // A recorded commit the repository no longer holds bounds nothing.
             Err(error) => match &tree.newest_own_commit {
                 Some(recorded) if !is_commit_held(git, place, folder, recorded).await? => {
-                    newest_own_commit_past(git, place, folder, &tips.tip, &tips.targets).await
+                    own_commit_to_record(git, place, folder, &tips.tip, &tips.targets).await
                 }
                 _ => Err(error),
             },
@@ -266,16 +270,39 @@ async fn count_past(
     parse_number(&strip_line_end(read(git, place, folder, &arguments).await?))
 }
 
-// The newest commit `commit` holds that changes a path, merge commits left out, and that none of
-// the commits `past` holds; `None` when there is none.
-async fn newest_own_commit_past(
+// The commit a row records for the work of its own `commit` holds past the commits `past`, its
+// commits that change a path, merge commits left out, and that none of them holds: the newest
+// such commit where it holds all of them, else `commit` itself, as when a merge joined two lines
+// of that work; `None` when there is none.
+async fn own_commit_to_record(
     git: &GitRunner,
     place: Option<&Place>,
     folder: &Path,
     commit: &str,
     past: &[String],
 ) -> Result<Option<String>, GitError> {
-    let excluded: Vec<String> = past.iter().map(|target| format!("^{target}")).collect();
+    let mut excluded: Vec<String> = past.iter().map(|target| format!("^{target}")).collect();
+    let Some(newest) = newest_own_commit_past(git, place, folder, commit, &excluded).await? else {
+        return Ok(None);
+    };
+    excluded.push(format!("^{newest}"));
+    let outside = newest_own_commit_past(git, place, folder, commit, &excluded).await?;
+    Ok(Some(if outside.is_none() {
+        newest
+    } else {
+        commit.to_owned()
+    }))
+}
+
+// The newest commit `commit` holds that changes a path, merge commits left out, past the
+// `excluded` revisions (each `^<commit>`); `None` when there is none.
+async fn newest_own_commit_past(
+    git: &GitRunner,
+    place: Option<&Place>,
+    folder: &Path,
+    commit: &str,
+    excluded: &[String],
+) -> Result<Option<String>, GitError> {
     let mut arguments = vec!["rev-list", "--max-count=1", "--no-merges", commit];
     arguments.extend(excluded.iter().map(String::as_str));
     // The tree's root as a path keeps only the commits that change one.
@@ -495,6 +522,9 @@ struct TargetPatches {
 // commit can hold one of the branch's. Only the target's commits that touch a path the branch's
 // commits touch can, so the log reads both sides limited to those paths: a target commit that made
 // one of the branch's changes beside others holds it, and no branch commit loses a path it changes.
+// The branch's side lists the commits whose changes the branch kept: where a merge took the
+// target's side on those paths, the log follows that side, past the commits whose changes it
+// replaced.
 async fn read_patches_on(
     git: &GitRunner,
     place: Option<&Place>,

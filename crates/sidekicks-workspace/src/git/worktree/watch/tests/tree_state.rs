@@ -14,6 +14,7 @@ use tokio::sync::mpsc;
 
 use super::{Fixture, listener, next_change, written};
 use crate::folder::canonical_path::canonical_folder_path;
+use crate::git::process::test_git_runner_with_environment;
 use crate::git::process::test_repository::{commit_empty, git_in};
 use crate::git::worktree::watch::{WatchSubscription, no_ceiling};
 use crate::test_rows::PARENT_ROWS_AT;
@@ -302,6 +303,12 @@ enum BranchHistory {
     EmptyCommit,
     /// The branch's commit after work its base took by a fast-forward is empty.
     EmptyCommitPastMergedWork,
+    /// The branch changes a file, syncs with its base through a merge that keeps the base's
+    /// version of that file, then makes two commits its base cherry-picks.
+    SyncTakingBaseSideThenPicked,
+    /// The branch's own work comes in two lines joined by a merge, the side line's commit the
+    /// newer; the branch is reset to its base, and its base merges the side line alone.
+    TwoLinesOneMerged,
 }
 
 // A branch whose own work never reached its base reads `ready` with no event, and one whose work
@@ -311,14 +318,20 @@ enum BranchHistory {
 // as its commit; the checks run on the current tip, which the reset left contained, in place of the
 // recorded one that holds the discarded work; an empty commit counted as work of its own, or taken
 // as the reflog's seed, which reads the base's fast-forward to it as merged; a branch whose commits
-// past its base change no path read as applied there; and the branch's tip recorded in place of
-// its newest commit that changes a path, which leaves merged work behind an empty commit unread.
+// past its base change no path read as applied there; the branch's tip recorded in place of its
+// newest commit that changes a path, which leaves merged work behind an empty commit unread; the
+// per-commit test reading the commits whose changes a sync merge replaced with the base's (as
+// `--full-history` on the patch log does), which finds the replaced commit's patch nowhere and
+// reads the picked branch as not merged; and the newest of two lines recorded though it lacks the
+// other, which reads the base's merge of that one line as merged.
 #[rstest]
 #[case::fast_forward_sync(BranchHistory::FastForwardSync)]
 #[case::merge_commit_sync(BranchHistory::MergeCommitSync)]
 #[case::reset_to_base(BranchHistory::ResetToBase)]
 #[case::empty_commit(BranchHistory::EmptyCommit)]
 #[case::empty_commit_past_merged_work(BranchHistory::EmptyCommitPastMergedWork)]
+#[case::sync_taking_base_side_then_picked(BranchHistory::SyncTakingBaseSideThenPicked)]
+#[case::two_lines_one_merged(BranchHistory::TwoLinesOneMerged)]
 #[tokio::test]
 async fn a_branch_reads_merged_only_once_its_own_work_reached_its_base(
     #[case] style: BranchHistory,
@@ -359,11 +372,72 @@ async fn a_branch_reads_merged_only_once_its_own_work_reached_its_base(
             watched.tell_ref_moved("feature").await;
             git_in(&git, &repository, &["merge", "--ff-only", &work]).await;
         }
+        BranchHistory::SyncTakingBaseSideThenPicked => {
+            watched.write_and_commit_file("shared.txt").await;
+            std::fs::write(repository.join("shared.txt"), "the base's").expect("written");
+            git_in(&git, &repository, &["add", "shared.txt"]).await;
+            commit_empty(&git, &repository, "the base's shared.txt").await;
+            git_in(
+                &git,
+                &tree,
+                &[
+                    "-c",
+                    "commit.gpgSign=false",
+                    "merge",
+                    "--no-edit",
+                    "-X",
+                    "theirs",
+                    "main",
+                ],
+            )
+            .await;
+            watched.write_and_commit_file("second.txt").await;
+            watched.write_and_commit_file("third.txt").await;
+            git_in(
+                &git,
+                &repository,
+                &[
+                    "-c",
+                    "commit.gpgSign=false",
+                    "cherry-pick",
+                    "feature~1",
+                    "feature",
+                ],
+            )
+            .await;
+        }
+        BranchHistory::TwoLinesOneMerged => {
+            let later = test_git_runner_with_environment(&[(
+                "GIT_COMMITTER_DATE",
+                "2090-01-01 00:00:00 +0000",
+            )]);
+            git_in(&git, &repository, &["switch", "--quiet", "-c", "side"]).await;
+            std::fs::write(repository.join("side.txt"), "side").expect("written");
+            git_in(&git, &repository, &["add", "side.txt"]).await;
+            commit_empty(&later, &repository, "side").await;
+            git_in(&git, &repository, &["switch", "--quiet", "main"]).await;
+            watched.write_and_commit_file("first.txt").await;
+            let merge_side = [
+                "-c",
+                "commit.gpgSign=false",
+                "merge",
+                "--no-ff",
+                "--no-edit",
+                "side",
+            ];
+            git_in(&git, &tree, &merge_side).await;
+            watched.tell_ref_moved("feature").await;
+            git_in(&git, &tree, &["reset", "--hard", "main"]).await;
+            git_in(&git, &repository, &merge_side).await;
+        }
     }
     watched.tell_ref_moved("feature").await;
     watched.tell_ref_moved("main").await;
 
-    let expected = if matches!(style, BranchHistory::EmptyCommitPastMergedWork) {
+    let expected = if matches!(
+        style,
+        BranchHistory::EmptyCommitPastMergedWork | BranchHistory::SyncTakingBaseSideThenPicked
+    ) {
         ("merged".to_owned(), vec![watched.event("merged", "merged")])
     } else {
         ("ready".to_owned(), Vec::new())
@@ -374,7 +448,10 @@ async fn a_branch_reads_merged_only_once_its_own_work_reached_its_base(
         is_commit_recorded,
         matches!(
             style,
-            BranchHistory::ResetToBase | BranchHistory::EmptyCommitPastMergedWork
+            BranchHistory::ResetToBase
+                | BranchHistory::EmptyCommitPastMergedWork
+                | BranchHistory::SyncTakingBaseSideThenPicked
+                | BranchHistory::TwoLinesOneMerged
         ),
         "only a branch that held work of its own records a commit"
     );
