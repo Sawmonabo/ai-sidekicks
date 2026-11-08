@@ -16,7 +16,6 @@ use std::time::Duration;
 
 use futures::FutureExt;
 use serde_json::Value;
-use sidekicks_contracts::event::usage::UsageCostSource;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -72,7 +71,6 @@ use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::session_control::CreateSessionParams;
 use crate::driver::test_registry::{new_agent_id, new_run_id, new_session_id};
 use crate::port::run_host::test_host::RecordingRunEngine;
-use crate::port::usage_sink::PricedRequest;
 use crate::pricing::store::HeldPriceList;
 use crate::pricing::test_fixture::{ListServer, started_list};
 use crate::process_identity::ProviderProcessIdentity;
@@ -444,16 +442,4 @@ pub(crate) async fn register_claude_price_list(
         .register(held)
         .expect("the price list registers once");
     server
-}
-
-/// Each priced request's source and its rows' accounts with their shares.
-pub(crate) fn priced(requests: &[PricedRequest]) -> Vec<(UsageCostSource, Vec<(String, u64)>)> {
-    let shares = |request: &PricedRequest| {
-        let rows = request.rows.iter().map(|priced| {
-            let account = priced.row.provider_account_id.as_str().to_owned();
-            (account, priced.cost_usd_micros.0.get())
-        });
-        (request.cost_source, rows.collect())
-    };
-    requests.iter().map(shares).collect()
 }

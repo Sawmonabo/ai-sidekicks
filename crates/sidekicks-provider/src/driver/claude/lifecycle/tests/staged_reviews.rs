@@ -24,9 +24,7 @@ use crate::command::running_set::unbound_running_command_sets;
 use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::ScriptedDriver;
-use crate::driver::claude::session::scripted::{
-    binding_id, priced, register_claude_price_list, settle,
-};
+use crate::driver::claude::session::scripted::{binding_id, register_claude_price_list, settle};
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::declarations::ClaudeHandshakeDeclaration;
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
@@ -272,7 +270,7 @@ async fn a_staged_reviews_spend_is_recorded_on_its_run_however_it_ends(
     assert_eq!(metered, [(MeteredUsageOwner::Run, binding_id("lead"))]);
     let account = test_provider_account_id().as_str().to_owned();
     assert_eq!(
-        priced(&fixture.usage.priced()),
+        fixture.usage.priced_shares(),
         [(cost_source, vec![(account, 14_000)])]
     );
 }

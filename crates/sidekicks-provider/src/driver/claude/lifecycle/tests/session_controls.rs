@@ -29,8 +29,8 @@ use crate::driver::claude::session::scripted::driver::{
 };
 use crate::driver::claude::session::scripted::starts::ScriptedOneTurnRecord;
 use crate::driver::claude::session::scripted::{
-    SCRIPTED_PROVIDER_SESSION_ID, binding_id, hand_scripted_frame, priced,
-    register_claude_price_list, settle,
+    SCRIPTED_PROVIDER_SESSION_ID, binding_id, hand_scripted_frame, register_claude_price_list,
+    settle,
 };
 use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::session::transport::declarations::{
@@ -287,7 +287,7 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_prices_the_copy_a
     );
     let account = test_provider_account_id().as_str().to_owned();
     assert_eq!(
-        priced(&fixture.usage.priced()),
+        fixture.usage.priced_shares(),
         [
             (
                 UsageCostSource::ProviderReported,

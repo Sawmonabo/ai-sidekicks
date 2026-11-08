@@ -14,6 +14,7 @@ use futures::future::BoxFuture;
 use futures::future::ready;
 use serde_json::{Map, Value};
 use sidekicks_contracts::artifacts::id::ArtifactId;
+use sidekicks_contracts::event::usage::UsageCostSource;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -280,6 +281,19 @@ impl RecordingUsage {
     /// Every request priced so far, in order.
     pub(crate) fn priced(&self) -> Vec<PricedRequest> {
         lock(&self.priced).clone()
+    }
+
+    /// Each request priced so far, in order, as its cost's source and its rows' accounts with their
+    /// shares.
+    pub(crate) fn priced_shares(&self) -> Vec<(UsageCostSource, Vec<(String, u64)>)> {
+        let shares = |request: &PricedRequest| {
+            let rows = request.rows.iter().map(|priced| {
+                let account = priced.row.provider_account_id.as_str().to_owned();
+                (account, priced.cost_usd_micros.0.get())
+            });
+            (request.cost_source, rows.collect())
+        };
+        lock(&self.priced).iter().map(shares).collect()
     }
 
     /// Charges every later row to `account`.

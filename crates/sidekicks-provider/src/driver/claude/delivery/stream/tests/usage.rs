@@ -18,8 +18,7 @@ use super::{helper_started, init, result};
 use crate::bounded_poll::poll_until;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::session::scripted::{
-    SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, priced, register_claude_price_list,
-    settle,
+    SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, register_claude_price_list, settle,
 };
 use crate::port::usage_sink::{MeteredUsageOwner, ProviderQuotaWindow};
 use crate::run::delivery::LateAppendableRow;
@@ -316,7 +315,7 @@ async fn each_result_prices_the_spend_it_states_since_the_previous_result() {
 
     let first = test_provider_account_id().as_str().to_owned();
     assert_eq!(
-        priced(&session.usage.priced()),
+        session.usage.priced_shares(),
         [
             (
                 UsageCostSource::ProviderReported,
@@ -362,7 +361,7 @@ async fn a_steers_mid_turn_result_prices_the_spend_it_states() {
 
     let account = test_provider_account_id().as_str().to_owned();
     assert_eq!(
-        priced(&session.usage.priced()),
+        session.usage.priced_shares(),
         [
             (
                 UsageCostSource::ProviderReported,
@@ -428,7 +427,7 @@ async fn the_spend_no_message_showed_is_recorded_at_its_model_and_priced() {
     );
     let account = test_provider_account_id().as_str().to_owned();
     assert_eq!(
-        priced(&session.usage.priced()),
+        session.usage.priced_shares(),
         [
             (
                 UsageCostSource::ProviderReported,
@@ -489,7 +488,7 @@ async fn rows_past_their_result_carry_a_balance_and_a_figure_with_no_row_is_reco
         )
     };
     assert_eq!(
-        priced(&session.usage.priced()),
+        session.usage.priced_shares(),
         [reported(10_000), reported(2_000), reported(14_000)]
     );
 }
@@ -516,7 +515,7 @@ async fn a_result_stating_no_figures_leaves_its_rows_for_the_next() {
 
     let account = test_provider_account_id().as_str().to_owned();
     assert_eq!(
-        priced(&session.usage.priced()),
+        session.usage.priced_shares(),
         [(
             UsageCostSource::ProviderReported,
             vec![(account.clone(), 100_000), (account, 100_000)]
@@ -551,7 +550,7 @@ async fn a_model_the_result_leaves_out_keeps_its_rows_for_the_result_that_states
     );
     let account = test_provider_account_id().as_str().to_owned();
     assert_eq!(
-        priced(&session.usage.priced()),
+        session.usage.priced_shares(),
         [(UsageCostSource::ProviderReported, vec![(account, 20_000)])]
     );
 }
@@ -587,7 +586,7 @@ async fn a_process_that_ends_before_its_result_prices_its_rows_from_the_list(
     stop.cancel();
 
     assert_eq!(
-        priced(&session.usage.priced()),
+        session.usage.priced_shares(),
         [(
             UsageCostSource::DerivedExact,
             vec![(
