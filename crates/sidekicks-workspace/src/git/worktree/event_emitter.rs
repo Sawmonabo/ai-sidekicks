@@ -1,5 +1,5 @@
 //! Worktree lifecycle events: the one seam every worktree state transition appends its event
-//! through, for the five `worktree.*` events, and the two session records a tree's life writes: a
+//! through, for the six `worktree.*` events, and the two session records a tree's life writes: a
 //! session swept back to the repository's checkout, and a session's branch changed.
 //!
 //! - A transition appends its event in the same write as its row change, which rides in the
@@ -47,7 +47,7 @@ pub(crate) struct EmitWorktreeEventInput {
     pub(crate) actor: Option<LifecycleActor>,
 }
 
-/// Appends the five worktree lifecycle events and the two session records a tree's life writes.
+/// Appends the six worktree lifecycle events and the two session records a tree's life writes.
 /// Each emit returns the receipt carrying the sequence the append assigned.
 pub struct WorktreeEventEmitter {
     appender: SessionEventAppender,
@@ -113,6 +113,18 @@ impl WorktreeEventEmitter {
     ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
         let payload = lifecycle_payload(WorktreeTransition::Dirtied, input);
         let draft = SessionEventDraft::new(payload, SessionEvent::WorktreeDirtied)?;
+        self.append(draft, linkage).await
+    }
+
+    /// Appends `worktree.cleaned`: a dirty checkout reads clean again, so the tree is `ready`.
+    /// Fails as [`SessionEventEmitError`] says.
+    pub(crate) async fn emit_worktree_cleaned(
+        &self,
+        input: EmitWorktreeEventInput,
+        linkage: SessionEventLinkage,
+    ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
+        let payload = lifecycle_payload(WorktreeTransition::Cleaned, input);
+        let draft = SessionEventDraft::new(payload, SessionEvent::WorktreeCleaned)?;
         self.append(draft, linkage).await
     }
 
@@ -200,6 +212,7 @@ enum WorktreeTransition {
     Created,
     Bound,
     Dirtied,
+    Cleaned,
     Merged,
     Retired,
 }
@@ -208,7 +221,7 @@ impl WorktreeTransition {
     fn state(self) -> WorktreeState {
         match self {
             Self::Created => WorktreeState::Creating,
-            Self::Bound => WorktreeState::Ready,
+            Self::Bound | Self::Cleaned => WorktreeState::Ready,
             Self::Dirtied => WorktreeState::Dirty,
             Self::Merged => WorktreeState::Merged,
             Self::Retired => WorktreeState::Retired,

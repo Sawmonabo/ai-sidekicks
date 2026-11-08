@@ -284,6 +284,8 @@ session_events! {
     WorktreeBound(WorktreeLifecyclePayload) = "worktree.bound",
     /// Emitted when uncommitted work was observed in the checkout.
     WorktreeDirtied(WorktreeLifecyclePayload) = "worktree.dirtied",
+    /// Emitted when a dirty worktree's checkout reads clean again, its work committed or dropped.
+    WorktreeCleaned(WorktreeLifecyclePayload) = "worktree.cleaned",
     /// Emitted when the worktree's branch has merged back.
     WorktreeMerged(WorktreeLifecyclePayload) = "worktree.merged",
     /// Emitted when a worktree retires, recorded before any disk change; cleanup is asynchronous

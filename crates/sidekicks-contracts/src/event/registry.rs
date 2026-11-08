@@ -184,6 +184,7 @@ session_event_types! {
         WorktreeCreated = "worktree.created",
         WorktreeBound = "worktree.bound",
         WorktreeDirtied = "worktree.dirtied",
+        WorktreeCleaned = "worktree.cleaned",
         WorktreeMerged = "worktree.merged",
         WorktreeRetired = "worktree.retired",
         RepoMountHealthChanged = "repoMount.health.changed",

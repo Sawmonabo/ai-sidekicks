@@ -479,6 +479,7 @@ fn sessions_named(event: &CommittedEvent) -> Result<Vec<SessionId>, serde_json::
         | SessionEventType::WorktreeCreated
         | SessionEventType::WorktreeBound
         | SessionEventType::WorktreeDirtied
+        | SessionEventType::WorktreeCleaned
         | SessionEventType::WorktreeMerged
         | SessionEventType::WorktreeRetired
         | SessionEventType::RepoMountHealthChanged

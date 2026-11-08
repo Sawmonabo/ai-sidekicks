@@ -129,6 +129,7 @@ pub(crate) fn run_outcome_of(
         | SessionEventType::WorktreeCreated
         | SessionEventType::WorktreeBound
         | SessionEventType::WorktreeDirtied
+        | SessionEventType::WorktreeCleaned
         | SessionEventType::WorktreeMerged
         | SessionEventType::WorktreeRetired
         | SessionEventType::RepoMountHealthChanged
