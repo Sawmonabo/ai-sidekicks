@@ -14,7 +14,8 @@ use tokio::time::Instant;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::telemetry::completed_response::{CodexCompletedResponse, SSE_EVENT_NAME};
-use crate::driver::codex::telemetry::exports::push_exported_response;
+use crate::driver::codex::telemetry::copy_threads::CodexCopyThreads;
+use crate::driver::codex::telemetry::drain::push_exported_response;
 use crate::driver::codex::telemetry::held_responses::{
     CodexExportedResponse, CodexOffStreamPlacement,
 };
@@ -37,18 +38,18 @@ const KEPT_RESPONSES: usize = 1_000;
 const REVIEW_WINDOWS_KEPT: usize = 64;
 
 /// One launch's placement state: where its off-stream threads were found, the responses it keeps
-/// until the launch's next export retries them, its sessions' review windows and live turns. Its
-/// kept responses are logged as it drops.
+/// until the launch's next export retries them, its sessions' review windows and live turns, and
+/// its copies' threads. Its kept responses are logged as it drops.
 #[derive(Default)]
 pub(crate) struct CodexLaunchPlacement {
-    // Oldest first, each thread once.
+    // Oldest first, as `kept` is, each thread once.
     placements: VecDeque<CodexPlacedThread>,
-    // Oldest first.
     kept: VecDeque<CodexKeptResponse>,
     // Oldest first, each review once.
     windows: VecDeque<CodexReviewWindow>,
     // Each session's own live turn, at most one each.
     live_turns: Vec<CodexLiveTurn>,
+    copies: CodexCopyThreads,
 }
 
 /// A review Codex ran for a session's turn, from its start; an unplaced reviewer request is
@@ -124,6 +125,11 @@ impl CodexLaunchPlacement {
             .retain(|placed| placed.thread_id != thread_id);
     }
 
+    /// The launch's copies' threads, which the drain looks a response's thread up in first.
+    pub(crate) fn copies(&mut self) -> &mut CodexCopyThreads {
+        &mut self.copies
+    }
+
     /// Opens `window`, unless its review already has one, the oldest dropped past the bound.
     pub(crate) fn open_review_window(&mut self, window: CodexReviewWindow) {
         if self
@@ -169,8 +175,7 @@ impl CodexLaunchPlacement {
     }
 
     // The session and turn a bucket first observed at `observed_at_ms` joins: the review window
-    // that opened last at or before it, with no upper bound, else the live turn that began last
-    // before it.
+    // opened last at or before it, with no upper bound, else the live turn begun last before it.
     fn join_target(&self, observed_at_ms: u64) -> Option<(SessionId, String)> {
         let window = self
             .windows

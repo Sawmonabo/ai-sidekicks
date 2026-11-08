@@ -169,6 +169,7 @@ impl RequestPricer for CodexRequestPricer {
 
 /// One recorder's pricing of Codex rows: the driver's one live pricing, and the region of the
 /// service it last read one on.
+#[derive(Clone)]
 pub(crate) struct CodexRecorderPricing {
     live: Arc<LivePricing>,
     region: Option<(CodexServiceId, Option<RegionWord>)>,

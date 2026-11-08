@@ -157,6 +157,7 @@ impl CopyTurnMeter {
 
 /// Where the session's own metered usage goes: the usage record, once registered, on the session's
 /// binding under its account, each row priced through the driver's live pricing.
+#[derive(Clone)]
 pub(crate) struct SessionUsageFiling {
     /// The usage record.
     pub(crate) usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
@@ -173,13 +174,16 @@ pub(crate) struct SessionUsageFiling {
 impl SessionUsageFiling {
     /// Records `delta` as the session's own, counted toward no run, and prices it, its region read
     /// on `service` for `folder`; a refused record or region read is reported under the account.
-    /// With no usage record registered it goes nowhere and reads no region.
+    /// A copy's thread's ledger on the service's launch takes it first, so its exported twin is
+    /// passed over. With no usage record registered it goes nowhere and reads no region.
     pub(crate) async fn file(
         &mut self,
         delta: MeteredUsageDelta,
         service: &CodexService,
         folder: &Path,
     ) {
+        let exports = &service.dependencies().exports;
+        exports.copy_filed(service.id(), &delta.thread_id, delta.axis_deltas);
         let Some(sink) = self.usage.port() else {
             return;
         };
