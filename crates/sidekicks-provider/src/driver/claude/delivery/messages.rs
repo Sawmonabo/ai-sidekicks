@@ -180,7 +180,6 @@ lenient_object!(
 /// the run that started it, whose route may be forgotten before a held call ends. Its start is on
 /// the wall clock, so an opening rebuilt from the log is timed from its stored time; a clock set
 /// back reads as no time taken.
-#[derive(Clone)]
 pub(crate) struct ClaudeOpenToolCall {
     tool_name: EventText,
     run: ClaudeBoundRun,

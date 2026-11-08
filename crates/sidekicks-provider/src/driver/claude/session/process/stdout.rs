@@ -294,6 +294,7 @@ mod tests {
         ClaudeProcessEnd, ClaudeProcessListener, ClaudeStreamFrame,
     };
     use crate::driver::claude::session::scripted::daemon_services::RecordingUsage;
+    use crate::driver::claude::session::scripted::held_calls::init;
     use crate::driver::claude::session::scripted::{
         SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
     };
@@ -666,11 +667,12 @@ mod tests {
             ),
             SCRIPTED_PROVIDER_SESSION_ID
         );
+        let init = init().to_string();
         let (mut provider, output) = tokio::io::duplex(4096);
         let reading = tokio::spawn(session.output_reader().read(output, registration));
 
         provider
-            .write_all(format!("{call}\n").as_bytes())
+            .write_all(format!("{init}\n{call}\n").as_bytes())
             .await
             .expect("the pipe takes the call");
         settle().await;
@@ -688,7 +690,7 @@ mod tests {
             .into_iter()
             .map(|(_, message)| message)
             .collect();
-        assert_eq!(recorded, [call, result]);
+        assert_eq!(recorded, [init, call, result]);
         let traces = session.ports.tool_traces.traces();
         assert_eq!(traces.len(), 1, "the answered call is traced once");
         assert_eq!(traces[0].session_id, session.session_id);

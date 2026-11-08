@@ -57,7 +57,6 @@ pub(crate) struct ClaudeHeldCallEnd {
 }
 
 /// One held or settled call, kept by its task, with the newest task run a frame of it named.
-#[derive(Clone)]
 pub(crate) struct ClaudeHeldCall {
     /// The call.
     pub(crate) tool_use_id: String,
