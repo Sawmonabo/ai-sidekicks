@@ -129,6 +129,9 @@ pub(crate) struct RefHead {
     pub(crate) checked_out_at: Option<PathBuf>,
     /// The full name of the branch's upstream, or `None` when it follows none.
     pub(crate) upstream: Option<String>,
+    /// The commits only the branch holds and only its upstream holds, or `None` when it follows
+    /// none or its upstream is gone.
+    pub(crate) upstream_distance: Option<(u64, u64)>,
 }
 
 /// Why the record of a linked tree could not be read.
@@ -432,7 +435,8 @@ pub(crate) async fn read_ref_heads(
 ) -> Result<HashMap<String, RefHead>, GitError> {
     let mut arguments = vec![
         "for-each-ref",
-        "--format=%(refname)%00%(objectname)%00%(worktreepath)%00%(upstream)%00",
+        "--format=%(refname)%00%(objectname)%00%(worktreepath)%00%(upstream)%00\
+         %(upstream:track,nobracket)%00",
     ];
     arguments.extend_from_slice(ref_names);
     let output = git
@@ -445,7 +449,8 @@ pub(crate) async fn read_ref_heads(
     for record in ref_records(&output.stdout) {
         let mut fields = record.split(|byte| *byte == 0);
         let mut field = || fields.next().unwrap_or_default();
-        let (ref_name, commit, checked_out_at, upstream) = (field(), field(), field(), field());
+        let (ref_name, commit, checked_out_at, upstream, track) =
+            (field(), field(), field(), field(), field());
         // A pattern also matches the refs below it, so only the names asked for are kept.
         let Some(asked) = ref_names.iter().find(|asked| asked.as_bytes() == ref_name) else {
             continue;
@@ -457,6 +462,11 @@ pub(crate) async fn read_ref_heads(
                 checked_out_at: optional_path(checked_out_at)?,
                 upstream: (!upstream.is_empty())
                     .then(|| String::from_utf8_lossy(upstream).into_owned()),
+                upstream_distance: if upstream.is_empty() {
+                    None
+                } else {
+                    parse_upstream_track(track)?
+                },
             },
         );
     }

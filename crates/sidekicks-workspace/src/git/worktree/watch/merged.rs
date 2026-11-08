@@ -52,20 +52,13 @@ pub(super) struct MergedCheck {
     missing_tips: HashSet<String>,
 }
 
-// The commits a check reads: the branch's tip, its base's and the base's upstream's, where it has
-// one. The patch test's tip is the recorded one.
+// The commits a check reads: the branch's tip, and the targets it merges back into: the base's,
+// then the upstream's where it holds commits the base lacks, or the upstream's alone where it holds
+// the base, since then it holds all the base holds. The patch test's tip is the recorded one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct BranchTips {
     tip: String,
-    base: String,
-    upstream: Option<String>,
-}
-
-impl BranchTips {
-    // The base's commit, then its upstream's.
-    fn targets(&self) -> impl Iterator<Item = &str> {
-        std::iter::once(self.base.as_str()).chain(self.upstream.as_deref())
-    }
+    targets: Vec<String>,
 }
 
 /// Why whether a branch merged back could not be read.
@@ -145,8 +138,8 @@ impl MergedCheck {
         Ok(verdict)
     }
 
-    // The branch's tip and its base's, with the base's upstream's where it follows one that
-    // exists here; `None` when the branch is gone or the base names no branch.
+    // The branch's tip and its targets, the base's upstream read only where it holds commits the
+    // base lacks; `None` when the branch is gone or the base names no branch.
     async fn read_tips(
         &mut self,
         git: &GitRunner,
@@ -177,18 +170,20 @@ impl MergedCheck {
             }
             return Ok(None);
         };
-        let upstream = match &base_head.upstream {
-            Some(upstream) => read_ref_heads(git, place, folder, &[upstream.as_str()])
+        let mut targets = vec![base_head.commit];
+        if let (Some(upstream), Some((only_base, only_upstream))) =
+            (&base_head.upstream, base_head.upstream_distance)
+            && only_upstream > 0
+            && let Some(head) = read_ref_heads(git, place, folder, &[upstream.as_str()])
                 .await?
                 .remove(upstream)
-                .map(|head| head.commit),
-            None => None,
-        };
-        Ok(Some(BranchTips {
-            tip,
-            base: base_head.commit,
-            upstream,
-        }))
+        {
+            if only_base == 0 {
+                targets.clear();
+            }
+            targets.push(head.commit);
+        }
+        Ok(Some(BranchTips { tip, targets }))
     }
 }
 
@@ -210,7 +205,11 @@ async fn count_past(
     tips: &BranchTips,
     commits: Commits,
 ) -> Result<u64, GitError> {
-    let excluded: Vec<String> = tips.targets().map(|target| format!("^{target}")).collect();
+    let excluded: Vec<String> = tips
+        .targets
+        .iter()
+        .map(|target| format!("^{target}"))
+        .collect();
     let mut arguments = vec!["rev-list", "--count"];
     if matches!(commits, Commits::OwnOnly) {
         arguments.push("--no-merges");
@@ -272,39 +271,14 @@ async fn is_commit_held(
 }
 
 // Whether the base or its upstream holds every change the branch makes: each commit's patch, else
-// the branch's whole change as one squashed patch. Where one of the two holds the other, only that
-// one is read, since whatever the other holds it holds too.
+// the branch's whole change as one squashed patch.
 async fn is_applied(
     git: &GitRunner,
     place: Option<&Place>,
     folder: &Path,
     tips: &BranchTips,
 ) -> Result<bool, GitError> {
-    let targets = match &tips.upstream {
-        Some(upstream) => {
-            let range = format!("{}...{upstream}", tips.base);
-            let counts = read(
-                git,
-                place,
-                folder,
-                &["rev-list", "--left-right", "--count", &range, "--"],
-            )
-            .await?;
-            let counts = strip_line_end(counts);
-            let Some(tab) = counts.iter().position(|byte| *byte == b'\t') else {
-                return Err(malformed("git printed counts it never writes"));
-            };
-            let only_base: u64 = parse_number(&counts[..tab])?;
-            let only_upstream: u64 = parse_number(&counts[tab + 1..])?;
-            match (only_base, only_upstream) {
-                (_, 0) => vec![tips.base.as_str()],
-                (0, _) => vec![upstream.as_str()],
-                _ => vec![tips.base.as_str(), upstream.as_str()],
-            }
-        }
-        None => vec![tips.base.as_str()],
-    };
-    for target in targets {
+    for target in &tips.targets {
         if is_applied_on(git, place, folder, target, &tips.tip).await? {
             return Ok(true);
         }
@@ -314,8 +288,9 @@ async fn is_applied(
 
 // Whether `target` holds each change `tip` makes past it, by patch id and writing nothing: every
 // non-merge commit's patch, or the whole change since the two parted as one patch. Only the
-// commits on `target` that touch a path the branch's commits touch can match, so only theirs are
-// read whole.
+// commits on `target` that touch a path the branch's commits touch can hold one, so only they are
+// read, each limited to those paths: a commit that made one of the branch's changes beside others
+// holds it.
 async fn is_applied_on(
     git: &GitRunner,
     place: Option<&Place>,
@@ -342,6 +317,7 @@ async fn is_applied_on(
     )
     .await?;
     let mut walk = format!("{target}\n^{tip}\n--\n").into_bytes();
+    let mut has_paths = false;
     for path in paths
         .split(|byte| *byte == 0)
         .map(|path| path.strip_prefix(b"\n").unwrap_or(path))
@@ -349,48 +325,36 @@ async fn is_applied_on(
     {
         walk.extend_from_slice(path);
         walk.push(b'\n');
+        has_paths = true;
     }
-    let candidates = read_with_input(
-        git,
-        place,
-        folder,
+    // Merge commits and empty ones carry no change of the branch's own.
+    if !has_paths {
+        return Ok(true);
+    }
+    let target_log = [
         &[
             "--literal-pathspecs",
             "log",
             "--no-merges",
-            "--no-renames",
-            "--format=%H",
-            "--stdin",
-        ],
-        walk,
-    )
-    .await?;
-    let candidates: HashSet<&[u8]> = candidates
-        .split(|byte| *byte == b'\n')
-        .filter(|commit| !commit.is_empty())
-        .collect();
-    if candidates.is_empty() {
+            "--format=commit %H",
+        ][..],
+        PATCH_OPTIONS,
+        &["--stdin"],
+    ]
+    .concat();
+    let on_target = read_with_input(git, place, folder, &target_log, walk).await?;
+    if on_target.is_empty() {
         return Ok(false);
     }
     // The branch's whole change first, with no commit header, so patch-id names it by the null id.
-    let mut patches = match read(git, place, folder, &["merge-base", target, tip]).await {
-        Ok(merge_base) => {
-            let merge_base = String::from_utf8_lossy(&strip_line_end(merge_base)).into_owned();
-            read(
-                git,
-                place,
-                folder,
-                &[
-                    &["diff"][..],
-                    PATCH_OPTIONS,
-                    &[merge_base.as_str(), tip, "--"],
-                ]
-                .concat(),
-            )
-            .await?
-        }
-        Err(error) if error.exit_code() == Some(NO_MERGE_BASE_EXIT_CODE) => Vec::new(),
-        Err(error) => return Err(error),
+    let range = format!("{target}...{tip}");
+    let diff = [&["diff"][..], PATCH_OPTIONS, &[range.as_str(), "--"]].concat();
+    let mut patches = match read(git, place, folder, &diff).await {
+        Ok(squash) => squash,
+        Err(error) => match read(git, place, folder, &["merge-base", target, tip]).await {
+            Err(no_base) if no_base.exit_code() == Some(NO_MERGE_BASE_EXIT_CODE) => Vec::new(),
+            _ => return Err(error),
+        },
     };
     let branch_log = [
         &["log", "--no-merges", "--format=commit %H"][..],
@@ -398,21 +362,15 @@ async fn is_applied_on(
         &[tip, excluded.as_str(), "--"],
     ]
     .concat();
-    patches.extend(read(git, place, folder, &branch_log).await?);
-    let mut listed = Vec::new();
-    for commit in &candidates {
-        listed.extend_from_slice(commit);
-        listed.push(b'\n');
-    }
-    let target_log = [
-        &["log", "--no-walk=unsorted", "--format=commit %H"][..],
-        PATCH_OPTIONS,
-        &["--stdin"],
-    ]
-    .concat();
-    patches.extend(read_with_input(git, place, folder, &target_log, listed).await?);
+    let on_branch = read(git, place, folder, &branch_log).await?;
+    let branch_commits: HashSet<&[u8]> = on_branch
+        .split(|byte| *byte == b'\n')
+        .filter_map(|line| line.strip_prefix(COMMIT_HEADER))
+        .collect();
+    patches.extend_from_slice(&on_branch);
+    patches.extend(on_target);
     let ids = read_with_input(git, place, folder, &["patch-id", "--stable"], patches).await?;
-    let (mut on_target, mut on_branch, mut squash) = (HashSet::new(), Vec::new(), None);
+    let (mut target_patches, mut branch_patches, mut squash) = (HashSet::new(), Vec::new(), None);
     for line in ids
         .split(|byte| *byte == b'\n')
         .filter(|line| !line.is_empty())
@@ -423,15 +381,20 @@ async fn is_applied_on(
         let (patch, commit) = (&line[..space], &line[space + 1..]);
         if commit.iter().all(|byte| *byte == b'0') {
             squash = Some(patch);
-        } else if candidates.contains(commit) {
-            on_target.insert(patch);
+        } else if branch_commits.contains(commit) {
+            branch_patches.push(patch);
         } else {
-            on_branch.push(patch);
+            target_patches.insert(patch);
         }
     }
-    Ok(on_branch.iter().all(|patch| on_target.contains(patch))
-        || squash.is_some_and(|patch| on_target.contains(patch)))
+    Ok(branch_patches
+        .iter()
+        .all(|patch| target_patches.contains(patch))
+        || squash.is_some_and(|patch| target_patches.contains(patch)))
 }
+
+// The header line `--format=commit %H` writes before each commit's patch, which patch-id reads.
+const COMMIT_HEADER: &[u8] = b"commit ";
 
 // The diff options both sides' patches are written with, so equal changes give equal patch ids
 // whatever the repository sets for diffs.
