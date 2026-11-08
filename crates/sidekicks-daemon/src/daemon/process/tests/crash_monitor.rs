@@ -13,7 +13,8 @@ const END_WAIT: Duration = Duration::from_secs(10);
 
 // A crash monitor whose child is killed is replaced: once the killed one has ended, so its socket
 // answers no more, a new monitor answers there within the connect's bound, and the end then fails
-// nothing. Killed by a watch that never starts a new monitor, by a restart bound that admits none
+// nothing. The test's own connection stays up until the end, so its disconnect never ends the new
+// monitor. Killed by a watch that never starts a new monitor, by a restart bound that admits none
 // and by no watch at all, where the connect finds no monitor.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_killed_crash_monitor_is_replaced_by_one_that_answers() {
@@ -41,12 +42,12 @@ async fn a_killed_crash_monitor_is_replaced_by_one_that_answers() {
         .await
         .expect("the killed monitor ends")
         .expect("the wait for its end reads");
-    let answered =
-        tokio::task::spawn_blocking(move || connect_crash_monitor(&socket_path).map(drop))
-            .await
-            .expect("the connect ends");
+    let client = tokio::task::spawn_blocking(move || connect_crash_monitor(&socket_path))
+        .await
+        .expect("the connect ends")
+        .expect("a new monitor answers");
 
-    assert!(answered.is_ok(), "{answered:?}");
     let failures = monitor.end().await;
+    drop(client);
     assert!(failures.is_empty(), "{failures:?}");
 }
