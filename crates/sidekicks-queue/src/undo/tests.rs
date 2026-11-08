@@ -38,6 +38,7 @@ use sidekicks_session::agent_tree::sweep::{
     AGENT_TREE_SWEEP_STATEMENT_CAPACITY, AgentTreeSweep, DescendantStop,
 };
 use sidekicks_session::agents::projection::test_fixture::{run_statements, write_log_row};
+use sidekicks_session::agents::schema::schema_parts as agents_schema_parts;
 use sidekicks_session::checkpoints::schema::schema_parts as checkpoint_schema_parts;
 use sidekicks_session::interventions::service::test_fixture::test_intervention_service;
 use sidekicks_session::questions::schema::schema_parts;
@@ -99,7 +100,8 @@ async fn scene() -> Scene {
     let database = TestDatabase::new(
         schema_parts()
             .with_parts(checkpoint_schema_parts())
-            .with_parts(agent_tree_schema_parts()),
+            .with_parts(agent_tree_schema_parts())
+            .with_parts(agents_schema_parts()),
     );
     let log = open_log(&database, None).await;
     let session_id = test_session_id();
