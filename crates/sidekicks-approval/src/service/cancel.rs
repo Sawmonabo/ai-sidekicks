@@ -58,6 +58,21 @@ impl ApprovalService {
         self.cancel_all(&pending, None).await
     }
 
+    /// Cancels every pending card of the session whose workflow wait no one holds any more, its
+    /// workflow run finished or gone, or, for a step's card, no step waiting on its wait, as a
+    /// restart settles what a stop between a wait's end and its card's withdraw left. A failed
+    /// cancel does not stop the rest; fails with every failure once all have run.
+    pub async fn cancel_unheld_wait_asks(
+        &self,
+        session_id: SessionId,
+    ) -> Result<(), SettleFailures<ApprovalServiceError>> {
+        let unheld = self
+            .read(move |reader| reader.list_unheld_wait_requests(Some(&session_id)))
+            .await
+            .map_err(SettleFailures::One)?;
+        self.cancel_all(&unheld, None).await
+    }
+
     async fn cancel_all(
         &self,
         pending: &[StoredApprovalRequest],

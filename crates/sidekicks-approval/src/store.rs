@@ -23,6 +23,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use sidekicks_contracts::workflow::run::status::WorkflowStepStatus;
 use sidekicks_session::directory::lookups::ENDED_SESSION_STATES_SQL;
 use sidekicks_session::run::read::{SessionRun, session_run_of_row};
 use sidekicks_session::run::transitions::RUN_TERMINAL_STATES_SQL;
@@ -31,12 +32,13 @@ use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_workflow::runs::record::finished_run_condition;
 
 use crate::request_create::ApprovalResourceDescriptor;
 
 /// The distinct statements [`ApprovalRequestReader`] and the orphaned answers' reads prepare, for
 /// the reading connection's statement cache.
-pub const APPROVAL_REQUEST_READER_STATEMENT_CAPACITY: usize = 11;
+pub const APPROVAL_REQUEST_READER_STATEMENT_CAPACITY: usize = 14;
 
 /// An ask as its rows hold it, with the answers its card may offer and its answer once it has one.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -225,7 +227,8 @@ static RUN_LIVE_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-static INSERT_REQUEST_SQL: LazyLock<String> = LazyLock::new(|| {
+/// The insert of a new pending ask, whose values [`request_statement`] binds.
+pub(crate) static INSERT_REQUEST_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO approval_requests
     (id, session_id, run_id, workflow_run_id, wait_id, node_id, requested_by, category, scope,
@@ -352,6 +355,38 @@ static SELECT_PENDING_FOR_SESSION_SQL: LazyLock<String> = LazyLock::new(|| {
   ORDER BY request.created_at, request.id",
         pending()
     )
+});
+
+// The card a workflow wait holds open, through the open wait's unique index.
+static SELECT_OPEN_WAIT_REQUEST_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "{SELECT_REQUESTS_SQL}
+  WHERE request.session_id = @session_id AND request.wait_id = @wait_id
+    AND request.state = '{}'",
+        pending()
+    )
+});
+
+// Every pending card of a workflow wait no one holds any more: its workflow run has finished or is
+// gone, or, for a step's card, no step waits on its wait.
+static SELECT_UNHELD_WAIT_REQUESTS_SQL: LazyLock<SessionScopedSql> = LazyLock::new(|| {
+    SessionScopedSql::new("request.session_id", |session_condition| {
+        format!(
+            "{SELECT_REQUESTS_SQL}
+  LEFT JOIN workflow_runs AS workflow_run ON workflow_run.id = request.workflow_run_id
+  WHERE request.wait_id IS NOT NULL AND request.state = '{pending}'
+    AND (workflow_run.id IS NULL OR {finished}
+         OR (request.node_id IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM workflow_steps AS step
+                              WHERE step.wait_id = request.wait_id
+                                AND step.status = '{waiting}')))
+    {session_condition}
+  ORDER BY request.created_at, request.id",
+            pending = pending(),
+            finished = finished_run_condition("workflow_run"),
+            waiting = <&'static str>::from(WorkflowStepStatus::Waiting),
+        )
+    })
 });
 
 // A wait's card closes only with its wait, so a closed session's sweep looks for run-held asks.
@@ -532,8 +567,9 @@ pub fn remembered_scope_statement(
     }
 }
 
-// The insert and the rebuild's rewrite bind the same values.
-fn request_statement(
+/// The statement running `sql` over `request`'s values: the insert, a wait card's insert and the
+/// rebuild's rewrite bind the same ones.
+pub(crate) fn request_statement(
     sql: &'static LazyLock<String>,
     request: &InsertedApprovalRequest,
 ) -> WriteStatement {
@@ -668,6 +704,47 @@ impl<'connection> ApprovalRequestReader<'connection> {
             .prepare_cached(&SELECT_PENDING_FOR_SESSION_SQL)?
             .query_map([session_id.text().as_str()], stored_request_of)?
             .collect()
+    }
+
+    /// The card the workflow wait `wait_id` holds open in `session_id`, or `None` when it holds
+    /// none.
+    pub(crate) fn read_open_wait_request(
+        &self,
+        session_id: &SessionId,
+        wait_id: &UuidTextForm,
+    ) -> rusqlite::Result<Option<StoredApprovalRequest>> {
+        self.reader
+            .prepare_cached(&SELECT_OPEN_WAIT_REQUEST_SQL)?
+            .query_row(
+                named_params! {
+                    "@session_id": session_id.text().as_str(),
+                    "@wait_id": wait_id.text().as_str(),
+                },
+                stored_request_of,
+            )
+            .optional()
+    }
+
+    /// The pending cards of `session_id`, or of every session when it is `None`, whose workflow
+    /// wait no one holds any more, oldest first: what a daemon that went down between a wait's end
+    /// and its card's withdraw left.
+    pub(crate) fn list_unheld_wait_requests(
+        &self,
+        session_id: Option<&SessionId>,
+    ) -> rusqlite::Result<Vec<StoredApprovalRequest>> {
+        SELECT_UNHELD_WAIT_REQUESTS_SQL.query(self.reader, session_id, stored_request_of)
+    }
+
+    /// The sessions holding a pending card whose workflow wait no one holds any more, each once.
+    pub fn list_sessions_with_unheld_wait_requests(&self) -> rusqlite::Result<Vec<SessionId>> {
+        let mut sessions: Vec<SessionId> = self
+            .list_unheld_wait_requests(None)?
+            .into_iter()
+            .map(|request| request.session_id)
+            .collect();
+        sessions.sort_unstable();
+        sessions.dedup();
+        Ok(sessions)
     }
 
     /// The closed sessions, or those being deleted, that still hold a pending ask.

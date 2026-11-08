@@ -3,33 +3,98 @@
 //! workflow engine, which settles the card in the step's own write, so the card, the gate's record
 //! and the step's resume land together.
 
+use std::borrow::Cow;
 use std::error::Error;
+use std::sync::LazyLock;
 
 use futures::future::BoxFuture;
-use sidekicks_contracts::approval::events::ApprovalResolvedPayload;
+use sidekicks_contracts::approval::events::{ApprovalRequestedPayload, ApprovalResolvedPayload};
+use sidekicks_contracts::approval::holder::ApprovalHolder;
 use sidekicks_contracts::approval::{
-    ApprovalCategory, ApprovalDecision, ApprovalRequestId, ApprovalScope,
+    ApprovalCategory, ApprovalDecision, ApprovalLateCreateReason, ApprovalRequestId, ApprovalScope,
 };
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
-use sidekicks_contracts::wire::id::UuidTextForm;
+use sidekicks_contracts::wire::id::{UuidTextForm, mint_uuid_v7};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::record::JsonRecord;
-use sidekicks_contracts::wire::text::NonEmptyText;
+use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-use sidekicks_store::database::statement::WriteStatement;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventLinkage};
+use sidekicks_workflow::runs::record::finished_run_condition;
 
 use crate::events::resolved_event;
-use crate::refusals::approval_request_canceled;
+use crate::refusals::{approval_late_create, approval_request_canceled};
+use crate::request_create::ApprovalResourceDescriptor;
 use crate::service::{
-    ApprovalService, ApprovalServiceError, ResolveAnswer, ResolvedAnswer, resolved_answer_of,
+    ApprovalService, ApprovalServiceError, ResolveAnswer, ResolvedAnswer, refusal_of_failed_write,
+    resolved_answer_of,
 };
 use crate::store::{
-    ApprovalSettlement, InsertedApprovalResolution, StoredApprovalRequest,
-    insert_resolution_statement, settle_pending_statement,
+    ApprovalSettlement, INSERT_REQUEST_SQL, InsertedApprovalRequest, InsertedApprovalResolution,
+    StoredApprovalRequest, insert_resolution_statement, request_statement, session_open_statement,
+    settle_pending_statement,
 };
+
+// A raise's write of a workflow wait's card, refused by changing no row where the wait's card is
+// already open, which the open wait's unique index holds.
+static INSERT_WAIT_REQUEST_SQL: LazyLock<String> =
+    LazyLock::new(|| format!("{}\n  ON CONFLICT DO NOTHING", *INSERT_REQUEST_SQL));
+
+// A guard's read of a workflow run not yet finished: going, or parked on its failed step.
+static WORKFLOW_RUN_GOING_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT 1 FROM workflow_runs AS run
+  WHERE run.id = @workflow_run_id
+    AND NOT {}",
+        finished_run_condition("run")
+    )
+});
+
+// The positions of a raise's guards and its insert among its statements.
+const GATE_SESSION_OPEN_GUARD_INDEX: usize = 0;
+const GATE_RUN_GOING_GUARD_INDEX: usize = 1;
+const GATE_INSERT_INDEX: usize = 2;
+
+// A guard that refuses its write once the workflow run has finished or is gone.
+fn workflow_run_going_statement(workflow_run_id: &WorkflowRunId) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(WORKFLOW_RUN_GOING_SQL.as_str()),
+        bindings: StatementBindings::Named(vec![text_binding(
+            "@workflow_run_id",
+            workflow_run_id.text().as_str(),
+        )]),
+        expected_row_count: Some(1),
+    }
+}
+
+// The statement that records a workflow wait's new pending card, refused by changing no row
+// where the wait's card is already open.
+fn insert_wait_request_statement(request: &InsertedApprovalRequest) -> WriteStatement {
+    request_statement(&INSERT_WAIT_REQUEST_SQL, request)
+}
+
+/// The card a workflow wait raises: a step's approval, or a chain's question, which names no node.
+/// The workflow's name is the card's chip and the subject it names; the prompt is shown whole.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkflowGateCardAsk {
+    /// The session the card is raised in, the workflow run's.
+    pub session_id: SessionId,
+    /// The workflow run whose wait holds the card.
+    pub workflow_run_id: WorkflowRunId,
+    /// The wait; a second raise for it answers its open card.
+    pub wait_id: UuidTextForm,
+    /// The step's node; absent on a chain's question.
+    pub node_id: Option<WorkflowNodeId>,
+    /// The workflow's name, as the card's subject and the requester it names.
+    pub workflow_name: FreeFormText<FILE_PATH_MAX_LEN>,
+    /// What the card asks.
+    pub prompt: NonEmptyText,
+}
 
 /// A person's answer to a workflow wait's card, with the write that records it: the engine runs
 /// `statements` and appends `event` in the step's own write, which settles the card.
@@ -123,6 +188,129 @@ pub trait ApprovalWaits: Send + Sync {
 }
 
 impl ApprovalService {
+    /// Raises the card `ask` names and answers its id, or answers the id of the card its wait
+    /// already holds open, a second raise for one wait raising none. Its answer goes through the
+    /// registered [`ApprovalWaits`], so no in-process wait is armed. Refuses
+    /// `approval.requestCanceled` with its `reason` when the session has closed or the workflow run
+    /// has finished, the session's own refusal of the write, and `approval.persistenceUnavailable`
+    /// when the record could not be kept.
+    pub async fn raise_workflow_gate(
+        &self,
+        ask: WorkflowGateCardAsk,
+    ) -> Result<ApprovalRequestId, ApprovalServiceError> {
+        let WorkflowGateCardAsk {
+            session_id,
+            workflow_run_id,
+            wait_id,
+            node_id,
+            workflow_name,
+            prompt,
+        } = ask;
+        if let Some(open) = self.read_open_wait_card(session_id, wait_id).await? {
+            return Ok(open.approval_request_id);
+        }
+        let approval_request_id =
+            ApprovalRequestId::try_from(mint_uuid_v7()).expect("a minted UUID is an ask's id");
+        let created_at = WireInstant::now();
+        let holder = ApprovalHolder::Wait {
+            workflow_run_id,
+            wait_id,
+            node_id,
+        };
+        let requested_by = NonEmptyText::new(workflow_name.as_str().to_owned())
+            .expect("free-form text holds a code point");
+        let scope = ApprovalScope::new(session_id.text().as_str().to_owned())
+            .expect("a session id is free-form text");
+        let resource_descriptor = ApprovalResourceDescriptor {
+            subject: workflow_name,
+            standing_allow_offered: false,
+            project_scope_offered: false,
+            editable: false,
+            action: None,
+            tool_name: None,
+            tool_server_tool: None,
+            prompt: Some(prompt),
+        };
+        let payload = ApprovalRequestedPayload {
+            session_id,
+            holder: holder.clone(),
+            approval_request_id,
+            category: ApprovalCategory::Gate,
+            scope: scope.clone(),
+            requested_by: requested_by.clone(),
+            resource_descriptor: resource_descriptor.to_record(),
+            ask_id: None,
+            tool_call_id: None,
+            input_digest: None,
+        };
+        let inserted = InsertedApprovalRequest {
+            approval_request_id,
+            session_id,
+            holder: holder.clone(),
+            requested_by,
+            category: ApprovalCategory::Gate,
+            scope,
+            resource_descriptor,
+            ask_id: None,
+            tool_call_id: None,
+            input_digest: None,
+            created_at: created_at.clone(),
+        };
+        let draft = SessionEventDraft::new(payload, SessionEvent::ApprovalRequested)?;
+        let linkage = SessionEventLinkage {
+            occurred_at: Some(created_at),
+            transactional_prelude: vec![
+                session_open_statement(&session_id),
+                workflow_run_going_statement(&workflow_run_id),
+                insert_wait_request_statement(&inserted),
+            ],
+            ..SessionEventLinkage::default()
+        };
+        let Err(failure) = self.events.append(draft, linkage).await else {
+            return Ok(approval_request_id);
+        };
+        let refusal = match failure.refused_statement_index() {
+            Some(GATE_SESSION_OPEN_GUARD_INDEX) => {
+                approval_late_create(session_id, &holder, ApprovalLateCreateReason::SessionClosed)
+            }
+            Some(GATE_RUN_GOING_GUARD_INDEX) => {
+                approval_late_create(session_id, &holder, ApprovalLateCreateReason::RunEnded)
+            }
+            // Another raise for the wait wrote its card between the read and this write.
+            Some(GATE_INSERT_INDEX) => match self.read_open_wait_card(session_id, wait_id).await? {
+                Some(open) => return Ok(open.approval_request_id),
+                None => refusal_of_failed_write(failure),
+            },
+            Some(_) | None => refusal_of_failed_write(failure),
+        };
+        Err(refusal.into())
+    }
+
+    /// Withdraws the card the wait `wait_id` holds open in `session_id` with one
+    /// `approval.canceled`, once its wait ended unanswered; an answer that landed first keeps it,
+    /// and a wait with no open card writes nothing. Fails as the read fails and when the cancel was
+    /// not kept.
+    pub async fn withdraw_workflow_gate(
+        &self,
+        session_id: SessionId,
+        wait_id: UuidTextForm,
+    ) -> Result<(), ApprovalServiceError> {
+        if let Some(open) = self.read_open_wait_card(session_id, wait_id).await? {
+            self.cancel(&open, None).await?;
+        }
+        Ok(())
+    }
+
+    // The card the wait holds open, through the open wait's unique index.
+    async fn read_open_wait_card(
+        &self,
+        session_id: SessionId,
+        wait_id: UuidTextForm,
+    ) -> Result<Option<StoredApprovalRequest>, ApprovalServiceError> {
+        self.read(move |reader| reader.read_open_wait_request(&session_id, &wait_id))
+            .await
+    }
+
     /// Hands `wait_answer`, the answer to the wait-held card `stored`, to the registered waits,
     /// writing nothing itself. A card whose wait no longer waits is canceled and refused
     /// `approval.requestCanceled`, or, settled first by another answer, answered as that answer's
@@ -156,3 +344,6 @@ impl ApprovalService {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

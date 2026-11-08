@@ -240,7 +240,7 @@ pub struct ApprovalService {
     /// Where the asks are read.
     reads: Arc<DatabaseReadPool>,
     /// Where the approval events are appended.
-    events: Arc<SessionEventAppender>,
+    pub(crate) events: Arc<SessionEventAppender>,
     /// Where a correction's one use is recorded.
     writer: Arc<DatabaseWriter>,
     /// Whose folders an approval marks stale.
@@ -690,8 +690,9 @@ impl ApprovalService {
         }
     }
 
-    // Every read here is of a few rows.
-    async fn read<Output: Send + 'static>(
+    /// Runs `read` over the asks on the read pool, as a short read of a few rows. Fails as the
+    /// read fails.
+    pub(crate) async fn read<Output: Send + 'static>(
         &self,
         read: impl FnOnce(&ApprovalRequestReader<'_>) -> rusqlite::Result<Output> + Send + 'static,
     ) -> Result<Output, ApprovalServiceError> {
@@ -703,9 +704,10 @@ impl ApprovalService {
     }
 }
 
-// A write the session refused is answered by the session's own code; any other failure means the
-// record could not be kept, so the action it gates does not proceed.
-fn refusal_of_failed_write(failure: SessionEventAppendError) -> DomainError {
+/// The refusal of a failed write: a write the session refused is answered by the session's own
+/// code; any other failure means the record could not be kept, so the action it gates does not
+/// proceed.
+pub(crate) fn refusal_of_failed_write(failure: SessionEventAppendError) -> DomainError {
     match failure {
         SessionEventAppendError::Append(EventAppendError::SessionWriteRefused(refusal)) => {
             refusal.into()

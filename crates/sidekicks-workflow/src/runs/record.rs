@@ -132,7 +132,7 @@ pub(crate) fn parked_failed_run_condition(alias: &str) -> String {
 
 /// The SQL condition on the runs table read as `alias` that holds for a finished run: one neither
 /// going nor parked on its failed step, so it can no longer be resumed or canceled.
-pub(crate) fn finished_run_condition(alias: &str) -> String {
+pub fn finished_run_condition(alias: &str) -> String {
     format!(
         "({alias}.status NOT IN ({going}) AND NOT {parked})",
         going = *GOING_RUN_STATUSES_SQL,
