@@ -23,7 +23,6 @@ use tokio_util::sync::CancellationToken;
 
 use crate::daemon::process::method_inputs::error::MethodInputsError;
 use crate::daemon::process::providers::Providers;
-use crate::daemon::process::stop::TaskStopFailure;
 use crate::price_list_seed::price_list_seed;
 
 /// The public model price list, read from its main branch: the one list requests are priced from.
@@ -141,18 +140,13 @@ impl Pricing {
 }
 
 impl PricingTasks {
-    /// Waits for each task, which the work's stop ends; answers each one that ended abnormally.
-    pub(crate) async fn wait(self) -> Vec<TaskStopFailure> {
-        let (fetch, repricing, account_notices) =
-            tokio::join!(self.fetch, self.repricing, self.account_notices);
+    /// Each task by name, for the stop to wait out once the work's stop ends them.
+    pub(crate) fn named_tasks(self) -> [(&'static str, JoinHandle<()>); 3] {
         [
-            ("price list fetch", fetch),
-            ("held requests' repricing", repricing),
-            ("repricing's account notices", account_notices),
+            ("price list fetch", self.fetch),
+            ("held requests' repricing", self.repricing),
+            ("repricing's account notices", self.account_notices),
         ]
-        .into_iter()
-        .filter_map(|(task, ended)| ended.err().map(|error| TaskStopFailure { task, error }))
-        .collect()
     }
 }
 

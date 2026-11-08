@@ -427,15 +427,10 @@ pub(crate) async fn stop_work(
             end_start_tasks([("web address sender", web_address_sender)], remaining()).await,
         );
     }
-    // The work's stop ends the list's fetch and the repricing; a write under way is waited out.
+    // The work's stop ends the list's fetch and the repricing; a write under way is waited out
+    // within the bound, and either is ended past it.
     if let Some(pricing) = process.pricing.take() {
-        failures.extend(
-            pricing
-                .wait()
-                .await
-                .into_iter()
-                .map(DaemonStopFailure::from),
-        );
+        failures.extend(end_start_tasks(pricing.named_tasks(), remaining()).await);
     }
     // The session services' follows end with the chats' write watch, which they wait out.
     match (
