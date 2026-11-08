@@ -77,9 +77,13 @@ mod tests {
     use crate::spawner::Spawner;
     use crate::terminal::InnerTerminal;
 
-    // How long after its prompt a waiting command must read as waiting, and how long a command
-    // that waits on nothing keeps reading as not waiting.
+    // How long a command that waits on nothing keeps reading as not waiting.
     const WAIT_BOUND: Duration = Duration::from_millis(500);
+
+    // How long a waiting command is read before it fails as never reading as waiting: with the
+    // prompt's 20 s, short of nextest's two-minute kill, so a hang names itself, and no passing
+    // case comes near it.
+    const READING_BOUND: Duration = Duration::from_secs(90);
 
     // How long a command that waits on nothing settles before it is read, where the test cannot
     // wait for what it did to land.
@@ -245,9 +249,13 @@ mod tests {
         // the shell about to replace itself with it, whose stop macOS drops once the command runs.
         let is_stopped = matches!(at_prompt, AtPrompt::Stop);
         let before_stop = if prompt.is_ok() && is_stopped {
-            read_input_waits(&terminal, &spawner, &peer_failure_noted, |reading| {
-                reading.is_waiting
-            })
+            read_input_waits(
+                &terminal,
+                &spawner,
+                &peer_failure_noted,
+                READING_BOUND,
+                |reading| reading.is_waiting,
+            )
             .await
         } else {
             Vec::new()
@@ -257,9 +265,10 @@ mod tests {
             tokio::time::sleep(SETTLE).await;
         }
         // A waiting command is read until it reads as waiting; one that waits on nothing is read
-        // across the whole bound, and must never read as waiting.
+        // across the whole short bound, and must never read as waiting.
+        let bound = if is_marked { READING_BOUND } else { WAIT_BOUND };
         let readings = if prompt.is_ok() {
-            read_input_waits(&terminal, &spawner, &peer_failure_noted, |reading| {
+            read_input_waits(&terminal, &spawner, &peer_failure_noted, bound, |reading| {
                 is_marked && *reading == expected
             })
             .await
@@ -279,7 +288,10 @@ mod tests {
                 .expect("the wait reads before the stop");
             assert!(
                 before_stop.last().is_some_and(|reading| reading.is_waiting),
-                "{script} before its stop: {before_stop:?}"
+                "{script} never read as waiting before its stop within {READING_BOUND:?}, \
+                 last of {} readings: {:?}",
+                before_stop.len(),
+                before_stop.last()
             );
         }
         let readings = readings
@@ -287,7 +299,12 @@ mod tests {
             .collect::<std::io::Result<Vec<_>>>()
             .expect("the wait reads");
         if is_marked {
-            assert_eq!(readings.last(), Some(&expected), "{script}: {readings:?}");
+            assert_eq!(
+                readings.last(),
+                Some(&expected),
+                "{script} never read as {expected:?} within {READING_BOUND:?}, last of {} readings",
+                readings.len()
+            );
         } else {
             assert!(
                 readings.iter().all(|reading| *reading == expected),
@@ -297,12 +314,13 @@ mod tests {
     }
 
     // The readings of `terminal`'s wait every few milliseconds until one `is_settled`, one fails or
-    // the bound passes, the command's output read away as the daemon reads it, so a command drawing
+    // `bound` passes, the command's output read away as the daemon reads it, so a command drawing
     // a screen never blocks on a full terminal.
     async fn read_input_waits(
         terminal: &InnerTerminal,
         spawner: &Spawner,
         peer_failure_noted: &Once,
+        bound: Duration,
         is_settled: impl Fn(&InputWaitReading) -> bool,
     ) -> Vec<std::io::Result<InputWaitReading>> {
         let window_start = Instant::now();
@@ -324,7 +342,7 @@ mod tests {
             };
             let is_done = reading.as_ref().map_or(true, &is_settled);
             readings.push(reading);
-            if is_done || window_start.elapsed() >= WAIT_BOUND {
+            if is_done || window_start.elapsed() >= bound {
                 return readings;
             }
             tokio::time::sleep(Duration::from_millis(5)).await;
