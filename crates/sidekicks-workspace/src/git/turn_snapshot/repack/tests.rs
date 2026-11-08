@@ -8,6 +8,7 @@ use jiff::Timestamp;
 use rstest::rstest;
 use sidekicks_platforms::{is_superuser, make_unwritable};
 use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
 use super::{CaptureFolderSweep, CapturePacking, is_fold_due};
@@ -347,7 +348,15 @@ async fn a_sweep_pass_clears_what_a_cut_git_or_a_crash_left_and_keeps_the_rest()
     let folder = capture_folder.folder();
     let settled = SystemTime::now() + SETTLED_READ_DELAY;
     let first = packing
-        .sweep_capture_folder(None, &owner, &common, None, &[], settled)
+        .sweep_capture_folder(
+            None,
+            &owner,
+            &common,
+            None,
+            &[],
+            settled,
+            &ProcessorMeter::default(),
+        )
         .await;
     let Ok(CaptureFolderSweep::Swept(pass)) = first else {
         panic!("the folder is swept, got {first:?}");
@@ -400,7 +409,15 @@ async fn a_sweep_pass_clears_what_a_cut_git_or_a_crash_left_and_keeps_the_rest()
     }
 
     let second = packing
-        .sweep_capture_folder(None, &owner, &common, Some(&pass), &[], settled)
+        .sweep_capture_folder(
+            None,
+            &owner,
+            &common,
+            Some(&pass),
+            &[],
+            settled,
+            &ProcessorMeter::default(),
+        )
         .await;
 
     assert!(
@@ -447,7 +464,15 @@ async fn a_sweep_packs_the_captures_whose_base_no_ref_reaches_and_skips_an_idle_
     let folder = capture_folder.folder();
     let packs_before = counted(&git, folder, "packs").await;
     let reached_sweep = packing
-        .sweep_capture_folder(None, &owner, &common, None, &[], SystemTime::now())
+        .sweep_capture_folder(
+            None,
+            &owner,
+            &common,
+            None,
+            &[],
+            SystemTime::now(),
+            &ProcessorMeter::default(),
+        )
         .await;
     assert!(
         matches!(reached_sweep, Ok(CaptureFolderSweep::Swept(_))),
@@ -492,13 +517,29 @@ async fn a_sweep_packs_the_captures_whose_base_no_ref_reaches_and_skips_an_idle_
 
     let settled = SystemTime::now() + SETTLED_READ_DELAY;
     let first = packing
-        .sweep_capture_folder(None, &owner, &common, None, &[], settled)
+        .sweep_capture_folder(
+            None,
+            &owner,
+            &common,
+            None,
+            &[],
+            settled,
+            &ProcessorMeter::default(),
+        )
         .await;
     let Ok(CaptureFolderSweep::Swept(pass)) = first else {
         panic!("the folder is swept, got {first:?}");
     };
     let second = packing
-        .sweep_capture_folder(None, &owner, &common, Some(&pass), &[], settled)
+        .sweep_capture_folder(
+            None,
+            &owner,
+            &common,
+            Some(&pass),
+            &[],
+            settled,
+            &ProcessorMeter::default(),
+        )
         .await;
     collect_garbage(&git, &repository).await;
 
@@ -545,7 +586,15 @@ async fn a_sweep_of_a_deleted_repository_answers_its_absence_and_keeps_its_folde
     .expect("the partial folder is aged");
 
     let swept = packing
-        .sweep_capture_folder(None, &owner, &common, None, &[], SystemTime::now())
+        .sweep_capture_folder(
+            None,
+            &owner,
+            &common,
+            None,
+            &[],
+            SystemTime::now(),
+            &ProcessorMeter::default(),
+        )
         .await;
 
     assert!(
@@ -632,7 +681,15 @@ async fn a_sweep_packs_again_a_capture_whose_own_pack_failed_once_an_hour_has_pa
     }
 
     let swept = packing
-        .sweep_capture_folder(None, &owner, &common, None, &[], SystemTime::now())
+        .sweep_capture_folder(
+            None,
+            &owner,
+            &common,
+            None,
+            &[],
+            SystemTime::now(),
+            &ProcessorMeter::default(),
+        )
         .await;
     write_in(&git, &repository, &["reset", "--quiet"]).await;
     collect_garbage(&git, &repository).await;
@@ -690,13 +747,15 @@ async fn a_sweep_queued_behind_the_owners_hold_finds_its_folder_gone() {
         .await
         .expect("the owner's folders are held");
     let handles = packing.folder_lock.queue_handle_count(folder.clone());
+    let meter = ProcessorMeter::default();
     let mut sweep = std::pin::pin!(packing.sweep_capture_folder(
         None,
         &owner,
         &common,
         None,
         &[],
-        SystemTime::now()
+        SystemTime::now(),
+        &meter
     ));
 
     tokio::select! {

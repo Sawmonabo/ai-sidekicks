@@ -27,6 +27,7 @@ use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_std::missing_entry::{MissingEntry as _, is_gone};
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::scheduler::budget::ProcessorMeter;
 use tokio::time::Instant;
 
 use crate::git::cat_file::object_lines;
@@ -298,16 +299,21 @@ impl CapturePacking {
 
     /// One sweep pass over the capture folder of the owner whose folder is `owner_folder`, for the
     /// repository whose common git folder is `common_folder`, running git for the project at
-    /// `place`. A repository whose common git folder is gone answers `RepositoryGone` and keeps its
-    /// capture folder; a capture folder a purge removed before the pass's turn answers `Absent`. Every pass first removes the owner's capture folders still being made and,
-    /// once git has counted the folder's objects, git's temporaries and the scratch indexes left in
-    /// it, each once it is an hour old, a scratch index also once it predates this daemon run.
-    /// Skipped when the repository's refs read as `last_pass` left them, read at `read_at`, and the
-    /// folder holds no loose object and no fold is due; else the trees of the folder's captures and
-    /// of `extra_points` whose base no ref reaches are packed, the captures whose tree is a loose
-    /// object an hour old are packed again on their own base, those loose objects are packed, and
-    /// the packs folded. Fails with the step's failure, so no pass is kept and the next sweep runs
-    /// it all.
+    /// `place`, its blocking work charged to `meter`. A repository whose common git folder is gone
+    /// answers `RepositoryGone` and keeps its capture folder; a capture folder a purge removed
+    /// before the pass's turn answers `Absent`. Every pass first removes the owner's capture
+    /// folders still being made and, once git has counted the folder's objects, git's temporaries
+    /// and the scratch indexes left in it, each once it is an hour old, a scratch index also once
+    /// it predates this daemon run. Skipped when the repository's refs read as `last_pass` left
+    /// them, read at `read_at`, and the folder holds no loose object and no fold is due; else the
+    /// trees of the folder's captures and of `extra_points` whose base no ref reaches are packed,
+    /// the captures whose tree is a loose object an hour old are packed again on their own base,
+    /// those loose objects are packed, and the packs folded. Fails with the step's failure, so no
+    /// pass is kept and the next sweep runs it all.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "each is one fact of the pass the caller holds, the meter its job's own"
+    )]
     pub async fn sweep_capture_folder(
         &self,
         place: Option<&Place>,
@@ -316,12 +322,17 @@ impl CapturePacking {
         last_pass: Option<&CaptureFolderPass>,
         extra_points: &[SnapshotPoint],
         read_at: SystemTime,
+        meter: &ProcessorMeter,
     ) -> Result<CaptureFolderSweep, PackingError> {
         // Owner-wide and before the repository is resolved, so a half-made folder of a repository
         // since deleted is cleared too.
         let owner = owner_folder.to_path_buf();
-        joined(tokio::task::spawn_blocking(move || clear_partial_capture_folders(&owner)).await)
-            .map_err(PackingError::Folder)?;
+        joined(
+            meter
+                .run_blocking(move || clear_partial_capture_folders(&owner))
+                .await,
+        )
+        .map_err(PackingError::Folder)?;
         let Some(capture_folder) = CaptureFolder::open_existing(owner_folder, common_folder)
             .await
             .map_err(PackingError::Folder)?
@@ -337,7 +348,7 @@ impl CapturePacking {
         }
         // Read before any work, so a change made during the pass is seen by the next one.
         let common = common_folder.to_path_buf();
-        let ref_state = joined(tokio::task::spawn_blocking(move || read_ref_state(&common)).await)
+        let ref_state = joined(meter.run_blocking(move || read_ref_state(&common)).await)
             .map_err(PackingError::Folder)?;
         let pass = CaptureFolderPass { ref_state, read_at };
         let folder = capture_folder.folder().to_path_buf();
@@ -351,10 +362,11 @@ impl CapturePacking {
         let is_object_folder_walked = counts.garbage > 0 || counts.loose > 0;
         let (cleared, run_began_at) = (folder.clone(), self.began_at);
         let stale_objects = joined(
-            tokio::task::spawn_blocking(move || {
-                clear_capture_folder_leftovers(&cleared, is_object_folder_walked, run_began_at)
-            })
-            .await,
+            meter
+                .run_blocking(move || {
+                    clear_capture_folder_leftovers(&cleared, is_object_folder_walked, run_began_at)
+                })
+                .await,
         )
         .map_err(PackingError::Folder)?;
         let is_unchanged = last_pass.is_some_and(|last| last.is_unchanged_by(&pass.ref_state));
@@ -544,7 +556,8 @@ impl CapturePacking {
             tokio::task::spawn_blocking(move || remove_stale_temporary_packs(&pack_folder)).await,
         )
         .map_err(PackingError::Folder)?;
-        // No alternate attached; `-n` writes neither `info/refs` nor `objects/info/packs`, and no
+        // No alternate attached, and never `-l`, which with a store attached would leave out every
+        // object that store holds; `-n` writes neither `info/refs` nor `objects/info/packs`, and no
         // bitmap is written, which a `pack.writeBitmaps` setting would otherwise fail on. Never
         // `-a`, `-A` or `-m`, which fail on a folder whose objects are borrowed.
         let arguments = in_git_folder(
@@ -554,7 +567,6 @@ impl CapturePacking {
                 "repack",
                 "--geometric=2",
                 "-d",
-                "-l",
                 "-n",
                 "-q",
                 "--no-write-bitmap-index",
