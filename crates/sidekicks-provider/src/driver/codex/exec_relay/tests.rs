@@ -30,6 +30,7 @@ mod connections;
 mod exchange;
 mod file_handles;
 mod http_requests;
+mod missing_watches;
 mod parity;
 mod processes;
 mod starts;

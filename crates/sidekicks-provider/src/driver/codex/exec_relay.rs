@@ -3,9 +3,10 @@
 //! daemon's own child on standard input and output, and the service reaches it through a loopback
 //! WebSocket the relay serves under a token minted at every start of the service. The relay serves
 //! many connections onto its one executor: it answers each one's `initialize` from its own, and
-//! sends each one's requests and processes on under ids of its own, so every connection's answers
-//! and the executor's messages about its processes come back to it alone under its own ids. It
-//! refuses what the executor does not serve, so no connection's message closes the executor's one
+//! sends each one's requests, processes, open files and http requests on under ids of its own, so
+//! every connection's answers and the executor's messages naming its ids come back to it alone
+//! under its own ids; every connection's missing-path watch joins one on the executor. It refuses
+//! what the executor does not serve, so no connection's message closes the executor's one
 //! connection. Every other message passes unchanged but two: a command's start, rewritten to run
 //! under the command wrapper, and a terminate, held until the wrapper ended the command.
 //! A command whose service was restarted while it ran is ended by the relay at its process's end,
@@ -402,8 +403,9 @@ impl CodexExecRelay {
     }
 
     /// Carries one of the connection `connection`'s messages to `executor`: an `initialize` is
-    /// answered to that connection with the executor's own, every other request the executor
-    /// serves goes on under a relay id and the relay's id for any process it names, a start and a
+    /// answered to that connection with the executor's own, a missing-path watch joins the
+    /// executor's one on a task of its own, every other request the executor serves goes on under
+    /// a relay id and the relay's id for any process, file or http request it names, a start and a
     /// terminate through their tasks, and an answer only to a request asked of the connection. A
     /// request the executor does not serve is answered `-32601` and a line that is no message
     /// `-32600`; a notification is dropped, since the relay sent its own `initialized` and the
@@ -473,10 +475,15 @@ impl CodexExecRelay {
             .and_then(|params| params.process_id)
             .filter(|_started| method == ClientMethod::ProcessStart)
             .and_then(text_of);
-        let line =
-            executor.relay_client_request(connection, &line, id, method, message.params.as_ref());
+        let relayed = || {
+            executor.relay_client_request(connection, &line, id, method, message.params.as_ref())
+        };
         match method {
+            ClientMethod::WatchMissing => {
+                tokio::spawn(executor.join_missing_watch(connection, id, message.params.as_ref()));
+            }
             ClientMethod::ProcessStart => {
+                let line = relayed();
                 #[cfg(test)]
                 self.process_starts.fetch_add(1, Ordering::Relaxed);
                 match own_process_id {
@@ -491,7 +498,7 @@ impl CodexExecRelay {
                 }
             }
             ClientMethod::ProcessTerminate => {
-                tokio::spawn(relay.forward_terminate(Arc::clone(executor), line));
+                tokio::spawn(relay.forward_terminate(Arc::clone(executor), relayed()));
             }
             // An `initialized` sent as a request is the executor's to refuse.
             ClientMethod::Initialize
@@ -501,7 +508,7 @@ impl CodexExecRelay {
             | ClientMethod::FileNamed
             | ClientMethod::FileClose
             | ClientMethod::HttpRequest
-            | ClientMethod::Passed => forward(executor, line).await,
+            | ClientMethod::Passed => forward(executor, relayed()).await,
         }
     }
 

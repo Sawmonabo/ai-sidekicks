@@ -55,6 +55,14 @@ pub(super) struct RoutedParams<'line> {
     pub(super) request_id: Option<&'line RawValue>,
     /// The exit code a `process/exited` reports.
     pub(super) exit_code: Option<i32>,
+    /// A missing-path watch's own id, a number.
+    pub(super) watch_id: Option<u64>,
+    /// The paths a missing-path watch waits to see appear, as raw JSON.
+    #[serde(borrow)]
+    pub(super) missing: Option<&'line RawValue>,
+    /// The one path a missing-path watch waits to stay, as raw JSON.
+    #[serde(borrow)]
+    pub(super) present: Option<&'line RawValue>,
     /// Whether an http request streams its body as deltas after its answer.
     pub(super) stream_response: bool,
     /// Whether a body delta is its request's last.

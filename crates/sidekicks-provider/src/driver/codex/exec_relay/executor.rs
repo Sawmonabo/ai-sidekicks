@@ -1,12 +1,16 @@
 //! The daemon's own Codex executor and the many connections the relay serves onto it:
 //! newline-delimited JSON-RPC both ways, the relay's own requests answered by their ids, each
 //! connection's request sent under a relay id and its answer handed to that connection alone under
-//! the connection's own id, each connection's processes run under relay ids and every message about
-//! one, a policy ask among them, handed to its connection alone under its own id, every other
-//! message handed to every connection, each process's end watched so a held terminate or a stop can wait on it, and the
-//! answer to a client's request watched where the relay keeps something for it.
+//! the connection's own id. Each connection's processes, open files and http requests run under
+//! relay ids, and every message naming one, a policy ask and a streamed body among them, reaches
+//! its connection alone under its own id; a dropped connection's open files are closed. Every
+//! connection's missing-path watch joins one on the executor. An executor request no connection
+//! owns is refused and an unrouted notification dropped, so nothing reaches every connection. Each
+//! process's end is watched so a held terminate or a stop can wait on it, and the answer to a
+//! client's request where the relay keeps something for it.
 
 mod connection_ids;
+mod missing_watches;
 mod policy_requests;
 
 use std::collections::HashMap;
@@ -19,6 +23,7 @@ use futures::{SinkExt as _, StreamExt as _};
 use process_wrap::tokio::ChildWrapper;
 use serde_json::json;
 use serde_json::value::RawValue;
+use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 use sidekicks_platforms::{Spawner, wrap_child_command};
 use sidekicks_std::mutex_lock::lock;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -27,11 +32,12 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
 
 use self::connection_ids::{ConnectionIds, UNKNOWN_ID};
+use self::missing_watches::MissingWatches;
 use self::policy_requests::{PolicyRequests, deny_answer};
 use crate::driver::codex::exec_relay::message::{RoutedMessage, RoutedParams, splice, text_of};
 use crate::driver::codex::exec_relay::methods::{
-    ClientMethod, FS_CLOSE_METHOD, HTTP_REQUEST_BODY_DELTA_METHOD, INITIALIZE_METHOD,
-    INITIALIZED_METHOD, NETWORK_POLICY_REQUEST_METHOD, PROCESS_CLOSED_METHOD,
+    ClientMethod, FS_CLOSE_METHOD, FS_MISSING_CHANGED_METHOD, HTTP_REQUEST_BODY_DELTA_METHOD,
+    INITIALIZE_METHOD, INITIALIZED_METHOD, NETWORK_POLICY_REQUEST_METHOD, PROCESS_CLOSED_METHOD,
     PROCESS_EXITED_METHOD, RelayIdKind, is_process_notification,
 };
 use crate::driver::codex::session::errors::CodexError;
@@ -101,6 +107,7 @@ pub(super) struct CodexExecutor {
     file_handles: Mutex<ConnectionIds>,
     http_requests: Mutex<ConnectionIds>,
     policy_requests: Mutex<PolicyRequests>,
+    missing_watches: MissingWatches,
     // Keyed by the relay's process id.
     exits: Mutex<HashMap<String, watch::Sender<Option<ProcessEnd>>>>,
     client_replies: Mutex<HashMap<String, oneshot::Sender<bool>>>,
@@ -170,6 +177,7 @@ impl CodexExecutor {
             file_handles: Mutex::new(ConnectionIds::new(RelayIdKind::FileHandle)),
             http_requests: Mutex::new(ConnectionIds::new(RelayIdKind::HttpRequest)),
             policy_requests: Mutex::new(PolicyRequests::default()),
+            missing_watches: MissingWatches::default(),
             exits: Mutex::new(HashMap::new()),
             client_replies: Mutex::new(HashMap::new()),
             ended: watch::Sender::new(false),
@@ -250,6 +258,9 @@ impl CodexExecutor {
         // A streamed body runs on to its last delta, since no method cancels it, and reaches no one.
         lock(&self.http_requests).forget_connection(connection);
         lock(&self.clients).remove(&connection);
+        // After the connection's queue goes, so a join answered meanwhile finds it gone or is
+        // forgotten here.
+        self.missing_watches.forget_connection(connection);
         let unanswered = lock(&self.policy_requests).take_connection(connection);
         for id in unanswered {
             self.deny_policy_request(&id).await;
@@ -345,22 +356,6 @@ impl CodexExecutor {
         }
     }
 
-    // Hands `line` to every connection, one copy for each past the first.
-    async fn send_to_every_connection(&self, line: String) {
-        let clients: Vec<_> = lock(&self.clients).values().cloned().collect();
-        let Some((last, others)) = clients.split_last() else {
-            return;
-        };
-        for client in others {
-            if client.send(line.clone()).await.is_err() {
-                tracing::debug!("a Codex relay client went away before a message reached it");
-            }
-        }
-        if last.send(line).await.is_err() {
-            tracing::debug!("a Codex relay client went away before a message reached it");
-        }
-    }
-
     /// Writes one message to the executor as its own line. Fails with `CodexError::Transport`
     /// once the connection ended.
     pub(super) async fn send_line(&self, message: String) -> Result<(), CodexError> {
@@ -393,25 +388,40 @@ impl CodexExecutor {
         answered
     }
 
-    /// Sends the relay's own request and answers its result, `None` when `timeout` passed first.
-    /// Fails with `CodexError::Transport` when the executor refused it or the connection ended.
+    /// Sends the relay's own request and answers its result, `None` when `timeout`, if any,
+    /// passed first. Fails with `CodexError::Transport` when the executor refused it or the
+    /// connection ended, at once for a request sent once it had.
     pub(super) async fn request_within(
         &self,
         method: &str,
         params: &serde_json::Value,
-        timeout: Duration,
+        timeout: impl Into<Option<Duration>>,
     ) -> Result<Option<Box<RawValue>>, CodexError> {
         let id = self.next_relay_request_id();
         let (answer, answered) = oneshot::channel();
-        lock(&self.pending).insert(id.clone(), answer);
+        {
+            // Read under the waiters' lock, which the end clears after marking itself, so no
+            // waiter is kept once the end has passed.
+            let mut pending = lock(&self.pending);
+            if *self.ended.borrow() {
+                return Err(ended());
+            }
+            pending.insert(id.clone(), answer);
+        }
         let message = json!({ "id": id, "method": method, "params": params }).to_string();
         if let Err(error) = self.send_line(message).await {
             lock(&self.pending).remove(&id);
             return Err(error);
         }
-        let Ok(answer) = tokio::time::timeout(timeout, answered).await else {
-            lock(&self.pending).remove(&id);
-            return Ok(None);
+        let answer = match timeout.into() {
+            Some(timeout) => {
+                let Ok(answer) = tokio::time::timeout(timeout, answered).await else {
+                    lock(&self.pending).remove(&id);
+                    return Ok(None);
+                };
+                answer
+            }
+            None => answered.await,
         };
         match answer {
             Ok(Ok(result)) => Ok(Some(result)),
@@ -523,7 +533,35 @@ impl CodexExecutor {
             self.take_process_notification(&line, method, &params).await;
             return;
         }
-        self.send_to_every_connection(line).await;
+        match (message.method.as_deref(), message.id) {
+            (Some(FS_MISSING_CHANGED_METHOD), None) => {
+                let watch_id = message.params.and_then(|params| params.watch_id);
+                self.fire_missing_watch(watch_id).await;
+            }
+            // No connection owns it, so it is refused as Codex's client refuses one it lacks.
+            (Some(method), Some(id)) => {
+                let refusal = json!({ "id": id, "error": {
+                    "code": JsonRpcErrorCode::MethodNotFound.code(),
+                    "message": format!("The relay does not serve {method}."),
+                }});
+                if let Err(error) = self.send_line(refusal.to_string()).await {
+                    tracing::warn!(
+                        error = &error as &(dyn std::error::Error + 'static),
+                        "the relay's refusal of a Codex executor request could not be sent"
+                    );
+                }
+            }
+            (Some(method), None) => {
+                tracing::debug!(
+                    method,
+                    "the Codex executor's notification reached no connection"
+                );
+            }
+            (None, _) => tracing::debug!(
+                length = line.len(),
+                "the Codex executor wrote a message with no method and no id"
+            ),
+        }
     }
 
     // The executor's answer `line` to the client's `request` under the client's own id, the table
@@ -569,6 +607,7 @@ impl CodexExecutor {
             | ClientMethod::ProcessTerminate
             | ClientMethod::ProcessNamed
             | ClientMethod::FileNamed
+            | ClientMethod::WatchMissing
             | ClientMethod::Passed => (splice(line, [(id, &*request.client_id)]), None),
         }
     }
@@ -733,6 +772,7 @@ impl CodexExecutor {
         lock(&self.process_ids).clear();
         lock(&self.file_handles).clear();
         lock(&self.http_requests).clear();
+        self.missing_watches.clear();
         lock(&self.policy_requests).clear();
     }
 }

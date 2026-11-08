@@ -12,6 +12,12 @@ pub(super) const PROCESS_WRITE_METHOD: &str = "process/write";
 /// The close of an open file, which the relay also sends itself for a dropped connection's files.
 pub(super) const FS_CLOSE_METHOD: &str = "fs/close";
 
+/// A client's missing-path watch, which the relay joins into one and sends itself.
+pub(super) const FS_WATCH_MISSING_METHOD: &str = "fs/watchMissing";
+
+/// The executor's notification that its missing-path watch fired.
+pub(super) const FS_MISSING_CHANGED_METHOD: &str = "fs/missingChanged";
+
 /// The executor's notification carrying part of a streamed http body.
 pub(super) const HTTP_REQUEST_BODY_DELTA_METHOD: &str = "http/request/bodyDelta";
 
@@ -69,6 +75,9 @@ pub(super) enum ClientMethod {
     FileClose,
     /// `http/request`, under a request id the relay mints, which a streamed body's deltas name.
     HttpRequest,
+    /// `fs/watchMissing`, joined into the one watch the relay keeps on the executor and answered
+    /// by the relay.
+    WatchMissing,
     /// Any other method the executor serves, passed on under the relay's request id.
     Passed,
 }
@@ -92,7 +101,9 @@ impl ClientMethod {
             Self::FileOpen => (RelayIdKind::FileHandle, true),
             Self::FileNamed | Self::FileClose => (RelayIdKind::FileHandle, false),
             Self::HttpRequest => (RelayIdKind::HttpRequest, true),
-            Self::Initialize | Self::Initialized | Self::Passed => return None,
+            Self::Initialize | Self::Initialized | Self::WatchMissing | Self::Passed => {
+                return None;
+            }
         };
         Some(NamedId { kind, mints })
     }
@@ -109,6 +120,7 @@ impl ClientMethod {
             "fs/readBlock" | "fs/writeBlock" => Self::FileNamed,
             FS_CLOSE_METHOD => Self::FileClose,
             "http/request" => Self::HttpRequest,
+            FS_WATCH_MISSING_METHOD => Self::WatchMissing,
             "environment/info"
             | "environment/status"
             | "environmentConfig/read"
@@ -117,7 +129,6 @@ impl ClientMethod {
             | "fs/readFile"
             | "fs/writeFile"
             | "fs/createDirectory"
-            | "fs/watchMissing"
             | "fs/getMetadata"
             | "fs/canonicalize"
             | "fs/readDirectory"
