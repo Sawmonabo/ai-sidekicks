@@ -13,6 +13,7 @@ use sidekicks_provider::port::question::{
     ProviderQuestionWithdrawal, QuestionLinePlace, QuestionTurnEnd, ToolServerAnswerDelivery,
     ToolServerQuestionAnswer, take_question_in_turn,
 };
+use sidekicks_std::pause_point::ArmedPause;
 use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
 
 use super::RecordingTaskAnswer;
@@ -167,6 +168,59 @@ async fn a_question_asked_while_its_run_waits_opens_once_the_first_answer_moves_
     assert_eq!(third_end.expect("the turn ends"), QuestionTurnEnd::Settled);
     assert_eq!(fixture.state(asked_id(&fixture, 2)), "canceled");
     assert_eq!(fixture.state(waiting), "canceled");
+}
+
+// A run that ends while a waiting question's take is between its read of the run and its read of
+// the question, after its open was refused, cancels the question in its own write, and the take
+// ends settled, canceling nothing again. Killed by the two reads in the old order together with the
+// refused cancel's failure returned.
+#[tokio::test]
+async fn a_run_that_ends_between_a_waiting_takes_reads_settles_its_question_once() {
+    let fixture = Fixture::new().await;
+    let open = fixture.ask("request-1", json!([choice_page()]), true).await;
+    let ArmedPause { reached, release } = fixture.questions.waiting_take_pause.arm();
+    let take = take_question_in_turn(
+        &fixture.questions,
+        fixture.question("request-2", json!([choice_page()]), true),
+        None,
+        QuestionLinePlace::line_up(fixture.run_id),
+        std::future::pending(),
+    );
+    tokio::pin!(take);
+    bounded(async {
+        tokio::select! {
+            _ = &mut take => panic!("the take ended before it read its run"),
+            reached = reached => reached.expect("the take reaches its reads"),
+        }
+    })
+    .await;
+
+    bounded(fixture.engine.transition(
+        RunStateChange::new(fixture.run_id, failed()),
+        RunWriteCompanions::default(),
+    ))
+    .await
+    .expect("the run ends");
+    release.send(()).expect("the take is held");
+
+    assert_eq!(
+        bounded(take).await.expect("the turn ends"),
+        QuestionTurnEnd::Settled
+    );
+    let waiting = asked_id(&fixture, 1);
+    let canceled: Vec<QuestionId> = fixture
+        .payloads("question.canceled")
+        .into_iter()
+        .map(|payload| {
+            serde_json::from_value(payload["questionId"].clone()).expect("a canceled question")
+        })
+        .collect();
+    assert_eq!(
+        canceled.len(),
+        2,
+        "one cancel for each question: {canceled:?}"
+    );
+    assert!(canceled.contains(&open) && canceled.contains(&waiting));
 }
 
 // A question whose asker left by the time it was recorded is recorded waiting for its run, even

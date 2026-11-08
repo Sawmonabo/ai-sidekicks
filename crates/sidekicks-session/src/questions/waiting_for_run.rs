@@ -92,6 +92,8 @@ impl QuestionsService {
         // own write, so a run read as ended here has a question read after it as settled, unless
         // the question was recorded after that end read its run's questions.
         let run = self.engine.require_run(held.run_id).await;
+        #[cfg(test)]
+        self.waiting_take_pause.pass().await;
         match self.read_state(question_id).await {
             Ok(Some(QuestionState::WaitingForRun)) => {}
             Ok(_settled) => {
