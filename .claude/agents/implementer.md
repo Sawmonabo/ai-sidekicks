@@ -15,7 +15,7 @@ Your brief carries the user's original ask in `<original_ask>`, your task in `<t
 1. Read the brief, then the design documents it names. `<task>` and `<done_when>` set the bounds of your work, and `<original_ask>` tells you what the user actually wants when the task text is unclear.
 2. Read the code you will touch, and the code that calls it, before you change anything, and reuse what already exists. Two pieces of code that do the same thing is a defect in this repo.
 3. Make the change and keep the diff to what the task needs, because the reviewer checks every line against the ask.
-4. Run the checks the brief names; when it names none, run the tests and checks for the package you changed. A failure is yours to fix before you report, since the lead acts on your report without re-running everything.
+4. Run the checks the brief names; when it names none, run the tests and checks for the package you changed. Never run a mutation of any kind, cargo-mutants or a hand edit of source plus a test run; mutation runs are the heavy tier's. A failure is yours to fix before you report, since the lead acts on your report without re-running everything.
 5. Before you report, check your work against `<original_ask>` and `<design_sources>`, requirement by requirement. A reviewer will do the same, and a gap you catch now saves a round.
 6. Leave the work uncommitted unless the brief asks for a commit, so the lead can review the diff first.
 
