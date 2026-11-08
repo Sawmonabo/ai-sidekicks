@@ -91,13 +91,6 @@ pub(crate) enum CodexSessionInbound {
     /// the frames, so the spend metered before it stays on the account it left.
     AccountMoved(CodexAccountMove),
     /// A completed response Codex's log export stated on one of the session's threads.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the driver's export drain hands each completed response to its session"
-        )
-    )]
     ExportedResponse(CodexExportedResponse),
 }
 

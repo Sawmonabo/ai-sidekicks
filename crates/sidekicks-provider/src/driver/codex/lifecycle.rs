@@ -231,7 +231,8 @@ pub(crate) struct CodexDriverParts {
 
 impl CodexDriver {
     /// The driver over the shared services: its homes, services and slots are built now, with no
-    /// I/O and no process started; must be called within the daemon's runtime.
+    /// I/O and no process started, and its export drain spawned on its tasks; must be called within
+    /// the daemon's runtime.
     pub(crate) fn new(services: &DriverServices) -> Self {
         let tasks = TaskTracker::new();
         let homes = Arc::new(CodexHomes::new(
@@ -255,6 +256,11 @@ impl CodexDriver {
             askpass_program: command_askpass_program_path(&link_folder),
         });
         let exports = Arc::new(CodexExports::new(Arc::clone(&services.scheduler)));
+        // One drain takes every service's exported responses to their sessions.
+        let drain = exports
+            .take_drain()
+            .expect("a new register's drain is untaken");
+        tasks.spawn(drain.run());
         let dependencies = Arc::new(CodexServiceDependencies {
             spawner: services.spawner.clone(),
             provider_services: Arc::clone(&services.provider_services),

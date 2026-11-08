@@ -73,7 +73,7 @@ impl CodexServerRequestResponder for CodexServiceAsks {
         let thread_id = read_codex_ask_thread_id(&request.params);
         let session_id = thread_id
             .as_deref()
-            .and_then(|thread_id| service.lock_threads().session_for(thread_id).copied());
+            .and_then(|thread_id| service.session_of_thread(thread_id));
         let Some(session_id) = session_id else {
             CodexTransportDiagnostic::RoutedAskThreadUnresolved {
                 method: method.to_owned(),

@@ -311,6 +311,8 @@ impl CodexDriver {
         if timeout_at(deadline, records_let_go).await.is_err() {
             cut_step = cut_step.or(Some("letting each live record go"));
         }
+        // The export drain ends with the records, so the driver's tasks can end.
+        self.exports.stop();
         if timeout_at(deadline, self.tasks.wait()).await.is_err() {
             cut_step = cut_step.or(Some("waiting for the driver's tasks"));
         }
