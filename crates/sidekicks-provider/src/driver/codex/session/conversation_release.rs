@@ -307,10 +307,10 @@ impl CodexConversationRelease {
             return;
         };
         if let Some(service) = &service {
-            // Forgotten before the marker is queued, so no frame of it reaches the session after.
-            service.release_thread(&thread_id);
+            // Forgotten as the marker is queued, so no frame of it reaches the session after.
             // A session whose task ended has no frames left to admit.
-            let _unheard = service.push_session_item(
+            let _unheard = service.release_thread_and_queue(
+                &thread_id,
                 &held.session_id,
                 CodexSessionInbound::HeldThread {
                     thread_id: thread_id.clone(),
@@ -349,9 +349,10 @@ impl CodexConversationRelease {
             return;
         };
         if let Some(service) = held.service.upgrade() {
-            service.release_thread(thread_id);
-            // A session whose task ended has no frames left to admit.
-            let _unheard = service.push_session_item(
+            // Forgotten as the marker is queued; a session whose task ended has no frames left to
+            // admit.
+            let _unheard = service.release_thread_and_queue(
+                thread_id,
                 &held.session_id,
                 CodexSessionInbound::HeldThread {
                     thread_id: thread_id.to_owned(),

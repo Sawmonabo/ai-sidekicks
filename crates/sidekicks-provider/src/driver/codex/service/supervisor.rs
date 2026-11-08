@@ -658,10 +658,7 @@ impl CodexService {
 
     /// Records a conversation as a session's and delivers the frames held for it, in order.
     pub(crate) fn register_thread(&self, thread_id: String, session_id: SessionId) {
-        let held = self.lock_threads().register(thread_id, session_id);
-        for frame in held {
-            self.deliver_thread_frame(&session_id, &frame.thread_id, &frame.method, frame.params);
-        }
+        self.register_routed_thread(&self.lock_routing(), thread_id, session_id);
     }
 
     /// Records a side question's read-only copy as the session's, marked so its commands are
