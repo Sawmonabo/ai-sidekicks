@@ -340,7 +340,8 @@ struct SourceVersion {
 /// each version of `sources` compared with the target and its marks kept only on the nodes whose
 /// step it ran. A node whose [`RunMembers`] changed is dirty, and one switched on or off also marks
 /// the nodes it feeds; a node inserted marks the nodes it feeds, and one deleted the nodes it fed
-/// that remain; an added connection marks its destination.
+/// that remain; an added connection marks its destination, and a removed one its destination where
+/// the target still holds it.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the workflow.node.execute handler")
@@ -393,6 +394,13 @@ fn dirty_nodes(
             difference
                 .edges_added
                 .iter()
+                .map(|edge| graph.place(&edge.target)),
+        );
+        marked.extend(
+            difference
+                .edges_removed
+                .iter()
+                .filter(|edge| target_node_ids.contains(&edge.target))
                 .map(|edge| graph.place(&edge.target)),
         );
         dirty.extend(

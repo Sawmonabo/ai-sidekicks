@@ -241,10 +241,11 @@ fn the_newest_settled_step_is_read_across_versions_past_a_newer_failed_one() {
 /// Each marking rule, applied to the chain's version 1 against version 2 with every node's step
 /// from version 1, dirties exactly the nodes it names: a params, kind version or run-once edit the
 /// node; a rename, a notes edit or an `order` change nothing; an insert or a delete the node after
-/// it; an added connection its destination; switching a node off or on the node and the node after
-/// it. Mutations: mark a node whose switch alone changed only through the nodes it feeds (the switch
+/// it; an added or a removed connection its destination; switching a node off or on the node and the
+/// node after it. Mutations: mark a node whose switch alone changed only through the nodes it feeds (the switch
 /// cases fail); mark every changed node (`rename`, `notes` and `order` fail); leave `kindVersion`
-/// or `executeOnce` out of the members compared (`kind_version` or `execute_once` fails).
+/// or `executeOnce` out of the members compared (`kind_version` or `execute_once` fails); skip the
+/// removed connections (`removed_connection` fails).
 #[rstest]
 #[case::params_edit(
     chain(), CHAIN,
@@ -292,6 +293,12 @@ fn the_newest_settled_step_is_read_across_versions_past_a_newer_failed_one() {
     chain(), CHAIN,
     chain(),
     &[("T", 0, "A", 0), ("A", 0, "B", 0), ("B", 0, "C", 0), ("A", 0, "C", 0)],
+    &["C"],
+)]
+#[case::removed_connection(
+    chain(),
+    &[("T", 0, "A", 0), ("A", 0, "B", 0), ("B", 0, "C", 0), ("A", 0, "C", 0)],
+    chain(), CHAIN,
     &["C"],
 )]
 #[case::switched_off(
