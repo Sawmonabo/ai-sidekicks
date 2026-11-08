@@ -578,9 +578,11 @@ impl CodexSessionRouting {
         };
         reading.request.model_id = model.and_then(|model| FreeFormText::new(model.clone()).ok());
         // Only a metered delta enters the ledger, so a stale `last`, a replay or a full window's
-        // synthetic reading leaves nothing an export could wrongly claim.
-        if let Some(delta) = self.accountant.meter_reading(reading.clone()) {
-            self.streamed.record(&delta.thread_id, delta.axis_deltas);
+        // synthetic reading leaves nothing an export could wrongly claim; the late twin of an
+        // exported response already priced is matched to it and counts nothing.
+        if let Some(delta) = self.accountant.meter_reading(reading.clone())
+            && self.streamed.record(&delta.thread_id, delta.axis_deltas)
+        {
             routed.metered_usage.push(delta);
         }
         Some(reading)

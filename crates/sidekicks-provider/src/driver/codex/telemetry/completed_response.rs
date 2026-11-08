@@ -20,7 +20,7 @@ use crate::usage_delta_accountant::{MeteredUsageDelta, UsageAxisCounts, meter_fr
 pub(crate) mod tests;
 
 /// The name every server-sent event Codex logs carries, its completed responses among them.
-const SSE_EVENT_NAME: &str = "codex.sse_event";
+pub(crate) const SSE_EVENT_NAME: &str = "codex.sse_event";
 
 /// The event kind of a completed response.
 const RESPONSE_COMPLETED_KIND: &str = "response.completed";
@@ -50,6 +50,9 @@ pub(crate) struct CodexCompletedResponse {
     pub(crate) service_tier: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
     /// The counts, input with its cached and written share inside it, as Codex's usage counts it.
     pub(crate) counts: UsageAxisCounts,
+    /// When the SDK observed the record, in Unix milliseconds by the process's wall clock; zero
+    /// where the record carries none.
+    pub(crate) observed_at_ms: u64,
 }
 
 impl CodexCompletedResponse {
@@ -189,6 +192,7 @@ fn read_completed_response(
         model_id,
         service_tier,
         counts,
+        observed_at_ms: record.observed_time_unix_nano / 1_000_000,
     }))
 }
 

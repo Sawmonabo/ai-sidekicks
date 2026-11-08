@@ -183,13 +183,15 @@ pub(crate) async fn serve_copy(
 ) -> Map<String, Value> {
     let (mut socket, fork, _turn) = open_copy(&listener, &profile).await;
     if let CopyTurnEnding::MeteredThenAnswered = ending {
-        let counts = json!({"inputTokens": 1_000, "outputTokens": 100, "totalTokens": 1_100});
+        // The fork's total carries the stored conversation's restored figures beside its request.
+        let total = json!({"inputTokens": 51_000, "outputTokens": 2_100, "totalTokens": 53_100});
+        let last = json!({"inputTokens": 1_000, "outputTokens": 100, "totalTokens": 1_100});
         send_on_socket(
             &mut socket,
             json!({"jsonrpc": "2.0", "method": "thread/tokenUsage/updated", "params": {
                 "threadId": COPY_THREAD,
                 "turnId": COPY_TURN,
-                "tokenUsage": {"total": counts, "last": counts},
+                "tokenUsage": {"total": total, "last": last},
             }}),
         )
         .await;

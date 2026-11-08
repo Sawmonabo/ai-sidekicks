@@ -1,4 +1,4 @@
-//! Reading a throwaway turn's frames: its reply, its usage metered against its own fresh base at
+//! Reading a throwaway turn's frames: its reply, its usage metered against a base of its own at
 //! the model it runs and the tier its start declared, and how the turn ended; and filing each
 //! metered reading as the session's own, recorded and priced through the driver's live pricing.
 
@@ -83,7 +83,8 @@ pub(crate) enum CopyFrameReading {
 
 /// The meter of one throwaway turn's thread: its usage readings stamped with the facts of the
 /// model it runs and the tier its start declared, and metered through an accountant of its own,
-/// based fresh, so its cost never takes the session's own counts as its base.
+/// based at its first reading's total less that reading's own request, so a fork's restored
+/// figures, which Codex seeds the copy's total with, are never counted as its spend.
 pub(crate) struct CopyTurnMeter {
     /// The turn's thread.
     pub(crate) thread_id: String,
@@ -99,8 +100,7 @@ impl CopyTurnMeter {
         model: Option<&str>,
         declared_tier: Option<&ProviderOutputSpeedState>,
     ) -> Self {
-        let mut accountant = UsageDeltaAccountant::new(DESCRIPTOR.provider_id());
-        accountant.establish_thread(thread_id.clone(), ThreadBaseEstablishment::Fresh);
+        let accountant = UsageDeltaAccountant::new(DESCRIPTOR.provider_id());
         // A blank model is no model id, so the facts name none where no model is known.
         let request = compose_codex_request_facts(
             model.unwrap_or_default(),
@@ -147,16 +147,45 @@ impl CopyTurnMeter {
         self.meter_reading(reading)
     }
 
-    // Meters one cumulative reading stamped with the turn's facts; `None` for a reading that has
-    // not grown, or one of another thread.
+    // Meters one cumulative reading stamped with the turn's facts, the first basing the thread;
+    // `None` for a reading that has not grown, or one of another thread.
     fn meter_reading(&mut self, mut reading: CumulativeUsageReading) -> Option<MeteredUsageDelta> {
+        if reading.thread_id == self.thread_id && !self.accountant.has_thread(&self.thread_id) {
+            self.accountant
+                .establish_thread(self.thread_id.clone(), first_reading_base(&reading));
+        }
         reading.request = self.request.clone();
         self.accountant.meter_reading(reading)
     }
 }
 
+// The base a copy's first reading meters against: its total less the request it declares, the
+// figures a fork restored; zero where it declares none, as a reading with no `last` restores none.
+fn first_reading_base(reading: &CumulativeUsageReading) -> ThreadBaseEstablishment {
+    let Some(declared) = &reading.declared_per_turn else {
+        return ThreadBaseEstablishment::Fresh;
+    };
+    let total = &reading.cumulative;
+    let restored = |total: Option<u64>, request: Option<u64>| {
+        total
+            .zip(request)
+            .map(|(total, request)| total.saturating_sub(request))
+    };
+    ThreadBaseEstablishment::Resume {
+        prior_emitted_cumulative: UsageAxisCounts {
+            input: restored(total.input, declared.input),
+            cached_input: restored(total.cached_input, declared.cached_input),
+            cache_write_input: restored(total.cache_write_input, declared.cache_write_input),
+            output: restored(total.output, declared.output),
+            reasoning_output: restored(total.reasoning_output, declared.reasoning_output),
+            total: restored(total.total, declared.total),
+        },
+    }
+}
+
 /// Where the session's own metered usage goes: the usage record, once registered, on the session's
 /// binding under its account, each row priced through the driver's live pricing.
+#[derive(Clone)]
 pub(crate) struct SessionUsageFiling {
     /// The usage record.
     pub(crate) usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
@@ -173,13 +202,16 @@ pub(crate) struct SessionUsageFiling {
 impl SessionUsageFiling {
     /// Records `delta` as the session's own, counted toward no run, and prices it, its region read
     /// on `service` for `folder`; a refused record or region read is reported under the account.
-    /// With no usage record registered it goes nowhere and reads no region.
+    /// A copy's thread's ledger on the service's launch takes it first, so its exported twin is
+    /// passed over. With no usage record registered it goes nowhere and reads no region.
     pub(crate) async fn file(
         &mut self,
         delta: MeteredUsageDelta,
         service: &CodexService,
         folder: &Path,
     ) {
+        let exports = &service.dependencies().exports;
+        exports.copy_filed(service.id(), &delta.thread_id, delta.axis_deltas);
         let Some(sink) = self.usage.port() else {
             return;
         };

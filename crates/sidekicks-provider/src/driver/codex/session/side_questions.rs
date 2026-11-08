@@ -61,6 +61,7 @@ use crate::driver::codex::session::side_questions::copy_turn::{
 };
 use crate::driver::codex::session::slots::let_go_codex_thread;
 use crate::driver::codex::session::state::CodexSessionRecord;
+use crate::driver::codex::telemetry::exports::CodexCopyThreadRead;
 use crate::driver::codex::thread::settings::{
     CodexThreadSettings, CodexTurnStartParams, compose_codex_relay_environments,
     compose_codex_thread_fork_params,
@@ -362,6 +363,13 @@ impl CodexSideQuestions {
             provider_account_id: resume.provider_account_id.clone(),
             pricing: CodexRecorderPricing::new(pricing),
         };
+        // Held until the copy's read ends, so the export's twins of its filed requests pass over.
+        let copy_read = question.service.dependencies().exports.copy_thread(
+            question.service.id(),
+            &copy.thread_id,
+            &filing,
+            &copy.working_directory,
+        );
         let started = {
             let start = start_turn(
                 &copy.connection,
@@ -403,6 +411,7 @@ impl CodexSideQuestions {
             copy,
             turn_id,
             Arc::clone(&self.copy_stops),
+            copy_read,
         ));
         Ok(answer)
     }
@@ -677,7 +686,7 @@ pub(crate) struct CodexRestingCopy {
 // reading filed through `filing` on the copy's service; once its connection dropped the ask fails
 // with no answer, and once the question's stop fired its turn is stopped, the readings received by
 // then filed, and nothing is delivered. The copy leaves `copy_stops` and is let go with its
-// connection.
+// connection, and its read on the launch's register ends as `_copy_read` drops.
 async fn answer_at_rest(
     dispatch: Arc<dyn InboundDispatch>,
     mut filing: SessionUsageFiling,
@@ -685,6 +694,7 @@ async fn answer_at_rest(
     mut copy: CodexRestingCopy,
     turn_id: String,
     copy_stops: Arc<Mutex<CodexCopyStops>>,
+    _copy_read: CodexCopyThreadRead,
 ) {
     let stop = question.stop.clone();
     let read = read_detached_turn(

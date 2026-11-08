@@ -34,6 +34,7 @@ use crate::driver::ProviderAccountReader;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::delivery::rows::{CodexRowDelivery, CodexRowRun};
 use crate::driver::codex::delivery::turn_readings::deliver_codex_plan_update;
+use crate::driver::codex::event_normalizer::CODEX_REVIEW_STARTED_METHOD;
 use crate::driver::codex::run::routes::{CodexRunBinding, CodexRunRoutes};
 use crate::driver::codex::run::stopped_helpers::CodexStoppedHelpers;
 use crate::driver::codex::server_requests::CodexAskKind;
@@ -281,6 +282,7 @@ impl CodexFrameDelivery {
             "item/commandExecution/outputDelta" => self.deliver_command_output(record, &members),
             "error" => self.deliver_turn_error(record, &members).await,
             "guardianWarning"
+            | CODEX_REVIEW_STARTED_METHOD
             | "item/autoApprovalReview/completed"
             | "autoApprovalReview/strictReviewRequired" => {
                 self.deliver_reviewer_frame(record, method, &members).await;

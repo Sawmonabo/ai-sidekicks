@@ -1,30 +1,33 @@
 //! The driver's register of its Codex launches' exports: the tag each launch carries, its export
-//! status, the reader that hands the receiver each export, and the drain that takes each completed
-//! response the reader handed off to the session holding its thread.
+//! status, placement state and copies' threads, and the reader that hands the receiver each
+//! export, whose completed responses it hands off to the drain.
 
 use std::collections::HashMap;
 use std::error::Error;
+use std::path::Path;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use futures::future::{BoxFuture, ready};
 use opentelemetry_proto::tonic::common::v1::any_value::Value;
 use opentelemetry_proto::tonic::logs::v1::ResourceLogs;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::Scheduler;
-use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
+use tokio::sync::{Notify, mpsc};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
-use crate::driver::codex::session::inbound::CodexSessionInbound;
-use crate::driver::codex::telemetry::completed_response::{
-    CodexCompletedResponse, read_codex_completed_responses,
-};
-use crate::driver::codex::telemetry::held_responses::CodexExportedResponse;
+use crate::driver::codex::session::side_questions::copy_turn::SessionUsageFiling;
+use crate::driver::codex::telemetry::completed_response::read_codex_completed_responses;
+use crate::driver::codex::telemetry::copy_threads::CodexEndedCopy;
+use crate::driver::codex::telemetry::drain::{CodexExportDrain, CodexExportItem};
+use crate::driver::codex::telemetry::placement::{CodexLaunchPlacement, CodexReviewWindow};
 use crate::pricing::export_status::ExportStatusTracker;
 use crate::pricing::receiver::{TelemetryExport, TelemetryExportReader};
+use crate::usage_delta_accountant::UsageAxisCounts;
 
 #[cfg(test)]
 pub(crate) mod tests;
@@ -60,23 +63,10 @@ pub(crate) struct CodexExports {
     // Held only to read or change the map, never across an await or a call outside the register.
     launches: Mutex<CodexLaunchExports>,
     hand_off: mpsc::Sender<CodexExportItem>,
-    // The hand-off's drain, until the driver takes it to run.
-    drain: Mutex<Option<CodexExportDrain>>,
-    stop: CancellationToken,
-}
-
-// One completed response the reader handed off, with the service that ran it, since a relaunch
-// drops the tag it was read under.
-struct CodexExportItem {
-    service: Weak<CodexService>,
-    response: CodexCompletedResponse,
-    arrived_at: Instant,
-}
-
-/// The drain of the register's hand-off, which takes each completed response to the session that
-/// holds its thread, one at a time, until the register stops.
-pub(crate) struct CodexExportDrain {
-    items: mpsc::Receiver<CodexExportItem>,
+    // The hand-off's far end, until the driver takes the drain to run.
+    drain_items: Mutex<Option<mpsc::Receiver<CodexExportItem>>>,
+    // Wakes the drain when a copy's read ends, so it files that copy when due.
+    copies_ended: Arc<Notify>,
     stop: CancellationToken,
 }
 
@@ -86,12 +76,15 @@ struct CodexLaunchExports {
     by_tag: HashMap<u64, CodexLaunchExport>,
 }
 
-// One launch: the service it started, which a later launch of the same service replaces, and its
-// export status.
+// One launch: the service it started, which a later launch of the same service replaces, its
+// export status, how many of its exports were read, and where its off-stream threads were placed
+// and the responses it keeps, which go with it.
 struct CodexLaunchExport {
     service_id: CodexServiceId,
     service: Weak<CodexService>,
     tracker: Arc<ExportStatusTracker>,
+    exports_read: u64,
+    placement: Arc<Mutex<CodexLaunchPlacement>>,
 }
 
 impl CodexExports {
@@ -106,10 +99,8 @@ impl CodexExports {
                 by_tag: HashMap::new(),
             }),
             hand_off,
-            drain: Mutex::new(Some(CodexExportDrain {
-                items,
-                stop: stop.clone(),
-            })),
+            drain_items: Mutex::new(Some(items)),
+            copies_ended: Arc::default(),
             stop,
         }
     }
@@ -121,8 +112,14 @@ impl CodexExports {
     }
 
     /// The hand-off's drain, which the first call takes and every later one answers `None`.
-    pub(crate) fn take_drain(&self) -> Option<CodexExportDrain> {
-        lock(&self.drain).take()
+    pub(crate) fn take_drain(self: &Arc<Self>) -> Option<CodexExportDrain> {
+        let items = lock(&self.drain_items).take()?;
+        Some(CodexExportDrain {
+            register: Arc::downgrade(self),
+            items,
+            copies_ended: Arc::clone(&self.copies_ended),
+            stop: self.stop.clone(),
+        })
     }
 
     /// Stops the drain, which drops and logs the responses left in the hand-off.
@@ -155,6 +152,8 @@ impl CodexExports {
                 service_id,
                 service: Arc::downgrade(service),
                 tracker,
+                exports_read: 0,
+                placement: Arc::default(),
             },
         );
         drop(launches);
@@ -189,6 +188,128 @@ impl CodexExports {
         }
     }
 
+    /// Opens `window`, a review on a session of `service_id`'s current launch, which that launch's
+    /// unplaced reviewer requests are joined to. A service with no launch changes nothing.
+    pub(crate) fn review_window(&self, service_id: CodexServiceId, window: CodexReviewWindow) {
+        if let Some(placement) = self.launch_placement(service_id) {
+            lock(&placement).open_review_window(window);
+        }
+    }
+
+    /// `session_id`'s own turn `turn_id` on `service_id`'s current launch began at
+    /// `started_at_ms`, in Unix milliseconds. A service with no launch changes nothing.
+    pub(crate) fn turn_started(
+        &self,
+        service_id: CodexServiceId,
+        session_id: SessionId,
+        turn_id: &str,
+        started_at_ms: u64,
+    ) {
+        if let Some(placement) = self.launch_placement(service_id) {
+            lock(&placement).turn_started(session_id, turn_id, started_at_ms);
+        }
+    }
+
+    /// `session_id`'s turn `turn_id` on `service_id`'s current launch settled or went.
+    pub(crate) fn turn_ended(
+        &self,
+        service_id: CodexServiceId,
+        session_id: SessionId,
+        turn_id: &str,
+    ) {
+        if let Some(placement) = self.launch_placement(service_id) {
+            lock(&placement).turn_ended(session_id, turn_id);
+        }
+    }
+
+    /// Registers the copy on `thread_id` of `service_id`'s current launch, a clone of `filing`
+    /// filing for `folder` what the copy's stream never stated; the answer marks the copy's read
+    /// ended as it drops, so it is held for as long as the read runs.
+    pub(crate) fn copy_thread(
+        self: &Arc<Self>,
+        service_id: CodexServiceId,
+        thread_id: &str,
+        filing: &SessionUsageFiling,
+        folder: &Path,
+    ) -> CodexCopyThreadRead {
+        if let Some(placement) = self.launch_placement(service_id) {
+            let filing = filing.clone();
+            lock(&placement)
+                .copies()
+                .register(thread_id.to_owned(), filing, folder.to_owned());
+        }
+        CodexCopyThreadRead {
+            register: Arc::downgrade(self),
+            service_id,
+            thread_id: thread_id.to_owned(),
+        }
+    }
+
+    /// The copy on `thread_id` of `service_id`'s current launch filed a request of `counts` from
+    /// its own stream; a thread no copy holds changes nothing.
+    pub(crate) fn copy_filed(
+        &self,
+        service_id: CodexServiceId,
+        thread_id: &str,
+        counts: UsageAxisCounts,
+    ) {
+        if let Some(placement) = self.launch_placement(service_id) {
+            lock(&placement).copies().filed(thread_id, counts);
+        }
+    }
+
+    // The copy on `thread_id`'s read ended now; the drain files what it never stated when due.
+    fn copy_ended(&self, service_id: CodexServiceId, thread_id: &str) {
+        if let Some(placement) = self.launch_placement(service_id) {
+            lock(&placement).copies().ended(thread_id, Instant::now());
+            self.copies_ended.notify_one();
+        }
+    }
+
+    /// When the earliest ended copy of any launch is due.
+    pub(super) fn next_copy_due(&self) -> Option<Instant> {
+        self.placements()
+            .into_iter()
+            .filter_map(|(_service, placement)| lock(&placement).copies().next_due())
+            .min()
+    }
+
+    /// Takes every copy of every launch due at `now`, each with its launch's service.
+    pub(super) fn take_due_copies(
+        &self,
+        now: Instant,
+    ) -> Vec<(Weak<CodexService>, CodexEndedCopy)> {
+        self.placements()
+            .into_iter()
+            .flat_map(|(service, placement)| {
+                let due = lock(&placement).copies().take_due(now);
+                due.into_iter()
+                    .map(move |copy| (Weak::clone(&service), copy))
+            })
+            .collect()
+    }
+
+    // Every launch's service and placement state, taken out of the register's lock.
+    fn placements(&self) -> Vec<(Weak<CodexService>, Arc<Mutex<CodexLaunchPlacement>>)> {
+        lock(&self.launches)
+            .by_tag
+            .values()
+            .map(|launch| (Weak::clone(&launch.service), Arc::clone(&launch.placement)))
+            .collect()
+    }
+
+    // The placement state of `service_id`'s current launch, taken out of the register's lock.
+    fn launch_placement(
+        &self,
+        service_id: CodexServiceId,
+    ) -> Option<Arc<Mutex<CodexLaunchPlacement>>> {
+        lock(&self.launches)
+            .by_tag
+            .values()
+            .find(|launch| launch.service_id == service_id)
+            .map(|launch| Arc::clone(&launch.placement))
+    }
+
     // Marks the launch whose tag `resource_logs` carries as exporting and hands each completed
     // response its records state to the drain; a resource with no tag, an unreadable one or one
     // no live launch holds is logged with its text, and one whose service is gone with its count.
@@ -209,12 +330,17 @@ impl CodexExports {
         let launch = text
             .and_then(|text| text.parse::<u64>().ok())
             .and_then(|tag| {
-                lock(&self.launches)
-                    .by_tag
-                    .get(&tag)
-                    .map(|launch| (Arc::clone(&launch.tracker), Weak::clone(&launch.service)))
+                lock(&self.launches).by_tag.get_mut(&tag).map(|launch| {
+                    launch.exports_read += 1;
+                    (
+                        Arc::clone(&launch.tracker),
+                        Weak::clone(&launch.service),
+                        Arc::downgrade(&launch.placement),
+                        launch.exports_read,
+                    )
+                })
             });
-        let Some((tracker, service)) = launch else {
+        let Some((tracker, service, placement, export_number)) = launch else {
             tracing::info!(tag = ?text, "a codex export names no launch the daemon holds");
             return;
         };
@@ -235,98 +361,63 @@ impl CodexExports {
         let provider_account_id = live_service.provider_account_id();
         for response in read_codex_completed_responses(resource_logs, provider_account_id.as_ref())
         {
-            self.offer(CodexExportItem {
+            self.offer(CodexExportItem::Response {
                 service: Weak::clone(&service),
+                launch: Weak::clone(&placement),
                 response,
                 arrived_at,
+                export_number,
             });
         }
+        self.offer(CodexExportItem::Retry {
+            service,
+            launch: placement,
+            export_number,
+        });
     }
 
-    // Hands `item` to the drain without waiting; a full or closed hand-off drops it, logged.
+    // Hands `item` to the drain without waiting; a full or closed hand-off drops it, logged. A
+    // dropped retry loses nothing, since the launch's next export retries what it keeps.
     fn offer(&self, item: CodexExportItem) {
         match self.hand_off.try_send(item) {
             Ok(()) => {}
-            Err(TrySendError::Full(item)) => {
-                let response = &item.response;
+            Err(TrySendError::Full(CodexExportItem::Response { response, .. })) => {
                 tracing::warn!(
                     conversation_id = response.conversation_id.as_str(),
                     tokens = ?response.counts,
                     "the codex export hand-off is full; a completed response is dropped"
                 );
             }
-            Err(TrySendError::Closed(item)) => {
-                let response = &item.response;
+            Err(TrySendError::Closed(CodexExportItem::Response { response, .. })) => {
                 tracing::info!(
                     conversation_id = response.conversation_id.as_str(),
                     tokens = ?response.counts,
                     "the codex export drain has stopped; a completed response is dropped"
                 );
             }
+            Err(
+                TrySendError::Full(CodexExportItem::Retry { .. })
+                | TrySendError::Closed(CodexExportItem::Retry { .. }),
+            ) => {
+                tracing::debug!("a codex launch's retry of its kept responses was not handed off");
+            }
         }
     }
 }
 
-impl CodexExportDrain {
-    /// Takes each handed-off response to its session, one at a time, until the register stops,
-    /// then logs how many it leaves in the hand-off.
-    pub(crate) async fn run(mut self) {
-        loop {
-            let item = tokio::select! {
-                biased;
-                () = self.stop.cancelled() => {
-                    tracing::info!(
-                        left = self.items.len(),
-                        "the codex export drain stopped; the responses left in its hand-off are \
-                         dropped"
-                    );
-                    return;
-                }
-                item = self.items.recv() => item,
-            };
-            // The register holds the sender, so its drop ends the drain too.
-            let Some(item) = item else {
-                return;
-            };
-            deliver(item);
-        }
-    }
+/// A copy's read on its thread, which marks the copy's read ended as it drops, so the drain files
+/// what the copy's stream never stated two export intervals later.
+pub(crate) struct CodexCopyThreadRead {
+    register: Weak<CodexExports>,
+    service_id: CodexServiceId,
+    thread_id: String,
 }
 
-// Pushes `item`'s response onto the queue of the session holding its thread on its service; a
-// response whose service is gone, whose thread no session holds or which no session took is
-// logged and dropped.
-fn deliver(item: CodexExportItem) {
-    let CodexExportItem {
-        service,
-        response,
-        arrived_at,
-    } = item;
-    let Some(service) = service.upgrade() else {
-        tracing::info!(
-            conversation_id = response.conversation_id.as_str(),
-            "a codex completed response's service is gone; it is dropped"
-        );
-        return;
-    };
-    let Some(session_id) = service.session_of_thread(&response.conversation_id) else {
-        tracing::info!(
-            conversation_id = response.conversation_id.as_str(),
-            "no codex session holds a completed response's thread; it is dropped"
-        );
-        return;
-    };
-    let conversation_id = response.conversation_id.clone();
-    let response = CodexExportedResponse {
-        response,
-        arrived_at,
-    };
-    if !service.push_session_item(&session_id, CodexSessionInbound::ExportedResponse(response)) {
-        tracing::info!(
-            conversation_id = conversation_id.as_str(),
-            %session_id,
-            "no codex session took a completed response; it is dropped"
-        );
+impl Drop for CodexCopyThreadRead {
+    fn drop(&mut self) {
+        if let Some(register) = self.register.upgrade() {
+            register.copy_ended(self.service_id, &self.thread_id);
+        }
     }
 }
 
