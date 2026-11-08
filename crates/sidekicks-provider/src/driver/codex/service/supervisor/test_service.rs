@@ -264,6 +264,7 @@ pub(crate) fn test_codex_service_dependencies(
         exec_relay,
         switching: Arc::new(CodexSwitchingAccount::new(Arc::clone(&provider_accounts))),
         provider_accounts,
+        raw_messages: Arc::new(PortRegistration::new("raw provider messages")),
     })
 }
 

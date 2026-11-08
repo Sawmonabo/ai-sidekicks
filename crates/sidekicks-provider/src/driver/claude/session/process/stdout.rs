@@ -11,6 +11,7 @@ use std::sync::{Arc, Weak};
 use futures::StreamExt;
 use serde_json::Map;
 use sidekicks_platforms::ChildEnd;
+use sidekicks_std::port_registration::PortRegistration;
 use tokio::io::AsyncRead;
 use tokio::sync::watch;
 use tokio_util::codec::{AnyDelimiterCodec, AnyDelimiterCodecError, FramedRead};
@@ -33,6 +34,7 @@ use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics, emit_driver_diagnostic,
 };
 use crate::inbound_json::decode_inbound_json;
+use crate::port::raw_provider_messages::{RawProviderMessages, record_raw_provider_message};
 
 /// The ceiling on one output line, in bytes; Claude Code publishes no limit. It stops a process
 /// from growing one line until the daemon runs out of memory.
@@ -94,7 +96,12 @@ impl ClaudeOutputReader {
 
     /// Reads `output` to its end, or until a line passes the ceiling, which records the
     /// diagnostic, or the output fails to read, which logs it; either asks the process to stop.
-    pub(crate) async fn read<Output: AsyncRead + Unpin>(mut self, output: Output) {
+    /// Each line that is not blank goes to `raw_messages` as read, before it is routed.
+    pub(crate) async fn read<Output: AsyncRead + Unpin>(
+        mut self,
+        output: Output,
+        raw_messages: Arc<PortRegistration<Arc<dyn RawProviderMessages>>>,
+    ) {
         let codec = AnyDelimiterCodec::new_with_max_length(
             b"\n".to_vec(),
             Vec::new(),
@@ -104,7 +111,10 @@ impl ClaudeOutputReader {
         let mut running_hooks = HashSet::new();
         while let Some(line) = lines.next().await {
             match line {
-                Ok(line) => self.read_line(&line, &mut running_hooks),
+                Ok(line) => {
+                    self.read_line(&line, &mut running_hooks, &raw_messages)
+                        .await;
+                }
                 // The codec reads nothing more after its error, which is no clean end of output.
                 Err(AnyDelimiterCodecError::MaxChunkLengthExceeded) => {
                     emit_driver_diagnostic(&self.compose_record(
@@ -135,11 +145,17 @@ impl ClaudeOutputReader {
         }
     }
 
-    fn read_line(&mut self, line: &[u8], running_hooks: &mut HashSet<String>) {
+    async fn read_line(
+        &mut self,
+        line: &[u8],
+        running_hooks: &mut HashSet<String>,
+        raw_messages: &PortRegistration<Arc<dyn RawProviderMessages>>,
+    ) {
         let line = line.strip_suffix(b"\r").unwrap_or(line);
         if line.iter().all(u8::is_ascii_whitespace) {
             return;
         }
+        record_raw_provider_message(raw_messages, || DESCRIPTOR.provider_id(), line).await;
         let text = decode_inbound_json(line);
         let Some(frame) = ClaudeStreamFrameRead::read(&text) else {
             // Fails closed: a line that is no frame is never routed as one.
@@ -282,6 +298,7 @@ mod tests {
     use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
     use crate::driver::claude::session::transport::user_message::ClaudeWriteAttempt;
     use crate::driver::diagnostics::RecordedEvents;
+    use crate::driver::ports::DriverPorts;
     use crate::driver::session_control::SessionToolServer;
     use crate::runtime_binding::store::RuntimeBindingRebind;
     use crate::runtime_binding::test_store::test_provider_account_id;
@@ -353,7 +370,7 @@ mod tests {
             .expect("the pipe takes the lines");
         drop(provider);
         reader(requests, Arc::clone(&listener), Weak::new())
-            .read(output)
+            .read(output, DriverPorts::new().raw_provider_messages)
             .await;
 
         let answer = pending
@@ -403,7 +420,7 @@ mod tests {
                         Arc::new(HeldFrames::default()),
                         Arc::downgrade(&ends_sender),
                     )
-                    .read(output)
+                    .read(output, DriverPorts::new().raw_provider_messages)
                     .await;
                     writing
                         .await
@@ -442,7 +459,7 @@ mod tests {
             Arc::new(HeldFrames::default()),
             Arc::downgrade(&ends_sender),
         )
-        .read(UnreadableOutput)
+        .read(UnreadableOutput, DriverPorts::new().raw_provider_messages)
         .await;
 
         assert_eq!(*ends.borrow(), Some(ChildEnd::Stop));
@@ -571,7 +588,7 @@ mod tests {
             .expect("the pipe takes the answer");
         drop(provider);
         reader(requests, Arc::new(HeldFrames::default()), Weak::new())
-            .read(output)
+            .read(output, DriverPorts::new().raw_provider_messages)
             .await;
         session.frame(&usage_message("lead-after", None, 20));
         session.frame(&usage_message("helper-after", Some("helper"), 40));

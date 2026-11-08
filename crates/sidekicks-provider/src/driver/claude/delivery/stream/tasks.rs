@@ -12,6 +12,7 @@ mod resume;
 use std::collections::HashSet;
 
 use jiff::Timestamp;
+use serde_json::value::{RawValue, to_raw_value};
 use sidekicks_contracts::event::envelope::EventOccurredAt;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -35,6 +36,7 @@ use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::reorder_buffer::{ReorderBufferedEvent, ReorderPairingRole};
 use crate::port::held_tool_calls::HeldToolCall;
+use crate::port::tool_traces::{ToolTrace, record_tool_traces};
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner};
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 
@@ -264,7 +266,8 @@ impl ClaudeDeliveryStream {
 
     /// Closes each held call in `ends`, read off a frame of `wire`, through the reorder buffer.
     /// Each close is appended after its run and unpaired, since its stand-in result already
-    /// answered the call's opening.
+    /// answered the call's opening; a call that kept its arguments is traced with its body as its
+    /// result, `null` where it closed with none.
     pub(super) async fn close_held_calls(
         &self,
         session: &ClaudeSessionStream,
@@ -274,6 +277,17 @@ impl ClaudeDeliveryStream {
         if ends.is_empty() {
             return;
         }
+        let traces: Vec<ToolTrace> = ends
+            .iter()
+            .filter_map(|end| {
+                end.opened.trace(session.session_id, &end.tool_use_id, || {
+                    end.text.as_ref().map_or_else(
+                        || RawValue::NULL.to_owned(),
+                        |text| to_raw_value(text).expect("a string writes as JSON"),
+                    )
+                })
+            })
+            .collect();
         let rows = ends
             .into_iter()
             .filter_map(|end| self.held_call_close(session.session_id, end))
@@ -284,6 +298,7 @@ impl ClaudeDeliveryStream {
             })
             .collect();
         self.admit_rows(session, rows, wire).await;
+        record_tool_traces(&self.dependencies.tool_traces, traces).await;
     }
 
     // The close of `session_id`'s held call `end`, on the run its opening recorded and that run's

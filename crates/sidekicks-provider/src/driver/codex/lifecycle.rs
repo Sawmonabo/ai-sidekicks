@@ -269,6 +269,7 @@ impl CodexDriver {
                 &services.ports.provider_accounts,
             ))),
             provider_accounts: Arc::clone(&services.ports.provider_accounts),
+            raw_messages: Arc::clone(&services.ports.raw_provider_messages),
         });
         let registry = Arc::new(CodexServiceRegistry::new(
             Arc::clone(&homes) as _,
@@ -376,6 +377,7 @@ impl CodexDriver {
             stopped_helpers: Arc::clone(&self.stopped_helpers),
             effects,
             provider_accounts: Arc::clone(&ports.provider_accounts),
+            tool_traces: Arc::clone(&ports.tool_traces),
         }));
         let hand_off = Arc::new(CodexAskHandOff::new(CodexAskHandOffDependencies {
             delivery: Arc::clone(&delivery),

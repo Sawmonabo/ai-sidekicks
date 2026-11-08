@@ -187,6 +187,7 @@ impl TestCodexSession {
             stopped_helpers: Arc::new(CodexStoppedHelpers::new(TaskTracker::new())),
             effects: Arc::new(NoEffects),
             provider_accounts: Arc::new(PortRegistration::new("provider accounts")),
+            tool_traces: Arc::new(PortRegistration::new("tool traces")),
         }));
         let session_id = new_session_id();
         let lead_agent_id = new_agent_id();

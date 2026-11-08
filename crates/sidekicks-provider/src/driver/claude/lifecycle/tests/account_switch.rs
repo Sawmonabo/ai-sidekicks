@@ -41,6 +41,7 @@ use crate::driver::contract::account::{
     FirstRequestAfterMove, ProviderSwitchLegs, SessionAccountMove, SessionToMove,
 };
 use crate::driver::diagnostics::{DriverDiagnosticKind, RecordedEvents};
+use crate::driver::ports::DriverPorts;
 use crate::driver::session_control::MoveSessionToForkParams;
 use crate::driver::test_registry::new_run_id;
 use crate::runtime_binding::store::CreateRuntimeBindingInput;
@@ -293,7 +294,7 @@ async fn the_output_reader_names_the_account_the_switch_moved_onto() {
             SCRIPTED_PROVIDER_SESSION_ID.to_owned(),
             switch.start.account.clone(),
         )
-        .read(output),
+        .read(output, DriverPorts::new().raw_provider_messages),
     );
 
     drop(switch.switch().await);

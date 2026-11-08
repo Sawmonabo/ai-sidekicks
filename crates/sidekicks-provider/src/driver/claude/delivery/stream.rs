@@ -82,6 +82,7 @@ use crate::port::run_host::RunHost;
 use crate::port::running_command_publisher::RunningCommandPublisher as _;
 use crate::port::session_message_reading_publisher::SessionMessageReadingPublisher;
 use crate::port::tool_call_status_publisher::ToolCallStatusPublisher;
+use crate::port::tool_traces::{ToolTraces, is_recording_tool_traces, record_tool_traces};
 use crate::port::turn_reading_publisher::TurnReadingPublisher;
 use crate::port::usage_sink::UsageSink;
 use crate::record_readers::read_non_empty_string;
@@ -126,6 +127,8 @@ pub(crate) struct ClaudeStreamDependencies {
     /// Where the messages other sessions sent, and a refused one, are published once registered.
     pub(crate) session_message_readings:
         Arc<PortRegistration<Arc<dyn SessionMessageReadingPublisher>>>,
+    /// Where each answered tool call's trace goes once registered.
+    pub(crate) tool_traces: Arc<PortRegistration<Arc<dyn ToolTraces>>>,
 }
 
 /// What a frame left for the session's task to do beyond its deliveries.
@@ -647,6 +650,7 @@ impl ClaudeDeliveryStream {
                 lead,
                 &mut readings.open_tool_calls,
                 Timestamp::now(),
+                is_recording_tool_traces(&self.dependencies.tool_traces),
             );
             // A goal line draws the goal row alone, never a message in the agent's own words.
             if frame.text().is_some_and(is_goal_line) {
@@ -698,7 +702,7 @@ impl ClaudeDeliveryStream {
         lead: &ClaudeBoundRun,
         frame: &ClaudeMessageFrame,
     ) {
-        let (rows, tasks, stand_ins, arrival) = {
+        let (rows, tasks, stand_ins, arrival, traces) = {
             let mut guard = session.lock();
             let readings = &mut *guard;
             let is_turn_start = !readings.has_turn_message;
@@ -723,7 +727,7 @@ impl ClaudeDeliveryStream {
                 .into_iter()
                 .map(|row| ClaudeRowDelivery::of_message(&lead.binding_id, row, key.clone()))
                 .collect::<Vec<_>>();
-            (rows, tasks, reading.held_stand_ins, arrival)
+            (rows, tasks, reading.held_stand_ins, arrival, reading.traces)
         };
         if let Some(tasks) = tasks {
             self.publish_turn_tasks(session, tasks);
@@ -748,6 +752,7 @@ impl ClaudeDeliveryStream {
         }
         publish_peer_arrival(&self.dependencies.session_message_readings, arrival);
         self.admit_rows(session, rows, "user").await;
+        record_tool_traces(&self.dependencies.tool_traces, traces).await;
         self.send_backgrounded(session, stand_ins).await;
     }
 

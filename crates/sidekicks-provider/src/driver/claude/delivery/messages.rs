@@ -23,6 +23,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::transcript::whole_patch::WholePatchFile;
 
+use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::mcp_tasks::ClaudeToolServerTasks;
 use crate::driver::claude::delivery::patches::{
     is_claude_file_changing_tool, read_claude_patch_file,
@@ -35,6 +36,7 @@ use crate::lenient_json::{
     Lenient, LenientElement, LenientList, LenientVisitor, lenient_object, read_lenient,
     skip_other_shapes,
 };
+use crate::port::tool_traces::ToolTrace;
 use crate::run::delivery::{DeliveryOperation, LateAppendableRow};
 
 /// A field of a transcript row, as the event's cap holds it.
@@ -178,6 +180,9 @@ pub(crate) struct ClaudeOpenToolCall {
     tool_name: EventText,
     run: ClaudeBoundRun,
     started_at: Timestamp,
+    // The call's arguments as Claude Code sent them, kept only for a call opened while
+    // `Record traces` was on.
+    traced_arguments: Option<Box<RawValue>>,
 }
 
 impl ClaudeOpenToolCall {
@@ -187,7 +192,27 @@ impl ClaudeOpenToolCall {
             tool_name,
             run,
             started_at,
+            traced_arguments: None,
         }
+    }
+
+    /// The trace of this call, `call_id` on `session_id`, closing with the result body `result`
+    /// gives; `None` for a call that kept no arguments, opened while `Record traces` was off.
+    pub(crate) fn trace(
+        &self,
+        session_id: SessionId,
+        call_id: &str,
+        result: impl FnOnce() -> Box<RawValue>,
+    ) -> Option<ToolTrace> {
+        let arguments = self.traced_arguments.clone()?;
+        Some(ToolTrace {
+            session_id,
+            provider: DESCRIPTOR.provider_id(),
+            tool_call_id: call_id.to_owned(),
+            tool_name: self.tool_name.as_str().to_owned(),
+            arguments,
+            result: result(),
+        })
     }
 
     /// The run that started the call, and its binding.
@@ -272,6 +297,8 @@ pub(crate) struct ClaudeUserFrameReading {
     pub(crate) failed_results: Vec<(String, String)>,
     /// Each held call's stand-in result, by the call's id, with the stand-in's words.
     pub(crate) held_stand_ins: Vec<(String, String)>,
+    /// The trace of each call the frame answered that kept its arguments.
+    pub(crate) traces: Vec<ToolTrace>,
 }
 
 impl ClaudeMessageFrame {
@@ -407,13 +434,15 @@ impl ClaudeMessageFrame {
 
 /// The rows of one `assistant` frame of the lead on `run`: each thinking block's summary and each
 /// text block under the message's id, a fresh one where the frame names none, and each tool call
-/// as `agent.toolCall.invoked`, which opens the call in `open_tool_calls` on `run` at `now`.
+/// as `agent.toolCall.invoked`, which opens the call in `open_tool_calls` on `run` at `now`,
+/// keeping its arguments for its trace while `is_tracing`.
 pub(crate) fn read_claude_assistant_rows(
     frame: &ClaudeMessageFrame,
     session_id: SessionId,
     run: &ClaudeBoundRun,
     open_tool_calls: &mut HashMap<String, ClaudeOpenToolCall>,
     now: Timestamp,
+    is_tracing: bool,
 ) -> Vec<ClaudeMessageRow> {
     let run_id = run.run_id;
     let mut rows = Vec::new();
@@ -471,10 +500,11 @@ pub(crate) fn read_claude_assistant_rows(
             continue;
         };
         let call_id = tool_call_id.as_str().to_owned();
-        open_tool_calls.insert(
-            call_id.clone(),
-            ClaudeOpenToolCall::new(tool_name.clone(), run.clone(), now),
-        );
+        let mut opened = ClaudeOpenToolCall::new(tool_name.clone(), run.clone(), now);
+        if is_tracing {
+            opened.traced_arguments = Some(read_raw_value(block.input.as_deref()));
+        }
+        open_tool_calls.insert(call_id.clone(), opened);
         let input = block.input.as_ref().map_or("{}", |input| input.get());
         rows.push(ClaudeMessageRow {
             tool_call_id: Some(call_id),
@@ -498,7 +528,8 @@ pub(crate) fn read_claude_assistant_rows(
 /// Code marks it an error, `agent.toolCall.failed`, closing its call in `open_tool_calls` and
 /// timed from its start to `now` and closed on the run that started it. A file-changing call's
 /// lone result carries its patch. A call `tool_server_tasks` holds stays open: its result is a
-/// stand-in, kept with its words, and the real one comes later.
+/// stand-in, kept with its words, and the real one comes later. A closed call that kept its
+/// arguments is traced with the result's content as Claude Code sent it.
 pub(crate) fn read_claude_user_rows(
     frame: &ClaudeMessageFrame,
     session_id: SessionId,
@@ -510,6 +541,7 @@ pub(crate) fn read_claude_user_rows(
         rows: Vec::new(),
         failed_results: Vec::new(),
         held_stand_ins: Vec::new(),
+        traces: Vec::new(),
     };
     let results: Vec<&ClaudeContentBlock> = frame
         .blocks()
@@ -539,6 +571,13 @@ pub(crate) fn read_claude_user_rows(
             .flatten()
             .and_then(|result| serde_json::from_str(result.get()).ok())
             .and_then(|result| read_claude_patch_file(&result));
+        if let Some(trace) = open_tool_calls.get(call_id).and_then(|opened| {
+            opened.trace(session_id, call_id, || {
+                read_raw_value(block.content.as_deref())
+            })
+        }) {
+            reading.traces.push(trace);
+        }
         let closed = ClaudeToolCallClose {
             session_id,
             is_error,
@@ -651,6 +690,11 @@ fn tool_activity(
         content_truncated: None,
         content_encoding: None,
     }
+}
+
+// A member the frame carried, word for word; `null` where the frame left it out.
+fn read_raw_value(member: Option<&RawValue>) -> Box<RawValue> {
+    member.unwrap_or(RawValue::NULL).to_owned()
 }
 
 // A tool result's content is a string or a list of blocks, whose text blocks are joined.
