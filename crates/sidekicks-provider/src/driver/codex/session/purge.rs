@@ -2,10 +2,9 @@
 //! holds it, the switching home or its account's, and the session's helper role files. Codex
 //! refuses to delete a conversation a fork still builds on, so they go newest first, as the daemon
 //! lists them. Each is let go before its delete, and a delete Codex does not answer in time has its
-//! service restarted, which stays wedged on that conversation otherwise; the session's later
-//! conversations on that service are not sent to it.
+//! service restarted, which stays wedged on that conversation otherwise; no purge sends a
+//! conversation to that service until the restart ends.
 
-use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,9 +16,10 @@ use tokio::time::Instant;
 use crate::driver::codex::app_server_protocol::ThreadDeleteParams;
 use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
-use crate::driver::codex::service::supervisor::CodexService;
+use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
 use crate::driver::codex::session::errors::{CodexError, CodexUnansweredCause};
 use crate::driver::codex::session::helper_roles::remove_codex_helper_roles;
+use crate::driver::codex::session::recovery::CodexServiceRecovery;
 use crate::driver::codex::session::slots::let_go_codex_thread;
 use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::PurgeSessionParams;
@@ -30,6 +30,25 @@ const CODEX_THREAD_DELETE_METHOD: &str = "thread/delete";
 /// How long a conversation's `thread/delete` may wait for Codex's answer before the purge fails
 /// and restarts the service.
 const CODEX_THREAD_DELETE_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// What a purge restarts a service through when the service leaves a delete unanswered.
+pub(crate) trait CodexServiceRestarts: Sync {
+    /// Whether a restart of the service `service_id` is under way.
+    fn is_restarting(&self, service_id: CodexServiceId) -> bool;
+
+    /// Restarts `service` without waiting for it, joining a restart already under way.
+    fn restart(&self, service: &Arc<CodexService>);
+}
+
+impl CodexServiceRestarts for Arc<CodexServiceRecovery> {
+    fn is_restarting(&self, service_id: CodexServiceId) -> bool {
+        CodexServiceRecovery::is_restarting(self, service_id)
+    }
+
+    fn restart(&self, service: &Arc<CodexService>) {
+        self.request_restart(service, None);
+    }
+}
 
 /// Every step of a purge that failed, each tried before the purge answered, so one refusal leaves
 /// nothing else behind.
@@ -47,12 +66,12 @@ pub(crate) struct CodexPurgeFailed {
 /// Deletes every conversation the session opened with `thread/delete`, newest first, on the
 /// service of the home its binding's recovery data names, started within `start_bound` where it
 /// is not running, and the session's role files under `roles_folder`. Each conversation is let go
-/// first; a delete unanswered within [`CODEX_THREAD_DELETE_TIMEOUT`] fails and hands its service
-/// to `restart` once, which must not wait for the restart, and each later conversation on that
-/// service fails unsent. Fails with every step that failed.
+/// first; a delete unanswered within [`CODEX_THREAD_DELETE_TIMEOUT`] fails and has `restarts`
+/// restart its service, and a conversation on a service `restarts` is restarting fails unsent.
+/// Fails with every step that failed.
 pub(crate) async fn purge_codex_conversations(
     services: &CodexServiceRegistry,
-    restart: &(dyn Fn(&Arc<CodexService>) + Sync),
+    restarts: &dyn CodexServiceRestarts,
     roles_folder: &Path,
     start_bound: Duration,
     params: &PurgeSessionParams,
@@ -61,7 +80,6 @@ pub(crate) async fn purge_codex_conversations(
     if let Err(error) = remove_codex_helper_roles(roles_folder, params.session_id).await {
         failures.push(error);
     }
-    let mut restarting = HashSet::new();
     for conversation in &params.conversations {
         let service = match services
             .service_for_conversation(
@@ -77,7 +95,7 @@ pub(crate) async fn purge_codex_conversations(
             }
         };
         let thread_id = &conversation.resume_handle;
-        if restarting.contains(&service.id()) {
+        if restarts.is_restarting(service.id()) {
             failures.push(
                 CodexError::Transport {
                     detail: format!(
@@ -98,8 +116,7 @@ pub(crate) async fn purge_codex_conversations(
                     ..
                 }
             ) {
-                restarting.insert(service.id());
-                restart(&service);
+                restarts.restart(&service);
             }
             failures.push(error.into());
         }

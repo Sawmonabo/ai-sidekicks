@@ -6,11 +6,12 @@ use serde_json::{Map, json};
 use sidekicks_std::port_registration::PortRegistration;
 use tokio::time::{Instant, timeout};
 
-use super::purge_codex_conversations;
+use super::{CodexServiceRestarts, purge_codex_conversations};
 use crate::driver::codex::service::registry::CodexServiceRegistry;
-use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service_whose_start_waits;
+use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
 use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInbound};
+use crate::driver::codex::session::recovery::CodexServiceRecovery;
 use crate::driver::codex::session::test_fixture::TestCodexSession;
 use crate::driver::session_control::{PurgeSessionParams, SessionConversation};
 use crate::driver::test_registry::new_session_id;
@@ -22,6 +23,26 @@ const MISSED_THREAD: &str = "missed-thread";
 /// An older conversation of the same session on the same service.
 const LATER_THREAD: &str = "later-thread";
 
+/// Another session's conversation on the same service, purged while the restart runs.
+const OTHER_SESSION_THREAD: &str = "other-session-thread";
+
+/// The recovery's restarts, each request a purge makes counted.
+struct CountedRestarts {
+    recovery: Arc<CodexServiceRecovery>,
+    requests: AtomicUsize,
+}
+
+impl CodexServiceRestarts for CountedRestarts {
+    fn is_restarting(&self, service_id: CodexServiceId) -> bool {
+        self.recovery.is_restarting(service_id)
+    }
+
+    fn restart(&self, service: &Arc<CodexService>) {
+        self.requests.fetch_add(1, Ordering::SeqCst);
+        self.recovery.request_restart(service, None);
+    }
+}
+
 fn conversation(thread_id: &str) -> SessionConversation {
     SessionConversation {
         resume_handle: thread_id.to_owned(),
@@ -31,11 +52,12 @@ fn conversation(thread_id: &str) -> SessionConversation {
 }
 
 // Killed by a delete sent before its conversation is let go, or with no let-go; by a delete bound
-// other than 60 s; by a miss answered as deleted; by a later conversation sent to the service that
-// missed; by a miss that asks no restart, or more than one; and by a restart that does not first
-// read the home's live session, as the recovery's restart does so it can resume it afterwards.
+// other than 60 s; by a miss answered as deleted; by a later conversation of either session sent
+// to the service while its restart runs; by a miss that asks no restart, or more than one; by a
+// second request that starts a second restart rather than joining the first; and by a restart that
+// does not first read the home's live session, as the recovery's restart does so it can resume it.
 #[tokio::test(start_paused = true)]
-async fn a_missed_delete_restarts_its_service_through_the_recovery_and_sends_it_nothing_more() {
+async fn a_missed_delete_restarts_its_service_once_and_no_purge_sends_it_more_meanwhile() {
     let scripted = start_scripted_codex_service_whose_start_waits();
     scripted.mark_started();
     let mut session = TestCodexSession::start_on(scripted).await;
@@ -47,10 +69,9 @@ async fn a_missed_delete_restarts_its_service_through_the_recovery_and_sends_it_
         Arc::new(PortRegistration::new("session relaunched")),
     );
     let registry = CodexServiceRegistry::holding(&session.scripted);
-    let restarts = AtomicUsize::new(0);
-    let restart = |service: &Arc<CodexService>| {
-        restarts.fetch_add(1, Ordering::SeqCst);
-        recovery.request_restart(service, None);
+    let restarts = CountedRestarts {
+        recovery: Arc::clone(&recovery),
+        requests: AtomicUsize::new(0),
     };
     let params = PurgeSessionParams {
         session_id: new_session_id(),
@@ -60,7 +81,13 @@ async fn a_missed_delete_restarts_its_service_through_the_recovery_and_sends_it_
     let began = Instant::now();
 
     let (purged, ()) = tokio::join!(
-        purge_codex_conversations(&registry, &restart, &roles, Duration::from_secs(1), &params,),
+        purge_codex_conversations(
+            &registry,
+            &restarts,
+            &roles,
+            Duration::from_secs(1),
+            &params
+        ),
         async {
             let unsubscribe = session.scripted.next_request("thread/unsubscribe").await;
             assert_eq!(unsubscribe["params"]["threadId"], MISSED_THREAD);
@@ -73,6 +100,21 @@ async fn a_missed_delete_restarts_its_service_through_the_recovery_and_sends_it_
         },
     );
     let waited = began.elapsed();
+    let other_session = PurgeSessionParams {
+        session_id: new_session_id(),
+        conversations: vec![conversation(OTHER_SESSION_THREAD)],
+    };
+    let other_began = Instant::now();
+    let other_purged = purge_codex_conversations(
+        &registry,
+        &restarts,
+        &roles,
+        Duration::from_secs(1),
+        &other_session,
+    )
+    .await;
+    let other_waited = other_began.elapsed();
+    let is_second_request_begun = recovery.request_restart(&session.scripted.service, None);
     let sent_after = session
         .scripted
         .script
@@ -98,8 +140,18 @@ async fn a_missed_delete_restarts_its_service_through_the_recovery_and_sends_it_
         waited >= Duration::from_secs(60) && waited < Duration::from_secs(61),
         "the purge answered after {waited:?}"
     );
+    let other_failed = other_purged.expect_err("a restarting service deletes nothing");
+    assert_eq!(other_failed.failures.len(), 1, "{other_failed}");
+    assert!(
+        other_waited < Duration::from_secs(1),
+        "the other purge answered after {other_waited:?}"
+    );
     assert_eq!(sent_after, None, "the service that missed was sent more");
-    assert_eq!(restarts.load(Ordering::SeqCst), 1);
+    assert_eq!(restarts.requests.load(Ordering::SeqCst), 1);
+    assert!(
+        !is_second_request_begun,
+        "a second request began a second restart"
+    );
     assert!(
         is_session_read,
         "the restart's first ask of the session reads it"

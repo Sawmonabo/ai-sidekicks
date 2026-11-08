@@ -201,10 +201,9 @@ impl CodexDriver {
         &self,
         params: PurgeSessionParams,
     ) -> Result<(), DriverError> {
-        let recovery = &self.parts()?.recovery;
         purge_codex_conversations(
             &self.registry,
-            &|service| recovery.request_restart(service, None),
+            &self.parts()?.recovery,
             &self.helper_roles_folder,
             CODEX_SERVICE_STARTUP_TIMEOUT,
             &params,

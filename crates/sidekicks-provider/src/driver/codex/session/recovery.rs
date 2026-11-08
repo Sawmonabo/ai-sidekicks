@@ -129,6 +129,8 @@ struct RecoveryState {
     pending_build_change: HashMap<CodexServiceId, ProviderBuildChange>,
     // The services a build move left, waiting for their held conversations to be let go.
     retiring: HashSet<CodexServiceId>,
+    // The services whose requested restart has not ended, so a second request joins it.
+    restarting: HashSet<CodexServiceId>,
     // The sessions each service that came back owes a resume, by recovery, until that recovery
     // resumed them.
     owed_resumes: HashMap<CodexServiceId, HashMap<CodexRecoveryGeneration, Vec<SessionId>>>,

@@ -20,7 +20,9 @@ use super::{CodexServiceRecovery, CodexWriterLeft, never_left};
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::run::turn_end_waiters::CodexTurnWait;
 use crate::driver::codex::service::home::CodexServiceKind;
-use crate::driver::codex::service::supervisor::{CODEX_UNLOAD_TIMEOUT, CodexService};
+use crate::driver::codex::service::supervisor::{
+    CODEX_UNLOAD_TIMEOUT, CodexService, CodexServiceId,
+};
 use crate::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::establishment::CodexInPlaceOutcome;
@@ -44,19 +46,31 @@ impl CodexServiceRecovery {
     }
 
     /// Restarts `service` as [`Self::restart_service`] does on the driver's tasks, a failure
-    /// reported, and answers at once.
+    /// reported, and answers at once whether this request began it: a request while an earlier
+    /// one has not ended joins that one, so one restart runs at a time per service.
     pub(crate) fn request_restart(
         self: &Arc<Self>,
         service: &Arc<CodexService>,
         change: Option<ProviderBuildChange>,
-    ) {
+    ) -> bool {
+        if !self.lock().restarting.insert(service.id()) {
+            return false;
+        }
         let recovery = Arc::clone(self);
         let service = Arc::clone(service);
         self.dependencies.tasks.spawn(async move {
             if let Err(error) = recovery.restart_service(&service, change).await {
                 report_restart_failed(&service, &error);
             }
+            recovery.lock().restarting.remove(&service.id());
         });
+        true
+    }
+
+    /// Whether a restart [`Self::request_restart`] began on the service `service_id` has not
+    /// ended.
+    pub(crate) fn is_restarting(&self, service_id: CodexServiceId) -> bool {
+        self.lock().restarting.contains(&service_id)
     }
 
     /// Restarts `service` on the program as it is now, its conversations resumed on the new
