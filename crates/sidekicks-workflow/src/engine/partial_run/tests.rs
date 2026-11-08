@@ -239,15 +239,42 @@ fn the_newest_settled_step_is_read_across_versions_past_a_newer_failed_one() {
 }
 
 /// Each marking rule, applied to the chain's version 1 against version 2 with every node's step
-/// from version 1, dirties exactly the nodes it names: a params edit the node; an insert or a
-/// delete the node after it; an added connection its destination; switching a node off or on the
-/// node and the node after it. Mutation: mark a node whose switch alone changed only through the
-/// nodes it feeds (the switch cases fail).
+/// from version 1, dirties exactly the nodes it names: a params, kind version or run-once edit the
+/// node; a rename, a notes edit or an `order` change nothing; an insert or a delete the node after
+/// it; an added connection its destination; switching a node off or on the node and the node after
+/// it. Mutations: mark a node whose switch alone changed only through the nodes it feeds (the switch
+/// cases fail); mark every changed node (`rename`, `notes` and `order` fail); leave `kindVersion`
+/// or `executeOnce` out of the members compared (`kind_version` or `execute_once` fails).
 #[rstest]
 #[case::params_edit(
     chain(), CHAIN,
     chain_nodes("B", &json!({ "params": { "note": "x" } })), CHAIN,
     &["B"],
+)]
+#[case::kind_version(
+    chain_nodes("B", &json!({ "kindVersion": 2 })), CHAIN,
+    chain(), CHAIN,
+    &["B"],
+)]
+#[case::execute_once(
+    chain(), CHAIN,
+    chain_nodes("B", &json!({ "executeOnce": true })), CHAIN,
+    &["B"],
+)]
+#[case::rename(
+    chain(), CHAIN,
+    chain_nodes("B", &json!({ "name": "Renamed" })), CHAIN,
+    &[],
+)]
+#[case::notes(
+    chain(), CHAIN,
+    chain_nodes("B", &json!({ "notes": "x" })), CHAIN,
+    &[],
+)]
+#[case::order(
+    chain(), CHAIN,
+    chain_nodes("B", &json!({ "order": 9 })), CHAIN,
+    &[],
 )]
 #[case::insert(
     chain(), CHAIN,

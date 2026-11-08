@@ -10,8 +10,11 @@ use std::sync::LazyLock;
 use fixedbitset::FixedBitSet;
 use rusqlite::{Connection, OptionalExtension, Row, named_params};
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::list::UniqueList;
+use sidekicks_contracts::wire::record::JsonRecord;
 use sidekicks_contracts::workflow::definition::document::{
-    WorkflowDefinitionId, WorkflowDocumentHashedBody, WorkflowNodeId, WorkflowVersionId,
+    WorkflowDefinitionId, WorkflowDocumentHashedBody, WorkflowNodeId, WorkflowNodeKindId,
+    WorkflowNodeOnError, WorkflowNodeRetry, WorkflowTriggerInput, WorkflowVersionId,
 };
 use sidekicks_contracts::workflow::definition::versions::WorkflowVersionNode;
 use sidekicks_contracts::workflow::run::control::WorkflowNodeExecuteScope;
@@ -335,9 +338,9 @@ struct SourceVersion {
 
 /// The nodes of `target_body`, whose run graph is `graph`, that a reused step cannot stand for,
 /// each version of `sources` compared with the target and its marks kept only on the nodes whose
-/// step it ran. A changed node is dirty, and one switched on or off also marks the nodes it feeds;
-/// a node inserted marks the nodes it feeds, and one deleted the nodes it fed that remain; an added
-/// connection marks its destination.
+/// step it ran. A node whose [`RunMembers`] changed is dirty, and one switched on or off also marks
+/// the nodes it feeds; a node inserted marks the nodes it feeds, and one deleted the nodes it fed
+/// that remain; an added connection marks its destination.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the workflow.node.execute handler")
@@ -361,9 +364,13 @@ fn dirty_nodes(
         let difference = diff_workflow_bodies(&source.body, target_body);
         let mut marked: Vec<usize> = Vec::new();
         for change in &difference.nodes_changed {
+            let (before, after) = (run_members(&change.before), run_members(&change.after));
+            if before == after {
+                continue;
+            }
             let place = graph.place(version_node_id(&change.after));
             marked.push(place);
-            if is_switched_off(&change.before) != is_switched_off(&change.after) {
+            if before.is_disabled != after.is_disabled {
                 marked.extend(&fed_places[place]);
             }
         }
@@ -399,14 +406,59 @@ fn dirty_nodes(
     dirty
 }
 
+/// The members of a node that decide what it runs, so a change to one dirties it; a rename, a notes edit or an `order` change
+/// leaves them as they were.
+#[derive(PartialEq)]
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the workflow.node.execute handler")
 )]
-fn is_switched_off(node: &WorkflowVersionNode) -> bool {
+struct RunMembers<'node> {
+    /// Its kind.
+    kind: &'node WorkflowNodeKindId,
+    /// Its kind's version.
+    kind_version: SafeInt<1>,
+    /// Its params, an agent node's provider binding among them.
+    params: &'node JsonRecord,
+    /// Whether it is switched off.
+    is_disabled: bool,
+    /// What its failure does.
+    on_error: Option<WorkflowNodeOnError>,
+    /// Its retries.
+    retry: Option<WorkflowNodeRetry>,
+    /// Whether it runs once, over its first item only.
+    is_executed_once: bool,
+    /// Whether it outputs one empty item where it would output none.
+    always_outputs_data: bool,
+    /// The inputs a trigger declares; `None` for another node.
+    inputs: Option<&'node [WorkflowTriggerInput]>,
+}
+
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the workflow.node.execute handler")
+)]
+fn run_members(node: &WorkflowVersionNode) -> RunMembers<'_> {
+    macro_rules! run_members_of {
+        ($node:expr, $inputs:expr) => {
+            RunMembers {
+                kind: &$node.kind,
+                kind_version: $node.kind_version,
+                params: &$node.params,
+                is_disabled: $node.disabled == Some(true),
+                on_error: $node.on_error,
+                retry: $node.retry,
+                is_executed_once: $node.execute_once == Some(true),
+                always_outputs_data: $node.always_output_data == Some(true),
+                inputs: $inputs,
+            }
+        };
+    }
     match node {
-        WorkflowVersionNode::Node(node) => node.disabled == Some(true),
-        WorkflowVersionNode::Trigger(trigger) => trigger.disabled == Some(true),
+        WorkflowVersionNode::Node(node) => run_members_of!(node, None),
+        WorkflowVersionNode::Trigger(trigger) => {
+            run_members_of!(trigger, trigger.inputs.as_ref().map(UniqueList::as_slice))
+        }
     }
 }
 
