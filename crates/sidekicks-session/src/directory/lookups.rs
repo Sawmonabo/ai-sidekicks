@@ -1,11 +1,12 @@
 //! The lookups the session verbs and the sessions list share: whether a session has a directory
-//! row, where it runs, the states of a session that has ended, closed or being purged, and a write
-//! kept only while its session has a row.
+//! row, whether its create never finished, where it runs, the states of a session that has ended,
+//! closed or being purged, and a write kept only while its session has a row.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
 use rusqlite::{Connection, OptionalExtension as _, named_params};
+use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
@@ -32,6 +33,32 @@ const SESSION_EXISTS_SQL: &str = "SELECT 1 FROM sessions WHERE id = @sessionId";
 pub fn session_exists(reader: &Connection, session_id: &SessionId) -> rusqlite::Result<bool> {
     reader
         .prepare_cached(SESSION_EXISTS_SQL)?
+        .exists(named_params! { "@sessionId": session_id.text().as_str() })
+}
+
+/// A SQL condition that holds while the session `session_id_sql` names was never activated:
+/// `session.activated` is written once, by its create's finish, so its create never finished.
+pub fn never_activated_sql(session_id_sql: &str) -> String {
+    format!(
+        "NOT EXISTS (SELECT 1 FROM session_events WHERE session_id = {session_id_sql} AND type = '{}')",
+        SessionEventType::SessionActivated.as_str()
+    )
+}
+
+// A session left `provisioning` whose create never finished.
+static UNFINISHED_CREATE_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT 1 FROM sessions WHERE id = @sessionId AND state = '{}' AND {}",
+        <&'static str>::from(SessionState::Provisioning),
+        never_activated_sql("@sessionId")
+    )
+});
+
+/// Whether the session is `provisioning` with a create that never finished, read on `reader`.
+/// Fails when SQLite refuses the read.
+pub fn is_unfinished_create(reader: &Connection, session_id: &SessionId) -> rusqlite::Result<bool> {
+    reader
+        .prepare_cached(&UNFINISHED_CREATE_SQL)?
         .exists(named_params! { "@sessionId": session_id.text().as_str() })
 }
 

@@ -11,7 +11,6 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::json;
-use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::id::ProviderId;
@@ -33,6 +32,7 @@ use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::{CloseSessionParams, SessionCloseCause};
 use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::text_cut::cut_to_code_points;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -50,22 +50,18 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_workspace::project::service::ForgottenProjectSessions;
 use tokio_util::task::TaskTracker;
 
+use crate::directory::lookups::never_activated_sql;
 use crate::run::ids::read_session_run_ids;
 
 /// The statements the session changes prepare on a read connection: the session's facts, whether
-/// it was ever activated, its runs, and the providers their bindings name.
+/// it was never activated, its runs, and the providers their bindings name.
 pub const SESSION_CHANGES_STATEMENT_CAPACITY: usize = 4;
 
 const SELECT_FACTS_SQL: &str =
     "SELECT state, name, pinned_at, muted_at FROM sessions WHERE id = ?1";
 
-// Whether the session's create ever finished: `session.activated` is written once, by its finish.
-static SELECT_WAS_ACTIVATED_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT EXISTS (SELECT 1 FROM session_events WHERE session_id = ?1 AND type = '{}')",
-        SessionEventType::SessionActivated.as_str()
-    )
-});
+static SELECT_NEVER_ACTIVATED_SQL: LazyLock<String> =
+    LazyLock::new(|| format!("SELECT {}", never_activated_sql("?1")));
 
 // Holds only while every fact the change was decided from is as it was read.
 const FACTS_UNCHANGED_SQL: &str = "SELECT 1 FROM sessions
@@ -133,6 +129,17 @@ struct SessionFacts {
     muted_at: Option<String>,
 }
 
+/// Hears that the person unarchived a session whose create never finished, to finish it.
+pub trait UnarchivedCreateListener: Send + Sync {
+    /// Finishes the create of `session_id`, `provisioning` again. Fails with why it was not
+    /// finished; the session stays `provisioning` then, for a retry of its create or the daemon's
+    /// next start.
+    fn create_unarchived(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+}
+
 /// A mark a session is set or cleared on.
 #[derive(Clone, Copy, Debug)]
 enum SessionMark {
@@ -157,6 +164,10 @@ pub struct SessionChanges {
     name_push_lock: Arc<KeyedLock<SessionId>>,
     /// Every push of a person's new name to the session's providers, so the stop waits for each.
     name_pushes: TaskTracker,
+    /// Finishes the create of a session the person unarchived back to `provisioning`.
+    unarchived_creates: PortRegistration<Arc<dyn UnarchivedCreateListener>>,
+    /// Every finish of an unarchived session's create, so the stop waits for each.
+    create_finishes: TaskTracker,
 }
 
 impl SessionChanges {
@@ -174,14 +185,25 @@ impl SessionChanges {
             lock: Arc::new(KeyedLock::new()),
             name_push_lock: Arc::new(KeyedLock::new()),
             name_pushes: TaskTracker::new(),
+            unarchived_creates: PortRegistration::new("unarchived creates"),
+            create_finishes: TaskTracker::new(),
         }
     }
 
-    /// Settles once every push of a new name to the providers under way has ended; a rename after
-    /// it pushes nothing the stop waits for.
+    /// The port an unarchive hands a session whose create never finished to, which the creation
+    /// registers once at start.
+    pub fn unarchived_creates(&self) -> &PortRegistration<Arc<dyn UnarchivedCreateListener>> {
+        &self.unarchived_creates
+    }
+
+    /// Settles once every push of a new name to the providers and every finish of an unarchived
+    /// session's create under way has ended; a rename or an unarchive after it starts nothing the
+    /// stop waits for.
     pub async fn stop(&self) {
         self.name_pushes.close();
+        self.create_finishes.close();
         self.name_pushes.wait().await;
+        self.create_finishes.wait().await;
     }
 
     /// The lock every session-wide transition holds for its whole run, keyed by session id:
@@ -276,9 +298,8 @@ impl SessionChanges {
     }
 
     /// Moves a session into the archived ones, leaving its provider process as it was: an active
-    /// one, and one still `provisioning` whose create never finished, which the archive's
-    /// provisioning guard keeps any finish from activating. Refused as
-    /// [`SessionChangeError::Refused`] says.
+    /// one, and one still `provisioning` whose create never finished, which the activation's
+    /// provisioning guard then refuses. Refused as [`SessionChangeError::Refused`] says.
     pub async fn archive(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
         let _hold = self.lock.acquire(session_id).await;
         self.change(session_id, None, |facts| {
@@ -297,52 +318,90 @@ impl SessionChanges {
     }
 
     /// Returns an archived session to the live list, `active`, or `provisioning` when its create
-    /// never finished, for a retry of its create or the daemon's next start to finish; any other
-    /// session it leaves as it is. Refused as [`SessionChangeError::Refused`] says.
+    /// never finished; any other session it leaves as it is. A session returned to `provisioning`
+    /// is handed to the registered [`UnarchivedCreateListener`] on a task of its own once the
+    /// unarchive is written, outside the transition lock, so the unarchive answers at once; a
+    /// finish that fails is logged and leaves it `provisioning`. Refused as
+    /// [`SessionChangeError::Refused`] says.
     pub async fn reactivate(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
-        let _hold = self.lock.acquire(session_id).await;
-        // No finish activates an archived session, so the answer holds while the lock is held.
-        let state = if self.was_activated(session_id).await? {
-            SessionReactivatedState::Active
-        } else {
-            SessionReactivatedState::Provisioning
-        };
-        self.change(session_id, None, |facts| {
-            refuse_unchangeable_session(&session_id, facts.state)?;
-            Ok((facts.state == SessionState::Archived).then(|| {
-                SessionEvent::SessionReactivated(SessionReactivatedPayload {
-                    session_id,
-                    previous_state: Some(SessionState::Archived),
-                    state,
-                    actor: None,
+        let is_create_unfinished = {
+            let _hold = self.lock.acquire(session_id).await;
+            // No finish activates an archived session, so the answer holds while the lock is held.
+            let is_never_activated = self.is_never_activated(session_id).await?;
+            let state = if is_never_activated {
+                SessionReactivatedState::Provisioning
+            } else {
+                SessionReactivatedState::Active
+            };
+            let is_written = self
+                .change(session_id, None, |facts| {
+                    refuse_unchangeable_session(&session_id, facts.state)?;
+                    Ok((facts.state == SessionState::Archived).then(|| {
+                        SessionEvent::SessionReactivated(SessionReactivatedPayload {
+                            session_id,
+                            previous_state: Some(SessionState::Archived),
+                            state,
+                            actor: None,
+                        })
+                    }))
                 })
-            }))
-        })
-        .await?;
+                .await?;
+            is_written && is_never_activated
+        };
+        if is_create_unfinished {
+            self.finish_unarchived_create(session_id);
+        }
         Ok(())
     }
 
-    async fn was_activated(&self, session_id: SessionId) -> Result<bool, SessionChangeError> {
+    async fn is_never_activated(&self, session_id: SessionId) -> Result<bool, SessionChangeError> {
         self.pool
             .read(
                 ReadLength::Short,
                 move |reader| -> Result<_, SessionChangeError> {
                     Ok(reader
-                        .prepare_cached(&SELECT_WAS_ACTIVATED_SQL)?
+                        .prepare_cached(&SELECT_NEVER_ACTIVATED_SQL)?
                         .query_row([session_id.text().as_str()], |row| row.get(0))?)
                 },
             )
             .await
     }
 
+    // Runs the create's finish of a session unarchived back to `provisioning` on a task of its
+    // own. A finish that fails, or one with no listener to run it, is logged, and the session
+    // waits for a retry of its create or the daemon's next start.
+    fn finish_unarchived_create(&self, session_id: SessionId) {
+        let listener = match self.unarchived_creates.require_port() {
+            Ok(listener) => Arc::clone(listener),
+            Err(error) => {
+                tracing::error!(
+                    error = &error as &(dyn Error + 'static),
+                    session_id = session_id.text().as_str(),
+                    "an unarchived session's create was not finished"
+                );
+                return;
+            }
+        };
+        self.create_finishes.spawn(async move {
+            if let Err(error) = listener.create_unarchived(session_id).await {
+                tracing::warn!(
+                    error = &*error as &(dyn Error + 'static),
+                    session_id = session_id.text().as_str(),
+                    "an unarchived session's create was not finished"
+                );
+            }
+        });
+    }
+
     /// Closes the session: ends its provider leg through each driver that ran one of its runs,
     /// then appends `session.closed`, holding the transition lock across both, so no opening or
-    /// restart brings a process up in between; the session stays readable. Closing a closed
-    /// session does nothing. Refuses one still `provisioning` or being purged with
-    /// `session.changeRefused`, and one with a run on a provider no registered driver answers with
-    /// `provider.notFound` before any leg is ended, so it never reads closed while that provider
-    /// may still run it. Fails with [`SessionChangeError::Driver`] when a driver did not end its
-    /// leg.
+    /// restart brings a process up in between; the session stays readable. One still
+    /// `provisioning`, whose create never finished, has no leg to end and is closed too, which the
+    /// activation's provisioning guard then refuses. Closing a closed session does nothing.
+    /// Refuses one being purged with `session.changeRefused`, and one with a run on a provider no
+    /// registered driver answers with `provider.notFound` before any leg is ended, so it never
+    /// reads closed while that provider may still run it. Fails with
+    /// [`SessionChangeError::Driver`] when a driver did not end its leg.
     pub async fn close(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
         let _hold = self.lock.acquire(session_id).await;
         let facts = self.read_facts(session_id).await?;
@@ -350,7 +409,6 @@ impl SessionChanges {
             return Ok(());
         }
         refuse_unchangeable_session(&session_id, facts.state)?;
-        refuse_provisioning_session(&session_id, facts.state)?;
         // The legs end first, so a session never reads closed while its provider still runs it.
         self.end_session_legs(session_id).await?;
         self.change(session_id, None, |current| {
@@ -614,8 +672,7 @@ pub(crate) fn session_already_closed(session_id: &SessionId) -> DomainError {
 }
 
 /// Refuses, with `session.changeRefused`, a session still `provisioning`: only an active or
-/// archived session is closed or converted, and a provisioning one is finished by its create or
-/// archived.
+/// archived session is converted, and a provisioning one is finished by its create first.
 pub(crate) fn refuse_provisioning_session(
     session_id: &SessionId,
     state: SessionState,

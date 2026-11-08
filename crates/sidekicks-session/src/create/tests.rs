@@ -31,9 +31,9 @@ use sidekicks_ipc::registry::HandlerError;
 use sidekicks_platforms::real_path;
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::MockProviderDriver;
-use sidekicks_provider::driver::registry::{ProviderRegistry, test_token};
+use sidekicks_provider::driver::registry::test_token;
 use sidekicks_provider::driver::session_control::StartingLevel;
-use sidekicks_provider::driver::test_registry::{registry_of_first_provider, test_driver_services};
+use sidekicks_provider::driver::test_registry::registry_of_first_provider;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
@@ -57,7 +57,6 @@ use tempfile::TempDir;
 use tokio::sync::mpsc;
 
 use super::{SessionCreateError, SessionCreation, SessionCreationDeps};
-use crate::changes::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
 use crate::directory::row::{DirectoryEvent, directory_statements_for};
 use crate::questions::schema::schema_parts;
 
@@ -731,61 +730,6 @@ async fn a_retry_whose_lead_driver_is_gone_is_refused_on_the_provider_axis() {
     assert_eq!(fixture.count("SELECT count(*) FROM workspaces"), 0);
 }
 
-// Dies to the archive refusing a `provisioning` session: the session whose finish can never succeed
-// is then left with no way out; and to the unarchive answering `active` for a session never
-// activated, which sets it live with nothing bound.
-#[tokio::test]
-async fn a_session_whose_finish_cannot_succeed_is_archived_and_unarchived_to_provisioning() {
-    let fixture = Fixture::new().await;
-    fixture.start_cloning();
-    let created = fixture
-        .creation
-        .create(project_request(new_key(), None))
-        .await
-        .expect("the create lands");
-    fixture.end_cloning();
-    // The lead's driver is gone, so every retry and every start fails the finish.
-    fixture.execute(
-        "UPDATE session_events \
-         SET payload = json_set(payload, '$.mainAgent.binding.providerName', 'gone') \
-         WHERE type = 'session.created'",
-    );
-    fixture
-        .creation
-        .finish_stopped_creates()
-        .await
-        .expect_err("the start cannot finish the session");
-    let changes = SessionChanges::new(
-        Arc::new(DatabaseReadPool::new(
-            fixture.database.path(),
-            SESSION_CHANGES_STATEMENT_CAPACITY,
-        )),
-        Arc::clone(&fixture.event_log),
-        Arc::new(ProviderRegistry::register_from(
-            &[],
-            &test_driver_services(),
-        )),
-    );
-    let session = created.session_id;
-    let state_sql = format!("SELECT state FROM sessions WHERE id = '{session}'");
-
-    changes
-        .archive(session)
-        .await
-        .expect("a session left provisioning is archived");
-    assert_eq!(fixture.text(&state_sql), Some("archived".to_owned()));
-
-    changes
-        .reactivate(session)
-        .await
-        .expect("the archived session is unarchived");
-    assert_eq!(fixture.text(&state_sql), Some("provisioning".to_owned()));
-    assert_eq!(
-        fixture.count("SELECT count(*) FROM session_events WHERE type = 'session.activated'"),
-        0
-    );
-}
-
 // Dies to the create run in its caller's future: the caller dropped mid-way then drops the create
 // with it, which leaves the session provisioning.
 #[tokio::test]
@@ -810,3 +754,5 @@ async fn a_create_whose_caller_stops_waiting_still_activates_its_session() {
         Some("active".to_owned())
     );
 }
+
+mod unfinished;
