@@ -1,3 +1,4 @@
+mod diagnostic_recorders;
 mod provider_accounts;
 mod restart;
 mod status_record;
