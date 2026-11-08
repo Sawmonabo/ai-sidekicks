@@ -10,7 +10,9 @@ use tokio_util::sync::CancellationToken;
 
 use super::{KeepAwakeDeps, keep_machine_awake};
 
-const WAIT: Duration = Duration::from_secs(10);
+/// How long a wait runs before it fails naming what never came: short of nextest's two-minute
+/// kill, so a hang names itself, and no passing test comes near it.
+const WAIT: Duration = Duration::from_secs(110);
 
 // What the system's stand-in saw: a guard asked for, granted or refused, and a guard dropped.
 #[derive(Debug, PartialEq)]
@@ -48,7 +50,7 @@ impl KeepAwake {
     async fn next_event(&mut self) -> GuardEvent {
         tokio::time::timeout(WAIT, self.events.recv())
             .await
-            .expect("the hold is moved")
+            .unwrap_or_else(|_elapsed| panic!("waited {WAIT:?} for a move of the hold"))
             .expect("the hold's thread keeps its guard taker")
     }
 
@@ -68,20 +70,21 @@ impl KeepAwake {
     }
 }
 
-// Keep-awake over a hold whose stand-in system refuses as many asks as `refusals` holds.
+// Keep-awake over a hold whose stand-in system refuses as many asks as `refusals` holds. Each ask
+// is told once its answer is decided, so a refusal the test sets on seeing an ask meets the next.
 fn keep_awake() -> KeepAwake {
     let (sender, events) = mpsc::unbounded_channel();
     let refusals = Arc::new(AtomicUsize::new(0));
     let refused = Arc::clone(&refusals);
     let hold = KeepAwakeHold::with_guard_taker(move |purpose| {
-        sender
-            .send(GuardEvent::Asked(purpose))
-            .expect("the test reads every event");
         let is_refused = refused
             .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
                 left.checked_sub(1)
             })
             .is_ok();
+        sender
+            .send(GuardEvent::Asked(purpose))
+            .expect("the test reads every event");
         if is_refused {
             Err(KeepAwakeRefused::stand_in(purpose))
         } else {
@@ -183,7 +186,7 @@ async fn the_hold_follows_the_switches_the_live_runs_and_the_power_source() {
     );
     tokio::time::timeout(WAIT, keep_awake.running)
         .await
-        .expect("keep-awake ends at the stop")
+        .unwrap_or_else(|_elapsed| panic!("waited {WAIT:?} for keep-awake to end at the stop"))
         .expect("keep-awake ends without a panic");
 }
 
