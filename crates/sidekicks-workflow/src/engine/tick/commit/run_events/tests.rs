@@ -15,6 +15,7 @@ use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::gate_resolution::WorkflowGateKind;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
+use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseCancellationReason;
 use tokio::sync::oneshot;
 
 use super::RunLiveStep;
@@ -151,7 +152,7 @@ async fn a_run_waits_resumes_and_counts_only_time_waiting_on_people(
         },
         SiblingEnding::Canceled => StepSettlement::Canceled {
             hold_started_at: None,
-            is_sibling_failure: false,
+            cancellation_reason: None,
         },
     };
 
@@ -591,7 +592,7 @@ async fn a_park_fails_the_run_and_cancels_its_waiting_step() {
         .expect("the failure writes its log");
     let canceled = StepSettlement::Canceled {
         hold_started_at: None,
-        is_sibling_failure: true,
+        cancellation_reason: Some(WorkflowPhaseCancellationReason::SiblingFailure),
     };
     commit
         .report(

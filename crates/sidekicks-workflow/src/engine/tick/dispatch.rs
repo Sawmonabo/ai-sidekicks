@@ -337,7 +337,7 @@ impl StepDispatch {
             drop(context);
             let canceled = StepSettlement::Canceled {
                 hold_started_at: None,
-                is_sibling_failure: false,
+                cancellation_reason: None,
             };
             self.report(&step, &cancel, StepReportKind::Settled(canceled))
                 .await;
@@ -364,7 +364,7 @@ impl StepDispatch {
             // Dropping the ticket below withdraws the step's place.
             GateWaitEnd::Canceled { hold_started_at } => StepSettlement::Canceled {
                 hold_started_at,
-                is_sibling_failure: false,
+                cancellation_reason: None,
             },
             // The tick's loop cancels the run once it stops reading reports, so nothing is left
             // to tell.
@@ -479,7 +479,7 @@ fn settle_launch_failure(
     if cancel.is_cancelled() {
         StepSettlement::Canceled {
             hold_started_at: None,
-            is_sibling_failure: false,
+            cancellation_reason: None,
         }
     } else {
         StepSettlement::Failed {

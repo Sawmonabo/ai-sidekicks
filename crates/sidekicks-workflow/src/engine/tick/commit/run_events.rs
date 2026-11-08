@@ -10,9 +10,9 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::run::events::{
-    WorkflowResumedStep, WorkflowResumptionPoint, WorkflowRunCompletedPayload,
-    WorkflowRunFailedOutcome, WorkflowRunFailedPayload, WorkflowRunResumedPayload,
-    WorkflowRunWaitingPayload,
+    WorkflowResumedStep, WorkflowResumptionPoint, WorkflowRunCanceledPayload,
+    WorkflowRunCompletedPayload, WorkflowRunFailedOutcome, WorkflowRunFailedPayload,
+    WorkflowRunResumedPayload, WorkflowRunWaitingPayload,
 };
 use sidekicks_contracts::workflow::run::status::{
     WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
@@ -169,6 +169,17 @@ impl RunTurnCommit {
                     self.keys,
                     self.run_id,
                     outcome: WorkflowRunFailedOutcome::Ended,
+                )),
+            ),
+            RunEnding::Canceled { reason, error } => (
+                WorkflowRunStatus::Canceled,
+                error.clone(),
+                SessionEvent::WorkflowRunCanceled(run_payload!(
+                    WorkflowRunCanceledPayload,
+                    self.keys,
+                    self.run_id,
+                    reason: reason,
+                    error: error,
                 )),
             ),
         };

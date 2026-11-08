@@ -91,7 +91,7 @@ impl StepDispatch {
                 let settlement = match failure {
                     None => StepSettlement::Canceled {
                         hold_started_at: None,
-                        is_sibling_failure: false,
+                        cancellation_reason: None,
                     },
                     Some(failure) => StepSettlement::Failed {
                         failure: fill(failure),
@@ -108,7 +108,7 @@ impl StepDispatch {
         let Some(turn) = entry.wait_for_turn(&cancel).await else {
             let canceled = StepSettlement::Canceled {
                 hold_started_at: None,
-                is_sibling_failure: false,
+                cancellation_reason: None,
             };
             self.report(&step, &cancel, StepReportKind::Settled(canceled))
                 .await;
@@ -218,7 +218,7 @@ impl StepDispatch {
         let settlement = if is_stopped {
             StepSettlement::Canceled {
                 hold_started_at,
-                is_sibling_failure: false,
+                cancellation_reason: None,
             }
         } else {
             match ended {
@@ -640,7 +640,7 @@ mod tests {
 
         assert_eq!(
             next_report(&mut received, &step).await,
-            Some(json!({ "canceled": { "holdStartedAt": hold, "isSiblingFailure": false } }))
+            Some(json!({ "canceled": { "holdStartedAt": hold, "cancellationReason": null } }))
         );
         assert_eq!(next_report(&mut received, &step).await, None);
         let request_count = usize::from(point != CancelPoint::InLine);
@@ -819,7 +819,7 @@ mod tests {
 
         assert_eq!(
             next_report(&mut received, &step).await,
-            Some(json!({ "canceled": { "holdStartedAt": null, "isSiblingFailure": false } }))
+            Some(json!({ "canceled": { "holdStartedAt": null, "cancellationReason": null } }))
         );
         let lines = sink.lines();
         let [fault] = lines.as_slice() else {

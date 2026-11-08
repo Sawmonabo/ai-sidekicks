@@ -9,6 +9,7 @@ use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::text::NonEmptyText;
 use crate::workflow::definition::document::{WorkflowNodeId, WorkflowVersionId};
+use crate::workflow::definition::item::WorkflowStepError;
 use crate::workflow::run::control::{WorkflowCancelReason, names_whole_repin};
 use crate::workflow::run::id::WorkflowRunId;
 use crate::workflow::run::step::events::WorkflowReadiedStep;
@@ -71,7 +72,8 @@ workflow_run_event! {
 workflow_run_event! {
     /// `workflow.run.canceled`, written with the status in one step, so rebuilding the run from the
     /// log cannot bring a canceled run back. `reason` is the person's, when one was given; a
-    /// chain's `Stop them all` cancels with none.
+    /// chain's `Stop them all` cancels with none. `error` is the run's error the cancel stored,
+    /// carrying the reason as its message.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
@@ -85,6 +87,15 @@ workflow_run_event! {
         #[schemars(with = "WorkflowCancelReason")]
         #[garde(dive)]
         pub reason: Option<WorkflowCancelReason>,
+        /// The run's error, where the cancel stored one.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowStepError")]
+        #[garde(dive)]
+        pub error: Option<WorkflowStepError>,
     }
 }
 

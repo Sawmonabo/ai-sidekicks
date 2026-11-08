@@ -326,9 +326,9 @@ fn settlement_json(settlement: &StepSettlement) -> Value {
         } => json!({ "accountSpent": { "providerAccountId": provider_account_id } }),
         StepSettlement::Canceled {
             hold_started_at,
-            is_sibling_failure,
+            cancellation_reason,
         } => json!({ "canceled": {
-            "holdStartedAt": hold_started_at, "isSiblingFailure": is_sibling_failure,
+            "holdStartedAt": hold_started_at, "cancellationReason": cancellation_reason,
         } }),
     }
 }
@@ -641,7 +641,7 @@ async fn a_canceled_step_settles_once_its_executor_returns(#[case] is_receiver_d
     assert!(probe.is_canceled.load(Ordering::SeqCst));
     assert_eq!(
         settled,
-        Some(json!({ "canceled": { "holdStartedAt": null, "isSiblingFailure": false } }))
+        Some(json!({ "canceled": { "holdStartedAt": null, "cancellationReason": null } }))
     );
     assert_eq!(next_report(&mut received, &step).await, None);
 }

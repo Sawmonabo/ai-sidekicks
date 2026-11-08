@@ -1,12 +1,19 @@
-//! The run's ending in the tick's loop: the run cap ending a run on its earliest running or
-//! parked step; and the turn that finds a run over writing its ending, a run a stop ended once
-//! none of its steps runs, is held, pending or waiting, and a run no stop touched once every step
-//! settled.
+//! The run's ending in the tick's loop: a person's cancel routed to its run and winding it down;
+//! the run cap ending a run on its earliest running or parked step; and the turn that finds a run
+//! over writing its ending, a run a stop ended once none of its steps runs, is held, pending or
+//! waiting, and a run no stop touched once every step settled.
+
+use std::collections::HashMap;
 
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
+use sidekicks_contracts::workflow::run::control::WorkflowCancelReason;
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
+use tokio::sync::oneshot;
 
-use super::reports::stop_agent_run;
+use super::reports::{stop_agent_run, stop_steps};
 use super::{EngineTick, ReadiedNext, RunTurn};
 use crate::engine::tick::commit::RunEnding;
 use crate::engine::tick::live_runs::{LiveRun, LiveStep};
@@ -14,12 +21,91 @@ use crate::engine::tick::step_failure::{RunStop, step_failure_error};
 use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
 use crate::kinds::StepFailure;
 
+/// The reply to a person's cancel: the sequence of the run's `workflow.run.canceled` once the
+/// write of the run's ending commits, or why the tick did not take it.
+pub(crate) type RunCancelReply = oneshot::Sender<Result<SafeInt<0>, RunCancelRefusal>>;
+
+/// A person's cancel of a run, as it reaches the tick.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the run cancel handler, which sends it")
+)]
+pub(crate) struct RunCancelIntake {
+    /// The run.
+    pub(crate) run_id: WorkflowRunId,
+    /// The person's reason, where one was given.
+    pub(crate) reason: Option<WorkflowCancelReason>,
+    /// The run's error the cancel stores, carrying the reason as its message.
+    pub(crate) error: Option<WorkflowStepError>,
+    /// Where the answer goes.
+    pub(crate) reply: RunCancelReply,
+}
+
+/// Why the tick did not take a person's cancel.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum RunCancelRefusal {
+    /// The tick does not hold the run, so its cancel writes the run's rows itself.
+    NotHeld,
+    /// A step's failure already decided the run's ending, which stands.
+    Ending,
+}
+
 impl EngineTick {
+    /// Routes `intake` to the live run it names, the run added to `order` where it is not there
+    /// yet; a run the tick does not hold is answered [`RunCancelRefusal::NotHeld`] at once.
+    pub(super) fn route_cancel(
+        &self,
+        intake: RunCancelIntake,
+        order: &mut Vec<WorkflowRunId>,
+        cancels: &mut HashMap<WorkflowRunId, Vec<RunCancelIntake>>,
+    ) {
+        if self.runs.contains_key(&intake.run_id) {
+            if !order.contains(&intake.run_id) {
+                order.push(intake.run_id);
+            }
+            cancels.entry(intake.run_id).or_default().push(intake);
+        } else {
+            let _unheard = intake.reply.send(Err(RunCancelRefusal::NotHeld));
+        }
+    }
+
+    /// Takes the person's cancel `intake` of the run of `live` in `turn`: the run's ending becomes
+    /// `canceled` with the cancel's reason and error, and every step stops as an end's, the
+    /// earliest running one carrying the wave; the reply waits for the ending's write. A second
+    /// cancel waits with the first, and a run whose ending a failure decided refuses it.
+    pub(super) async fn apply_cancel(
+        &self,
+        live: &mut LiveRun,
+        turn: &mut RunTurn,
+        intake: RunCancelIntake,
+    ) {
+        let RunCancelIntake {
+            reason,
+            error,
+            reply,
+            ..
+        } = intake;
+        match live.ending {
+            Some(RunEnding::Canceled { .. }) => {
+                live.cancel_replies.push(reply);
+                return;
+            }
+            Some(RunEnding::Completed | RunEnding::Failed { .. }) => {
+                let _unheard = reply.send(Err(RunCancelRefusal::Ending));
+                return;
+            }
+            None => {}
+        }
+        live.ending = Some(RunEnding::Canceled { reason, error });
+        live.cancel_replies.push(reply);
+        stop_steps(live, turn, None, &WireInstant::now(), RunStop::End).await;
+    }
+
     /// Ends the run of `live` on the run cap's `failure` at `at`, with its `log_lines`, whichever
-    /// step reported it: the run's earliest running or parked step takes it, the run's error the cap's, and every other
-    /// step winds down as the end's siblings. A parked step keeps its failed row and its own
-    /// error; a step still running fails now and is canceled, and the run's ending waits for its
-    /// own settlement. A run whose ending is already decided takes nothing more.
+    /// step reported it: the run's earliest running or parked step takes it, the run's error is
+    /// the cap's, and every other step winds down as the end's siblings. A parked step keeps its
+    /// failed row and its own error; a step still running fails now and is canceled, and the
+    /// run's ending waits for its own settlement. A run whose ending is decided takes nothing more.
     pub(super) async fn cap_run(
         &self,
         live: &mut LiveRun,
@@ -395,5 +481,148 @@ mod tests {
             .map(|(_, payload)| payload["outcome"].clone())
             .collect();
         assert_eq!(outcomes, [json!("parked"), json!("ended")]);
+    }
+
+    /// A person's cancel of a run with A and B running and W waiting on a reply cancels W in its
+    /// own turn and winds A and B down as one wave on A, the earliest: `canceled` is written, with
+    /// the person's reason and error on the event and the error on the row, only in the turn the
+    /// last of them settles, and the reply answers that event's sequence after that write. Every
+    /// step reads `runCanceled`. Mutations: write `canceled` in the cancel's own turn while a
+    /// branch runs; leave W waiting; drop the reason or the error; reply before the write.
+    #[tokio::test]
+    async fn a_cancel_winds_the_run_down_and_writes_canceled_with_its_last_branch() {
+        let mut harness = Harness::new(None).await;
+        harness
+            .start(
+                vec![
+                    node("trigger", "test.trigger", 0, None),
+                    node("A", "test.linger", 1, None),
+                    node("B", "test.linger", 2, None),
+                    node("W", "test.ask", 3, None),
+                ],
+                &[
+                    edge("trigger", "A", 0),
+                    edge("trigger", "B", 0),
+                    edge("trigger", "W", 0),
+                ],
+                vec![item(json!({}))],
+                |_| {},
+            )
+            .await;
+        harness
+            .wait_until(|rows| {
+                ["A", "B"].iter().all(|node_id| {
+                    step_column(rows, node_id, "status").as_deref() == Some("running")
+                }) && step_column(rows, "W", "status").as_deref() == Some("waiting")
+            })
+            .await;
+        let mut replied = harness.cancel("Not needed any more").await;
+        harness
+            .wait_until(|rows| step_column(rows, "W", "status").as_deref() == Some("canceled"))
+            .await;
+        // Each release must find its step waiting for it, since a release with none waiting keeps
+        // only one.
+        tokio::time::sleep(QUIET).await;
+        harness.signal.release.notify_one();
+        tokio::time::sleep(QUIET).await;
+
+        assert_eq!(run_row(&harness.rows).0, "running", "a branch still runs");
+        assert!(
+            replied.try_recv().is_err(),
+            "the reply waits for the ending"
+        );
+
+        harness.signal.release.notify_one();
+        harness
+            .wait_until(|rows| run_row(rows).0 == "canceled")
+            .await;
+
+        let sequence = timeout(WAIT, replied)
+            .await
+            .expect("the loop replies in time")
+            .expect("the loop keeps the reply")
+            .expect("the cancel is taken");
+        let (canceled_sequence, _, _, canceled) = harness
+            .events()
+            .into_iter()
+            .find(|(_, event_type, _, _)| event_type == "workflow.run.canceled")
+            .expect("the run's cancel is written");
+        assert_eq!(i64::try_from(sequence.get()).ok(), Some(canceled_sequence));
+        let error = json!({ "message": "Not needed any more" });
+        assert_eq!(canceled["reason"], json!("Not needed any more"));
+        assert_eq!(canceled["error"], error);
+        let (_, finished_at, error_json) = run_row(&harness.rows);
+        assert!(finished_at.is_some());
+        let stored: Value =
+            serde_json::from_str(&error_json.expect("the run keeps its error")).expect("JSON");
+        assert_eq!(stored, error);
+        let (wave, ..) = harness.event("workflow.parallelJoin.branchesCanceled", "A");
+        assert!(
+            canceled_sequence > wave,
+            "the ending rides the wave's write"
+        );
+        for node_id in ["A", "B", "W"] {
+            let (_, _, _, phase_failed) = harness.event("workflow.phase.failed", node_id);
+            assert_eq!(
+                phase_failed["cancellationReason"],
+                json!("runCanceled"),
+                "{node_id}"
+            );
+            assert_eq!(harness.status(node_id).as_deref(), Some("canceled"));
+        }
+    }
+
+    /// A cancel reaching a run whose approval pause is still being captured waits for that
+    /// capture, then cancels the run before its card is raised. Mutations: take the cancel while
+    /// the capture runs; raise the abandoned pause's card.
+    #[tokio::test]
+    async fn a_cancel_reaching_a_pausing_run_is_taken_when_its_capture_ends() {
+        let mut harness = Harness::new(None).await;
+        harness.points.set_gate(false);
+        harness
+            .start(
+                vec![
+                    node("trigger", "test.trigger", 0, None),
+                    node("P", "test.approve", 1, None),
+                ],
+                &[edge("trigger", "P", 0)],
+                vec![item(json!({}))],
+                |_| {},
+            )
+            .await;
+        harness
+            .wait_until(|rows| step_column(rows, "P", "status").as_deref() == Some("waiting"))
+            .await;
+        assert_eq!(
+            harness.ordered_calls(1).await.len(),
+            1,
+            "P's point is taken"
+        );
+        let mut replied = harness.cancel("Stop").await;
+        tokio::time::sleep(QUIET).await;
+
+        assert_eq!(harness.status("P").as_deref(), Some("waiting"));
+        assert!(
+            replied.try_recv().is_err(),
+            "the cancel waits for the capture"
+        );
+
+        harness.points.set_gate(true);
+        harness
+            .wait_until(|rows| run_row(rows).0 == "canceled")
+            .await;
+        timeout(WAIT, replied)
+            .await
+            .expect("the loop replies in time")
+            .expect("the loop keeps the reply")
+            .expect("the cancel is taken");
+        tokio::time::sleep(QUIET).await;
+
+        assert_eq!(harness.status("P").as_deref(), Some("canceled"));
+        assert_eq!(
+            harness.ordered_calls(1).await.len(),
+            1,
+            "no card is raised for the abandoned pause"
+        );
     }
 }

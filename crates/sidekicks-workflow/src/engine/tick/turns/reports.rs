@@ -11,13 +11,14 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
 use sidekicks_contracts::workflow::run::snapshot::WorkflowRunPauseNumber;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
+use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseCancellationReason;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 
 use super::{EngineTick, PausePoint, ReadiedNext, RunTurn, TurnReadied, step_failure};
 use crate::definitions::kept_values::remove_dropped;
 use crate::engine::event_record::{EngineFault, EngineIntent, EngineOutcome};
 use crate::engine::ports::{AgentStepRun, WorkflowRunSnapshotPointRequest};
-use crate::engine::tick::branch_cancellation::WaveSettle;
+use crate::engine::tick::branch_cancellation::{BranchCancelReason, WaveSettle};
 use crate::engine::tick::commit::{
     RunEnding, RunTurnCommit, SettlementAnswer, SettlementWriteFailure,
 };
@@ -51,9 +52,18 @@ impl EngineTick {
             }
             report => report,
         };
-        let Some(report) = offer_to_waves(live, &mut turn.follow_ups, report).await else {
+        let Some(mut report) = offer_to_waves(live, &mut turn.follow_ups, report).await else {
             return;
         };
+        // Every step a person's cancel stops fails as canceled with its run.
+        if matches!(live.ending, Some(RunEnding::Canceled { .. }))
+            && let StepReportKind::Settled(StepSettlement::Canceled {
+                cancellation_reason,
+                ..
+            }) = &mut report.kind
+        {
+            cancellation_reason.get_or_insert(WorkflowPhaseCancellationReason::RunCanceled);
+        }
         if let StepReportKind::BranchesCanceled { reason, count } = report.kind {
             turn.commit
                 .branches_canceled(report.step, &report.at, reason, count);
@@ -359,9 +369,8 @@ impl EngineTick {
         live.pausing.push(turn_ask);
     }
 
-    /// Fails `step` of `live`, whose failure stops its run as `stop` at `at`, an end replacing a
-    /// park: every other live step and every step this turn readied stops as its sibling, the
-    /// running ones winding down as one wave and an end's waits canceled now.
+    /// Fails `step` of `live`, whose failure stops its run as `stop` at `at`: every other step
+    /// stops as [`stop_steps`] says, the wave's event on `step`.
     pub(super) async fn stop_run(
         &self,
         live: &mut LiveRun,
@@ -371,38 +380,71 @@ impl EngineTick {
         stop: RunStop,
     ) {
         live.move_step(step.execution_index.get(), WorkflowStepStatus::Failed, None);
-        let stop = if live.stop == Some(RunStop::End) {
-            RunStop::End
-        } else {
-            stop
-        };
-        live.stop = Some(stop);
-        let mut others: Vec<&LiveStep> = live
-            .steps
-            .values()
-            .filter(|live_step| live_step.step != *step)
-            .collect();
-        others.sort_by_key(|live_step| live_step.step.execution_index.get());
-        let others: Vec<WorkflowStepKey> = others
-            .into_iter()
-            .map(|live_step| live_step.step.clone())
-            .chain(
-                turn.readied
-                    .iter()
-                    .map(|readied| readied.ready.step.clone()),
-            )
-            .collect();
-        let siblings = sort_losers(live, turn, others, at).await;
-        let SiblingStop {
-            reports,
-            wave,
-            canceled_waits,
-        } = stop_siblings(step.clone(), stop, siblings);
-        turn.follow_ups.extend(reports);
-        live.waves.extend(wave);
-        for waiting in canceled_waits {
-            cancel_now(live, turn, waiting, at).await;
-        }
+        stop_steps(live, turn, Some(step), at, stop).await;
+    }
+}
+
+/// Stops the run of `live` as `stop` at `at`, an end replacing a park: every live step but
+/// `deciding` and every step this turn readied stops as its sibling, the running ones winding
+/// down as one wave and an end's waits canceled now. The wave's event sits on `deciding`, or with
+/// none, on the earliest running step; its reason is the person's cancel where the run's ending
+/// is one, else a sibling's failure.
+pub(super) async fn stop_steps(
+    live: &mut LiveRun,
+    turn: &mut RunTurn,
+    deciding: Option<&WorkflowStepKey>,
+    at: &WireInstant,
+    stop: RunStop,
+) {
+    let stop = if live.stop == Some(RunStop::End) {
+        RunStop::End
+    } else {
+        stop
+    };
+    live.stop = Some(stop);
+    let mut others: Vec<&LiveStep> = live
+        .steps
+        .values()
+        .filter(|live_step| Some(&live_step.step) != deciding)
+        .collect();
+    others.sort_by_key(|live_step| live_step.step.execution_index.get());
+    let others: Vec<WorkflowStepKey> = others
+        .into_iter()
+        .map(|live_step| live_step.step.clone())
+        .chain(
+            turn.readied
+                .iter()
+                .map(|readied| readied.ready.step.clone()),
+        )
+        .collect();
+    let siblings = sort_losers(live, turn, others, at).await;
+    // With no running sibling no wave forms, so the step the key names carries nothing.
+    let Some(deciding) = deciding
+        .cloned()
+        .or_else(|| {
+            siblings
+                .iter()
+                .find(|sibling| matches!(sibling.state, SiblingState::Running(_)))
+                .map(|sibling| sibling.step.clone())
+        })
+        .or_else(|| siblings.first().map(|sibling| sibling.step.clone()))
+    else {
+        return;
+    };
+    let reason = if matches!(live.ending, Some(RunEnding::Canceled { .. })) {
+        BranchCancelReason::RunCanceled
+    } else {
+        BranchCancelReason::SiblingFailure
+    };
+    let SiblingStop {
+        reports,
+        wave,
+        canceled_waits,
+    } = stop_siblings(deciding, stop, reason, siblings);
+    turn.follow_ups.extend(reports);
+    live.waves.extend(wave);
+    for waiting in canceled_waits {
+        cancel_now(live, turn, waiting, at).await;
     }
 }
 
@@ -484,7 +526,7 @@ pub(super) async fn cancel_now(
         at: at.clone(),
         kind: StepReportKind::Settled(StepSettlement::Canceled {
             hold_started_at: None,
-            is_sibling_failure: false,
+            cancellation_reason: None,
         }),
     });
 }

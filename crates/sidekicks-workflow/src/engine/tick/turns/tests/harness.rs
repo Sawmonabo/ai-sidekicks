@@ -13,9 +13,11 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{ComposedText, NonEmptyText};
 use sidekicks_contracts::workflow::definition::document::{WorkflowEdge, WorkflowNode};
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
+use sidekicks_contracts::workflow::run::control::WorkflowCancelReason;
 use sidekicks_contracts::workflow::run::events::WorkflowRunStartedPayload;
 use sidekicks_contracts::workflow::run::trigger::{
     WorkflowRunChainPlace, WorkflowRunMode, WorkflowRunTrigger, WorkflowStartedBy,
@@ -45,11 +47,13 @@ use crate::engine::ports::{
 };
 use crate::engine::start::StartedRun;
 use crate::engine::tick::dispatch::test_dispatch_recording;
+use crate::engine::tick::turns::ending::RunCancelRefusal;
 use crate::engine::tick::turns::tests::harness::ports::{
     OrderLog, OrderedCall, RecordingAsks, RecordingSnapshotPoints,
 };
 use crate::engine::tick::turns::{
     ENGINE_TICK_STATEMENT_CAPACITY, EngineTick, EngineTickDependencies, EngineTickInput,
+    RunCancelIntake,
 };
 use crate::engine::tick::{RunGraph, RunScope, StepReport, test_run_scope};
 use crate::engine::waits::answers::PersonWaitIntake;
@@ -692,6 +696,23 @@ impl Harness {
         timeout(WAIT, replied)
             .await
             .expect("the loop replies in time")
+    }
+
+    /// Sends a person's cancel of the scope's run for `reason`, its error carrying the reason, and
+    /// answers the receiving end of the loop's reply.
+    pub(in crate::engine::tick::turns) async fn cancel(
+        &self,
+        reason: &str,
+    ) -> oneshot::Receiver<Result<SafeInt<0>, RunCancelRefusal>> {
+        let (reply, replied) = oneshot::channel();
+        self.send(EngineTickInput::Cancel(RunCancelIntake {
+            run_id: self.scope.run_id,
+            reason: Some(WorkflowCancelReason::new(reason.to_owned()).expect("a reason")),
+            error: Some(uncoded_step_error(reason.to_owned())),
+            reply,
+        }))
+        .await;
+        replied
     }
 
     /// Waits until every turn whose write the test has seen has ended, its clock read included:

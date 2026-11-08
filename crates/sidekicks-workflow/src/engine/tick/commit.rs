@@ -14,6 +14,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::{WorkflowNode, WorkflowNodeId};
 use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowStepError};
 use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
+use sidekicks_contracts::workflow::run::control::WorkflowCancelReason;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 use sidekicks_contracts::workflow::run::step::events::{
@@ -122,6 +123,13 @@ pub(crate) enum RunEnding {
     Failed {
         /// The run's error, the ending step's own.
         error: WorkflowStepError,
+    },
+    /// A person canceled the run: `canceled`.
+    Canceled {
+        /// The person's reason, where one was given.
+        reason: Option<WorkflowCancelReason>,
+        /// The run's error, carrying the reason as its message, where the cancel gave one.
+        error: Option<WorkflowStepError>,
     },
 }
 
@@ -467,7 +475,7 @@ impl RunTurnCommit {
             step.clone(),
             at,
             0,
-            false,
+            None,
             (WorkflowStepStatus::Pending, None),
         );
     }

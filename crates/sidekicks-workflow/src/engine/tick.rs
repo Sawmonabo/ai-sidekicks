@@ -36,6 +36,7 @@ use sidekicks_contracts::workflow::definition::document::{
 };
 use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowPinnedItem};
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseCancellationReason;
 use sidekicks_contracts::workflow::run::step::record::{
     WorkflowCost, WorkflowPayloadRef, WorkflowStepKey,
 };
@@ -282,7 +283,8 @@ pub(crate) enum StepSettlement {
     Canceled {
         /// When the hold the cancel ended began, `None` when the gate was not holding the step.
         hold_started_at: Option<WireInstant>,
-        /// Whether a sibling's failure canceled it.
-        is_sibling_failure: bool,
+        /// Why its run's stop canceled it, a sibling's failure or a person's cancel of the run;
+        /// `None` for any other cancel.
+        cancellation_reason: Option<WorkflowPhaseCancellationReason>,
     },
 }

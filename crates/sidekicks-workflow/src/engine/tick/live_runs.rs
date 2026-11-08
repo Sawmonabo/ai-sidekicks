@@ -23,6 +23,7 @@ use super::branch_cancellation::BranchWave;
 use super::commit::{RunEnding, RunLiveStep};
 use super::run_status::{RunPersonWait, RunStepCounts};
 use super::step_failure::RunStop;
+use super::turns::{RunCancelIntake, RunCancelReply};
 use super::walk::{RunGraph, RunWalk};
 use super::{RunScope, StepReport};
 use crate::engine::event_record::{EngineDeadline, EngineDecision, RunEngineRecord};
@@ -68,6 +69,8 @@ pub(crate) struct LiveRun {
     /// The ending a stop decided, written once none of the run's steps runs, is held, pending or
     /// waiting.
     pub(crate) ending: Option<RunEnding>,
+    /// The replies to the person's cancels of the run, sent once the write of its ending commits.
+    pub(crate) cancel_replies: Vec<RunCancelReply>,
     /// Whether the run's turn armed or cleared a wait's deadline, or took a late answer, so the
     /// deadline clock is read again once the turn's write commits.
     pub(crate) needs_deadline_read: bool,
@@ -95,6 +98,8 @@ pub(crate) struct HeldTurn {
     pub(crate) reports: Vec<StepReport>,
     /// The steps ready to dispatch: retries come due, and steps its pause's own turn readied.
     pub(crate) dispatches: Vec<WorkflowStepKey>,
+    /// The person's cancels of the run, taken once the capture under way ends.
+    pub(crate) cancels: Vec<RunCancelIntake>,
 }
 
 /// A person wait a turn opened, asked once the turn's write commits: its step, the wait, what the
@@ -172,6 +177,7 @@ impl LiveRun {
             waves: Vec::new(),
             stop: None,
             ending: None,
+            cancel_replies: Vec::new(),
             needs_deadline_read: false,
             deadline_lines: Vec::new(),
             epoch: WorkflowRunEpoch(SafeInt::ZERO),
@@ -181,6 +187,7 @@ impl LiveRun {
                 answers: Vec::new(),
                 reports: Vec::new(),
                 dispatches: Vec::new(),
+                cancels: Vec::new(),
             },
         }
     }

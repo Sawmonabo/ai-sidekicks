@@ -19,7 +19,7 @@ use sidekicks_contracts::workflow::run::status::{
     WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
 };
 use sidekicks_contracts::workflow::run::step::events::{
-    WorkflowReadiedStep, WorkflowStepSkipReason,
+    WorkflowPhaseCancellationReason, WorkflowReadiedStep, WorkflowStepSkipReason,
 };
 use sidekicks_contracts::workflow::run::step::record::{
     WorkflowPayloadRef, WorkflowStepKey, WorkflowStepSource,
@@ -544,14 +544,14 @@ async fn a_turn_is_one_write_in_report_order() {
 #[case::held_by_a_sibling_failure(
     WorkflowStepStatus::WaitingMemory,
     Some("2026-10-02T00:03:00.000Z"),
-    true,
+    Some(WorkflowPhaseCancellationReason::SiblingFailure),
     &["workflow.phase.failed", "workflow.step.canceled"],
     10_000
 )]
 #[case::running_and_canceled_by_a_merge(
     WorkflowStepStatus::Running,
     None,
-    false,
+    None,
     &["workflow.step.canceled"],
     0
 )]
@@ -559,7 +559,7 @@ async fn a_turn_is_one_write_in_report_order() {
 async fn a_canceled_held_step_adds_its_cut_hold(
     #[case] status: WorkflowStepStatus,
     #[case] hold_started_at: Option<&str>,
-    #[case] is_sibling_failure: bool,
+    #[case] cancellation_reason: Option<WorkflowPhaseCancellationReason>,
     #[case] event_types: &[&str],
     #[case] pool_wait_ms: i64,
 ) {
@@ -567,7 +567,7 @@ async fn a_canceled_held_step_adds_its_cut_hold(
     let step = harness.store_step(1, status);
     let canceled = StepReportKind::Settled(StepSettlement::Canceled {
         hold_started_at: hold_started_at.map(instant),
-        is_sibling_failure,
+        cancellation_reason,
     });
     let mut commit = harness.commit();
     let answer = commit
@@ -577,7 +577,7 @@ async fn a_canceled_held_step_adds_its_cut_hold(
         )
         .await
         .expect("a cancel writes no payload");
-    let readying_event = usize::from(is_sibling_failure);
+    let readying_event = usize::from(cancellation_reason.is_some());
     assert!(matches!(
         answer,
         Some(SettlementAnswer::Canceled { readying_event: index }) if index == readying_event
@@ -591,7 +591,7 @@ async fn a_canceled_held_step_adds_its_cut_hold(
         .map(|(_, event_type, _, _)| event_type.as_str())
         .collect();
     assert_eq!(written, event_types);
-    if is_sibling_failure {
+    if cancellation_reason.is_some() {
         assert_eq!(events[0].3["cancellationReason"], json!("siblingFailure"));
     }
 }

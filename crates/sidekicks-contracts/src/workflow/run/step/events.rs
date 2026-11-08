@@ -434,22 +434,24 @@ phase_suspended_payload! {
 }
 
 /// Why a phase was canceled rather than failing on its own work: a sibling branch's failure ended
-/// the run.
+/// the run, or a person canceled the run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum WorkflowPhaseCancellationReason {
     /// A sibling branch failed and ended the run.
     SiblingFailure,
+    /// A person canceled the run.
+    RunCanceled,
 }
 
 workflow_step_event! {
     /// `workflow.phase.failed`: a phase failed, on its own work or because a sibling branch's
-    /// failure ended the run and so canceled it.
+    /// failure ended the run or a person canceled the run, and so canceled it.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     pub struct WorkflowPhaseFailedPayload {
-        /// `siblingFailure` where a sibling branch's failure canceled the phase; `null` where the
-        /// phase failed on its own work.
+        /// `siblingFailure` where a sibling branch's failure canceled the phase, `runCanceled`
+        /// where a person's cancel of the run did; `null` where the phase failed on its own work.
         #[serde(deserialize_with = "crate::wire::nullable")]
         #[schemars(with = "crate::wire::NullableSchema<WorkflowPhaseCancellationReason>")]
         pub cancellation_reason: Option<WorkflowPhaseCancellationReason>,

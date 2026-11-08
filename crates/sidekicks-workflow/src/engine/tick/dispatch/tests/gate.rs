@@ -214,7 +214,7 @@ async fn a_gate_step_enters_in_its_turn_and_a_cancel_ends_it(#[case] point: Canc
     };
     assert_eq!(
         next_report(&mut received, &step).await,
-        Some(json!({ "canceled": { "holdStartedAt": hold, "isSiblingFailure": false } }))
+        Some(json!({ "canceled": { "holdStartedAt": hold, "cancellationReason": null } }))
     );
     assert_eq!(next_report(&mut received, &step).await, None);
     let entry_count = usize::from(matches!(point, CancelPoint::AtGate));

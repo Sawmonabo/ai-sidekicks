@@ -60,7 +60,7 @@ impl StepDispatch {
         if context.cancel.is_cancelled() {
             return Some(StepSettlement::Canceled {
                 hold_started_at: None,
-                is_sibling_failure: false,
+                cancellation_reason: None,
             });
         }
         let fill = |failure| fill_step_failure(failure, &node.id, &context.redaction);

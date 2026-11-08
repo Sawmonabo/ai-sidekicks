@@ -640,6 +640,7 @@ fn step_reported(line: &mut Map<String, Value>, transition: &StepTransition<'_>)
             let reason = match reason {
                 BranchCancelReason::FirstToArrive => "firstToArrive",
                 BranchCancelReason::SiblingFailure => "siblingFailure",
+                BranchCancelReason::RunCanceled => "runCanceled",
             };
             line.insert("reason".to_owned(), json!(reason));
             line.insert("count".to_owned(), json!(count));

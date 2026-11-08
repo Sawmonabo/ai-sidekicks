@@ -163,7 +163,7 @@ impl RunTurnCommit {
             }
             StepSettlement::Canceled {
                 hold_started_at,
-                is_sibling_failure,
+                cancellation_reason,
             } => {
                 let pool_wait_ms =
                     held_milliseconds(hold_started_at.as_ref(), reported.last_hold_report_at, at);
@@ -171,7 +171,7 @@ impl RunTurnCommit {
                     step,
                     at,
                     pool_wait_ms,
-                    is_sibling_failure,
+                    cancellation_reason,
                     reported.standing(),
                 );
                 Ok(SettlementAnswer::Canceled { readying_event })
@@ -180,26 +180,26 @@ impl RunTurnCommit {
     }
 
     /// Writes the cancel of `step`, standing as `standing` before it, at `at` with `pool_wait_ms`
-    /// added to its pool wait: its row, `workflow.phase.failed` `siblingFailure` where a sibling's
-    /// failure canceled it, then `workflow.step.canceled`, whose index it answers.
+    /// added to its pool wait: its row, `workflow.phase.failed` with `cancellation_reason` where
+    /// its run's stop canceled it, then `workflow.step.canceled`, whose index it answers.
     pub(super) fn cancel(
         &mut self,
         step: WorkflowStepKey,
         at: &WireInstant,
         pool_wait_ms: u64,
-        is_sibling_failure: bool,
+        cancellation_reason: Option<WorkflowPhaseCancellationReason>,
         standing: (WorkflowStepStatus, Option<WorkflowWaitCause>),
     ) -> usize {
         self.statements.push(cancel_step(&step, at, pool_wait_ms));
         let session_id = self.keys.session_id;
-        if is_sibling_failure {
+        if cancellation_reason.is_some() {
             self.push(
                 at,
                 SessionEvent::WorkflowPhaseFailed(step_payload!(
                     WorkflowPhaseFailedPayload,
                     session_id,
                     step,
-                    cancellation_reason: Some(WorkflowPhaseCancellationReason::SiblingFailure),
+                    cancellation_reason: cancellation_reason,
                 )),
             );
         }
