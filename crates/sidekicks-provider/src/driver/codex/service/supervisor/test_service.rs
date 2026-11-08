@@ -242,6 +242,7 @@ pub(crate) fn test_codex_service_dependencies(
         command_capture: Arc::new(PortRegistration::new("command capture")),
         wrapper_program: command_wrapper_program_path(&link_folder),
         askpass_program: command_askpass_program_path(&link_folder),
+        tasks: TaskTracker::new(),
     });
     let provider_accounts = Arc::new(PortRegistration::new("provider accounts"));
     Arc::new(CodexServiceDependencies {
@@ -264,6 +265,7 @@ pub(crate) fn test_codex_service_dependencies(
         exec_relay,
         switching: Arc::new(CodexSwitchingAccount::new(Arc::clone(&provider_accounts))),
         provider_accounts,
+        raw_messages: Arc::new(PortRegistration::new("raw provider messages")),
     })
 }
 
@@ -509,6 +511,8 @@ impl CodexServiceEvents for UnheardEvents {
     fn rate_limits_observed(&self, _service: &Arc<CodexService>) {}
 
     fn planned_restart_requested(&self, _service: &Arc<CodexService>) {}
+
+    fn executor_ended(&self, _service: &Arc<CodexService>) {}
 }
 
 /// Tells a test how each service process ended, and each time a service is back after a crash.
@@ -549,6 +553,8 @@ impl CodexServiceEvents for ExitsHeard {
     fn rate_limits_observed(&self, _service: &Arc<CodexService>) {}
 
     fn planned_restart_requested(&self, _service: &Arc<CodexService>) {}
+
+    fn executor_ended(&self, _service: &Arc<CodexService>) {}
 }
 
 /// A Codex stand-in: as the executor it answers the relay's `initialize` and waits on its input;

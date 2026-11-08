@@ -6,6 +6,7 @@
 //! is read and none falls between the call and a first `mcp.server.list`.
 
 use std::collections::VecDeque;
+use std::convert::Infallible;
 use std::sync::{Arc, LazyLock};
 
 use futures::FutureExt as _;
@@ -21,8 +22,10 @@ use sidekicks_contracts::session::event_cursor::{
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use sidekicks_ipc::stream::feed::{ChangeRecord, Feed, RecordPage, RecordPageRead, SendGate};
-use sidekicks_ipc::stream::frame_batcher::{ChangeFeed, FrameChanges};
+use sidekicks_ipc::stream::feed::{
+    ChangeRecord, DistanceRead, Feed, RecordPage, RecordPageRead, SendGate,
+};
+use sidekicks_ipc::stream::frame_batcher::{ChangeFeed, FrameChanges, FrameRead};
 use sidekicks_mcp::inventory_service::McpInventoryService;
 use sidekicks_mcp::mutation::service::McpMutationService;
 use sidekicks_mcp::registry_search::{MCP_REGISTRY_ADDRESS, McpRegistryClient};
@@ -115,9 +118,14 @@ async fn open_mcp_subscribe_feed(
         }
         Err(error) => return Err(error.into()),
     };
-    let events = ChangeFeed::open(Arc::new(McpGovernanceRecord { log }), cursor, |changes| {
-        changes
-    })
+    let events = ChangeFeed::open(
+        Arc::new(McpGovernanceRecord { log }),
+        cursor,
+        |read| match read {
+            FrameRead::Changes(changes) => changes,
+            FrameRead::Behind(head) => match head {},
+        },
+    )
     .await?;
     Ok(McpSubscribeFeed {
         events,
@@ -158,6 +166,9 @@ impl ChangeRecord for McpGovernanceRecord {
     type Cursor = EventCursor;
     type Change = McpGovernanceChange;
     type Error = McpGovernanceStreamError;
+    // Each governance event goes out as an emission of its own, which no behind mark replaces, so
+    // the stream sends every event and is never moved.
+    type Head = Infallible;
 
     fn read_after(
         &self,
@@ -199,6 +210,18 @@ impl ChangeRecord for McpGovernanceRecord {
             })
         }
         .boxed()
+    }
+
+    fn read_distance(
+        &self,
+        _cursor: &EventCursor,
+        _max_events: usize,
+    ) -> DistanceRead<'_, Infallible, McpGovernanceStreamError> {
+        Box::pin(std::future::ready(Ok(None)))
+    }
+
+    fn cursor_at(head: &Infallible) -> EventCursor {
+        match *head {}
     }
 
     fn change_count(&self) -> watch::Receiver<u64> {

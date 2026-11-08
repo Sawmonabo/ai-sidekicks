@@ -25,10 +25,15 @@ use crate::driver::test_registry::new_session_id;
 
 const THREAD: &str = "thread-1";
 
-// The frames that reached the session, by method, in order.
+// The frames that reached the session, by method, and its held markers, in order.
 #[derive(Default)]
 struct SessionFrames {
     methods: Vec<String>,
+}
+
+/// How a held marker reads among the session's frames.
+fn held_marker(is_held: bool) -> String {
+    format!("held: {is_held}")
 }
 
 impl CodexSessionInboundHandler for SessionFrames {
@@ -49,7 +54,9 @@ impl CodexSessionInboundHandler for SessionFrames {
         unreachable!("the connection stays open")
     }
 
-    fn held_thread(&mut self, _thread_id: String, _is_held: bool) {}
+    fn held_thread(&mut self, _thread_id: String, is_held: bool) {
+        self.methods.push(held_marker(is_held));
+    }
 
     fn next_deadline(&self) -> Option<Instant> {
         None
@@ -108,8 +115,8 @@ fn frame(method: &str, params: &Value) -> Value {
 
 // Fails when a conversation held for a running command is let go while the command runs, a
 // frame that cannot change what it runs reads the list again, a command's end or the
-// conversation going idle does not, or a frame other than a command's item reaches the session
-// that moved off it.
+// conversation going idle does not, a frame other than a command's item reaches the session
+// that moved off it, or a frame read once it is let go reaches the session after the marker.
 #[tokio::test]
 async fn a_held_conversation_lets_go_only_once_no_command_runs() {
     let mut scripted = start_scripted_codex_service();
@@ -135,6 +142,12 @@ async fn a_held_conversation_lets_go_only_once_no_command_runs() {
     let after_idle = next_thread_request(&mut scripted, "thread/backgroundTerminals/list").await;
     scripted.script.answer(&after_idle, &json!({"data": []}));
     let unsubscribe = next_thread_request(&mut scripted, "thread/unsubscribe").await;
+    // Read ahead of the unsubscribe's answer, so it is routed before the let-go ends.
+    scripted.script.send(&frame(
+        "item/completed",
+        &json!({"threadId": THREAD, "turnId": "turn-1",
+            "item": {"type": "agentMessage", "id": "item-3"}}),
+    ));
     scripted
         .script
         .answer(&unsubscribe, &json!({"status": "unsubscribed"}));
@@ -153,7 +166,12 @@ async fn a_held_conversation_lets_go_only_once_no_command_runs() {
     );
     assert_eq!(
         frames.methods,
-        ["item/agentMessage/delta", "item/completed"]
+        [
+            held_marker(true),
+            "item/agentMessage/delta".to_owned(),
+            "item/completed".to_owned(),
+            held_marker(false),
+        ]
     );
 }
 

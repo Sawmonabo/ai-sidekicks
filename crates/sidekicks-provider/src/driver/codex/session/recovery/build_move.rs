@@ -1,25 +1,34 @@
-//! Restarting a service on the program as it is now, after a Codex update or when the service asks
-//! for a restart before it lists models, with its conversations resumed on the new process. An
-//! account's service restarts in place once every session on it is idle, each held in its slot so
-//! no turn starts meanwhile. A terminal service, which terminals the person joined share, gets a
-//! second service each conversation moves to as its session goes idle: the conversation leaves
-//! the first, which unloads it, since Codex refuses to resume one another service still writes,
-//! and the first is retired once no session is on it and no conversation is held there for its
-//! commands. The person's own service is not the daemon's to restart; it is only dialed again.
+//! Restarting a service on the program as it is now, after a Codex update, when the service asks
+//! for a restart before it lists models or its supervisor asks for a planned restart, when the
+//! executor running its commands ended, or when it left a purge's delete unanswered, with its
+//! conversations resumed on the new process. An account's service restarts in place once every
+//! session on it is idle, each held in its slot so no turn starts meanwhile. A terminal service,
+//! which terminals the person joined share, gets a second service each conversation moves to as its
+//! session goes idle: the conversation leaves the first, which unloads it, since Codex refuses to
+//! resume one another service still writes, and the first is retired once no session is on it and
+//! no conversation is held there for its commands; where the system cannot move the home's socket,
+//! that restart ends once the second is asked for, which waits until the first is free to stop.
+//! The person's own service is not the daemon's to restart; it is only dialed again.
 
+use std::collections::hash_map::Entry;
 use std::sync::Arc;
 
 use futures::FutureExt as _;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::controls::events::SessionNotice;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_platforms::CAN_LINK_A_SOCKET;
+use tokio::sync::oneshot;
 use tokio::time::Instant;
 
 use super::{CodexServiceRecovery, CodexWriterLeft, never_left};
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::run::turn_end_waiters::CodexTurnWait;
 use crate::driver::codex::service::home::CodexServiceKind;
-use crate::driver::codex::service::supervisor::{CODEX_UNLOAD_TIMEOUT, CodexService};
+use crate::driver::codex::service::supervisor::refusals::start_failure;
+use crate::driver::codex::service::supervisor::{
+    CODEX_UNLOAD_TIMEOUT, CodexService, CodexServiceId,
+};
 use crate::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::establishment::CodexInPlaceOutcome;
@@ -38,21 +47,92 @@ impl CodexServiceRecovery {
             {
                 continue;
             }
-            let recovery = Arc::clone(self);
-            let change = change.clone();
-            self.dependencies.tasks.spawn(async move {
-                if let Err(error) = recovery.restart_service(&service, Some(change)).await {
-                    report_restart_failed(&service, &error);
-                }
-            });
+            self.request_restart(&service, Some(change.clone()));
         }
     }
 
+    /// Restarts `service` as [`Self::restart_service`] does on the driver's tasks, without waiting
+    /// for it: a request while an earlier one has not ended joins that one, so one restart runs at
+    /// a time per service, and a joined `change` runs once more after it. A failure no caller
+    /// waits for is reported.
+    pub(crate) fn request_restart(
+        self: &Arc<Self>,
+        service: &Arc<CodexService>,
+        change: Option<ProviderBuildChange>,
+    ) {
+        self.enter_restart(service, change, None);
+    }
+
+    /// Restarts `service` as [`Self::request_restart`] does and answers once the restart it began
+    /// or joined has ended, with the one a joined change runs. Fails as the last of them fails,
+    /// read as a start's failure is.
+    pub(crate) fn restart_and_wait(
+        self: &Arc<Self>,
+        service: &Arc<CodexService>,
+        change: Option<ProviderBuildChange>,
+    ) -> impl Future<Output = Result<(), CodexError>> + Send + use<> {
+        let (ended, ending) = oneshot::channel();
+        self.enter_restart(service, change, Some(ended));
+        async move {
+            match ending.await {
+                Ok(restarted) => restarted.map_err(start_failure),
+                Err(_unanswered) => Err(CodexError::Transport {
+                    detail: "The Codex service's restart ended without an answer.".to_owned(),
+                    cause: None,
+                }),
+            }
+        }
+    }
+
+    /// Whether a restart [`Self::request_restart`] or [`Self::restart_and_wait`] began on the
+    /// service `service_id` has not ended, or the terminal service's replacement it asked for has
+    /// not taken its place.
+    pub(crate) fn is_restarting(&self, service_id: CodexServiceId) -> bool {
+        let state = self.lock();
+        state.restarting.contains_key(&service_id) || state.replacing.contains_key(&service_id)
+    }
+
+    // Marks `service` restarting and spawns its restart, or joins the restart under way, `change`
+    // kept for one more restart after it, the latest replacing an earlier one; `ended`, when given,
+    // is told how the last restart ended.
+    fn enter_restart(
+        self: &Arc<Self>,
+        service: &Arc<CodexService>,
+        change: Option<ProviderBuildChange>,
+        ended: Option<RestartEnded>,
+    ) {
+        let mut state = self.lock();
+        match state.restarting.entry(service.id()) {
+            Entry::Occupied(mut under_way) => {
+                let under_way = under_way.get_mut();
+                under_way.waiters.extend(ended);
+                if change.is_some() {
+                    under_way.joined_change = change;
+                }
+                return;
+            }
+            Entry::Vacant(slot) => {
+                slot.insert(ServiceRestart {
+                    joined_change: None,
+                    waiters: ended.into_iter().collect(),
+                });
+            }
+        }
+        drop(state);
+        let mark = RestartMark {
+            recovery: Arc::clone(self),
+            service: Arc::clone(service),
+            is_removed: false,
+        };
+        self.dependencies.tasks.spawn(mark.run(change));
+    }
+
     /// Restarts `service` on the program as it is now, its conversations resumed on the new
-    /// process and each session told of `change` where a build move asked for one: an account's
-    /// in place once its sessions are idle, a terminal one through its planned restart, and the
-    /// person's own redialed. Fails as an account service's start fails.
-    pub(crate) async fn restart_service(
+    /// process and each session told of `change` where a build move asked for one, and answers once
+    /// the restart took hold: an account's in place once its sessions are idle, a terminal one
+    /// once a second service took its place, and the person's own once it is dialed again. Fails as
+    /// the new start or the redial fails.
+    async fn restart_service(
         self: &Arc<Self>,
         service: &Arc<CodexService>,
         change: Option<ProviderBuildChange>,
@@ -61,34 +141,41 @@ impl CodexServiceRecovery {
             CodexServiceKind::Account => {
                 self.restart_account_service(service, change.as_ref()).await
             }
-            CodexServiceKind::Terminal => {
-                if let Some(change) = change {
-                    self.lock()
-                        .pending_build_change
-                        .insert(service.id(), change);
-                }
-                service.request_planned_restart();
+            // Only one that serves is replaced, as its own planned restart replaces only one up.
+            CodexServiceKind::Terminal if service.is_serving() && CAN_LINK_A_SOCKET => {
+                self.replace_terminal_service(service, change).await
+            }
+            CodexServiceKind::Terminal if service.is_serving() => {
+                self.replace_terminal_service_once_free(service, change);
                 Ok(())
             }
+            CodexServiceKind::Terminal => Ok(()),
             // The redial's recovery resumes its conversations as a reconnect does.
-            CodexServiceKind::Joined => {
-                service.request_planned_restart();
-                Ok(())
-            }
+            CodexServiceKind::Joined => service.restart_planned().await,
         }
     }
 
-    /// A terminal service's planned restart: a second service on the program as it is now, and
-    /// each session moved to it once idle; the first is retired once it holds none.
-    pub(crate) async fn move_terminal_service(self: &Arc<Self>, service: &Arc<CodexService>) {
-        let change = self.lock().pending_build_change.remove(&service.id());
-        let replacement = match self.dependencies.services.replace(service).await {
-            Ok(replacement) => replacement,
-            Err(error) => {
-                report_restart_failed(service, &error);
-                return;
-            }
-        };
+    // Starts a second service in a terminal service's place and moves each session to it once
+    // idle, each told of `change` once it resumed there; the first is retired once it holds none.
+    // Fails as the second's start fails, the first then kept.
+    async fn replace_terminal_service(
+        self: &Arc<Self>,
+        service: &Arc<CodexService>,
+        change: Option<ProviderBuildChange>,
+    ) -> Result<(), CodexError> {
+        let replacement = self.dependencies.services.replace(service).await?;
+        self.move_sessions_to(service, &replacement, change.as_ref());
+        Ok(())
+    }
+
+    // Moves each session on `service` to `replacement` once idle, each told of `change` once it
+    // resumed there, and retires `service` once it holds none.
+    fn move_sessions_to(
+        self: &Arc<Self>,
+        service: &Arc<CodexService>,
+        replacement: &Arc<CodexService>,
+        change: Option<&ProviderBuildChange>,
+    ) {
         let sessions = service.attached_sessions();
         if sessions.is_empty() {
             self.retire_when_empty(service);
@@ -96,14 +183,59 @@ impl CodexServiceRecovery {
         for inbound in sessions {
             let recovery = Arc::clone(self);
             let from = Arc::clone(service);
-            let to = Arc::clone(&replacement);
-            let change = change.clone();
+            let to = Arc::clone(replacement);
+            let change = change.cloned();
             self.dependencies.tasks.spawn(async move {
                 recovery
                     .move_when_idle(&inbound, &from, &to, change.as_ref())
                     .await;
             });
         }
+    }
+
+    // Where the home's socket cannot be moved, the second service takes it only once the first is
+    // free to stop, which lasts as long as the person's terminals stay inside it; so the restart
+    // ends once the replacement is asked for, and the first reads as restarting until it is
+    // replaced. A request while the replacement is under way asks nothing more, its `change`
+    // replacing an earlier one, so the sessions moved once it lands are told of the latest build;
+    // a failed replacement is reported.
+    fn replace_terminal_service_once_free(
+        self: &Arc<Self>,
+        service: &Arc<CodexService>,
+        change: Option<ProviderBuildChange>,
+    ) {
+        match self.lock().replacing.entry(service.id()) {
+            Entry::Occupied(mut under_way) => {
+                if change.is_some() {
+                    *under_way.get_mut() = change;
+                }
+                return;
+            }
+            Entry::Vacant(slot) => {
+                slot.insert(change);
+            }
+        }
+        let mut mark = ReplacementMark {
+            recovery: Arc::clone(self),
+            service: Arc::clone(service),
+            is_removed: false,
+        };
+        self.dependencies.tasks.spawn(async move {
+            let replaced = mark
+                .recovery
+                .dependencies
+                .services
+                .replace(&mark.service)
+                .await;
+            let change = mark.take_change();
+            match replaced {
+                Ok(replacement) => {
+                    mark.recovery
+                        .move_sessions_to(&mark.service, &replacement, change.as_ref());
+                }
+                Err(error) => report_restart_failed(&mark.service, &error),
+            }
+        });
     }
 
     // Holds every session on an account's service in its slot once each is idle, restarts the
@@ -114,10 +246,19 @@ impl CodexServiceRecovery {
         service: &Arc<CodexService>,
         change: Option<&ProviderBuildChange>,
     ) -> Result<(), CodexError> {
-        let held = loop {
-            let mut held: Vec<(CodexSessionClaim<'_>, CodexSessionInboundSender)> = Vec::new();
+        // Sessions already held stay held while a busy one's turn ends, so none of them starts a
+        // turn meanwhile; each round claims only the sessions not held yet.
+        let mut held: Vec<(CodexSessionClaim<'_>, CodexSessionInboundSender)> = Vec::new();
+        loop {
             let mut busy = None;
             for inbound in service.attached_sessions() {
+                let session_id = inbound.session_id();
+                if held
+                    .iter()
+                    .any(|(_claim, kept)| kept.session_id() == session_id)
+                {
+                    continue;
+                }
                 match self.claim_idle(&inbound).await {
                     ClaimedIdle::Idle(claim, _) => held.push((claim, inbound)),
                     ClaimedIdle::Busy => {
@@ -128,12 +269,11 @@ impl CodexServiceRecovery {
                 }
             }
             let Some(busy) = busy else {
-                break held;
+                break;
             };
-            drop(held);
             // A session that closed meanwhile is passed over on the next round.
             let _settled = wait_for_codex_turns(&busy, CodexTurnWait::Idle, None).await;
-        };
+        }
         service.restart_planned().await?;
         self.dependencies.release.forget_service(service.id());
         for (claim, inbound) in held {
@@ -295,6 +435,111 @@ impl CodexServiceRecovery {
             release.when_none_held_on(retiring.id()).await;
             services.retire(&retiring).await;
         });
+    }
+}
+
+/// Told how a restart ended, its failure shared by every caller that waited on it.
+type RestartEnded = oneshot::Sender<Result<(), Arc<CodexError>>>;
+
+/// A restart begun on a service that has not ended, with the callers waiting for its end.
+pub(super) struct ServiceRestart {
+    /// The build change a request brought while the restart ran, run in one more restart once it
+    /// ends.
+    joined_change: Option<ProviderBuildChange>,
+    /// Each told how the last restart ended.
+    waiters: Vec<RestartEnded>,
+}
+
+/// A service's restart mark, held by the task that runs its restarts. Dropped before that task
+/// removed it, as a panic in a restart drops it, it removes the mark, so the service no longer
+/// reads as restarting and each waiter, its sender dropped, hears the restart ended unanswered.
+struct RestartMark {
+    /// The recovery whose state holds the mark.
+    recovery: Arc<CodexServiceRecovery>,
+    /// The service restarting.
+    service: Arc<CodexService>,
+    /// Whether the task removed the mark itself, its waiters then told.
+    is_removed: bool,
+}
+
+impl RestartMark {
+    // Restarts the service, then once more with each change a request joined meanwhile, and tells
+    // each waiter how the last restart ended; a failure no waiter heard is reported.
+    async fn run(mut self, mut change: Option<ProviderBuildChange>) {
+        let service_id = self.service.id();
+        let (restarted, waiters) = loop {
+            let restarted = self
+                .recovery
+                .restart_service(&self.service, change)
+                .await
+                .map_err(Arc::new);
+            // Taken and cleared in one step, so a request between the two is never lost.
+            let mut state = self.recovery.lock();
+            let mut restart = state
+                .restarting
+                .remove(&service_id)
+                .expect("the restart's own entry");
+            let Some(joined) = restart.joined_change.take() else {
+                self.is_removed = true;
+                break (restarted, restart.waiters);
+            };
+            state.restarting.insert(service_id, restart);
+            drop(state);
+            if let Err(error) = &restarted {
+                report_restart_failed(&self.service, error);
+            }
+            change = Some(joined);
+        };
+        let heard = waiters
+            .into_iter()
+            .filter_map(|waiter| waiter.send(restarted.clone()).ok())
+            .count();
+        if heard == 0
+            && let Err(error) = &restarted
+        {
+            report_restart_failed(&self.service, error);
+        }
+    }
+}
+
+impl Drop for RestartMark {
+    fn drop(&mut self) {
+        if !self.is_removed {
+            let _unanswered = self.recovery.lock().restarting.remove(&self.service.id());
+        }
+    }
+}
+
+/// A terminal service's replacement under way, held by the task that runs it; dropped before that
+/// task removed it, as a panic drops it, it removes the service from those the recovery is
+/// replacing.
+struct ReplacementMark {
+    /// The recovery whose state holds the mark.
+    recovery: Arc<CodexServiceRecovery>,
+    /// The service being replaced.
+    service: Arc<CodexService>,
+    /// Whether the task removed the mark itself.
+    is_removed: bool,
+}
+
+impl ReplacementMark {
+    // Removes the mark and answers the latest build change a request brought, in one step, so a
+    // request between the two is never lost.
+    fn take_change(&mut self) -> Option<ProviderBuildChange> {
+        self.is_removed = true;
+        self.recovery
+            .lock()
+            .replacing
+            .remove(&self.service.id())
+            .expect("the replacement's own entry")
+    }
+}
+
+impl Drop for ReplacementMark {
+    fn drop(&mut self) {
+        if !self.is_removed {
+            let _unanswered = self.recovery.lock().replacing.remove(&self.service.id());
+        }
     }
 }
 

@@ -86,6 +86,7 @@ use crate::driver::codex::transport::socket::{CodexSocketWait, dial_codex_servic
 use crate::driver::codex::version::CODEX_CLIENT_NAME;
 use crate::driver::contract::error::DriverError;
 use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::port::raw_provider_messages::RawProviderMessages;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::spawned_version::{ResolvedProviderExecutable, SpawnedProviderVersionReading};
@@ -151,6 +152,8 @@ pub(crate) struct CodexServiceDependencies {
     pub(crate) switching: Arc<CodexSwitchingAccount>,
     /// The accounts reader, which an API-key account's key is read through at each start.
     pub(crate) provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
+    /// Where every message a service sends on a connection is recorded word for word.
+    pub(crate) raw_messages: Arc<PortRegistration<Arc<dyn RawProviderMessages>>>,
 }
 
 /// The socket one service listens on.
@@ -515,6 +518,7 @@ impl CodexService {
             events,
             responder: None,
             token_refresher: self.token_refresher(),
+            raw_messages: Arc::clone(&self.dependencies.raw_messages),
         }
     }
 
@@ -596,8 +600,9 @@ impl CodexService {
         self.send(SupervisorEvent::PlannedRestart);
     }
 
-    /// Restarts an account's service on the program as it is now and answers once it is up
-    /// again, the start bounded as [`Self::ensure_started`] bounds it. Fails as that start fails.
+    /// Restarts an account's service on the program as it is now, or dials a joined one again, and
+    /// answers once it is up again, the start bounded as [`Self::ensure_started`] bounds it. Fails
+    /// as that start fails.
     pub(crate) async fn restart_planned(&self) -> Result<(), CodexError> {
         let mut availability = self.availability.subscribe();
         availability.borrow_and_update();
@@ -657,10 +662,7 @@ impl CodexService {
 
     /// Records a conversation as a session's and delivers the frames held for it, in order.
     pub(crate) fn register_thread(&self, thread_id: String, session_id: SessionId) {
-        let held = self.lock_threads().register(thread_id, session_id);
-        for frame in held {
-            self.deliver_thread_frame(&session_id, &frame.thread_id, &frame.method, frame.params);
-        }
+        self.register_routed_thread(&self.lock_routing(), thread_id, session_id);
     }
 
     /// Records a side question's read-only copy as the session's, marked so its commands are
@@ -801,6 +803,7 @@ impl CodexService {
             responder: Some(Arc::new(CodexServiceAsks::new(Arc::downgrade(self)))
                 as Arc<dyn CodexServerRequestResponder>),
             token_refresher: self.token_refresher(),
+            raw_messages: Arc::clone(&self.dependencies.raw_messages),
         }
     }
 

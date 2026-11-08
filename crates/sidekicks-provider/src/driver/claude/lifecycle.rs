@@ -39,9 +39,8 @@ use crate::driver::claude::delivery::requests::{
 };
 use crate::driver::claude::delivery::reviewer::ClaudeReviewerCapture;
 use crate::driver::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
-use crate::driver::claude::delivery::stream::{
-    ClaudeDeliveryStream, ClaudeSessionStreams, ClaudeStreamDependencies,
-};
+use crate::driver::claude::delivery::stream::dependencies::ClaudeStreamDependencies;
+use crate::driver::claude::delivery::stream::{ClaudeDeliveryStream, ClaudeSessionStreams};
 use crate::driver::claude::frame_routing::ClaudeFrameRouting;
 use crate::driver::claude::goals::ClaudeGoalCommands;
 use crate::driver::claude::goals::endings::ClaudeGoalEndings;
@@ -132,14 +131,15 @@ pub(crate) struct ClaudeSessionParts {
 }
 
 /// The launcher every Claude Code process the driver keeps starts through, over `services`'
-/// handles: the spawner, the child records, the process table, the accounts port and the data
-/// folder.
+/// handles: the spawner, the child records, the process table, the accounts port, the raw-message
+/// port and the data folder.
 pub(crate) fn compose_claude_launcher(services: &DriverServices) -> Arc<ClaudeProcessLauncher> {
     Arc::new(ClaudeProcessLauncher::new(
         services.spawner.clone(),
         Arc::clone(&services.child_records),
         Arc::clone(&services.processes),
         Arc::clone(&services.ports.provider_accounts),
+        Arc::clone(&services.ports.raw_provider_messages),
         &services.data_folder,
     ))
 }
@@ -390,6 +390,7 @@ impl ClaudeDriver {
             turn_readings: Arc::clone(&ports.turn_readings),
             context: Arc::clone(&context_readings),
             tool_call_statuses: Arc::clone(&ports.tool_call_statuses),
+            tool_traces: Arc::clone(&ports.tool_traces),
             goal_endings: Arc::clone(&goal_endings),
             session_message_readings: Arc::clone(&ports.session_message_readings),
         }));

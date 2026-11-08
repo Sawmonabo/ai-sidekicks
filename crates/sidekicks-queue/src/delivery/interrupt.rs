@@ -49,7 +49,7 @@ impl QueueDelivery {
     /// The interrupt's end writes for the lead messages waiting for `run_id`, called on the
     /// session's chain: `canceled` is given back first, then the messages not handed and not an
     /// opening (a starting run's opening goes with the rest) are returned for `ReturnToDraft` as
-    /// the Stop returns them, the words of those canceled put back into the draft, placed with
+    /// the Stop returns them, those canceled put back into the draft whole, placed with
     /// `deliver_first` first for `NextTurn`, and left for `KeepWaiting`. Writes nothing itself.
     /// Fails when a read fails or an event cannot be drafted.
     pub(crate) async fn interrupt_end_writes(

@@ -202,7 +202,7 @@ async fn an_interrupt_of_a_starting_run_takes_its_opening_with_the_rest() {
 }
 
 // `returnToDraft` ends the messages the run's end write returns by the Stop's table, in that same
-// write: words alone are canceled into the draft, a review ends not delivered. Killed by the
+// write: a lead message is canceled into the draft, a review ends not delivered. Killed by the
 // return canceling every message it took back, or by its draft write left out.
 #[tokio::test]
 async fn return_to_draft_ends_the_messages_by_the_stops_table() {

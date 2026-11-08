@@ -366,15 +366,25 @@ impl CodexService {
             params,
             thread_id,
         };
+        // Looked up and queued under the routing lock, which a let-go holds while it forgets the
+        // conversation and tells its session, so no frame looked up first is queued after.
+        let routing = self.lock_routing();
         let route = self.lock_threads().route_or_hold(frame, Instant::now());
         let pushed_out = match route {
             CodexThreadFrameRoute::Session(session_id, frame) => {
-                self.register_spawned_helpers(session_id, spawned_helpers);
-                self.deliver_thread_frame(&session_id, &frame.thread_id, method, frame.params);
+                self.register_spawned_helpers(&routing, session_id, spawned_helpers);
+                self.deliver_thread_frame(
+                    &routing,
+                    &session_id,
+                    &frame.thread_id,
+                    method,
+                    frame.params,
+                );
                 return;
             }
             CodexThreadFrameRoute::Held(pushed_out) => pushed_out,
         };
+        drop(routing);
         for frame in pushed_out {
             CodexTransportDiagnostic::PendingThreadFrameDropped {
                 method: frame.method,
@@ -420,21 +430,77 @@ impl CodexService {
     // item finds it, stays as it is.
     fn register_spawned_helpers(
         &self,
+        routing: &CodexServiceRouting,
         session_id: SessionId,
         spawned_helpers: Vec<CodexSpawnedHelper>,
     ) {
         for helper in spawned_helpers {
             let is_registered = self.lock_threads().session_for(&helper.thread_id).is_some();
             if !is_registered {
-                self.register_thread(helper.thread_id, session_id);
+                self.register_routed_thread(routing, helper.thread_id, session_id);
             }
         }
     }
 
-    // A frame of a conversation a session holds. One the session moved off reaches it only
-    // through the rows of the commands it still runs.
-    pub(super) fn deliver_thread_frame(
+    /// Records a conversation as a session's and queues the frames held for it, in order, under
+    /// the caller's `routing` lock, so no frame the reader routes meanwhile comes between them.
+    pub(super) fn register_routed_thread(
         &self,
+        routing: &CodexServiceRouting,
+        thread_id: String,
+        session_id: SessionId,
+    ) {
+        let held = self.lock_threads().register(thread_id, session_id);
+        for frame in held {
+            self.deliver_thread_frame(
+                routing,
+                &session_id,
+                &frame.thread_id,
+                &frame.method,
+                frame.params,
+            );
+        }
+    }
+
+    /// Queues `item` for a session and records a conversation as that session's in a single step
+    /// against the reader's routing, the frames held for the conversation queued after `item`, so
+    /// no frame of it the reader routes meanwhile comes before `item`; answers whether an attached
+    /// session's queue took it.
+    pub(crate) fn register_thread_and_queue(
+        &self,
+        thread_id: String,
+        session_id: SessionId,
+        item: CodexSessionInbound,
+    ) -> bool {
+        let routing = self.lock_routing();
+        let is_queued = routing
+            .session(&session_id)
+            .is_some_and(|session| session.push(item));
+        self.register_routed_thread(&routing, thread_id, session_id);
+        is_queued
+    }
+
+    /// Forgets one conversation and queues `item` for one session in a single step against the
+    /// reader's routing, so no frame of the conversation the reader looked up before the forget is
+    /// queued after `item`; answers whether an attached session's queue took it.
+    pub(crate) fn release_thread_and_queue(
+        &self,
+        thread_id: &str,
+        session_id: &SessionId,
+        item: CodexSessionInbound,
+    ) -> bool {
+        let routing = self.lock_routing();
+        self.lock_threads().release(thread_id);
+        routing
+            .session(session_id)
+            .is_some_and(|session| session.push(item))
+    }
+
+    // A frame of a conversation a session holds, queued under the caller's `routing` lock. One
+    // the session moved off reaches it only through the rows of the commands it still runs.
+    fn deliver_thread_frame(
+        &self,
+        routing: &CodexServiceRouting,
         session_id: &SessionId,
         thread_id: &str,
         method: &str,
@@ -447,24 +513,35 @@ impl CodexService {
         if is_moved_off && !method.starts_with(CODEX_ITEM_METHOD_PREFIX) {
             return;
         }
-        self.push_frame(session_id, method.to_owned(), params);
+        push_frame(routing, session_id, method.to_owned(), params);
     }
 
     // A frame naming no conversation, copied to one session.
     fn deliver(&self, session_id: &SessionId, method: &str, params: &RawValue) {
-        self.push_frame(session_id, method.to_owned(), params.to_owned());
+        push_frame(
+            &self.lock_routing(),
+            session_id,
+            method.to_owned(),
+            params.to_owned(),
+        );
     }
+}
 
-    fn push_frame(&self, session_id: &SessionId, method: String, params: Box<RawValue>) {
-        let routing = self.lock_routing();
-        let Some(session) = routing.session(session_id) else {
-            return;
-        };
-        if !session.push(CodexSessionInbound::Frame { method, params }) {
-            tracing::debug!(
-                session_id = %session_id,
-                "a Codex frame reached a session whose task has ended"
-            );
-        }
+// Queues a frame for one session under `routing`, the frame dropped when the session is not
+// attached.
+fn push_frame(
+    routing: &CodexServiceRouting,
+    session_id: &SessionId,
+    method: String,
+    params: Box<RawValue>,
+) {
+    let Some(session) = routing.session(session_id) else {
+        return;
+    };
+    if !session.push(CodexSessionInbound::Frame { method, params }) {
+        tracing::debug!(
+            session_id = %session_id,
+            "a Codex frame reached a session whose task has ended"
+        );
     }
 }

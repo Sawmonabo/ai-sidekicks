@@ -406,7 +406,7 @@ impl QueueSends {
         let send = RecordedSend {
             item: new_item(*hold.key(), &item, run_id, Some(replaces.id)),
             route: SendRoute::Edit {
-                replaces: replaces.clone(),
+                replaces: Box::new(replaces.clone()),
             },
             retries: None,
         };

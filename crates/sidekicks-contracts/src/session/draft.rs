@@ -1,5 +1,6 @@
-//! The composer's daemon-held store for one session: the unsent draft, the staged files, covering
-//! part of a staged picture, and the refusals staging can answer with.
+//! The composer's daemon-held store for one session: the unsent draft with what rides with its
+//! words, the staged files, covering part of a staged picture, and the refusals staging can answer
+//! with.
 //!
 //! The daemon holds all of it, scoped to the session, so a half-typed message and its staged files
 //! reach the person's other devices and Send needs no upload step. A staged file is copied to the
@@ -9,11 +10,16 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::agent::definition::binding::ProviderToken;
+use crate::artifacts::attachment_reference::AttachmentReferenceList;
 use crate::artifacts::id::ArtifactId;
 use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
 use crate::jsonrpc::refusal::RefusalCode;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::mcp::server::McpServerName;
 use crate::method::methods;
+use crate::repo::mount::WorkspaceId;
+use crate::run::queue::QueuedSkillPick;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::id::ClientUuid;
@@ -23,29 +29,126 @@ use crate::wire::list::BoundedVec;
 use crate::wire::literal;
 use crate::wire::text::{BoundedText, NonEmptyText};
 
-/// Saves a session's draft. `text` is the whole draft and replaces the one held; an empty string
-/// clears it, which is what Send does. The text has no length limit of its own: a message's limit
-/// is the send's to state, so a draft the send would take is never refused here.
+/// What rides with a draft's words, in the shapes a send carries them: the files, the skill picks,
+/// the output speed of its turn and the repository its run binds to. A message a Stop or an
+/// interrupt returns to the composer brings its own here, so it is sent again whole.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionDraftExtras {
+    /// The files, in staging order, by artifact id. A returned message's files stay here as the
+    /// artifacts they are and go out as the next send's `attachments`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "AttachmentReferenceList")]
+    pub attachments: Option<AttachmentReferenceList>,
+    /// The skills picked, in the order picked.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Vec<QueuedSkillPick>")]
+    pub skills: Option<Vec<QueuedSkillPick>>,
+    /// The output-speed level its turn alone runs at.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ProviderToken")]
+    pub output_speed_for_turn: Option<ProviderToken>,
+    /// The repository the run its send starts binds to.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "WorkspaceId")]
+    pub workspace_id: Option<WorkspaceId>,
+}
+
+impl SessionDraftExtras {
+    /// Whether nothing rides with the words: every member absent or an empty list.
+    pub fn is_empty(&self) -> bool {
+        let Self {
+            attachments,
+            skills,
+            output_speed_for_turn,
+            workspace_id,
+        } = self;
+        attachments
+            .as_ref()
+            .is_none_or(|attachments| attachments.0.is_empty())
+            && skills.as_ref().is_none_or(Vec::is_empty)
+            && output_speed_for_turn.is_none()
+            && workspace_id.is_none()
+    }
+}
+
+/// A session's unsent draft, whole: the words and what rides with them. A draft the person saved
+/// and one a Stop or an interrupt returned read the same. The text has no length limit of its own:
+/// a message's limit is the send's to state, so a draft the send would take is never refused here.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionDraft {
+    /// The words; empty when none are typed.
+    pub text: String,
+    /// What rides with the words.
+    pub extras: SessionDraftExtras,
+}
+
+/// Saves a session's draft. `draft` is the whole draft and replaces the one held; an empty draft,
+/// no words and no extras, clears it, which is what Send does. A save over a draft that changed
+/// since `expectedRevision` is refused rather than overwriting it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct SessionDraftUpdateRequest {
     /// The session.
     pub session_id: SessionId,
-    /// The whole draft; empty clears it.
-    pub text: String,
+    /// The whole draft; an empty one clears it.
+    pub draft: SessionDraft,
+    /// The draft revision the save was typed over; 0 when no draft was ever held.
+    pub expected_revision: SafeInt<0>,
 }
 
-/// When the daemon stored the draft.
+/// The draft's new revision and when the daemon stored it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct SessionDraftUpdateResponse {
     /// The session.
     pub session_id: SessionId,
+    /// The draft's new revision.
+    pub revision: SafeInt<1>,
     /// When the draft was stored.
     #[garde(dive)]
     pub updated_at: WireInstant,
+}
+
+/// `session.draft.subscribe`: follows a session's draft, the draft held now and again after each
+/// change.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct SessionDraftSubscribeRequest {
+    /// The session.
+    pub session_id: SessionId,
+}
+
+/// A session's draft as the daemon holds it, with its revision: an empty draft at revision 0
+/// before any draft was held.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct HeldSessionDraft {
+    /// The draft, whole.
+    pub draft: SessionDraft,
+    /// Its revision.
+    pub revision: SafeInt<0>,
 }
 
 /// One staged file as the daemon holds it. Every member is what the daemon found in the bytes it
@@ -106,6 +209,8 @@ pub struct SessionAttachmentAddRequest {
 }
 
 ts_constants! {
+    /// A draft save carrying a revision that is no longer the draft's current one.
+    SESSION_DRAFT_REVISION_STALE_CODE = RefusalCode::SessionDraftRevisionStale;
     /// The code for a file the session cannot stage.
     SESSION_ATTACHMENT_REFUSED_CODE = RefusalCode::SessionAttachmentRefused;
 }
@@ -309,6 +414,14 @@ methods! {
             mutating: true,
             params: SessionDraftUpdateRequest,
             result: SessionDraftUpdateResponse,
+            refusals: [SessionNotFound, SessionDraftRevisionStale],
+        },
+        /// Follows the session's draft.
+        SessionDraftSubscribe = subscription "session.draft.subscribe" {
+            mutating: false,
+            params: SessionDraftSubscribeRequest,
+            result: SubscribeAcknowledgmentResponse,
+            emission: HeldSessionDraft,
             refusals: [SessionNotFound],
         },
         /// Stages files for the next message; each refused item rides in the reply.
@@ -338,11 +451,16 @@ methods! {
 /// The module's TypeScript face.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "session/draft",
-    doc: "The composer's daemon-held store for one session: the unsent draft, the staged files, \
-          covering part of a staged picture, and the refusals staging can answer with.",
+    doc: "The composer's daemon-held store for one session: the unsent draft with what rides with \
+          its words, the staged files, covering part of a staged picture, and the refusals staging \
+          can answer with.",
     definitions: &[
+        Definition::read::<SessionDraftExtras>(),
+        Definition::read::<SessionDraft>(),
         Definition::read::<SessionDraftUpdateRequest>().checked(),
         Definition::read::<SessionDraftUpdateResponse>().checked(),
+        Definition::read::<SessionDraftSubscribeRequest>(),
+        Definition::read::<HeldSessionDraft>().checked(),
         Definition::read::<SessionAttachmentSummary>(),
         Definition::read::<SessionAttachmentItem>(),
         Definition::read::<SessionAttachmentAddRequest>().checked(),

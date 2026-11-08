@@ -82,9 +82,11 @@ async fn a_send_whose_lead_run_started_meanwhile_goes_into_it() {
         run_id
     };
 
-    let (sent, run_id) = timeout(WAIT, async { tokio::join!(fixture.send(), changing) })
-        .await
-        .expect("the send answers");
+    let (sent, run_id) = Box::pin(timeout(WAIT, async {
+        tokio::join!(fixture.send(), changing)
+    }))
+    .await
+    .expect("the send answers");
     fixture.queue.stop().await;
 
     let item_id = sent.expect("the send is saved");

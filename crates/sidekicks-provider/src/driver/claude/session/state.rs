@@ -30,10 +30,11 @@ use crate::driver::claude::session::answered_commands::{
 };
 use crate::driver::claude::session::mcp_server_readings::ClaudeMcpServerReadings;
 use crate::driver::claude::session::permission_mode::ClaudePermissionModeRecord;
+use crate::driver::claude::session::process::ClaudeStreamFrame;
 use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::declarations::{
-    ClaudeHandshakeDeclaration, ClaudeInboundFrameObservation, ClaudeInitializeDeclaration,
+    ClaudeHandshakeDeclaration, ClaudeInitializeDeclaration,
 };
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::session::ultracode::ClaudeUltracodeReading;
@@ -77,13 +78,14 @@ pub(crate) struct ClaudeRoutableFrame {
     pub(crate) thread_id: String,
     /// The frame's family.
     pub(crate) family_class: ThreadFrameFamilyClass,
-    /// The observation the frame was built from, so a released hold can still be metered.
-    pub(crate) observation: ClaudeInboundFrameObservation,
+    /// The frame, its text with it, so a frame released from a hold is metered and read as a
+    /// frame routed at once is; only a held frame is copied, within the hold's cap.
+    pub(crate) frame: ClaudeStreamFrame,
 }
 
 impl RoutableProviderFrame for ClaudeRoutableFrame {
     fn raw_wire_type(&self) -> &str {
-        &self.observation.frame_kind
+        &self.frame.observation.frame_kind
     }
 
     fn family_class(&self) -> ThreadFrameFamilyClass {

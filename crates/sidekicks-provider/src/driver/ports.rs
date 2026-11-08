@@ -36,6 +36,7 @@ use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::permission_ask::PermissionAskPort;
 use crate::port::plan::PlanPort;
 use crate::port::question::QuestionPort;
+use crate::port::raw_provider_messages::RawProviderMessages;
 use crate::port::repository_reader::RepositoryReader;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
@@ -50,6 +51,7 @@ use crate::port::session_rules::SessionRulePort;
 use crate::port::session_wake::SessionWaker;
 use crate::port::tool_call_status_publisher::ToolCallStatusPublisher;
 use crate::port::tool_server_route::ToolServerRoute;
+use crate::port::tool_traces::ToolTraces;
 use crate::port::turn_reading_publisher::TurnReadingPublisher;
 use crate::port::usage_sink::UsageSink;
 use crate::pricing::receiver::TelemetryTarget;
@@ -285,6 +287,12 @@ pub struct DriverPorts {
     pub held_tool_calls: Arc<PortRegistration<Arc<dyn HeldToolCallReads>>>,
     /// The session's agent tree, which a pre-tool hook looks up the helper a tool call names in.
     pub agent_tree_lookup: Arc<PortRegistration<Arc<dyn AgentTreeLookup>>>,
+    /// The raw-message bucket, which each driver's reader hands every message the provider sends;
+    /// a message read before it is registered is not recorded.
+    pub raw_provider_messages: Arc<PortRegistration<Arc<dyn RawProviderMessages>>>,
+    /// The tool-trace bucket, which each driver hands every tool call it delivers with its result;
+    /// a call delivered before it is registered is not recorded.
+    pub tool_traces: Arc<PortRegistration<Arc<dyn ToolTraces>>>,
 }
 
 impl Default for DriverPorts {
@@ -341,6 +349,8 @@ impl DriverPorts {
             tool_call_statuses: Arc::new(PortRegistration::new("tool call statuses")),
             held_tool_calls: Arc::new(PortRegistration::new("held tool calls")),
             agent_tree_lookup: Arc::new(PortRegistration::new("agent tree lookup")),
+            raw_provider_messages: Arc::new(PortRegistration::new("raw provider messages")),
+            tool_traces: Arc::new(PortRegistration::new("tool traces")),
         }
     }
 }

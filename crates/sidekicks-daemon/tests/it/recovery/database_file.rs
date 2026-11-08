@@ -556,7 +556,9 @@ async fn a_fresh_file_not_of_this_build_or_not_sound_is_refused(#[case] fault: F
             // An index of the same shape with no entries takes the event index's name, and the
             // index holding the entries is dropped, so the event index matches no row.
             fresh
-                .execute_batch("CREATE INDEX spare ON session_events(session_id, type) WHERE 0")
+                .execute_batch(
+                    "CREATE INDEX spare ON session_events(session_id, type, sequence) WHERE 0",
+                )
                 .expect("the spare index is made");
             fresh
                 .set_db_config(DbConfig::SQLITE_DBCONFIG_DEFENSIVE, false)

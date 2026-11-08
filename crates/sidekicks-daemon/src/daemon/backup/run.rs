@@ -72,7 +72,6 @@ use tokio_util::sync::CancellationToken;
 
 use crate::daemon::backup::generations::{BackupGeneration, backups_to_prune};
 use crate::daemon::machine_settings::file::{MachineSettingsFile, MachineSettingsFileError};
-use crate::daemon::release_version::this_build_release_version;
 
 /// The lock file in the backups folder a run holds while it writes there.
 pub(crate) const BACKUP_LOCK_FILE_NAME: &str = "backup.lock";
@@ -150,10 +149,9 @@ pub(crate) struct BackupManifestFacts {
     pub(crate) service_version: ReleaseVersion,
 }
 
-/// The versions each manifest records: this build's release version, which one release ships as
-/// both the app's and the service's.
-pub(crate) fn backup_manifest_facts() -> BackupManifestFacts {
-    let version = this_build_release_version();
+/// The versions each manifest records: the service's release `version`, which one release ships
+/// as both the app's and the service's.
+pub(crate) fn backup_manifest_facts(version: ReleaseVersion) -> BackupManifestFacts {
     BackupManifestFacts {
         app_version: version.clone(),
         service_version: version,

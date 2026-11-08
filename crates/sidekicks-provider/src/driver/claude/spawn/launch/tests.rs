@@ -22,6 +22,7 @@ use crate::driver::claude::session::process::{
     ClaudeProcessEnd, ClaudeProcessLaunch, ClaudeProcessListener, ClaudeStreamFrame,
 };
 use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
+use crate::driver::ports::DriverPorts;
 use crate::driver::{
     AccountFoldersError, CurrentProviderAccount, ProviderAccountFolders, ProviderAccountReader,
 };
@@ -123,6 +124,7 @@ async fn run_stand_in(mode: ProviderAuthMode) -> (tempfile::TempDir, Arc<SealedT
         Arc::new(UnrecordedChildren),
         Arc::new(ProviderProcessRegistry::default()),
         Arc::new(provider_accounts),
+        DriverPorts::new().raw_provider_messages,
         folder.path(),
     );
     let record = folder.path().to_string_lossy().into_owned();

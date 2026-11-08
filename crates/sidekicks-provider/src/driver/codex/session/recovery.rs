@@ -67,6 +67,7 @@ use crate::port::run_host::RunHost;
 use crate::run::delivery::InboundDelivery;
 use crate::runtime_binding::store::mint_runtime_binding_id;
 
+use self::build_move::ServiceRestart;
 use self::in_place_resume::CodexInPlaceResumeCall;
 
 /// The words a run is failed with when its service ended with no exit the daemon could read.
@@ -125,10 +126,13 @@ struct RecoveryState {
     restart_waits: HashMap<CodexServiceId, Vec<(SessionId, oneshot::Sender<DriverResumeResult>)>>,
     // The answers each person's restart carries to its session's held lead, until its resume.
     restart_continues: HashMap<SessionId, CodexHeldLeadContinue>,
-    // The build a terminal service's planned restart moves its sessions to.
-    pending_build_change: HashMap<CodexServiceId, ProviderBuildChange>,
     // The services a build move left, waiting for their held conversations to be let go.
     retiring: HashSet<CodexServiceId>,
+    // The services whose requested restart has not ended, so a second request joins it.
+    restarting: HashMap<CodexServiceId, ServiceRestart>,
+    // The terminal services whose replacement a restart asked for has not taken their place, each
+    // with the latest build change a request brought, which the moved sessions are told of.
+    replacing: HashMap<CodexServiceId, Option<ProviderBuildChange>>,
     // The sessions each service that came back owes a resume, by recovery, until that recovery
     // resumed them.
     owed_resumes: HashMap<CodexServiceId, HashMap<CodexRecoveryGeneration, Vec<SessionId>>>,

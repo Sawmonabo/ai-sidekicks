@@ -44,12 +44,13 @@ use sidekicks_ipc::stream::subscriptions::Subscriptions;
 use sidekicks_mcp::client::McpClient;
 use sidekicks_mcp::mutation::service::McpMutationService;
 use sidekicks_platforms::{
-    Spawner, WakeWatch, WallClock, WallClockTimer, askpass_socket_path, check_socket_path,
-    read_command_argument_limit,
+    KeepAwakeHold, PowerSourceWatch, Spawner, WakeWatch, WallClock, WallClockTimer,
+    askpass_socket_path, check_socket_path, read_command_argument_limit,
 };
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::command::channel::remove_channel_folders;
+use sidekicks_provider::tool_call_arguments::remove_left_tool_call_arguments;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
 use sidekicks_recovery::database_file::sqlite_shell::SqliteShell;
 use sidekicks_recovery::restart_settle::RestartSettle;
@@ -88,6 +89,7 @@ use crate::daemon::backup::run::{
 };
 use crate::daemon::configuration::ConfigurationStore;
 use crate::daemon::crash::monitor::{crash_monitor_socket_path, remove_dead_monitor_sockets};
+use crate::daemon::keep_awake::{KeepAwakeDeps, keep_machine_awake};
 use crate::daemon::login_shell_environment::capture_provider_base_environment;
 use crate::daemon::machine_settings::file::{MachineSettingsFile, machine_settings_file_path};
 use crate::daemon::process::crash_monitor::CrashMonitor;
@@ -214,6 +216,8 @@ pub(crate) struct DaemonProcess {
     pub(crate) recovery: Option<StartupRecovery>,
     /// The attention service's decision task, which ends with the work's stop and is waited out.
     pub(crate) attention: Option<JoinHandle<()>>,
+    /// Keep-awake's task, which lets go of the hold at the work's stop and is waited out.
+    pub(crate) keep_awake: Option<JoinHandle<()>>,
     /// The provider accounts' background observer, ended by the stop before the scheduler.
     pub(crate) provider_accounts: Option<ProviderAccountObservation>,
     /// The web address's sender, which ends with the work's stop and is waited out.
@@ -297,6 +301,7 @@ impl DaemonProcess {
             turn_capturing: None,
             recovery: None,
             attention: None,
+            keep_awake: None,
             provider_accounts: None,
             web_address_sender: None,
             clones: None,
@@ -434,6 +439,22 @@ impl DaemonProcess {
             live_runs.clone(),
             self.work_stop.clone(),
         ))));
+        // The power source is heard for as long as the hold moves.
+        let power_source = PowerSourceWatch::start();
+        let keep_awake = KeepAwakeDeps {
+            hold: KeepAwakeHold::new().map_err(DaemonStartError::KeepAwake)?,
+            live_runs: live_runs.clone(),
+            settings: settings
+                .watch()
+                .await
+                .map_err(DaemonStartError::KeepAwakeSettings)?,
+            is_on_power: power_source.receiver(),
+            stop: self.work_stop.clone(),
+        };
+        self.keep_awake = Some(tokio::spawn(async move {
+            keep_machine_awake(keep_awake).await;
+            drop(power_source);
+        }));
         let machine = read_or_mint_local_machine(&reads, &writer, &self.spawner).await?;
         let machine_device_id = device_id_of(&machine.machine_id)?;
         let wall_clock: Arc<dyn WallClock> =
@@ -560,7 +581,7 @@ impl DaemonProcess {
                 Arc::clone(&reads),
                 Arc::clone(&providers.registry),
             ),
-            manifest_facts: backup_manifest_facts(),
+            manifest_facts: backup_manifest_facts(version.clone()),
         });
         hydrate_capabilities(&providers).await;
         sweep_left_staged_worktrees(&providers).await;
@@ -571,6 +592,14 @@ impl DaemonProcess {
             tracing::warn!(
                 error = &error as &(dyn std::error::Error + 'static),
                 "a command channel folder a previous run left was not removed"
+            );
+        }
+        // A file of tool call arguments a previous run left belonged to a process that ended
+        // with it.
+        if let Err(error) = remove_left_tool_call_arguments(&data_folder).await {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "the tool call arguments a previous run left on disk were not removed"
             );
         }
         // Before the socket, any session's recovery and the capability reads, so a lasting provider
@@ -616,7 +645,7 @@ impl DaemonProcess {
                 run_folder,
                 daemon_program,
                 process_identity,
-                version,
+                version: version.clone(),
                 started_at: self.started_at,
                 process_state: Arc::clone(&self.process_state),
                 in_flight: Arc::clone(&in_flight),
@@ -752,6 +781,7 @@ impl DaemonProcess {
                 data_folder,
                 settings,
                 backups,
+                version,
             },
         )
         .await?;

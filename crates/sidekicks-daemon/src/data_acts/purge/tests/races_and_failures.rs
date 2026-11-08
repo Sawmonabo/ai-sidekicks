@@ -1,19 +1,29 @@
-//! A purge that cannot finish: a failed file step keeping every row for a retry, the range read
-//! again once for an append that raced it, the second such refusal a fault, and a session moved
-//! off its mark keeping every row.
+//! A purge that cannot finish: a failed file step keeping every row for a retry, a provider's
+//! failed conversation delete keeping the mark and every row, the range read again once for an
+//! append that raced it, the second such refusal a fault, and a session moved off its mark keeping
+//! every row.
 
+use std::io;
+use std::sync::Arc;
+
+use futures::FutureExt as _;
 use rusqlite::params;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::driver::PROVIDERS;
+use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::registry::test_provider;
+use sidekicks_provider::driver::test_registry::registry_of_first_provider;
 use sidekicks_session::changes::SessionChangeError;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::database::writer::test_file::session_event_row;
 
 use super::{
-    append_event, event_count, only_outcome, purge_fixture, receipts, state_of, store_session,
+    append_event, event_count, only_outcome, purge_fixture, purge_fixture_over, receipts, state_of,
+    store_session,
 };
 use crate::data_acts::purge::rows::PurgeCaller;
 use crate::data_acts::purge::{SessionPurgeError, SessionPurgeOutcome};
@@ -97,6 +107,73 @@ async fn a_failed_file_step_keeps_every_row_and_purging_again_finishes() {
     );
     assert_eq!(state_of(&reader, session_id), None);
     assert_eq!(receipts(&reader), vec![(session_id.to_string(), 0, 0)]);
+}
+
+// Killed by the `?` dropped from the conversations' delete step: the rows go and the session too.
+#[tokio::test]
+async fn a_failed_conversation_delete_keeps_the_mark_and_every_row() {
+    let mut driver = MockProviderDriver::new();
+    driver
+        .expect_close_session()
+        .returning(|_params| async { Ok(()) }.boxed());
+    driver.expect_purge_session().returning(|_params| {
+        async {
+            Err(DriverError::Internal(Box::new(io::Error::other(
+                "the provider did not answer the delete in time",
+            ))))
+        }
+        .boxed()
+    });
+    let fixture = purge_fixture_over(Arc::new(registry_of_first_provider(Arc::new(driver)))).await;
+    let reader = fixture.database.reader();
+    let session_id = SessionId::try_from(mint_uuid_v7()).expect("a session id");
+    store_session(&reader, session_id, SessionState::Archived);
+    append_event(&fixture.log, session_id, "Read").await;
+    let run_id = mint_uuid_v7().to_string();
+    reader
+        .execute(
+            "INSERT INTO runs (run_id, session_id, state, run_version)
+             VALUES (?1, ?2, 'completed', 1)",
+            params![run_id, session_id.text().as_str()],
+        )
+        .expect("the test writes the run");
+    reader
+        .execute(
+            "INSERT INTO runtime_bindings
+               (id, run_id, provider_name, contract_version, cli_version_raw, resume_handle,
+                spawn_config, created_at, updated_at)
+             VALUES (?1, ?2, ?3, '1.0.0', '2.1.0', 'conversation',
+                     '{\"providerAccountId\":\"account-1\",
+                       \"resolvedExecutablePath\":\"/bin/provider\"}',
+                     '2026-10-19T09:00:00.000Z', '2026-10-19T09:00:00.000Z')",
+            params![mint_uuid_v7().to_string(), run_id, PROVIDERS[0].id],
+        )
+        .expect("the test writes the binding");
+
+    let refused = only_outcome(
+        fixture
+            .purge
+            .purge(
+                &[session_id],
+                PurgeCaller::Retention,
+                &ProcessorMeter::default(),
+            )
+            .await,
+    );
+
+    assert!(
+        matches!(
+            refused,
+            SessionPurgeOutcome::Refused(SessionPurgeError::Conversations(_))
+        ),
+        "the conversation delete refuses the purge, got {refused:?}"
+    );
+    assert_eq!(
+        state_of(&reader, session_id).as_deref(),
+        Some(<&'static str>::from(SessionState::PurgeRequested))
+    );
+    assert_eq!(event_count(&reader, session_id), 1);
+    assert_eq!(receipts(&reader), []);
 }
 
 // Kills: the upper-bound guard dropped (the receipt misses the raced event) and the range not read
