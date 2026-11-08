@@ -4,6 +4,7 @@
 
 use std::time::Duration;
 
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::{
     WorkflowNode, WorkflowNodeId, WorkflowNodeOnError,
@@ -12,6 +13,9 @@ use sidekicks_contracts::workflow::definition::item::{
     WorkflowItem, WorkflowPairedItem, WorkflowPairedItems, WorkflowStepError,
 };
 use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
+use sidekicks_contracts::workflow::run::failures::{
+    WorkflowStepTimedOutCause, WorkflowStepTimedOutDetails,
+};
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use tokio_util::sync::CancellationToken;
 
@@ -21,7 +25,7 @@ use crate::engine::tick::branch_cancellation::{
 };
 use crate::engine::tick::dispatch::error_members;
 use crate::engine::tick::node_settings::{main_inputs, main_output_count, place_on_first_output};
-use crate::kinds::{StepFailure, uncoded_step_error};
+use crate::kinds::{StepFailure, coded_step_error, uncoded_step_error};
 
 /// The most tries the engine gives a step, whatever its node's `retry.maxTries` asks.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
@@ -185,6 +189,38 @@ pub(crate) fn step_failure_error(
         .1
         .get_or_insert_with(|| node_id.clone());
     error
+}
+
+/// The failure the run cap gives the step it cuts, `limit_ms` the cap: `workflow.step.timedOut`,
+/// cause `runCap`, a failure that ends its run.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the run cap's clock, which reports it")
+)]
+pub(crate) fn run_cap_failure(limit_ms: SafeInt<1>) -> StepFailure {
+    let details = WorkflowStepTimedOutDetails {
+        cause: WorkflowStepTimedOutCause::RunCap,
+        limit_ms,
+    };
+    StepFailure::EndsRun(Box::new(coded_step_error(
+        RefusalCode::WorkflowStepTimedOut,
+        "The run passed its time cap".to_owned(),
+        serde_json::to_value(details).expect("the timed-out details write as JSON"),
+        None,
+    )))
+}
+
+/// Whether `failure` is the run cap's, which the tick puts on the run's earliest running or
+/// parked step whichever step reported it.
+pub(crate) fn is_run_cap_failure(failure: &StepFailure) -> bool {
+    let StepFailure::EndsRun(error) = failure else {
+        return false;
+    };
+    let error = serde_json::to_value(error).expect("a step error writes as JSON");
+    error["code"] == RefusalCode::WorkflowStepTimedOut.as_str()
+        && error["details"]["cause"]
+            == serde_json::to_value(WorkflowStepTimedOutCause::RunCap)
+                .expect("a cause writes as JSON")
 }
 
 /// How a failure stops its run.

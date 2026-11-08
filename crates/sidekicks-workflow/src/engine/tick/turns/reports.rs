@@ -23,21 +23,34 @@ use crate::engine::tick::commit::{
 };
 use crate::engine::tick::live_runs::{LiveRun, LiveStep, TurnAsk};
 use crate::engine::tick::step_failure::{
-    RunSibling, RunStop, SiblingState, SiblingStop, stop_siblings,
+    RunSibling, RunStop, SiblingState, SiblingStop, is_run_cap_failure, stop_siblings,
 };
 use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
 use crate::kinds::{PersonAsk, StepFailure};
 
 impl EngineTick {
     /// Offers `report` to the run's waves, then adds it to the turn and follows what a settlement
-    /// answers. A wave's `branchesCanceled` is written whether or not its deciding step is live;
-    /// any other report of a step that is not live, or is live and failed, is dropped.
+    /// answers; the run cap's failure goes to the run whichever step reported it. A wave's
+    /// `branchesCanceled` is written whether or not its deciding step is live; a failed step's own
+    /// settlement after its cancel ends its wind-down, writing nothing; any other report of a step
+    /// that is not live, or is live and failed, is dropped.
     pub(super) async fn apply_report(
         &self,
         live: &mut LiveRun,
         turn: &mut RunTurn,
         report: StepReport,
     ) {
+        let report = match report {
+            StepReport {
+                at,
+                kind: StepReportKind::Settled(StepSettlement::Failed { failure, log_lines }),
+                ..
+            } if is_run_cap_failure(&failure) => {
+                self.cap_run(live, turn, at, failure, log_lines).await;
+                return;
+            }
+            report => report,
+        };
         let Some(report) = offer_to_waves(live, &mut turn.follow_ups, report).await else {
             return;
         };
@@ -49,9 +62,20 @@ impl EngineTick {
         let execution_index = report.step.execution_index.get();
         // A park or an end keeps its failed step live, and the deadline clock can report one wait
         // twice; nothing more is written for a failed step.
-        match live.steps.get(&execution_index) {
+        match live.steps.get_mut(&execution_index) {
             Some(live_step) if live_step.status != WorkflowStepStatus::Failed => {}
-            Some(_) | None => return,
+            Some(live_step) => {
+                if live_step.is_winding_down
+                    && let StepReportKind::Settled(settlement) = report.kind
+                {
+                    live_step.is_winding_down = false;
+                    if let StepSettlement::AccountSpent { run, .. } = settlement {
+                        stop_agent_run(live, &report.step, Some(run)).await;
+                    }
+                }
+                return;
+            }
+            None => return,
         }
         let hold = match &report.kind {
             StepReportKind::WaitingOnPool { .. } => Some(Some(report.at.clone())),
@@ -94,7 +118,7 @@ impl EngineTick {
     /// Adds the settlement `report` to `commit` and answers what follows. A settlement whose
     /// payload cannot be stored fails its step with that error in its place, and a failure whose
     /// passed-on output cannot be stored either ends the run, which stores nothing more.
-    async fn report_settlement(
+    pub(super) async fn report_settlement(
         &self,
         live: &LiveRun,
         commit: &mut RunTurnCommit,
@@ -160,7 +184,7 @@ impl EngineTick {
     /// cancel drops the step. A park or an end keeps the step live and failed and stops the run's
     /// other steps, an end deciding the run's ending with the step's error; a person wait or a spent account keeps it waiting, a spent account's agent run
     /// kept on it.
-    async fn follow_settlement(
+    pub(super) async fn follow_settlement(
         &self,
         live: &mut LiveRun,
         turn: &mut RunTurn,
@@ -338,7 +362,7 @@ impl EngineTick {
     /// Fails `step` of `live`, whose failure stops its run as `stop` at `at`, an end replacing a
     /// park: every other live step and every step this turn readied stops as its sibling, the
     /// running ones winding down as one wave and an end's waits canceled now.
-    async fn stop_run(
+    pub(super) async fn stop_run(
         &self,
         live: &mut LiveRun,
         turn: &mut RunTurn,
@@ -501,7 +525,7 @@ async fn offer_to_waves(
 
 /// Stops `run`, the agent run of `step` of `live` that no cancel reaches any more, recording a
 /// stop that could not be sent.
-async fn stop_agent_run(
+pub(super) async fn stop_agent_run(
     live: &LiveRun,
     step: &WorkflowStepKey,
     run: Option<Box<dyn AgentStepRun>>,

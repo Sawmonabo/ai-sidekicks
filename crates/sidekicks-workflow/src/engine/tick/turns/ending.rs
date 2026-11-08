@@ -1,12 +1,99 @@
-//! The run's ending in the tick's loop: a run a stop ended is over once none of its steps runs,
-//! is held, pending or waiting, and a run no stop touched once every step settled; the turn that
-//! finds it over writes its ending.
+//! The run's ending in the tick's loop: the run cap ending a run on its earliest running or
+//! parked step; and the turn that finds a run over writing its ending, a run a stop ended once
+//! none of its steps runs, is held, pending or waiting, and a run no stop touched once every step
+//! settled.
 
-use sidekicks_contracts::workflow::run::status::WorkflowStepStatus;
+use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 
-use super::{ReadiedNext, RunTurn};
+use super::reports::stop_agent_run;
+use super::{EngineTick, ReadiedNext, RunTurn};
 use crate::engine::tick::commit::RunEnding;
-use crate::engine::tick::live_runs::LiveRun;
+use crate::engine::tick::live_runs::{LiveRun, LiveStep};
+use crate::engine::tick::step_failure::{RunStop, step_failure_error};
+use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
+use crate::kinds::StepFailure;
+
+impl EngineTick {
+    /// Ends the run of `live` on the run cap's `failure` at `at`, with its `log_lines`, whichever
+    /// step reported it: the run's earliest running or parked step takes it, the run's error the cap's, and every other
+    /// step winds down as the end's siblings. A parked step keeps its failed row and its own
+    /// error; a step still running fails now and is canceled, and the run's ending waits for its
+    /// own settlement. A run whose ending is already decided takes nothing more.
+    pub(super) async fn cap_run(
+        &self,
+        live: &mut LiveRun,
+        turn: &mut RunTurn,
+        at: WireInstant,
+        failure: StepFailure,
+        log_lines: Vec<String>,
+    ) {
+        if live.ending.is_some() {
+            return;
+        }
+        let capped = capped_step(live);
+        let step = capped.step.clone();
+        if capped.status == WorkflowStepStatus::Failed {
+            let error = step_failure_error(&step.node_id, &failure);
+            live.ending = Some(RunEnding::Failed { error });
+            self.stop_run(live, turn, &step, &at, RunStop::End).await;
+            return;
+        }
+        let driver = matches!(
+            capped.status,
+            WorkflowStepStatus::Running
+                | WorkflowStepStatus::Pending
+                | WorkflowStepStatus::WaitingMemory
+        )
+        .then(|| capped.cancel.clone())
+        .flatten();
+        let parked_agent_run = live
+            .steps
+            .get_mut(&step.execution_index.get())
+            .and_then(|live_step| live_step.parked_agent_run.take());
+        stop_agent_run(live, &step, parked_agent_run).await;
+        let failed = StepReport {
+            step: step.clone(),
+            at: at.clone(),
+            kind: StepReportKind::Settled(StepSettlement::Failed { failure, log_lines }),
+        };
+        let answer = self.report_settlement(live, &mut turn.commit, failed).await;
+        self.follow_settlement(live, turn, &step, at, answer).await;
+        if let Some(cancel) = driver {
+            cancel.cancel();
+            live.steps
+                .get_mut(&step.execution_index.get())
+                .expect("a failure that ends its run keeps its step live")
+                .is_winding_down = true;
+        }
+    }
+}
+
+/// The step of `live` the run cap cuts: the earliest of its steps running, parked on a failure or
+/// parked on a spent account that is not already winding down, else its earliest live step.
+fn capped_step(live: &LiveRun) -> &LiveStep {
+    let is_running_or_parked = |live_step: &&LiveStep| {
+        !live_step.is_winding_down
+            && match live_step.status {
+                WorkflowStepStatus::Running | WorkflowStepStatus::Failed => true,
+                WorkflowStepStatus::Waiting => {
+                    live_step.wait_cause == Some(WorkflowWaitCause::Account)
+                }
+                WorkflowStepStatus::Pending
+                | WorkflowStepStatus::WaitingMemory
+                | WorkflowStepStatus::Succeeded
+                | WorkflowStepStatus::Skipped
+                | WorkflowStepStatus::Canceled => false,
+            }
+    };
+    let execution_index = |live_step: &&LiveStep| live_step.step.execution_index.get();
+    live.steps
+        .values()
+        .filter(is_running_or_parked)
+        .min_by_key(execution_index)
+        .or_else(|| live.steps.values().min_by_key(execution_index))
+        .expect("a live run keeps a live step")
+}
 
 /// Adds the ending of the run of `live` to `turn` where the run is over: the ending a stop decided
 /// once every step left live is a failed one with nothing winding down and nothing this turn
@@ -33,9 +120,57 @@ mod tests {
     use rusqlite::Connection;
     use serde_json::{Value, json};
 
+    use sidekicks_contracts::wire::instant::WireInstant;
+    use sidekicks_contracts::wire::integer::SafeInt;
+    use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
+    use tokio::time::timeout;
+
+    use crate::engine::tick::step_failure::run_cap_failure;
     use crate::engine::tick::turns::tests::harness::{
-        Harness, QUIET, edge, item, node, step_column,
+        Harness, QUIET, WAIT, edge, item, node, step_column,
     };
+    use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
+
+    /// The key of the step of `node_id`, read from its row.
+    fn step_key(harness: &Harness, node_id: &str) -> WorkflowStepKey {
+        let (attempt, execution_index): (i64, i64) = harness
+            .rows
+            .query_row(
+                "SELECT attempt, execution_index FROM workflow_steps WHERE node_id = ?1",
+                [node_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("the step's row reads");
+        serde_json::from_value(json!({
+            "workflowRunId": harness.scope.run_id, "nodeId": node_id,
+            "attempt": attempt, "executionIndex": execution_index,
+        }))
+        .expect("the step's key reads")
+    }
+
+    /// The run cap's failure, a 60 s cap, reported on the step of `node_id` as its clock would.
+    async fn report_run_cap(harness: &Harness, node_id: &str) {
+        let report = StepReport {
+            step: step_key(harness, node_id),
+            at: WireInstant::now(),
+            kind: StepReportKind::Settled(StepSettlement::Failed {
+                failure: run_cap_failure(SafeInt::new(60_000).expect("a cap")),
+                log_lines: Vec::new(),
+            }),
+        };
+        harness
+            .reports
+            .send(report)
+            .await
+            .unwrap_or_else(|_| panic!("the loop takes the report"));
+    }
+
+    /// The stored error of the step of `node_id`, as JSON.
+    fn step_error(harness: &Harness, node_id: &str) -> Value {
+        let error_json =
+            step_column(&harness.rows, node_id, "error_json").expect("the step keeps its error");
+        serde_json::from_str(&error_json).expect("a stored error is JSON")
+    }
 
     /// The run's status, end and error as its row stores them.
     fn run_row(rows: &Connection) -> (String, Option<String>, Option<String>) {
@@ -154,5 +289,111 @@ mod tests {
             !harness.recorder.has_sequence(harness.scope.run_id),
             "the ended run leaves the live set"
         );
+    }
+
+    /// The run cap reported on B fails A, the run's earliest running step, `timedOut` `runCap`
+    /// whatever its `onError`, winds B down in one wave on A, and the run ends `failed` with A's
+    /// error only once A's own cancel settles. Mutations: cap the step the report names; route the
+    /// cap by `onError`, which passes A's input on; end the run before A settles.
+    #[tokio::test]
+    async fn the_run_cap_fails_the_earliest_running_step_and_ends_once_it_settles() {
+        let mut harness = Harness::new(None).await;
+        harness
+            .start(
+                vec![
+                    node("trigger", "test.trigger", 0, None),
+                    node("A", "test.linger", 1, Some("continue")),
+                    node("B", "test.wait", 2, None),
+                ],
+                &[edge("trigger", "A", 0), edge("trigger", "B", 0)],
+                vec![item(json!({}))],
+                |_| {},
+            )
+            .await;
+        timeout(WAIT, harness.signal.running.notified())
+            .await
+            .expect("A runs");
+        harness
+            .wait_until(|rows| step_column(rows, "B", "status").as_deref() == Some("running"))
+            .await;
+        report_run_cap(&harness, "B").await;
+        harness
+            .wait_until(|rows| step_column(rows, "B", "status").as_deref() == Some("canceled"))
+            .await;
+        tokio::time::sleep(QUIET).await;
+
+        assert_eq!(harness.status("A").as_deref(), Some("failed"));
+        let capped = step_error(&harness, "A");
+        assert_eq!(
+            (&capped["code"], &capped["details"]["cause"]),
+            (&json!("workflow.step.timedOut"), &json!("runCap"))
+        );
+        assert_eq!(
+            run_row(&harness.rows),
+            ("running".to_owned(), None, None),
+            "the ending waits for A's own cancel"
+        );
+        let (wave, ..) = harness.event("workflow.parallelJoin.branchesCanceled", "A");
+        let (_, _, _, sibling) = harness.event("workflow.phase.failed", "B");
+        let (canceled, ..) = harness.event("workflow.step.canceled", "B");
+        assert_eq!(sibling["cancellationReason"], json!("siblingFailure"));
+        assert!(canceled > wave);
+
+        harness.signal.release.notify_one();
+        harness.wait_until(|rows| run_row(rows).0 == "failed").await;
+
+        let (_, finished_at, error_json) = run_row(&harness.rows);
+        assert!(finished_at.is_some());
+        let run_error: Value =
+            serde_json::from_str(&error_json.expect("the run keeps its error")).expect("JSON");
+        assert_eq!(run_error, capped);
+        let waves = harness
+            .events()
+            .into_iter()
+            .filter(|(_, event_type, _, _)| event_type == "workflow.parallelJoin.branchesCanceled")
+            .count();
+        assert_eq!(waves, 1);
+    }
+
+    /// The run cap on a run parked on F's failure ends it `failed` with the cap's error while F
+    /// keeps its failed row and its own error. Mutations: write the cap's failure over F's row;
+    /// put F's error on the run; leave the parked run going.
+    #[tokio::test]
+    async fn the_run_cap_ends_a_parked_run_and_keeps_its_failed_steps_error() {
+        let mut harness = Harness::new(None).await;
+        harness
+            .start(
+                vec![
+                    node("trigger", "test.trigger", 0, None),
+                    node("F", "test.gatedFailure", 1, None),
+                ],
+                &[edge("trigger", "F", 0)],
+                vec![item(json!({}))],
+                |_| {},
+            )
+            .await;
+        harness.signal.go.notify_one();
+        harness.wait_until(|rows| run_row(rows).0 == "failed").await;
+        let parked_error = step_error(&harness, "F");
+        assert_eq!(run_row(&harness.rows).1, None, "the run is parked");
+
+        report_run_cap(&harness, "F").await;
+        harness.wait_until(|rows| run_row(rows).1.is_some()).await;
+
+        assert_eq!(harness.status("F").as_deref(), Some("failed"));
+        assert_eq!(step_error(&harness, "F"), parked_error);
+        let (_, _, error_json) = run_row(&harness.rows);
+        let run_error: Value =
+            serde_json::from_str(&error_json.expect("the run keeps its error")).expect("JSON");
+        assert_eq!(
+            (&run_error["code"], &run_error["details"]["cause"]),
+            (&json!("workflow.step.timedOut"), &json!("runCap"))
+        );
+        let outcomes: Vec<Value> = run_events(&harness)
+            .into_iter()
+            .filter(|(event_type, _)| event_type == "workflow.run.failed")
+            .map(|(_, payload)| payload["outcome"].clone())
+            .collect();
+        assert_eq!(outcomes, [json!("parked"), json!("ended")]);
     }
 }
