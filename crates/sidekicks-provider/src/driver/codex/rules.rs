@@ -45,6 +45,7 @@ use crate::driver::codex::delivery::asks::CodexProjectRules;
 use crate::driver::codex::rules::evaluator::{EvaluatedRuleFile, RuleFileEvaluator};
 use crate::port::repository_reader::RepositoryReader;
 use crate::project_rule_folders::RuleFileHolds;
+use crate::record_readers::is_digits;
 
 /// The folder a project keeps its Codex settings in.
 pub(crate) const CODEX_PROJECT_SETTINGS_FOLDER: &str = ".codex";
@@ -802,9 +803,7 @@ fn normalize_network_rule_host(raw: &str) -> Result<String, String> {
         let Some((inside, rest)) = stripped.split_once(']') else {
             return Err("network_rule host has an invalid bracketed IPv6 literal".to_owned());
         };
-        let has_port = rest
-            .strip_prefix(':')
-            .is_some_and(|port| !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()));
+        let has_port = rest.strip_prefix(':').is_some_and(is_digits);
         if !rest.is_empty() && !has_port {
             return Err(format!(
                 "network_rule host contains an unsupported suffix: {raw}"
@@ -814,8 +813,7 @@ fn normalize_network_rule_host(raw: &str) -> Result<String, String> {
     } else if host.matches(':').count() == 1
         && let Some((candidate, port)) = host.rsplit_once(':')
         && !candidate.is_empty()
-        && !port.is_empty()
-        && port.chars().all(|c| c.is_ascii_digit())
+        && is_digits(port)
     {
         host = candidate;
     }
