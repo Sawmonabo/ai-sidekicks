@@ -1,11 +1,14 @@
 //! The wakes of each followed session's followers, for a store whose followers each read on a task
-//! of their own: the store raises a session's wakes after each change it writes, and a raise during
-//! a read leaves one permit, so a burst of changes costs one more read, never one per change.
+//! of their own, and the read loop each such task runs: the store raises a session's wakes after
+//! each change it writes, and a raise during a read leaves one permit, so a burst of changes costs
+//! one more read, never one per change.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_ipc::stream::latest_value::LatestValueOutlet;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::Notify;
 
@@ -53,5 +56,41 @@ impl SessionFollowerWakes {
     fn lock(&self) -> MutexGuard<'_, HashMap<SessionId, Vec<FollowerWake>>> {
         // The map holds no invariant a panicking holder could break.
         lock(&self.by_session)
+    }
+}
+
+/// Why a follower's read failed, telling the read pool closing at the daemon's stop, which ends the
+/// follow finished, from a failure that ends it with that failure.
+pub(crate) trait FollowerReadFailure: Into<HandlerError> {
+    /// Whether the read failed because the read pool closed.
+    fn is_pool_closed(&self) -> bool;
+}
+
+/// Reads with `read` each time `wake` is raised and sends each value through `outlet`, except one
+/// `is_unchanged` holds for, until the follow is detached; the read pool closing ends the stream
+/// finished, and any other failed read ends it with that failure.
+pub(crate) async fn send_each_read<Value, Failure, Reading>(
+    wake: FollowerWake,
+    outlet: LatestValueOutlet<Value>,
+    mut read: impl FnMut() -> Reading,
+    mut is_unchanged: impl FnMut(&Value) -> bool,
+) where
+    Reading: Future<Output = Result<Value, Failure>>,
+    Failure: FollowerReadFailure,
+{
+    loop {
+        wake.notified().await;
+        match read().await {
+            Ok(value) => {
+                if !is_unchanged(&value) {
+                    outlet.send(value);
+                }
+            }
+            Err(failure) if failure.is_pool_closed() => return,
+            Err(failure) => {
+                outlet.fail(failure.into());
+                return;
+            }
+        }
     }
 }

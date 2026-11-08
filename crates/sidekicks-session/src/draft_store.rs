@@ -38,7 +38,7 @@ use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEve
 use crate::directory::lookups::{
     SESSION_CHANGE_STATEMENT_INDEX, SessionWriteError, session_exists, write_while_session_exists,
 };
-use crate::follower_wakes::{FollowerWake, SessionFollowerWakes};
+use crate::follower_wakes::{FollowerReadFailure, SessionFollowerWakes, send_each_read};
 use crate::queue_store::QueueMessageBody;
 
 /// The statements the store's reads run: the held draft, and whether the session has a row.
@@ -144,6 +144,12 @@ impl From<SessionDraftError> for HandlerError {
                 Self::Internal(Box::new(fault))
             }
         }
+    }
+}
+
+impl FollowerReadFailure for SessionDraftError {
+    fn is_pool_closed(&self) -> bool {
+        matches!(self, Self::Pool(DatabaseReadError::Closed))
     }
 }
 
@@ -265,44 +271,27 @@ impl SessionDraftStore {
         let wake = self.followers.add(session_id);
         // The first read: the draft held now.
         wake.notify_one();
-        let reading = tokio::spawn(read_until_detached(
-            Arc::clone(self),
-            session_id,
+        let store = Arc::clone(self);
+        // A read that finds the revision last sent sends nothing.
+        let mut sent_revision = None;
+        let reading = tokio::spawn(send_each_read(
             Arc::clone(&wake),
             outlet,
+            move || {
+                let store = Arc::clone(&store);
+                async move { store.read(session_id).await }
+            },
+            move |held: &HeldSessionDraft| {
+                let is_sent = sent_revision == Some(held.revision);
+                sent_revision = Some(held.revision);
+                is_sent
+            },
         ));
         let store = Arc::clone(self);
         Ok(Box::new(move || {
             reading.abort();
             store.followers.remove(session_id, &wake);
         }))
-    }
-}
-
-// Reads the session's draft each time `wake` is raised and sends it when its revision is not the
-// one last sent, until the follow is detached or a read fails.
-async fn read_until_detached(
-    store: Arc<SessionDraftStore>,
-    session_id: SessionId,
-    wake: FollowerWake,
-    outlet: LatestValueOutlet<HeldSessionDraft>,
-) {
-    let mut sent_revision = None;
-    loop {
-        wake.notified().await;
-        match store.read(session_id).await {
-            Ok(held) => {
-                if sent_revision != Some(held.revision) {
-                    sent_revision = Some(held.revision);
-                    outlet.send(held);
-                }
-            }
-            Err(SessionDraftError::Pool(DatabaseReadError::Closed)) => return,
-            Err(failure) => {
-                outlet.fail(failure.into());
-                return;
-            }
-        }
     }
 }
 

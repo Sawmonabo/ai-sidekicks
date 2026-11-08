@@ -51,7 +51,7 @@ use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use crate::directory::lookups::{
     SESSION_CHANGE_STATEMENT_INDEX, SessionWriteError, session_exists, write_while_session_exists,
 };
-use crate::follower_wakes::{FollowerWake, SessionFollowerWakes};
+use crate::follower_wakes::{FollowerReadFailure, SessionFollowerWakes, send_each_read};
 use crate::review_note::diff_line::{NoteLocation, NotedLineError, NotedLineReader};
 
 /// The statements the store's reads prepare on a read connection: the session's notes, one note,
@@ -159,6 +159,12 @@ impl From<ReviewNoteStoreError> for HandlerError {
             | ReviewNoteStoreError::Folder(_)
             | ReviewNoteStoreError::Line(_)) => Self::Internal(Box::new(fault)),
         }
+    }
+}
+
+impl FollowerReadFailure for ReviewNoteStoreError {
+    fn is_pool_closed(&self) -> bool {
+        matches!(self, Self::Pool(DatabaseReadError::Closed))
     }
 }
 
@@ -362,11 +368,15 @@ impl SessionReviewNoteStore {
         };
         // The first read: the whole set at once.
         wake.notify_one();
-        let reading = tokio::spawn(read_until_detached(
-            Arc::clone(self),
-            session_id,
+        let store = Arc::clone(self);
+        let reading = tokio::spawn(send_each_read(
             Arc::clone(&wake),
             outlet,
+            move || {
+                let store = Arc::clone(&store);
+                async move { store.read_notes(session_id).await }
+            },
+            |_notes: &ReviewNoteSet| false,
         ));
         let store = Arc::clone(self);
         Ok(Box::new(move || {
@@ -434,28 +444,6 @@ impl SessionReviewNoteStore {
         let result = write_while_session_exists(&self.writer, &session_id, change).await?;
         self.followers.wake(session_id);
         Ok(result)
-    }
-}
-
-// Reads the session's notes each time `wake` is raised and sends each set, until the follow is
-// detached or a read fails. A raise during a read leaves one permit, so a burst of changes costs
-// one more read.
-async fn read_until_detached(
-    store: Arc<SessionReviewNoteStore>,
-    session_id: SessionId,
-    wake: FollowerWake,
-    outlet: LatestValueOutlet<ReviewNoteSet>,
-) {
-    loop {
-        wake.notified().await;
-        match store.read_notes(session_id).await {
-            Ok(notes) => outlet.send(notes),
-            Err(ReviewNoteStoreError::Pool(DatabaseReadError::Closed)) => return,
-            Err(failure) => {
-                outlet.fail(failure.into());
-                return;
-            }
-        }
     }
 }
 
