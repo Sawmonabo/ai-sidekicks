@@ -1,9 +1,13 @@
 //! The daemon's own Codex executor and the many connections the relay serves onto it:
 //! newline-delimited JSON-RPC both ways, the relay's own requests answered by their ids, each
 //! connection's request sent under a relay id and its answer handed to that connection alone under
-//! the connection's own id, every other message handed to every connection, each process's end
-//! watched so a held terminate or a stop can wait on it, and the answer to a client's request
-//! watched where the relay keeps something for it.
+//! the connection's own id, each connection's processes run under relay ids and every message about
+//! one, a policy ask among them, handed to its connection alone under its own id, every other
+//! message handed to every connection, each process's end watched so a held terminate or a stop can wait on it, and the
+//! answer to a client's request watched where the relay keeps something for it.
+
+mod connection_ids;
+mod policy_requests;
 
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -13,7 +17,6 @@ use std::time::Duration;
 
 use futures::{SinkExt as _, StreamExt as _};
 use process_wrap::tokio::ChildWrapper;
-use serde::Deserialize;
 use serde_json::json;
 use serde_json::value::RawValue;
 use sidekicks_platforms::{Spawner, wrap_child_command};
@@ -23,7 +26,13 @@ use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
 
-use crate::driver::codex::exec_relay::{INITIALIZE_METHOD, INITIALIZED_METHOD};
+use self::connection_ids::{ConnectionIds, UNKNOWN_ID};
+use self::policy_requests::{PolicyRequests, deny_answer};
+use crate::driver::codex::exec_relay::message::{RoutedMessage, RoutedParams, splice, text_of};
+use crate::driver::codex::exec_relay::methods::{
+    ClientMethod, INITIALIZE_METHOD, INITIALIZED_METHOD, NETWORK_POLICY_REQUEST_METHOD,
+    PROCESS_CLOSED_METHOD, PROCESS_EXITED_METHOD, is_process_notification,
+};
 use crate::driver::codex::session::errors::CodexError;
 
 /// What opens the id of every request the relay sends itself, so its answer is told apart from an
@@ -46,39 +55,11 @@ const LINE_QUEUE_CAPACITY: usize = 256;
 /// The name the relay gives the executor at its `initialize`.
 const RELAY_CLIENT_NAME: &str = "sidekicks-relay";
 
-const PROCESS_EXITED_METHOD: &str = "process/exited";
-const PROCESS_CLOSED_METHOD: &str = "process/closed";
-
 /// How long the relay's own `initialize` may take.
 const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The answer a request of the relay's own gets: its result, or the executor's refusal in words.
 type RelayAnswer = Result<Box<RawValue>, String>;
-
-// The members of any message the relay routes by; the rest passes on as it came.
-#[derive(Deserialize)]
-struct RoutedMessage<'line> {
-    #[serde(borrow)]
-    id: Option<&'line RawValue>,
-    method: Option<String>,
-    #[serde(borrow)]
-    params: Option<&'line RawValue>,
-    #[serde(borrow)]
-    result: Option<&'line RawValue>,
-    error: Option<RefusedRequest>,
-}
-
-#[derive(Deserialize)]
-struct RefusedRequest {
-    message: Option<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProcessNamed {
-    process_id: String,
-    exit_code: Option<i32>,
-}
 
 /// How one of the executor's processes ended: the exit code its `process/exited` reported, `None`
 /// for one that closed or whose connection ended with no code.
@@ -92,11 +73,14 @@ pub(super) struct ProcessEnd {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) struct RelayConnectionId(u64);
 
-// A client's request the executor has not answered: the connection that sent it and the id it
-// sent it under, as raw JSON text.
+// A client's request the executor has not answered: the connection that sent it, the id it sent
+// it under, as raw JSON text, how the relay carries its method, and the relay id minted for the
+// process it starts, forgotten when the start is refused.
 struct ClientRequest {
     connection: RelayConnectionId,
     client_id: Box<str>,
+    method: ClientMethod,
+    minted: Option<String>,
 }
 
 /// One executor and the daemon's connection to it.
@@ -110,6 +94,9 @@ pub(super) struct CodexExecutor {
     // Keyed by the relay id as raw JSON text.
     client_requests: Mutex<HashMap<String, ClientRequest>>,
     next_client_request: AtomicU64,
+    process_ids: Mutex<ConnectionIds>,
+    policy_requests: Mutex<PolicyRequests>,
+    // Keyed by the relay's process id.
     exits: Mutex<HashMap<String, watch::Sender<Option<ProcessEnd>>>>,
     client_replies: Mutex<HashMap<String, oneshot::Sender<bool>>>,
     ended: watch::Sender<bool>,
@@ -174,6 +161,8 @@ impl CodexExecutor {
             next_connection: AtomicU64::new(1),
             client_requests: Mutex::new(HashMap::new()),
             next_client_request: AtomicU64::new(1),
+            process_ids: Mutex::new(ConnectionIds::default()),
+            policy_requests: Mutex::new(PolicyRequests::default()),
             exits: Mutex::new(HashMap::new()),
             client_replies: Mutex::new(HashMap::new()),
             ended: watch::Sender::new(false),
@@ -242,31 +231,74 @@ impl CodexExecutor {
     }
 
     /// Lets the connection `connection` go, forgetting every request it has in flight, whose
-    /// answers then reach no one, and then closing its queue.
-    pub(super) fn detach_client(&self, connection: RelayConnectionId) {
+    /// answers then reach no one, and its process ids, whose messages then reach no one, closing
+    /// its queue, and denying every policy ask it had not answered.
+    pub(super) async fn detach_client(&self, connection: RelayConnectionId) {
         lock(&self.client_requests).retain(|_relay_id, request| request.connection != connection);
+        lock(&self.process_ids).forget_connection(connection);
         lock(&self.clients).remove(&connection);
+        let unanswered = lock(&self.policy_requests).take_connection(connection);
+        for id in unanswered {
+            self.deny_policy_request(&id).await;
+        }
     }
 
-    /// `line`, a request the connection `connection` sent under `id`, the slice of `line` its
-    /// parse read, with a new relay id in that id's place; the connection and its id are kept
-    /// under the relay id until the executor answers it or the connection goes.
+    /// Whether the connection `connection`'s answer under `id` to one of the executor's requests
+    /// goes on to the executor: only when that request was asked of it, and only once.
+    pub(super) fn takes_client_answer(&self, connection: RelayConnectionId, id: &RawValue) -> bool {
+        lock(&self.policy_requests).answer(id, connection)
+    }
+
+    /// `line`, a request the connection `connection` sent under `id` for `method`, with a new relay
+    /// id in that id's place and, for a method that names a process, the relay's id for the
+    /// process in place of `process_id`, the connection's own: minted for a start, and for any
+    /// other the one its start minted, or [`UNKNOWN_ID`] for a process the connection never
+    /// started. Both are slices of `line` its parse read. The connection and its id are kept under
+    /// the relay id until the executor answers it or the connection goes.
     pub(super) fn relay_client_request(
         &self,
         connection: RelayConnectionId,
         line: &str,
         id: &RawValue,
+        method: ClientMethod,
+        process_id: Option<&RawValue>,
     ) -> String {
         let relay_id = format!(
             "\"{CLIENT_REQUEST_PREFIX}{}\"",
             self.next_client_request.fetch_add(1, Ordering::Relaxed)
         );
-        let relayed = replace_id(line, id, &relay_id);
+        let named = process_id
+            .filter(|_named| method.names_process())
+            .and_then(|raw| Some((raw, text_of(raw)?)));
+        let mut minted = None;
+        let relay_process = named.map(|(raw, own_id)| {
+            let mut ids = lock(&self.process_ids);
+            let relay_process_id = if method == ClientMethod::ProcessStart {
+                let (relay_process_id, is_new) = ids.mint(connection, &own_id);
+                if is_new {
+                    minted = Some(relay_process_id.clone());
+                }
+                relay_process_id
+            } else {
+                ids.relay_id(connection, &own_id).to_owned()
+            };
+            (raw, format!("\"{relay_process_id}\""))
+        });
+        let relayed = splice(
+            line,
+            std::iter::once((id, relay_id.as_str())).chain(
+                relay_process
+                    .as_ref()
+                    .map(|(raw, relay_process_id)| (*raw, relay_process_id.as_str())),
+            ),
+        );
         lock(&self.client_requests).insert(
             relay_id,
             ClientRequest {
                 connection,
                 client_id: id.get().into(),
+                method,
+                minted,
             },
         );
         relayed
@@ -368,7 +400,7 @@ impl CodexExecutor {
 
     // Routes one line the executor wrote.
     async fn take_line(&self, line: String) {
-        let Ok(message) = serde_json::from_str::<RoutedMessage<'_>>(&line) else {
+        let Some(message) = RoutedMessage::read(&line) else {
             tracing::warn!(
                 length = line.len(),
                 "the Codex executor wrote a line that is no message"
@@ -410,26 +442,143 @@ impl CodexExecutor {
                 );
                 return;
             };
-            let answer = replace_id(&line, id, &request.client_id);
+            let answer = if request.method == ClientMethod::ProcessStart {
+                self.start_answer(&line, &message, id, &request)
+            } else {
+                splice(&line, [(id, &*request.client_id)])
+            };
             self.answer_connection(request.connection, answer).await;
+            return;
+        }
+        if message.method.as_deref() == Some(NETWORK_POLICY_REQUEST_METHOD)
+            && let Some(id) = message.id
+        {
+            let params = message.params.unwrap_or_default();
+            self.take_policy_request(&line, id, &params).await;
             return;
         }
         if let Some(method) = message.method.as_deref()
             && message.id.is_none()
-            && (method == PROCESS_EXITED_METHOD || method == PROCESS_CLOSED_METHOD)
-            && let Some(named) = message
-                .params
-                .and_then(|params| serde_json::from_str::<ProcessNamed>(params.get()).ok())
+            && is_process_notification(method)
         {
-            let mut exits = lock(&self.exits);
-            if let Some(exit) = exits.get(&named.process_id) {
-                record_end(exit, named.exit_code);
-            }
-            if method == PROCESS_CLOSED_METHOD {
-                exits.remove(&named.process_id);
-            }
+            let params = message.params.unwrap_or_default();
+            self.take_process_notification(&line, method, &params).await;
+            return;
         }
         self.send_to_every_connection(line).await;
+    }
+
+    // The executor's answer `line` to a client's start, `request`, under the client's own id: a
+    // refused start's minted id is forgotten, and a started one's names the connection's own id.
+    fn start_answer(
+        &self,
+        line: &str,
+        message: &RoutedMessage<'_>,
+        id: &RawValue,
+        request: &ClientRequest,
+    ) -> String {
+        let mut ids = lock(&self.process_ids);
+        if message.error.is_some()
+            && let Some(minted) = &request.minted
+        {
+            ids.forget(minted);
+        }
+        let started = message
+            .result
+            .and_then(|result| serde_json::from_str::<RoutedParams<'_>>(result.get()).ok())
+            .and_then(|result| result.process_id)
+            .and_then(|raw| {
+                let owner = ids.owner(&text_of(raw)?)?;
+                Some((raw, serde_json::to_string(&owner.own_id).ok()?))
+            });
+        drop(ids);
+        splice(
+            line,
+            std::iter::once((id, &*request.client_id)).chain(
+                started
+                    .as_ref()
+                    .map(|(raw, own_id)| (*raw, own_id.as_str())),
+            ),
+        )
+    }
+
+    // Hands `line`, the executor's policy ask `id` about the process `params` names by its relay
+    // id, to the connection that started it under its own id, keeping the ask until that
+    // connection answers it or goes; an ask no connection can answer is denied at once.
+    async fn take_policy_request(&self, line: &str, id: &RawValue, params: &RoutedParams<'_>) {
+        let owner = params
+            .process_id
+            .and_then(text_of)
+            .and_then(|relay_id| lock(&self.process_ids).owner(&relay_id).cloned());
+        let routed = owner.and_then(|owner| {
+            let raw = params.process_id?;
+            let own_id = serde_json::to_string(&owner.own_id).expect("a string serializes");
+            // Kept while the connection is held, so its detach either finds the ask or comes first.
+            let clients = lock(&self.clients);
+            let client = clients.get(&owner.connection)?.clone();
+            lock(&self.policy_requests).ask(id, owner.connection);
+            drop(clients);
+            Some((
+                owner.connection,
+                client,
+                splice(line, [(raw, own_id.as_str())]),
+            ))
+        });
+        let Some((connection, client, routed)) = routed else {
+            self.deny_policy_request(id.get()).await;
+            return;
+        };
+        if client.send(routed).await.is_err() && lock(&self.policy_requests).answer(id, connection)
+        {
+            self.deny_policy_request(id.get()).await;
+        }
+    }
+
+    // Answers the executor's policy ask `id`, raw JSON text, with the relay's deny.
+    async fn deny_policy_request(&self, id: &str) {
+        if let Err(error) = self.send_line(deny_answer(id)).await {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "the relay's deny of a Codex policy ask could not be sent"
+            );
+        }
+    }
+
+    // Hands `line`, the executor's `method` about the process `params` names by its relay id, to
+    // the connection that started it under its own id, recording the process's end; a process no
+    // connection owns has its message reach no one.
+    async fn take_process_notification(&self, line: &str, method: &str, params: &RoutedParams<'_>) {
+        let relay_id = params.process_id.and_then(text_of);
+        if let Some(relay_id) = &relay_id
+            && (method == PROCESS_EXITED_METHOD || method == PROCESS_CLOSED_METHOD)
+        {
+            let mut exits = lock(&self.exits);
+            if let Some(exit) = exits.get(relay_id) {
+                record_end(exit, params.exit_code);
+            }
+            if method == PROCESS_CLOSED_METHOD {
+                exits.remove(relay_id);
+            }
+        }
+        let owned = relay_id.as_ref().and_then(|relay_id| {
+            let mut ids = lock(&self.process_ids);
+            let owner = ids.owner(relay_id).cloned();
+            if method == PROCESS_CLOSED_METHOD {
+                ids.close(relay_id);
+            }
+            owner
+        });
+        let (Some(raw), Some(owner)) = (params.process_id, owned) else {
+            tracing::debug!(
+                method,
+                process_id = relay_id.as_deref().unwrap_or(UNKNOWN_ID),
+                "the Codex executor wrote of a process no connection owns"
+            );
+            return;
+        };
+        let own_id = serde_json::to_string(&owner.own_id).expect("a string serializes");
+        let routed = splice(line, [(raw, own_id.as_str())]);
+        self.answer_connection(owner.connection, routed).await;
     }
 
     // Marks the connection ended: every waiting request fails, every watched process ends and
@@ -443,19 +592,9 @@ impl CodexExecutor {
         }
         lock(&self.clients).clear();
         lock(&self.client_requests).clear();
+        *lock(&self.process_ids) = ConnectionIds::default();
+        lock(&self.policy_requests).clear();
     }
-}
-
-// `line` with `replacement` in place of `id`, the slice of `line` its parse borrowed, so the rest
-// of the line is copied once and never parsed again.
-fn replace_id(line: &str, id: &RawValue, replacement: &str) -> String {
-    let start = id.get().as_ptr().addr() - line.as_ptr().addr();
-    let end = start + id.get().len();
-    let mut replaced = String::with_capacity(line.len() - id.get().len() + replacement.len());
-    replaced.push_str(&line[..start]);
-    replaced.push_str(replacement);
-    replaced.push_str(&line[end..]);
-    replaced
 }
 
 // Records a process's end with `exit_code` where none was recorded yet: a `process/closed` after
