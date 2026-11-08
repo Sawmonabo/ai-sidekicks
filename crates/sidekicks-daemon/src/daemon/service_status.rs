@@ -159,9 +159,10 @@ pub(crate) fn remove_service_status(run_folder: &DaemonRunFolder) -> io::Result<
 
 /// Records why the start failed with `error` where a client reads it: a damaged or another
 /// version's saved sessions write the status file, and any other failure removes an older one, so
-/// no client refuses a restart over a reason that no longer holds. Blocking. A failed write or
-/// removal is logged beside the start's own error, which it never replaces.
-pub(crate) fn record_start_failure(run_folder: &DaemonRunFolder, error: &DaemonStartError) {
+/// no client refuses a restart over a reason that no longer holds. The write or removal runs on the
+/// blocking pool, whole before this answers. A failed write or removal is logged beside the start's
+/// own error, which it never replaces.
+pub(crate) async fn record_start_failure(run_folder: &DaemonRunFolder, error: &DaemonStartError) {
     let cannot_start =
         if let DaemonStartError::DatabaseFile(DatabaseFileOpenError::SavedSessionsUnrepaired {
             aside_folder,
@@ -179,27 +180,39 @@ pub(crate) fn record_start_failure(run_folder: &DaemonRunFolder, error: &DaemonS
         } else {
             None
         };
+    let recorded_folder = run_folder.clone();
     let path = &run_folder.status_path;
-    match cannot_start {
-        Some(cannot_start) => {
-            if let Err(failure) =
-                write_service_status(run_folder, &ServiceStatusFile::CannotStart(cannot_start))
-            {
-                tracing::error!(
-                    path = %path.display(),
-                    error = &failure as &(dyn Error + 'static),
-                    "the service status file could not be written for the failed start"
-                );
-            }
+    if let Some(cannot_start) = cannot_start {
+        let written = tokio::task::spawn_blocking(move || {
+            write_service_status(
+                &recorded_folder,
+                &ServiceStatusFile::CannotStart(cannot_start),
+            )
+        })
+        .await
+        .unwrap_or_else(|failure| {
+            Err(AtomicWriteError::Interrupted {
+                path: path.clone(),
+                failure,
+            })
+        });
+        if let Err(failure) = written {
+            tracing::error!(
+                path = %path.display(),
+                error = &failure as &(dyn Error + 'static),
+                "the service status file could not be written for the failed start"
+            );
         }
-        None => {
-            if let Err(failure) = remove_service_status(run_folder) {
-                tracing::error!(
-                    path = %path.display(),
-                    error = &failure as &(dyn Error + 'static),
-                    "the service status file of an earlier start could not be removed"
-                );
-            }
+    } else {
+        let removed = tokio::task::spawn_blocking(move || remove_service_status(&recorded_folder))
+            .await
+            .unwrap_or_else(|ended| Err(io::Error::other(ended)));
+        if let Err(failure) = removed {
+            tracing::error!(
+                path = %path.display(),
+                error = &failure as &(dyn Error + 'static),
+                "the service status file of an earlier start could not be removed"
+            );
         }
     }
 }
