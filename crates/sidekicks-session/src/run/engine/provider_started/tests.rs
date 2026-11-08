@@ -41,6 +41,7 @@ use sidekicks_store::events::log_service::EventReadAfterCursorRequest;
 use sidekicks_store::events::log_service::test_fixture::open_log;
 use sidekicks_store::events::projection::SessionProjection as _;
 use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGate, RunSetupGateError};
+use sidekicks_workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
 use crate::agent_tree::projection::AgentTreeProjection;
 use crate::agent_tree::store::{AgentTreeNode, find_node};
@@ -266,20 +267,46 @@ impl RunSetupGate for ParentRunGate {
     }
 }
 
-// Writes `run_id`'s execution context, bound in a workspace of its own, and answers that workspace.
+// Writes `run_id`'s execution context, bound in a workspace of its own on a mount of its own, and
+// answers that workspace.
 fn bind_run_in_new_workspace(database: &TestDatabase, run_id: RunId) -> WorkspaceId {
     let workspace_id = WorkspaceId::try_from(mint_uuid_v7()).expect("a minted UUID is an id");
-    database
-        .reader()
+    let mount_id = mint_uuid_v7().to_string();
+    let connection = database.reader();
+    for row in project_and_mount_rows(&mount_id, None) {
+        connection
+            .execute_batch(&row)
+            .expect("the project and its mount are stored");
+    }
+    // Each mount is of a folder of its own, as two live mounts never share one.
+    connection
+        .execute(
+            "UPDATE repo_mounts SET local_path = ?1, canonical_root = ?1 WHERE id = ?2",
+            params![format!("/repos/{mount_id}"), mount_id],
+        )
+        .expect("the mount points at its own folder");
+    connection
+        .execute_batch(&format!(
+            "INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, created_at, \
+             updated_at) VALUES ('{workspace_id}', '{session_id}', '{mount_id}', 'boundRoot', \
+             '{PARENT_ROWS_AT}', '{PARENT_ROWS_AT}');
+             INSERT INTO branch_contexts (id, workspace_id, base_branch, head_branch, created_at, \
+             updated_at) VALUES ('{workspace_id}', '{workspace_id}', 'main', 'main', \
+             '{PARENT_ROWS_AT}', '{PARENT_ROWS_AT}')",
+            session_id = test_session_id().text().as_str(),
+        ))
+        .expect("the run's workspace is stored");
+    connection
         .execute(
             "INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, \
              execution_mode, execution_root, checkout_root, git_common_dir, branch_context_id, \
              created_at) VALUES (?1, ?2, ?3, 'boundRoot', '/checkout', '/checkout', \
-             '/checkout/.git', 'branch-context', '2026-10-14T09:30:00.000Z')",
+             '/checkout/.git', ?3, ?4)",
             params![
                 run_id.text().as_str(),
                 test_session_id().text().as_str(),
-                workspace_id.text().as_str()
+                workspace_id.text().as_str(),
+                PARENT_ROWS_AT
             ],
         )
         .expect("the run's context is written");

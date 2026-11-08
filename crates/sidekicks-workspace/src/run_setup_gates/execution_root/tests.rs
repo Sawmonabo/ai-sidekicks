@@ -28,7 +28,7 @@ use crate::event_emitter::WorkspaceEventEmitter;
 use crate::execution_root::test_fixture::{ExecutionRootFixture, MOUNT_ID, SESSION_ID};
 use crate::execution_root::{ExecutionRootService, WorkspacePreparationHold};
 use crate::git::process::test_git_runner;
-use crate::git::process::test_repository::make_test_repository;
+use crate::git::process::test_repository::{git_in, make_test_repository};
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::project::list_feed::ProjectListFeed;
 use crate::project::records::ProjectRecords;
@@ -40,9 +40,12 @@ use crate::repo::root_resolver::RepoRootResolver;
 use crate::run_setup_gates::{
     ParentRun, RunSetupContext, RunSetupGate, RunSetupGateError, RunTerminalContext,
 };
-use crate::test_rows::PARENT_ROWS_AT;
+use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
 const OTHER_WORKSPACE_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4ea0";
+// A second repository's mount, since a session holds one live workspace on each mount.
+const OTHER_MOUNT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4ea2";
+const OTHER_BRANCH_CONTEXT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4ea3";
 const RUNNING_AGENT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4ea1";
 
 // Far past any git call these tests make, so only a binding waiting on its own hold reaches it.
@@ -187,46 +190,100 @@ impl GateFixture {
             .expect("the binding never waits on its own hold")
     }
 
-    /// Stores a `ready` workspace of the session bound at `root`, older than any the test binds,
-    /// with its branch context.
-    fn store_bound_workspace(&self, root: &Path) -> WorkspaceId {
+    /// Mounts a second repository beside the first as [`OTHER_MOUNT_ID`], its anchor recorded,
+    /// with two trees on new branches `trees`, and answers the repository and the trees.
+    async fn mount_second_repository(&self, trees: [&str; 2]) -> (PathBuf, [PathBuf; 2]) {
+        let scratch = self
+            .roots
+            .repository
+            .parent()
+            .expect("the repository sits in the scratch folder");
+        let repository = make_test_repository(&self.roots.git, scratch, "second").await;
+        for row in project_and_mount_rows(OTHER_MOUNT_ID, None) {
+            self.roots
+                .rows
+                .execute_batch(&row)
+                .expect("the second mount is stored");
+        }
+        self.roots
+            .rows
+            .execute(
+                "UPDATE repo_mounts SET local_path = ?1, canonical_root = ?1, \
+                 metadata = json_set(metadata, '$.commonDir', ?2) WHERE id = ?3",
+                params![
+                    repository.to_string_lossy(),
+                    repository.join(".git").to_string_lossy(),
+                    OTHER_MOUNT_ID
+                ],
+            )
+            .expect("the second mount points at its repository");
+        let mut folders = Vec::new();
+        for branch in trees {
+            let folder = scratch.join(branch);
+            git_in(
+                &self.roots.git,
+                &repository,
+                &[
+                    "worktree",
+                    "add",
+                    "--quiet",
+                    "-b",
+                    branch,
+                    &folder.to_string_lossy(),
+                ],
+            )
+            .await;
+            folders.push(folder);
+        }
+        let folders = folders.try_into().expect("two trees are made");
+        (repository, folders)
+    }
+
+    /// Stores a `ready` workspace of the session on `mount_id` bound at `root`, older than any the
+    /// test binds, with its branch context.
+    fn store_bound_workspace(&self, mount_id: &str, root: &Path) -> WorkspaceId {
         let root = root.to_string_lossy();
         self.roots
             .rows
             .execute_batch(&format!(
                 "INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, fs_root, \
                  state, metadata, created_at, updated_at) VALUES ('{OTHER_WORKSPACE_ID}', \
-                 '{SESSION_ID}', '{MOUNT_ID}', 'boundRoot', '{root}', 'ready', \
+                 '{SESSION_ID}', '{mount_id}', 'boundRoot', '{root}', 'ready', \
                  json_object('boundRoot', '{root}', 'checkoutRoot', '{root}'), \
                  '{PARENT_ROWS_AT}', '{PARENT_ROWS_AT}');
                  INSERT INTO branch_contexts (id, workspace_id, base_branch, head_branch, \
-                 created_at, updated_at) VALUES ('branch-context', '{OTHER_WORKSPACE_ID}', 'main', \
-                 'main', '{PARENT_ROWS_AT}', '{PARENT_ROWS_AT}')"
+                 created_at, updated_at) VALUES ('{OTHER_BRANCH_CONTEXT_ID}', \
+                 '{OTHER_WORKSPACE_ID}', 'main', 'main', '{PARENT_ROWS_AT}', '{PARENT_ROWS_AT}')"
             ))
             .expect("the bound workspace is stored");
         WorkspaceId::new(OTHER_WORKSPACE_ID).expect("the id is a UUID")
     }
 
-    /// Writes a live context for a parent run of the session, bound in `workspace_id` at `root`
-    /// with the stored workspace's branch context.
-    // Writes a live context of a new run of the session at `root` in `workspace_id`, bound at
-    // `bound_at`, and answers the run.
-    fn bind_parent_run(&self, workspace_id: WorkspaceId, root: &Path, bound_at: &str) -> RunId {
+    // Writes a live context of a new run of the session at `root` of `repository` in
+    // `workspace_id`, bound at `bound_at` with the stored workspace's branch context, and answers
+    // the run.
+    fn bind_parent_run(
+        &self,
+        workspace_id: WorkspaceId,
+        repository: &Path,
+        root: &Path,
+        bound_at: &str,
+    ) -> RunId {
         let run_id = test_run_id();
-        let root = root.to_string_lossy();
         self.roots
             .rows
             .execute(
                 "INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, \
                  execution_mode, execution_root, checkout_root, git_common_dir, \
                  branch_context_id, created_at) VALUES (?1, ?2, ?3, 'boundRoot', ?4, ?4, ?5, \
-                 'branch-context', ?6)",
+                 ?6, ?7)",
                 params![
                     run_id.text().as_str(),
                     SESSION_ID,
                     workspace_id.text().as_str(),
-                    root,
-                    self.roots.repository.join(".git").to_string_lossy(),
+                    root.to_string_lossy(),
+                    repository.join(".git").to_string_lossy(),
+                    OTHER_BRANCH_CONTEXT_ID,
                     bound_at
                 ],
             )
@@ -363,7 +420,7 @@ async fn a_run_whose_folder_holds_another_repository_is_refused_writing_no_conte
         .expect("the repository sits in the scratch folder")
         .to_path_buf();
     let other = make_test_repository(&fixture.roots.git, &scratch, "other").await;
-    fixture.store_bound_workspace(&other);
+    fixture.store_bound_workspace(MOUNT_ID, &other);
     let run_id = test_run_id();
 
     let refused = fixture
@@ -426,15 +483,16 @@ async fn a_run_naming_an_older_workspace_is_placed_there_not_in_the_newest(
     // newest live context in its parent's workspace, not its own parent's, binds a sibling's root.
     let fixture = GateFixture::new().await;
     let newest = fixture.bind(ExecutionMode::BoundRoot).await;
-    let parent_folder = fixture.roots.add_tree("parent-folder").await;
-    let older = fixture.store_bound_workspace(&parent_folder);
+    let (second, [parent_folder, sibling_folder]) = fixture
+        .mount_second_repository(["parent-folder", "sibling-folder"])
+        .await;
+    let older = fixture.store_bound_workspace(OTHER_MOUNT_ID, &parent_folder);
     let run_id = test_run_id();
     let mut context = run_context(run_id, None);
     match naming {
         WorkspaceNaming::StartedIn => {
-            let parent = fixture.bind_parent_run(older, &parent_folder, PARENT_ROWS_AT);
-            let sibling_folder = fixture.roots.add_tree("sibling-folder").await;
-            fixture.bind_parent_run(older, &sibling_folder, SIBLING_BOUND_AT);
+            let parent = fixture.bind_parent_run(older, &second, &parent_folder, PARENT_ROWS_AT);
+            fixture.bind_parent_run(older, &second, &sibling_folder, SIBLING_BOUND_AT);
             context.parent_run = Some(ParentRun {
                 run_id: parent,
                 workspace_id: Some(older),
