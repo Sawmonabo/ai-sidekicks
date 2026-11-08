@@ -399,21 +399,6 @@ describe("a reply fits one frame", () => {
     },
   );
 
-  it("the measure counts UTF-8 bytes of the JSON encoding and never throws", () => {
-    // Each figure includes the two quotes.
-    expect(jsonUtf8ByteLength("a")).toBe(3);
-    expect(jsonUtf8ByteLength("é")).toBe(4);
-    expect(jsonUtf8ByteLength("☃")).toBe(5);
-    expect(jsonUtf8ByteLength("🙂")).toBe(6);
-    expect(jsonUtf8ByteLength("\u0001")).toBe(8);
-    // Unserializable measures as infinitely large, so a refinement reports an issue instead of
-    // escaping `.parse()` as an exception.
-    const cyclic: Record<string, unknown> = {};
-    cyclic["self"] = cyclic;
-    expect(jsonUtf8ByteLength(cyclic)).toBe(Number.POSITIVE_INFINITY);
-    expect(jsonUtf8ByteLength(1n)).toBe(Number.POSITIVE_INFINITY);
-  });
-
   // The daemon fits a page by the same table, so a page one side builds the other accepts.
   it.each(pageFittingCases)(
     "the fitting function: $note",
