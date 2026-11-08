@@ -14,7 +14,7 @@ use sidekicks_store::database::writer::WriteError;
 
 use super::{WorkflowDefinitionStore, WorkflowDefinitionStoreError};
 use crate::definitions::drafts::clear_workflow_draft_statement;
-use crate::definitions::kept_values::clear_kept_values_statement;
+use crate::definitions::kept_values::clear_kept_values_statements;
 use crate::not_found::WorkflowNotFound;
 
 const SOFT_DELETE_SQL: &str = "UPDATE workflow_definitions SET deleted_at = @at, updated_at = @at
@@ -30,7 +30,7 @@ const COUNT_PINNED_RUNS_SQL: &str = "SELECT COUNT(*) FROM workflow_runs
   )";
 
 // The position of the pinned runs' count among a delete's statements.
-const PINNED_RUN_COUNT_INDEX: usize = 4;
+const PINNED_RUN_COUNT_INDEX: usize = 5;
 
 impl WorkflowDefinitionStore {
     /// Marks the workflow deleted, disarms its triggers, and deletes its kept values and its draft,
@@ -53,7 +53,7 @@ impl WorkflowDefinitionStore {
                 definition_text.as_str(),
             )])
         };
-        let statements = vec![
+        let mut statements = vec![
             WriteStatement {
                 sql: Cow::Borrowed(SOFT_DELETE_SQL),
                 bindings: StatementBindings::Named(vec![
@@ -67,14 +67,16 @@ impl WorkflowDefinitionStore {
                 bindings: of_definition(),
                 expected_row_count: None,
             },
-            clear_kept_values_statement(definition_id),
+        ];
+        statements.extend(clear_kept_values_statements(definition_id).statements);
+        statements.extend([
             clear_workflow_draft_statement(Some(definition_id)),
             WriteStatement {
                 sql: Cow::Borrowed(COUNT_PINNED_RUNS_SQL),
                 bindings: of_definition(),
                 expected_row_count: None,
             },
-        ];
+        ]);
         let results = match self.writer.write(statements).await {
             Ok(results) => results,
             Err(WriteError::Refused { .. }) => {

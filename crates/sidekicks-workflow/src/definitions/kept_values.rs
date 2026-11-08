@@ -22,7 +22,9 @@ use sidekicks_ipc::registry::HandlerError;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
-use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::database::statement::{
+    StatementBindings, StatementResult, WriteStatement, json_list_binding, text_binding,
+};
 use sidekicks_store::database::stored_column::text_column;
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
@@ -52,6 +54,13 @@ const UPSERT_KEPT_VALUE_SQL: &str = "INSERT INTO workflow_node_state
 
 const DELETE_KEPT_VALUES_SQL: &str =
     "DELETE FROM workflow_node_state WHERE definition_id = @definition_id AND node_id = ''";
+
+// The stored value of each kept name `@keys` lists, or of every name when it is NULL, that holds
+// an artifact's reference; a write that drops those values reads it first, inside itself.
+const DROPPED_KEPT_ARTIFACTS_SQL: &str = "SELECT value_json FROM workflow_node_state
+  WHERE definition_id = @definition_id AND node_id = ''
+    AND json_extract(value_json, '$.kind') = 'artifact'
+    AND (@keys IS NULL OR key IN (SELECT value FROM json_each(@keys)))";
 
 /// One value a workflow keeps: its name, the value, the run that kept it and when.
 #[derive(Clone, Debug, PartialEq)]
@@ -106,47 +115,130 @@ impl From<WorkflowKeptValueError> for HandlerError {
     }
 }
 
-/// The statement that deletes every value a workflow keeps, for a delete to run in its write.
-pub(crate) fn clear_kept_values_statement(definition_id: WorkflowDefinitionId) -> WriteStatement {
+/// The statements of a write that drops kept values: the read of the artifacts the dropped values
+/// name, first, then the statements that drop them.
+#[derive(Debug)]
+pub(crate) struct KeptValueWrite {
+    /// The statements, in write order.
+    pub(crate) statements: Vec<WriteStatement>,
+    /// The index among `statements` of the read whose result [`dropped_artifact_ids`] decodes.
+    pub(crate) dropped_read: usize,
+}
+
+/// The statements that delete every value a workflow keeps, for a clear or a delete to run in
+/// its write.
+pub(crate) fn clear_kept_values_statements(definition_id: WorkflowDefinitionId) -> KeptValueWrite {
+    KeptValueWrite {
+        statements: vec![
+            dropped_kept_artifacts_statement(definition_id, None),
+            WriteStatement {
+                sql: Cow::Borrowed(DELETE_KEPT_VALUES_SQL),
+                bindings: StatementBindings::Named(vec![text_binding(
+                    "@definition_id",
+                    definition_id.text().as_str(),
+                )]),
+                expected_row_count: None,
+            },
+        ],
+        dropped_read: 0,
+    }
+}
+
+/// The read, run inside a write before it drops kept values, of the stored reference of each value
+/// the workflow `definition_id` keeps under one of `keys`, or under any name for `None`, that names
+/// an artifact.
+pub(crate) fn dropped_kept_artifacts_statement(
+    definition_id: WorkflowDefinitionId,
+    keys: Option<&[&str]>,
+) -> WriteStatement {
     WriteStatement {
-        sql: Cow::Borrowed(DELETE_KEPT_VALUES_SQL),
-        bindings: StatementBindings::Named(vec![text_binding(
-            "@definition_id",
-            definition_id.text().as_str(),
-        )]),
+        sql: Cow::Borrowed(DROPPED_KEPT_ARTIFACTS_SQL),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@definition_id", definition_id.text().as_str()),
+            match keys {
+                Some(keys) => json_list_binding("@keys", &keys),
+                None => (Cow::Borrowed("@keys"), SqlValue::Null),
+            },
+        ]),
         expected_row_count: None,
     }
 }
 
-/// The statements that keep each of `values`, by name, for the workflow `definition_id` from the
-/// run `run_id` at `kept_at`, each replacing the value its name held; a value above the inline cap
-/// is passed as the JSON of its payload reference. A deleted workflow keeps none of them, and none
-/// refuses the write it rides.
+/// The artifact each row of a committed [`dropped_kept_artifacts_statement`] names; a value that
+/// only looks like a reference is skipped, as a read of the kept values skips it.
+pub(crate) fn dropped_artifact_ids(result: &StatementResult) -> Vec<ArtifactId> {
+    result
+        .rows
+        .iter()
+        .filter_map(|row| {
+            let text = if let Some(SqlValue::Text(text)) = row.first() {
+                Some(text)
+            } else {
+                None
+            }
+            .expect("the read answers each value's stored text");
+            let value = serde_json::from_str(text).expect("a kept value is stored as JSON");
+            kept_artifact_id(&value)
+        })
+        .collect()
+}
+
+/// Deletes through `payloads` each of `ids`, the artifacts of values a committed write dropped,
+/// and answers each one that could not be deleted beside its error, for the caller to record or
+/// report; the committed write stands either way.
+pub(crate) async fn remove_dropped(
+    payloads: &dyn StepPayloadArtifacts,
+    ids: &[ArtifactId],
+) -> Vec<(ArtifactId, PortError)> {
+    let mut left_behind = Vec::new();
+    for artifact_id in ids {
+        if let Err(removal) = payloads.delete(artifact_id).await {
+            left_behind.push((*artifact_id, removal));
+        }
+    }
+    left_behind
+}
+
+/// The write that keeps each of `values`, by name, for the workflow `definition_id` from the run
+/// `run_id` at `kept_at`, each replacing the value its name held, after the read of the artifacts
+/// the replaced values name; a value above the inline cap is passed as the JSON of its payload
+/// reference. `None` for no value. A deleted workflow keeps none of them, and none refuses the
+/// write it rides.
 pub(crate) fn kept_value_statements<'value>(
     definition_id: WorkflowDefinitionId,
     run_id: WorkflowRunId,
     values: impl IntoIterator<Item = (&'value str, &'value Value)>,
     kept_at: &WireInstant,
-) -> Vec<WriteStatement> {
+) -> Option<KeptValueWrite> {
+    let values: Vec<(&str, &Value)> = values.into_iter().collect();
+    if values.is_empty() {
+        return None;
+    }
+    let names: Vec<&str> = values.iter().map(|(name, _)| *name).collect();
     let definition_text = definition_id.text();
     let run_text = run_id.text();
-    values
-        .into_iter()
-        .map(|(name, value)| WriteStatement {
-            sql: Cow::Borrowed(UPSERT_KEPT_VALUE_SQL),
-            bindings: StatementBindings::Named(vec![
-                text_binding("@definition_id", definition_text.as_str()),
-                text_binding("@key", name),
-                (
-                    Cow::Borrowed("@value_json"),
-                    SqlValue::Text(value.to_string()),
-                ),
-                text_binding("@kept_by_run_id", run_text.as_str()),
-                text_binding("@updated_at", kept_at.as_str()),
-            ]),
-            expected_row_count: None,
-        })
-        .collect()
+    let mut statements = vec![dropped_kept_artifacts_statement(
+        definition_id,
+        Some(&names),
+    )];
+    statements.extend(values.into_iter().map(|(name, value)| WriteStatement {
+        sql: Cow::Borrowed(UPSERT_KEPT_VALUE_SQL),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@definition_id", definition_text.as_str()),
+            text_binding("@key", name),
+            (
+                Cow::Borrowed("@value_json"),
+                SqlValue::Text(value.to_string()),
+            ),
+            text_binding("@kept_by_run_id", run_text.as_str()),
+            text_binding("@updated_at", kept_at.as_str()),
+        ]),
+        expected_row_count: None,
+    }));
+    Some(KeptValueWrite {
+        statements,
+        dropped_read: 0,
+    })
 }
 
 /// Reads and clears a workflow's kept values, reading through the daemon's read pool, writing
@@ -215,10 +307,8 @@ impl WorkflowKeptValueStore {
         &self,
         definition_id: WorkflowDefinitionId,
     ) -> Result<WorkflowKeptValueClearResponse, WorkflowKeptValueError> {
-        let statements = vec![
-            created_definition_statement(definition_id),
-            clear_kept_values_statement(definition_id),
-        ];
+        let mut statements = vec![created_definition_statement(definition_id)];
+        statements.extend(clear_kept_values_statements(definition_id).statements);
         let results = match self.writer.write(statements).await {
             Ok(results) => results,
             Err(WriteError::Refused { .. }) => {
@@ -226,8 +316,8 @@ impl WorkflowKeptValueStore {
             }
             Err(error) => return Err(error.into()),
         };
-        // A committed write answers each of its statements, the clear second.
-        let cleared = results[1].row_count;
+        // A committed write answers each of its statements, the clear third, after the read.
+        let cleared = results[2].row_count;
         Ok(WorkflowKeptValueClearResponse {
             definition_id,
             cleared_count: SafeInt::new(

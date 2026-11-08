@@ -249,14 +249,16 @@ impl RunTurnCommit {
             &log_ref,
             cost.as_ref(),
         ));
-        self.statements.extend(kept_value_statements(
+        if let Some(kept_write) = kept_value_statements(
             self.keys.definition_id,
             step.workflow_run_id,
             kept.iter().map(|(name, variable, reference)| {
                 (*name, reference.as_ref().unwrap_or(&variable.value))
             }),
             at,
-        ));
+        ) {
+            self.statements.extend(kept_write.statements);
+        }
         let session_id = self.keys.session_id;
         self.push(
             at,
