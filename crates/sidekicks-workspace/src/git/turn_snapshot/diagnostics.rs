@@ -296,5 +296,6 @@ fn refused_work(feature: GitFeature) -> &'static str {
         GitFeature::CoreFsync => "every capture is refused",
         GitFeature::SparseCheckoutCheckRules => "a capture in a sparse checkout is refused",
         GitFeature::RepackGeometric => "the capture folders' packs are not folded",
+        GitFeature::LsFilesSparse => "a sparse index is read expanded through its folders' trees",
     }
 }
