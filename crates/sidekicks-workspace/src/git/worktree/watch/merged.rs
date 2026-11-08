@@ -35,8 +35,8 @@ use crate::git::worktree::reads::{
 };
 
 // Records the newest commit of its own the tree's branch was seen holding.
-const RECORD_OWN_COMMIT_TIP_SQL: &str =
-    "UPDATE worktrees SET own_commit_tip = @tip, updated_at = @now WHERE id = @worktree_id";
+const RECORD_NEWEST_OWN_COMMIT_SQL: &str =
+    "UPDATE worktrees SET newest_own_commit = @commit, updated_at = @now WHERE id = @worktree_id";
 
 // The prefix of every remote-tracking branch's full ref name.
 const REMOTE_REF_PREFIX: &str = "refs/remotes/";
@@ -59,7 +59,7 @@ pub(super) struct MergedCheck {
     last_patch_test: Option<(BranchTips, bool)>,
     upstream_ref: Option<String>,
     unresolved_bases: HashSet<String>,
-    missing_tips: HashSet<String>,
+    missing_commits: HashSet<String>,
 }
 
 // The commits a check reads: the branch's tip, and the targets it merges back into: the base's,
@@ -104,11 +104,11 @@ impl MergedCheck {
             newest_own_commit_past(git, place, folder, &tips.tip, &tips.targets).await?
         {
             // The tip holds work the base and its upstream lack, so neither contains it.
-            if tree.own_commit_tip.as_deref() != Some(newest.as_str()) {
-                record_own_commit_tip(deps, tree, &newest).await?;
+            if tree.newest_own_commit.as_deref() != Some(newest.as_str()) {
+                record_newest_own_commit(deps, tree, &newest).await?;
             }
         } else {
-            let recorded = if let Some(recorded) = &tree.own_commit_tip {
+            let recorded = if let Some(recorded) = &tree.newest_own_commit {
                 recorded.clone()
             } else {
                 if count_past(git, place, folder, &tips.tip, &tips.targets).await? > 0 {
@@ -119,7 +119,7 @@ impl MergedCheck {
                 else {
                     return Ok(false);
                 };
-                record_own_commit_tip(deps, tree, &seed).await?;
+                record_newest_own_commit(deps, tree, &seed).await?;
                 seed
             };
             match count_past(git, place, folder, &recorded, &tips.targets).await {
@@ -129,7 +129,7 @@ impl MergedCheck {
                     if is_commit_held(git, place, folder, &recorded).await? {
                         return Err(error.into());
                     }
-                    if self.missing_tips.insert(recorded) {
+                    if self.missing_commits.insert(recorded) {
                         tracing::warn!(
                             "a worktree's recorded branch commit is gone from its repository, so \
                              its branch is not read as merged back"
@@ -153,7 +153,7 @@ impl MergedCheck {
     /// The newest commit of its own on `tree`'s merged branch, checked out at `folder`, past the
     /// recorded one that neither the base nor its upstream holds, which the row then records;
     /// `None` while it holds none. Fails as git does.
-    pub(super) async fn reopened_tip(
+    pub(super) async fn reopened_commit(
         &mut self,
         git: &GitRunner,
         place: Option<&Place>,
@@ -168,11 +168,11 @@ impl MergedCheck {
             return Ok(None);
         };
         let mut past = tips.targets.clone();
-        past.extend(tree.own_commit_tip.iter().cloned());
+        past.extend(tree.newest_own_commit.iter().cloned());
         match newest_own_commit_past(git, place, folder, &tips.tip, &past).await {
             Ok(newest) => Ok(newest),
             // A recorded commit the repository no longer holds bounds nothing.
-            Err(error) => match &tree.own_commit_tip {
+            Err(error) => match &tree.newest_own_commit {
                 Some(recorded) if !is_commit_held(git, place, folder, recorded).await? => {
                     newest_own_commit_past(git, place, folder, &tips.tip, &tips.targets).await
                 }
@@ -616,17 +616,17 @@ async fn read_with_input(
         .stdout)
 }
 
-/// Records `tip` on the row of the worktree `worktree_id` as the last tip of its branch seen
-/// holding commits of its own.
-pub(super) fn own_commit_tip_statement(
+/// Records `commit` on the row of the worktree `worktree_id` as the newest commit of its own seen
+/// on its branch.
+pub(super) fn newest_own_commit_statement(
     worktree_id: &WorktreeId,
-    tip: &str,
+    commit: &str,
     now: &WireInstant,
 ) -> WriteStatement {
     WriteStatement {
-        sql: RECORD_OWN_COMMIT_TIP_SQL.into(),
+        sql: RECORD_NEWEST_OWN_COMMIT_SQL.into(),
         bindings: StatementBindings::Named(vec![
-            text_binding("@tip", tip),
+            text_binding("@commit", commit),
             text_binding("@worktree_id", worktree_id.text().as_str()),
             text_binding("@now", now.as_str()),
         ]),
@@ -634,15 +634,15 @@ pub(super) fn own_commit_tip_statement(
     }
 }
 
-async fn record_own_commit_tip(
+async fn record_newest_own_commit(
     deps: &WorkingFolderWatcherDeps,
     tree: &StandingTree,
-    tip: &str,
+    commit: &str,
 ) -> Result<(), WriteError> {
     deps.writer
-        .write(vec![own_commit_tip_statement(
+        .write(vec![newest_own_commit_statement(
             &tree.row.id,
-            tip,
+            commit,
             &WireInstant::now(),
         )])
         .await?;

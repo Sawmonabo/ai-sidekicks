@@ -137,7 +137,7 @@ CREATE TABLE worktrees (
                         CHECK(state IN ('creating', 'ready', 'dirty', 'merged', 'retired', 'failed')),
   created_at            TEXT NOT NULL,
   updated_at            TEXT NOT NULL,
-  own_commit_tip        TEXT,                       -- the newest commit of its own the working-folder watch saw on the branch: one that changes a path, is no merge commit, and neither the base nor its upstream holds; a reopen records the same; the merged checks run on it; NULL while none was seen, so a branch that only caught up with its base never reads 'merged'
+  newest_own_commit     TEXT,                       -- the newest commit of its own the working-folder watch saw on the branch: one that changes a path, is no merge commit, and neither the base nor its upstream holds; a reopen records the same; the merged checks run on it; NULL while none was seen, so a branch that only caught up with its base never reads 'merged'
   retired_risk_digest   TEXT,                       -- digest of what the risk read showed when the daemon retired a tree it made and could not hand over; NULL for any other retirement, whose removal showed nothing to lose. The sweep deletes the folder only while a read shows nothing to lose or this same digest, and keeps any other tree aside as a kept copy
   cleanup_started_at    TEXT,                       -- set once the sweep has decided to delete the folder, before git's record of it goes, so a pass after a crash finishes the removal without reading a tree git no longer knows
   cleaned_at            TEXT                        -- async disk-cleanup stamp (retire records state; the sweep stamps the folder gone, kept aside or left on disk)

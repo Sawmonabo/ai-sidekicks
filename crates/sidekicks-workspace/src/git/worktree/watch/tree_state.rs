@@ -22,7 +22,7 @@ use sidekicks_contracts::worktree::lifecycle::WorktreeState;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadError, ReadLength};
 use sidekicks_store::events::session::appender::SessionEventLinkage;
 
-use super::merged::{MergedCheck, own_commit_tip_statement};
+use super::merged::{MergedCheck, newest_own_commit_statement};
 use super::{WatchTarget, WatcherShared};
 use crate::git::worktree::event_emitter::EmitWorktreeEventInput;
 use crate::git::worktree::reads::has_uncommitted_work;
@@ -37,7 +37,7 @@ use crate::git::worktree::service::{WORKTREE_ROW_COLUMNS, worktree_row_of};
 static SELECT_STANDING_TREE_AT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT {WORKTREE_ROW_COLUMNS}, COALESCE(newest.base_branch, wt.base_ref),
-        wt.own_commit_tip
+        wt.newest_own_commit
    FROM worktrees AS wt
    {newest}
   WHERE wt.fs_root = @fs_root AND {standing}
@@ -106,16 +106,16 @@ pub(super) struct StandingTree {
     pub(super) base: String,
     /// The newest commit of its own a check saw on its branch, one that changes a path and is no
     /// merge commit; `None` while none was seen.
-    pub(super) own_commit_tip: Option<String>,
+    pub(super) newest_own_commit: Option<String>,
 }
 
 // The move a check found due; a reopened tree's row records the newest of its new commits.
 #[derive(Clone, Copy, Debug)]
-enum TreeMove<'tip> {
+enum TreeMove<'commit> {
     Dirtied,
     Cleaned,
     Merged,
-    Reopened { tip: &'tip str },
+    Reopened { commit: &'commit str },
 }
 
 // Why the standing tree at a folder could not be read.
@@ -189,11 +189,11 @@ pub(super) async fn check_merged_back(
 ) {
     if tree.row.state == WorktreeState::Merged {
         match merged
-            .reopened_tip(&shared.deps.git, target.place.as_ref(), key, tree)
+            .reopened_commit(&shared.deps.git, target.place.as_ref(), key, tree)
             .await
         {
-            Ok(Some(tip)) => {
-                write_move(shared, &tree.row, TreeMove::Reopened { tip: &tip }).await;
+            Ok(Some(commit)) => {
+                write_move(shared, &tree.row, TreeMove::Reopened { commit: &commit }).await;
             }
             Ok(None) => {}
             Err(error) => tracing::warn!(
@@ -235,7 +235,7 @@ async fn read_standing_tree(
                     Ok(StandingTree {
                         row: worktree_row_of(row)?,
                         base: row.get(7)?,
-                        own_commit_tip: row.get(8)?,
+                        newest_own_commit: row.get(8)?,
                     })
                 })
                 .optional()?)
@@ -254,8 +254,8 @@ async fn write_move(shared: &WatcherShared, tree: &WorktreeRow, due: TreeMove<'_
         TreeMove::Reopened { .. } => MARK_REOPENED_SQL.as_str(),
     };
     let mut prelude = vec![transition_statement(sql, &tree.id, &now, Some(1))];
-    if let TreeMove::Reopened { tip } = due {
-        prelude.push(own_commit_tip_statement(&tree.id, tip, &now));
+    if let TreeMove::Reopened { commit } = due {
+        prelude.push(newest_own_commit_statement(&tree.id, commit, &now));
     }
     // The row's own session: the event belongs to its maker, and the watch acts for no one.
     let input = EmitWorktreeEventInput {
