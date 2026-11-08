@@ -88,6 +88,10 @@ impl QuestionsService {
             Ok(_run) => return Ok(WaitingQuestionOpening::Opened),
             Err(failure) => failure,
         };
+        // The run is read before the question: a run's end settles its waiting questions in its
+        // own write, so a run read as ended here has a question read after it as settled, unless
+        // the question was recorded after that end.
+        let run = self.engine.require_run(held.run_id).await;
         match self.read_state(question_id).await {
             Ok(Some(QuestionState::WaitingForRun)) => {}
             Ok(_settled) => {
@@ -106,7 +110,7 @@ impl QuestionsService {
         if !matches!(failure, RunEngineError::Refused(_)) {
             return Err(failure.into());
         }
-        let run = self.engine.require_run(held.run_id).await?;
+        let run = run?;
         if !run.state.is_terminal() {
             return Ok(WaitingQuestionOpening::RunNotRunning);
         }
@@ -116,8 +120,17 @@ impl QuestionsService {
         } else {
             QuestionCanceledReason::RunEnded
         };
-        self.cancel_waiting_question(question_id, held.session_id, reason)
-            .await?;
+        match self
+            .cancel_waiting_question(question_id, held.session_id, reason)
+            .await
+        {
+            Ok(()) => {}
+            // Settled since its state was read, so the caller reads it again.
+            Err(QuestionError::Append(refused)) if refused.refused_statement_index().is_some() => {
+                return Ok(WaitingQuestionOpening::RunNotRunning);
+            }
+            Err(error) => return Err(error),
+        }
         self.forget_held_request(&question_id);
         Ok(WaitingQuestionOpening::Settled)
     }
