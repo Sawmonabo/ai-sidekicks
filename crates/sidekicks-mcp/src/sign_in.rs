@@ -23,12 +23,11 @@ pub mod target;
 mod test_service;
 
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
+use sidekicks_provider::driver::mcp_server::address::fold_server_address;
 
-/// The canonical form of `address` that a server's sign-in is kept under: the URL standard's
-/// serialization, so two spellings of one server (`HTTPS://Docs.Example.com/mcp` and
-/// `https://docs.example.com/mcp`) name one sign-in.
+/// The canonical form of `address` that a server's sign-in is kept under: the fold a provider's
+/// declarations tell two servers apart by, so two spellings of one server
+/// (`HTTPS://Docs.Example.com/mcp/` and `https://docs.example.com/mcp`) name one sign-in.
 pub(crate) fn canonical_server_address(address: &McpServerAddress) -> String {
-    url::Url::parse(address.as_str())
-        .expect("a server address parses as a web address")
-        .into()
+    fold_server_address(address)
 }

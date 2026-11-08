@@ -76,6 +76,29 @@ async fn a_kept_sign_in_is_read_from_the_keychain_once() {
     assert_eq!(counting.reads(), 1);
 }
 
+/// A server's address written with and without a trailing slash reads one keychain item. Killed by
+/// a canonical address that keeps the slash, under which the second spelling reads nothing.
+#[tokio::test]
+async fn an_address_with_a_trailing_slash_reads_the_same_sign_in() {
+    let (_data_folder, _credentials, keychain) = test_keychain(KeychainService::McpSignIns);
+    keep(
+        &SignInCustody::new(Arc::clone(&keychain)),
+        &server_address(),
+        "test-access-token",
+    )
+    .await;
+    let slashed = McpServerAddress::new("https://docs.example.com/mcp/").expect("a server address");
+
+    let loaded = SignInCustody::new(keychain)
+        .credential_store(&slashed)
+        .load()
+        .await
+        .expect("the keychain answers")
+        .expect("the sign-in is kept under the folded address");
+
+    assert_eq!(access_token(&loaded), "test-access-token");
+}
+
 /// A save the keychain refuses comes back refused, and the server's sign-in stays the one held
 /// before it. Killed by writing memory before the keychain.
 #[tokio::test]

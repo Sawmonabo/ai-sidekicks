@@ -28,12 +28,14 @@ use rmcp::transport::auth::{
     AuthError, AuthorizationManager, AuthorizationMetadata, OAuthHttpClient,
 };
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
+use sidekicks_store::credential_store::KeychainRefusal;
 use tokio_util::sync::CancellationToken;
 
 use crate::errors::{McpRefusal, SignInUnsupportedReason};
 use crate::oauth::client_authentication::{
     ClientSecretAuthentication, ClientSecretMethod, REVOCATION_ENDPOINT_AUTH_METHODS,
 };
+use crate::sign_in::canonical_server_address;
 use crate::sign_in::credential_store::HeldSignIn;
 use crate::sign_in::oauth_http_client::{
     CALL_TIMEOUT, OAuthCall, OAuthCallError, ServerOAuthHttpClient,
@@ -75,10 +77,9 @@ enum RevocationError {
 }
 
 impl SignInService {
-    /// Signs out of `target`'s server at once, a renewal under way or not: forgets its sign-in,
-    /// ends its waiting attempt or provider's flow and marks it signed out, then revokes its
-    /// refresh token after the reply. Refuses `mcp.server.signInUnsupported` for a program, which
-    /// no sign-in reaches (a connector's target read refuses it first), and
+    /// Signs out of `target`'s server at once, a renewal under way or not, as
+    /// [`SignInService::sign_out_at`] does. Refuses `mcp.server.signInUnsupported` for a program,
+    /// which no sign-in reaches (a connector's target read refuses it first), and
     /// `mcp.server.signOutFailed`, carrying the keychain's cause, when the keychain refuses to read
     /// or delete the sign-in, which then stays held and in use.
     pub(crate) async fn sign_out(&self, target: &SignInTarget) -> Result<(), McpRefusal> {
@@ -88,24 +89,33 @@ impl SignInService {
                 reason: SignInUnsupportedReason::NotReachedAtAddress,
             });
         };
-        let refused = |source| McpRefusal::ServerSignOutFailed {
-            binding: Box::new(target.binding.clone()),
-            source: Box::new(source),
-        };
-        let held = self
-            .custody
-            .credential_store(&server.address)
-            .sign_out()
+        self.sign_out_at(&server.address)
             .await
-            .map_err(refused)?;
-        if let Some(attempt) = self.take_attempt(&server.canonical_address, None) {
+            .map_err(|source| McpRefusal::ServerSignOutFailed {
+                binding: Box::new(target.binding.clone()),
+                source: Box::new(source),
+            })
+    }
+
+    /// Signs out of the server at `address` at once, a renewal under way or not: forgets its
+    /// sign-in, ends its waiting attempt or provider's flow and marks it signed out, then revokes
+    /// its refresh token after the reply; an address that holds nothing costs at most one keychain
+    /// read and one removal. Fails with the [`KeychainRefusal`] when the keychain refuses to read
+    /// or delete the sign-in, which then stays held and in use.
+    pub(crate) async fn sign_out_at(
+        &self,
+        address: &McpServerAddress,
+    ) -> Result<(), KeychainRefusal> {
+        let held = self.custody.credential_store(address).sign_out().await?;
+        let canonical_address = canonical_server_address(address);
+        if let Some(attempt) = self.take_attempt(&canonical_address, None) {
             attempt.end();
         }
-        self.end_provider_flow(&server.canonical_address, None);
+        self.end_provider_flow(&canonical_address, None);
         if let Some(held) = held {
             revoke_on_task(
-                Arc::new(self.pools.server_client(&server.address)),
-                server.address.clone(),
+                Arc::new(self.pools.server_client(address)),
+                address.clone(),
                 held,
                 None,
                 self.revocations.token().clone(),
