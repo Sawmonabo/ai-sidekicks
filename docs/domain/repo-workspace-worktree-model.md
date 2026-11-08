@@ -81,7 +81,7 @@ Worktree lifecycle:
 | `creating` | The worktree is being created or rebound.                                        |
 | `ready`    | The worktree is available for execution.                                         |
 | `dirty`    | The worktree contains uncommitted changes; it is `ready` again once it has none. |
-| `merged`   | The branch was integrated into its base or the base's upstream; it can retire.   |
+| `merged`   | Merged into its base or upstream; can retire. New commits of its own reopen it.  |
 | `retired`  | The worktree is intentionally preserved but no longer active.                    |
 | `failed`   | Creation or maintenance of the worktree failed.                                  |
 
