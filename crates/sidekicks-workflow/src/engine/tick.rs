@@ -8,7 +8,7 @@ mod dispatch;
 mod live_runs;
 pub(crate) mod node_settings;
 pub(crate) mod run_status;
-mod step_failure;
+pub(crate) mod step_failure;
 mod turns;
 mod walk;
 

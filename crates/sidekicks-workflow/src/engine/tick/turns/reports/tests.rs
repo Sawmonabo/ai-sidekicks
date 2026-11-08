@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use jiff::{SignedDuration, Timestamp};
 use rstest::rstest;
@@ -443,4 +443,85 @@ async fn a_reset_at_or_past_the_cap_parks_the_step_unscheduled(#[case] past_cap_
     let (_, _, _, suspended) = harness.event("workflow.phase.suspended", "A");
     assert_eq!(suspended.get("resumeAt"), None);
     assert!(resume_lines(&harness, "deadlineArmed").is_empty());
+    let cap_at = instant_after(run_started_at(&harness), cap_ms);
+    assert_eq!(
+        harness.armed(),
+        Some(wall_instant(&cap_at)),
+        "only the cap is armed"
+    );
+}
+
+/// `at` on the wall clock.
+fn wall_instant(at: &WireInstant) -> SystemTime {
+    SystemTime::from(at.timestamp().expect("a stored instant reads"))
+}
+
+/// The record lines of `record` on the run's cap.
+fn cap_lines(harness: &Harness, record: &str) -> Vec<Map<String, Value>> {
+    harness
+        .record_lines(record)
+        .into_iter()
+        .filter(|line| line.get("deadline") == Some(&json!("cap")))
+        .collect()
+}
+
+/// The run cap passing while A waits on its spent account fails A `timedOut` `runCap`, stops its
+/// kept run, ends the run `failed` with the cap's error, records the cap's clear, and leaves
+/// nothing of the run armed. Kills: caps read only for running runs; the ending leaving the cap
+/// armed.
+#[tokio::test]
+async fn the_cap_passing_during_an_account_park_ends_the_run() {
+    let mut harness = Harness::new(None).await;
+    harness.limits.set_run_time_limit(half_hour());
+    start_agent_run(&harness).await;
+    harness.agents.end(spent(None));
+    harness
+        .wait_until(|rows| step_column(rows, "A", "status").as_deref() == Some("waiting"))
+        .await;
+    harness.wait_for_earlier_turns().await;
+    let cap_at = instant_after(run_started_at(&harness), 30 * 60_000);
+    assert_eq!(harness.armed(), Some(wall_instant(&cap_at)));
+    assert_eq!(cap_lines(&harness, "deadlineArmed").len(), 1);
+
+    harness
+        .clock
+        .set_now(wall_instant(&cap_at) + Duration::from_secs(1));
+    timeout(WAIT, harness.agents.wait_for_cancel())
+        .await
+        .expect("A's kept run is stopped");
+    let run_id = harness.scope.run_id.text().as_str().to_owned();
+    harness
+        .wait_until(|rows| {
+            rows.query_row(
+                "SELECT finished_at IS NOT NULL FROM workflow_runs WHERE id = ?1",
+                params![run_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(false)
+        })
+        .await;
+    harness.wait_for_earlier_turns().await;
+
+    assert_eq!(harness.status("A").as_deref(), Some("failed"));
+    let step_error: Value = serde_json::from_str(
+        &step_column(&harness.rows, "A", "error_json").expect("A's error is stored"),
+    )
+    .expect("the error is JSON");
+    assert_eq!(step_error["code"], json!("workflow.step.timedOut"));
+    assert_eq!(step_error["details"]["cause"], json!("runCap"));
+    let (status, run_error): (String, String) = harness
+        .rows
+        .query_row(
+            "SELECT status, error_json FROM workflow_runs WHERE id = ?1",
+            params![run_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("the run's row reads");
+    assert_eq!(status, "failed");
+    let run_error: Value = serde_json::from_str(&run_error).expect("the run's error is JSON");
+    assert_eq!(run_error["details"]["cause"], json!("runCap"));
+    let cleared = cap_lines(&harness, "deadlineCleared");
+    assert_eq!(cleared.len(), 1, "the ending clears the cap");
+    assert_eq!(cleared[0]["at"], json!(cap_at));
+    assert_eq!(harness.armed(), None, "nothing of the run stays armed");
 }

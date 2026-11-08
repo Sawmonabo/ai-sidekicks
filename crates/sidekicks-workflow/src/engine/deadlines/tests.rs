@@ -24,6 +24,7 @@ use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
 use crate::kinds::StepFailure;
 use crate::schema::schema_parts;
 use crate::test_rows::{TEST_NODE_ID, TestStep, insert_run, insert_step, insert_workflow_version};
+use sidekicks_contracts::daemon::config::RunTimeLimitMinutes;
 
 const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e50";
 const VERSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e51";
@@ -259,4 +260,91 @@ async fn a_deadline_that_passed_fails_its_step_once_the_clock_reaches_it() {
         .stop(tokio::time::Instant::now() + Duration::from_secs(60))
         .await
         .expect("the scheduler stops");
+}
+
+/// Which of the runs the cap counts the test stores.
+#[derive(Clone, Copy)]
+enum CountedRun {
+    Running,
+    Waiting,
+    FailedPark,
+}
+
+/// The earliest cap counts a running, a waiting and a failed-parked run at its start, the limit
+/// and its person-wait time, and skips a finished run, a run waiting on a person and a dropped
+/// run, each started earlier. Kills: the `finished_at IS NULL` filter dropped; the going statuses
+/// read in place of it; `person_wait_ms` left out.
+#[rstest::rstest]
+#[case::running(CountedRun::Running)]
+#[case::waiting(CountedRun::Waiting)]
+#[case::failed_park(CountedRun::FailedPark)]
+#[tokio::test]
+async fn the_earliest_cap_counts_every_unfinished_run_not_skipped(#[case] counted: CountedRun) {
+    const FINISHED_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e54";
+    const PERSON_WAIT_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e55";
+    const DROPPED_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e56";
+    let database = TestDatabase::new(schema_parts());
+    let rows = database.opener()().expect("the test creates its database");
+    insert_workflow_version(&rows, DEFINITION_ID, VERSION_ID, "Review");
+    let earlier = stored(clock_instant(Duration::ZERO));
+    let later = stored(clock_instant(Duration::from_secs(60)));
+    let status = match counted {
+        CountedRun::Running => WorkflowRunStatus::Running,
+        CountedRun::Waiting => WorkflowRunStatus::Waiting,
+        CountedRun::FailedPark => WorkflowRunStatus::Failed,
+    };
+    insert_run(&rows, RUN_ID, VERSION_ID, status, &later, None);
+    insert_run(
+        &rows,
+        FINISHED_RUN_ID,
+        VERSION_ID,
+        WorkflowRunStatus::Succeeded,
+        &earlier,
+        Some(&later),
+    );
+    insert_run(
+        &rows,
+        PERSON_WAIT_RUN_ID,
+        VERSION_ID,
+        WorkflowRunStatus::Waiting,
+        &earlier,
+        None,
+    );
+    insert_run(
+        &rows,
+        DROPPED_RUN_ID,
+        VERSION_ID,
+        WorkflowRunStatus::Running,
+        &earlier,
+        None,
+    );
+    rows.execute(
+        "UPDATE workflow_runs SET person_wait_ms = 5000 WHERE id = ?1",
+        params![RUN_ID],
+    )
+    .expect("the test sets the run's person-wait time");
+    rows.execute(
+        "UPDATE workflow_runs SET person_wait_since = ?1 WHERE id = ?2",
+        params![earlier, PERSON_WAIT_RUN_ID],
+    )
+    .expect("the test opens a person wait");
+    let clock = Arc::new(TestWallClock::default());
+    let wall_clock: Arc<TestWallClock> = Arc::clone(&clock);
+    let scheduler = Arc::new(Scheduler::start(wall_clock, None, watch::channel(0).1));
+    let reads = Arc::new(DatabaseReadPool::new(
+        database.path(),
+        ENGINE_DEADLINE_STATEMENT_CAPACITY,
+    ));
+    let (reports, _received) = mpsc::channel(8);
+    let limits = Arc::new(ScriptedRunLimits::default());
+    limits.set_run_time_limit(RunTimeLimitMinutes::new(30));
+    let deadlines = EngineDeadlines::new(scheduler, reads, reports, limits);
+    deadlines.skip_run(WorkflowRunId::new(DROPPED_RUN_ID).expect("the test's run id"));
+
+    Arc::clone(&deadlines).rearm().await;
+
+    assert_eq!(
+        deadlines.armed.instant(),
+        Some(clock_instant(Duration::from_secs(60 + 30 * 60 + 5)))
+    );
 }

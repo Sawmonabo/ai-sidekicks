@@ -443,6 +443,7 @@ impl EngineTick {
             ready.step.execution_index.get(),
             LiveStep::readied(trigger, inputs, trigger_input, started_sequence),
         );
+        live.follow_cap(&self.deadlines, false);
         self.runs.insert(run_id, live);
         (run_id, vec![ready])
     }
@@ -561,6 +562,7 @@ impl EngineTick {
                 let ending_sequence = committed.ending_sequence;
                 live.counts = committed.counts;
                 live.person_wait = committed.person_wait;
+                live.follow_cap(&self.deadlines, ending_sequence.is_some());
                 let mut dispatched: Vec<ReadyStep> = held_dispatches
                     .into_iter()
                     .filter_map(|step| still_ready(&live, step))
@@ -605,7 +607,7 @@ impl EngineTick {
                     let _unheard = reply.send(Ok(()));
                 }
                 for (step, line) in std::mem::take(&mut live.deadline_lines) {
-                    live.record.decision(Some(&step), line).await;
+                    live.record.decision(step.as_ref(), line).await;
                 }
                 self.ask_people(&mut live, asks).await;
                 self.needs_deadline_read |= std::mem::take(&mut live.needs_deadline_read);

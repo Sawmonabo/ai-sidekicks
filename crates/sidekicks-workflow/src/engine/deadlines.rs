@@ -11,7 +11,7 @@ use std::time::SystemTime;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use jiff::{SignedDuration, Timestamp};
-use rusqlite::{Connection, Row, named_params};
+use rusqlite::{Connection, OptionalExtension as _, Row, named_params};
 use sidekicks_contracts::daemon::config::RunTimeLimitMinutes;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::wire::instant::{NotAnInstant, WireInstant};
@@ -27,19 +27,20 @@ use sidekicks_std::scheduler::armed_instant::{ArmedInstant, InstantJob};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
-use sidekicks_store::database::stored_column::text_column;
+use sidekicks_store::database::stored_column::{safe_int_column, text_column};
 use tokio::sync::mpsc;
 
 use crate::engine::ports::WorkflowRunLimits;
 use crate::engine::tick::run_status::RunPersonWait;
+use crate::engine::tick::step_failure::run_cap_failure;
 use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
 use crate::engine::waits::step_key;
 use crate::kinds::{StepFailure, coded_step_error};
 
-/// The statements the deadline clock runs on a read connection: the earliest deadline and the
-/// steps due by an instant.
+/// The statements the deadline clock runs on a read connection: the earliest person wait
+/// deadline, the steps due by an instant, the unfinished runs and a run's lowest-index step.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-pub(crate) const ENGINE_DEADLINE_STATEMENT_CAPACITY: usize = 2;
+pub(crate) const ENGINE_DEADLINE_STATEMENT_CAPACITY: usize = 4;
 
 /// The deadline clock's job, as the program's log names it.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
@@ -76,6 +77,17 @@ fn cap_instant(
         .ok()
 }
 
+// Every run not finished, a failed park among them, through the partial index on its start; a
+// run waiting on a person has no cap until the wait ends.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+const UNFINISHED_RUNS_SQL: &str = "SELECT id, started_at, person_wait_ms FROM workflow_runs \
+     WHERE finished_at IS NULL AND person_wait_since IS NULL";
+
+// A run's lowest-index step, which the run cap's failure is reported on.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+const LOWEST_STEP_SQL: &str = "SELECT workflow_run_id, node_id, attempt, execution_index \
+     FROM workflow_steps WHERE workflow_run_id = ?1 ORDER BY execution_index LIMIT 1";
+
 // The stored instant in column `index` of `row`, as a timestamp.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn stored_timestamp(row: &Row<'_>, index: usize) -> rusqlite::Result<Timestamp> {
@@ -100,6 +112,96 @@ fn earliest_person_wait_deadline(
         }
     }
     Ok(None)
+}
+
+// The cap of each unfinished run not in `skipped` and with no person wait open, under `limit`;
+// a run whose cap lies past the last instant a timestamp holds has none.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+fn unfinished_run_caps(
+    connection: &Connection,
+    limit: RunTimeLimitMinutes,
+    skipped: &HashSet<WorkflowRunId>,
+) -> Result<Vec<(WorkflowRunId, Timestamp)>, EngineDeadlineError> {
+    let mut statement = connection.prepare_cached(UNFINISHED_RUNS_SQL)?;
+    let mut rows = statement.query([])?;
+    let mut caps = Vec::new();
+    while let Some(row) = rows.next()? {
+        let run_id = text_column(row, 0, |text| WorkflowRunId::new(&text))?;
+        if skipped.contains(&run_id) {
+            continue;
+        }
+        let person_wait_ms: SafeInt<0> = safe_int_column(row, 2)?;
+        if let Some(cap) = cap_instant(stored_timestamp(row, 1)?, limit, person_wait_ms.get()) {
+            caps.push((run_id, cap));
+        }
+    }
+    Ok(caps)
+}
+
+// The earliest deadline of a run not in `skipped`: a person wait's, or a run's cap under `limit`
+// where one is set; `None` when there is none.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+fn earliest_deadline(
+    connection: &Connection,
+    skipped: &HashSet<WorkflowRunId>,
+    limit: Option<RunTimeLimitMinutes>,
+) -> Result<Option<SystemTime>, EngineDeadlineError> {
+    let wait = earliest_person_wait_deadline(connection, skipped)?;
+    let cap = match limit {
+        Some(limit) => unfinished_run_caps(connection, limit, skipped)?
+            .into_iter()
+            .map(|(_, cap)| SystemTime::from(cap))
+            .min(),
+        None => None,
+    };
+    Ok(wait.into_iter().chain(cap).min())
+}
+
+// Every report due at `instant` of a run not in `skipped`: each person wait past its deadline
+// fails timed out, earliest first, then each run past its cap under `limit` fails on its
+// lowest-index step with the cap's failure.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+fn due_reports(
+    connection: &Connection,
+    instant: &WireInstant,
+    skipped: &HashSet<WorkflowRunId>,
+    limit: Option<RunTimeLimitMinutes>,
+) -> Result<Vec<(WorkflowStepKey, StepReportKind)>, EngineDeadlineError> {
+    let failed = |failure| {
+        StepReportKind::Settled(StepSettlement::Failed {
+            failure,
+            log_lines: Vec::new(),
+        })
+    };
+    let mut due: Vec<(WorkflowStepKey, StepReportKind)> = due_person_waits(connection, instant)?
+        .into_iter()
+        .filter(|due_wait| !skipped.contains(&due_wait.step.workflow_run_id))
+        .map(|DueWait { step, limit_ms }| {
+            let failure = step_timed_out(&step, limit_ms);
+            (step, failed(failure))
+        })
+        .collect();
+    let Some(limit) = limit else {
+        return Ok(due);
+    };
+    let now = instant
+        .timestamp()
+        .expect("an instant made from a timestamp reads as one");
+    let limit_ms = SafeInt::new(u64::from(limit.get()) * 60_000)
+        .expect("a run time limit's milliseconds are a safe integer");
+    let mut lowest_step = connection.prepare_cached(LOWEST_STEP_SQL)?;
+    for (run_id, cap) in unfinished_run_caps(connection, limit, skipped)? {
+        if cap > now {
+            continue;
+        }
+        if let Some(step) = lowest_step
+            .query_row([run_id.text().as_str()], step_key)
+            .optional()?
+        {
+            due.push((step, failed(run_cap_failure(limit_ms))));
+        }
+    }
+    Ok(due)
 }
 
 // A step whose deadline passed, and how long its wait was allowed.
@@ -153,7 +255,7 @@ fn step_timed_out(step: &WorkflowStepKey, limit_ms: SafeInt<1>) -> StepFailure {
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum EngineDeadlineError {
     /// SQLite refused a read, or a stored value did not read as its type.
-    #[error("a read of the steps waiting on a person failed")]
+    #[error("a read of the engine's deadlines failed")]
     Database(#[from] rusqlite::Error),
     /// The read pool is closed, a connection did not open, or the read's blocking task did not
     /// finish.
@@ -164,8 +266,9 @@ pub(crate) enum EngineDeadlineError {
     ReportsClosed,
 }
 
-/// The engine's one deadline clock over every step waiting on a person: armed at the earliest
-/// stored deadline, it fails each step whose deadline passed with `workflow.step.timedOut`.
+/// The engine's one deadline clock over every step waiting on a person and every unfinished
+/// run: armed at the earliest stored deadline or run cap, it fails each step whose deadline passed
+/// with `workflow.step.timedOut`, and each run past its cap on its lowest-index step.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct EngineDeadlines {
     /// The clock's one job on the wall clock.
@@ -233,9 +336,9 @@ impl InstantJob for EngineDeadlines {
         &self.armed
     }
 
-    /// Reports every step whose deadline is at or before `instant` failed, once, but a dropped
-    /// run's: it arms nothing again, so a deadline is not reported twice before the commit clears
-    /// it, and the tick calls [`InstantJob::rearm`] after that write.
+    /// Reports every step whose deadline is at or before `instant` failed, and every run past its
+    /// cap, once, but a dropped run's: it arms nothing again, so a deadline is not reported twice
+    /// before the commit clears it, and the tick calls [`InstantJob::rearm`] after that write.
     fn fire(
         self: Arc<Self>,
         instant: SystemTime,
@@ -243,25 +346,19 @@ impl InstantJob for EngineDeadlines {
         async move {
             let instant = WireInstant::from_timestamp(Timestamp::try_from(instant)?)
                 .expect("an instant armed from a stored deadline is after year 0000");
-            let mut due = self
+            let skipped = lock(&self.skipped).clone();
+            let limit = self.limits.run_time_limit();
+            let due = self
                 .reads
                 .read(ReadLength::Short, move |connection| {
-                    due_person_waits(connection, &instant)
+                    due_reports(connection, &instant, &skipped, limit)
                 })
                 .await?;
-            {
-                let skipped = lock(&self.skipped);
-                due.retain(|due_wait| !skipped.contains(&due_wait.step.workflow_run_id));
-            }
-            for DueWait { step, limit_ms } in due {
-                let failure = step_timed_out(&step, limit_ms);
+            for (step, kind) in due {
                 let report = StepReport {
                     step,
                     at: WireInstant::now(),
-                    kind: StepReportKind::Settled(StepSettlement::Failed {
-                        failure,
-                        log_lines: Vec::new(),
-                    }),
+                    kind,
                 };
                 if self.reports.send(report).await.is_err() {
                     return Err(EngineDeadlineError::ReportsClosed.into());
@@ -272,16 +369,17 @@ impl InstantJob for EngineDeadlines {
         .boxed()
     }
 
-    /// Reads the earliest stored deadline of a run not dropped and arms the clock at it, or
-    /// disarms it when no such wait has one; a failed read is tried again a minute later while
-    /// nothing is armed.
+    /// Reads the earliest stored deadline or run cap of a run not dropped, under `Stop a run
+    /// after` as set now, and arms the clock at it, or disarms it when there is none; a failed
+    /// read is tried again a minute later while nothing is armed.
     fn rearm(self: Arc<Self>) -> BoxFuture<'static, ()> {
         async move {
             let skipped = lock(&self.skipped).clone();
+            let limit = self.limits.run_time_limit();
             match self
                 .reads
                 .read(ReadLength::Short, move |connection| {
-                    earliest_person_wait_deadline(connection, &skipped)
+                    earliest_deadline(connection, &skipped, limit)
                 })
                 .await
             {
