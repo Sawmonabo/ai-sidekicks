@@ -27,7 +27,7 @@ pub enum BaseEnvironmentSource {
 pub fn base_environment_source() -> io::Result<BaseEnvironmentSource> {
     #[cfg(unix)]
     {
-        let (account_name, shell) = crate::posix::login_shell::read_account()?;
+        let (account_name, shell) = crate::posix::current_user::read_current_user()?;
         let temporary_folder = crate::posix::login_shell::user_temporary_folder()
             .inspect_err(|error| {
                 tracing::warn!(
