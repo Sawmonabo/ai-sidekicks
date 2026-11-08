@@ -60,8 +60,9 @@ static NEWEST_SETTLED_STEP_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// What a partial run does with each node it covers: the nodes it executes and the nodes whose
-/// settled step it reuses, each list in graph order, so the executed list is execution order.
+/// What a partial run does with each node it covers: the nodes it executes, and the nodes whose
+/// settled step it reuses or, for a run of one node, reads as that node's prior input, each list in
+/// graph order, so the executed list is execution order.
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(
     not(test),
@@ -70,8 +71,12 @@ static NEWEST_SETTLED_STEP_SQL: LazyLock<String> = LazyLock::new(|| {
 pub(crate) struct PartialRunPlan {
     /// The nodes the run executes.
     pub(crate) executed: Vec<WorkflowNodeId>,
-    /// The nodes whose step the run reuses, each with that step.
+    /// For a run from a node, the nodes whose step the run reuses, each with that step; empty for a
+    /// run of one node.
     pub(crate) reused: Vec<(WorkflowNodeId, SettledStep)>,
+    /// For a run of one node, the covered nodes whose step it reads as its prior input, each with
+    /// that step, used as it is though the node changed since; empty for a run from a node.
+    pub(crate) inputs: Vec<(WorkflowNodeId, SettledStep)>,
 }
 
 /// Why a partial run could not be planned.
@@ -164,12 +169,12 @@ fn settled_step_from_row(node_id: &WorkflowNodeId, row: &Row<'_>) -> rusqlite::R
 }
 
 /// The plan of a partial run of `target_version`, whose run graph is `graph`, on the node `target`,
-/// which the graph holds, over `scope`: the target alone, or the places [`covered_places`] names. The
-/// target always executes; a covered node executes when it has no settled step, when it is dirty,
-/// when its step was not fed by the steps the plan reuses for its feeders, or when
-/// [`executing_places`] says so; every other covered node reuses its step. Reads each covered
-/// node's settled step and each version those steps ran, and fails as [`PartialRunPlanError`]
-/// says.
+/// which the graph holds, over `scope`, covering the places [`covered_places`] names. The target
+/// always executes; a covered node executes when it has no settled step, when its step was not fed
+/// by the steps the plan keeps for its feeders, when [`executing_places`] says so, or, from a node,
+/// when it is dirty; every other covered node's step is reused from a node, or read as the target's
+/// prior input for one node, where no change dirties it. Reads each covered node's settled step and,
+/// from a node, each version those steps ran, and fails as [`PartialRunPlanError`] says.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the workflow.node.execute handler")
@@ -182,20 +187,71 @@ pub(crate) fn plan_partial_run(
     scope: WorkflowNodeExecuteScope,
 ) -> Result<PartialRunPlan, PartialRunPlanError> {
     let target_place = graph.place(target);
-    let covered: Vec<usize> = match scope {
-        WorkflowNodeExecuteScope::Node => vec![target_place],
-        WorkflowNodeExecuteScope::FromHere => covered_places(graph, target_place),
-    };
+    let covered = covered_places(graph, target_place);
     let mut settled = read_settled_steps(
         connection,
         target_version.definition_id,
         covered.iter().map(|&place| &graph.node(place).id),
     )
     .map_err(PartialRunPlanError::SettledSteps)?;
+    let dirty = match scope {
+        WorkflowNodeExecuteScope::Node => BTreeSet::new(),
+        WorkflowNodeExecuteScope::FromHere => {
+            read_dirty_nodes(connection, target_version, graph, &settled)?
+        }
+    };
+    let mut needs_execution = FixedBitSet::with_capacity(graph.node_count());
+    needs_execution.insert(target_place);
+    for &place in &covered {
+        let node_id = &graph.node(place).id;
+        let can_reuse = settled
+            .get(node_id)
+            .is_some_and(|step| !dirty.contains(node_id) && is_fed_by_reused_steps(step, &settled));
+        if !can_reuse {
+            needs_execution.insert(place);
+        }
+    }
+    let executing = executing_places(graph, &covered, needs_execution);
+    let mut plan = PartialRunPlan {
+        executed: Vec::new(),
+        reused: Vec::new(),
+        inputs: Vec::new(),
+    };
+    for place in covered {
+        let node_id = graph.node(place).id.clone();
+        if executing.contains(place) {
+            plan.executed.push(node_id);
+        } else {
+            let step = settled
+                .remove(&node_id)
+                .expect("a node that reuses its step has a settled step");
+            let kept = match scope {
+                WorkflowNodeExecuteScope::Node => &mut plan.inputs,
+                WorkflowNodeExecuteScope::FromHere => &mut plan.reused,
+            };
+            kept.push((node_id, step));
+        }
+    }
+    Ok(plan)
+}
+
+/// The nodes of `graph`, the run graph of `target_version`, whose step in `settled` no change since
+/// the version it ran lets a run reuse, as [`dirty_nodes`] marks them. Reads the target version's
+/// body and each version those steps ran, and fails as [`PartialRunPlanError`] says.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the workflow.node.execute handler")
+)]
+fn read_dirty_nodes(
+    connection: &Connection,
+    target_version: &VersionRow,
+    graph: &RunGraph,
+    settled: &HashMap<WorkflowNodeId, SettledStep>,
+) -> Result<BTreeSet<WorkflowNodeId>, PartialRunPlanError> {
     let target_body = parse_stored_workflow_body(&target_version.definition_body)?;
     let mut node_ids_by_version: BTreeMap<WorkflowVersionId, BTreeSet<WorkflowNodeId>> =
         BTreeMap::new();
-    for (node_id, step) in &settled {
+    for (node_id, step) in settled {
         node_ids_by_version
             .entry(step.workflow_version_id)
             .or_default()
@@ -212,38 +268,10 @@ pub(crate) fn plan_partial_run(
             })
         })
         .collect::<Result<Vec<_>, PartialRunPlanError>>()?;
-    let dirty = dirty_nodes(&target_body, graph, &sources);
-    let mut needs_execution = FixedBitSet::with_capacity(graph.node_count());
-    needs_execution.insert(target_place);
-    for &place in &covered {
-        let node_id = &graph.node(place).id;
-        let can_reuse = settled
-            .get(node_id)
-            .is_some_and(|step| !dirty.contains(node_id) && is_fed_by_reused_steps(step, &settled));
-        if !can_reuse {
-            needs_execution.insert(place);
-        }
-    }
-    let executing = executing_places(graph, &covered, needs_execution);
-    let mut plan = PartialRunPlan {
-        executed: Vec::new(),
-        reused: Vec::new(),
-    };
-    for place in covered {
-        let node_id = graph.node(place).id.clone();
-        if executing.contains(place) {
-            plan.executed.push(node_id);
-        } else {
-            let step = settled
-                .remove(&node_id)
-                .expect("a node that reuses its step has a settled step");
-            plan.reused.push((node_id, step));
-        }
-    }
-    Ok(plan)
+    Ok(dirty_nodes(&target_body, graph, &sources))
 }
 
-/// The places a run from the node at `target` covers, lowest first: the target and its ancestors,
+/// The places a partial run on the node at `target` covers, in either scope, lowest first: the target and its ancestors,
 /// then the body of every covered loop, each node that joins bringing its own ancestors, until
 /// nothing joins. Each node joins once, and no descendant of the target joins, so a target inside a
 /// loop's body leaves the body after it out.

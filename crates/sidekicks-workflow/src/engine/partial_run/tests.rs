@@ -373,30 +373,41 @@ const CHAIN_STEPS: &[(&str, &[(&str, u32)])] = &[
     ("C", &[("B", 2)]),
 ];
 
+/// A node of a plan's list with the run its step came from.
+type KeptStep = (String, WorkflowRunId);
+
 /// The plan of a partial run of version 2, whose body is `target_body`, on `target` over `scope`,
-/// as the nodes it executes and each reused node with the run its step came from.
+/// as the nodes it executes, each reused node and each node read as prior input, the last two each
+/// with the run its step came from.
 fn plan(
     connection: &Connection,
     target_body: &Value,
     target: &str,
     scope: WorkflowNodeExecuteScope,
-) -> (Vec<String>, Vec<(String, WorkflowRunId)>) {
+) -> (Vec<String>, Vec<KeptStep>, Vec<KeptStep>) {
     let version = WorkflowVersions::new(connection)
         .read_version(WorkflowVersionId::new(SECOND_VERSION_ID).expect("the test's version id"))
         .expect("the target version reads");
     let graph = graph_of(&parsed(target_body));
-    let PartialRunPlan { executed, reused } =
-        plan_partial_run(connection, &version, &graph, &node_id_of(target), scope)
-            .expect("the plan reads");
+    let PartialRunPlan {
+        executed,
+        reused,
+        inputs,
+    } = plan_partial_run(connection, &version, &graph, &node_id_of(target), scope)
+        .expect("the plan reads");
+    let kept = |steps: Vec<(WorkflowNodeId, SettledStep)>| -> Vec<KeptStep> {
+        steps
+            .into_iter()
+            .map(|(node_id, settled)| (node_id.as_str().to_owned(), settled.step.workflow_run_id))
+            .collect()
+    };
     (
         executed
             .iter()
             .map(|node_id| node_id.as_str().to_owned())
             .collect(),
-        reused
-            .into_iter()
-            .map(|(node_id, settled)| (node_id.as_str().to_owned(), settled.step.workflow_run_id))
-            .collect(),
+        kept(reused),
+        kept(inputs),
     )
 }
 
@@ -405,25 +416,10 @@ fn names(ids: &[&str]) -> Vec<String> {
     ids.iter().map(|&id| id.to_owned()).collect()
 }
 
-/// `ids`, each reusing its step from run `run_id`.
-fn reused_from(run_id: &str, ids: &[&str]) -> Vec<(String, WorkflowRunId)> {
+/// `ids`, each keeping its step from run `run_id`.
+fn reused_from(run_id: &str, ids: &[&str]) -> Vec<KeptStep> {
     let run_id = WorkflowRunId::new(run_id).expect("the test's run id");
     ids.iter().map(|&id| (id.to_owned(), run_id)).collect()
-}
-
-/// `Run this node` executes the target alone and reuses nothing, though its own step and every
-/// step before it are clean. Mutation: cover the target's ancestors on a node run (they are
-/// reused).
-#[test]
-fn a_node_run_executes_the_target_alone() {
-    let connection = workflow_tables();
-    let chain = body(&chain(), CHAIN);
-    store_versions(&connection, &chain, &chain);
-    store_run_steps(&connection, FIRST_RUN_ID, FIRST_VERSION_ID, 1, CHAIN_STEPS);
-    assert_eq!(
-        plan(&connection, &chain, "B", WorkflowNodeExecuteScope::Node),
-        (names(&["B"]), Vec::new())
-    );
 }
 
 /// A covered node no run settled executes, and so does every node after it. Mutation: reuse a
@@ -437,7 +433,11 @@ fn a_covered_node_with_no_settled_step_executes() {
     store_run_steps(&connection, FIRST_RUN_ID, FIRST_VERSION_ID, 1, steps);
     assert_eq!(
         plan(&connection, &chain, "C", WorkflowNodeExecuteScope::FromHere),
-        (names(&["B", "C"]), reused_from(FIRST_RUN_ID, &["T", "A"]))
+        (
+            names(&["B", "C"]),
+            reused_from(FIRST_RUN_ID, &["T", "A"]),
+            Vec::new()
+        )
     );
 }
 
@@ -475,7 +475,11 @@ fn each_node_is_checked_against_its_own_steps_version() {
             "M",
             WorkflowNodeExecuteScope::FromHere
         ),
-        (names(&["T", "M"]), reused_from(SECOND_RUN_ID, &["S"]))
+        (
+            names(&["T", "M"]),
+            reused_from(SECOND_RUN_ID, &["S"]),
+            Vec::new()
+        )
     );
 }
 
@@ -498,7 +502,11 @@ fn a_dirty_node_makes_the_clean_nodes_after_it_execute() {
             "C",
             WorkflowNodeExecuteScope::FromHere
         ),
-        (names(&["A", "B", "C"]), reused_from(FIRST_RUN_ID, &["T"]))
+        (
+            names(&["A", "B", "C"]),
+            reused_from(FIRST_RUN_ID, &["T"]),
+            Vec::new()
+        )
     );
 }
 
@@ -520,7 +528,11 @@ fn a_step_fed_by_another_run_than_its_reused_feeders_executes() {
     );
     assert_eq!(
         plan(&connection, &chain, "C", WorkflowNodeExecuteScope::FromHere),
-        (names(&["B", "C"]), reused_from(SECOND_RUN_ID, &["T", "A"]))
+        (
+            names(&["B", "C"]),
+            reused_from(SECOND_RUN_ID, &["T", "A"]),
+            Vec::new()
+        )
     );
 }
 
@@ -570,7 +582,11 @@ fn a_loop_executes_whole_when_a_node_in_its_body_executes(
             "Y",
             WorkflowNodeExecuteScope::FromHere
         ),
-        (names(&["L", "X", "Y"]), reused_from(FIRST_RUN_ID, &["T"]))
+        (
+            names(&["L", "X", "Y"]),
+            reused_from(FIRST_RUN_ID, &["T"]),
+            Vec::new()
+        )
     );
 }
 
@@ -613,24 +629,61 @@ fn run_from_here_past_a_loop_covers_its_body() {
             "D",
             WorkflowNodeExecuteScope::FromHere
         ),
-        (names(&["D"]), reused_from(FIRST_RUN_ID, &["T", "L", "X"]))
+        (
+            names(&["D"]),
+            reused_from(FIRST_RUN_ID, &["T", "L", "X"]),
+            Vec::new()
+        )
     );
 }
 
-/// A run on `X` inside the body `L → X → Y → L` leaves `Y`, which follows `X`, out of both lists,
-/// and `L` executes because `X` does. Mutation: let a descendant of the target join the covered set
-/// (`Y` executes).
-#[test]
-fn no_run_covers_a_descendant_of_its_target() {
+/// A run on `X` inside the body `L → X → Y → L`, in either scope, leaves `Y`, which follows `X`,
+/// out of every list, and `L` executes because `X` does. Mutation: let a descendant of the target
+/// join the covered set (`Y` executes).
+#[rstest]
+#[case::from_here(WorkflowNodeExecuteScope::FromHere)]
+#[case::node(WorkflowNodeExecuteScope::Node)]
+fn no_run_covers_a_descendant_of_its_target(#[case] scope: WorkflowNodeExecuteScope) {
     let connection = workflow_tables();
     let loop_body = store_loop_run(&connection, true);
+    let kept = reused_from(FIRST_RUN_ID, &["T"]);
+    let (reused, inputs) = match scope {
+        WorkflowNodeExecuteScope::FromHere => (kept, Vec::new()),
+        WorkflowNodeExecuteScope::Node => (Vec::new(), kept),
+    };
     assert_eq!(
-        plan(
-            &connection,
-            &loop_body,
-            "X",
-            WorkflowNodeExecuteScope::FromHere
-        ),
-        (names(&["L", "X"]), reused_from(FIRST_RUN_ID, &["T"]))
+        plan(&connection, &loop_body, "X", scope),
+        (names(&["L", "X"]), reused, inputs)
     );
+}
+
+/// `Run this node` on `C` reads the steps before it as its prior input though `A` changed since,
+/// and with `B` never run, `B` executes before `C` and only `T` and `A` are read. Mutations: mark
+/// dirty nodes on a node run (`A` executes); keep a node with no settled step among the inputs
+/// (the second plan fails).
+#[test]
+fn run_this_node_uses_its_ancestors_steps_as_they_are() {
+    let first = body(&chain(), CHAIN);
+    let second = body(
+        &chain_nodes("A", &json!({ "params": { "note": "x" } })),
+        CHAIN,
+    );
+    let without_b: &[(&str, &[(&str, u32)])] =
+        &[("T", &[]), ("A", &[("T", 0)]), ("C", &[("B", 9)])];
+    for (steps, executed, inputs) in [
+        (CHAIN_STEPS, &["C"][..], &["T", "A", "B"][..]),
+        (without_b, &["B", "C"][..], &["T", "A"][..]),
+    ] {
+        let connection = workflow_tables();
+        store_versions(&connection, &first, &second);
+        store_run_steps(&connection, FIRST_RUN_ID, FIRST_VERSION_ID, 1, steps);
+        assert_eq!(
+            plan(&connection, &second, "C", WorkflowNodeExecuteScope::Node),
+            (
+                names(executed),
+                Vec::new(),
+                reused_from(FIRST_RUN_ID, inputs)
+            )
+        );
+    }
 }
