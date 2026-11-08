@@ -153,6 +153,8 @@ pub struct SessionRecord {
     pub updated_at: WireInstant,
     /// The unsent composer draft, whole; empty when none is held.
     pub draft: SessionDraft,
+    /// The draft's revision, which a save carries back; 0 before any draft was held.
+    pub draft_revision: SafeInt<0>,
     /// The whole staged set of files, so every device opens the same half-written message.
     pub attachments: Vec<SessionAttachmentSummary>,
     /// The session's own bound on the steps one turn may take; absent where the person set none,

@@ -66,14 +66,28 @@ fn held_extras(fixture: &Fixture) -> Option<Value> {
         .map(|extras| serde_json::from_str(&extras).expect("held extras are JSON"))
 }
 
-/// Holds `text` with `extras` as the session's draft, as the person's typing does.
+/// The revision of the session's draft as the test reads it back; `None` when no row is held.
+fn held_revision(fixture: &Fixture) -> Option<i64> {
+    fixture
+        .database
+        .reader()
+        .query_row(
+            "SELECT revision FROM session_drafts WHERE session_id = ?1",
+            params![fixture.session_id.text().as_str()],
+            |row| row.get(0),
+        )
+        .optional()
+        .expect("the test reads the draft")
+}
+
+/// Holds `text` with `extras` as the session's draft at revision 1, as a first save does.
 fn hold_draft(fixture: &Fixture, text: &str, extras: Option<Value>) {
     fixture
         .database
         .reader()
         .execute(
-            "INSERT INTO session_drafts (session_id, text, extras, updated_at)
-             VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO session_drafts (session_id, text, extras, revision, updated_at)
+             VALUES (?1, ?2, ?3, 1, ?4)",
             params![
                 fixture.session_id.text().as_str(),
                 text,
@@ -90,10 +104,11 @@ const HELD_FILE: &str = "01900000-0000-7000-8000-000000000001";
 // Each form of a waiting message ends as the Stop's table says, committed as the run's end commits
 // its companions: every lead message is canceled into the draft whole, its words one line each, in
 // queue order, ahead of the held draft's, its file and skill pick after the held draft's, and its
-// speed only where the held draft names none. Killed by the held draft replaced or put first, the
-// order reversed, a lead message with a file and a skill pick ended not delivered or returned
-// without them, the held file dropped or put last, the held speed overwritten, a helper's message,
-// a review or a plan message canceled, or a draft written when no message returned.
+// speed only where the held draft names none, the draft's revision moving on by one. Killed by the
+// held draft replaced or put first, the order reversed, a lead message with a file and a skill pick
+// ended not delivered or returned without them, the held file dropped or put last, the held speed
+// overwritten, a helper's message, a review or a plan message canceled, the revision left where it
+// was, or a draft written when no message returned.
 #[rstest]
 #[case::two_messages_ahead_of_the_held_draft(
     &[Form::Words("First"), Form::Words("Second")],
@@ -136,6 +151,7 @@ async fn a_stop_returns_each_waiting_message_by_its_form(
     #[case] expected_extras: Option<Value>,
 ) {
     let fixture = fixture(driver_handing(HANDS_AT_ONCE)).await;
+    let held_revision_before = i64::from(held.is_some());
     if let Some((text, extras)) = held {
         hold_draft(&fixture, text, extras);
     }
@@ -189,4 +205,8 @@ async fn a_stop_returns_each_waiting_message_by_its_form(
     }
     assert_eq!(held_draft(&fixture).as_deref(), expected_draft);
     assert_eq!(held_extras(&fixture), expected_extras);
+    assert_eq!(
+        held_revision(&fixture),
+        expected_draft.map(|_| held_revision_before + 1)
+    );
 }

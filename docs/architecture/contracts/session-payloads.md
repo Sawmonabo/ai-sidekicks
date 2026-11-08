@@ -225,6 +225,9 @@ interface SessionRecord {
   // The daemon-held composer store below: the whole unsent draft (empty when there is none) and the whole
   // staged set, so every device opens the same half-written message.
   draft: SessionDraft;
+  // The draft's revision, which a save carries back as `expectedRevision`: 0 before any save, and
+  // one more at each save and at each message a Stop or an interrupt puts back into it.
+  draftRevision: number;
   attachments: SessionAttachmentSummary[];
   // This session's OWN bound on how many steps one turn may take, absent where the person set none —
   // in which case the machine's own Runtime value applies, and where that is unset the turn is
@@ -372,11 +375,11 @@ interface SessionWorkingFolderUpdateResponse {
 
 // The unsent draft, whole: its words and what rides with them, in the shapes
 // `agent.queueItem.create` takes ([Run Control Payload Contracts](run-control-payloads.md)), so a
-// draft sends again as it was. A draft the person saved and
-// one a Stop or an interrupt's return to the draft put back read the same: a lead message taken
-// back joins the draft whole, its words on their own line ahead of the held words, its files and
-// skill picks after the held ones, and its turn speed and repository only where the held draft
-// names none.
+// draft sends again as it was. A draft the person saved and one a Stop or an interrupt's return to
+// the draft put back read the same: a lead message taken back joins the draft whole, its words on
+// their own line ahead of the held words, its files and skill picks after the held ones, and its
+// turn speed and repository only where the held draft names none. `attachments` holds a returned
+// message's files until the composer's staged set takes them.
 interface SessionDraftExtras {
   attachments?: ArtifactId[]; // the files, in staging order
   skills?: { name: string; folderPath: string }[]; // the skills picked, in the order picked
@@ -388,13 +391,18 @@ interface SessionDraft {
   extras: SessionDraftExtras; // `{}` when nothing rides with the words
 }
 
-// SessionDraftUpdate — session.draft.update.
+// SessionDraftUpdate — session.draft.update. A save over a draft that changed since the client read
+// it, another device's save or a message a Stop put back, is refused with
+// `session.draft.revisionStale` and writes nothing; the client reads the draft again and saves over
+// that.
 interface SessionDraftUpdateRequest {
   sessionId: SessionId;
   draft: SessionDraft; // the whole draft; an empty one, no words and no extras, clears it
+  expectedRevision: number; // the `draftRevision` the save was typed over
 }
 interface SessionDraftUpdateResponse {
   sessionId: SessionId;
+  revision: number; // the draft's new revision
   updatedAt: string;
 }
 

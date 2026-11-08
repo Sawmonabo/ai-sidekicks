@@ -99,15 +99,9 @@ pub struct SessionDraft {
     pub extras: SessionDraftExtras,
 }
 
-impl SessionDraft {
-    /// Whether the draft holds nothing: no words and no extras.
-    pub fn is_empty(&self) -> bool {
-        self.text.is_empty() && self.extras.is_empty()
-    }
-}
-
 /// Saves a session's draft. `draft` is the whole draft and replaces the one held; an empty draft,
-/// no words and no extras, clears it, which is what Send does.
+/// no words and no extras, clears it, which is what Send does. A save over a draft that changed
+/// since `expectedRevision` is refused rather than overwriting it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -116,15 +110,19 @@ pub struct SessionDraftUpdateRequest {
     pub session_id: SessionId,
     /// The whole draft; an empty one clears it.
     pub draft: SessionDraft,
+    /// The draft revision the save was typed over; 0 when no draft was ever held.
+    pub expected_revision: SafeInt<0>,
 }
 
-/// When the daemon stored the draft.
+/// The draft's new revision and when the daemon stored it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct SessionDraftUpdateResponse {
     /// The session.
     pub session_id: SessionId,
+    /// The draft's new revision.
+    pub revision: SafeInt<1>,
     /// When the draft was stored.
     #[garde(dive)]
     pub updated_at: WireInstant,
@@ -188,6 +186,8 @@ pub struct SessionAttachmentAddRequest {
 }
 
 ts_constants! {
+    /// A draft save carrying a revision that is no longer the draft's current one.
+    SESSION_DRAFT_REVISION_STALE_CODE = RefusalCode::SessionDraftRevisionStale;
     /// The code for a file the session cannot stage.
     SESSION_ATTACHMENT_REFUSED_CODE = RefusalCode::SessionAttachmentRefused;
 }
@@ -391,7 +391,7 @@ methods! {
             mutating: true,
             params: SessionDraftUpdateRequest,
             result: SessionDraftUpdateResponse,
-            refusals: [SessionNotFound],
+            refusals: [SessionNotFound, SessionDraftRevisionStale],
         },
         /// Stages files for the next message; each refused item rides in the reply.
         SessionAttachmentAdd = mutation "session.attachment.add" {
