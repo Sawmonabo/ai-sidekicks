@@ -273,12 +273,11 @@ fn join_key_of(event: &UnsequencedEventEnvelope) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use rusqlite::params;
     use serde_json::{Value, json};
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
-
-    use rusqlite::params;
     use sidekicks_contracts::wire::instant::WireInstant;
     use sidekicks_contracts::wire::integer::MAX_SAFE_SIGNED_INTEGER;
 
