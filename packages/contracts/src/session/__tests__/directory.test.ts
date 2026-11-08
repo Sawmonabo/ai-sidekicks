@@ -1,30 +1,49 @@
 // The session directory: how a reader ages a row's activity, and the rules `session.create` holds a
 // new session to (its lead names no account; only a project session is filed in a group).
-import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 
-import { SessionCreateRequestSchema, sessionActivityAsOf } from "../directory.js";
+import { describe, expect, it } from "vitest";
+import { z } from "zod";
+
+import {
+  SessionActivitySchema,
+  SessionCreateRequestSchema,
+  sessionActivityAsOf,
+} from "../directory.js";
 
 const PROJECT_ID = "770e8400-e29b-41d4-a716-446655440002";
 const GROUP_ID = "aa0e8400-e29b-41d4-a716-446655440005";
 const ACCOUNT_ID = "bb0e8400-e29b-41d4-a716-446655440006";
 const IDEMPOTENCY_KEY = "0f2b4d5e-9999-4999-8999-999999999999";
-const AT = "2026-09-24T02:00:00.000Z";
+
+// The daemon ages a reading by the same table, so a row reads alike on every screen.
+const activityCases = z
+  .array(
+    z
+      .object({
+        note: z.string(),
+        activity: SessionActivitySchema,
+        activityRenewedAt: z.string(),
+        nowMs: z.int(),
+        expected: SessionActivitySchema,
+      })
+      .strict(),
+  )
+  .parse(
+    JSON.parse(
+      readFileSync(
+        new URL(
+          "../../../../../crates/sidekicks-contracts/tests/fixtures/session/activity.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ),
+  );
 
 describe("reading a row's activity", () => {
-  const renewedAt = Date.parse(AT);
-
-  it("believes a running or waiting reading for 45 seconds, then reads it as idle", () => {
-    for (const activity of ["running", "waiting"] as const) {
-      const entry = { activity, activityRenewedAt: AT };
-      expect(sessionActivityAsOf(entry, renewedAt + 45_000)).toBe(activity);
-      expect(sessionActivityAsOf(entry, renewedAt + 45_001)).toBe("idle");
-    }
-  });
-
-  it("never ages a failed session", () => {
-    expect(
-      sessionActivityAsOf({ activity: "failed", activityRenewedAt: AT }, renewedAt + 3_600_000),
-    ).toBe("failed");
+  it.each(activityCases)("$note", ({ activity, activityRenewedAt, nowMs, expected }) => {
+    expect(sessionActivityAsOf({ activity, activityRenewedAt }, nowMs)).toBe(expected);
   });
 });
 
