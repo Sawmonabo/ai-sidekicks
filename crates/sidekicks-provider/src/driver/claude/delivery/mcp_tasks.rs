@@ -51,8 +51,8 @@ pub(crate) struct ClaudeHeldCallEnd {
     /// Claude Code's summary, then a line per file the call returned; none for a stopped call,
     /// whose summary is only the task's name.
     pub(crate) text: Option<String>,
-    /// The task notification that ended the call, as Claude Code sent it, kept for the call's
-    /// trace while `Record traces` is on; none for an end the daemon settled.
+    /// The task notification or saved ending that ended the call, as Claude Code wrote it, kept
+    /// for the call's trace while `Record traces` is on; none for an end with neither.
     pub(crate) notification: Option<Box<RawValue>>,
 }
 

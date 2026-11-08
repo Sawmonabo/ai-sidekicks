@@ -13,34 +13,34 @@ use crate::driver::claude::spawn::environment::claude_config_folder;
 use crate::run::delivery::LateAppendableRow;
 
 // Fails when a held call's stand-in is not its `backgrounded` row, when its survival is not read
-// from what Claude Code kept before its words, or when a process that ends unasked leaves its held
-// calls unsettled or settles them other than by what Claude Code kept. Mutations: the saved ending
-// ignored (call-1 left open, no `stopped` close); survival inverted or read off the words alone
-// (call-1 and call-2 read `false`); the settle skipped in `end()`, or `end_session` answering no
-// held calls (no close for call-3, the wait times out).
+// from what Claude Code kept before its words, when a process that ends unasked leaves its held
+// calls unsettled or settles them other than by what Claude Code kept, or when a call its saved
+// ending closed is not traced with that ending. Mutations: the saved ending ignored (call-1 left
+// open, no `stopped` close); survival inverted or read off the words alone (call-1 and call-2 read
+// `false`); the settle skipped in `end()`, or `end_session` answering no held calls (no close for
+// call-3, the wait times out); the exit's close carrying no saved ending (no trace).
 #[tokio::test(start_paused = true)]
 async fn an_unmarked_exit_settles_each_held_call_by_what_claude_code_kept() {
     let session = ScriptedSession::new().await;
     session.hold_lead_turn("lead");
+    session.ports.tool_traces.set_recording(true);
     let config_folder = claude_config_folder(
         &session.live.signed_in_spawn_environment(),
         PathRules::NATIVE,
     )
     .expect("the scripted session's home is known");
+    let saved_ending = json!({
+        "toolUseId": "call-1",
+        "status": "cancelled",
+        "statusMessage": "server cancelled the export",
+        "serverName": "files",
+        "toolName": "export",
+    });
     write_kept_files(
         &config_folder,
         &session.live.provider_session_id,
         &[
-            (
-                "mcp-task-task-1.outcome.json",
-                json!({
-                    "toolUseId": "call-1",
-                    "status": "cancelled",
-                    "statusMessage": "server cancelled the export",
-                    "serverName": "files",
-                    "toolName": "export",
-                }),
-            ),
+            ("mcp-task-task-1.outcome.json", saved_ending.clone()),
             ("mcp-task-task-2.meta.json", record("call-2")),
         ],
     );
@@ -160,4 +160,12 @@ async fn an_unmarked_exit_settles_each_held_call_by_what_claude_code_kept() {
         statuses,
         [("call-1".to_owned(), None), ("call-3".to_owned(), None)]
     );
+    let traces = session.ports.tool_traces.traces();
+    assert_eq!(
+        traces.len(),
+        1,
+        "only the call its saved ending closed is traced"
+    );
+    assert_eq!(traces[0].tool_call_id, "call-1");
+    assert_eq!(traces[0].result.get(), saved_ending.to_string());
 }

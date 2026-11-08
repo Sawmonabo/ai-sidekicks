@@ -42,8 +42,8 @@ use self::body::{ClaudeFrameBody, read_frame_members};
 use self::dependencies::ClaudeStreamDependencies;
 use self::session::CLAUDE_LOGIN_REFUSAL;
 pub(crate) use self::session::{ClaudeFirstRequest, ClaudeSessionStream, ClaudeSessionStreams};
+use self::tasks::ClaudeExitHolds;
 use crate::driver::claude::DESCRIPTOR;
-use crate::driver::claude::delivery::mcp_tasks::ClaudeHeldCall;
 use crate::driver::claude::delivery::messages::{
     ClaudeMessageFrame, ClaudeMessageRow, ClaudeMessageRowKind, read_claude_assistant_rows,
     read_claude_user_rows,
@@ -186,8 +186,8 @@ impl ClaudeDeliveryStream {
         };
         self.read_resume_frame(session, &kind, &routed.route, &body, &turn_at_read)
             .await;
-        if is_helper_frame {
-            self.take_helper_message(session, &kind, frame_kind, body)
+        if let ThreadFrameRoute::ChildTranscript { child_thread_id } = &routed.route {
+            self.take_helper_message(session, child_thread_id, &kind, frame_kind, body)
                 .await;
             return after;
         }
@@ -480,12 +480,9 @@ impl ClaudeDeliveryStream {
     }
 
     /// Releases what the session streamed and buffered, as its process is gone, and forgets its
-    /// readings; the exit path ends the run its turn was on. Answers the tool-server calls still
-    /// held, each by its task, which the caller settles.
-    pub(crate) async fn end_session(
-        &self,
-        session: &ClaudeSessionStream,
-    ) -> Vec<(String, ClaudeHeldCall)> {
+    /// readings; the exit path ends the run its turn was on. Answers the tool-server calls the
+    /// lead and its helpers still hold, each by its task, which the caller settles.
+    pub(crate) async fn end_session(&self, session: &ClaudeSessionStream) -> ClaudeExitHolds {
         let (pieces, released, turn) = {
             let mut readings = session.lock();
             (
@@ -505,8 +502,10 @@ impl ClaudeDeliveryStream {
             readings.now_steers.clear();
             readings.turn = None;
             readings.command_tasks.forget();
-            readings.helper_tool_calls.forget();
-            let held = readings.tool_server_tasks.take_held();
+            let held = ClaudeExitHolds {
+                tool_server_calls: readings.tool_server_tasks.take_held(),
+                helper_calls: readings.helper_tool_calls.take_held(),
+            };
             readings.tool_server_tasks.forget();
             held
         };

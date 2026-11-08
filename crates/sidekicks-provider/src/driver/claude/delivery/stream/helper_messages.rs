@@ -10,11 +10,12 @@ use crate::driver::claude::goals::endings::GoalEndingInput;
 use crate::port::tool_traces::{is_recording_tool_traces, record_tool_traces};
 
 impl ClaudeDeliveryStream {
-    /// Takes one frame of `kind`, `frame_kind` on the wire, that a helper wrote, its `body`
-    /// parsed once.
+    /// Takes one frame of `kind`, `frame_kind` on the wire, that the helper `helper_id` wrote, its
+    /// `body` parsed once.
     pub(super) async fn take_helper_message(
         &self,
         session: &ClaudeSessionStream,
+        helper_id: &str,
         kind: &ClaudeWireFrameKind,
         frame_kind: &str,
         body: ClaudeFrameBody,
@@ -26,7 +27,11 @@ impl ClaudeDeliveryStream {
             {
                 let mut readings = session.lock();
                 readings.command_tasks.observe_calls(&message);
-                readings.helper_tool_calls.observe_calls(&mut message);
+                readings.helper_tool_calls.observe_calls(
+                    &mut message,
+                    session.session_id,
+                    helper_id,
+                );
             }
             if let Some(text) = message.text() {
                 self.classify_goal(session, GoalEndingInput::HelperText(text), frame_kind)

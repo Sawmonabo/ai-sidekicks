@@ -1,13 +1,16 @@
 //! The task frames Claude Code reports beside a turn, which may come after the turn that started
 //! them ended: a helper's end moves its child run, a shell or Monitor task becomes a row of the
 //! session's running commands on the run that started it, and a tool server's background call
-//! stays open until its own notification closes it, its progress the status line under it. Also
+//! stays open until its own notification closes it, its progress the status line under it; a
+//! helper's such call is held the same way and traced at its notification, with no row. Also
 //! the usage routing metered off a frame, recorded on the run whose thread spent it, and the move
 //! of the session's bindings onto another account, made in its place among those frames.
 
 mod exit_settle;
 mod rest_settle;
 mod resume;
+
+pub(super) use self::exit_settle::ClaudeExitHolds;
 
 use std::collections::HashSet;
 
@@ -73,27 +76,38 @@ impl ClaudeDeliveryStream {
         }
         let run = self.task_run(session, &task, lead);
         let is_tracing = is_recording_tool_traces(&self.dependencies.tool_traces);
-        let (ends, progress) = {
+        let (ends, progress, helper_trace) = {
             let mut guard = session.lock();
             let readings = &mut *guard;
             let held = &mut readings.tool_server_tasks;
             match kind {
                 ClaudeWireFrameKind::SystemTaskStarted => {
                     held.observe_start(&task, &mut readings.open_tool_calls);
+                    readings
+                        .helper_tool_calls
+                        .observe_start(&task, session.session_id);
                     if let Some(task_id) = task.task_id() {
                         readings.restored_calls.confirm(task_id);
                     }
-                    (Vec::new(), None)
+                    (Vec::new(), None, None)
                 }
                 ClaudeWireFrameKind::SystemTaskNotification => {
                     // The notification is the held call's result as Claude Code sent it.
                     let end = held.release(&task).map(|mut end| {
                         if is_tracing {
-                            end.notification = read_notification(session, text);
+                            end.notification = read_traced_ending(session, text);
                         }
                         end
                     });
-                    (end.into_iter().collect(), None)
+                    let helper_trace = readings
+                        .helper_tool_calls
+                        .release(&task)
+                        .filter(|_| is_tracing)
+                        .and_then(|call| {
+                            let result = read_traced_ending(session, text)?;
+                            Some(call.into_trace(session.session_id, result))
+                        });
+                    (end.into_iter().collect(), None, helper_trace)
                 }
                 ClaudeWireFrameKind::SystemBackgroundTasksChanged => {
                     // The first list after a resume ends the rebuilt calls it leaves out as ended
@@ -104,13 +118,16 @@ impl ClaudeDeliveryStream {
                         .unwrap_or_default();
                     let mut ends = held.end_unrestored(unrestored.iter().map(String::as_str));
                     ends.extend(held.settle_unlisted(&task, &readings.restored_calls));
-                    (ends, None)
+                    (ends, None, None)
                 }
-                ClaudeWireFrameKind::SystemTaskProgress => (Vec::new(), held.progress_call(&task)),
-                _ => (Vec::new(), None),
+                ClaudeWireFrameKind::SystemTaskProgress => {
+                    (Vec::new(), held.progress_call(&task), None)
+                }
+                _ => (Vec::new(), None, None),
             }
         };
         self.close_held_calls(session, ends, frame_kind).await;
+        record_tool_traces(&self.dependencies.tool_traces, helper_trace).await;
         if let (Some((tool_use_id, summary)), Some(statuses)) =
             (progress, self.dependencies.tool_call_statuses.port())
         {
@@ -276,7 +293,7 @@ impl ClaudeDeliveryStream {
     /// Closes each held call in `ends`, read off a frame of `wire`, through the reorder buffer.
     /// Each close is appended after its run and unpaired, since its stand-in result already
     /// answered the call's opening; a call that holds its arguments and ended with its task's
-    /// notification is traced with that notification as its result.
+    /// notification, or the ending Claude Code saved, is traced with that as its result.
     pub(super) async fn close_held_calls(
         &self,
         session: &ClaudeSessionStream,
@@ -350,15 +367,17 @@ impl ClaudeDeliveryStream {
     }
 }
 
-// A task notification's `text` as the held call's traced result; `None`, logged, for text that
-// is not one JSON value, which leaves the call untraced.
-fn read_notification(session: &ClaudeSessionStream, text: &str) -> Option<Box<RawValue>> {
+// A held call's ending as Claude Code wrote it, its task notification or its saved ending, as
+// the call's traced result; `None`, logged, for text that is not one JSON value, which leaves the
+// call untraced.
+fn read_traced_ending(session: &ClaudeSessionStream, text: &str) -> Option<Box<RawValue>> {
     RawValue::from_string(text.to_owned())
         .inspect_err(|error| {
             tracing::warn!(
                 session_id = %session.session_id,
                 error = error as &(dyn std::error::Error + 'static),
-                "a Claude Code task notification is not one JSON value, so its call is not traced"
+                "a Claude Code background call's ending is not one JSON value, so its call is not \
+                 traced"
             );
         })
         .ok()

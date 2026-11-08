@@ -41,7 +41,7 @@ use crate::lenient_json::{
 use crate::port::tool_traces::ToolTrace;
 use crate::run::delivery::{DeliveryOperation, LateAppendableRow};
 
-pub(crate) use self::helper_calls::ClaudeHelperToolCalls;
+pub(crate) use self::helper_calls::{ClaudeHelperToolCall, ClaudeHelperToolCalls};
 
 /// A field of a transcript row, as the event's cap holds it.
 type EventText = FreeFormText<EVENT_FIELD_MAX_LEN>;
