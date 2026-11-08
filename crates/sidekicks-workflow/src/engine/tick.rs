@@ -29,9 +29,10 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::wire::record::{JsonRecord, Record};
+use sidekicks_contracts::wire::record::JsonRecord;
 use sidekicks_contracts::workflow::definition::document::{
-    WorkflowDefinitionId, WorkflowName, WorkflowNode, WorkflowNodeId, WorkflowVersionId,
+    WorkflowContentHash, WorkflowDefinitionId, WorkflowName, WorkflowNode, WorkflowNodeId,
+    WorkflowVersionId,
 };
 use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowPinnedItem};
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
@@ -63,6 +64,13 @@ pub(crate) struct RunScope {
     /// The workflow's name, as the run's expressions read it.
     pub(crate) workflow_name: WorkflowName,
     /// How the run was started.
+    #[cfg_attr(
+        test,
+        expect(
+            dead_code,
+            reason = "the start keeps pins for a manual run only, so no step reads the mode"
+        )
+    )]
     pub(crate) mode: WorkflowRunMode,
     /// The trigger node that started the run.
     pub(crate) trigger: WorkflowRunTrigger,
@@ -70,8 +78,9 @@ pub(crate) struct RunScope {
     pub(crate) nodes: HashMap<WorkflowNodeId, WorkflowNode>,
     /// Each node's params as the pinned version stores them, by node id.
     pub(crate) node_params: Arc<HashMap<WorkflowNodeId, JsonRecord>>,
-    /// The test items pinned onto nodes, by node id; only a manual run honors them.
-    pub(crate) pin_data: Option<Record<String, Vec<WorkflowPinnedItem>>>,
+    /// The test items pinned onto nodes with their hashes, by node id; empty outside a manual run,
+    /// the only run that honors them.
+    pub(crate) pins: HashMap<WorkflowNodeId, RunPin>,
     /// When the run started, the one instant its expressions read as now.
     pub(crate) run_started_at: Timestamp,
     /// The machine's time zone, which dates the run's expressions.
@@ -92,6 +101,15 @@ pub(crate) struct RunScope {
     pub(crate) redaction: Arc<RunRedaction>,
     /// The run's cancel, of which each step's is a child.
     pub(crate) cancel: CancellationToken,
+}
+
+/// The test items pinned onto one node for a manual run, hashed once at the run's start.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+pub(crate) struct RunPin {
+    /// The pinned items, which the node gives in place of running.
+    pub(crate) items: Vec<WorkflowPinnedItem>,
+    /// The content hash of the pinned items' canonical JSON, which tells a changed pin apart.
+    pub(crate) hash: WorkflowContentHash,
 }
 
 /// A run's scope for a test: the run, workflow and start instant of the test expression
@@ -121,7 +139,7 @@ pub(crate) fn test_run_scope(mode: WorkflowRunMode, nodes: Vec<WorkflowNode>) ->
             .into_iter()
             .map(|node| (node.id.clone(), node))
             .collect(),
-        pin_data: None,
+        pins: HashMap::new(),
         run_started_at: bindings.run_started_at,
         time_zone: TimeZone::UTC,
         environment_rows: Arc::new([]),
@@ -202,6 +220,8 @@ pub(crate) enum StepReportKind {
         input_ref: WorkflowPayloadRef,
         /// The level the step runs at, where its account runs it at another level than the run's.
         permission_level: Option<PermissionLevel>,
+        /// The hash of the pin the step gave in place of running, where it gave one.
+        pin_hash: Option<WorkflowContentHash>,
     },
     /// The step passed a turn end or a tool call.
     Progressed,

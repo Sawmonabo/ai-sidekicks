@@ -259,6 +259,8 @@ CREATE TABLE workflow_steps (
                     CHECK(json_valid(output_ref)),
   log_ref           TEXT NOT NULL
                     CHECK(json_valid(log_ref)),
+  pin_hash          TEXT                           -- a step that gave its node's pinned items in a manual run: the content hash of that pin, from its workflow.step.started, so a later partial run tells a pin added, changed or removed; NULL on every other step
+                    CHECK(pin_hash IS NULL OR status <> 'pending'),
   -- JSON array: how many items each main output holds, in output order, the error output last, so
   -- output_ref's one joined list splits back into one list per output handle; '[]' until the step
   -- settles with outputs.

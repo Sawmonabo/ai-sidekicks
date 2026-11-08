@@ -8,8 +8,9 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::{
-    WorkflowDefinitionId, WorkflowNode, WorkflowNodeId, WorkflowVersionId,
+    WorkflowContentHash, WorkflowDefinitionId, WorkflowNode, WorkflowNodeId, WorkflowVersionId,
 };
 use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
@@ -347,6 +348,54 @@ async fn a_held_step_records_one_hold_and_its_pool_wait() {
     assert_eq!(held_events, [(t0, json!(7)), (t30, json!(7))]);
 }
 
+/// A started step records the hash of the pin it gave on its row and as `pinHash` on its
+/// `workflow.step.started`, and a step that gave no pin records neither. Mutation: drop `pin_hash`
+/// from `record_step_start`'s statement.
+#[rstest]
+#[case::pinned(Some("b3:pin"))]
+#[case::unpinned(None)]
+#[tokio::test]
+async fn a_started_step_records_the_hash_of_its_pin(#[case] pin_hash: Option<&str>) {
+    let harness = TurnHarness::new().await;
+    let step = harness.store_step(1, WorkflowStepStatus::Running);
+    let started = StepReportKind::Started {
+        input_ref: empty_payload(),
+        permission_level: None,
+        pin_hash: pin_hash.map(|hash| {
+            WorkflowContentHash(NonEmptyText::new(hash.to_owned()).expect("the test's hash"))
+        }),
+    };
+
+    let mut commit = harness.commit();
+    commit
+        .report(
+            report(&step, "2026-10-02T00:03:00.000Z", started),
+            harness.reported(sequence(0), None),
+        )
+        .await
+        .expect("a start writes no payload");
+    harness.append(commit).await;
+
+    let row_hash: Option<String> = harness
+        .rows
+        .query_row(
+            "SELECT pin_hash FROM workflow_steps WHERE execution_index = 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("the step's row reads");
+    assert_eq!(row_hash.as_deref(), pin_hash);
+    let events = harness.events();
+    let (_, _, _, started_payload) = events
+        .iter()
+        .find(|(_, event_type, _, _)| event_type == "workflow.step.started")
+        .expect("the start is recorded");
+    assert_eq!(
+        started_payload.get("pinHash").and_then(Value::as_str),
+        pin_hash
+    );
+}
+
 // Killed by one append per report, a pending row written outside its readying event's write,
 // sequences counted from the front, and a failed write that drops the turn's artifacts.
 #[tokio::test]
@@ -389,6 +438,7 @@ async fn a_turn_is_one_write_in_report_order() {
     let started = StepReportKind::Started {
         input_ref: empty_payload(),
         permission_level: None,
+        pin_hash: None,
     };
     for (at, kind) in [
         (t1, unheld),

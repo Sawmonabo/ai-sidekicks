@@ -8,6 +8,7 @@ use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_store::database::connection::read_pool::DatabaseReadError;
+use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
 use sidekicks_store::events::session::appender::{SessionEventAppendError, SessionEventDraftError};
 use sidekicks_store::machine::registry::MachineRegistryReadError;
 use sidekicks_workspace::working_folder::{ProjectEnvironmentReadError, WorkingFolderReadError};
@@ -35,6 +36,10 @@ pub(crate) enum WorkflowRunStartError {
     /// The version's stored body, or the workflow's pinned data, does not read.
     #[error("the pinned workflow version or its pins do not read")]
     StoredDocument(#[from] StoredDocumentError),
+    /// The items pinned onto a node cannot be canonicalized for their hash, such as ones nesting
+    /// past the ceiling.
+    #[error("the items pinned onto a node cannot be hashed")]
+    PinHash(#[from] CanonicalizationRefusal),
     /// This machine's owner, whom a trigger's fire is judged as, did not read.
     #[error(transparent)]
     Owner(#[from] MachineRegistryReadError),
@@ -138,6 +143,7 @@ impl From<WorkflowRunStartError> for HandlerError {
             WorkflowRunStartError::KeptValues(error) => error.into(),
             fault @ (WorkflowRunStartError::Session(WorkingFolderReadError::Database(_))
             | WorkflowRunStartError::StoredDocument(_)
+            | WorkflowRunStartError::PinHash(_)
             | WorkflowRunStartError::Owner(_)
             | WorkflowRunStartError::Pool(_)
             | WorkflowRunStartError::Scope(_)

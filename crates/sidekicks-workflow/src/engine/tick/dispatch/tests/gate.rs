@@ -19,6 +19,7 @@ use crate::engine::ports::{
     ScriptedGate, StepAdmission, StepAdmissionOutcome, StepAdmissionWork, StepScriptRuntime,
     WorkflowNodeKey,
 };
+use crate::engine::start::hash_run_pins;
 use crate::engine::tick::dispatch::{test_dispatch, test_ready_step, test_run_snapshot};
 use crate::engine::tick::test_run_scope;
 use crate::kinds::{StepAdmissionNeed, StepAdmissionShape};
@@ -27,11 +28,11 @@ use crate::schema::schema_parts;
 /// A step the memory gate weighs gets nothing in the dispatch's answer: it enters the gate with
 /// what it runs, a quick step's input measured, reports its hold where the gate holds it, then its
 /// admission, and launches holding its ticket, which is dropped once it settles. A node pinned in
-/// a manual run settles with its pinned items in the dispatch's answer, without entering the gate,
-/// resolving a secret or running its executor. Mutations: run the executor before the admission;
+/// a manual run starts with its pin's hash and settles with its pinned items in the dispatch's
+/// answer, without entering the gate, resolving a secret or running its executor. Mutations: run the executor before the admission;
 /// answer `Admitted` at dispatch for a gate step; launch without the ticket; leave the input
 /// unmeasured or zero; run a pinned node in a manual run, resolve its secrets, send it into the
-/// gate or settle it from a task.
+/// gate or settle it from a task; start it with `pin_hash: None` on the dispatch's pinned path.
 #[rstest]
 #[case::quick_code_held(
     StepAdmissionShape::QuickCode { budget_bytes: 1024, output_max_bytes: 2048 },
@@ -63,7 +64,8 @@ async fn a_gate_step_waits_for_its_admission_before_it_launches(
     });
     let mut scope = test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]);
     if is_pinned {
-        scope.pin_data = Some(pin_data());
+        scope.pins =
+            hash_run_pins(Some(pin_data()), WorkflowRunMode::Manual).expect("the test's pins hash");
     }
     let inputs: Vec<Value> = ["Ada", "Bob"]
         .iter()

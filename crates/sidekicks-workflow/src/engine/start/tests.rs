@@ -655,9 +655,17 @@ async fn the_start_scope_holds_the_pinned_version_and_its_pins(
         serde_json::to_value(&scope.node_params[&review]).expect("params write as JSON"),
         json!({ "note": "check the draft" })
     );
+    let scope_pins = scope
+        .pins
+        .iter()
+        .map(|(node_id, pin)| {
+            let items = serde_json::to_value(&pin.items).expect("pins write as JSON");
+            (node_id.as_str().to_owned(), items)
+        })
+        .collect();
     assert_eq!(
-        serde_json::to_value(&scope.pin_data).expect("pins write as JSON"),
-        if has_pins { pins } else { Value::Null }
+        Value::Object(scope_pins),
+        if has_pins { pins } else { json!({}) }
     );
     assert_eq!(scope.provider, provider.map(|_| test_provider()));
     let row_provider: Option<String> = fixture

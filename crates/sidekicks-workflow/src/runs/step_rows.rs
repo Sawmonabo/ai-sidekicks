@@ -11,6 +11,7 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::id::{UuidText, UuidTextForm};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
+use sidekicks_contracts::workflow::definition::document::WorkflowContentHash;
 use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 use sidekicks_contracts::workflow::run::step::record::{
@@ -57,8 +58,11 @@ static ADMIT_STEP_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-static SET_PERMISSION_LEVEL_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!("UPDATE workflow_steps SET permission_level = @permission_level WHERE {STEP_KEY_SQL}")
+static RECORD_STEP_START_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE workflow_steps SET permission_level = @permission_level, pin_hash = @pin_hash
+  WHERE {STEP_KEY_SQL}"
+    )
 });
 
 static CANCEL_STEP_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -190,18 +194,23 @@ pub(crate) fn admit_step(step: &WorkflowStepKey, pool_wait_ms: u64) -> WriteStat
     keyed_statement(&ADMIT_STEP_SQL, step, vec![pool_wait_binding(pool_wait_ms)])
 }
 
-/// Records on `step` the level it runs at in place of its run's.
-pub(crate) fn set_step_permission_level(
+/// Records on started `step` the level it runs at in place of its run's and the hash of the pin it
+/// gave, each `None` where it has none.
+pub(crate) fn record_step_start(
     step: &WorkflowStepKey,
-    permission_level: PermissionLevel,
+    permission_level: Option<PermissionLevel>,
+    pin_hash: Option<&WorkflowContentHash>,
 ) -> WriteStatement {
     keyed_statement(
-        &SET_PERMISSION_LEVEL_SQL,
+        &RECORD_STEP_START_SQL,
         step,
-        vec![text_binding(
-            "@permission_level",
-            <&'static str>::from(permission_level),
-        )],
+        vec![
+            nullable_text_binding(
+                "@permission_level",
+                permission_level.map(<&'static str>::from),
+            ),
+            nullable_text_binding("@pin_hash", pin_hash.map(|pin_hash| pin_hash.0.as_str())),
+        ],
     )
 }
 

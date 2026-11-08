@@ -179,13 +179,8 @@ impl StepDispatch {
             ];
             return DispatchedStep { cancel, reports };
         };
-        let pinned = pinned_outputs(
-            scope.mode,
-            scope.pin_data.as_ref(),
-            node,
-            main_output_count(kind.spec.outputs.as_slice()),
-        );
-        if let Some(mut outputs) = pinned {
+        if let Some(pin) = scope.pins.get(&node.id) {
+            let mut outputs = pinned_outputs(pin, main_output_count(kind.spec.outputs.as_slice()));
             shape_outputs(
                 node,
                 &main_input_lengths(&kind.spec, &ready.inputs),
@@ -194,6 +189,7 @@ impl StepDispatch {
             let started = StepReportKind::Started {
                 input_ref: ready.input_ref,
                 permission_level: None,
+                pin_hash: Some(pin.hash.clone()),
             };
             let completed = StepSettlement::Completed {
                 outputs,
@@ -422,6 +418,7 @@ impl StepDispatch {
         let started = StepReportKind::Started {
             input_ref: ready.input_ref,
             permission_level: None,
+            pin_hash: None,
         };
         if !self.report(&step, cancel, started).await {
             return;

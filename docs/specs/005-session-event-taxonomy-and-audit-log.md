@@ -493,7 +493,7 @@ Payload shape: `{sessionId, workflowRunId, stepRunId}`; the step types carry the
 | `workflow.phase.suspended` | A step started waiting. Payload carries the step's `waitCause` (`approval`, `form`, `reply`, `chain` or `account`), the durable `resumeAt` instant where the wait armed one, and, on an `account` wait, the spent account's `providerAccountId`; a wait on a person's approval, form or reply also carries the `logRef` of the log the step wrote before it waited. |
 | `workflow.phase.resumed` | A waiting step resumed. |
 | `workflow.phase.completed` | A phase finished and its gate may resolve. |
-| `workflow.step.started` | A step began executing, its input ref recorded with it and, on an agent step whose account cannot run its run's level, the level it runs at in its place. |
+| `workflow.step.started` | A step began executing, its input ref recorded with it; on an agent step whose account cannot run its run's level, the level it runs at in its place; and on a step that gave its node's pinned items in a manual run, the `pinHash` of that pin, one content hash per pinned node taken at the run's start. |
 | `workflow.step.completed` | A step finished, its output and log refs recorded with it, plus its cost where a provider was billed. |
 | `workflow.step.failed` | A step failed, the error and the failing item index recorded with it, the words typed with the `Decline` that failed a command step, its `logRef`, and, where its node's `onError` passed its input on, `passedOn`: that output's `outputRef` and `outputItemCounts`. |
 | `workflow.step.canceled` | A step that was running or waiting when its run ended was canceled. |

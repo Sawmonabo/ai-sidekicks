@@ -18,7 +18,7 @@ use crate::wire::id::UuidTextForm;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::text::NonEmptyText;
-use crate::workflow::definition::document::WorkflowNodeId;
+use crate::workflow::definition::document::{WorkflowContentHash, WorkflowNodeId};
 use crate::workflow::definition::item::WorkflowStepError;
 use crate::workflow::run::events::workflow_run_event;
 use crate::workflow::run::gate_resolution::WorkflowGateResolutionId;
@@ -78,8 +78,9 @@ workflow_step_event! {
 }
 
 workflow_step_event! {
-    /// `workflow.step.started`: the input the step ran on and, for an agent step whose account
-    /// could not run the run's permission level, the level it ran at instead.
+    /// `workflow.step.started`: the input the step ran on, for an agent step whose account could
+    /// not run the run's permission level the level it ran at instead, and for a step that gave
+    /// its node's pinned items the hash of that pin.
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
@@ -96,6 +97,15 @@ workflow_step_event! {
         )]
         #[schemars(with = "PermissionLevel")]
         pub permission_level: Option<PermissionLevel>,
+        /// Present on a step that gave its node's pinned items in place of running: the content
+        /// hash of that pin, which tells a later run whether the pin changed.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowContentHash")]
+        pub pin_hash: Option<WorkflowContentHash>,
     }
 }
 
