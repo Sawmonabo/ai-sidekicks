@@ -749,12 +749,15 @@ refusal_codes! {
     /// posting the results of an unfinished run, or opening a fix session on a step that did not
     /// fail.
     WorkflowInvalidTransition = "workflow.invalidTransition" (FailedPrecondition, 409);
+    /// A node run naming a node its version does not hold.
+    WorkflowNodeNotFound = "workflow.node.notFound" (NotFound, 404);
     /// A start of a version with an edge naming a main handle its node's kind does not declare,
     /// so nothing runs.
     WorkflowRunHandleUndeclared = "workflow.run.handleUndeclared" (FailedPrecondition, 409);
-    /// A `workflow.run.start`, `workflow.run.retry` or `workflow.run.rerun` reused a
-    /// `clientIdempotencyKey` with a differing payload; the run the key first answered is
-    /// untouched. A resend with the same payload is not refused: it answers that run.
+    /// A `workflow.run.start`, `workflow.run.retry`, `workflow.run.rerun` or
+    /// `workflow.node.execute` reused a `clientIdempotencyKey` with a differing payload; the run
+    /// the key first answered is untouched. A resend with the same payload is not refused: it
+    /// answers that run.
     WorkflowRunIdempotencyConflict = "workflow.run.idempotencyConflict" (InvalidArgument, 422);
     /// A start that leaves a required input its workflow declares unfilled, or gives an input a
     /// value that does not fit it.

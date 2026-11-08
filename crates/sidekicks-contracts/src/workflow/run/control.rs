@@ -542,6 +542,9 @@ pub enum WorkflowNodeExecuteScope {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct WorkflowNodeExecuteRequest {
+    /// The caller's key, kept in the command receipts: a resend under it after a reconnect answers
+    /// the first node run's run, never a second; the same key with a differing payload is refused.
+    pub client_idempotency_key: ClientUuid,
     /// The saved version.
     pub workflow_version_id: WorkflowVersionId,
     /// The session the node run is started in; absent, it lives in the workflow's own session.
@@ -572,7 +575,19 @@ pub struct WorkflowNodeExecuteRequest {
     )]
     #[schemars(with = "Vec<WorkflowNodeId>")]
     pub dirty_node_ids: Option<Vec<WorkflowNodeId>>,
+    /// The items the trigger starts on, as the node run's panel gave them; absent, the trigger's
+    /// earlier data is reused.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Vec<WorkflowItem>")]
+    #[garde(dive)]
+    pub input: Option<Vec<WorkflowItem>>,
 }
+
+impl KeyedRequest for WorkflowNodeExecuteRequest {}
 
 /// The `workflow.node.execute` result: the nodes the daemon ran, in order, and those it reused.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -753,8 +768,15 @@ methods! {
                 SessionNotFound,
                 ProjectNotFound,
                 WorkflowVersionNotFound,
+                WorkflowRunProjectOnProjectSession,
                 WorkflowRunRepositoryRequired,
                 WorkflowRunProviderRequired,
+                WorkflowRunNodeKindUnavailable,
+                WorkflowRunHandleUndeclared,
+                WorkflowRunInputRequired,
+                WorkflowCodePackagesNotLocked,
+                WorkflowRunIdempotencyConflict,
+                WorkflowNodeNotFound,
             ],
         },
         /// Posts a finished run's results into the session that asks.
@@ -772,7 +794,7 @@ methods! {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkflowRunIdempotencyConflictDetails {
     /// The run the first request under the key named: a retry's or re-run's source run; absent
-    /// for a start, which names none.
+    /// for a start or a node run, which names none.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
