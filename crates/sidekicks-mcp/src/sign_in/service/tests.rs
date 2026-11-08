@@ -271,7 +271,7 @@ async fn a_callback_alone_is_listened_on_and_registered() {
 /// an entry naming rmcp's own sends it once. Killed by the entry's resource dropped, and by the
 /// same value appended twice.
 #[tokio::test]
-async fn the_entrys_resource_reaches_the_authorization_request_once() {
+async fn the_resource_an_entry_names_reaches_the_authorization_request_once() {
     let server = serve_authorization_server(FakeServerAnswers::default()).await;
     let harness = harness().await;
     let rmcp_resources = parameters(
