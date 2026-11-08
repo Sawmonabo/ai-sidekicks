@@ -19,14 +19,13 @@
 //!   and the provider ask that carries them out takes the correction once, in a guarded write. A
 //!   decline records the person's words with the answer, so a resend hands its provider the same.
 
+mod cancel;
 pub mod session_sweep;
 
 use std::error::Error;
 use std::sync::Arc;
 
-use sidekicks_contracts::approval::events::{
-    ApprovalCanceledPayload, ApprovalRequestedPayload, ApprovalResolvedPayload,
-};
+use sidekicks_contracts::approval::events::{ApprovalRequestedPayload, ApprovalResolvedPayload};
 use sidekicks_contracts::approval::{
     ApprovalCategory, ApprovalDecision, ApprovalLateCreateReason, ApprovalRequestId,
     ApprovalResolutionInvalidReason, ApprovalResolveRequest, ApprovalResolveResponse,
@@ -44,13 +43,11 @@ use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_std::keyed_wait::{ArmedWait, KeyedWaits};
-use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::events::log_service::EventAppendError;
-use sidekicks_store::events::session::append_lock::SessionAppendHold;
 use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
     SessionEventLinkage,
@@ -647,44 +644,6 @@ impl ApprovalService {
         Ok(pending)
     }
 
-    /// Cancels every ask the run still holds pending, one `approval.canceled` each and no
-    /// resolution row, appending under `hold` where the caller already holds the session's
-    /// appends; an ask answered meanwhile keeps its answer. A failed cancel does not stop the
-    /// rest, and whatever the cancels returned, every wait on a card of the run settles canceled,
-    /// a card whose row is gone among them. Fails with every cancel's failure once all have run.
-    pub async fn cancel_pending_for_run(
-        &self,
-        run_id: RunId,
-        hold: Option<&SessionAppendHold>,
-    ) -> Result<(), SettleFailures<ApprovalServiceError>> {
-        let canceled = match self
-            .read(move |reader| reader.list_pending_for_run(&run_id))
-            .await
-        {
-            Ok(pending) => self.cancel_all(&pending, hold).await,
-            Err(failure) => Err(SettleFailures::One(failure)),
-        };
-        self.raised_cards.settle_where(
-            |key| key.run_id == run_id,
-            RaisedRequestSettlement::Canceled,
-        );
-        canceled
-    }
-
-    /// Cancels every ask the session still holds pending, across all its runs, as
-    /// [`ApprovalService::cancel_pending_for_run`] does for one run; its runs are not moved, since
-    /// every provider leg of a closed session ended before its close.
-    pub(crate) async fn cancel_pending_for_session(
-        &self,
-        session_id: SessionId,
-    ) -> Result<(), SettleFailures<ApprovalServiceError>> {
-        let pending = self
-            .read(move |reader| reader.list_pending_for_session(&session_id))
-            .await
-            .map_err(SettleFailures::One)?;
-        self.cancel_all(&pending, None).await
-    }
-
     /// Marks the session's working folder stale once an action was allowed, since work the person
     /// has not seen may land there. The allow already stands, so a folder that could not be marked
     /// is logged rather than failing it.
@@ -695,64 +654,6 @@ impl ApprovalService {
                 error = &error as &(dyn Error + 'static),
                 "approval_working_folder_stale_failed"
             );
-        }
-    }
-
-    async fn cancel_all(
-        &self,
-        pending: &[StoredApprovalRequest],
-        hold: Option<&SessionAppendHold>,
-    ) -> Result<(), SettleFailures<ApprovalServiceError>> {
-        let mut outcomes = Vec::with_capacity(pending.len());
-        for request in pending {
-            outcomes.push(self.cancel(request, hold).await.map(drop));
-        }
-        settle_all(outcomes, "canceling pending approval requests").map(drop)
-    }
-
-    // Answers whether this cancel settled the ask; an answer that landed first keeps it.
-    async fn cancel(
-        &self,
-        request: &StoredApprovalRequest,
-        hold: Option<&SessionAppendHold>,
-    ) -> Result<bool, ApprovalServiceError> {
-        let canceled_at = WireInstant::now();
-        let payload = ApprovalCanceledPayload {
-            session_id: request.session_id,
-            run_id: request.run_id,
-            approval_request_id: request.approval_request_id,
-            category: request.category,
-            scope: request.scope.clone(),
-        };
-        let draft = SessionEventDraft::new(payload, SessionEvent::ApprovalCanceled)?;
-        let linkage = SessionEventLinkage {
-            occurred_at: Some(canceled_at.clone()),
-            transactional_prelude: vec![settle_pending_statement(
-                &request.approval_request_id,
-                ApprovalSettlement::Canceled,
-                &canceled_at,
-            )],
-            ..SessionEventLinkage::default()
-        };
-        let appended = match hold {
-            Some(hold) => self.events.append_held(hold, draft, linkage).await,
-            None => self.events.append(draft, linkage).await,
-        };
-        match appended {
-            Ok(_receipt) => {
-                self.raised_cards.settle_all(
-                    &RaisedCardKey {
-                        run_id: request.run_id,
-                        approval_request_id: request.approval_request_id,
-                    },
-                    RaisedRequestSettlement::Canceled,
-                );
-                Ok(true)
-            }
-            Err(failure) if failure.refused_statement_index() == Some(PENDING_GUARD_INDEX) => {
-                Ok(false)
-            }
-            Err(failure) => Err(ApprovalServiceError::Cancel(failure)),
         }
     }
 
