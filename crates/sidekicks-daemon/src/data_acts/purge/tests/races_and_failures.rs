@@ -109,8 +109,7 @@ async fn a_failed_file_step_keeps_every_row_and_purging_again_finishes() {
     assert_eq!(receipts(&reader), vec![(session_id.to_string(), 0, 0)]);
 }
 
-// Kills: a provider's failed conversation delete swallowed at the purge's conversation step (the
-// rows go and the session is removed).
+// Killed by the `?` dropped from the conversations' delete step: the rows go and the session too.
 #[tokio::test]
 async fn a_failed_conversation_delete_keeps_the_mark_and_every_row() {
     let mut driver = MockProviderDriver::new();
