@@ -166,9 +166,15 @@ pub(crate) enum RestoreError {
     /// The mode's runtime did not start.
     #[error("the restore's runtime did not start")]
     Runtime(#[source] io::Error),
-    /// A blocking step of the restore ended before it finished.
-    #[error("a step of the restore ended before it finished")]
-    Interrupted(#[source] JoinError),
+    /// A blocking step of the restore ended before it finished, so what it reached is unknown.
+    #[error("the restore's {step} ended before it finished")]
+    Interrupted {
+        /// The step, as a person reads it.
+        step: &'static str,
+        /// Why the step's task ended.
+        #[source]
+        source: JoinError,
+    },
 }
 
 /// Runs the `database restore` mode on the argument after the mode's own, the backup's folder,
@@ -242,7 +248,8 @@ fn restore_from_home(
 /// data folder, [`RestoreError::OtherBuild`] naming both schemas and both service versions,
 /// [`RestoreError::Place`] for a kept place that cannot be written, and
 /// [`RestoreError::StopIntent`] when the stop intent, written whole so the next start resumes none
-/// of the restored store's runs, cannot be written.
+/// of the restored store's runs, cannot be written; and at any step with [`RestoreError::Interrupted`],
+/// naming the blocking step whose task ended first.
 pub(crate) async fn restore_backup(
     home: &Path,
     backup_folder: &Path,
@@ -264,7 +271,7 @@ pub(crate) async fn restore_backup(
         })
     })
     .await
-    .map_err(RestoreError::Interrupted)??;
+    .map_err(interrupted("taking of the data folder"))??;
     let checked_backup = backup_folder.to_path_buf();
     let checked_home = home.to_path_buf();
     let build_schema_version = schema.fingerprint();
@@ -278,7 +285,7 @@ pub(crate) async fn restore_backup(
         )
     })
     .await
-    .map_err(RestoreError::Interrupted)??;
+    .map_err(interrupted("check of the backup"))??;
     let store = data_folder.join(DAEMON_DATABASE_FILE_NAME);
     // The restored store's live runs end as a Stop ends them; the data folder's lock keeps the
     // service from writing the intent beside this one.
@@ -293,11 +300,11 @@ pub(crate) async fn restore_backup(
         replace_store(&backup_database, &replaced_store, &index_folder)
     })
     .await
-    .map_err(RestoreError::Interrupted)?
+    .map_err(interrupted("replacing of the store"))?
     .map_err(|(path, source)| RestoreError::Replace { path, source })?;
     tokio::task::spawn_blocking(move || restore_mirror(&kept))
         .await
-        .map_err(RestoreError::Interrupted)??;
+        .map_err(interrupted("putting back of the kept files"))??;
     record_restore(
         &store,
         schema,
@@ -307,6 +314,11 @@ pub(crate) async fn restore_backup(
         }),
     )
     .await
+}
+
+// The failure of the blocking `step` whose task ended before it finished.
+fn interrupted(step: &'static str) -> impl FnOnce(JoinError) -> RestoreError {
+    move |source| RestoreError::Interrupted { step, source }
 }
 
 // Reads the backup in `backup_folder`, its manifest and its database header, refuses a copy
