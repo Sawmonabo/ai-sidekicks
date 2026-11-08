@@ -157,8 +157,8 @@ struct PausePoint {
 struct RunTurn {
     commit: RunTurnCommit,
     readied: Vec<TurnReadied>,
-    /// The person waits the turn opened and the approvals whose pause point ended, asked once its
-    /// write commits.
+    /// The approvals of a pause whose last point ended, then the person waits the turn opened,
+    /// asked once its write commits.
     asks: Vec<TurnAsk>,
     /// The replies to the answers the turn settled, sent once its write commits.
     replies: Vec<oneshot::Sender<Result<(), PersonWaitRefusal>>>,
@@ -335,7 +335,8 @@ impl EngineTick {
     /// share in arrival order, its next batch first, then the answers routed to it, and its
     /// retries come `due` and its pause points `taken` with it, committed in one write per run;
     /// then one read of the dispatching runs' levels, their dispatch, one read of the deadline
-    /// clock where a write moved a deadline, and one weigh of the memory gate.
+    /// clock where a write moved a deadline, and one weigh of the memory gate. A run whose pause
+    /// point is still pending sits the turn out, keeping what reached it.
     async fn turn(
         &mut self,
         inputs: Vec<EngineTickInput>,
@@ -446,6 +447,13 @@ impl EngineTick {
     /// among them while they are still live, `pending` and undispatched, or `None` when the run
     /// is not live. A run left with no live step is over and leaves the live set; a run whose
     /// write fails leaves it with its steps canceled.
+    ///
+    /// While a point of the run's pause is pending, the run is held: its answers, reports and
+    /// due retries are kept unwritten and unreplied, and it is never batched. The turn in which
+    /// its last point ends takes its next batch, the held answers then its own, the held reports
+    /// then its own, and after the write the held dispatches, then what it readied, then its own
+    /// due retries, then the pause's cards in the order they were opened. A pause this turn
+    /// begins keeps the steps it readied for that turn.
     async fn run_turn(
         &mut self,
         run_id: WorkflowRunId,
@@ -455,18 +463,26 @@ impl EngineTick {
         taken: Vec<PausePoint>,
     ) -> Option<Vec<ReadyStep>> {
         let mut live = self.runs.remove(&run_id)?;
-        let mut asks = Vec::new();
         for point in taken {
-            if let Some(place) = live
+            if let Some(turn_ask) = live
                 .pausing
-                .iter()
-                .position(|turn_ask| turn_ask.opened.wait_id == point.wait_id)
+                .iter_mut()
+                .find(|turn_ask| turn_ask.opened.wait_id == point.wait_id)
             {
-                let mut turn_ask = live.pausing.swap_remove(place);
                 turn_ask.is_point_taken = true;
-                asks.push(turn_ask);
             }
         }
+        if live.is_pausing() {
+            live.held.answers.extend(answers);
+            live.held.reports.extend(reports);
+            live.held.dispatches.extend(due);
+            self.runs.insert(run_id, live);
+            return Some(Vec::new());
+        }
+        let answers = held_first(&mut live.held.answers, answers);
+        let reports = held_first(&mut live.held.reports, reports);
+        let held_dispatches = std::mem::take(&mut live.held.dispatches);
+        let asks = std::mem::take(&mut live.pausing);
         let mut turn = RunTurn {
             commit: RunTurnCommit::new(
                 live.event_keys(),
@@ -510,8 +526,11 @@ impl EngineTick {
             Ok(committed) => {
                 live.counts = committed.counts;
                 live.person_wait = committed.person_wait;
+                let mut dispatched: Vec<ReadyStep> = held_dispatches
+                    .into_iter()
+                    .filter_map(|step| still_ready(&live, step))
+                    .collect();
                 // The write answers each readied step in the order the turn readied it.
-                let mut dispatched = Vec::new();
                 for (turn_readied, (_step, readying_sequence)) in
                     readied.into_iter().zip(committed.readied)
                 {
@@ -561,19 +580,7 @@ impl EngineTick {
                         },
                     );
                 }
-                for step in due {
-                    if let Some(live_step) = live.steps.get(&step.execution_index.get())
-                        && live_step.status == WorkflowStepStatus::Pending
-                        && live_step.cancel.is_none()
-                    {
-                        dispatched.push(ReadyStep {
-                            step,
-                            run_index: live_step.run_index,
-                            inputs: live_step.inputs.clone(),
-                            input_ref: live_step.input_ref.clone(),
-                        });
-                    }
-                }
+                dispatched.extend(due.into_iter().filter_map(|step| still_ready(&live, step)));
                 for reply in replies {
                     let _unheard = reply.send(Ok(()));
                 }
@@ -584,6 +591,13 @@ impl EngineTick {
                 self.needs_deadline_read |= std::mem::take(&mut live.needs_deadline_read);
                 if live.steps.is_empty() {
                     self.recorder.end_run(run_id);
+                    return Some(Vec::new());
+                }
+                if live.is_pausing() {
+                    live.held
+                        .dispatches
+                        .extend(dispatched.into_iter().map(|ready| ready.step));
+                    self.runs.insert(run_id, live);
                     return Some(Vec::new());
                 }
                 if !live.next_batch.is_empty() {
@@ -779,6 +793,31 @@ fn by_run<T>(
         grouped.entry(run_id).or_default().push(item);
     }
     grouped
+}
+
+/// `own` after what was `held` of its kind, which is left empty; `own` itself when nothing was
+/// held, so no copy is made.
+fn held_first<T>(held: &mut Vec<T>, own: Vec<T>) -> Vec<T> {
+    if held.is_empty() {
+        return own;
+    }
+    let mut taken = std::mem::take(held);
+    taken.extend(own);
+    taken
+}
+
+/// `step` of `live` to dispatch while it is still live, `pending` and undispatched, as a retry
+/// come due or a dispatch a pause held; `None` once it settled, was canceled or was dispatched.
+fn still_ready(live: &LiveRun, step: WorkflowStepKey) -> Option<ReadyStep> {
+    let live_step = live.steps.get(&step.execution_index.get())?;
+    (live_step.status == WorkflowStepStatus::Pending && live_step.cancel.is_none()).then(|| {
+        ReadyStep {
+            step,
+            run_index: live_step.run_index,
+            inputs: live_step.inputs.clone(),
+            input_ref: live_step.input_ref.clone(),
+        }
+    })
 }
 
 /// The attempt a retry's `timer` answers come due, `None` when its run was canceled first. A

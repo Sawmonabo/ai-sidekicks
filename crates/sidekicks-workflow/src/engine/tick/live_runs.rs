@@ -1,7 +1,7 @@
 //! What the tick keeps of each run it drives between turns: the run's walk, what its steps
 //! recorded, each of its steps still to settle with what its failure route reads and how it is
-//! stopped, the waves of its steps winding down, how a failure stopped it, and the approval asks
-//! waiting on their pause points.
+//! stopped, the waves of its steps winding down, how a failure stopped it, the approval asks
+//! waiting on their pause points, and what reached the run while it paused.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -28,6 +28,7 @@ use super::{RunScope, StepReport};
 use crate::engine::event_record::{EngineDeadline, EngineDecision, RunEngineRecord};
 use crate::engine::ports::{AgentStepRun, StepAdmissionTicket};
 use crate::engine::waits::OpenedPersonWait;
+use crate::engine::waits::answers::PersonWaitIntake;
 use crate::expressions::lineage::StepOutputs;
 use crate::kinds::PersonAsk;
 use crate::runs::gate_resolution::RunEventKeys;
@@ -75,8 +76,22 @@ pub(crate) struct LiveRun {
     /// The approval pauses the run's current execution has taken, so its next pause is this count
     /// and 1.
     pub(crate) approval_pauses: u64,
-    /// The approval asks whose pause point is being taken, each asked once its point ends.
+    /// The approval asks of the run's pause, each waiting on its point; all are asked once the
+    /// last of their points ends.
     pub(crate) pausing: Vec<TurnAsk>,
+    /// What reached the run while it paused, taken by the turn its last pause point's end opens.
+    pub(crate) held: HeldTurn,
+}
+
+/// What reached a pausing run, kept for the turn its last pause point's end opens, each list in
+/// arrival order.
+pub(crate) struct HeldTurn {
+    /// The answers routed to the run, unreplied.
+    pub(crate) answers: Vec<PersonWaitIntake>,
+    /// The reports of the run's steps.
+    pub(crate) reports: Vec<StepReport>,
+    /// The steps ready to dispatch: retries come due, and steps its pause's own turn readied.
+    pub(crate) dispatches: Vec<WorkflowStepKey>,
 }
 
 /// A person wait a turn opened, asked once the turn's write commits: its step, the wait, what the
@@ -158,7 +173,17 @@ impl LiveRun {
             epoch: WorkflowRunEpoch(SafeInt::ZERO),
             approval_pauses: 0,
             pausing: Vec::new(),
+            held: HeldTurn {
+                answers: Vec::new(),
+                reports: Vec::new(),
+                dispatches: Vec::new(),
+            },
         }
+    }
+
+    /// Whether any ask of the run's pause still waits on its point: a pausing run takes no turn.
+    pub(crate) fn is_pausing(&self) -> bool {
+        self.pausing.iter().any(|turn_ask| !turn_ask.is_point_taken)
     }
 
     /// Moves the live step at `execution_index` to `status`, waiting on `wait_cause` where it
