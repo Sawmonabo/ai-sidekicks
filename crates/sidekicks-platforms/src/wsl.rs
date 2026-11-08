@@ -172,6 +172,10 @@ mod tests {
         assert_eq!(distribution_of(Path::new(path)), expected);
     }
 
+    // Killed by the `/` to `\` join dropped (the first case), the root's `\` dropped (`/mnt/c`),
+    // the fold dropped (the two `..` cases that land, and `/mnt/c/..`), `..` let stop at the root
+    // (`/../mnt/c/x`), the escape dropped (`a:b`, `a\b`), any one character or either case taken
+    // (`/mnt/1/x`, `/mnt/C/x`), any name taken (`cc`, `wsl`), or `//` read as the form.
     #[rstest]
     #[case::drive_path("/mnt/c/repos/app", Some(r"C:\repos\app"))]
     #[case::drive_alone("/mnt/c", Some("C:\\"))]
