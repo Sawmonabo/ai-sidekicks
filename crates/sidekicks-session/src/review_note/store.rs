@@ -51,7 +51,9 @@ use sidekicks_store::database::stored_column::{
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use tokio::sync::Notify;
 
-use crate::directory::lookups::{SessionWriteError, session_exists, write_while_session_exists};
+use crate::directory::lookups::{
+    SESSION_CHANGE_STATEMENT_INDEX, SessionWriteError, session_exists, write_while_session_exists,
+};
 use crate::review_note::diff_line::{NoteLocation, NotedLineError, NotedLineReader};
 
 /// The statements the store's reads prepare on a read connection: the session's notes, one note,
@@ -90,9 +92,6 @@ const UPDATE_BODY_SQL: &str =
 const DELETE_NOTES_SQL: &str = "DELETE FROM session_review_notes
   WHERE session_id = @sessionId AND note_id IN (SELECT value FROM json_each(@noteIds))
   RETURNING note_id";
-
-// The change statement's place in a write behind the session's existence check.
-const CHANGE_STATEMENT_INDEX: usize = 1;
 
 /// Stops following a session's working folder when called.
 pub(crate) type WorkingFolderDetach = Box<dyn FnOnce() + Send>;
@@ -285,7 +284,7 @@ impl SessionReviewNoteStore {
         match self.write(session_id, change).await {
             Ok(_updated) => {}
             Err(SessionWriteError::Write(WriteError::Refused {
-                statement_index: CHANGE_STATEMENT_INDEX,
+                statement_index: SESSION_CHANGE_STATEMENT_INDEX,
                 ..
             })) => return Err(review_note_not_found(note_id).into()),
             Err(error) => return Err(error.into()),
