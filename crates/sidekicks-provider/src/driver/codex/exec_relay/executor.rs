@@ -1,7 +1,8 @@
 //! The daemon's own Codex executor and its one connection: newline-delimited JSON-RPC both ways,
 //! the relay's own requests answered by their ids, every other message handed to the client the
-//! relay serves, each process's end watched so a held terminate or a stop can wait on it, and the
-//! answer to a client's request watched where the relay keeps something for it.
+//! relay serves, each process's end watched so a held terminate or a stop can wait on it, the
+//! answer to a client's request watched where the relay keeps something for it, and what the
+//! client is owed at the connection's end kept in its ledger.
 
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -21,6 +22,9 @@ use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
 
+use crate::driver::codex::exec_relay::executor_end::{
+    ClientLedger, OutputStream, ProcessEventKind,
+};
 use crate::driver::codex::exec_relay::{INITIALIZE_METHOD, INITIALIZED_METHOD};
 use crate::driver::codex::session::errors::CodexError;
 
@@ -39,9 +43,6 @@ const LINE_QUEUE_CAPACITY: usize = 256;
 
 /// The name the relay gives the executor at its `initialize`.
 const RELAY_CLIENT_NAME: &str = "sidekicks-relay";
-
-const PROCESS_EXITED_METHOD: &str = "process/exited";
-const PROCESS_CLOSED_METHOD: &str = "process/closed";
 
 /// How long the relay's own `initialize` may take.
 const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -71,7 +72,9 @@ struct RefusedRequest {
 #[serde(rename_all = "camelCase")]
 struct ProcessNamed {
     process_id: String,
+    seq: Option<u64>,
     exit_code: Option<i32>,
+    stream: Option<OutputStream>,
 }
 
 /// How one of the executor's processes ended: the exit code its `process/exited` reported, `None`
@@ -90,6 +93,7 @@ pub(super) struct CodexExecutor {
     client: Mutex<Option<mpsc::Sender<String>>>,
     exits: Mutex<HashMap<String, watch::Sender<Option<ProcessEnd>>>>,
     client_replies: Mutex<HashMap<String, oneshot::Sender<bool>>>,
+    ledger: Mutex<ClientLedger>,
     ended: watch::Sender<bool>,
     process_id: Option<u32>,
     initialize_result: Mutex<Option<Box<RawValue>>>,
@@ -151,6 +155,7 @@ impl CodexExecutor {
             client: Mutex::new(None),
             exits: Mutex::new(HashMap::new()),
             client_replies: Mutex::new(HashMap::new()),
+            ledger: Mutex::new(ClientLedger::default()),
             ended: watch::Sender::new(false),
             process_id,
             initialize_result: Mutex::new(None),
@@ -247,6 +252,21 @@ impl CodexExecutor {
         lock(&self.exits).remove(process_id);
     }
 
+    /// Keeps the client's request `id`, its id as compact JSON, a start of `started_process` where
+    /// it is one, so the connection's end answers it. Answers false once the connection ended.
+    pub(super) fn open_client_request(&self, id: &str, started_process: Option<String>) -> bool {
+        lock(&self.ledger).open_request(id, started_process)
+    }
+
+    /// Hands the attached client what the connection's end owes it: an error answer to each of its
+    /// requests left unanswered and the end of each process the executor had not closed.
+    pub(super) async fn settle_client(&self) {
+        let owed = lock(&self.ledger).take_owed_lines();
+        for line in owed {
+            self.answer_client(line).await;
+        }
+    }
+
     /// Watches the executor's answer to the client's request whose id is `id` as compact JSON,
     /// still handed to the client: true for a refusal, false for a result; the sender drops when
     /// the connection ends first.
@@ -319,38 +339,47 @@ impl CodexExecutor {
         }
         if message.method.is_none()
             && let Some(id) = message.id
-            && let Some(watching) = lock(&self.client_replies).remove(id.get())
         {
-            // The relay's watch of an answer may have stopped waiting; the client still gets it.
-            let _unheard = watching.send(message.error.is_some());
+            let is_refused = message.error.is_some();
+            lock(&self.ledger).answer_request(id.get(), is_refused);
+            if let Some(watching) = lock(&self.client_replies).remove(id.get()) {
+                // The relay's watch of an answer may have stopped waiting; the client still gets it.
+                let _unheard = watching.send(is_refused);
+            }
         }
-        if let Some(method) = message.method.as_deref()
-            && message.id.is_none()
-            && (method == PROCESS_EXITED_METHOD || method == PROCESS_CLOSED_METHOD)
+        if message.id.is_none()
+            && let Some(kind) = message
+                .method
+                .as_deref()
+                .and_then(ProcessEventKind::from_method)
             && let Some(named) = message
                 .params
                 .and_then(|params| serde_json::from_str::<ProcessNamed>(params.get()).ok())
         {
-            let mut exits = lock(&self.exits);
-            if let Some(exit) = exits.get(&named.process_id) {
-                record_end(exit, named.exit_code);
-            }
-            if method == PROCESS_CLOSED_METHOD {
-                exits.remove(&named.process_id);
+            lock(&self.ledger).record_event(&named.process_id, kind, named.seq, named.stream);
+            if kind != ProcessEventKind::Output {
+                let mut exits = lock(&self.exits);
+                if let Some(exit) = exits.get(&named.process_id) {
+                    record_end(exit, named.exit_code);
+                }
+                if kind == ProcessEventKind::Closed {
+                    exits.remove(&named.process_id);
+                }
             }
         }
         self.answer_client(line).await;
     }
 
-    // Marks the connection ended: every waiting request fails and every watched process ends.
+    // Marks the connection ended: no client request is kept after it, every waiting request fails
+    // and every watched process ends. The client stays attached, for what the end owes it.
     fn end(&self) {
+        lock(&self.ledger).end();
         self.ended.send_replace(true);
         lock(&self.pending).clear();
         lock(&self.client_replies).clear();
         for exit in lock(&self.exits).values() {
             record_end(exit, None);
         }
-        *lock(&self.client) = None;
     }
 }
 
