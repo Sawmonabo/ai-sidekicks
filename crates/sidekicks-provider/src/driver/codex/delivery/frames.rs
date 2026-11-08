@@ -157,9 +157,6 @@ pub(crate) struct CodexTurnMove {
 /// What one frame told the rest of the driver.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct CodexFrameDispatch {
-    /// The ask Codex resolved itself, by its request id, which the driver's request-resolved
-    /// signal names.
-    pub(crate) resolved_request_id: Option<String>,
     /// The person's messages Codex took into a turn.
     pub(crate) taken_messages: Vec<CodexTakenMessage>,
     /// The `userPromptSubmit` hook runs the frame reported.
@@ -286,9 +283,7 @@ impl CodexFrameDelivery {
                 self.deliver_reviewer_frame(record, method, &members).await;
             }
             "hook/completed" => turns::read_prompt_hook_run(&members, &mut dispatch),
-            "serverRequest/resolved" => {
-                dispatch.resolved_request_id = self.forget_resolved_request(record, &members);
-            }
+            "serverRequest/resolved" => self.forget_resolved_request(record, &members),
             "turn/plan/updated" => deliver_codex_plan_update(record, &members, &mut dispatch),
             "model/safetyBuffering/updated" => {
                 self.deliver_safety_buffering(record, &members).await;
