@@ -445,6 +445,7 @@ impl UndoStops {
                                 SessionEventFilter {
                                     event_types: Some(&ended_type),
                                     before_sequence: None,
+                                    is_sparse: false,
                                 },
                             )?
                             .iter()
