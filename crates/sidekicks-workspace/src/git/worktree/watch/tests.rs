@@ -35,8 +35,8 @@ use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::schema::schema_parts;
 use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
-/// How long a wait for a change runs before it fails naming what never came: short of nextest's
-/// two-minute kill, so a hang names itself, and no passing test comes near it.
+/// How long a wait runs before it fails naming what never came: short of nextest's two-minute
+/// kill, so a hang names itself, and no passing test comes near it.
 const WAIT: Duration = Duration::from_secs(110);
 
 // Long enough for a change that would wrongly be sent to arrive.
@@ -413,7 +413,7 @@ async fn a_folder_past_the_watch_limit_is_checked_on_the_slow_tick(
     }
 
     // Three more ticks end, so at least two compare the unchanged folder with the baseline; a
-    // change one of them raised is sent once the task finds nothing else ready.
+    // change a tick raised goes out before the next tick is taken.
     fixture.pass_slow_ticks(3).await;
     assert!(
         matches!(changes.try_recv(), Err(TryRecvError::Empty)),
