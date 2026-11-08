@@ -111,6 +111,7 @@ pub(crate) async fn follow_channel_records(
     waits: Arc<dyn InputWaitReader>,
     line_capture: LineCapture,
 ) -> io::Result<()> {
+    set.channel_followed(session_id, apart_run, &channel);
     // Bounded by the parties followed: each sends its end once, and its watch is stopped when an
     // `Exited` lets it go first.
     let (process_ended, mut ended_parties) = mpsc::unbounded_channel();

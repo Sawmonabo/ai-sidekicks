@@ -1,7 +1,12 @@
 //! What a command channel's wrappers and askpasses report to their session's set: a wrapper's
 //! start pairs it with its command's row, and its output, exit, input waits and prompts then reach
-//! that row until the wrapper is let go.
+//! that row until the wrapper is let go. A wrapper is stopped through the channel its process is
+//! followed on, paired or not.
 
+use std::io::{self, ErrorKind};
+use std::sync::Arc;
+
+use jiff::Timestamp;
 use sidekicks_contracts::command::{CommandId, ExitCode};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -12,7 +17,7 @@ use super::{
     OpenPrompt, PromptAnswer, RowWrapper, RunningCommandSets, UnpairedWrapper, WrapperCommand,
     WrapperExit, WrapperFacts, is_channel_row, row_runs,
 };
-use crate::command::channel::PartyId;
+use crate::command::channel::{CommandChannel, PartyId, StoppedCommandParties};
 use crate::command::waiting_checks::WaitingState;
 
 impl RunningCommandSets {
@@ -40,6 +45,7 @@ impl RunningCommandSets {
             Some(row) => row.wrapper = RowWrapper::Paired(party),
             None => commands.unpaired.push(UnpairedWrapper {
                 party,
+                admitted_at: Timestamp::now(),
                 apart_run,
                 command,
                 facts: WrapperFacts::default(),
@@ -148,6 +154,75 @@ impl RunningCommandSets {
         match self.lock().get(&session_id)?.row(command_id)?.wrapper {
             RowWrapper::Paired(party) => Some(party),
             RowWrapper::Waiting | RowWrapper::Ended => None,
+        }
+    }
+
+    /// Notes `channel` as the one the process of `session_id` that runs `apart_run` alone, or for
+    /// `None` its own, is followed on, so a stop of its wrappers reaches them.
+    pub(crate) fn channel_followed(
+        &self,
+        session_id: SessionId,
+        apart_run: Option<RunId>,
+        channel: &Arc<CommandChannel>,
+    ) {
+        self.lock()
+            .entry(session_id)
+            .or_default()
+            .channels
+            .insert(apart_run, Arc::downgrade(channel));
+    }
+
+    /// The wrappers of `session_id` that wait for the provider to name their command, admitted
+    /// after `after`.
+    pub fn unpaired_wrappers_after(&self, session_id: SessionId, after: Timestamp) -> Vec<PartyId> {
+        self.lock()
+            .get(&session_id)
+            .map_or_else(Vec::new, |commands| {
+                commands
+                    .unpaired
+                    .iter()
+                    .filter(|unpaired| unpaired.admitted_at > after)
+                    .map(|unpaired| unpaired.party)
+                    .collect()
+            })
+    }
+
+    /// Stops the command the wrapper `party` of `session_id` runs, paired with its row or not,
+    /// through its channel's `Stop` to it and to every party under it, and answers the parties it
+    /// reached; none for a wrapper already let go. Fails with the channel's write or wait error.
+    pub async fn stop_wrapper(
+        &self,
+        session_id: SessionId,
+        party: PartyId,
+    ) -> io::Result<StoppedCommandParties> {
+        let channel = {
+            let sessions = self.lock();
+            sessions.get(&session_id).and_then(|commands| {
+                let apart_run = match commands
+                    .unpaired
+                    .iter()
+                    .find(|unpaired| unpaired.party == party)
+                {
+                    Some(unpaired) => unpaired.apart_run,
+                    None => commands
+                        .rows
+                        .iter()
+                        .find(|row| row.wrapper == RowWrapper::Paired(party))
+                        .map(|row| {
+                            Some(row.start.run_id).filter(|run| commands.apart_runs.contains(run))
+                        })?,
+                };
+                commands.channels.get(&apart_run)?.upgrade()
+            })
+        };
+        let Some(channel) = channel else {
+            return Ok(StoppedCommandParties::default());
+        };
+        match channel.stop_command_parties(party).await {
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                Ok(StoppedCommandParties::default())
+            }
+            stopped => stopped,
         }
     }
 

@@ -252,15 +252,9 @@ async fn a_stop_reaches_the_wrapper_and_each_nested_party() {
         sent_requests(&channel, &stopped_keys, stopped_id),
         [DaemonRequest::Stop {}]
     );
-    let mut reached: Vec<_> = parties
-        .processes
-        .iter()
-        .map(|process| process.id())
-        .collect();
-    reached.sort_unstable();
     let mut expected = vec![stopped_id, nested_id];
     expected.sort_unstable();
-    assert_eq!(reached, expected);
+    assert_eq!(parties.process_ids(), expected);
     assert!(sent_requests(&channel, &other_keys, other_id).is_empty());
     assert!(sent_requests(&channel, &other_nested_keys, other_nested_id).is_empty());
     end_party(stopped);

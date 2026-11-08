@@ -20,6 +20,7 @@ use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::NonEmptyText;
 
+use crate::command::channel::StoppedCommandParties;
 use crate::command::running_set::takes_no_input;
 use crate::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
 use crate::driver::claude::delivery::turn_readings::read_claude_task_list_change;
@@ -69,7 +70,9 @@ use crate::driver::session_control::{
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::driver::{DriverServices, HelperModeServices};
-use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
+use crate::port::running_command_publisher::{
+    RunningCommandParams, StopCommandParams, WriteCommandInputParams,
+};
 use crate::port::session_inbox_address::SessionInboxAddresser;
 
 mod account;
@@ -473,7 +476,10 @@ impl ProviderDriver for ClaudeDriver {
         self.list_provider_commands(params).boxed()
     }
 
-    fn stop_command(&self, params: RunningCommandParams) -> BoxFuture<'_, Result<(), DriverError>> {
+    fn stop_command(
+        &self,
+        params: StopCommandParams,
+    ) -> BoxFuture<'_, Result<StoppedCommandParties, DriverError>> {
         self.stop_command(params).boxed()
     }
 

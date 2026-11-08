@@ -66,7 +66,7 @@ pub(crate) fn command_channel_root(data_folder: &Path) -> PathBuf {
 }
 
 /// A party: the process id of the wrapper or askpass that writes records.
-pub(crate) type PartyId = u32;
+pub type PartyId = u32;
 
 /// A record a party writes to the daemon.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -349,6 +349,14 @@ impl StoppedCommandParties {
     #[cfg(any(test, feature = "test-support"))]
     pub fn of_processes(processes: Vec<PinnedProcess>) -> Self {
         Self { processes }
+    }
+
+    /// The ids of the parties' processes, sorted, for a test to read which parties a stop reached.
+    #[cfg(test)]
+    pub(crate) fn process_ids(&self) -> Vec<u32> {
+        let mut ids: Vec<_> = self.processes.iter().map(PinnedProcess::id).collect();
+        ids.sort_unstable();
+        ids
     }
 
     /// Waits for every party's process to end, together and with no bound of its own; an end

@@ -7,6 +7,7 @@
 //! its own whose commands are rows under that process's one run.
 
 mod apart_run;
+mod wrapper_stop;
 
 use std::collections::{HashMap, VecDeque};
 use std::ffi::OsString;

@@ -28,7 +28,8 @@ use crate::driver::codex::service::supervisor::test_service::start_scripted_code
 use crate::driver::contract::error::DriverError;
 use crate::driver::test_registry::{new_run_id, new_session_id, test_driver_services};
 use crate::port::running_command_publisher::{
-    CommandStart, RunningCommandParams, RunningCommandPublisher as _,
+    CommandStart, CommandStopCause, RunningCommandParams, RunningCommandPublisher as _,
+    StopCommandParams,
 };
 
 // A write whose answer is late goes out once more under the same write id, which the executor
@@ -173,10 +174,13 @@ async fn stops_only_on_codex_terminated() {
         .exec_relay_or_insert_with(|| relay_for(session_id, folder.path()));
     let (executor, _fake) = initialized_executor().await;
     relay.take_executor(executor);
-    let params = || RunningCommandParams {
-        session_id,
-        binding_id: RuntimeBindingId::new(mint_uuid_v7().to_string()).expect("a binding id"),
-        command_id: command_id(),
+    let params = || StopCommandParams {
+        command: RunningCommandParams {
+            session_id,
+            binding_id: RuntimeBindingId::new(mint_uuid_v7().to_string()).expect("a binding id"),
+            command_id: command_id(),
+        },
+        cause: CommandStopCause::Person,
     };
 
     for (terminated, answers_done) in [(false, false), (true, true)] {
@@ -205,7 +209,7 @@ async fn stops_only_on_codex_terminated() {
         };
         let (stopped, ()) = tokio::join!(driver.stop_command(params()), answering);
         match stopped {
-            Ok(()) => assert!(answers_done),
+            Ok(_parties) => assert!(answers_done),
             Err(DriverError::Refused(refusal)) => {
                 assert!(!answers_done);
                 assert_eq!(refusal.code, RefusalCode::AgentCommandNotStopped);
@@ -213,4 +217,108 @@ async fn stops_only_on_codex_terminated() {
             Err(other) => panic!("the stop failed otherwise: {other:?}"),
         }
     }
+}
+
+// A stop of a command its wrapper ended still sends Codex's terminate, so Codex records the
+// terminal stopped, and Codex's answer for a terminal it already let go reads as the stop done,
+// with the wrapper among the parties reached. Killed by skipping the terminate once the wrapper
+// ended the command, and by reading that answer as the command still running.
+#[tokio::test]
+async fn a_stop_the_wrapper_ended_still_terminates_in_codex() {
+    let folder = tempfile::tempdir().expect("a test folder");
+    let session_id = new_session_id();
+    let sets = unbound_running_command_sets();
+    let mut scripted = start_scripted_codex_service();
+    let mut driver = CodexDriver::new(&test_driver_services());
+    driver.registry = CodexServiceRegistry::holding(&scripted);
+    let relay = scripted.service.exec_relay_or_insert_with(|| {
+        relay_reporting_to(
+            folder.path(),
+            Some(Arc::clone(&sets)),
+            session_threads(session_id),
+        )
+    });
+    let (executor, mut fake) = initialized_executor().await;
+    relay.take_executor(Arc::clone(&executor));
+    let channel = relay
+        .session_channel(session_id, &executor)
+        .await
+        .expect("the session's channel opens")
+        .expect("the running commands are registered");
+    relay.record_command(
+        CALL.to_owned(),
+        RelayedCommand {
+            session_id,
+            thread_id: THREAD.to_owned(),
+            executor_process_id: EXECUTOR_PROCESS.to_owned(),
+            terminal_process_id: "7".to_owned(),
+            accepts_input: false,
+            service_start: 0,
+        },
+    );
+    let binding_id = RuntimeBindingId::new(mint_uuid_v7().to_string()).expect("a binding id");
+    sets.command_started(CommandStart {
+        session_id,
+        command_id: command_id(),
+        run_id: new_run_id(),
+        tool_call_id: None,
+        binding_id: binding_id.clone(),
+        name: NonEmptyText::new("sleep 60".to_owned()).expect("a name"),
+        started_at: WireInstant::now(),
+        line: None,
+        process_id: Some(EXECUTOR_PROCESS.to_owned()),
+        is_backgrounded: false,
+        can_move_to_background: false,
+        accepts_input: false,
+    });
+    let keys = new_party_keys();
+    let mut wrapper = party_command(&keys, None)
+        .spawn()
+        .expect("the wrapper starts");
+    let mut lines = std::io::BufRead::lines(std::io::BufReader::new(
+        wrapper.stdout.take().expect("its output"),
+    ));
+    let party = ready_parties(&mut lines, 1)[0];
+    write_party_record(
+        &channel.channel,
+        &keys,
+        party,
+        1,
+        &PartyRecord::Starting {
+            command: "sleep 60".to_owned(),
+            stdout_path: None,
+            process: Some(EXECUTOR_PROCESS.to_owned()),
+        },
+    );
+    wait_until(|| sets.paired_wrapper(session_id, &command_id()) == Some(party)).await;
+    let written_requests = || sent_requests(&channel.channel, &keys, party);
+    wait_until(|| written_requests().len() == 2).await;
+    let params = StopCommandParams {
+        command: RunningCommandParams {
+            session_id,
+            binding_id,
+            command_id: command_id(),
+        },
+        cause: CommandStopCause::Undo,
+    };
+
+    let answering = async {
+        wait_until(|| written_requests().last() == Some(&DaemonRequest::Stop {})).await;
+        fake.write(&exited(EXECUTOR_PROCESS)).await;
+        let request = scripted
+            .next_request("thread/backgroundTerminals/terminate")
+            .await;
+        assert_eq!(
+            request["params"],
+            json!({ "threadId": THREAD, "processId": "7" })
+        );
+        scripted
+            .script
+            .answer(&request, &json!({ "terminated": false }));
+    };
+    let (stopped, ()) = tokio::join!(driver.stop_command(params), answering);
+
+    let parties = stopped.expect("a terminal Codex already let go reads as stopped");
+    assert_eq!(parties.process_ids(), [party]);
+    end_party(wrapper);
 }

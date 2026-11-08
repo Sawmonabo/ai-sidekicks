@@ -37,6 +37,7 @@ use self::daemon_services::{
 use self::driver::{ScriptedDriver, create_params};
 use self::starts::SCRIPTED_BUILD_VERSION;
 use crate::background_work::BackgroundWorkForms;
+use crate::command::running_set::RunningCommandSets;
 use crate::driver::PROVIDERS;
 use crate::driver::claude::delivery::requests::ClaudeInboundRequests;
 use crate::driver::claude::delivery::stream::ClaudeSessionStream;
@@ -224,6 +225,21 @@ impl ScriptedSession {
     pub(crate) async fn created_with(
         params: impl FnOnce(SessionId) -> CreateSessionParams,
     ) -> Self {
+        Self::create(params, None).await
+    }
+
+    /// A live session as [`Self::new`] makes it whose commands are rows of `sets`, so its process
+    /// opens a command channel where the system runs the command wrapper.
+    pub(crate) async fn with_running_commands(sets: Arc<RunningCommandSets>) -> Self {
+        Self::create(create_params, Some(sets)).await
+    }
+
+    // A live session created with the params `params` builds, its commands reaching `sets` where
+    // given.
+    async fn create(
+        params: impl FnOnce(SessionId) -> CreateSessionParams,
+        sets: Option<Arc<RunningCommandSets>>,
+    ) -> Self {
         let ScriptedDriver {
             driver,
             starts,
@@ -235,8 +251,12 @@ impl ScriptedSession {
             home,
             folder,
             database,
+            services,
             ..
         } = ScriptedDriver::new();
+        if let Some(sets) = sets {
+            assert!(services.ports.command_output.register(sets).is_ok());
+        }
         // The process offers the session's model, so its start sets none.
         starts.script_initialize(ClaudeInitializeDeclaration {
             models: vec![ClaudeOfferedModel {

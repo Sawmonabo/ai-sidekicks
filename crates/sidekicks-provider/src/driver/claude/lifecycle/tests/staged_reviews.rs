@@ -26,7 +26,9 @@ use crate::driver::claude::spawn::launch::one_turn::ClaudeOneTurnReply;
 use crate::driver::contract::params_and_results::RunOpeningItem;
 use crate::driver::run_control::InterruptRunRequest;
 use crate::driver::test_registry::new_run_id;
-use crate::port::running_command_publisher::RunningCommandParams;
+use crate::port::running_command_publisher::{
+    CommandStopCause, RunningCommandParams, StopCommandParams,
+};
 use crate::run::state_entry::RunStateEntry;
 
 // Lets the session's process run Claude Code's `code-review` skill.
@@ -307,7 +309,10 @@ async fn a_staged_reviews_command_is_stopped_and_moved_on_the_reviews_own_proces
         .expect("the move is answered");
     parts
         .run_controls
-        .stop_command(&command("task-1"))
+        .stop_command(&StopCommandParams {
+            command: command("task-1"),
+            cause: CommandStopCause::Person,
+        })
         .await
         .expect("the review's process acknowledges the stop");
 

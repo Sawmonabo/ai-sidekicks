@@ -29,6 +29,7 @@ use sidekicks_contracts::session::controls::methods::TerminalProviderSession;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::time::Instant;
 
+use crate::command::channel::StoppedCommandParties;
 use crate::driver::contract::account::ProviderAccountLegs;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
@@ -66,7 +67,9 @@ use crate::driver::session_control::{
     UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
-use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
+use crate::port::running_command_publisher::{
+    RunningCommandParams, StopCommandParams, WriteCommandInputParams,
+};
 use crate::port::session_inbox_address::SessionInboxAddresser;
 use crate::pricing::receiver::TelemetryExportReader;
 use crate::pricing::rule::RequestPricer;
@@ -481,9 +484,14 @@ pub trait ProviderDriver: Send + Sync {
         params: ListProviderCommandsParams,
     ) -> BoxFuture<'_, Result<ProviderCommandBindingGroup, DriverError>>;
 
-    /// Stops the agent's running command `params` names, answering once the provider acknowledged
-    /// the stop; refused `provider.capability.unsupported` where the provider relays no stop.
-    fn stop_command(&self, params: RunningCommandParams) -> BoxFuture<'_, Result<(), DriverError>>;
+    /// Stops the agent's running command `params` names for its cause, telling the run that
+    /// started it only for the person's stop, and answers once the provider acknowledged the stop,
+    /// with the parties of the command's wrapper the stop reached, whose ends a caller may wait
+    /// on; refused `provider.capability.unsupported` where the provider relays no stop.
+    fn stop_command(
+        &self,
+        params: StopCommandParams,
+    ) -> BoxFuture<'_, Result<StoppedCommandParties, DriverError>>;
 
     /// Moves the agent's running command to the background, answering whether the provider moved
     /// it, `false` when the agent no longer waited on it; refused `provider.capability.unsupported`
