@@ -210,7 +210,8 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
                 notice = next_notice(&mut self.tree_watch) => FolderEvent::Tree(notice),
                 notice = next_notice(&mut self.git_watch) => FolderEvent::GitFolder(notice),
                 () = self.signals.raise.notified() => FolderEvent::Raise,
-                () = tick_due(self.tick.as_ref()) => FolderEvent::Tick,
+                // A pending change goes out before the next tick is taken; its wake-up waits.
+                () = tick_due(self.tick.as_ref()), if !self.is_raise_pending => FolderEvent::Tick,
                 read = ignored_read_done(&mut self.ignored_read) => FolderEvent::IgnoredRead(read),
                 () = std::future::ready(()), if self.is_raise_pending => FolderEvent::Flush,
             };
@@ -343,9 +344,10 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
             &self.folder.key,
         )
         .await;
-        let Some(tick) = self.tick.as_mut() else {
-            return;
-        };
+        let tick = self
+            .tick
+            .as_mut()
+            .expect("a tick is taken only while the folder has its slow tick");
         match digest {
             Ok(digest) => {
                 let has_changed = tick
@@ -360,6 +362,11 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
                 "a working folder on the slow tick could not be read; the next tick reads it again"
             ),
         }
+        #[cfg(test)]
+        self.shared
+            .lock_state()
+            .slow_ticks_ended
+            .send_modify(|ended| *ended += 1);
     }
 
     // A changed set restarts a running tree watch, which on a machine that watches one folder at a

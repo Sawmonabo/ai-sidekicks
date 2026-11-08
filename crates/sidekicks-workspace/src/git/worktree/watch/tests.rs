@@ -19,6 +19,7 @@ use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id
 use sidekicks_store::events::log_service::test_fixture::open_log;
 use tempfile::TempDir;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TryRecvError;
 use tokio::time::timeout;
 
 use super::{
@@ -36,7 +37,9 @@ use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
 mod tree_state;
 
-const WAIT: Duration = Duration::from_secs(10);
+/// How long a wait runs before it fails naming what never came: short of nextest's two-minute
+/// kill, so a hang names itself, and no passing test comes near it.
+const WAIT: Duration = Duration::from_secs(110);
 
 // Long enough for a change that would wrongly be sent to arrive.
 const QUIET: Duration = Duration::from_millis(500);
@@ -184,6 +187,21 @@ impl Fixture {
     fn tree_watch_starts(&self) -> u64 {
         self.watcher.shared.lock_state().tree_watch_starts
     }
+
+    // Waits until `count` more slow ticks ended their pass than had when it was called.
+    async fn pass_slow_ticks(&self, count: u64) {
+        let mut ended = self
+            .watcher
+            .shared
+            .lock_state()
+            .slow_ticks_ended
+            .subscribe();
+        let target = *ended.borrow_and_update() + count;
+        timeout(WAIT, ended.wait_for(|ended| *ended >= target))
+            .await
+            .unwrap_or_else(|_elapsed| panic!("waited {WAIT:?} for {count} slow ticks to end"))
+            .expect("the ticks' count lives with the watcher");
+    }
 }
 
 fn listener() -> (
@@ -202,7 +220,7 @@ async fn next_change(
 ) -> WorkingTreeChange {
     timeout(WAIT, changes.recv())
         .await
-        .expect("a change arrives in time")
+        .unwrap_or_else(|_elapsed| panic!("waited {WAIT:?} for a change that never came"))
         .expect("the listener is held")
 }
 
@@ -397,8 +415,13 @@ async fn a_folder_past_the_watch_limit_is_checked_on_the_slow_tick(
         return;
     }
 
-    // Several ticks pass over an unchanged folder, the first of them setting the baseline.
-    assert_quiet(&mut changes).await;
+    // Three more ticks end, so at least two compare the unchanged folder with the baseline; a
+    // change a tick raised goes out before the next tick is taken.
+    fixture.pass_slow_ticks(3).await;
+    assert!(
+        matches!(changes.try_recv(), Err(TryRecvError::Empty)),
+        "no change is sent over an unchanged folder"
+    );
     // The same length, so only the modified time moves.
     std::fs::write(&untracked, "bbbb").expect("written");
     assert_eq!(
