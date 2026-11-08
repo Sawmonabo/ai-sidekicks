@@ -15,6 +15,7 @@ pub(crate) mod current_user;
 pub(crate) mod descriptor_path;
 pub(crate) mod disk;
 pub(crate) mod entry_identity;
+pub(crate) mod environment_value_limits;
 pub(crate) mod error_codes;
 pub(crate) mod executable_file;
 pub(crate) mod file_facts;

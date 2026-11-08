@@ -2,7 +2,7 @@
 //! memory map, a local connection's caller pinned with its responsible process and its code
 //! signature, the start as its own responsible process and the daemon's confirmation of a shell's
 //! start, a lasting child's and a session child's start through `posix_spawn` and their reap, the
-//! bound on a program's argument, a process's memory and the machine's available memory, one user's
+//! bounds on a program's argument and on its environment's entries and total, a process's memory and the machine's available memory, one user's
 //! processes and the arguments and environment a process started with, an open descriptor's path,
 //! the wakes of a folder's and a file's watch, whether a terminal's program waits for input, the
 //! machine's wakes from sleep, whether it runs on AC power, a wall-clock timer, the login keychain,
@@ -51,8 +51,10 @@ use std::io;
 use std::path::PathBuf;
 use std::process::Stdio;
 
+use sidekicks_contracts::workflow::run::failures::WorkflowStepValueMeasure;
 use tokio::process::Command;
 
+use crate::environment_value_limits::EnvironmentValueLimits;
 use crate::machine_name::{MachineNameError, require_machine_name};
 use crate::posix::argument_space::read_argument_space;
 use crate::posix::child_command::prepare_child_command;
@@ -122,6 +124,19 @@ pub const CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER: bool = false;
 /// `usize`.
 pub fn read_command_argument_limit() -> io::Result<usize> {
     read_argument_space()
+}
+
+/// The environment bounds on macOS, in bytes: one `sysconf(_SC_ARG_MAX)` read (`kern.argmax`) as
+/// both, since XNU sets no bound on one string and charges every argument and entry, its NUL
+/// counted, a pointer slot each and both lists' NULL terminators to that one space; the caller
+/// subtracts what the start already carries. Fails as the argument-space read does.
+pub fn read_environment_value_limits() -> io::Result<EnvironmentValueLimits> {
+    let space = read_argument_space()?;
+    Ok(EnvironmentValueLimits {
+        per_value: space,
+        total: Some(space),
+        measure: WorkflowStepValueMeasure::Bytes,
+    })
 }
 
 /// The shells the live test opens here, each with no startup files and a prompt of its folder:
