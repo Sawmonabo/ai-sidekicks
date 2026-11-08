@@ -225,8 +225,9 @@ impl CaptureFolder {
         ))))
     }
 
-    // `partial` as a bare repository in the object format of the repository at `repository`, with
-    // automatic gc and maintenance off, so nothing packs or prunes the captures but the daemon.
+    // `partial` as a bare repository in the object format of the repository at `repository` and the
+    // files ref format, with automatic gc and maintenance off, so nothing packs or prunes the
+    // captures but the daemon.
     // Pruning is off too: since git 2.54 a maintenance run's geometric strategy reads no `gc.auto`
     // and its cruft repack expires unreachable objects after two weeks, and a capture with no ref
     // is unreachable.
@@ -252,7 +253,10 @@ impl CaptureFolder {
             "--template=".into(),
             format!("--object-format={}", format.name()).into(),
             partial.into(),
-        ]);
+        ])
+        // A ref write in a reftable folder deletes tables outside the packing lock; the variable
+        // outranks the person's settings, and a git before 2.44 knows only the files format.
+        .with_environment("GIT_DEFAULT_REF_FORMAT", "files");
         git.run(place, init).await?;
         for [key, value] in [
             ["gc.auto", "0"],
