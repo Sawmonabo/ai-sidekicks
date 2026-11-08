@@ -88,6 +88,12 @@ impl QuestionsService {
             Ok(_run) => return Ok(WaitingQuestionOpening::Opened),
             Err(failure) => failure,
         };
+        // The run is read before the question: a run's end settles its waiting questions in its
+        // own write, so a run read as ended here has a question read after it as settled, unless
+        // the question was recorded after that end read its run's questions.
+        let run = self.engine.require_run(held.run_id).await;
+        #[cfg(test)]
+        self.waiting_take_pause.pass().await;
         match self.read_state(question_id).await {
             Ok(Some(QuestionState::WaitingForRun)) => {}
             Ok(_settled) => {
@@ -106,7 +112,7 @@ impl QuestionsService {
         if !matches!(failure, RunEngineError::Refused(_)) {
             return Err(failure.into());
         }
-        let run = self.engine.require_run(held.run_id).await?;
+        let run = run?;
         if !run.state.is_terminal() {
             return Ok(WaitingQuestionOpening::RunNotRunning);
         }
@@ -116,8 +122,25 @@ impl QuestionsService {
         } else {
             QuestionCanceledReason::RunEnded
         };
-        self.cancel_waiting_question(question_id, held.session_id, reason)
-            .await?;
+        let canceled = self
+            .cancel_waiting_question(question_id, held.session_id, reason)
+            .await;
+        // A row gone since its state was read, as a history rebuild that cleared the table leaves
+        // it, is no longer waiting; one still waiting is the cancel's failure.
+        if let Err(failure) = canceled {
+            match self.read_state(question_id).await {
+                Ok(Some(QuestionState::WaitingForRun)) => return Err(failure),
+                Ok(_settled) => {}
+                // The cancel's failure is the one the caller acts on; the read's is logged.
+                Err(read) => {
+                    tracing::warn!(
+                        error = &read as &(dyn std::error::Error + 'static),
+                        "a waiting question's state was not read after its cancel failed"
+                    );
+                    return Err(failure);
+                }
+            }
+        }
         self.forget_held_request(&question_id);
         Ok(WaitingQuestionOpening::Settled)
     }

@@ -581,7 +581,7 @@ async fn the_test_message_posts_once_and_writes_no_row() {
         (AttentionDeliveryResult::Delivered, Some(200))
     );
     assert_eq!(tested.undelivered.get(), 0);
-    let requests = lock(&received).clone();
+    let requests = lock(&received.requests).clone();
     assert_eq!(requests.len(), 1);
     let body: Value = serde_json::from_slice(&requests[0].body).expect("the test's body is JSON");
     assert_eq!(
@@ -649,7 +649,7 @@ async fn the_test_message_posts_once_and_writes_no_row() {
             (tested.result, tested.cause, tested.http_status),
             (AttentionDeliveryResult::StoreUnavailable, Some(cause), None)
         );
-        assert_eq!(lock(&received).len(), 1, "nothing is posted");
+        assert_eq!(lock(&received.requests).len(), 1, "nothing is posted");
         assert_eq!(
             fixture.count("SELECT COUNT(*) FROM attention_delivery_outcomes"),
             0
