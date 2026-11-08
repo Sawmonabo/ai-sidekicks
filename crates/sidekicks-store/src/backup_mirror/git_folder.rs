@@ -1,20 +1,23 @@
 //! The copy of one git folder: the files that name objects read and staged first, the objects
 //! copied under the folder's hold, the staged files placed, and only then the copies the reads did
-//! not list removed, so a copy cut short anywhere holds refs over a superset of their objects.
+//! not list removed, so a copy cut short anywhere holds refs over a superset of their objects. A
+//! folder no hold covers places its files only once a second read finds its refs unchanged and its
+//! copied indexes name nothing that left the copy's reach, since git moves an object by writing its
+//! new place first and deletes one outright only once nothing names it.
 
 use std::collections::HashSet;
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use sidekicks_platforms::{remove_tree, rename_replacing};
 use sidekicks_std::missing_entry::{MissingEntry as _, is_missing_entry};
 use walkdir::WalkDir;
 
 use super::{
-    Leveling, MirrorError, copy_when_changed, in_progress_path, is_unchanged_copy,
-    write_in_progress,
+    CopiedIndex, CopiedIndexCheck, Leveling, MirrorError, copy_when_changed, in_progress_path,
+    is_unchanged_copy, write_in_progress,
 };
 
 // The names git gives a git folder's parts.
@@ -32,6 +35,17 @@ const LAST_OBJECT_FOLDERS: [&str; 2] = ["pack", "info"];
 // How many times `pack` and `info` are read again after an entry vanished before its copy.
 const OBJECT_REREADS: usize = 3;
 
+// How many rounds a git folder no hold covers runs before it keeps its last copy.
+const ROUNDS: usize = 3;
+
+// The index's file, and the start of a split index's shared file's name, in a git folder and in
+// each linked worktree's folder.
+const INDEX_FILE_NAME: &str = "index";
+const SHARED_INDEX_PREFIX: &str = "sharedindex.";
+
+// The folder in a git folder that holds each linked worktree's own files.
+const WORKTREES_FOLDER_NAME: &str = "worktrees";
+
 // One entry of a git folder read for its copy: its path under the folder and what its stat read.
 struct ListedEntry {
     relative: PathBuf,
@@ -39,40 +53,129 @@ struct ListedEntry {
 }
 
 impl Leveling<'_> {
-    // Copies the git folder `folder` to `copy` whole: the files that name objects (every entry but
-    // `objects`, loose refs first and `packed-refs` next, as git reads them) read and each changed
-    // one staged beside its copy, then the changed objects copied under the folder's hold, the
-    // loose ones before the packs, then the staged files placed, and last every copy the reads did
-    // not list removed. A folder gone at the start, once its hold is taken, or when its objects'
-    // copy ends has its copy removed. Each git folder nested among the files (a submodule's) is
-    // copied after by a routine of its own.
+    // Copies the git folder `folder` to `copy` whole, in rounds. A round reads the files that name
+    // objects (every entry but `objects`, loose refs first and `packed-refs` next, as git reads
+    // them) and stages each changed one beside its copy, copies the changed objects under the
+    // folder's hold, the loose ones before the packs, places the staged files, and last removes
+    // every copy its reads did not list. A folder no hold covers has its files read again before
+    // they are placed, and its copied indexes checked against the copy; when a ref moved or an
+    // object an index names left the copy's reach the round runs again, and after the last one,
+    // or when git cannot read an index, nothing is placed or removed and the folder is named
+    // skipped. A folder gone at a round's start, once its hold is taken, or when its objects' copy
+    // ends has its copy removed. Each git folder nested among the files (a submodule's) is copied
+    // after by a routine of its own.
     pub(super) fn copy_git_folder(
         &mut self,
         folder: &Path,
         copy: &Path,
     ) -> Result<(), MirrorError> {
-        if !self.is_present(folder)? {
-            return self.remove_copy(copy);
-        }
-        self.make_folder(copy)?;
         let mut nested = Vec::new();
-        let pointers = self.list_tree_entries(folder, &[Path::new("")], &mut nested)?;
-        let staged = self.stage_pointers(folder, copy, &pointers)?;
-        let git_folders = self.git_folders;
-        let hold = git_folders.hold(folder, self.stop)?;
-        if hold.is_some() && !self.is_present(folder)? {
-            return self.remove_copy(copy);
+        for round in 1..=ROUNDS {
+            if !self.is_present(folder)? {
+                return self.remove_copy(copy);
+            }
+            self.make_folder(copy)?;
+            nested.clear();
+            let pointers = self.list_tree_entries(folder, &[Path::new("")], &mut nested)?;
+            let staged = self.stage_pointers(folder, copy, &pointers)?;
+            let git_folders = self.git_folders;
+            let hold = git_folders.hold(folder, self.stop)?;
+            if hold.is_some() && !self.is_present(folder)? {
+                return self.remove_copy(copy);
+            }
+            let objects = self.copy_objects(folder, copy)?;
+            let is_gone = !self.is_present(folder)?;
+            let is_held = hold.is_some();
+            drop(hold);
+            if is_gone {
+                return self.remove_copy(copy);
+            }
+            let round_end = if is_held {
+                CopiedIndexCheck::Whole
+            } else {
+                self.read_round_end(folder, copy, &pointers, &staged)?
+            };
+            match round_end {
+                CopiedIndexCheck::Whole => {
+                    self.place_pointers(copy, &staged)?;
+                    self.remove_unlisted(copy, &pointers, &objects, &nested)?;
+                    break;
+                }
+                CopiedIndexCheck::Moved if round < ROUNDS => self.discard_staged(copy, &staged)?,
+                CopiedIndexCheck::Moved | CopiedIndexCheck::Unread => {
+                    self.discard_staged(copy, &staged)?;
+                    self.report.skipped_folders.push(folder.to_path_buf());
+                    break;
+                }
+            }
         }
-        let objects = self.copy_objects(folder, copy)?;
-        let is_gone = !self.is_present(folder)?;
-        drop(hold);
-        if is_gone {
-            return self.remove_copy(copy);
-        }
-        self.place_pointers(copy, &staged)?;
-        self.remove_unlisted(copy, &pointers, &objects, &nested)?;
         for relative in nested {
             self.copy_git_folder(&folder.join(&relative), &copy.join(&relative))?;
+        }
+        Ok(())
+    }
+
+    // How a round of `folder`, which no hold covers, ended: `Moved` when a second read of its files
+    // finds one added, gone or changed since `pointers` listed it, an index aside, which git
+    // rewrites at will; else what the check of its copied indexes against the copy found, each
+    // index's copy the file `staged` holds for it or the copy's own.
+    fn read_round_end(
+        &mut self,
+        folder: &Path,
+        copy: &Path,
+        pointers: &[ListedEntry],
+        staged: &[PathBuf],
+    ) -> Result<CopiedIndexCheck, MirrorError> {
+        let again = self.list_tree_entries(folder, &[Path::new("")], &mut Vec::new())?;
+        let compared = |entries: &'_ [ListedEntry]| -> Vec<&ListedEntry> {
+            entries
+                .iter()
+                .filter(|entry| !is_index_part(&entry.relative))
+                .collect()
+        };
+        let (before, after) = (compared(pointers), compared(&again));
+        let is_changed = before.len() != after.len()
+            || before.iter().zip(&after).any(|(before, after)| {
+                before.relative != after.relative
+                    || before.metadata.is_dir() != after.metadata.is_dir()
+                    || (before.metadata.is_file()
+                        && !is_unchanged_copy(&after.metadata, &before.metadata, self.precision))
+            });
+        if is_changed {
+            return Ok(CopiedIndexCheck::Moved);
+        }
+        let indexes: Vec<CopiedIndex> = pointers
+            .iter()
+            .filter(|entry| is_index_file(&entry.relative))
+            .map(|entry| {
+                let target = copy.join(&entry.relative);
+                CopiedIndex {
+                    live: folder.join(&entry.relative),
+                    copied: if staged.contains(&entry.relative) {
+                        in_progress_path(&target)
+                    } else {
+                        target
+                    },
+                }
+            })
+            .collect();
+        let git_folders = self.git_folders;
+        git_folders.check_copied_indexes(
+            folder,
+            &copy.join(OBJECTS_FOLDER_NAME),
+            &indexes,
+            self.stop,
+        )
+    }
+
+    // Removes the files `staged` left beside their copies under `copy`, so the copy stays as the
+    // last run left it.
+    fn discard_staged(&self, copy: &Path, staged: &[PathBuf]) -> Result<(), MirrorError> {
+        for relative in staged {
+            let in_progress = in_progress_path(&copy.join(relative));
+            fs::remove_file(&in_progress)
+                .none_if_missing()
+                .map_err(|error| self.failed(&in_progress, error))?;
         }
         Ok(())
     }
@@ -432,4 +535,34 @@ pub(super) fn is_git_folder(folder: &Path) -> bool {
     is(HEAD_FILE_NAME, fs::Metadata::is_file)
         && is(OBJECTS_FOLDER_NAME, fs::Metadata::is_dir)
         && is(REFS_FOLDER_NAME, fs::Metadata::is_dir)
+}
+
+// Whether `relative`, a path in a git folder, is a part of an index git reads there: the index
+// file, or a split index's shared file, in the folder or in a linked worktree's folder.
+fn is_index_part(relative: &Path) -> bool {
+    relative.file_name().is_some_and(|name| {
+        name == INDEX_FILE_NAME
+            || name
+                .as_encoded_bytes()
+                .starts_with(SHARED_INDEX_PREFIX.as_bytes())
+    }) && is_index_level(relative)
+}
+
+// Whether `relative`, a path in a git folder, is an index git reads there.
+fn is_index_file(relative: &Path) -> bool {
+    relative.file_name() == Some(OsStr::new(INDEX_FILE_NAME)) && is_index_level(relative)
+}
+
+// Whether `relative` lies where git keeps an index: in the git folder itself, or in a linked
+// worktree's folder.
+fn is_index_level(relative: &Path) -> bool {
+    let folders: Vec<Component<'_>> = relative
+        .parent()
+        .map(|parent| parent.components().collect())
+        .unwrap_or_default();
+    match folders.as_slice() {
+        [] => true,
+        [Component::Normal(worktrees), Component::Normal(_)] => *worktrees == WORKTREES_FOLDER_NAME,
+        _ => false,
+    }
 }

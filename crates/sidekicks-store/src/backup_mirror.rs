@@ -195,7 +195,7 @@ fn is_plain_component(part: &str) -> bool {
 }
 
 /// What one run of the mirror did.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MirrorReport {
     /// The files copied.
     pub copied_files: u64,
@@ -203,6 +203,9 @@ pub struct MirrorReport {
     pub copied_bytes: u64,
     /// The copies deleted because their source is gone.
     pub removed_entries: u64,
+    /// The folders whose copy was kept as the last run left it, since they could not be copied
+    /// whole this run.
+    pub skipped_folders: Vec<PathBuf>,
 }
 
 /// Why the mirror did not finish.
@@ -222,6 +225,27 @@ pub enum MirrorError {
     },
 }
 
+/// An index git reads in a git folder being copied, and the file holding what the copy read of it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CopiedIndex {
+    /// The index file in the live folder.
+    pub live: PathBuf,
+    /// The file holding the copy's read of it: the one staged beside the copy's index, or the
+    /// copy's own where the index did not change.
+    pub copied: PathBuf,
+}
+
+/// What a check of a git folder's copied indexes against its copy found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CopiedIndexCheck {
+    /// Every object they name is in the copy, or is one the live folder itself does without.
+    Whole,
+    /// One left the copy's reach while it was copied, so the folder's copy runs again.
+    Moved,
+    /// git could not read one of them, so the folder keeps its last copy this run.
+    Unread,
+}
+
 /// What the mirror asks of whoever writes a git folder while it is copied. Each method blocks,
 /// and answers [`MirrorError::Stopped`] once `stop` fires while it waits.
 pub trait LiveGitFolders: Send + Sync {
@@ -232,9 +256,21 @@ pub trait LiveGitFolders: Send + Sync {
         git_folder: &Path,
         stop: &CancellationToken,
     ) -> Result<Option<Box<dyn Send + '_>>, MirrorError>;
+
+    /// Whether every object `indexes`, the copied indexes of `git_folder`, name is in
+    /// `copy_objects`, the copy's objects folder, or is one the live folder does without, asked of
+    /// a folder no hold covers once its refs read as they did before its objects were copied.
+    fn check_copied_indexes(
+        &self,
+        git_folder: &Path,
+        copy_objects: &Path,
+        indexes: &[CopiedIndex],
+        stop: &CancellationToken,
+    ) -> Result<CopiedIndexCheck, MirrorError>;
 }
 
-// The git folders of a copy no one writes while it is read: a restore's, from the mirror.
+// The git folders of a copy no one writes while it is read, a restore's from the mirror, whose
+// indexes the backup checked when it wrote them.
 struct UnwrittenGitFolders;
 
 impl LiveGitFolders for UnwrittenGitFolders {
@@ -245,6 +281,16 @@ impl LiveGitFolders for UnwrittenGitFolders {
     ) -> Result<Option<Box<dyn Send + '_>>, MirrorError> {
         Ok(None)
     }
+
+    fn check_copied_indexes(
+        &self,
+        _git_folder: &Path,
+        _copy_objects: &Path,
+        _indexes: &[CopiedIndex],
+        _stop: &CancellationToken,
+    ) -> Result<CopiedIndexCheck, MirrorError> {
+        Ok(CopiedIndexCheck::Whole)
+    }
 }
 
 /// Brings the mirror at `mirror_folder` level with `roots`, each a place under `home`: the folder
@@ -254,10 +300,15 @@ impl LiveGitFolders for UnwrittenGitFolders {
 /// other files that name objects read first and staged beside their copies, then its objects
 /// copied under the hold `git_folders` gives it, then the staged files placed, and only then the
 /// copies its source no longer lists removed, so a run cut short anywhere leaves refs over a
-/// superset of their objects. Each root's copy is taken from its [`MirrorCopySource`]; a root kept
-/// as it is is still listed, so its copy is neither leveled nor deleted. Checks `stop` before each
-/// entry. Blocking, so it runs through `spawn_blocking`. Fails with [`MirrorError::Stopped`] once
-/// `stop` fires, and with the first refused read, copy or removal.
+/// superset of their objects. A git folder no hold covers has its refs read again after its
+/// objects' copy and its copied indexes checked against the copy through `git_folders`, and is
+/// copied again, three times at most, while a ref moved or an object an index names left the
+/// copy's reach; one still changing then, or whose index git cannot read, keeps its last copy and
+/// is named in the report's skipped folders. Each root's copy is taken from its
+/// [`MirrorCopySource`]; a root kept as it is is still listed, so its copy is neither leveled nor
+/// deleted. Checks `stop` before each entry. Blocking, so it runs through `spawn_blocking`. Fails
+/// with [`MirrorError::Stopped`] once `stop` fires, and with the first refused read, copy or
+/// removal.
 pub fn mirror_roots(
     mirror_folder: &Path,
     home: &Path,

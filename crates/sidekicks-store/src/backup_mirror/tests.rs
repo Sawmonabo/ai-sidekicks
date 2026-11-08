@@ -68,6 +68,7 @@ fn a_run_copies_what_changed_and_deletes_what_is_gone() {
             copied_files: 2,
             copied_bytes: 18,
             removed_entries: 2,
+            skipped_folders: Vec::new(),
         }
     );
     assert_eq!(
