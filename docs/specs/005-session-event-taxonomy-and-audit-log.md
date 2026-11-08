@@ -291,6 +291,7 @@ Payload shape: `{sessionId, repoMountId?, workspaceId?, worktreeId?, state, acto
 | `worktree.created` | A git worktree has been created within a workspace, or put back from a kept copy (`restoredFrom`). |
 | `worktree.bound` | A git worktree has been checked out and is ready for use. |
 | `worktree.dirtied` | A git worktree has uncommitted changes. |
+| `worktree.cleaned` | A dirty git worktree reads clean again, its changes committed or discarded, so it is `ready`. |
 | `worktree.merged` | A git worktree's branch has been integrated into its target branch, so the worktree can be retired. |
 | `worktree.retired` | A git worktree has been retired and removed; a discard that kept the tree names the kept copy (`removedWorktreeId`). |
 | `session.branch.changed` | The branch of the folder this session works in changed outside the app, and the session's record follows it. |
