@@ -596,8 +596,9 @@ impl CodexService {
         self.send(SupervisorEvent::PlannedRestart);
     }
 
-    /// Restarts an account's service on the program as it is now and answers once it is up
-    /// again, the start bounded as [`Self::ensure_started`] bounds it. Fails as that start fails.
+    /// Restarts an account's service on the program as it is now, or dials a joined one again, and
+    /// answers once it is up again, the start bounded as [`Self::ensure_started`] bounds it. Fails
+    /// as that start fails.
     pub(crate) async fn restart_planned(&self) -> Result<(), CodexError> {
         let mut availability = self.availability.subscribe();
         availability.borrow_and_update();
@@ -657,10 +658,7 @@ impl CodexService {
 
     /// Records a conversation as a session's and delivers the frames held for it, in order.
     pub(crate) fn register_thread(&self, thread_id: String, session_id: SessionId) {
-        let held = self.lock_threads().register(thread_id, session_id);
-        for frame in held {
-            self.deliver_thread_frame(&session_id, &frame.thread_id, &frame.method, frame.params);
-        }
+        self.register_routed_thread(&self.lock_routing(), thread_id, session_id);
     }
 
     /// Records a side question's read-only copy as the session's, marked so its commands are

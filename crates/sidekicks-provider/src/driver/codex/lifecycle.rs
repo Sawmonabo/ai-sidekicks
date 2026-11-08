@@ -241,6 +241,7 @@ impl CodexDriver {
             command_capture: Arc::clone(&services.ports.command_capture),
             wrapper_program: command_wrapper_program_path(&link_folder),
             askpass_program: command_askpass_program_path(&link_folder),
+            tasks: tasks.clone(),
         });
         let dependencies = Arc::new(CodexServiceDependencies {
             spawner: services.spawner.clone(),
