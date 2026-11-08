@@ -1,10 +1,9 @@
 // Desktop main and the Rust daemon resolve the run folder by the same rule, each reading this case
 // table, so the two cannot drift into looking for the socket in different folders.
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import { readCaseTable } from "../../__tests__/case-table.test-support.js";
 import { resolveDaemonRunFolder } from "../run-folder.js";
 
 // Parsed, not cast, so a row naming any other system fails here as it fails the Rust suite.
@@ -33,17 +32,7 @@ const runFolderCaseTable = z
   })
   .strict();
 
-const runFolderCases = runFolderCaseTable.parse(
-  JSON.parse(
-    readFileSync(
-      new URL(
-        "../../../../../crates/sidekicks-contracts/tests/fixtures/run-folder.json",
-        import.meta.url,
-      ),
-      "utf8",
-    ),
-  ),
-);
+const runFolderCases = readCaseTable(runFolderCaseTable, "run-folder.json");
 
 describe("the run folder on macOS and Linux", () => {
   it.each(runFolderCases.posix)(
