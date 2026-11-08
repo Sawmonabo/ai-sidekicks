@@ -9,15 +9,16 @@ use std::io::Write as _;
 use std::panic::PanicHookInfo;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex};
 
 use flexi_logger::writers::ArcFileLogWriter;
 use jiff::Timestamp;
 use sidekicks_ipc::redaction::{scrub_credentials, strip_url_queries};
 use sidekicks_platforms::{LeftoverSweep, create_private_folder, replace_file_atomically};
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::standard_error::write_error_line;
 
-use crate::daemon::crash::monitor::{PanicRecord, send_panic_record};
+use crate::daemon::crash::monitor::{PanicRecord, mark_crashing, send_panic_record};
 use crate::daemon::service_log::CRASH_REPORTS_FOLDER_NAME;
 
 /// The start of a panic's record's name in the crash reports folder.
@@ -32,15 +33,13 @@ const CRASH_RECORD_MODE: u32 = 0o600;
 // Counts this run's crash records, so two panics in one millisecond never write one name.
 static CRASH_RECORD_COUNT: AtomicU64 = AtomicU64::new(0);
 
-// The crash monitor each panic's record is sent to, once the service has connected to it.
-static CRASH_MONITOR: OnceLock<Arc<minidumper::Client>> = OnceLock::new();
+// The crash monitor each panic's record is sent to, once the service has connected to one.
+static CRASH_MONITOR: Mutex<Option<Arc<minidumper::Client>>> = Mutex::new(None);
 
 /// Sends each later panic's message and place to the crash monitor `client` reaches, before the
-/// abort that asks it for a dump. The first call wins; a later one is dropped.
+/// abort that asks it for a dump, in place of the monitor an earlier call named.
 pub(crate) fn send_panics_to_monitor(client: Arc<minidumper::Client>) {
-    if CRASH_MONITOR.set(client).is_err() {
-        tracing::warn!("the panics were already sent to a crash monitor");
-    }
+    *lock(&CRASH_MONITOR) = Some(client);
 }
 
 /// Installs the hook every panic runs before it unwinds: it logs the panic, its place, its thread
@@ -49,12 +48,15 @@ pub(crate) fn send_panics_to_monitor(client: Arc<minidumper::Client>) {
 pub(crate) fn install_panic_hook(data_folder: &Path, log_file: Option<ArcFileLogWriter>) {
     let crash_reports = data_folder.join(CRASH_REPORTS_FOLDER_NAME);
     std::panic::set_hook(Box::new(move |panic| {
+        mark_crashing();
         let (message, place) = panic_message_and_place(panic);
         let report = strip_url_queries(&scrub_credentials(&describe_panic(&message, &place)));
         tracing::error!(report = %report, "the background service panicked and stops");
-        if let Some(monitor) = CRASH_MONITOR.get()
+        // Cloned out, so the send's bounded wait holds no lock.
+        let monitor = lock(&CRASH_MONITOR).clone();
+        if let Some(monitor) = monitor
             && let Err(error) = send_panic_record(
-                monitor,
+                &monitor,
                 &PanicRecord {
                     message: strip_url_queries(&scrub_credentials(&message)),
                     location: place,

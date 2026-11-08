@@ -521,6 +521,7 @@ pub(crate) async fn register_method_inputs(
             run_folder: run_folder.folder_path.clone(),
             orphan_guard,
             daemon_program: daemon_program.to_path_buf(),
+            release_version: version.clone(),
         })
         .await?,
     );
