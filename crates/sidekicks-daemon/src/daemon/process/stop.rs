@@ -430,6 +430,10 @@ pub(crate) async fn stop_work(
     // The work's stop ends the list's fetch and the repricing; a write under way is waited out
     // within the bound, and either is ended past it.
     if let Some(pricing) = process.pricing.take() {
+        process
+            .stop_record
+            .write_step(DaemonStopStep::Pricing)
+            .await;
         failures.extend(end_start_tasks(pricing.named_tasks(), remaining()).await);
     }
     // The session services' follows end with the chats' write watch, which they wait out.
