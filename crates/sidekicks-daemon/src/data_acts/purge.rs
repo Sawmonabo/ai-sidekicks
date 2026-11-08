@@ -10,7 +10,8 @@
 //!   are gone, its tool-server connections start closing and no new one opens, every provider
 //!   leg of the session ends, so no provider runs a turn on what is deleted, then the provider's
 //!   copy of each conversation, a chat's managed workspace folder, the session's own storage
-//!   folder with its runs' capture folders, the copies a restore made of the clones it kept on
+//!   folder with its runs' capture folders, held while they go so a sweep pass, a pack or a fold
+//!   of one waits and then finds it gone, the copies a restore made of the clones it kept on
 //!   other volumes, its own folders on other volumes whose volume is mounted (each with its user
 //!   folder once that is empty; a folder whose volume is absent is owed instead, in the rows'
 //!   write), and the project rules the session wrote into its project's files. A failure there
@@ -151,6 +152,9 @@ pub(crate) enum SessionPurgeError {
     /// The session's own storage folder could not be removed.
     #[error("the session's storage folder could not be removed")]
     StorageFolder(#[source] io::Error),
+    /// The session's capture folders could not be listed to hold them.
+    #[error("the session's capture folders could not be listed to hold them")]
+    CaptureFolders(#[source] io::Error),
     /// A session's folder on another volume, or the restored copies of its clones, could not be
     /// removed, or its volume read.
     #[error("a session's folder on another volume could not be removed")]
@@ -213,7 +217,8 @@ pub(crate) struct SessionPurgeDeps {
     pub(crate) managed_workspaces: Arc<ManagedWorkspaceService>,
     /// The service's data folder, which holds each session's own storage folder.
     pub(crate) data_folder: PathBuf,
-    /// The capture folders' packing, which forgets what it kept of a purged session's folders.
+    /// The capture folders' packing, which holds a purged session's capture folders while they go
+    /// and then forgets what it kept of them.
     pub(crate) packing: Arc<CapturePacking>,
     /// Takes a session's project rules out of the providers' files and hands the rest out again.
     pub(crate) project_rules: Arc<ApprovalRules>,
@@ -341,11 +346,19 @@ impl SessionPurge {
             .map_err(SessionPurgeError::Legs)?;
         deps.conversations.delete_conversations(session_id).await?;
         deps.managed_workspaces.delete_folder(session_id).await?;
+        let storage_folder = session_storage_folder(&deps.data_folder, &session_id);
+        // Held through the removal, so a pass, a pack or a fold queued on a capture folder finds
+        // it gone once the hold drops.
+        let capture_hold = deps
+            .packing
+            .hold_owner_folders(&storage_folder)
+            .await
+            .map_err(SessionPurgeError::CaptureFolders)?;
         remove_session_storage_folder(&deps.data_folder, session_id)
             .await
             .map_err(SessionPurgeError::StorageFolder)?;
-        deps.packing
-            .forget_owner(&session_storage_folder(&deps.data_folder, &session_id));
+        deps.packing.forget_owner(&storage_folder);
+        drop(capture_hold);
         remove_tree_awaited(&restored_clones_folder(&deps.data_folder, &session_id))
             .await
             .map_err(SessionPurgeError::VolumeFolder)?;

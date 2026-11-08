@@ -1,262 +1,35 @@
 use std::io::Write as _;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use rstest::rstest;
-use sidekicks_contracts::event::envelope::{SourceEpoch, SourcePosition};
-use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
-use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::session::restore::SnapshotId;
-use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_platforms::{create_new_file, file_mode, real_path};
+use sidekicks_platforms::{create_new_file, file_mode};
 use sidekicks_provider::port::command_capture::{
     CommandCapture as _, CommandWindowEnd, CommandWindowId as PortWindowId, CommandWindowStart,
 };
-use sidekicks_std::keyed_lock::KeyedLock;
-use sidekicks_store::data_folder::session_storage_folder;
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
-use sidekicks_store::database::writer::test_file::TestDatabase;
-use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
-use sidekicks_workspace::git::process::test_repository::{git_in, make_test_repository};
-use sidekicks_workspace::git::process::{GitRunner, test_git_runner};
-use sidekicks_workspace::git::turn_snapshot::capture::GitFloorReports;
-use sidekicks_workspace::git::turn_snapshot::command_capture::CommandCaptureService;
-use sidekicks_workspace::git::turn_snapshot::repack::CapturePacking;
-use sidekicks_workspace::git::worktree::test_rows::{RunContextRow, insert_worktree_rows};
+use sidekicks_workspace::git::process::test_git_runner;
+use sidekicks_workspace::git::process::test_repository::git_in;
 use sidekicks_workspace::test_rows::insert_held_managed_mount;
-use tempfile::TempDir;
 
-use super::{COMMAND_WINDOWS_STATEMENT_CAPACITY, CommandWindows, CommandWindowsDeps, bare_opening};
-use crate::checkpoints::copies::CopyStore;
+use super::bare_opening;
+use super::test_fixture::{Fixture, utf8};
 use crate::checkpoints::schema::{
-    CheckpointVersionContent, CheckpointVersionLeg, CopyMode, NotKeptReason, schema_parts,
+    CheckpointVersionContent, CheckpointVersionLeg, CopyMode, NotKeptReason,
 };
 use crate::checkpoints::store::shadows::{
     Shadow, ShadowContent, ShadowId, insert_current_shadow_statement, link_window_shadow_statement,
 };
 use crate::checkpoints::store::{
-    Checkpoint, CheckpointVersion, CommandWindowId, insert_checkpoint_statement,
-    insert_version_statement, open_command_window_statement, uncovered_commands, versions_after,
+    CheckpointVersion, CommandWindowId, insert_version_statement, open_command_window_statement,
+    uncovered_commands,
 };
-use crate::run::engine::test_fixture;
 
 /// The size a large file takes in these tests, past the 10 MiB bound.
 const LARGE_FILE_BYTES: usize = 11 * 1024 * 1024;
-
-/// A session with a checkpoint, its run's checkout a repository, and the windows over them.
-struct Fixture {
-    database: TestDatabase,
-    log: TestLog,
-    windows: CommandWindows,
-    session_id: SessionId,
-    checkpoint_id: SnapshotId,
-    /// The checkout, as the test made it.
-    checkout: PathBuf,
-    data_folder: PathBuf,
-    _root: TempDir,
-}
-
-impl Fixture {
-    /// A run bound to a repository whose files `files` names are committed; with none, the
-    /// repository keeps only its empty commit, since git refuses a commit with nothing to commit.
-    async fn with_repository(files: &[(&str, &str)]) -> Self {
-        let root = tempfile::tempdir().expect("the test makes its folder");
-        let git = test_git_runner();
-        let repository = make_test_repository(&git, root.path(), "repository").await;
-        if !files.is_empty() {
-            for (name, text) in files {
-                std::fs::write(repository.join(name), text).expect("the test writes a file");
-            }
-            git_in(&git, &repository, &["add", "--all"]).await;
-            git_in(
-                &git,
-                &repository,
-                &[
-                    "-c",
-                    "commit.gpgSign=false",
-                    "commit",
-                    "--quiet",
-                    "-m",
-                    "files",
-                ],
-            )
-            .await;
-        }
-        let fixture = Self::open(root, git, repository.clone()).await;
-        let run_id = fixture.insert_run();
-        let rows = fixture.database.reader();
-        insert_worktree_rows(&rows);
-        let run_key = run_id.to_string();
-        let git_common_dir = repository.join(".git");
-        RunContextRow {
-            run_id: &run_key,
-            execution_root: utf8(&repository),
-            checkout_root: Some(utf8(&repository)),
-            git_common_dir: Some(utf8(&git_common_dir)),
-            ..RunContextRow::BOUND_ROOT
-        }
-        .insert(&rows)
-        .expect("the test stores the run's context");
-        fixture.insert_checkpoint(run_id).await;
-        fixture
-    }
-
-    /// The database, the log and the windows over `checkout`, with no row yet.
-    async fn open(root: TempDir, git: GitRunner, checkout: PathBuf) -> Self {
-        let database = TestDatabase::new(schema_parts());
-        let log = open_log(&database, None).await;
-        let floor_reports = Arc::new(GitFloorReports::default());
-        let data_folder = root.path().join("data");
-        let windows = CommandWindows::new(CommandWindowsDeps {
-            pool: Arc::new(DatabaseReadPool::new(
-                database.path(),
-                COMMAND_WINDOWS_STATEMENT_CAPACITY,
-            )),
-            writer: Arc::clone(&log.writer),
-            captures: Arc::new(CommandCaptureService::new(
-                git.clone(),
-                Arc::new(KeyedLock::new()),
-                Arc::clone(&floor_reports),
-            )),
-            packing: Arc::new(CapturePacking::new(git.clone(), floor_reports)),
-            data_folder: data_folder.clone(),
-        });
-        Self {
-            database,
-            log,
-            windows,
-            session_id: SessionId::try_from(mint_uuid_v7()).expect("a session id"),
-            checkpoint_id: SnapshotId::new(mint_uuid_v7().to_string()).expect("a snapshot id"),
-            checkout,
-            data_folder,
-            _root: root,
-        }
-    }
-
-    fn insert_run(&self) -> RunId {
-        let run_id = RunId::try_from(mint_uuid_v7()).expect("a run id");
-        test_fixture::insert_run(&self.database, self.session_id, run_id, "running");
-        run_id
-    }
-
-    async fn insert_checkpoint(&self, run_id: RunId) {
-        let checkpoint = Checkpoint {
-            checkpoint_id: self.checkpoint_id.clone(),
-            session_id: self.session_id,
-            message_sequence: SafeInt::ZERO,
-            run_id,
-            turn: EpochPosition {
-                epoch: SourceEpoch(SafeInt::ZERO),
-                position: SourcePosition(SafeInt::ZERO),
-            },
-        };
-        self.log
-            .writer
-            .write(vec![insert_checkpoint_statement(&checkpoint)])
-            .await
-            .expect("the checkpoint is written");
-    }
-
-    async fn open_window(&self) -> PortWindowId {
-        self.windows
-            .open_window(self.start())
-            .await
-            .expect("the window opens")
-    }
-
-    fn start(&self) -> CommandWindowStart {
-        CommandWindowStart {
-            session_id: self.session_id,
-            apart_run: None,
-            command: "npm test".to_owned(),
-            tool_call_id: None,
-        }
-    }
-
-    // Closes `window` as `end` says and waits for every close under way to be written.
-    async fn close(&self, window: PortWindowId, end: CommandWindowEnd) {
-        self.windows.close_window(window, end).await;
-        self.windows.stop().await;
-    }
-
-    /// `relative` under the checkout's real path, as the rows record it.
-    fn recorded(&self, relative: &str) -> FilesystemPath {
-        let real = real_path(&self.checkout).expect("the checkout's real path reads");
-        FilesystemPath::new(utf8(&real.join(relative)).to_owned()).expect("a recorded path")
-    }
-
-    /// Every path's earliest version in the session.
-    fn versions(&self) -> Vec<CheckpointVersion> {
-        versions_after(&self.database.reader(), self.session_id, SafeInt::ZERO)
-            .expect("the versions read")
-            .into_iter()
-            .map(|stored| stored.version)
-            .collect()
-    }
-
-    fn version_of(&self, relative: &str) -> Option<CheckpointVersion> {
-        let path = self.recorded(relative);
-        self.versions()
-            .into_iter()
-            .find(|version| version.path == path)
-    }
-
-    /// The window's `covered` column, `None` while it is open.
-    fn covered(&self, window: &PortWindowId) -> Option<i64> {
-        self.database
-            .reader()
-            .query_row(
-                "SELECT covered FROM checkpoint_commands WHERE window_id = ?1",
-                [window.as_str()],
-                |row| row.get(0),
-            )
-            .expect("the window's row reads")
-    }
-
-    fn uncovered_count(&self) -> usize {
-        uncovered_commands(&self.database.reader(), self.session_id, SafeInt::ZERO)
-            .expect("the uncovered commands read")
-            .len()
-    }
-
-    /// The bytes the copy named `hash` keeps.
-    fn copy_bytes(&self, content: &CheckpointVersionContent) -> Vec<u8> {
-        let CheckpointVersionContent::Copy { hash, .. } = content else {
-            panic!("a copy, not {content:?}");
-        };
-        let store = CopyStore::open(&session_storage_folder(&self.data_folder, &self.session_id))
-            .expect("the copies folder opens");
-        std::fs::read(store.copy_path(hash)).expect("the copy reads")
-    }
-
-    /// Every shadow row of `relative`: its id, its clone, and whether it is current.
-    fn shadows_of(&self, relative: &str) -> Vec<(String, Option<String>, bool)> {
-        let reader = self.database.reader();
-        let mut statement = reader
-            .prepare(
-                "SELECT shadow_id, clone_path, is_current FROM checkpoint_shadows
-                  WHERE path = ?1 ORDER BY rowid",
-            )
-            .expect("the shadows' read prepares");
-        statement
-            .query_map([self.recorded(relative).as_str()], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-            })
-            .expect("the shadows read")
-            .collect::<rusqlite::Result<_>>()
-            .expect("each shadow reads")
-    }
-}
-
-fn utf8(path: &Path) -> &str {
-    path.to_str().expect("the temporary folder's path is UTF-8")
-}
 
 // Writes `bytes` copies of `byte` to `path`, a large file's content.
 fn write_large(path: &Path, byte: u8) {

@@ -5,12 +5,14 @@
 //! caller's own write; the clones' bytes sit on disk, never in a row.
 
 use std::borrow::Cow;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use rusqlite::types::{Type, Value as SqlValue};
 use rusqlite::{Connection, Row, named_params};
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::{IdError, UuidText, UuidTextForm, mint_uuid_v7};
 use sidekicks_platforms::{EntryIdentity, FileFacts, VolumeId};
 use sidekicks_store::database::statement::{
@@ -97,6 +99,19 @@ const UNUSED_SHADOWS_SQL: &str = select_shadows!(
     unused_shadow!(),
     " ORDER BY shadows.path"
 );
+
+// A session marked for its purge is left to the purge, which removes its clones' folder whole.
+static SESSIONS_WITH_UNUSED_SHADOWS_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT DISTINCT shadows.session_id FROM checkpoint_shadows AS shadows
+ WHERE {}
+   AND NOT EXISTS (SELECT 1 FROM sessions
+                    WHERE sessions.id = shadows.session_id AND sessions.state = '{}')
+ ORDER BY shadows.session_id",
+        unused_shadow!(),
+        <&'static str>::from(SessionState::PurgeRequested)
+    )
+});
 
 const VOLUME_FOLDERS_SQL: &str = "SELECT folder, volume_id FROM checkpoint_volume_folders
   WHERE session_id = @sessionId ORDER BY folder";
@@ -369,6 +384,15 @@ pub fn unused_shadows(
             named_params! { "@sessionId": session_id.text().as_str() },
             shadow_of,
         )?
+        .collect()
+}
+
+/// The sessions, none marked for its purge, holding a shadow that is retired, linked to no window
+/// and named by no version, in id order. Fails as SQLite does, or when a stored id does not read.
+pub fn sessions_with_unused_shadows(connection: &Connection) -> rusqlite::Result<Vec<SessionId>> {
+    connection
+        .prepare_cached(&SESSIONS_WITH_UNUSED_SHADOWS_SQL)?
+        .query_map([], |row| text_column(row, 0, |text| SessionId::new(&text)))?
         .collect()
 }
 

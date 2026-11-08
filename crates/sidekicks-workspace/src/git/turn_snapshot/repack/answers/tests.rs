@@ -16,6 +16,7 @@ fn id(text: &str) -> GitObjectId {
 // The capture of the test's tree over `base`.
 fn point(base: Option<&str>) -> SnapshotPoint {
     SnapshotPoint {
+        commit: id(COMMIT),
         tree: id(TREE),
         base: base.map(id),
     }

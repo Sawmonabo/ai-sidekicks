@@ -43,6 +43,7 @@ use sidekicks_session::auto_title::{SessionAutoTitle, SessionAutoTitling};
 use sidekicks_session::changes::SessionChanges;
 use sidekicks_session::checkpoints::command_windows::{CommandWindows, CommandWindowsDeps};
 use sidekicks_session::checkpoints::edits::EditCheckpoints;
+use sidekicks_session::checkpoints::sweep::{CheckpointSweep, CheckpointSweepDeps};
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::draft_store::SessionDraftStore;
 use sidekicks_session::idle_sleep::openings::{SessionProcessFollower, SessionProcessWaker};
@@ -254,6 +255,8 @@ pub(crate) struct SessionServices {
     /// The captures around every command an agent runs; the start settles the windows the last
     /// stop left open, and the stop waits for every capture under way.
     pub(crate) command_windows: Arc<CommandWindows>,
+    /// The sweep over every capture folder and owed folder, which the start schedules.
+    pub(crate) checkpoint_sweep: Arc<CheckpointSweep>,
     /// The questions an agent asks the person.
     pub(crate) questions: Arc<QuestionsService>,
     /// The plans an agent hands over.
@@ -367,12 +370,21 @@ pub(crate) fn build_session_services(
         Arc::clone(&writer),
         data_folder.clone(),
     ));
+    let sweep_packing = Arc::clone(&packing);
     let command_windows = Arc::new(CommandWindows::new(CommandWindowsDeps {
         pool: Arc::clone(&reads),
         writer: Arc::clone(&writer),
         captures: command_captures,
         packing,
         data_folder: data_folder.clone(),
+    }));
+    let checkpoint_sweep = Arc::new(CheckpointSweep::new(CheckpointSweepDeps {
+        reads: Arc::clone(&reads),
+        writer: Arc::clone(&writer),
+        packing: sweep_packing,
+        data_folder: data_folder.clone(),
+        clock: Arc::clone(&clock),
+        windows: Arc::clone(&command_windows),
     }));
     // Taken before the watch moves on; the file search opens it with how each folder is followed.
     let folder_changes = working_folders.folder_change_feed();
@@ -604,6 +616,7 @@ pub(crate) fn build_session_services(
         turn_capture,
         edit_checkpoints,
         command_windows,
+        checkpoint_sweep,
         changes,
         questions,
         plans: Arc::new(PlansService::new(publisher, Arc::clone(&appender), reads)),

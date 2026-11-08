@@ -196,6 +196,9 @@ pub enum TurnSnapshotPruneFailure {
     /// Listing or deleting the run's refs failed.
     #[error(transparent)]
     Git(GitError),
+    /// The capture folder's reclaim mark could not be written.
+    #[error("the capture folder's reclaim mark could not be written")]
+    ReclaimMark(#[source] std::io::Error),
 }
 
 /// Why a run's context row could not be read.
@@ -576,9 +579,10 @@ impl TurnSnapshotService {
 
     /// Deletes the snapshot refs of the run `run_key` once it has ended, from the capture folder
     /// of the owner whose folder is `owner_folder` for the repository its context row records,
-    /// running git for the project at `place`. Idempotent: a second call answers `Pruned` with
-    /// none. Never fails; a run not ended, with no row, whose row cannot be read, or whose refs
-    /// git cannot list or delete answers `Skipped` with the reason.
+    /// running git for the project at `place`, marking the folder first so the next sweep reclaims
+    /// the run's objects. Idempotent: a second call answers `Pruned` with none. Never fails; a run
+    /// not ended, with no row, whose row cannot be read, whose folder cannot be marked, or whose
+    /// refs git cannot list or delete answers `Skipped` with the reason.
     #[cfg_attr(
         not(test),
         expect(
@@ -626,11 +630,13 @@ impl TurnSnapshotService {
 
     /// Deletes the snapshot refs of the run `run_key` from the capture folder of the owner whose
     /// folder is `owner_folder` for the repository whose common git folder is `git_common_dir`,
-    /// running git for the project at `place`; the repository itself is never written. The refs
-    /// listed under the run's prefix go in one `update-ref --no-deref --stdin` transaction, all or
-    /// none, so a refusal deletes none and the prune is retried. A dangling symref under the
-    /// prefix, which the daemon never writes, is not listed and so not deleted. Never fails;
-    /// answers `Skipped` with `GitDirAbsent`, `GitDirUnusable` or `RefDeleteFailed`.
+    /// running git for the project at `place`; the repository itself is never written. Once a ref
+    /// is listed, the folder is marked for the next sweep's reclaim before any is deleted, so no
+    /// ref goes unmarked. The refs listed under the run's prefix go in one
+    /// `update-ref --no-deref --stdin` transaction, all or none, so a refusal deletes none and the
+    /// prune is retried. A dangling symref under the prefix, which the daemon never writes, is not
+    /// listed and so not deleted. Never fails; answers `Skipped` with `GitDirAbsent`,
+    /// `GitDirUnusable`, `ReclaimMarkFailed` or `RefDeleteFailed`.
     async fn prune_run_refs(
         &self,
         place: Option<&Place>,
@@ -677,6 +683,18 @@ impl TurnSnapshotService {
             return TurnSnapshotPruneOutcome::Pruned {
                 deleted_refs: Vec::new(),
             };
+        }
+        // Before the delete, so a stop between the two leaves a mark whose run still has refs,
+        // which the sweep holds until they go, never refs deleted with no mark.
+        if let Err(failure) = self
+            .packing
+            .mark_reclaim_due(owner_folder, git_common_dir, run_key)
+            .await
+        {
+            return skipped(
+                TurnSnapshotRetentionSkipReason::ReclaimMarkFailed,
+                Some(TurnSnapshotPruneFailure::ReclaimMark(failure)),
+            );
         }
 
         // `--no-deref` deletes a symref planted under the prefix itself, never the branch it

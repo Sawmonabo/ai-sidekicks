@@ -234,6 +234,13 @@ impl CommandWindows {
         Ok(open.len())
     }
 
+    /// Deletes `session_id`'s shadows that are retired and used by no window or version, under its
+    /// shadow lock, and removes each one's clone once the delete committed. Never fails: a failure
+    /// is logged, and the next reclaim finds the shadows again.
+    pub async fn reclaim_unused_shadows(&self, session_id: SessionId) {
+        self.recorder.reclaim_unused_shadows(session_id).await;
+    }
+
     /// Opens no window from now on and settles once every call's work under way has ended; none is
     /// cut short, so each close under way is written.
     pub async fn stop(&self) {
@@ -740,5 +747,7 @@ fn capture_failed(failure: WindowFailure) -> CommandWindowOpenError {
     CommandWindowOpenError::CaptureFailed(Box::new(failure))
 }
 
+#[cfg(test)]
+pub(crate) mod test_fixture;
 #[cfg(test)]
 mod tests;

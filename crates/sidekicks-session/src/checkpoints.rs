@@ -10,4 +10,5 @@ pub mod edits;
 pub mod schema;
 pub mod shadows;
 pub mod store;
+pub mod sweep;
 pub mod volume_folders;

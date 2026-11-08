@@ -3,6 +3,7 @@
 
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_contracts::run::id::RunId;
@@ -19,6 +20,16 @@ pub struct RunContextKey(Uuid);
 impl fmt::Display for RunContextKey {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&self.0.hyphenated(), formatter)
+    }
+}
+
+/// Reads a key back from the text its `Display` writes, a UUID in any of the forms
+/// [`Uuid::parse_str`] reads. Fails for text that is no UUID.
+impl FromStr for RunContextKey {
+    type Err = uuid::Error;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        Uuid::parse_str(text).map(Self)
     }
 }
 

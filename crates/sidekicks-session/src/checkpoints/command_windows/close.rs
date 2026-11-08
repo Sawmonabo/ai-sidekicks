@@ -417,7 +417,7 @@ impl WindowRecorder {
 
     // Deletes `session_id`'s shadows that are retired and used by no window or version, under its
     // shadow lock, and removes each one's clone once the delete committed.
-    async fn reclaim_unused_shadows(&self, session_id: SessionId) {
+    pub(super) async fn reclaim_unused_shadows(&self, session_id: SessionId) {
         let hold = self.shadow_lock.acquire(session_id).await;
         let reclaimed = async {
             let unused = self
