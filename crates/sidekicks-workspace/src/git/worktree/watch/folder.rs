@@ -574,7 +574,8 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
         }
     }
 
-    async fn check_uncommitted_work(&self) -> Option<ReadyTree> {
+    // Takes the folder exclusively, since what it keeps is not shared across threads.
+    async fn check_uncommitted_work(&mut self) -> Option<ReadyTree> {
         check_uncommitted_work(&self.shared, &self.folder.key, &self.target).await
     }
 

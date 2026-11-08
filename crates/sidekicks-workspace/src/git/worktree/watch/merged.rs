@@ -96,19 +96,17 @@ impl MergedCheck {
                 record_own_commit_tip(deps, tree, &tips.tip).await?;
             }
         } else {
-            let recorded = match &tree.own_commit_tip {
-                Some(recorded) => recorded.clone(),
-                None => {
-                    if count_past(git, place, folder, &tips.tip, &tips, Commits::All).await? > 0 {
-                        return Ok(false);
-                    }
-                    let Some(seed) = newest_commit_on(git, place, folder, &branch_ref).await?
-                    else {
-                        return Ok(false);
-                    };
-                    record_own_commit_tip(deps, tree, &seed).await?;
-                    seed
+            let recorded = if let Some(recorded) = &tree.own_commit_tip {
+                recorded.clone()
+            } else {
+                if count_past(git, place, folder, &tips.tip, &tips, Commits::All).await? > 0 {
+                    return Ok(false);
                 }
+                let Some(seed) = newest_commit_on(git, place, folder, &branch_ref).await? else {
+                    return Ok(false);
+                };
+                record_own_commit_tip(deps, tree, &seed).await?;
+                seed
             };
             match count_past(git, place, folder, &recorded, &tips, Commits::All).await {
                 Ok(0) => return Ok(true),

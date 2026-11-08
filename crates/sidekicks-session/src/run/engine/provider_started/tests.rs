@@ -246,8 +246,11 @@ async fn a_subagent_runs_at_the_posture_its_session_moved_to_since_its_parent_st
 // and passes it.
 #[derive(Default)]
 struct ParentRunGate {
-    parents: Mutex<Vec<Option<(RunId, Option<WorkspaceId>)>>>,
+    parents: Mutex<Vec<SeenParent>>,
 }
+
+// A checked run's parent run and that run's workspace, as the gate saw them.
+type SeenParent = Option<(RunId, Option<WorkspaceId>)>;
 
 impl RunSetupGate for ParentRunGate {
     fn assert_run_ready<'a>(
