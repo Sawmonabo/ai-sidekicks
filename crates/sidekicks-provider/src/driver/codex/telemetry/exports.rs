@@ -17,6 +17,9 @@ use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
 use crate::pricing::export_status::ExportStatusTracker;
 use crate::pricing::receiver::{TelemetryExport, TelemetryExportReader};
 
+#[cfg(test)]
+mod tests;
+
 /// Codex's log batch interval: the SDK's default `OTEL_BLRP_SCHEDULE_DELAY`, which the launch's
 /// withhold keeps the person's own value from changing.
 pub(crate) const CODEX_EXPORT_INTERVAL: Duration = Duration::from_secs(1);
@@ -106,7 +109,6 @@ impl CodexExports {
     /// A turn of `service_id`'s service that began at `started_at` settled, having made a model
     /// request or not: its current launch's export status takes it. A service with no launch
     /// changes nothing.
-    #[expect(dead_code, reason = "the session's settled turns feed it")]
     pub(crate) fn turn_settled(
         &self,
         service_id: CodexServiceId,

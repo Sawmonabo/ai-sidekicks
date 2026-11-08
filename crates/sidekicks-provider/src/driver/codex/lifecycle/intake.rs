@@ -19,7 +19,6 @@ use std::sync::Arc;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
-use serde::Deserialize;
 use serde_json::value::RawValue;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::id::RunId;
@@ -62,6 +61,7 @@ use crate::driver::codex::session::lifecycle_call::{
 };
 use crate::driver::codex::session::slots::{CodexSessionLetGo, let_go_codex_session};
 use crate::driver::codex::session::state::CodexSessionRecord;
+use crate::driver::codex::session::thread_turns::{CodexThreadTurns, TurnFrame};
 use crate::driver::codex::thread::permission_profiles;
 use crate::driver::codex::transport::connection::{CodexForgottenRequest, read_codex_object};
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
@@ -92,6 +92,9 @@ pub(crate) struct CodexSessionIntake {
     waiters: CodexTurnEndWaiters,
     parts: Arc<CodexDriverParts>,
     context_readings: CodexSessionContextReadings,
+    // The live turn of each thread the session's stream carries, whose settle feeds its launch's
+    // export status.
+    thread_turns: CodexThreadTurns,
     // The session's one usage recorder, fed in metering order with the account moves between the
     // spends; opened at the first spend metered once the usage service registered, and ended when
     // the session's task ends.
@@ -125,6 +128,7 @@ impl CodexSessionIntake {
             waiters: CodexTurnEndWaiters::default(),
             parts,
             context_readings: CodexSessionContextReadings::new(session_id, fixed_start),
+            thread_turns: CodexThreadTurns::default(),
             usage_recorder: None,
         }
     }
@@ -150,6 +154,11 @@ impl CodexSessionIntake {
         let parts = &self.parts;
         for reading in &routed.context_windows {
             self.context_readings.publish_report(parts, record, reading);
+        }
+        // A metered delta is a request its thread's live turn made; a replay or a reading that
+        // changed nothing meters none.
+        for delta in &routed.metered_usage {
+            self.thread_turns.request_made(&delta.thread_id);
         }
         let usage = apply_codex_routed_frames(
             &CodexRoutedFramesIntake {
@@ -295,6 +304,13 @@ impl CodexSessionIntake {
             parts.provider_commands.refresh(self.session_id);
         }
         observe_codex_session_frame(record, &method, &params);
+        if let Some(settled) = self.thread_turns.observe(&method, &params, Instant::now()) {
+            record.service.dependencies().exports.turn_settled(
+                record.service.id(),
+                settled.made_request,
+                settled.started_at,
+            );
+        }
         for settled in observe_codex_output_speed_frame(record, &method, &params) {
             parts.run_start.record_settled_output_speed(settled).await;
         }
@@ -552,20 +568,6 @@ fn read_held_runs(record: &CodexSessionRecord) -> Vec<RunId> {
         }
     }
     runs
-}
-
-// The members of a frame the intake reads a turn id from.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TurnFrame {
-    thread_id: Option<String>,
-    turn_id: Option<String>,
-    turn: Option<EndedTurn>,
-}
-
-#[derive(Deserialize)]
-struct EndedTurn {
-    id: Option<String>,
 }
 
 /// Reads into `record` what a frame of its conversation says of the session before the frame is
