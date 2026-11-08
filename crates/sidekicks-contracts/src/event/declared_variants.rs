@@ -250,7 +250,7 @@ agent_output_arm! {
             check_epoch_stamp(*epoch, self.source_position, true)
         }))]
         pub source_epoch: Option<SourceEpoch>,
-        /// The turn position the row occupies within its epoch; comes with `sourceEpoch`.
+        /// The run position the row occupies within its epoch; comes with `sourceEpoch`.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
@@ -368,7 +368,7 @@ macro_rules! tool_call_payload {
                 )]
                 #[schemars(with = "SourceEpoch")]
                 pub source_epoch: Option<SourceEpoch>,
-                /// The turn position the row occupies within its epoch; comes with `sourceEpoch`.
+                /// The run position the row occupies within its epoch; comes with `sourceEpoch`.
                 #[serde(
                     default,
                     skip_serializing_if = "Option::is_none",

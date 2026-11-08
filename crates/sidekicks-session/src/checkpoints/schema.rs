@@ -1,8 +1,8 @@
-//! The checkpoint tables of the daemon's one schema: one checkpoint per turn-starting prompt, the
-//! versions each path took in it, the command windows its commands ran in, the shadows of files
-//! over 10 MiB with the windows that stand on them and the session's folders on other volumes, the
-//! folders a purge still owes on volumes that were absent, and each undo's saved outcome by its
-//! request's key.
+//! The checkpoint tables of the daemon's one schema: one checkpoint per prompt that opened or
+//! steered a turn, the versions each path took in it, the command windows its commands ran in, the
+//! shadows of files over 10 MiB with the windows that stand on them and the session's folders on
+//! other volumes, the folders a purge still owes on volumes that were absent, and each undo's saved
+//! outcome by its request's key.
 //!
 //! These rows are their own truth, written as the turn runs and never rebuilt from the log. A
 //! version names its copy by hash or its shadow by id; the bytes sit on disk, never in a row.
@@ -124,14 +124,15 @@ fn checkpoint_schema_sql() -> String {
     let not_kept_reasons = sql_list_of_every::<NotKeptReason>();
     format!(
         "
--- One row per turn-starting prompt: the point an undo goes back to, before that message.
+-- One row per prompt that opened or steered a turn: the point an undo goes back to, before that
+-- message.
 CREATE TABLE session_checkpoints (
   checkpoint_id     TEXT PRIMARY KEY,           -- the snapshot id a client names it by
   session_id        TEXT NOT NULL,
   message_sequence  INTEGER NOT NULL CHECK(message_sequence >= 0), -- the prompt's place in the log
   run_id            TEXT NOT NULL,
   epoch             INTEGER NOT NULL CHECK(epoch >= 0),     -- the run's execution epoch
-  position          INTEGER NOT NULL CHECK(position >= 0),  -- the turn's position in it
+  position          INTEGER NOT NULL CHECK(position >= 0),  -- the prompt's run position
   created_at        TEXT NOT NULL,
   UNIQUE (session_id, message_sequence)
 ) STRICT;

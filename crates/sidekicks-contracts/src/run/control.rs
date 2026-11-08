@@ -376,7 +376,7 @@ pub enum RunStateChangeEvent {
     Failed(#[garde(dive)] RunFailedStateChangeMembers),
 }
 
-/// A run rewound to an earlier turn boundary, carried on `agent.run.subscribe`, and the stored
+/// A run rewound to an earlier run position, carried on `agent.run.subscribe`, and the stored
 /// `agent.run.rolledBack` payload. It is not a state transition, so it has no previous or new
 /// state, and it carries no tag: its closed members keep it apart from the state change.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -388,8 +388,9 @@ pub struct AgentRunRolledBackEvent {
     pub run_id: RunId,
     /// The run version after the rollback advanced it.
     pub run_version: SafeInt<0>,
-    /// The turn boundary the run landed at, as a session position: the request's target, or the
-    /// landing the driver confirmed when that differs.
+    /// The run position the run landed at, counting the person's messages the run took (a turn's
+    /// opening or a steer), not turns: the request's target, or the landing the driver confirmed
+    /// when that differs.
     pub target_position: SourcePosition,
 }
 

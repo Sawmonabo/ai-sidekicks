@@ -37,7 +37,7 @@ pub(crate) struct RunUsageTally {
     pub(crate) token_count: u64,
     /// Where the run's stop at its token limit stands.
     pub(crate) limit_stop: TokenLimitStop,
-    /// The provider's turn id the last row named, and the epoch and turn it opened in.
+    /// The provider's turn id the last row named, and the epoch and run position it opened at.
     pub(crate) turn_opening: Option<(String, Option<EpochPosition>)>,
 }
 

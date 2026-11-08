@@ -1,5 +1,5 @@
-//! One session's event log read as transcript rows. Every event of a run is stamped with its turn
-//! position, its execution epoch and, when an undo rolled its turn back, the superseded marker; a
+//! One session's event log read as transcript rows. Every event of a run is stamped with its run
+//! position, its execution epoch and, when an undo rolled it back, the superseded marker; a
 //! `agent.run.rolledBack` becomes the typed boundary row; an event naming no run is a general row.
 //! A reply or reasoning the provider sent in pieces is one row, standing at its first piece, its
 //! body the pieces joined through the read's head; a tool completion stored in parts of its

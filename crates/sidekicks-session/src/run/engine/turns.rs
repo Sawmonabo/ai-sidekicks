@@ -1,14 +1,15 @@
 //! A run's turns: each start numbered its run's newest start plus one inside its write, the
-//! checkpoint before the message that opened it written in that same write, each end written once,
-//! riding the run change it ends with or on its own, and the steps of a turn counted against its
-//! step bound.
+//! checkpoint before the message that opened it written in that same write, each steer landed with
+//! its own checkpoint, each end written once, riding the run change it ends with or on its own, and
+//! the steps of a turn counted against its step bound.
 
 pub(crate) mod guards;
+mod steers;
 
 use std::error::Error;
 use std::sync::{Arc, LazyLock};
 
-use rusqlite::{OptionalExtension as _, named_params};
+use rusqlite::{Connection, OptionalExtension as _, named_params};
 use sidekicks_contracts::event::envelope::{EventCategory, SourcePosition};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
@@ -19,6 +20,7 @@ use sidekicks_contracts::run::events::{
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
 use sidekicks_contracts::run::queue::QueueItemId;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::restore::SnapshotId;
 use sidekicks_contracts::transcript::turn_attribution::{
     EpochPosition, standing_after_turn_started,
@@ -79,7 +81,7 @@ static SELECT_NEXT_TURN_NUMBER_SQL: LazyLock<String> = LazyLock::new(|| {
 
 // The `user.message.sent` a queue item's message was recorded as, by the correlation id the
 // recorder writes, read through the correlation index.
-static SELECT_OPENING_MESSAGE_SQL: LazyLock<String> = LazyLock::new(|| {
+static SELECT_SENT_MESSAGE_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT sequence FROM session_events
   WHERE correlation_id = @correlation_id
@@ -706,17 +708,8 @@ impl RunEngine {
                         opening: None,
                     });
                 };
-                let message_sequence = reader
-                    .prepare_cached(&SELECT_OPENING_MESSAGE_SQL)?
-                    .query_row(
-                        named_params! {
-                            "@correlation_id": opening.to_string(),
-                            "@session_id": session_id.text().as_str(),
-                        },
-                        |row| safe_int_column(row, 0),
-                    )
-                    .optional()?;
-                let Some(message_sequence) = message_sequence else {
+                let Some(message_sequence) = read_sent_message(reader, &session_id, opening)?
+                else {
                     return Ok(TurnStartReading {
                         turn_number,
                         opening: None,
@@ -778,6 +771,25 @@ pub(super) fn set_step_limit_reached(
     {
         count.is_reached = is_reached;
     }
+}
+
+// The sequence of the `user.message.sent` that queue item `item`'s message was recorded as in
+// `session_id`'s log, `None` for an item recorded as no message.
+fn read_sent_message(
+    reader: &Connection,
+    session_id: &SessionId,
+    item: QueueItemId,
+) -> rusqlite::Result<Option<SafeInt<0>>> {
+    reader
+        .prepare_cached(&SELECT_SENT_MESSAGE_SQL)?
+        .query_row(
+            named_params! {
+                "@correlation_id": item.to_string(),
+                "@session_id": session_id.text().as_str(),
+            },
+            |row| safe_int_column(row, 0),
+        )
+        .optional()
 }
 
 // How `turn_number` ends: interrupted with `held_limit`, the higher-ranked limit of the engine's

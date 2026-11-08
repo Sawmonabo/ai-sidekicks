@@ -1,9 +1,10 @@
 //! The turn-end capture: at each committed turn end of a run bound to a checkout, the checkout is
-//! recorded as a turn snapshot in the session's capture folder, under the run's epoch and the
-//! turn's ordinal in it, both read from the log, so a capture after a restart or a rollback lands
-//! where the log says the turn stands. A follower of every session's events spawns each end's
-//! capture off the writer's pump; the stop waits for every capture under way and cuts none short.
-//! A run with no execution context, as a chat's own folder runs, captures nothing.
+//! recorded as a turn snapshot in the session's capture folder, under the run's epoch and the run
+//! position the turn's opening message took in it, both read from the log, so a capture after a
+//! restart or a rollback lands where the log says the turn stands. A follower of every session's
+//! events spawns each end's capture off the writer's pump; the stop waits for every capture under
+//! way and cuts none short. A run with no execution context, as a chat's own folder runs, captures
+//! nothing.
 
 use std::error::Error;
 use std::path::PathBuf;
@@ -82,7 +83,7 @@ struct TurnEnding {
 }
 
 // What a turn end's capture reads: where the run works, the place git runs for, and the epoch and
-// turn the ended turn started at.
+// run position the ended turn started at.
 struct TurnCheckout {
     checkout: RunCheckout,
     turn: EpochPosition,

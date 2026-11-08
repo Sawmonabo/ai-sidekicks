@@ -96,6 +96,7 @@ session_event_types! {
         AgentRunRolledBack = "agent.run.rolledBack",
         AgentRunProviderInitialized = "agent.run.providerInitialized",
         AgentTurnStarted = "agent.turn.started",
+        AgentTurnSteered = "agent.turn.steered",
         AgentTurnCompleted = "agent.turn.completed",
         AgentTurnInterrupted = "agent.turn.interrupted",
         AgentChildrenStopped = "agent.children.stopped",

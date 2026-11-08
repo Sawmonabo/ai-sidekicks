@@ -1,4 +1,5 @@
-//! The checkpoint row a turn's start writes in its own write, before the message that opened it.
+//! The checkpoint row a turn's start or a steer's landing writes in its own write, before the
+//! person's message that opened the turn or steered it.
 
 use std::sync::Arc;
 
@@ -27,6 +28,7 @@ use crate::checkpoints::schema::schema_parts;
 use crate::checkpoints::store::{list_checkpoints, read_checkpoint};
 use crate::run::engine::RunEngine;
 use crate::run::engine::test_fixture::{end_run_aside, insert_run, test_engine};
+use crate::run::engine::tests::{stored_events, turn};
 use crate::run::engine::undo::RunCut;
 use crate::run::state_change::RunWriteCompanions;
 
@@ -200,4 +202,60 @@ async fn each_opened_turn_writes_one_checkpoint_before_its_message_with_its_star
         check_listed_checkpoints(&database, session_id, run_id),
         vec![(third_sequence, epoch_position(1, 1))]
     );
+}
+
+// Killed by the version guard dropped from the steer's write, which lands the stale steer and its
+// row, by a row at the run's standing rather than the steer's position, and by a row keyed on the
+// opening's message.
+#[tokio::test]
+async fn a_steers_write_records_its_checkpoint_at_its_position() {
+    let database = TestDatabase::new(schema_parts());
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let engine = test_engine(&database, Arc::clone(&log.service), home.path());
+    let appender =
+        SessionEventAppender::new(Arc::clone(&log.service), SESSION_EVENT_VERSION.clone());
+    let session_id = test_session_id();
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_run(&database, session_id, run_id, "running");
+    let [opening, steer, late_steer] = [(); 3].map(|()| minted_item());
+    let steered_count = || {
+        stored_events(&database, &run_id)
+            .into_iter()
+            .filter(|(event_type, _, _)| event_type == "agent.turn.steered")
+            .count()
+    };
+
+    let opening_sequence = send(&appender, session_id, run_id, opening).await;
+    assert_eq!(start(&engine, run_id, Some(opening)).await, Some(1));
+    let steer_sequence = send(&appender, session_id, run_id, steer).await;
+    let run = engine.require_run(run_id).await.expect("the run reads");
+    let steered_position = SourcePosition(SafeInt::new(2).expect("a small position"));
+    engine
+        .record_steer(run_id, &run, turn(1), steered_position, steer)
+        .await
+        .expect("the steer is written");
+    let recorded = vec![
+        (opening_sequence, epoch_position(0, 1)),
+        (steer_sequence, epoch_position(0, 2)),
+    ];
+    assert_eq!(
+        check_listed_checkpoints(&database, session_id, run_id),
+        recorded
+    );
+    assert_eq!(steered_count(), 1);
+
+    // The run moves past the version read before the late steer is written.
+    send(&appender, session_id, run_id, late_steer).await;
+    end_run_aside(&database.path(), &run_id);
+    let late_position = SourcePosition(SafeInt::new(3).expect("a small position"));
+    engine
+        .record_steer(run_id, &run, turn(1), late_position, late_steer)
+        .await
+        .expect_err("a steer at a stale run version is refused");
+    assert_eq!(
+        check_listed_checkpoints(&database, session_id, run_id),
+        recorded
+    );
+    assert_eq!(steered_count(), 1);
 }
