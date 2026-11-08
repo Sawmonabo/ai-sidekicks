@@ -120,11 +120,12 @@ const SECOND_WORKSPACE: &str = "01900000-0000-7000-8000-000000000006";
 // ended not delivered or returned without them, the held file dropped or put last, the held speed
 // overwritten, a helper's message, a review or a plan message canceled, the revision left where it
 // was, or a draft written when no message returned. Two messages with extras also kill the last
-// message's speed taken over the first's, held skill picks or the second message's file and pick
-// dropped, and the held repository overwritten; over a held draft with no repository they kill the
-// returned repositories dropped or the last one taken over the first's; words alone over a held
-// draft of only extras kill the held extras replaced by none and the returned words followed by an
-// empty held line.
+// message's speed taken over the first's, the held skill pick or file dropped, the first message's
+// file dropped, a file or skill pick both sides carry kept twice or moved from its first place,
+// and the held repository overwritten; over a held draft with no repository they kill the returned
+// repositories dropped, the last one taken over the first's, and the pick both messages carry
+// kept twice; words alone over a held draft of only extras kill the held extras replaced by none
+// and the returned words followed by an empty held line.
 #[rstest]
 #[case::two_messages_ahead_of_the_held_draft(
     &[Form::Words("First"), Form::Words("Second")],
@@ -171,16 +172,16 @@ const SECOND_WORKSPACE: &str = "01900000-0000-7000-8000-000000000006";
         },
     ],
     Some(("Held", Some(json!({
+        "attachments": [SECOND_FILE],
         "skills": [{ "name": "plan", "folderPath": "/skills/plan" }],
         "workspaceId": HELD_WORKSPACE,
     })))),
     &[Ended::Canceled, Ended::Canceled],
     Some("First file\nSecond file\nHeld"),
     Some(json!({
-        "attachments": [FIRST_FILE, SECOND_FILE],
+        "attachments": [SECOND_FILE, FIRST_FILE],
         "skills": [
             { "name": "plan", "folderPath": "/skills/plan" },
-            { "name": "review", "folderPath": "/skills/review" },
             { "name": "review", "folderPath": "/skills/review" },
         ],
         "outputSpeedForTurn": "fast",
@@ -207,10 +208,7 @@ const SECOND_WORKSPACE: &str = "01900000-0000-7000-8000-000000000006";
     Some("First file\nSecond file\nHeld"),
     Some(json!({
         "attachments": [FIRST_FILE, SECOND_FILE],
-        "skills": [
-            { "name": "review", "folderPath": "/skills/review" },
-            { "name": "review", "folderPath": "/skills/review" },
-        ],
+        "skills": [{ "name": "review", "folderPath": "/skills/review" }],
         "outputSpeedForTurn": "fast",
         "workspaceId": FIRST_WORKSPACE,
     })),

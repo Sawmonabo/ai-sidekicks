@@ -378,8 +378,9 @@ interface SessionWorkingFolderUpdateResponse {
 // draft sends again as it was. A draft the person saved and one a Stop or an interrupt's return to
 // the draft put back read the same: a lead message taken back joins the draft whole, its words on
 // their own line ahead of the held words, its files and skill picks after the held ones, and its
-// turn speed and repository only where the held draft names none. `attachments` holds a returned
-// message's files, which rejoin the staged set when the composer reads the draft.
+// turn speed and repository only where the held draft names none; a file or a skill pick both
+// already hold is kept once, at its first place. `attachments` holds a returned message's files,
+// which rejoin the staged set when the composer reads the draft.
 interface SessionDraftExtras {
   attachments?: ArtifactId[]; // the files, in staging order
   skills?: { name: string; folderPath: string }[]; // the skills picked, in the order picked

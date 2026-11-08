@@ -59,41 +59,52 @@ const SAVE_DRAFT_SQL: &str =
     updated_at = excluded.updated_at";
 
 // Puts the returned words on their own line ahead of the held draft's, and joins the returned
-// extras to the held ones: files and skill picks after the held draft's, a speed or a repository
-// only where the held draft names none. One statement, so a draft saved beside it is never read
-// stale.
+// extras to the held ones: files and skill picks after the held draft's, each once, a speed or a
+// repository only where the held draft names none. One statement, so a draft saved beside it is
+// never read stale.
 static JOIN_RETURNED_DRAFT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO session_drafts (session_id, text, extras, revision, updated_at)
-  VALUES (@sessionId, @text, @extras, 1, @updatedAt)
+  VALUES (@sessionId, @text,
+    CASE WHEN @extras IS NULL THEN NULL ELSE json_patch(@extras, {returned_lists}) END,
+    1, @updatedAt)
   ON CONFLICT (session_id) DO UPDATE SET
     revision = session_drafts.revision + 1,
     text = CASE WHEN session_drafts.text = '' THEN excluded.text
                 ELSE excluded.text || char(10) || session_drafts.text END,
     extras = CASE WHEN excluded.extras IS NULL THEN session_drafts.extras
-                  WHEN session_drafts.extras IS NULL THEN excluded.extras
                   ELSE json_patch(
-                    json_patch(excluded.extras, session_drafts.extras),
-                    json_object('attachments', {attachments}, 'skills', {skills})) END,
+                    json_patch(excluded.extras, COALESCE(session_drafts.extras, '{{}}')),
+                    {joined_lists}) END,
     updated_at = excluded.updated_at",
-        attachments = joined_list_sql("$.attachments"),
-        skills = joined_list_sql("$.skills"),
+        returned_lists = extras_lists_sql("NULL", "@extras"),
+        joined_lists = extras_lists_sql("session_drafts.extras", "excluded.extras"),
     )
 });
 
-// The held draft's list at `path` followed by the returned draft's, as JSON, or `NULL` where
-// neither holds one, which `json_patch` drops. `->>` renders each list as SQLite's JSON text, so
-// its brackets are its first and last characters.
-fn joined_list_sql(path: &str) -> String {
-    let held = format!("session_drafts.extras ->> '{path}'");
-    let returned = format!("excluded.extras ->> '{path}'");
+// The files and the skill picks of the extras `held` followed by those of `returned`, as a JSON
+// object of the two lists to patch over the extras.
+fn extras_lists_sql(held: &str, returned: &str) -> String {
     format!(
-        "json(CASE
-          WHEN json_array_length(session_drafts.extras, '{path}') > 0
-            AND json_array_length(excluded.extras, '{path}') > 0
-            THEN substr({held}, 1, length({held}) - 1) || ',' || substr({returned}, 2)
-          WHEN json_array_length(session_drafts.extras, '{path}') > 0 THEN {held}
-          ELSE {returned} END)"
+        "json_object('attachments', {attachments}, 'skills', {skills})",
+        attachments = joined_list_sql(held, returned, "$.attachments"),
+        skills = joined_list_sql(held, returned, "$.skills"),
+    )
+}
+
+// The list at `path` of the extras `held` followed by that of `returned`, each item once at its
+// first place, or `NULL` where neither holds an item, which `json_patch` drops. Items compare by
+// their JSON text, which SQLite renders the same for the same item on either side.
+fn joined_list_sql(held: &str, returned: &str, path: &str) -> String {
+    format!(
+        "(SELECT CASE WHEN COUNT(*) > 0 THEN json_group_array(json(item) ORDER BY place) END
+      FROM (SELECT item, MIN(place) AS place
+              FROM (SELECT json_quote(value) AS item, key AS place FROM json_each({held}, '{path}')
+                    UNION ALL
+                    SELECT json_quote(value),
+                           key + COALESCE(json_array_length({held}, '{path}'), 0)
+                      FROM json_each({returned}, '{path}'))
+             GROUP BY item))"
     )
 }
 
@@ -328,7 +339,7 @@ fn read_held_draft(
 /// The statement that puts `messages`, the lead messages a Stop or an interrupt returns in queue
 /// order, back into `session_id`'s draft whole, for a caller's write that also records each
 /// message canceled: their words one line each ahead of the held draft's, their files and skill
-/// picks after the held draft's, and the first speed and repository among them where
+/// picks after the held draft's, each once, and the first speed and repository among them where
 /// the held draft names none, the draft's revision moving on by one. `None` when no message is
 /// returned.
 pub fn returned_messages_statement(
