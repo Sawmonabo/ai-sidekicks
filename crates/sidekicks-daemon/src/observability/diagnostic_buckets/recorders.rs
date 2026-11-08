@@ -30,25 +30,30 @@ const DRIVER_RAW_EVENTS_FOLDER_NAME: &str = "driver-raw-events";
 /// Every diagnostic bucket's folder under `data_folder`, which the expiry walks.
 pub(crate) fn diagnostic_bucket_folders(data_folder: &Path) -> [PathBuf; 3] {
     [
-        WORKFLOW_ENGINE_EVENTS_FOLDER_NAME,
-        TOOL_TRACES_FOLDER_NAME,
-        DRIVER_RAW_EVENTS_FOLDER_NAME,
+        workflow_engine_events_folder(data_folder),
+        tool_traces_folder(data_folder),
+        provider_messages_folder(data_folder),
     ]
-    .map(|bucket| data_folder.join(DIAGNOSTICS_FOLDER_NAME).join(bucket))
+}
+
+// The folder the workflow engine's events are written to.
+fn workflow_engine_events_folder(data_folder: &Path) -> PathBuf {
+    bucket_folder(data_folder, WORKFLOW_ENGINE_EVENTS_FOLDER_NAME)
 }
 
 /// The folder tool traces are written to.
 pub(crate) fn tool_traces_folder(data_folder: &Path) -> PathBuf {
-    data_folder
-        .join(DIAGNOSTICS_FOLDER_NAME)
-        .join(TOOL_TRACES_FOLDER_NAME)
+    bucket_folder(data_folder, TOOL_TRACES_FOLDER_NAME)
 }
 
 /// The folder raw provider messages are written to, which Settings › Runtime names.
 pub(crate) fn provider_messages_folder(data_folder: &Path) -> PathBuf {
-    data_folder
-        .join(DIAGNOSTICS_FOLDER_NAME)
-        .join(DRIVER_RAW_EVENTS_FOLDER_NAME)
+    bucket_folder(data_folder, DRIVER_RAW_EVENTS_FOLDER_NAME)
+}
+
+// The folder of the bucket `bucket_name` under `data_folder`.
+fn bucket_folder(data_folder: &Path, bucket_name: &str) -> PathBuf {
+    data_folder.join(DIAGNOSTICS_FOLDER_NAME).join(bucket_name)
 }
 
 /// The workflow engine's event record, written whatever the switches say.
@@ -57,11 +62,7 @@ pub(crate) fn provider_messages_folder(data_folder: &Path) -> PathBuf {
     reason = "the workflow engine's event log is given the bucket it appends each record to"
 )]
 pub(crate) fn workflow_engine_events_bucket(data_folder: &Path) -> DailyFileBucket {
-    DailyFileBucket::new(
-        data_folder
-            .join(DIAGNOSTICS_FOLDER_NAME)
-            .join(WORKFLOW_ENGINE_EVENTS_FOLDER_NAME),
-    )
+    DailyFileBucket::new(workflow_engine_events_folder(data_folder))
 }
 
 /// One message a provider sent the service, word for word.
