@@ -49,11 +49,12 @@ use super::walk::WalkReady;
 use super::{ReadyStep, RunSnapshot, StepReport, StepReportKind, StepSettlement};
 use crate::definitions::kept_values::remove_dropped;
 use crate::engine::chain::KeepGoingIntake;
+use crate::engine::deadlines::EngineDeadlines;
 use crate::engine::event_record::{EngineFault, EngineRecorder};
 use crate::engine::ports::{PortError, RunSnapshotPoints, StepAdmission, StepPayloadArtifacts};
 use crate::engine::start::StartedRun;
 use crate::engine::waits::answers::PersonWaitIntake;
-use crate::engine::waits::{PersonWaitDeadlines, PersonWaitPorts, PersonWaitRefusal};
+use crate::engine::waits::{PersonWaitPorts, PersonWaitRefusal};
 use crate::kinds::{NodeKindTable, StepFailure, uncoded_step_error};
 
 /// The most reports one turn takes, and the most inputs from its inbox, so a turn stays bounded.
@@ -106,9 +107,8 @@ pub(crate) struct EngineTickDependencies {
     pub(crate) inbox: mpsc::Receiver<EngineTickInput>,
     /// The approval cards and questions a step waiting on a person asks through.
     pub(crate) person_waits: PersonWaitPorts,
-    /// The deadline clock over every step waiting on a person, read again after a write moves a
-    /// deadline.
-    pub(crate) deadlines: Arc<PersonWaitDeadlines>,
+    /// The engine's deadline clock, read again after a write moves a deadline.
+    pub(crate) deadlines: Arc<EngineDeadlines>,
     /// The snapshot points a run takes, each on its own task.
     pub(crate) snapshot_points: Arc<dyn RunSnapshotPoints>,
 }
@@ -126,7 +126,7 @@ pub(crate) struct EngineTick {
     reports: mpsc::Receiver<StepReport>,
     inbox: mpsc::Receiver<EngineTickInput>,
     person_waits: PersonWaitPorts,
-    deadlines: Arc<PersonWaitDeadlines>,
+    deadlines: Arc<EngineDeadlines>,
     snapshot_points: Arc<dyn RunSnapshotPoints>,
     /// Whether this turn's writes armed or cleared a deadline, took a late answer or dropped a
     /// run, so the deadline clock is read again at the turn's end.

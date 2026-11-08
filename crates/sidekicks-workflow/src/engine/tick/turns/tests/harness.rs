@@ -39,6 +39,7 @@ use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
 use crate::engine::chain::{KeepGoingAnswer, KeepGoingIntake};
+use crate::engine::deadlines::{ENGINE_DEADLINE_STATEMENT_CAPACITY, EngineDeadlines};
 use crate::engine::event_record::EngineRecorder;
 use crate::engine::ports::kept_payloads::KeptPayloads;
 use crate::engine::ports::{
@@ -57,10 +58,7 @@ use crate::engine::tick::turns::{
 };
 use crate::engine::tick::{RunGraph, RunScope, StepReport, test_run_scope};
 use crate::engine::waits::answers::PersonWaitIntake;
-use crate::engine::waits::{
-    PERSON_WAIT_STATEMENT_CAPACITY, PersonWaitAnswer, PersonWaitDeadlines, PersonWaitPorts,
-    PersonWaitRefusal,
-};
+use crate::engine::waits::{PersonWaitAnswer, PersonWaitPorts, PersonWaitRefusal};
 use crate::kinds::step_context::StepContext;
 use crate::kinds::{
     NodeExecutor, NodeKindTable, PassThroughExecutor, PersonAsk, PersonWait, StepFailure,
@@ -390,7 +388,7 @@ pub(in crate::engine::tick::turns) struct Harness {
     /// The wall clock the deadline clock's scheduler runs on, set to the real clock at the start.
     pub(in crate::engine::tick::turns) clock: Arc<TestWallClock>,
     /// The loop's deadline clock.
-    pub(in crate::engine::tick::turns) deadlines: Arc<PersonWaitDeadlines>,
+    pub(in crate::engine::tick::turns) deadlines: Arc<EngineDeadlines>,
     /// A sending end of the loop's report channel, which the test reports on as a driver would.
     pub(in crate::engine::tick::turns) reports: mpsc::Sender<StepReport>,
 }
@@ -427,11 +425,11 @@ impl Harness {
         clock.set_now(SystemTime::now());
         let wall_clock: Arc<TestWallClock> = Arc::clone(&clock);
         let scheduler = Arc::new(Scheduler::start(wall_clock, None, watch::channel(0).1));
-        let deadlines = PersonWaitDeadlines::new(
+        let deadlines = EngineDeadlines::new(
             scheduler,
             Arc::new(DatabaseReadPool::new(
                 database.path(),
-                PERSON_WAIT_STATEMENT_CAPACITY,
+                ENGINE_DEADLINE_STATEMENT_CAPACITY,
             )),
             reports.clone(),
         );
