@@ -2,21 +2,29 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use serde_json::Value;
 use serde_json::value::RawValue;
+use serde_json::{Value, json};
 use sidekicks_client::daemon_connection::{DaemonConnection, DaemonEndpoint};
 use sidekicks_contracts::daemon::config::{DaemonConfigUpdate, DaemonConfigUpdateRequest};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::CAN_BIND_A_SOCKET_LISTENER;
-use sidekicks_provider::port::tool_traces::ToolTrace;
+use sidekicks_provider::port::raw_provider_messages::RawProviderMessages;
+use sidekicks_provider::port::tool_traces::{ToolTrace, ToolTraces};
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::test_file::TestDatabase;
+use sidekicks_store::events::log_service::test_fixture::open_log;
 use tokio_util::sync::CancellationToken;
 
 use super::TestHome;
+use crate::daemon::configuration::{
+    ConfigurationChange, ConfigurationStore, DAEMON_CONFIGURATION_STATEMENT_CAPACITY,
+};
 use crate::daemon::process::DaemonProcess;
 use crate::daemon::process::stop::DaemonStopReason;
+use crate::daemon::schema::schema_parts;
 use crate::observability::diagnostic_buckets::recorders::{
-    provider_messages_folder, tool_traces_folder,
+    provider_messages_folder, raw_message_recorder, tool_trace_recorder, tool_traces_folder,
 };
 
 // One line as a provider wrote it, its spacing kept, which a recorder must not normalize.
@@ -77,6 +85,20 @@ async fn set_switch(client: &DaemonConnection, setting: DaemonConfigUpdateReques
 
 fn provider() -> ProviderId {
     ProviderId::new("claude".to_owned()).expect("the id is a provider id")
+}
+
+// A trace of the call `tool_call_id`, its arguments and result spaced as a provider wrote them.
+fn trace(tool_call_id: &str) -> ToolTrace {
+    ToolTrace {
+        session_id: SessionId::new("7d3f8a52-2c1e-4f6b-9a0d-5e8b1c4d2f3a")
+            .expect("the id is a UUID"),
+        provider: provider(),
+        tool_call_id: tool_call_id.to_owned(),
+        tool_name: "Bash".to_owned(),
+        arguments: RawValue::from_string(r#"{ "command" : "ls" }"#.to_owned())
+            .expect("the arguments are JSON"),
+        result: RawValue::from_string(SCRIPTED_LINE.to_owned()).expect("the result is JSON"),
+    }
 }
 
 // The start hands the drivers' raw-message port a recorder of `Record raw provider messages`:
@@ -165,17 +187,6 @@ async fn record_traces_gates_what_the_drivers_port_writes() {
         .port()
         .map(Arc::clone)
         .expect("the start registers the tool-trace recorder");
-    let trace = |tool_call_id: &str| ToolTrace {
-        session_id: SessionId::new("7d3f8a52-2c1e-4f6b-9a0d-5e8b1c4d2f3a")
-            .expect("the id is a UUID"),
-        provider: provider(),
-        tool_call_id: tool_call_id.to_owned(),
-        tool_name: "Bash".to_owned(),
-        arguments: RawValue::from_string(r#"{ "command" : "ls" }"#.to_owned())
-            .expect("the arguments are JSON"),
-        result: RawValue::from_string(SCRIPTED_LINE.to_owned()).expect("the result is JSON"),
-    };
-
     assert!(!tool_traces.is_recording());
     tool_traces.record(trace("while-off")).await;
     set_switch(&client, DaemonConfigUpdateRequest::RecordTraces(true)).await;
@@ -197,7 +208,63 @@ async fn record_traces_gates_what_the_drivers_port_writes() {
     );
     assert_eq!(lines[0]["toolCallId"], "while-on");
     assert_eq!(lines[0]["toolName"], "Bash");
-    assert_eq!(lines[0]["arguments"]["command"], "ls");
-    assert_eq!(lines[0]["result"]["spaced"], 1);
+    assert_eq!(lines[0]["arguments"], json!({ "command": "ls" }));
+    assert_eq!(lines[0]["result"], json!({ "type": "result", "spaced": 1 }));
     assert_stamped(&lines[0]);
+}
+
+async fn set_in_store(store: &ConfigurationStore, setting: DaemonConfigUpdateRequest) {
+    store
+        .update(ConfigurationChange::Setting(&setting))
+        .await
+        .expect("the switch is set");
+}
+
+// Each recorder over the configuration store, with no socket: off, nothing is written; with only
+// its own switch on, its next record lands, a message word for word; off again, nothing more.
+// Killed by a recorder that ignores its switch, reads it once when made or follows the other
+// switch, and by one reshaping a message.
+#[tokio::test]
+async fn each_switch_gates_its_recorder_from_the_change_on() {
+    let database = TestDatabase::new(schema_parts());
+    let log = open_log(&database, None).await;
+    let reads = Arc::new(DatabaseReadPool::new(
+        database.path(),
+        DAEMON_CONFIGURATION_STATEMENT_CAPACITY,
+    ));
+    let store = ConfigurationStore::open(Arc::clone(&log.writer), reads)
+        .await
+        .expect("the configuration store opens");
+    let data_folder = tempfile::tempdir().expect("the data folder is made");
+    let tool_traces = tool_trace_recorder(data_folder.path(), &store);
+    let raw_messages = raw_message_recorder(data_folder.path(), &store);
+
+    ToolTraces::record(&tool_traces, trace("while-off")).await;
+    RawProviderMessages::record(&raw_messages, provider(), "while off".to_owned()).await;
+    set_in_store(&store, DaemonConfigUpdateRequest::RecordTraces(true)).await;
+    assert!(ToolTraces::is_recording(&tool_traces));
+    assert!(!RawProviderMessages::is_recording(&raw_messages));
+    ToolTraces::record(&tool_traces, trace("while-on")).await;
+    RawProviderMessages::record(&raw_messages, provider(), "traces only".to_owned()).await;
+    set_in_store(&store, DaemonConfigUpdateRequest::RecordTraces(false)).await;
+    set_in_store(
+        &store,
+        DaemonConfigUpdateRequest::RecordProviderMessages(true),
+    )
+    .await;
+    ToolTraces::record(&tool_traces, trace("messages-only")).await;
+    RawProviderMessages::record(&raw_messages, provider(), SCRIPTED_LINE.to_owned()).await;
+    set_in_store(
+        &store,
+        DaemonConfigUpdateRequest::RecordProviderMessages(false),
+    )
+    .await;
+    RawProviderMessages::record(&raw_messages, provider(), "off again".to_owned()).await;
+
+    let trace_lines = recorded_lines(&tool_traces_folder(data_folder.path()));
+    assert_eq!(trace_lines.len(), 1, "{trace_lines:?}");
+    assert_eq!(trace_lines[0]["toolCallId"], "while-on");
+    let message_lines = recorded_lines(&provider_messages_folder(data_folder.path()));
+    assert_eq!(message_lines.len(), 1, "{message_lines:?}");
+    assert_eq!(message_lines[0]["message"], SCRIPTED_LINE);
 }
