@@ -1,22 +1,30 @@
 //! Deleting Codex's own copy of a session's conversations, each on the service of the home that
 //! holds it, the switching home or its account's, and the session's helper role files. Codex
 //! refuses to delete a conversation a fork still builds on, so they go newest first, as the daemon
-//! lists them.
+//! lists them. Each is let go before its delete, and a delete Codex does not answer in time
+//! restarts its service, which stays wedged on that conversation otherwise.
 
 use std::path::Path;
 use std::time::Duration;
 
 use sidekicks_std::error_description::describe_error;
+use tokio::time::Instant;
 
 use crate::driver::codex::app_server_protocol::ThreadDeleteParams;
 use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
+use crate::driver::codex::session::errors::{CodexError, CodexUnansweredCause};
 use crate::driver::codex::session::helper_roles::remove_codex_helper_roles;
+use crate::driver::codex::session::slots::let_go_codex_thread;
 use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::{PurgeSessionParams, SessionConversation};
 
 /// Codex's request that deletes a stored conversation.
 const CODEX_THREAD_DELETE_METHOD: &str = "thread/delete";
+
+/// How long a conversation's `thread/delete` may wait for Codex's answer before the purge fails
+/// and restarts the service.
+const CODEX_THREAD_DELETE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Every step of a purge that failed, each tried before the purge answered, so one refusal leaves
 /// nothing else behind.
@@ -33,8 +41,9 @@ pub(crate) struct CodexPurgeFailed {
 
 /// Deletes every conversation the session opened with `thread/delete`, newest first, on the
 /// service of the home its binding's recovery data names, started within `start_bound` where it
-/// is not running, and the session's role files under `roles_folder`. Fails with every step that
-/// failed.
+/// is not running, and the session's role files under `roles_folder`. Each conversation is let go
+/// first; a delete unanswered within [`CODEX_THREAD_DELETE_TIMEOUT`] fails and has its service
+/// restarted. Fails with every step that failed.
 pub(crate) async fn purge_codex_conversations(
     services: &CodexServiceRegistry,
     roles_folder: &Path,
@@ -69,15 +78,32 @@ async fn delete_conversation(
         )
         .await?;
     service.ensure_started(start_bound).await?;
-    service
+    let thread_id = &conversation.resume_handle;
+    let_go_codex_thread(&service, thread_id).await;
+    let began = Instant::now();
+    let deleted = service
         .connection()?
-        .request(
+        .request_within(
             CODEX_THREAD_DELETE_METHOD,
             &ThreadDeleteParams {
-                thread_id: conversation.resume_handle.clone(),
+                thread_id: thread_id.clone(),
             },
+            CODEX_THREAD_DELETE_TIMEOUT,
         )
-        .await?;
+        .await;
+    tracing::debug!(
+        thread_id = %thread_id,
+        elapsed_ms = u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX),
+        "a codex conversation's delete ended"
+    );
+    if let Err(CodexError::Unanswered {
+        cause: CodexUnansweredCause::Deadline { .. },
+        ..
+    }) = &deleted
+    {
+        service.request_planned_restart();
+    }
+    deleted?;
     Ok(())
 }
 
@@ -86,3 +112,6 @@ impl From<CodexPurgeFailed> for DriverError {
         Self::Internal(Box::new(error))
     }
 }
+
+#[cfg(test)]
+mod tests;
