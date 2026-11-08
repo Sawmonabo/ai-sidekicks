@@ -40,22 +40,30 @@ pub fn session_exists(reader: &Connection, session_id: &SessionId) -> rusqlite::
 /// `session.activated` is written once, by its create's finish, so its create never finished.
 pub fn never_activated_sql(session_id_sql: &str) -> String {
     format!(
-        "NOT EXISTS (SELECT 1 FROM session_events WHERE session_id = {session_id_sql} AND type = '{}')",
+        "NOT EXISTS (SELECT 1 FROM session_events \
+         WHERE session_id = {session_id_sql} AND type = '{}')",
         SessionEventType::SessionActivated.as_str()
     )
 }
 
-// A session left `provisioning` whose create never finished.
+// A session left `provisioning`, or archived or closed since, whose create never finished.
 static UNFINISHED_CREATE_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT 1 FROM sessions WHERE id = @sessionId AND state = '{}' AND {}",
-        <&'static str>::from(SessionState::Provisioning),
+        "SELECT 1 FROM sessions WHERE id = @sessionId AND state IN ({}) AND {}",
+        sql_list_of(
+            [
+                SessionState::Provisioning,
+                SessionState::Archived,
+                SessionState::Closed
+            ]
+            .map(<&'static str>::from)
+        ),
         never_activated_sql("@sessionId")
     )
 });
 
-/// Whether the session is `provisioning` with a create that never finished, read on `reader`.
-/// Fails when SQLite refuses the read.
+/// Whether the session's create never finished, read on `reader`: it is `provisioning`, or was
+/// archived or closed since, and was never activated. Fails when SQLite refuses the read.
 pub fn is_unfinished_create(reader: &Connection, session_id: &SessionId) -> rusqlite::Result<bool> {
     reader
         .prepare_cached(&UNFINISHED_CREATE_SQL)?

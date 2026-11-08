@@ -57,17 +57,21 @@ pub(crate) enum PurgeCaller {
     /// `Delete old data`: an archived or closed session, or one a failed purge left marked.
     Retention,
     /// `Delete session` on a session whose history is damaged: any state but `provisioning`,
-    /// which [`PurgeCaller::UnfinishedCreate`] takes.
+    /// which only [`PurgeCaller::UnfinishedCreate`] takes.
     DamagedHistory,
-    /// `Delete session` on a session whose create never finished: `provisioning`, never activated,
-    /// so a finish that activated it meanwhile refuses the mark.
+    /// `Delete session` on a session whose create never finished: `provisioning`, `archived` or
+    /// `closed`, never activated, so a finish that activated it meanwhile refuses the mark.
     UnfinishedCreate,
 }
 
 impl PurgeCaller {
     fn markable_states(self) -> &'static [SessionState] {
         match self {
-            Self::UnfinishedCreate => &[SessionState::Provisioning],
+            Self::UnfinishedCreate => &[
+                SessionState::Provisioning,
+                SessionState::Archived,
+                SessionState::Closed,
+            ],
             Self::Retention => &[
                 SessionState::Archived,
                 SessionState::Closed,

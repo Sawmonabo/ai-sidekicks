@@ -71,8 +71,8 @@ Allowed transitions:
 - `archived -> active`
 - `archived -> provisioning`, when the person unarchives a session archived before its create finished: it returns to the state it left, and its create's finish runs again at once and takes it on to `active`
 - `archived -> closed`
-- `closed -> purgeRequested`
-- `archived -> purgeRequested`
+- `closed -> purgeRequested`, also when the person presses `Delete session` on a session closed before its create finished
+- `archived -> purgeRequested`, also when the person presses `Delete session` on a session archived before its create finished
 
 ## Session Identity And Local-Only Continuity
 
