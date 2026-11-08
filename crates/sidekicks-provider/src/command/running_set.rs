@@ -54,7 +54,10 @@ pub(crate) use refusals::takes_no_input;
 #[cfg(any(test, feature = "test-support"))]
 mod test_support;
 #[cfg(any(test, feature = "test-support"))]
-pub use test_support::{TEST_COMMAND_BINDING, unbound_running_command_sets};
+pub use test_support::{
+    TEST_COMMAND_BINDING, TestCommandStart, test_bound_running_command_sets,
+    unbound_running_command_sets,
+};
 #[cfg(test)]
 mod tests;
 

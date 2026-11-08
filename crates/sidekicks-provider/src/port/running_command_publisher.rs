@@ -139,6 +139,19 @@ pub struct StopCommandParams {
     pub(crate) cause: CommandStopCause,
 }
 
+#[cfg(any(test, feature = "test-support"))]
+impl StopCommandParams {
+    /// The command stopped, for another crate's test driver to read.
+    pub fn command_id(&self) -> &CommandId {
+        &self.command.command_id
+    }
+
+    /// Why it is stopped, for another crate's test driver to read.
+    pub fn cause(&self) -> CommandStopCause {
+        self.cause
+    }
+}
+
 /// A running command as a reader of the set sees it: its id, the run and tool call that started
 /// it, and when it started.
 #[derive(Clone, Debug, PartialEq, Eq)]

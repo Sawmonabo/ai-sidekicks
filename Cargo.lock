@@ -8989,6 +8989,7 @@ dependencies = [
  "sidekicks-approval",
  "sidekicks-contracts",
  "sidekicks-ipc",
+ "sidekicks-platforms",
  "sidekicks-provider",
  "sidekicks-session",
  "sidekicks-std",

@@ -1,5 +1,6 @@
-//! A running set no session's binding or ending log is behind, and a running command added
-//! straight to a session's set, for this crate's and other crates' tests.
+//! A running set no session's binding or ending log is behind, one whose every session runs on the
+//! test binding, and a running command added straight to a session's set, for this crate's and
+//! other crates' tests.
 
 use std::sync::Arc;
 
@@ -7,6 +8,7 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_contracts::command::{AgentCommandEndedPayload, CommandId};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -24,6 +26,32 @@ pub fn unbound_running_command_sets() -> Arc<RunningCommandSets> {
         Arc::new(|_session: &SessionId| None),
         Arc::new(DroppedEndings),
     ))
+}
+
+/// A running set whose every session runs on [`TEST_COMMAND_BINDING`], so a stop reaches its
+/// driver, its commands' endings appended nowhere.
+pub fn test_bound_running_command_sets() -> Arc<RunningCommandSets> {
+    Arc::new(RunningCommandSets::new(
+        Arc::new(|_session: &SessionId| Some(test_command_binding())),
+        Arc::new(DroppedEndings),
+    ))
+}
+
+// The binding every test command runs on.
+fn test_command_binding() -> RuntimeBindingId {
+    RuntimeBindingId::new(TEST_COMMAND_BINDING.to_owned()).expect("a binding id")
+}
+
+/// A test command's start: which command, of which run and tool call, and when.
+pub struct TestCommandStart {
+    /// The command.
+    pub command_id: CommandId,
+    /// The run that started it.
+    pub run_id: RunId,
+    /// The tool call that started it, where one did.
+    pub tool_call_id: Option<ToolCallId>,
+    /// When it started.
+    pub started_at: WireInstant,
 }
 
 // Endings no test reads.
@@ -44,15 +72,28 @@ impl RunningCommandSets {
     /// Adds a background command of `run_id` on [`TEST_COMMAND_BINDING`] to `session_id`'s set, as
     /// a provider's report of one does.
     pub fn start_test_command(&self, session_id: SessionId, run_id: RunId) {
+        self.start_test_command_of(
+            session_id,
+            TestCommandStart {
+                command_id: CommandId::new("test-command".to_owned()).expect("a command id"),
+                run_id,
+                tool_call_id: None,
+                started_at: WireInstant::now(),
+            },
+        );
+    }
+
+    /// Adds the background command `command` on [`TEST_COMMAND_BINDING`] to `session_id`'s set,
+    /// as a provider's report of one does.
+    pub fn start_test_command_of(&self, session_id: SessionId, command: TestCommandStart) {
         let start = CommandStart {
             session_id,
-            command_id: CommandId::new("test-command".to_owned()).expect("a command id"),
-            run_id,
-            tool_call_id: None,
-            binding_id: RuntimeBindingId::new(TEST_COMMAND_BINDING.to_owned())
-                .expect("a binding id"),
+            command_id: command.command_id,
+            run_id: command.run_id,
+            tool_call_id: command.tool_call_id,
+            binding_id: test_command_binding(),
             name: NonEmptyText::new("sleep 600".to_owned()).expect("a command name"),
-            started_at: WireInstant::now(),
+            started_at: command.started_at,
             line: None,
             process_id: None,
             is_backgrounded: true,
