@@ -377,7 +377,7 @@ The wire registry carries the `workflow.*` methods, each named by the wire-name 
 | `workflow.step.read` | One step's input, output or log by reference, paged and redacted. |
 | `workflow.step.output.list` | The agent and human steps' output summaries and artifact references only; one step's full input, output or log comes only from `workflow.step.read`. |
 | `workflow.step.tabArtifact.create` | Stores what one step-panel tab holds — an inline payload, the step's cost or its error — as an artifact of the run's session through Spec-012's `ArtifactPublish`, and answers its artifact id, for the tab's `Open as artifact`. |
-| `workflow.node.execute` | Executes one node (scope `node`), or it and its ancestors (scope `fromHere`), in the builder against pinned or prior input, after the draft is saved. |
+| `workflow.node.execute` | Executes one node (scope `node`), or it with its ancestors, the body of every loop they cover and the ancestors of every node that joins, never a descendant (scope `fromHere`), in the builder against pinned or prior input, after the draft is saved. |
 | `workflow.gate.resolve` | Resolves a workflow-scoped approval or user question; the approval kind rides it, and so does a chain's question, `approved` for `Keep going` and `rejected` for `Stop them all`. |
 | `workflow.humanForm.read` | A waiting form: its prompt, its fields and its saved draft. |
 | `workflow.humanForm.draft.update` | Saves a form draft as it is typed; the form kind activates it. |
