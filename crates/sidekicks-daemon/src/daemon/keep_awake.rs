@@ -68,7 +68,14 @@ pub(crate) async fn keep_machine_awake(deps: KeepAwakeDeps) {
             Ok(()) = is_on_power.changed() => {}
         }
     }
-    hold.release();
+    // Dropping the hold lets go of it and joins its thread, which can wait on the system, so the
+    // drop runs off the runtime's workers.
+    if let Err(error) = tokio::task::spawn_blocking(move || drop(hold)).await {
+        tracing::error!(
+            error = &error as &(dyn Error + 'static),
+            "the keep-awake hold's release ended abnormally"
+        );
+    }
 }
 
 // The hold the switches, the live runs and the power source call for.
