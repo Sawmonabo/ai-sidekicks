@@ -103,7 +103,7 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::process::{Command, Stdio};
 
-    use rstest::rstest;
+    use serde::Deserialize;
 
     use super::{check_private_run_folder, resolve_daemon_run_folder};
     use crate::run_folder::RunFolderRefused;
@@ -159,35 +159,48 @@ mod tests {
         );
     }
 
-    #[rstest]
-    #[case::the_local_application_data_folder(
-        r"C:\Users\Ada\AppData\Local",
-        r"C:\Users\Ada\AppData\Local\ai-sidekicks\run"
-    )]
-    #[case::one_with_a_trailing_backslash(
-        r"D:\Profiles\Ada\Local\",
-        r"D:\Profiles\Ada\Local\ai-sidekicks\run"
-    )]
-    fn resolves_the_folder_under_local_application_data_and_the_pipe_from_the_sid(
-        #[case] local_app_data: &str,
-        #[case] folder: &str,
-    ) {
-        let sid = "S-1-5-21-1004336348-1177238915-682003330-1001";
+    /// The run-folder table the TypeScript resolver's suite reads too.
+    const CASES: &str = include_str!("../../../sidekicks-contracts/tests/fixtures/run-folder.json");
 
-        let resolved = resolve_daemon_run_folder(Path::new(local_app_data), sid);
+    /// A local application data folder, a user's id as SDDL text, and the run folder and named
+    /// pipe they resolve.
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields, rename_all = "camelCase")]
+    struct WindowsCase {
+        local_app_data: String,
+        user_sid: String,
+        folder: String,
+        pipe: String,
+    }
 
-        assert_eq!(resolved.folder_path, PathBuf::from(folder));
-        assert_eq!(
-            resolved.socket_path,
-            PathBuf::from(format!(r"\\.\pipe\ai-sidekicks-{sid}"))
-        );
-        assert_eq!(
-            resolved.token_path,
-            PathBuf::from(format!(r"{folder}\daemon.token"))
-        );
-        assert_eq!(
-            resolved.status_path,
-            PathBuf::from(format!(r"{folder}\service-status.json"))
-        );
+    /// The table's Windows half.
+    #[derive(Deserialize)]
+    struct RunFolderCases {
+        windows: Vec<WindowsCase>,
+    }
+
+    #[test]
+    fn resolves_the_folder_under_local_application_data_and_the_pipe_from_the_sid() {
+        let cases: RunFolderCases = serde_json::from_str(CASES).expect("the cases read");
+        assert!(!cases.windows.is_empty(), "the table holds Windows cases");
+
+        for case in cases.windows {
+            let resolved =
+                resolve_daemon_run_folder(Path::new(&case.local_app_data), &case.user_sid);
+
+            let folder = &case.folder;
+            assert_eq!(resolved.folder_path, PathBuf::from(folder), "{folder}");
+            assert_eq!(resolved.socket_path, PathBuf::from(&case.pipe), "{folder}");
+            assert_eq!(
+                resolved.token_path,
+                PathBuf::from(format!(r"{folder}\daemon.token")),
+                "{folder}"
+            );
+            assert_eq!(
+                resolved.status_path,
+                PathBuf::from(format!(r"{folder}\service-status.json")),
+                "{folder}"
+            );
+        }
     }
 }
