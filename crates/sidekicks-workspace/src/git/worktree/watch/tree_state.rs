@@ -22,7 +22,7 @@ use sidekicks_contracts::worktree::lifecycle::WorktreeState;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadError, ReadLength};
 use sidekicks_store::events::session::appender::SessionEventLinkage;
 
-use super::merged::{MergedCheck, newest_own_commit_statement};
+use super::merged::{MergedCheck, own_work_commit_statement};
 use super::{WatchTarget, WatcherShared};
 use crate::git::worktree::event_emitter::EmitWorktreeEventInput;
 use crate::git::worktree::reads::has_uncommitted_work;
@@ -33,11 +33,11 @@ use crate::git::worktree::rows::{
 use crate::git::worktree::service::{WORKTREE_ROW_COLUMNS, worktree_row_of};
 
 // The newest standing tree the daemon made at a folder, with the base its newest branch context
-// names, else its own, and the newest commit of its own seen on its branch.
+// names, else its own, and the commit that holds its branch's own work.
 static SELECT_STANDING_TREE_AT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT {WORKTREE_ROW_COLUMNS}, COALESCE(newest.base_branch, wt.base_ref),
-        wt.newest_own_commit
+        wt.own_work_commit
    FROM worktrees AS wt
    {newest}
   WHERE wt.fs_root = @fs_root AND {standing}
@@ -104,12 +104,14 @@ pub(super) struct StandingTree {
     pub(super) row: WorktreeRow,
     /// The base its branch merges back into: its newest branch context's, else its own as given.
     pub(super) base: String,
-    /// The newest commit of its own a check saw on its branch, one that changes a path and is no
-    /// merge commit; `None` while none was seen.
-    pub(super) newest_own_commit: Option<String>,
+    /// The commit that holds its branch's own work: the newest commit a check saw on the branch
+    /// that changes a path, is no merge commit and neither the base nor its upstream holds, the tip
+    /// where that commit lacks some of that work, or the reflog's seed, which the base or its
+    /// upstream holds; `None` while none was seen.
+    pub(super) own_work_commit: Option<String>,
 }
 
-// The move a check found due; a reopened tree's row records the newest of its new commits.
+// The move a check found due; a reopened tree's row records the commit that holds its new work.
 #[derive(Clone, Copy, Debug)]
 enum TreeMove<'commit> {
     Dirtied,
@@ -235,7 +237,7 @@ async fn read_standing_tree(
                     Ok(StandingTree {
                         row: worktree_row_of(row)?,
                         base: row.get(7)?,
-                        newest_own_commit: row.get(8)?,
+                        own_work_commit: row.get(8)?,
                     })
                 })
                 .optional()?)
@@ -255,7 +257,7 @@ async fn write_move(shared: &WatcherShared, tree: &WorktreeRow, due: TreeMove<'_
     };
     let mut prelude = vec![transition_statement(sql, &tree.id, &now, Some(1))];
     if let TreeMove::Reopened { commit } = due {
-        prelude.push(newest_own_commit_statement(&tree.id, commit, &now));
+        prelude.push(own_work_commit_statement(&tree.id, commit, &now));
     }
     // The row's own session: the event belongs to its maker, and the watch acts for no one.
     let input = EmitWorktreeEventInput {

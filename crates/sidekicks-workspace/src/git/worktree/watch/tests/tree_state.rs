@@ -158,12 +158,12 @@ impl WatchedTree {
         self.commit_file(name).await;
     }
 
-    // The newest commit of its own on the branch the row records.
+    // The commit that holds the branch's own work, as the row records it.
     fn recorded_commit(&self) -> Option<String> {
         self.fixture
             .database
             .reader()
-            .query_row("SELECT newest_own_commit FROM worktrees", [], |row| {
+            .query_row("SELECT own_work_commit FROM worktrees", [], |row| {
                 row.get(0)
             })
             .expect("the row reads")

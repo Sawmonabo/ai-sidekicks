@@ -1,8 +1,8 @@
 //! Whether a watched worktree's branch has merged back into its base or the base's upstream; a
 //! merge into any other branch is not read.
 //!
-//! - The row records the branch's newest commit of its own: each check that finds a commit on the
-//!   branch that changes a path, merge commits not counted, and that neither the base nor its
+//! - The row records the commit that holds the branch's own work: each check that finds a commit on
+//!   the branch that changes a path, merge commits not counted, and that neither the base nor its
 //!   upstream holds records the newest such commit, or the tip where that commit lacks some of
 //!   them, as when a merge joined two lines of the branch's own work; while it records none and the
 //!   tip is contained, the newest commit, amend or pick in the branch's reflog that changed a path
@@ -38,9 +38,9 @@ use crate::git::worktree::reads::{
     BRANCH_REF_PREFIX, UpstreamDistanceRead, malformed, parse_number, read_ref_heads,
 };
 
-// Records the newest commit of its own the tree's branch was seen holding.
-const RECORD_NEWEST_OWN_COMMIT_SQL: &str =
-    "UPDATE worktrees SET newest_own_commit = @commit, updated_at = @now WHERE id = @worktree_id";
+// Records the commit that holds the tree's branch's own work.
+const RECORD_OWN_WORK_COMMIT_SQL: &str =
+    "UPDATE worktrees SET own_work_commit = @commit, updated_at = @now WHERE id = @worktree_id";
 
 // The prefix of every remote-tracking branch's full ref name.
 const REMOTE_REF_PREFIX: &str = "refs/remotes/";
@@ -89,7 +89,7 @@ pub(super) enum MergedReadError {
 
 impl MergedCheck {
     /// Whether `tree`'s branch, checked out at `folder`, has merged back into its base, recording
-    /// on its row the newest commit of its own seen on it. Fails as git or the write does.
+    /// on its row the commit that holds its own work. Fails as git or the write does.
     pub(super) async fn has_merged_back(
         &mut self,
         deps: &WorkingFolderWatcherDeps,
@@ -109,28 +109,26 @@ impl MergedCheck {
             own_commit_to_record(git, place, folder, &tips.tip, &tips.targets).await?
         {
             // The tip holds work the base and its upstream lack, so neither contains it.
-            if tree.newest_own_commit.as_deref() != Some(own.as_str()) {
-                record_newest_own_commit(deps, tree, &own).await?;
+            if tree.own_work_commit.as_deref() != Some(own.as_str()) {
+                record_own_work_commit(deps, tree, &own).await?;
             }
         } else {
-            let recorded = if let Some(recorded) = &tree.newest_own_commit {
+            let recorded = if let Some(recorded) = &tree.own_work_commit {
                 recorded.clone()
             } else {
                 if count_past(git, place, folder, &tips.tip, &tips.targets).await? > 0 {
                     return Ok(false);
                 }
-                let Some(seed) =
-                    newest_own_commit_on(git, place, folder, &branch_ref, &tips).await?
-                else {
+                let Some(seed) = reflog_seed(git, place, folder, &branch_ref, &tips).await? else {
                     return Ok(false);
                 };
-                record_newest_own_commit(deps, tree, &seed).await?;
+                record_own_work_commit(deps, tree, &seed).await?;
                 seed
             };
             // Merged once the base or its upstream holds every commit of its own on the recorded
             // one, whether they hold the commit itself or took its lines by separate merges.
             let past = exclusions(&tips.targets);
-            match newest_own_commit_past(git, place, folder, &recorded, &past).await {
+            match newest_path_change_past(git, place, folder, &recorded, &past).await {
                 Ok(None) => return Ok(true),
                 Ok(Some(_)) => {}
                 Err(error) => {
@@ -176,11 +174,11 @@ impl MergedCheck {
             return Ok(None);
         };
         let mut past = tips.targets.clone();
-        past.extend(tree.newest_own_commit.iter().cloned());
+        past.extend(tree.own_work_commit.iter().cloned());
         match own_commit_to_record(git, place, folder, &tips.tip, &past).await {
             Ok(own) => Ok(own),
             // A recorded commit the repository no longer holds bounds nothing.
-            Err(error) => match &tree.newest_own_commit {
+            Err(error) => match &tree.own_work_commit {
                 Some(recorded) if !is_commit_held(git, place, folder, recorded).await? => {
                     own_commit_to_record(git, place, folder, &tips.tip, &tips.targets).await
                 }
@@ -286,11 +284,11 @@ async fn own_commit_to_record(
     past: &[String],
 ) -> Result<Option<String>, GitError> {
     let mut excluded = exclusions(past);
-    let Some(newest) = newest_own_commit_past(git, place, folder, commit, &excluded).await? else {
+    let Some(newest) = newest_path_change_past(git, place, folder, commit, &excluded).await? else {
         return Ok(None);
     };
     excluded.push(format!("^{newest}"));
-    let outside = newest_own_commit_past(git, place, folder, commit, &excluded).await?;
+    let outside = newest_path_change_past(git, place, folder, commit, &excluded).await?;
     Ok(Some(if outside.is_none() {
         newest
     } else {
@@ -305,7 +303,7 @@ fn exclusions(commits: &[String]) -> Vec<String> {
 
 // The newest commit `commit` holds that changes a path, merge commits left out, past the
 // `excluded` revisions (each `^<commit>`); `None` when there is none.
-async fn newest_own_commit_past(
+async fn newest_path_change_past(
     git: &GitRunner,
     place: Option<&Place>,
     folder: &Path,
@@ -323,7 +321,7 @@ async fn newest_own_commit_past(
 // The newest commit, amend or pick in the branch's reflog that changed a path and that the base or
 // its upstream holds; `None` when none did. It is read only while the branch's tip is contained,
 // so a commit the branch still holds is held there too.
-async fn newest_own_commit_on(
+async fn reflog_seed(
     git: &GitRunner,
     place: Option<&Place>,
     folder: &Path,
@@ -655,15 +653,16 @@ async fn read_with_input(
         .stdout)
 }
 
-/// Records `commit` on the row of the worktree `worktree_id` as the newest commit of its own seen
-/// on its branch.
-pub(super) fn newest_own_commit_statement(
+/// Records `commit` on the row of the worktree `worktree_id` as the commit that holds its branch's
+/// own work: its newest commit that changes a path, the tip where that commit lacks some of the
+/// work, or a reflog seed the base holds.
+pub(super) fn own_work_commit_statement(
     worktree_id: &WorktreeId,
     commit: &str,
     now: &WireInstant,
 ) -> WriteStatement {
     WriteStatement {
-        sql: RECORD_NEWEST_OWN_COMMIT_SQL.into(),
+        sql: RECORD_OWN_WORK_COMMIT_SQL.into(),
         bindings: StatementBindings::Named(vec![
             text_binding("@commit", commit),
             text_binding("@worktree_id", worktree_id.text().as_str()),
@@ -673,13 +672,13 @@ pub(super) fn newest_own_commit_statement(
     }
 }
 
-async fn record_newest_own_commit(
+async fn record_own_work_commit(
     deps: &WorkingFolderWatcherDeps,
     tree: &StandingTree,
     commit: &str,
 ) -> Result<(), WriteError> {
     deps.writer
-        .write(vec![newest_own_commit_statement(
+        .write(vec![own_work_commit_statement(
             &tree.row.id,
             commit,
             &WireInstant::now(),
