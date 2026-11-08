@@ -1,52 +1,34 @@
 // A stored edge names its handles by string, and a document must always open: the parse never
-// throws, and it keeps whether the string named a declared type so the save can refuse it.
+// throws, and it keeps whether the string named a declared type so the save can refuse it. The
+// daemon's parse reads the same case table, so both sides read a stored edge alike.
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
-import { parseWorkflowHandle } from "../handle.js";
+import { readCaseTable } from "../../../__tests__/case-table.test-support.js";
+import { WORKFLOW_HANDLE_MODES, WORKFLOW_HANDLE_TYPES, parseWorkflowHandle } from "../handle.js";
+
+const workflowHandleCases = readCaseTable(
+  z.array(
+    z
+      .object({
+        id: z.string(),
+        handle: z
+          .object({
+            mode: z.enum(WORKFLOW_HANDLE_MODES),
+            type: z.enum(WORKFLOW_HANDLE_TYPES),
+            index: z.int().nonnegative(),
+            isTypeKnown: z.boolean(),
+          })
+          .strict(),
+      })
+      .strict(),
+  ),
+  "workflow-handle.json",
+);
 
 describe("parseWorkflowHandle", () => {
-  it("reads the side, type and index of a declared handle", () => {
-    expect(parseWorkflowHandle("inputs/tool/0")).toEqual({
-      mode: "inputs",
-      type: "tool",
-      index: 0,
-      isTypeKnown: true,
-    });
-    expect(parseWorkflowHandle("outputs/main/12")).toEqual({
-      mode: "outputs",
-      type: "main",
-      index: 12,
-      isTypeKnown: true,
-    });
-  });
-
-  it("reads an unknown type as main on its own side and index, marked unknown", () => {
-    expect(parseWorkflowHandle("inputs/error/2")).toEqual({
-      mode: "inputs",
-      type: "main",
-      index: 2,
-      isTypeKnown: false,
-    });
-  });
-
-  it("falls back to the first main output for a string with no handle shape", () => {
-    for (const id of [
-      "",
-      "outputs/main",
-      "outputs/main/0/1",
-      "sideways/main/0",
-      "outputs/main/-1",
-      "outputs/main/1.5",
-      "outputs/main/01",
-      "outputs/main/99999999999999999999",
-      "outputs//0",
-    ]) {
-      expect(parseWorkflowHandle(id), id).toEqual({
-        mode: "outputs",
-        type: "main",
-        index: 0,
-        isTypeKnown: false,
-      });
-    }
+  // A string with no handle shape falls back to the first main output, marked unknown.
+  it.each(workflowHandleCases)("reads $id as its side, type and index", ({ id, handle }) => {
+    expect(parseWorkflowHandle(id)).toEqual(handle);
   });
 });

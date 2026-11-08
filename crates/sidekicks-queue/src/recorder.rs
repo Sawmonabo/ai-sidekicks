@@ -87,8 +87,8 @@ pub(crate) enum SendRoute {
     InterruptedRun,
     /// The waiting item the send edits, which reads superseded in the same write.
     Edit {
-        /// The item it replaces.
-        replaces: QueueItemRecord,
+        /// The item it replaces, boxed to keep the route small beside the others.
+        replaces: Box<QueueItemRecord>,
     },
 }
 
@@ -265,7 +265,7 @@ impl QueueRecorder {
                     &QueueItemExit::Superseded,
                     &item.now,
                 ));
-                Some(replaces)
+                Some(*replaces)
             }
         };
         let is_retry = retries.is_some();

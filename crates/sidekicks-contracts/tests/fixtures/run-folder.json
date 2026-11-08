@@ -1,0 +1,66 @@
+{
+  "posix": [
+    {
+      "system": "linux",
+      "runtimeFolder": "/run/user/1000",
+      "home": "/home/ada",
+      "folder": "/run/user/1000/ai-sidekicks"
+    },
+    {
+      "system": "linux",
+      "runtimeFolder": "/run/user/1000/",
+      "home": "/home/ada",
+      "folder": "/run/user/1000/ai-sidekicks"
+    },
+    {
+      "system": "linux",
+      "runtimeFolder": "",
+      "home": "/home/ada",
+      "folder": "/home/ada/.ai-sidekicks/run"
+    },
+    {
+      "system": "linux",
+      "runtimeFolder": null,
+      "home": "/home/ada/",
+      "folder": "/home/ada/.ai-sidekicks/run"
+    },
+    {
+      "system": "darwin",
+      "runtimeFolder": "/run/user/1000",
+      "home": "/Users/ada",
+      "folder": "/Users/ada/.ai-sidekicks/run"
+    },
+    {
+      "system": "darwin",
+      "runtimeFolder": "/run/user/1000/",
+      "home": "/Users/ada",
+      "folder": "/Users/ada/.ai-sidekicks/run"
+    },
+    {
+      "system": "darwin",
+      "runtimeFolder": "",
+      "home": "/Users/ada",
+      "folder": "/Users/ada/.ai-sidekicks/run"
+    },
+    {
+      "system": "darwin",
+      "runtimeFolder": null,
+      "home": "/Users/ada/",
+      "folder": "/Users/ada/.ai-sidekicks/run"
+    }
+  ],
+  "windows": [
+    {
+      "localAppData": "C:\\Users\\Ada\\AppData\\Local",
+      "userSid": "S-1-5-21-1004336348-1177238915-682003330-1001",
+      "folder": "C:\\Users\\Ada\\AppData\\Local\\ai-sidekicks\\run",
+      "pipe": "\\\\.\\pipe\\ai-sidekicks-S-1-5-21-1004336348-1177238915-682003330-1001"
+    },
+    {
+      "localAppData": "D:\\Profiles\\Ada\\Local\\",
+      "userSid": "S-1-5-21-1004336348-1177238915-682003330-1001",
+      "folder": "D:\\Profiles\\Ada\\Local\\ai-sidekicks\\run",
+      "pipe": "\\\\.\\pipe\\ai-sidekicks-S-1-5-21-1004336348-1177238915-682003330-1001"
+    }
+  ]
+}

@@ -127,10 +127,19 @@ impl From<SessionWriteError> for HandlerError {
     }
 }
 
-/// Writes `change` only while `session_id` has a directory row, the check and the change in one
-/// write, so a purge cannot land between them, and returns what `change` did. Fails with
-/// [`SessionWriteError::Refused`] (`session.notFound`) for a session with no row, and with
-/// [`SessionWriteError::Write`] when the write is not kept.
+// Where `write_while_session_exists` puts the session's check, the position a write refused for
+// a session with no row names.
+const SESSION_CHECK_STATEMENT_INDEX: usize = 0;
+
+/// Where [`write_while_session_exists`] puts the change, the position a write refused by the
+/// change's own row count names.
+pub const SESSION_CHANGE_STATEMENT_INDEX: usize = 1;
+
+/// Writes `change` only while `session_id` has a directory row, the check at the write's start and
+/// the change at [`SESSION_CHANGE_STATEMENT_INDEX`] in one write, so a purge cannot land between
+/// them, and returns what `change` did. Fails with [`SessionWriteError::Refused`]
+/// (`session.notFound`) for a session with no row, and with [`SessionWriteError::Write`] when the
+/// write is not kept, a refusal of the change at [`SESSION_CHANGE_STATEMENT_INDEX`] among it.
 pub async fn write_while_session_exists(
     writer: &DatabaseWriter,
     session_id: &SessionId,
@@ -140,11 +149,10 @@ pub async fn write_while_session_exists(
         .write(vec![session_exists_statement(session_id), change])
         .await
     {
-        Ok(mut results) => Ok(results
-            .pop()
-            .expect("a committed write answers for each of its two statements")),
+        Ok(mut results) => Ok(results.swap_remove(SESSION_CHANGE_STATEMENT_INDEX)),
         Err(WriteError::Refused {
-            statement_index: 0, ..
+            statement_index: SESSION_CHECK_STATEMENT_INDEX,
+            ..
         }) => Err(session_not_found(session_id).into()),
         Err(error) => Err(error.into()),
     }

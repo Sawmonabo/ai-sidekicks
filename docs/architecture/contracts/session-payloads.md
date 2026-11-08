@@ -226,9 +226,11 @@ interface SessionRecord {
   // The working-folder move a run boundary will apply, the folder it moves to, or null when none is
   // pending (`session.workingFolder.update` below).
   pendingWorkingFolder: { path: string } | null;
-  // The daemon-held composer store below: the whole unsent draft (empty when there is none) and the whole
-  // staged set, so every device opens the same half-written message.
-  draft: string;
+  // The daemon-held composer store below: the whole unsent draft (empty when there is none) with its
+  // revision, and the whole staged set, so every device opens the same half-written message. The
+  // revision is what a save carries back as `expectedRevision`: 0 before any save, and one more at
+  // each save and at each message a Stop or an interrupt puts back into it.
+  heldDraft: HeldSessionDraft;
   attachments: SessionAttachmentSummary[];
   // This session's OWN bound on how many steps one turn may take, absent where the person set none —
   // in which case the machine's own Runtime value applies, and where that is unset the turn is
@@ -374,14 +376,59 @@ interface SessionWorkingFolderUpdateResponse {
 // message or review reaches the person's other devices, and Send needs no upload step because the
 // file was already copied. Typed unsent text is NEVER written to renderer-local storage.
 
-// SessionDraftUpdate — session.draft.update.
+// The unsent draft, whole: its words and what rides with them, in the shapes
+// `agent.queueItem.create` takes ([Run Control Payload Contracts](run-control-payloads.md)), so a
+// draft sends again as it was. A draft the person saved and one a Stop or an interrupt's return to
+// the draft put back read the same: a lead message taken back joins the draft whole, its words on
+// their own line ahead of the held words, its files and skill picks after the held ones, and its
+// turn speed and repository only where the held draft names none; a file or a skill pick both
+// already hold is kept once, at its first place. `attachments` holds a returned message's files by
+// artifact id: they stay the artifacts they are, never moved into the staged set, and go out as
+// `agent.queueItem.create`'s `attachments` ids on the next send.
+interface SessionDraftExtras {
+  attachments?: ArtifactId[]; // the files, in staging order
+  skills?: { name: string; folderPath: string }[]; // the skills picked, in the order picked
+  outputSpeedForTurn?: string; // the speed its turn alone runs at
+  workspaceId?: WorkspaceId; // the repository the run its send starts binds to
+}
+interface SessionDraft {
+  text: string; // empty when no words are typed
+  extras: SessionDraftExtras; // `{}` when nothing rides with the words
+}
+
+// SessionDraftUpdate — session.draft.update. A save over a draft that changed since the client read
+// it, another device's save or a message a Stop or an interrupt put back, is refused with
+// `session.draft.revisionStale` and writes nothing; the client merges as `SessionDraftSubscribe`
+// says and saves over the newer revision.
 interface SessionDraftUpdateRequest {
   sessionId: SessionId;
-  text: string; // the whole draft; an empty string clears it
+  draft: SessionDraft; // the whole draft; an empty one, no words and no extras, clears it
+  expectedRevision: number; // the held draft's `revision` the save was typed over
 }
 interface SessionDraftUpdateResponse {
   sessionId: SessionId;
+  revision: number; // the draft's new revision
   updatedAt: string;
+}
+
+// SessionDraftSubscribe — session.draft.subscribe. Follows the session's draft outside its event
+// log: the held draft with its revision at once, then again after each save and after each Stop's
+// or interrupt's return to the draft commits, a slow reader sent only the newest; a wake that finds
+// the revision already sent sends nothing, and nothing is written to the session's history. The
+// composer keeps the text of the revision it last read or saved as its base; when a newer draft
+// arrives, or a save is refused stale, it merges three ways — the base, its own text and the newer
+// draft — so a returned message and the person's unsaved typing both survive, then saves over the
+// newer revision. While its own save is in flight it applies no draft this sends but keeps the
+// newest one, which may come before or after the save's reply. Once the save is taken it drops a
+// kept draft whose revision equals the reply's, which is that save coming back, and merges a newer
+// one; once the save is refused stale it merges against the kept draft, or the next one this sends
+// when none has come yet, and saves again, never reading the draft a second time.
+interface SessionDraftSubscribeRequest {
+  sessionId: SessionId;
+}
+interface HeldSessionDraft {
+  draft: SessionDraft;
+  revision: number; // 0 before any draft was held
 }
 
 // SessionAttachmentAdd — session.attachment.add. Staging COPIES each file to the daemon and keeps
@@ -795,6 +842,7 @@ The console's `session.*` operations beyond the [Plan-005](../../plans/005-local
 | `session.spendLimit.update` | `mutation` | `SessionSpendLimitUpdateRequest` | `SessionBudgetState` |
 | `session.tokensPerRun.update` | `mutation` | `SessionTokensPerRunUpdateRequest` | `SessionBudgetState` |
 | `session.draft.update` | `mutation` | `SessionDraftUpdateRequest` | `SessionDraftUpdateResponse` |
+| `session.draft.subscribe` | `subscription` | `SessionDraftSubscribeRequest` | `HeldSessionDraft` (stream) |
 | `session.attachment.add` | `mutation` | `SessionAttachmentAddRequest` | `SessionAttachmentAddResponse` |
 | `session.attachment.remove` | `mutation` | `SessionAttachmentRemoveRequest` | `SessionAttachmentRemoveResponse` |
 | `session.mute` | `mutation` | `SessionTargetRequest` | `EmptyPayload` |

@@ -9,6 +9,7 @@
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde::Deserialize;
 use sidekicks_contracts::event::declared_variants::ToolCallEndCause;
@@ -53,10 +54,10 @@ struct ClaudeKeptCallFile {
 lenient_object!(ClaudeKeptCallFile);
 
 impl ClaudeKeptCallFile {
-    // The ending a saved ending records: `completed` with its message, else the call's name and
-    // `completed`; `failed` the same way; `cancelled` stopped, with its message or no body; none
-    // for any other status.
-    fn into_ending(self) -> Option<ClaudeKeptCall> {
+    // The ending a saved ending, `saved_ending` as written, records: `completed` with its message,
+    // else the call's name and `completed`; `failed` the same way; `cancelled` stopped, with its
+    // message or no body; none for any other status.
+    fn into_ending(self, saved_ending: Arc<str>) -> Option<ClaudeKeptCall> {
         let message = self.status_message.filter(|message| !message.is_empty());
         let named = |ended: &str| {
             let server = self.server_name.as_deref().unwrap_or_default();
@@ -80,19 +81,25 @@ impl ClaudeKeptCallFile {
             ),
             _ => return None,
         };
-        Some(ClaudeKeptCall::Ended { outcome, text })
+        Some(ClaudeKeptCall::Ended {
+            outcome,
+            text,
+            saved_ending,
+        })
     }
 }
 
 /// What Claude Code keeps of one held call.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ClaudeKeptCall {
-    /// Its saved ending: how it ended and its body.
+    /// Its saved ending: how it ended, its body and the file's JSON as Claude Code wrote it.
     Ended {
         /// How it ended.
         outcome: ClaudeToolCallOutcome,
         /// Its body, none for a call cancelled with no message.
         text: Option<String>,
+        /// The saved ending's JSON as Claude Code wrote it, which the call's trace carries.
+        saved_ending: Arc<str>,
     },
     /// Its record alone: the call survives, still running.
     Recorded,
@@ -118,6 +125,14 @@ pub(crate) enum ClaudeHeldCallSettle {
 }
 
 impl ClaudeKeptCall {
+    /// The saved ending's JSON as Claude Code wrote it, where one is kept.
+    pub(crate) fn saved_ending(&self) -> Option<&str> {
+        match self {
+            Self::Ended { saved_ending, .. } => Some(saved_ending),
+            Self::Recorded | Self::Unkept => None,
+        }
+    }
+
     /// How the call ends once the process that held it is gone, settled for `settle`: as its saved
     /// ending says, else failed as ended with the process, or with the restart or the Stop after
     /// one, with no body; `None` when a process ended or the daemon restarted or stopped for a call
@@ -133,7 +148,7 @@ impl ClaudeKeptCall {
             None,
         );
         match self {
-            Self::Ended { outcome, text } => Some((outcome, text)),
+            Self::Ended { outcome, text, .. } => Some((outcome, text)),
             Self::Recorded => match settle {
                 ClaudeHeldCallSettle::ProcessExit
                 | ClaudeHeldCallSettle::Restart
@@ -317,7 +332,7 @@ pub(crate) async fn read_claude_kept_calls(
             continue;
         }
         let path = entry.path();
-        let Some(file) = read_kept_file(&path).await? else {
+        let Some((text, file)) = read_kept_file(&path).await? else {
             continue;
         };
         let Some((tool_use_id, file)) = file.and_then(|mut file| {
@@ -334,16 +349,16 @@ pub(crate) async fn read_claude_kept_calls(
         };
         if !is_saved_ending {
             kept.recorded.insert(tool_use_id);
-        } else if let Some(ending) = file.into_ending() {
+        } else if let Some(ending) = file.into_ending(text) {
             kept.endings.insert(tool_use_id, ending);
         }
     }
     Ok(kept)
 }
 
-// One kept file, read whole; `None` for one gone before its read, and `Some(None)` for one that
-// is no JSON object.
-async fn read_kept_file(path: &Path) -> io::Result<Option<Option<ClaudeKeptCallFile>>> {
+// One kept file, read whole: its text as decoded and its members, none for one that is no JSON
+// object; `None` for one gone before its read.
+async fn read_kept_file(path: &Path) -> io::Result<Option<(Arc<str>, Option<ClaudeKeptCallFile>)>> {
     let Some(file) = tokio::fs::File::open(path).await.none_if_missing()? else {
         return Ok(None);
     };
@@ -361,16 +376,18 @@ async fn read_kept_file(path: &Path) -> io::Result<Option<Option<ClaudeKeptCallF
             ),
         ));
     }
-    let text = decode_inbound_json(&bytes);
-    Ok(Some(
+    let text: Arc<str> = Arc::from(decode_inbound_json(&bytes));
+    let file =
         <ClaudeKeptCallFile as Lenient>::read(&mut serde_json::Deserializer::from_str(&text))
             .ok()
-            .flatten(),
-    ))
+            .flatten();
+    Ok(Some((text, file)))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use serde_json::json;
     use sidekicks_contracts::event::declared_variants::ToolCallEndCause;
 
@@ -392,17 +409,21 @@ mod tests {
         std::fs::create_dir_all(&kept).expect("the kept folder is made");
         std::fs::write(project.join(format!("{session_id}.jsonl")), "")
             .expect("the conversation file is written");
+        let cancelled = json!({
+            "toolUseId": "call-1",
+            "status": "cancelled",
+            "statusMessage": "server cancelled the export",
+            "serverName": "files",
+            "toolName": "export",
+        });
+        let completed = json!({
+            "toolUseId": "call-4",
+            "status": "completed",
+            "serverName": "files",
+            "toolName": "export",
+        });
         let files = [
-            (
-                "mcp-task-task-1.outcome.json",
-                json!({
-                    "toolUseId": "call-1",
-                    "status": "cancelled",
-                    "statusMessage": "server cancelled the export",
-                    "serverName": "files",
-                    "toolName": "export",
-                }),
-            ),
+            ("mcp-task-task-1.outcome.json", cancelled.clone()),
             (
                 "mcp-task-task-1.meta.json",
                 json!({"toolUseId": "call-1", "serverName": "files", "toolName": "export"}),
@@ -411,15 +432,7 @@ mod tests {
                 "mcp-task-task-2.meta.json",
                 json!({"toolUseId": "call-2", "serverName": "files", "toolName": "export"}),
             ),
-            (
-                "mcp-task-task-4.outcome.json",
-                json!({
-                    "toolUseId": "call-4",
-                    "status": "completed",
-                    "serverName": "files",
-                    "toolName": "export",
-                }),
-            ),
+            ("mcp-task-task-4.outcome.json", completed.clone()),
         ];
         for (name, contents) in files {
             std::fs::write(kept.join(name), contents.to_string()).expect("a kept file is written");
@@ -443,6 +456,7 @@ mod tests {
                     end_cause: Some(ToolCallEndCause::Stopped),
                 },
                 text: Some("server cancelled the export".to_owned()),
+                saved_ending: Arc::from(cancelled.to_string()),
             }
         );
         assert_eq!(calls.call("call-2", "task-2"), ClaudeKeptCall::Recorded);
@@ -454,6 +468,7 @@ mod tests {
             ClaudeKeptCall::Ended {
                 outcome: ClaudeToolCallOutcome::Completed,
                 text: Some("files/export completed".to_owned()),
+                saved_ending: Arc::from(completed.to_string()),
             }
         );
     }

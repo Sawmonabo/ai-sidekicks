@@ -62,10 +62,14 @@ pub(super) fn session_directory_schema_sql() -> String {
 -- The composer's unsent draft and the review notes on a session's diff.
 -- ---------------------------------------------------------------------------
 -- One row per session, so a half-typed message survives a restart and reaches
--- the person's other devices. An empty draft is no row: Send deletes it.
+-- the person's other devices. Send clears it to no words and no extras, and the
+-- row stays so its revision keeps counting. A lead message a Stop or an
+-- interrupt returns joins it whole.
 CREATE TABLE session_drafts (
   session_id  TEXT PRIMARY KEY,
   text        TEXT NOT NULL,
+  extras      TEXT,                             -- JSON: files, skill picks, turn speed, repository
+  revision    INTEGER NOT NULL CHECK (revision >= 1), -- one more at each save and return
   updated_at  TEXT NOT NULL                     -- RFC 3339 UTC, ms precision
 ) STRICT;
 

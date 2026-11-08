@@ -286,8 +286,8 @@ mod tests {
         open_database(&database_path, &store_schema())
             .expect("the fresh file opens")
             .execute(
-                "INSERT INTO session_drafts (session_id, text, updated_at)
-                 VALUES ('session', 'half typed', '2026-10-18T09:00:00.000Z')",
+                "INSERT INTO session_drafts (session_id, text, revision, updated_at)
+                 VALUES ('session', 'half typed', 1, '2026-10-18T09:00:00.000Z')",
                 [],
             )
             .expect("a row is written");

@@ -142,7 +142,11 @@ async fn nothing_past_the_scheme_and_host_leaves_and_user_info_moves_to_the_head
     );
     assert_eq!(unanswered.result, AttentionDeliveryResult::Unreachable);
     assert_eq!(shown_host(&saved).as_str(), format!("{scheme}://127.0.0.1"));
-    let requests = received.lock().expect("the double's record").clone();
+    let requests = received
+        .requests
+        .lock()
+        .expect("the double's record")
+        .clone();
     match credentials {
         Some(credentials) => {
             let [request] = requests.as_slice() else {
@@ -222,7 +226,11 @@ async fn every_attempt_verifies_with_one_id_one_body_and_its_own_timestamp(
         );
     }
 
-    let requests = received.lock().expect("the double's record").clone();
+    let requests = received
+        .requests
+        .lock()
+        .expect("the double's record")
+        .clone();
     let [first, second] = requests.as_slice() else {
         panic!("two attempts reached the double: {requests:?}");
     };

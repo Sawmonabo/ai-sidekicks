@@ -2,11 +2,14 @@
 //! test writer.
 
 use rusqlite::params;
+use serde_json::json;
 use sidekicks_contracts::artifacts::attachment_reference::AttachmentReferenceList;
 use sidekicks_contracts::artifacts::id::ArtifactId;
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::plan::PlanId;
+use sidekicks_contracts::repo::mount::WorkspaceId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::{PlanMessage, PlanMessageKind, QueueItemId};
+use sidekicks_contracts::run::queue::{PlanMessage, PlanMessageKind, QueueItemId, QueuedSkillPick};
 use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -21,8 +24,14 @@ use sidekicks_store::events::log_service::test_fixture::TestLog;
 pub(crate) enum Form {
     /// A lead message carrying only words.
     Words(&'static str),
-    /// A lead message carrying a file beside its words.
-    WithFiles(&'static str),
+    /// A lead message carrying the artifact `file`, a skill pick, the turn speed `speed` and, where
+    /// given, the repository `workspace` beside its words `text`.
+    WithExtras {
+        text: &'static str,
+        file: &'static str,
+        speed: &'static str,
+        workspace: Option<&'static str>,
+    },
     /// A helper's message carrying only words.
     Helper(&'static str),
     /// A review of the staged changes.
@@ -36,10 +45,27 @@ impl Form {
     pub(crate) fn body(self) -> QueueItemBody {
         match self {
             Self::Words(text) | Self::Helper(text) => QueueItemBody::Message(words(text)),
-            Self::WithFiles(text) => QueueItemBody::Message(QueueMessageBody {
+            Self::WithExtras {
+                text,
+                file,
+                speed,
+                workspace,
+            } => QueueItemBody::Message(QueueMessageBody {
                 attachments: Some(AttachmentReferenceList(vec![
-                    ArtifactId::try_from(mint_uuid_v7()).expect("a minted UUID is an artifact id"),
+                    ArtifactId::new(file).expect("a fixed artifact id"),
                 ])),
+                skills: Some(vec![
+                    serde_json::from_value(json!({ "name": "review", "path": "/skills/review" }))
+                        .expect("a resolved pick"),
+                ]),
+                skill_picks: Some(vec![QueuedSkillPick {
+                    name: FreeFormText::new("review".to_owned()).expect("a skill name"),
+                    folder_path: FilesystemPath::new("/skills/review".to_owned())
+                        .expect("a skill folder"),
+                }]),
+                output_speed_for_turn: Some(FreeFormText::new(speed.to_owned()).expect("a speed")),
+                workspace_id: workspace
+                    .map(|workspace| WorkspaceId::new(workspace).expect("a fixed repository id")),
                 ..words(text)
             }),
             Self::Review => QueueItemBody::Review {
