@@ -297,10 +297,7 @@ pub(crate) fn compose_codex_prose_piece(
         content_encoding: None,
         run_id: run.run_id,
         // An item is a message of one block, so its id alone names the block.
-        provider_block: Some(ProviderBlock {
-            index: SafeInt::new(0)?,
-            attempt: SafeInt::new(1)?,
-        }),
+        provider_block: Some(ProviderBlock::new(0, 1).expect("block 0 of response 1 is a block")),
         origin: None,
         source_epoch: None,
         source_position: None,
