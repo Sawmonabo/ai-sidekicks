@@ -166,8 +166,8 @@ mod tests {
     use sidekicks_contracts::method_descriptor::EmptyPayload;
     use sidekicks_ipc::registry::HandlerError;
     use sidekicks_platforms::CredentialStore as PlatformCredentialStore;
-    use sidekicks_provider::driver::contract::ProviderDriver;
     use sidekicks_provider::driver::contract::sign_in::McpServerAddressReading;
+    use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
     use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
     use sidekicks_std::mutex_lock::lock;
     use sidekicks_store::credential_store::service::KeychainService;
@@ -354,7 +354,8 @@ mod tests {
         Connector,
     }
 
-    // Killed by a sign-out answered success where no sign-in can exist.
+    // Killed by a sign-out answered success where no sign-in can exist, and for a connector by
+    // the connector check moved below `read_declarations` in `SignInTargetReads::read`.
     #[rstest]
     #[case::program(UnreachedBinding::Program)]
     #[case::connector(UnreachedBinding::Connector)]
@@ -375,7 +376,11 @@ mod tests {
                     scope_ref: test_provider_account_id(),
                     server_name: docs.server_name().clone(),
                 };
-                (connector, driver_declaring(Vec::new()))
+                // No inventory read can happen: the target read refuses a connector first, and no
+                // pending pass reads one, since none is started and none is owed.
+                let mut driver = MockProviderDriver::new();
+                driver.expect_read_mcp_servers().times(0);
+                (connector, driver)
             }
         };
         driver.expect_read_mcp_server_address().times(0);
