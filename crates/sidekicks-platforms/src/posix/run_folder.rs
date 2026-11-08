@@ -130,7 +130,7 @@ fn join_name(folder: OsString, name: &str) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
+    use std::ffi::{OsStr, OsString};
     use std::fs::{self, Permissions};
     use std::os::unix::fs::{PermissionsExt, symlink};
     use std::path::Path;
@@ -157,10 +157,18 @@ mod tests {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields, rename_all = "camelCase")]
     struct PosixCase {
-        system: String,
+        system: System,
         runtime_folder: Option<String>,
         home: String,
         folder: String,
+    }
+
+    /// The system a case resolves on, in Node's spelling.
+    #[derive(Debug, Deserialize, PartialEq, Eq)]
+    #[serde(rename_all = "lowercase")]
+    enum System {
+        Linux,
+        Darwin,
     }
 
     /// The table's macOS and Linux half.
@@ -173,16 +181,16 @@ mod tests {
     fn resolves_the_runtime_folder_on_linux_and_the_home_folder_otherwise() {
         let cases: RunFolderCases = serde_json::from_str(CASES).expect("the cases read");
         let system = if cfg!(target_os = "linux") {
-            "linux"
+            System::Linux
         } else {
-            "darwin"
+            System::Darwin
         };
         let cases: Vec<PosixCase> = cases
             .posix
             .into_iter()
             .filter(|case| case.system == system)
             .collect();
-        assert!(!cases.is_empty(), "the table holds cases for {system}");
+        assert!(!cases.is_empty(), "the table holds cases for {system:?}");
 
         for case in cases {
             let resolved = resolve_daemon_run_folder(
@@ -195,22 +203,27 @@ mod tests {
                 Path::new(&case.home),
             );
 
-            let expected = Path::new(&case.folder);
+            // Compared as bytes: a path's own equality ignores a doubled or trailing `/`.
+            let folder = &case.folder;
             let context = format!("{:?} under {}", case.runtime_folder, case.home);
-            assert_eq!(resolved.folder_path, expected, "{context}");
             assert_eq!(
-                resolved.socket_path,
-                expected.join("daemon.sock"),
+                resolved.folder_path.as_os_str(),
+                OsStr::new(folder),
                 "{context}"
             );
             assert_eq!(
-                resolved.token_path,
-                expected.join("daemon.token"),
+                resolved.socket_path.as_os_str(),
+                OsStr::new(&format!("{folder}/daemon.sock")),
                 "{context}"
             );
             assert_eq!(
-                resolved.status_path,
-                expected.join("service-status.json"),
+                resolved.token_path.as_os_str(),
+                OsStr::new(&format!("{folder}/daemon.token")),
+                "{context}"
+            );
+            assert_eq!(
+                resolved.status_path.as_os_str(),
+                OsStr::new(&format!("{folder}/service-status.json")),
                 "{context}"
             );
         }

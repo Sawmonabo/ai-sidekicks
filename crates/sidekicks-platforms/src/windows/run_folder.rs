@@ -100,7 +100,8 @@ pub fn check_private_run_folder(folder: &Path) -> Result<(), RunFolderRefused> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
+    use std::ffi::OsStr;
+    use std::path::Path;
     use std::process::{Command, Stdio};
 
     use serde::Deserialize;
@@ -188,17 +189,26 @@ mod tests {
             let resolved =
                 resolve_daemon_run_folder(Path::new(&case.local_app_data), &case.user_sid);
 
+            // Compared as text: a path's own equality ignores a doubled or trailing `\`.
             let folder = &case.folder;
-            assert_eq!(resolved.folder_path, PathBuf::from(folder), "{folder}");
-            assert_eq!(resolved.socket_path, PathBuf::from(&case.pipe), "{folder}");
             assert_eq!(
-                resolved.token_path,
-                PathBuf::from(format!(r"{folder}\daemon.token")),
+                resolved.folder_path.as_os_str(),
+                OsStr::new(folder),
                 "{folder}"
             );
             assert_eq!(
-                resolved.status_path,
-                PathBuf::from(format!(r"{folder}\service-status.json")),
+                resolved.socket_path.as_os_str(),
+                OsStr::new(&case.pipe),
+                "{folder}"
+            );
+            assert_eq!(
+                resolved.token_path.as_os_str(),
+                OsStr::new(&format!(r"{folder}\daemon.token")),
+                "{folder}"
+            );
+            assert_eq!(
+                resolved.status_path.as_os_str(),
+                OsStr::new(&format!(r"{folder}\service-status.json")),
                 "{folder}"
             );
         }
