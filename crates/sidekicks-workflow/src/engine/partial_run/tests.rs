@@ -573,3 +573,64 @@ fn a_loop_executes_whole_when_a_node_in_its_body_executes(
         (names(&["L", "X", "Y"]), reused_from(FIRST_RUN_ID, &["T"]))
     );
 }
+
+/// The loop `T → L`, its body `L → X → L` and its done output `L → D`, or with `Y` after `X` in the
+/// body where `has_second_body_node`, every node's step settled in one run.
+fn store_loop_run(connection: &Connection, has_second_body_node: bool) -> Value {
+    let mut nodes = vec![
+        node("L", "test.loop", 1, &json!({})),
+        node("X", "test.step", 2, &json!({})),
+        node("D", "test.step", 4, &json!({})),
+    ];
+    let mut edges = vec![("T", 0, "L", 0), ("L", 1, "X", 0), ("L", 0, "D", 0)];
+    let first_steps: &[(&str, &[(&str, u32)])] =
+        &[("T", &[]), ("L", &[("T", 0)]), ("X", &[("L", 1)])];
+    let mut steps = first_steps.to_vec();
+    if has_second_body_node {
+        nodes.push(node("Y", "test.step", 3, &json!({})));
+        edges.extend([("X", 0, "Y", 0), ("Y", 0, "L", 0)]);
+        steps.push(("Y", &[("X", 2)]));
+    } else {
+        edges.push(("X", 0, "L", 0));
+    }
+    steps.push(("D", &[("L", 1)]));
+    let loop_body = body(&nodes, &edges);
+    store_versions(connection, &loop_body, &loop_body);
+    store_run_steps(connection, FIRST_RUN_ID, FIRST_VERSION_ID, 1, &steps);
+    loop_body
+}
+
+/// `Run from here` on `D`, after a loop whose body is `X`, covers the body though `X` is no
+/// ancestor of `D`. Mutation: drop the covered loop's body from the covered set (`X` is left out).
+#[test]
+fn run_from_here_past_a_loop_covers_its_body() {
+    let connection = workflow_tables();
+    let loop_body = store_loop_run(&connection, false);
+    assert_eq!(
+        plan(
+            &connection,
+            &loop_body,
+            "D",
+            WorkflowNodeExecuteScope::FromHere
+        ),
+        (names(&["D"]), reused_from(FIRST_RUN_ID, &["T", "L", "X"]))
+    );
+}
+
+/// A run on `X` inside the body `L → X → Y → L` leaves `Y`, which follows `X`, out of both lists,
+/// and `L` executes because `X` does. Mutation: let a descendant of the target join the covered set
+/// (`Y` executes).
+#[test]
+fn no_run_covers_a_descendant_of_its_target() {
+    let connection = workflow_tables();
+    let loop_body = store_loop_run(&connection, true);
+    assert_eq!(
+        plan(
+            &connection,
+            &loop_body,
+            "X",
+            WorkflowNodeExecuteScope::FromHere
+        ),
+        (names(&["L", "X"]), reused_from(FIRST_RUN_ID, &["T"]))
+    );
+}

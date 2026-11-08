@@ -164,7 +164,7 @@ fn settled_step_from_row(node_id: &WorkflowNodeId, row: &Row<'_>) -> rusqlite::R
 }
 
 /// The plan of a partial run of `target_version`, whose run graph is `graph`, on the node `target`,
-/// which the graph holds, over `scope`: the target alone, or the target and its ancestors. The
+/// which the graph holds, over `scope`: the target alone, or the places [`covered_places`] names. The
 /// target always executes; a covered node executes when it has no settled step, when it is dirty,
 /// when its step was not fed by the steps the plan reuses for its feeders, or when
 /// [`executing_places`] says so; every other covered node reuses its step. Reads each covered
@@ -182,14 +182,10 @@ pub(crate) fn plan_partial_run(
     scope: WorkflowNodeExecuteScope,
 ) -> Result<PartialRunPlan, PartialRunPlanError> {
     let target_place = graph.place(target);
-    let mut covered: Vec<usize> = match scope {
+    let covered: Vec<usize> = match scope {
         WorkflowNodeExecuteScope::Node => vec![target_place],
-        WorkflowNodeExecuteScope::FromHere => graph
-            .ancestors(target_place)
-            .chain(iter::once(target_place))
-            .collect(),
+        WorkflowNodeExecuteScope::FromHere => covered_places(graph, target_place),
     };
-    covered.sort_unstable();
     let mut settled = read_settled_steps(
         connection,
         target_version.definition_id,
@@ -245,6 +241,32 @@ pub(crate) fn plan_partial_run(
         }
     }
     Ok(plan)
+}
+
+/// The places a run from the node at `target` covers, lowest first: the target and its ancestors,
+/// then the body of every covered loop, each node that joins bringing its own ancestors, until
+/// nothing joins. Each node joins once, and no descendant of the target joins, so a target inside a
+/// loop's body leaves the body after it out.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the workflow.node.execute handler")
+)]
+fn covered_places(graph: &RunGraph, target: usize) -> Vec<usize> {
+    let mut covered = FixedBitSet::with_capacity(graph.node_count());
+    let mut joining = vec![target];
+    while let Some(place) = joining.pop() {
+        if covered.contains(place) || graph.ancestors(place).any(|ancestor| ancestor == target) {
+            continue;
+        }
+        covered.insert(place);
+        joining.extend(graph.ancestors(place));
+        if graph.node(place).loop_output.is_some() {
+            joining.extend(
+                (0..graph.node_count()).filter(|&inside| graph.is_in_loop_body(inside, place)),
+            );
+        }
+    }
+    covered.ones().collect()
 }
 
 /// Whether `step` was fed by the very steps `settled` holds for its feeders: each slot's source is
