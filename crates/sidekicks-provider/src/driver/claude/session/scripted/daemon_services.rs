@@ -58,6 +58,8 @@ use crate::port::session_message_reading_publisher::{
     SessionMessageReading, SessionMessageReadingPublisher,
 };
 use crate::port::tool_call_status_publisher::ToolCallStatusPublisher;
+use crate::port::tool_traces::ToolTraces;
+use crate::port::tool_traces::test_port::KeptToolTraces;
 use crate::port::usage_sink::{
     MeteredUsage, PricedRequest, ProviderQuotaWindow, RecordedUsage, UsageSink,
 };
@@ -91,8 +93,8 @@ pub(crate) enum PortCall {
 pub(crate) type ScriptedProcessOpener =
     Arc<dyn Fn(SessionId) -> BoxFuture<'static, ()> + Send + Sync>;
 
-/// Approval ports, the queue's intake of taken messages, the status line intake and the session
-/// message readings, each recording what reaches it, and the queue's opening of a daemon turn's
+/// Approval ports, the queue's intake of taken messages, the status line intake, the session
+/// message readings and the tool traces, each recording what reaches it, and the queue's opening of a daemon turn's
 /// process once a test sets one, its refusal of every daemon turn's binding, or a live-only
 /// binding answered as one whose process was let go.
 #[derive(Default)]
@@ -103,6 +105,8 @@ pub(crate) struct RecordingPorts {
     process_opener: Mutex<Option<ScriptedProcessOpener>>,
     refuses_daemon_turn_bindings: AtomicBool,
     has_let_processes_go: AtomicBool,
+    /// The tool traces the driver records, its switch off until a test turns it on.
+    pub(crate) tool_traces: Arc<KeptToolTraces>,
 }
 
 impl RecordingPorts {
@@ -214,8 +218,8 @@ impl SessionMessageReadingPublisher for RecordingPorts {
 }
 
 /// Registers what a scripted driver composes over: `recording` as the approval ports, the queue's
-/// intake, the status line intake and the session message readings, every daemon turn on one
-/// binding, and a machine with no repositories.
+/// intake, the status line intake, the session message readings and the tool traces, every daemon
+/// turn on one binding, and a machine with no repositories.
 pub(super) fn register_scripted_ports(ports: &DriverPorts, recording: &Arc<RecordingPorts>) {
     ports
         .daemon_turn_bindings
@@ -245,6 +249,10 @@ pub(super) fn register_scripted_ports(ports: &DriverPorts, recording: &Arc<Recor
         .session_message_readings
         .register(recording.clone())
         .expect("the message readings register once");
+    ports
+        .tool_traces
+        .register(Arc::clone(&recording.tool_traces) as Arc<dyn ToolTraces>)
+        .expect("the tool traces register once");
 }
 
 /// A usage record that keeps each metered delta and each set of quota windows, and answers one set

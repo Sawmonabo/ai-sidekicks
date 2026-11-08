@@ -1,6 +1,9 @@
 //! The daemon's raw-message bucket as the drivers and the telemetry receiver reach it: each
 //! message a provider sent, kept as text while `Record raw provider messages` is on.
 
+#[cfg(test)]
+pub(crate) mod test_port;
+
 use std::sync::Arc;
 
 use futures::future::BoxFuture;

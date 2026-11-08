@@ -1,6 +1,9 @@
 //! The daemon's tool-trace bucket as the drivers reach it: one record per tool call, its arguments
 //! and result as the provider gave them, kept while `Record traces` is on.
 
+#[cfg(test)]
+pub(crate) mod test_port;
+
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
@@ -23,16 +26,18 @@ pub struct ToolTrace {
     pub tool_call_id: String,
     /// The tool's name in the provider's spelling.
     pub tool_name: String,
-    /// The arguments as the provider sent them, word for word.
+    /// The arguments as the provider gave them: word for word where the driver keeps the
+    /// message's text, as parsed where it reads the message whole.
     pub arguments: Box<RawValue>,
-    /// The result body as the provider sent it, word for word.
+    /// The result body as the provider gave it: word for word where the driver keeps the
+    /// message's text, as parsed where it reads the message whole.
     pub result: Box<RawValue>,
 }
 
 /// Where the drivers' tool traces are recorded.
 pub trait ToolTraces: Send + Sync {
-    /// Whether `Record traces` is on now. Asked before a trace is built, so nothing is built or
-    /// kept for one while it is off.
+    /// Whether `Record traces` is on now. Asked as a call's result arrives, before its trace is
+    /// built, so none is built while it is off.
     fn is_recording(&self) -> bool;
 
     /// Records `trace`, resolving once it is written; while `Record traces` is off it writes
@@ -40,7 +45,7 @@ pub trait ToolTraces: Send + Sync {
     fn record(&self, trace: ToolTrace) -> BoxFuture<'_, ()>;
 }
 
-/// Whether `tool_traces` is registered and recording now, so a driver keeps what a trace needs.
+/// Whether `tool_traces` is registered and recording now, so a driver builds a call's trace.
 pub(crate) fn is_recording_tool_traces(
     tool_traces: &PortRegistration<Arc<dyn ToolTraces>>,
 ) -> bool {

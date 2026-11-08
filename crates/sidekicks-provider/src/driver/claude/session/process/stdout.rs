@@ -151,11 +151,13 @@ impl ClaudeOutputReader {
         running_hooks: &mut HashSet<String>,
         raw_messages: &PortRegistration<Arc<dyn RawProviderMessages>>,
     ) {
-        let line = line.strip_suffix(b"\r").unwrap_or(line);
-        if line.iter().all(u8::is_ascii_whitespace) {
+        let stripped = line.strip_suffix(b"\r").unwrap_or(line);
+        if stripped.iter().all(u8::is_ascii_whitespace) {
             return;
         }
+        // Kept as read, a line's carriage return with it.
         record_raw_provider_message(raw_messages, || DESCRIPTOR.provider_id(), line).await;
+        let line = stripped;
         let text = decode_inbound_json(line);
         let Some(frame) = ClaudeStreamFrameRead::read(&text) else {
             // Fails closed: a line that is no frame is never routed as one.
@@ -278,6 +280,7 @@ mod tests {
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_platforms::ChildEnd;
     use sidekicks_std::mutex_lock::lock;
+    use sidekicks_std::port_registration::PortRegistration;
     use tokio::io::{AsyncRead, AsyncWriteExt, ReadBuf};
     use tokio::sync::watch;
 
@@ -300,6 +303,8 @@ mod tests {
     use crate::driver::diagnostics::RecordedEvents;
     use crate::driver::ports::DriverPorts;
     use crate::driver::session_control::SessionToolServer;
+    use crate::port::raw_provider_messages::RawProviderMessages;
+    use crate::port::raw_provider_messages::test_port::KeptRawMessages;
     use crate::runtime_binding::store::RuntimeBindingRebind;
     use crate::runtime_binding::test_store::test_provider_account_id;
     use crate::runtime_binding::writer::RuntimeBindingWriter;
@@ -625,6 +630,74 @@ mod tests {
         assert!(
             moves.contains(&(binding_id("resting"), moved_to, 2)),
             "the lead's resting binding moves at the answer, after the readings ahead: {moves:?}"
+        );
+    }
+
+    // Each line Claude Code writes reaches the raw-message port as read, its carriage return kept,
+    // and a call the lead opened while `Record traces` was off is traced at its result once the
+    // switch is on, its input and the result's content as Claude Code sent them. Killed by
+    // deleting the reader's tap (no message), by recording the line after its carriage return is
+    // cut, by deleting the stream's trace of a `user` frame (no trace), and by keeping a call's
+    // input only while the switch reads on at its start.
+    #[tokio::test(start_paused = true)]
+    async fn claude_codes_lines_and_a_calls_trace_are_recorded_as_sent() {
+        let session = ScriptedSession::new().await;
+        session.hold_lead_turn("lead");
+        let raw_messages = Arc::new(KeptRawMessages::default());
+        raw_messages.set_recording(true);
+        let registration = Arc::new(PortRegistration::new("raw provider messages"));
+        registration
+            .register(Arc::clone(&raw_messages) as Arc<dyn RawProviderMessages>)
+            .expect("the port registers once");
+        let call = format!(
+            concat!(
+                r#"{{"type":"assistant","session_id":"{}","message":{{"id":"message-1","#,
+                r#""role":"assistant","content":[{{"type":"tool_use","id":"call-1","#,
+                r#""name":"Bash","input":{{ "command" : "ls" }}}}]}}}}"#,
+            ),
+            SCRIPTED_PROVIDER_SESSION_ID
+        );
+        let result = format!(
+            concat!(
+                r#"{{"type":"user","session_id":"{}","message":{{"role":"user","content":"#,
+                r#"[{{"type":"tool_result","tool_use_id":"call-1","#,
+                r#""content":[{{"type":"text","text":"README.md"}}]}}]}}}}"#,
+                "\r",
+            ),
+            SCRIPTED_PROVIDER_SESSION_ID
+        );
+        let (mut provider, output) = tokio::io::duplex(4096);
+        let reading = tokio::spawn(session.output_reader().read(output, registration));
+
+        provider
+            .write_all(format!("{call}\n").as_bytes())
+            .await
+            .expect("the pipe takes the call");
+        settle().await;
+        session.ports.tool_traces.set_recording(true);
+        provider
+            .write_all(format!("{result}\n").as_bytes())
+            .await
+            .expect("the pipe takes the result");
+        drop(provider);
+        reading.await.expect("the reader ends");
+        settle().await;
+
+        let recorded: Vec<String> = raw_messages
+            .messages()
+            .into_iter()
+            .map(|(_, message)| message)
+            .collect();
+        assert_eq!(recorded, [call, result]);
+        let traces = session.ports.tool_traces.traces();
+        assert_eq!(traces.len(), 1, "the answered call is traced once");
+        assert_eq!(traces[0].session_id, session.session_id);
+        assert_eq!(traces[0].tool_call_id, "call-1");
+        assert_eq!(traces[0].tool_name, "Bash");
+        assert_eq!(traces[0].arguments.get(), r#"{ "command" : "ls" }"#);
+        assert_eq!(
+            traces[0].result.get(),
+            r#"[{"type":"text","text":"README.md"}]"#
         );
     }
 }

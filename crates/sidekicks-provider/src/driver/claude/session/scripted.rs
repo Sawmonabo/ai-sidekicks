@@ -11,7 +11,7 @@ pub(crate) mod starts;
 
 use std::io;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
 use futures::FutureExt;
@@ -28,7 +28,7 @@ use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_workspace::git::process::test_git_runner;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 use tempfile::TempDir;
-use tokio::sync::SetOnce;
+use tokio::sync::{SetOnce, watch};
 
 use self::channel::ScriptedChannel;
 use self::daemon_services::{
@@ -49,11 +49,14 @@ use crate::driver::claude::run::start::ClaudeRunStart;
 use crate::driver::claude::session::answered_commands::{
     ClaudeAttachedAdvisor, unreadable_claude_command_choices,
 };
+use crate::driver::claude::session::control_requests::ClaudeControlRequests;
 use crate::driver::claude::session::frame_observation::ClaudeStreamFrameRead;
 use crate::driver::claude::session::permission_level::claude_permission_mode_for;
 use crate::driver::claude::session::permission_mode::ClaudePermissionModeRecord;
 use crate::driver::claude::session::process::account::ClaudeProcessAccount;
-use crate::driver::claude::session::process::{ClaudeProcessListener, ClaudeStreamFrame};
+use crate::driver::claude::session::process::{
+    ClaudeOutputReader, ClaudeProcessListener, ClaudeStreamFrame,
+};
 use crate::driver::claude::session::state::{
     ClaudeLiveSettings, ClaudeRequestedSpawn, ClaudeSpawnBinding, LiveClaudeSession,
 };
@@ -307,6 +310,20 @@ impl ScriptedSession {
     /// Hands the reader's next stream frame over, as the process wrote it.
     pub(crate) fn frame(&self, frame: &Value) {
         hand_scripted_frame(&*self.listener, &self.start.routes, self.session_id, frame);
+    }
+
+    /// A reader of the session's process output, handing each line's frame to the session as the
+    /// process's own reader does; no control request of the session waits on it.
+    pub(crate) fn output_reader(&self) -> ClaudeOutputReader {
+        ClaudeOutputReader::new(
+            ClaudeControlRequests::new(Arc::new(|_request_id: &str| {})),
+            Arc::clone(&self.listener),
+            None,
+            watch::channel(0).0,
+            Weak::new(),
+            self.live.provider_session_id.clone(),
+            ClaudeProcessAccount::default(),
+        )
     }
 
     /// Ends the session's process, as its reader would on an exit nothing asked for.

@@ -383,6 +383,7 @@ mod tests {
     };
     use crate::bearer_token::BearerToken;
     use crate::port::raw_provider_messages::RawProviderMessages;
+    use crate::port::raw_provider_messages::test_port::KeptRawMessages;
 
     // A reader that keeps each export it takes.
     #[derive(Default)]
@@ -391,24 +392,6 @@ mod tests {
     impl TelemetryExportReader for KeptExports {
         fn read_telemetry_export(&self, export: TelemetryExport) -> BoxFuture<'_, ()> {
             lock(&self.0).push(export);
-            Box::pin(std::future::ready(()))
-        }
-    }
-
-    // A raw-messages port whose switch a test sets, keeping each message it records.
-    #[derive(Default)]
-    struct KeptRawMessages {
-        is_recording: AtomicBool,
-        messages: Mutex<Vec<(ProviderId, String)>>,
-    }
-
-    impl RawProviderMessages for KeptRawMessages {
-        fn is_recording(&self) -> bool {
-            self.is_recording.load(Ordering::SeqCst)
-        }
-
-        fn record(&self, provider: ProviderId, message: String) -> BoxFuture<'_, ()> {
-            lock(&self.messages).push((provider, message));
             Box::pin(std::future::ready(()))
         }
     }
@@ -657,12 +640,9 @@ mod tests {
             .expect("an answer");
         assert_eq!(off.status(), StatusCode::OK);
         assert_eq!(lock(&served.exports.0).len(), 1);
-        assert!(lock(&served.raw_messages.messages).is_empty());
+        assert_eq!(served.raw_messages.messages(), []);
 
-        served
-            .raw_messages
-            .is_recording
-            .store(true, Ordering::SeqCst);
+        served.raw_messages.set_recording(true);
         let on = served
             .export("/telemetry/codex/v1/logs")
             .body(logs_body())
@@ -670,7 +650,7 @@ mod tests {
             .await
             .expect("an answer");
         assert_eq!(on.status(), StatusCode::OK);
-        let messages = lock(&served.raw_messages.messages);
+        let messages = served.raw_messages.messages();
         assert_eq!(messages.len(), 1);
         let (provider, message) = &messages[0];
         assert_eq!(provider, &codex());
