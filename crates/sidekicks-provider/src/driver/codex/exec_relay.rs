@@ -330,6 +330,12 @@ impl CodexExecRelay {
         }
     }
 
+    /// Acts as the relay does once its running executor ended, without ending one.
+    #[cfg(test)]
+    pub(crate) fn report_executor_ended(&self) {
+        (self.on_executor_ended)();
+    }
+
     /// How many process starts Codex sent through the relay.
     #[cfg(test)]
     pub(crate) fn process_starts(&self) -> u64 {

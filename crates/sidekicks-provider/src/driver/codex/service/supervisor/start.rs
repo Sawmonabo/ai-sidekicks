@@ -290,9 +290,9 @@ async fn start_relayed_service(
     }
 }
 
-// The relay of `service`, reading its conversations' sessions and telling the service's events
-// when its executor ends while the service is up, so a restart brings a new one up.
-fn compose_exec_relay(service: &Arc<CodexService>) -> Arc<CodexExecRelay> {
+/// The relay of `service`, reading its conversations' sessions and telling the service's events
+/// when its executor ends while the service is up, so a restart brings a new one up.
+pub(crate) fn compose_exec_relay(service: &Arc<CodexService>) -> Arc<CodexExecRelay> {
     let threads = Arc::downgrade(service);
     let restarts = Arc::downgrade(service);
     CodexExecRelay::new(
