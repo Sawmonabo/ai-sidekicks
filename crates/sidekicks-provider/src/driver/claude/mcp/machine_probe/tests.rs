@@ -37,6 +37,7 @@ use crate::driver::claude::spawn::launch::installed_build::{
 use crate::driver::contract::error::DriverError;
 use crate::driver::mcp_server::read::{McpProbeReading, McpProbeTarget};
 use crate::driver::mcp_server::status::McpServerReading;
+use crate::driver::ports::DriverPorts;
 use crate::driver::test_registry::registered_test_accounts;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::runtime_binding::test_store::test_provider_account_id;
@@ -610,6 +611,7 @@ async fn a_real_claude_code_probe_reads_a_sent_server_connected_with_its_tools()
             Arc::new(UnrecordedChildren),
             Arc::new(ProviderProcessRegistry::default()),
             registered_test_accounts(CurrentProviderAccount::NoneRegistered),
+            DriverPorts::new().raw_provider_messages,
             home.path(),
         )),
         Arc::new(ProviderCommandSearch::new(spawner)),

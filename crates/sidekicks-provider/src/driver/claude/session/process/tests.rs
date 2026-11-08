@@ -17,6 +17,7 @@ use super::{
 use crate::driver::child_records::{DaemonChildRecords, SPAWN_NONCE_ENVIRONMENT_NAME};
 use crate::driver::claude::session::control_requests::ClaudeControlRequests;
 use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
+use crate::driver::ports::DriverPorts;
 use crate::process_registry::ProviderProcessRegistry;
 
 /// The nonce the recording records hand every child.
@@ -97,6 +98,7 @@ async fn a_claude_code_process_is_recorded_from_its_start_to_its_reap() {
         launch,
         Arc::new(NoSession::default()),
         None,
+        DriverPorts::new().raw_provider_messages,
     )
     .await
     .expect("the process starts");
@@ -152,6 +154,7 @@ async fn a_stop_with_a_deadline_kills_a_process_that_ignores_its_input_and_its_s
         launch,
         Arc::clone(&listener) as Arc<dyn ClaudeProcessListener>,
         None,
+        DriverPorts::new().raw_provider_messages,
     )
     .await
     .expect("the process starts");
@@ -223,7 +226,7 @@ async fn initialize_waits_its_deadline_only_outside_the_startup_hooks() {
         "conversation".to_owned(),
         ClaudeProcessAccount::default(),
     );
-    let reading = tokio::spawn(reader.read(output));
+    let reading = tokio::spawn(reader.read(output, DriverPorts::new().raw_provider_messages));
     let deadline = tokio::spawn(wait_out_startup_deadline(running_hooks.clone()));
     settle_tasks().await;
 

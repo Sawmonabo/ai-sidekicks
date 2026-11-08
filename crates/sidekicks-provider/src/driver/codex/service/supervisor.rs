@@ -86,6 +86,7 @@ use crate::driver::codex::transport::socket::{CodexSocketWait, dial_codex_servic
 use crate::driver::codex::version::CODEX_CLIENT_NAME;
 use crate::driver::contract::error::DriverError;
 use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::port::raw_provider_messages::RawProviderMessages;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::spawned_version::{ResolvedProviderExecutable, SpawnedProviderVersionReading};
@@ -151,6 +152,8 @@ pub(crate) struct CodexServiceDependencies {
     pub(crate) switching: Arc<CodexSwitchingAccount>,
     /// The accounts reader, which an API-key account's key is read through at each start.
     pub(crate) provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
+    /// Where every message a service sends on a connection is recorded word for word.
+    pub(crate) raw_messages: Arc<PortRegistration<Arc<dyn RawProviderMessages>>>,
 }
 
 /// The socket one service listens on.
@@ -515,6 +518,7 @@ impl CodexService {
             events,
             responder: None,
             token_refresher: self.token_refresher(),
+            raw_messages: Arc::clone(&self.dependencies.raw_messages),
         }
     }
 
@@ -799,6 +803,7 @@ impl CodexService {
             responder: Some(Arc::new(CodexServiceAsks::new(Arc::downgrade(self)))
                 as Arc<dyn CodexServerRequestResponder>),
             token_refresher: self.token_refresher(),
+            raw_messages: Arc::clone(&self.dependencies.raw_messages),
         }
     }
 

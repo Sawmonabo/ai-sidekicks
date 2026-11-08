@@ -3,6 +3,7 @@
 //! tool is named by its item type, a tool server's or a daemon tool's by the provider's own tool
 //! name.
 
+use serde_json::value::to_raw_value;
 use serde_json::{Map, Value};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::event::declared_variants::{RunAgentOutputPayload, ToolActivityPayload};
@@ -19,8 +20,10 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::text_cut::cut_to_code_points;
 use sidekicks_store::transcript::whole_patch::{omitted_patches_of, stored_patch_files_body};
 
+use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::delivery::patches::read_codex_patch_files;
 use crate::driver::reorder_buffer::{ReorderBufferedEvent, ReorderPairingRole};
+use crate::port::tool_traces::ToolTrace;
 use crate::record_readers::{read_count, read_non_empty_string};
 use crate::run::delivery::DeliveryOperation;
 use crate::run::delivery::LateAppendableRow;
@@ -371,20 +374,48 @@ fn stringify(value: Option<&Value>) -> Option<String> {
 
 // What a tool call's start shows: the command, the files, or the arguments it was called with.
 fn read_invocation_body(item: &Map<String, Value>) -> Option<String> {
-    match item_type(item)? {
-        "commandExecution" => stringify(item.get("command")),
-        "fileChange" => {
-            let paths: Vec<String> = read_codex_patch_files(item)
-                .iter()
-                .map(|file| file.path().as_str().to_owned())
-                .collect();
-            Some(Value::from(paths).to_string())
-        }
-        "webSearch" => stringify(item.get("query")),
-        "imageView" => stringify(item.get("path")),
-        CODEX_COLLAB_AGENT_TOOL_CALL_ITEM_TYPE => stringify(item.get("prompt")),
-        _ => stringify(item.get("arguments")),
+    if item_type(item)? == "fileChange" {
+        let paths: Vec<String> = read_codex_patch_files(item)
+            .iter()
+            .map(|file| file.path().as_str().to_owned())
+            .collect();
+        return Some(Value::from(paths).to_string());
     }
+    stringify(read_invocation_member(item))
+}
+
+// The member a tool item carries its call's arguments in.
+fn read_invocation_member(item: &Map<String, Value>) -> Option<&Value> {
+    item.get(match item_type(item)? {
+        "commandExecution" => "command",
+        "fileChange" => "changes",
+        "webSearch" => "query",
+        "imageView" => "path",
+        CODEX_COLLAB_AGENT_TOOL_CALL_ITEM_TYPE => "prompt",
+        _ => "arguments",
+    })
+}
+
+/// The trace of a finished tool item of `session_id`: the member it carries its arguments in as
+/// its arguments, `null` where it carries none, and the whole finished item as its result; `None`
+/// for an item that is no tool call or names no id.
+pub(crate) fn read_codex_tool_trace(
+    item: &Map<String, Value>,
+    session_id: SessionId,
+) -> Option<ToolTrace> {
+    let tool_call_id = read_non_empty_string(item, "id")?;
+    if !is_codex_tool_item(item) {
+        return None;
+    }
+    Some(ToolTrace {
+        session_id,
+        provider: DESCRIPTOR.provider_id(),
+        tool_call_id: tool_call_id.to_owned(),
+        tool_name: read_tool_name(item).to_owned(),
+        arguments: to_raw_value(read_invocation_member(item).unwrap_or(&Value::Null))
+            .expect("a JSON value writes as JSON"),
+        result: to_raw_value(item).expect("a JSON object writes as JSON"),
+    })
 }
 
 // The files a file change's end names, so its body is stored in parts; none on another item.

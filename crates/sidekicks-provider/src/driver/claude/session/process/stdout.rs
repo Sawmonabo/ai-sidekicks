@@ -11,6 +11,7 @@ use std::sync::{Arc, Weak};
 use futures::StreamExt;
 use serde_json::Map;
 use sidekicks_platforms::ChildEnd;
+use sidekicks_std::port_registration::PortRegistration;
 use tokio::io::AsyncRead;
 use tokio::sync::watch;
 use tokio_util::codec::{AnyDelimiterCodec, AnyDelimiterCodecError, FramedRead};
@@ -33,6 +34,7 @@ use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics, emit_driver_diagnostic,
 };
 use crate::inbound_json::decode_inbound_json;
+use crate::port::raw_provider_messages::{RawProviderMessages, record_raw_provider_message};
 
 /// The ceiling on one output line, in bytes; Claude Code publishes no limit. It stops a process
 /// from growing one line until the daemon runs out of memory.
@@ -94,7 +96,12 @@ impl ClaudeOutputReader {
 
     /// Reads `output` to its end, or until a line passes the ceiling, which records the
     /// diagnostic, or the output fails to read, which logs it; either asks the process to stop.
-    pub(crate) async fn read<Output: AsyncRead + Unpin>(mut self, output: Output) {
+    /// Each line that is not blank goes to `raw_messages` as read, before it is routed.
+    pub(crate) async fn read<Output: AsyncRead + Unpin>(
+        mut self,
+        output: Output,
+        raw_messages: Arc<PortRegistration<Arc<dyn RawProviderMessages>>>,
+    ) {
         let codec = AnyDelimiterCodec::new_with_max_length(
             b"\n".to_vec(),
             Vec::new(),
@@ -104,7 +111,10 @@ impl ClaudeOutputReader {
         let mut running_hooks = HashSet::new();
         while let Some(line) = lines.next().await {
             match line {
-                Ok(line) => self.read_line(&line, &mut running_hooks),
+                Ok(line) => {
+                    self.read_line(&line, &mut running_hooks, &raw_messages)
+                        .await;
+                }
                 // The codec reads nothing more after its error, which is no clean end of output.
                 Err(AnyDelimiterCodecError::MaxChunkLengthExceeded) => {
                     emit_driver_diagnostic(&self.compose_record(
@@ -135,11 +145,19 @@ impl ClaudeOutputReader {
         }
     }
 
-    fn read_line(&mut self, line: &[u8], running_hooks: &mut HashSet<String>) {
-        let line = line.strip_suffix(b"\r").unwrap_or(line);
-        if line.iter().all(u8::is_ascii_whitespace) {
+    async fn read_line(
+        &mut self,
+        line: &[u8],
+        running_hooks: &mut HashSet<String>,
+        raw_messages: &PortRegistration<Arc<dyn RawProviderMessages>>,
+    ) {
+        let stripped = line.strip_suffix(b"\r").unwrap_or(line);
+        if stripped.iter().all(u8::is_ascii_whitespace) {
             return;
         }
+        // Kept as read, a line's carriage return with it.
+        record_raw_provider_message(raw_messages, || DESCRIPTOR.provider_id(), line).await;
+        let line = stripped;
         let text = decode_inbound_json(line);
         let Some(frame) = ClaudeStreamFrameRead::read(&text) else {
             // Fails closed: a line that is no frame is never routed as one.
@@ -262,6 +280,7 @@ mod tests {
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_platforms::ChildEnd;
     use sidekicks_std::mutex_lock::lock;
+    use sidekicks_std::port_registration::PortRegistration;
     use tokio::io::{AsyncRead, AsyncWriteExt, ReadBuf};
     use tokio::sync::watch;
 
@@ -275,6 +294,7 @@ mod tests {
         ClaudeProcessEnd, ClaudeProcessListener, ClaudeStreamFrame,
     };
     use crate::driver::claude::session::scripted::daemon_services::RecordingUsage;
+    use crate::driver::claude::session::scripted::held_calls::init;
     use crate::driver::claude::session::scripted::{
         SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
     };
@@ -282,7 +302,10 @@ mod tests {
     use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
     use crate::driver::claude::session::transport::user_message::ClaudeWriteAttempt;
     use crate::driver::diagnostics::RecordedEvents;
+    use crate::driver::ports::DriverPorts;
     use crate::driver::session_control::SessionToolServer;
+    use crate::port::raw_provider_messages::RawProviderMessages;
+    use crate::port::raw_provider_messages::test_port::KeptRawMessages;
     use crate::runtime_binding::store::RuntimeBindingRebind;
     use crate::runtime_binding::test_store::test_provider_account_id;
     use crate::runtime_binding::writer::RuntimeBindingWriter;
@@ -353,7 +376,7 @@ mod tests {
             .expect("the pipe takes the lines");
         drop(provider);
         reader(requests, Arc::clone(&listener), Weak::new())
-            .read(output)
+            .read(output, DriverPorts::new().raw_provider_messages)
             .await;
 
         let answer = pending
@@ -403,7 +426,7 @@ mod tests {
                         Arc::new(HeldFrames::default()),
                         Arc::downgrade(&ends_sender),
                     )
-                    .read(output)
+                    .read(output, DriverPorts::new().raw_provider_messages)
                     .await;
                     writing
                         .await
@@ -442,7 +465,7 @@ mod tests {
             Arc::new(HeldFrames::default()),
             Arc::downgrade(&ends_sender),
         )
-        .read(UnreadableOutput)
+        .read(UnreadableOutput, DriverPorts::new().raw_provider_messages)
         .await;
 
         assert_eq!(*ends.borrow(), Some(ChildEnd::Stop));
@@ -571,7 +594,7 @@ mod tests {
             .expect("the pipe takes the answer");
         drop(provider);
         reader(requests, Arc::new(HeldFrames::default()), Weak::new())
-            .read(output)
+            .read(output, DriverPorts::new().raw_provider_messages)
             .await;
         session.frame(&usage_message("lead-after", None, 20));
         session.frame(&usage_message("helper-after", Some("helper"), 40));
@@ -608,6 +631,75 @@ mod tests {
         assert!(
             moves.contains(&(binding_id("resting"), moved_to, 2)),
             "the lead's resting binding moves at the answer, after the readings ahead: {moves:?}"
+        );
+    }
+
+    // Each line Claude Code writes reaches the raw-message port as read, its carriage return kept,
+    // and a call the lead opened while `Record traces` was off is traced at its result once the
+    // switch is on, its input and the result's content as Claude Code sent them. Killed by
+    // deleting the reader's tap (no message), by recording the line after its carriage return is
+    // cut, by deleting the stream's trace of a `user` frame (no trace), and by keeping a call's
+    // input only while the switch reads on at its start.
+    #[tokio::test(start_paused = true)]
+    async fn claude_codes_lines_and_a_calls_trace_are_recorded_as_sent() {
+        let session = ScriptedSession::new().await;
+        session.hold_lead_turn("lead");
+        let raw_messages = Arc::new(KeptRawMessages::default());
+        raw_messages.set_recording(true);
+        let registration = Arc::new(PortRegistration::new("raw provider messages"));
+        registration
+            .register(Arc::clone(&raw_messages) as Arc<dyn RawProviderMessages>)
+            .expect("the port registers once");
+        let call = format!(
+            concat!(
+                r#"{{"type":"assistant","session_id":"{}","message":{{"id":"message-1","#,
+                r#""role":"assistant","content":[{{"type":"tool_use","id":"call-1","#,
+                r#""name":"Bash","input":{{ "command" : "ls" }}}}]}}}}"#,
+            ),
+            SCRIPTED_PROVIDER_SESSION_ID
+        );
+        let result = format!(
+            concat!(
+                r#"{{"type":"user","session_id":"{}","message":{{"role":"user","content":"#,
+                r#"[{{"type":"tool_result","tool_use_id":"call-1","#,
+                r#""content":[{{"type":"text","text":"README.md"}}]}}]}}}}"#,
+                "\r",
+            ),
+            SCRIPTED_PROVIDER_SESSION_ID
+        );
+        let init = init().to_string();
+        let (mut provider, output) = tokio::io::duplex(4096);
+        let reading = tokio::spawn(session.output_reader().read(output, registration));
+
+        provider
+            .write_all(format!("{init}\n{call}\n").as_bytes())
+            .await
+            .expect("the pipe takes the call");
+        settle().await;
+        session.ports.tool_traces.set_recording(true);
+        provider
+            .write_all(format!("{result}\n").as_bytes())
+            .await
+            .expect("the pipe takes the result");
+        drop(provider);
+        reading.await.expect("the reader ends");
+        settle().await;
+
+        let recorded: Vec<String> = raw_messages
+            .messages()
+            .into_iter()
+            .map(|(_, message)| message)
+            .collect();
+        assert_eq!(recorded, [init, call, result]);
+        let traces = session.ports.tool_traces.traces();
+        assert_eq!(traces.len(), 1, "the answered call is traced once");
+        assert_eq!(traces[0].session_id, session.session_id);
+        assert_eq!(traces[0].tool_call_id, "call-1");
+        assert_eq!(traces[0].tool_name, "Bash");
+        assert_eq!(traces[0].arguments.get(), r#"{ "command" : "ls" }"#);
+        assert_eq!(
+            traces[0].result.get(),
+            r#"[{"type":"text","text":"README.md"}]"#
         );
     }
 }
