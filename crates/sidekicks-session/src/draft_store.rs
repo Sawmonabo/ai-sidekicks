@@ -43,7 +43,6 @@ static JOIN_RETURNED_DRAFT_SQL: LazyLock<String> = LazyLock::new(|| {
   VALUES (@sessionId, @text, @extras, @updatedAt)
   ON CONFLICT (session_id) DO UPDATE SET
     text = CASE WHEN session_drafts.text = '' THEN excluded.text
-                WHEN excluded.text = '' THEN session_drafts.text
                 ELSE excluded.text || char(10) || session_drafts.text END,
     extras = CASE WHEN excluded.extras IS NULL THEN session_drafts.extras
                   WHEN session_drafts.extras IS NULL THEN excluded.extras
@@ -59,8 +58,8 @@ static JOIN_RETURNED_DRAFT_SQL: LazyLock<String> = LazyLock::new(|| {
 const DELETE_DRAFT_SQL: &str = "DELETE FROM session_drafts WHERE session_id = @sessionId";
 
 // The held draft's list at `path` followed by the returned draft's, as JSON, or `NULL` where
-// neither holds one, which `json_patch` drops. Both lists are JSON text SQLite wrote, so the held
-// list's closing bracket and the returned list's opening one are their first and last characters.
+// neither holds one, which `json_patch` drops. `->>` renders each list as SQLite's JSON text, so its
+// brackets are its first and last characters.
 fn joined_list_sql(path: &str) -> String {
     let held = format!("session_drafts.extras ->> '{path}'");
     let returned = format!("excluded.extras ->> '{path}'");
@@ -115,8 +114,8 @@ impl SessionDraftStore {
     }
 
     /// The session's held draft, or an empty one when none is held. Fails with
-    /// [`SessionDraftError::Database`] or [`SessionDraftError::Pool`] when the read does, a stored
-    /// extras value that does not read as one among them.
+    /// [`SessionDraftError::Database`] or [`SessionDraftError::Pool`] when the read does, including
+    /// stored extras that don't parse.
     pub async fn read(&self, session_id: SessionId) -> Result<SessionDraft, SessionDraftError> {
         self.pool
             .read(ReadLength::Short, move |connection| {
