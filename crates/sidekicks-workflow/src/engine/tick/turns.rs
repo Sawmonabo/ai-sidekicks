@@ -433,7 +433,7 @@ impl EngineTick {
             *first = trigger_items;
         }
         let ready = ReadyStep {
-            step: trigger.step,
+            step: trigger.step.clone(),
             run_index: trigger.run_index,
             inputs: inputs.clone(),
             input_ref: trigger_input.clone(),
@@ -441,22 +441,7 @@ impl EngineTick {
         live.counts.moved(None, (WorkflowStepStatus::Pending, None));
         live.steps.insert(
             ready.step.execution_index.get(),
-            LiveStep {
-                step: ready.step.clone(),
-                run_index: ready.run_index,
-                status: WorkflowStepStatus::Pending,
-                wait_cause: None,
-                wait_id: None,
-                wait_deadline_at: None,
-                sources: trigger.sources,
-                inputs,
-                input_ref: trigger_input,
-                readying_sequence: started_sequence,
-                last_hold_report_at: None,
-                cancel: None,
-                is_winding_down: false,
-                parked_agent_run: None,
-            },
+            LiveStep::readied(trigger, inputs, trigger_input, started_sequence),
         );
         self.runs.insert(run_id, live);
         (run_id, vec![ready])
@@ -612,22 +597,7 @@ impl EngineTick {
                     }
                     live.steps.insert(
                         ready.step.execution_index.get(),
-                        LiveStep {
-                            step: ready.step,
-                            run_index: ready.run_index,
-                            status: WorkflowStepStatus::Pending,
-                            wait_cause: None,
-                            wait_id: None,
-                            wait_deadline_at: None,
-                            sources: ready.sources,
-                            inputs,
-                            input_ref,
-                            readying_sequence,
-                            last_hold_report_at: None,
-                            cancel: None,
-                            is_winding_down: false,
-                            parked_agent_run: None,
-                        },
+                        LiveStep::readied(ready, inputs, input_ref, readying_sequence),
                     );
                 }
                 dispatched.extend(due.into_iter().filter_map(|step| still_ready(&live, step)));

@@ -24,7 +24,7 @@ use super::commit::{RunEnding, RunLiveStep};
 use super::run_status::{RunPersonWait, RunStepCounts};
 use super::step_failure::RunStop;
 use super::turns::{RunCancelIntake, RunCancelReply};
-use super::walk::{RunGraph, RunWalk};
+use super::walk::{RunGraph, RunWalk, WalkReady};
 use super::{RunScope, StepReport};
 use crate::engine::event_record::{EngineDeadline, EngineDecision, RunEngineRecord};
 use crate::engine::ports::{AgentStepRun, StepAdmissionTicket};
@@ -152,6 +152,34 @@ pub(crate) struct LiveStep {
     /// The agent run it waits on while its account is spent, kept for the account's resume and
     /// stopped when the step is canceled.
     pub(crate) parked_agent_run: Option<Box<dyn AgentStepRun>>,
+}
+
+impl LiveStep {
+    /// The step `ready`, `pending` and undispatched, on `inputs`, stored as `input_ref`, readied by
+    /// the write of the event at `readying_sequence`.
+    pub(crate) fn readied(
+        ready: WalkReady,
+        inputs: Vec<Vec<WorkflowItem>>,
+        input_ref: WorkflowPayloadRef,
+        readying_sequence: SafeInt<0>,
+    ) -> Self {
+        Self {
+            step: ready.step,
+            run_index: ready.run_index,
+            status: WorkflowStepStatus::Pending,
+            wait_cause: None,
+            wait_id: None,
+            wait_deadline_at: None,
+            sources: ready.sources,
+            inputs,
+            input_ref,
+            readying_sequence,
+            last_hold_report_at: None,
+            cancel: None,
+            is_winding_down: false,
+            parked_agent_run: None,
+        }
+    }
 }
 
 impl LiveRun {
