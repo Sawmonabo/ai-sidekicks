@@ -1,7 +1,9 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use rmcp::transport::auth::{AuthError, CredentialStore as _, StoredCredentials};
 use rstest::rstest;
+use secrecy::SecretString;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_store::credential_store::service::KeychainService;
 use sidekicks_store::credential_store::test_keychain::{CountingKeychain, test_keychain};
@@ -271,5 +273,43 @@ async fn a_renewal_keeps_its_tokens_only_over_the_sign_in_it_loaded(
     assert_eq!(
         refused.map(|refused| access_token(&refused.credentials)),
         (!is_kept).then(|| serde_json::json!("test-access-token-2"))
+    );
+}
+
+/// The start's seed marks signed in each server the keychain files a sign-in for that this daemon
+/// life has not read yet, and leaves a server already read as its read found it, so a seed that
+/// ends after a sign-out never undoes it. Killed by a seed that marks nothing, and by one that
+/// marks a server already read.
+#[tokio::test]
+async fn the_seed_marks_only_the_filed_servers_this_life_has_not_read() {
+    let (_data_folder, _credentials, keychain) = test_keychain(KeychainService::McpSignIns);
+    let custody = SignInCustody::new(Arc::clone(&keychain));
+    let unread = McpServerAddress::new("https://unread.example.test/mcp").expect("an address");
+    let read = McpServerAddress::new("https://read.example.test/mcp").expect("an address");
+    // Read while the keychain held nothing for it, as a sign-out leaves it, and filed after.
+    let held = custody
+        .credential_store(&read)
+        .held()
+        .await
+        .expect("the keychain reads");
+    assert!(held.is_none());
+    for address in [&unread, &read] {
+        keychain
+            .write(
+                &canonical_server_address(address),
+                &SecretString::from("not read by the seed".to_owned()),
+            )
+            .await
+            .expect("the keychain keeps the item");
+    }
+
+    custody
+        .seed_signed_in()
+        .await
+        .expect("the keychain lists its items");
+
+    assert_eq!(
+        *custody.signed_in_addresses().borrow(),
+        BTreeSet::from([canonical_server_address(&unread)])
     );
 }
