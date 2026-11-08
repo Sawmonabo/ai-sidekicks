@@ -80,10 +80,14 @@ mod tests {
     // How long a command that waits on nothing keeps reading as not waiting.
     const WAIT_BOUND: Duration = Duration::from_millis(500);
 
-    // How long a waiting command is read before it fails as never reading as waiting: with the
-    // prompt's 20 s, short of nextest's two-minute kill, so a hang names itself, and no passing
-    // case comes near it.
-    const READING_BOUND: Duration = Duration::from_secs(90);
+    // How long a command gets to print its marker.
+    const PROMPT_BOUND: Duration = Duration::from_secs(20);
+
+    // How long a waiting command is read before it fails as never reading as waiting. Summed with
+    // `PROMPT_BOUND`, `wait_for_stop`'s 5 s, `WAIT_BOUND` after a stop and `end_inner_terminal`'s
+    // 10 s teardown read, a case ends short of nextest's two-minute kill, so a hang names itself,
+    // and no passing case comes near it.
+    const READING_BOUND: Duration = Duration::from_secs(80);
 
     // How long a command that waits on nothing settles before it is read, where the test cannot
     // wait for what it did to land.
@@ -243,7 +247,7 @@ mod tests {
         )))
         .expect("the terminal starts");
         let peer_failure_noted = Once::new();
-        let prompt = read_until_marker(&terminal.pty, marker, Duration::from_secs(20));
+        let prompt = read_until_marker(&terminal.pty, marker, PROMPT_BOUND);
         let is_marked = expected.is_waiting || expected.is_waiting_in_select;
         // A stop is sent once the command waits in its read, so it stops in that read and not in
         // the shell about to replace itself with it, whose stop macOS drops once the command runs.
@@ -299,11 +303,12 @@ mod tests {
             .collect::<std::io::Result<Vec<_>>>()
             .expect("the wait reads");
         if is_marked {
-            assert_eq!(
-                readings.last(),
-                Some(&expected),
-                "{script} never read as {expected:?} within {READING_BOUND:?}, last of {} readings",
-                readings.len()
+            assert!(
+                readings.last() == Some(&expected),
+                "{script} never read as {expected:?} within {READING_BOUND:?}, \
+                 last of {} readings: {:?}",
+                readings.len(),
+                readings.last()
             );
         } else {
             assert!(

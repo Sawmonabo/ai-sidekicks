@@ -642,8 +642,17 @@ mod tests {
     use crate::posix::terminal::test_programs::shell_script;
     use crate::terminal::InnerTerminal;
 
-    // How long a reader's wait channel is read for a `select` wait before it reads as none.
+    // How long a reader that must not read as in a `select` has its wait channel read.
     const WAIT_BOUND: Duration = Duration::from_millis(500);
+
+    // How long a command gets to print its marker.
+    const PROMPT_BOUND: Duration = Duration::from_secs(20);
+
+    // How long a reader that must read as in a `select` has its wait channel read before it fails.
+    // The test's three terminals each take up to `PROMPT_BOUND` and `end_inner_terminal`'s 10 s
+    // teardown read; with this and two `WAIT_BOUND` reads, the test ends short of nextest's
+    // two-minute kill.
+    const SELECT_WAIT_BOUND: Duration = Duration::from_secs(20);
 
     // The terminal's descriptor the set marks, the last bit of the set's first byte.
     const TERMINAL_DESCRIPTOR: i32 = 7;
@@ -696,13 +705,13 @@ mod tests {
     // the master holds unread output, as a writer stalled on a full terminal sleeps there too.
     #[test]
     fn a_select_reader_s_wait_channel_marks_it_only_on_the_terminal_alone() {
-        let alone = read_select_wait(SELECT_READER_SCRIPT, 0);
-        let pipe_holding = read_select_wait(PIPE_HOLDING_SELECT_READER_SCRIPT, 0);
-        let unread_output = read_select_wait(SELECT_READER_SCRIPT, 1);
+        let alone = read_select_wait(SELECT_READER_SCRIPT, 0, SELECT_WAIT_BOUND);
+        let pipe_holding = read_select_wait(PIPE_HOLDING_SELECT_READER_SCRIPT, 0, WAIT_BOUND);
+        let unread_output = read_select_wait(SELECT_READER_SCRIPT, 1, WAIT_BOUND);
 
         assert!(
             matches!(alone, ThreadWait::InSelect),
-            "on the terminal alone"
+            "on the terminal alone, never read as in a select within {SELECT_WAIT_BOUND:?}"
         );
         assert!(
             matches!(pipe_holding, ThreadWait::Elsewhere),
@@ -716,13 +725,13 @@ mod tests {
 
     // Where the group of `script`'s terminal waits once it prints `ready`, as its threads' wait
     // channels read with the master's unread output taken as `unread_output_bytes`: the first wait
-    // read within the bound, or none.
-    fn read_select_wait(script: &str, unread_output_bytes: u32) -> ThreadWait {
+    // read within `bound`, or none.
+    fn read_select_wait(script: &str, unread_output_bytes: u32, bound: Duration) -> ThreadWait {
         let terminal = start_test_terminal(&shell_script(script)).expect("the terminal starts");
-        let prompt = read_until_marker(&terminal.pty, "ready", Duration::from_secs(20));
+        let prompt = read_until_marker(&terminal.pty, "ready", PROMPT_BOUND);
         let wait = prompt
             .is_ok()
-            .then(|| read_group_wait(&terminal, unread_output_bytes));
+            .then(|| read_group_wait(&terminal, unread_output_bytes, bound));
         end_inner_terminal(terminal);
         prompt.expect("the command prompts");
         wait.expect("the command prompted")
@@ -732,6 +741,7 @@ mod tests {
     fn read_group_wait(
         terminal: &InnerTerminal,
         unread_output_bytes: u32,
+        bound: Duration,
     ) -> io::Result<ThreadWait> {
         let peer_failure_noted = Once::new();
         let window_start = Instant::now();
@@ -753,7 +763,7 @@ mod tests {
                     }
                 }
             }
-            if window_start.elapsed() >= WAIT_BOUND {
+            if window_start.elapsed() >= bound {
                 return Ok(ThreadWait::Elsewhere);
             }
             thread::sleep(Duration::from_millis(5));
