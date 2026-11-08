@@ -15,6 +15,8 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::json_object_column;
 
+use crate::runtime_binding::store::RuntimeBinding;
+
 /// A conversation a session moved off, on the account whose home holds it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LeftConversation {
@@ -27,6 +29,28 @@ pub struct LeftConversation {
     /// The provider's recovery data of the leg that left it, as that leg kept it, so the
     /// conversation is reached through its own home.
     pub runtime_metadata: Map<String, Value>,
+}
+
+impl LeftConversation {
+    /// The conversation `predecessor` ran on, with its account and recovery data, when a relaunch
+    /// runs on another; `None` when it had none or the relaunch runs on the same one.
+    #[must_use]
+    pub fn of_relaunch(
+        session_id: SessionId,
+        predecessor: &RuntimeBinding,
+        resume_handle: &str,
+    ) -> Option<Self> {
+        predecessor
+            .resume_handle
+            .as_ref()
+            .filter(|handle| handle.as_str() != resume_handle)
+            .map(|handle| Self {
+                session_id,
+                provider_account_id: predecessor.spawn_config.provider_account_id.clone(),
+                conversation_id: handle.clone(),
+                runtime_metadata: predecessor.runtime_metadata.clone(),
+            })
+    }
 }
 
 /// A recorded left conversation, with the provider whose binding recorded it.

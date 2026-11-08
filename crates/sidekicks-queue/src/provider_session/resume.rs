@@ -485,18 +485,10 @@ impl ProviderSessions {
                 ));
             }
             // A provider that continued the conversation in a new one left the old one behind.
-            let left_conversations = leg
-                .resume_handle
-                .as_ref()
-                .filter(|handle| handle.as_str() != resume_handle.as_str())
-                .map(|handle| LeftConversation {
-                    session_id,
-                    provider_account_id: leg.spawn_config.provider_account_id.clone(),
-                    conversation_id: handle.clone(),
-                    runtime_metadata: leg.runtime_metadata.clone(),
-                })
-                .into_iter()
-                .collect();
+            let left_conversations =
+                LeftConversation::of_relaunch(session_id, &leg, resume_handle.as_str())
+                    .into_iter()
+                    .collect();
             let recorded = self
                 .deps
                 .binding_cursors
