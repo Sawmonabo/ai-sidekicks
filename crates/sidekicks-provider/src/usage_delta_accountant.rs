@@ -309,14 +309,20 @@ impl UsageDeltaAccountant {
 
     /// Meters one cumulative reading into a per-turn delta; `None` for a thread with no
     /// established base, since metering it would invent a zero base for a resume, and for a
-    /// reading that changed nothing, a repeat, which records and prices nothing. The base
-    /// registers advance either way.
+    /// reading that changed nothing, a repeat, which records and prices nothing and is not
+    /// cross-checked. The base registers advance either way.
     pub(crate) fn meter_reading(
         &mut self,
         reading: CumulativeUsageReading,
     ) -> Option<MeteredUsageDelta> {
-        self.meter_change(reading)
-            .filter(|delta| !delta.is_unchanged())
+        let declared_per_turn = reading.declared_per_turn;
+        let delta = self
+            .meter_change(reading)
+            .filter(|delta| !delta.is_unchanged())?;
+        if let Some(declared_per_turn) = &declared_per_turn {
+            self.cross_check_declared_per_turn(&delta, declared_per_turn);
+        }
+        Some(delta)
     }
 
     // The delta one reading makes against its thread's base registers, advancing them; a reading
@@ -353,7 +359,6 @@ impl UsageDeltaAccountant {
             base_registers.set(axis, cumulative_value);
         }
 
-        self.cross_check_declared_per_turn(&reading, &axis_deltas);
         let (normalized_input_tokens, containment) =
             self.normalize_input_tokens(&reading, &axis_deltas);
 
@@ -377,15 +382,12 @@ impl UsageDeltaAccountant {
     // derived figure is kept.
     fn cross_check_declared_per_turn(
         &self,
-        reading: &CumulativeUsageReading,
-        axis_deltas: &UsageAxisCounts,
+        delta: &MeteredUsageDelta,
+        declared_per_turn: &UsageAxisCounts,
     ) {
-        let Some(declared_per_turn) = &reading.declared_per_turn else {
-            return;
-        };
         for &axis in UsageTokenAxis::VARIANTS {
             let (Some(derived_interval), Some(declared_value)) =
-                (axis_deltas.get(axis), declared_per_turn.get(axis))
+                (delta.axis_deltas.get(axis), declared_per_turn.get(axis))
             else {
                 continue;
             };
@@ -396,8 +398,8 @@ impl UsageDeltaAccountant {
                     "wire-declared per-turn figure disagrees with the derived interval; recorded \
                      as a cross-check and never substituted for it",
                     [
-                        ("threadId", json!(reading.thread_id)),
-                        ("namedTurnId", json!(reading.named_turn_id)),
+                        ("threadId", json!(delta.thread_id)),
+                        ("namedTurnId", json!(delta.attributed_turn_id)),
                         ("axis", json!(<&str>::from(axis))),
                         ("derivedInterval", json!(derived_interval)),
                         ("declaredValue", json!(declared_value)),
