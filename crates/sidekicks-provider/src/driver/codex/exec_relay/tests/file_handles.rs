@@ -94,11 +94,11 @@ async fn each_connection_owns_its_file_handles_and_a_drop_closes_its_own() {
     };
     first.close(None).await.expect("the client closes");
     wait_until(|| connections() == 1).await;
-    assert_closed(next_forwarded(&mut fake).await, &open_handle);
+    assert_closed(&next_forwarded(&mut fake).await, &open_handle);
     assert_executor_quiet(&mut fake).await;
     answer_open(&mut fake, &opening).await;
     assert_closed(
-        next_forwarded(&mut fake).await,
+        &next_forwarded(&mut fake).await,
         &opening["params"]["handleId"],
     );
     assert_executor_quiet(&mut fake).await;
@@ -132,7 +132,7 @@ async fn answer_open(fake: &mut FakeExecutor, open: &Value) {
 }
 
 // Fails unless `sent` is the relay's own `fs/close` of `handle`.
-fn assert_closed(sent: Value, handle: &Value) {
+fn assert_closed(sent: &Value, handle: &Value) {
     assert_eq!(sent["method"], "fs/close", "{sent}");
     assert_eq!(sent["params"]["handleId"], *handle, "{sent}");
     assert!(
