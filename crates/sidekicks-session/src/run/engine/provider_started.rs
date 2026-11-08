@@ -1,9 +1,9 @@
 //! The runs a provider starts itself in a session's open process: a subagent the provider started
 //! beneath a live run, queued beneath its parent with its agent tree node written in the same
 //! append, and the turn it started on an interrupted run with messages it kept from that run's
-//! interrupted turn. Each passes every setup gate at the posture the session's process runs at now,
-//! in the workspace it was started in (the parent's for a subagent, its own for a continued run),
-//! before `running` is written, stamped with the posture the gates resolved.
+//! interrupted turn. Each passes every setup gate at the posture the session's process runs at now
+//! before `running` is written, stamped with the posture the gates resolved: a subagent in its
+//! parent's workspace, a continued run in the session's current one.
 
 use std::sync::Weak;
 
@@ -101,7 +101,7 @@ impl RunEngine {
                     provider,
                     node,
                     parent_node,
-                    runs.read_run_workspace(&parent_run_id)?,
+                    runs.read_run_bound_workspace(&parent_run_id)?,
                 ))
             })
             .await?;
@@ -301,16 +301,7 @@ impl RunEngine {
         }
         let continued = async {
             // The turn runs in its session's process, so it is gated at what that process runs at
-            // now, a level move since the run was interrupted included, and in the workspace the
-            // run was bound in.
-            let started_in_workspace_id = self
-                .pool
-                .read(ReadLength::Short, move |reader| {
-                    RunStateReader::new(reader)
-                        .read_run_workspace(&run_id)
-                        .map_err(RunEngineError::from)
-                })
-                .await?;
+            // now, a level move since the run was interrupted included.
             let execution_posture = self
                 .session_postures
                 .get()
@@ -323,7 +314,9 @@ impl RunEngine {
                     session_id: run.session_id,
                     opening_words: None,
                     workspace_id: None,
-                    started_in_workspace_id,
+                    // A continue is a run boundary in the session's process, which follows the
+                    // session's current workspace, not the one the interrupted turn was bound in.
+                    started_in_workspace_id: None,
                     execution_posture,
                 })
                 .await

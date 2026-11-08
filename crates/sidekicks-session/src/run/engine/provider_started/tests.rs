@@ -278,11 +278,11 @@ fn bind_run_in_new_workspace(database: &TestDatabase, run_id: RunId) -> Workspac
     workspace_id
 }
 
-// A helper is gated in its parent's workspace and a continue on its provider's turn in its run's
-// own, never left for the execution-root gate to place in the session's newest. Killed by either
-// start handing its gates no workspace it was started in.
+// A helper is gated in its parent's workspace, never left for the execution-root gate to place in
+// the session's newest, and a continue on its provider's turn in the session's current one. Killed
+// by the helper's start handing its gates no workspace, and by the continue handing its run's own.
 #[tokio::test]
-async fn a_helper_and_a_continued_run_are_gated_in_the_workspace_they_were_started_in() {
+async fn a_helper_is_gated_in_its_parents_workspace_and_a_continue_in_the_sessions() {
     let database = TestDatabase::new(subagent_schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
@@ -303,7 +303,7 @@ async fn a_helper_and_a_continued_run_are_gated_in_the_workspace_they_were_start
     let parent = start_ask_parent(&database, &engine, &session_postures, &git_folder).await;
     let parent_workspace = bind_run_in_new_workspace(&database, parent);
     let interrupted = insert_interrupted_run(&database);
-    let interrupted_workspace = bind_run_in_new_workspace(&database, interrupted);
+    bind_run_in_new_workspace(&database, interrupted);
 
     running(
         engine
@@ -318,8 +318,8 @@ async fn a_helper_and_a_continued_run_are_gated_in_the_workspace_they_were_start
 
     assert_eq!(
         *lock(&gate.started_in),
-        [None, Some(parent_workspace), Some(interrupted_workspace)],
-        "the parent's send named none; the helper and the continue name where they started"
+        [None, Some(parent_workspace), None],
+        "the parent's send named none, the helper names its parent's, and the continue none"
     );
 }
 

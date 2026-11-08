@@ -107,7 +107,7 @@ impl LiveRun {
 
 const SELECT_RUN_SQL: &str = "SELECT session_id, state, run_version FROM runs WHERE run_id = ?";
 
-const SELECT_RUN_WORKSPACE_SQL: &str =
+const SELECT_RUN_BOUND_WORKSPACE_SQL: &str =
     "SELECT workspace_id FROM run_execution_contexts WHERE run_id = ?";
 
 const SELECT_RUN_PARENTAGE_SQL: &str =
@@ -374,9 +374,12 @@ impl<'connection> RunStateReader<'connection> {
 
     /// The workspace the run's execution context bound it in, or `None` for a run bound in none: a
     /// chat's run, and one whose setup never bound it.
-    pub fn read_run_workspace(&self, run_id: &RunId) -> rusqlite::Result<Option<WorkspaceId>> {
+    pub fn read_run_bound_workspace(
+        &self,
+        run_id: &RunId,
+    ) -> rusqlite::Result<Option<WorkspaceId>> {
         self.reader
-            .prepare_cached(SELECT_RUN_WORKSPACE_SQL)?
+            .prepare_cached(SELECT_RUN_BOUND_WORKSPACE_SQL)?
             .query_row([run_id.text().as_str()], |row| {
                 text_column(row, 0, |text| WorkspaceId::new(&text))
             })
