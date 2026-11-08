@@ -24,7 +24,7 @@ use rmcp::transport::auth::{AuthError, AuthorizationManager, OAuthHttpClient};
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use tokio_util::sync::CancellationToken;
 
-use crate::errors::McpRefusal;
+use crate::errors::{McpRefusal, SignInUnsupportedReason};
 use crate::oauth::client_authentication::{
     ClientSecretAuthentication, ClientSecretMethod, REVOCATION_ENDPOINT_AUTH_METHODS,
 };
@@ -67,12 +67,16 @@ enum RevocationError {
 impl SignInService {
     /// Signs out of `target`'s server at once, a renewal under way or not: forgets its sign-in,
     /// ends its waiting attempt or provider's flow and marks it signed out, then revokes its
-    /// refresh token after the reply. Refuses with `mcp.server.signOutFailed`, carrying the
-    /// keychain's cause, when the keychain refuses to read or delete the sign-in, which then stays
-    /// held and in use.
+    /// refresh token after the reply. Refuses `mcp.server.signInUnsupported` for a program, which
+    /// no sign-in reaches (a connector's target read refuses it first), and
+    /// `mcp.server.signOutFailed`, carrying the keychain's cause, when the keychain refuses to read
+    /// or delete the sign-in, which then stays held and in use.
     pub(crate) async fn sign_out(&self, target: &SignInTarget) -> Result<(), McpRefusal> {
         let Some(server) = addressed_server(target) else {
-            return Ok(());
+            return Err(McpRefusal::ServerSignInUnsupported {
+                binding: Box::new(target.binding.clone()),
+                reason: SignInUnsupportedReason::NotReachedAtAddress,
+            });
         };
         let refused = |source| McpRefusal::ServerSignOutFailed {
             binding: Box::new(target.binding.clone()),
