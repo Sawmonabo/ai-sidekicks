@@ -605,7 +605,7 @@ pub(crate) mod tests {
         Some(SignInUnsupportedReason::UnusableMetadata)
     )]
     #[tokio::test]
-    async fn an_entrys_sign_in_settings_reach_its_target(
+    async fn the_sign_in_settings_of_an_entry_reach_its_target(
         #[case] metadata_address: &str,
         #[case] refusal: Option<SignInUnsupportedReason>,
     ) {
