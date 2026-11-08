@@ -1,9 +1,10 @@
 //! The wire shapes of a streaming subscription: the acknowledgment every `*.subscribe` method
 //! answers with, the `$/subscription/notify` frame carrying one value, the `$/subscription/end`
 //! frame the daemon ends a stream with, and the `$/subscription/cancel` call a client tears one
-//! down with. A subscription holds only its place, never a queue, so a stream loses nothing: a
-//! stream over a stored record far behind its head is sent one frame saying so with the head
-//! cursor, and a shell's output stream marks a drop when a watcher falls behind its scrollback.
+//! down with. A subscription holds only its place, never a queue, so a stream loses nothing it
+//! cannot read back: a stream over a stored record far behind its head is sent one frame saying so
+//! with the head cursor, and a shell's output stream marks a drop when a watcher falls behind its
+//! scrollback.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -226,7 +227,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The wire shapes of a streaming subscription: `$/subscription/notify`, \
           `$/subscription/end` and `$/subscription/cancel`, and the acknowledgment every \
           `*.subscribe` method answers with. A subscription holds only its place, never a queue, \
-          so nothing is dropped from its frames.",
+          so its frames drop nothing a consumer cannot read back.",
     definitions: &[
         Definition::read::<SubscriptionId>().checked(),
         Definition::read::<SubscriptionEndParams>().checked(),
@@ -238,3 +239,27 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: TS_CONSTANTS,
     method_tables: &[],
 };
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::run::control::RunStateStreamFrame;
+    use crate::session::event_cursor::encode_event_cursor;
+
+    // Killed by a behind frame written without its tag, or under another tag or member name.
+    #[test]
+    fn a_behind_frame_is_written_as_its_kind_and_the_head_cursor_alone() {
+        let head_cursor = encode_event_cursor(1_025).expect("the position has a cursor");
+        let frame = RunStateStreamFrame::Behind {
+            head_cursor: head_cursor.clone(),
+        };
+        let written = serde_json::to_value(&frame).expect("a frame writes");
+        assert_eq!(
+            written,
+            json!({ "kind": "behind", "headCursor": head_cursor })
+        );
+        let read: RunStateStreamFrame = serde_json::from_value(written).expect("the frame reads");
+        assert_eq!(read, frame);
+    }
+}
