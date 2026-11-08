@@ -7,6 +7,8 @@ use std::borrow::Cow;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 
+use crate::driver::codex::exec_relay::methods::RelayIdKind;
+
 /// The members of a message the relay routes by; the rest passes on as it came.
 #[derive(Deserialize)]
 pub(super) struct RoutedMessage<'line> {
@@ -45,8 +47,40 @@ pub(super) struct RoutedParams<'line> {
     /// The process the message names, as raw JSON.
     #[serde(borrow)]
     pub(super) process_id: Option<&'line RawValue>,
+    /// The open file the message names by its handle, as raw JSON.
+    #[serde(borrow)]
+    pub(super) handle_id: Option<&'line RawValue>,
+    /// The http request the message names, as raw JSON.
+    #[serde(borrow)]
+    pub(super) request_id: Option<&'line RawValue>,
     /// The exit code a `process/exited` reports.
     pub(super) exit_code: Option<i32>,
+    /// A missing-path watch's own id, a number.
+    pub(super) watch_id: Option<u64>,
+    /// The paths a missing-path watch waits to see appear, as raw JSON.
+    #[serde(borrow)]
+    pub(super) missing: Option<&'line RawValue>,
+    /// The one path a missing-path watch waits to stay, as raw JSON.
+    #[serde(borrow)]
+    pub(super) present: Option<&'line RawValue>,
+    /// Whether an http request streams its body as deltas after its answer.
+    pub(super) stream_response: bool,
+    /// Whether a body delta is its request's last.
+    pub(super) done: bool,
+    /// A body delta's failure, which also makes it its request's last, as raw JSON.
+    #[serde(borrow)]
+    pub(super) error: Option<&'line RawValue>,
+}
+
+impl<'line> RoutedParams<'line> {
+    /// The member that names an id of `kind`, as raw JSON.
+    pub(super) fn id_of(&self, kind: RelayIdKind) -> Option<&'line RawValue> {
+        match kind {
+            RelayIdKind::Process => self.process_id,
+            RelayIdKind::FileHandle => self.handle_id,
+            RelayIdKind::HttpRequest => self.request_id,
+        }
+    }
 }
 
 /// An answer's refusal, as far as the relay reads it.
