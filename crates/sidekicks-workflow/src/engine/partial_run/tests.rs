@@ -18,7 +18,7 @@ use super::{
 };
 use crate::definitions::versions::history::WorkflowVersions;
 use crate::engine::tick::RunGraph;
-use crate::kinds::{NodeKind, NodeKindTable, PassThroughExecutor, test_kind};
+use crate::kinds::{NodeKindTable, PassThroughExecutor, loop_test_kind, main_test_kind};
 use crate::test_rows::{
     TestStep, insert_run, insert_step, insert_workflow_version_body, workflow_tables,
 };
@@ -36,38 +36,17 @@ type Edge = (&'static str, usize, &'static str, usize);
 /// The chain `T → A → B → C`, `B` taking a second main input that nothing feeds.
 const CHAIN: &[Edge] = &[("T", 0, "A", 0), ("A", 0, "B", 0), ("B", 0, "C", 0)];
 
-/// The test kind `name` with `inputs` main inputs and `outputs` main outputs, which passes its
-/// inputs on.
-fn kind(name: &str, inputs: usize, outputs: usize) -> NodeKind {
-    let handles = |side: &str, count: usize| -> Value {
-        (0..count)
-            .map(|index| {
-                json!({ "type": "main", "id": format!("{side}/main/{index}"), "label": "H" })
-            })
-            .collect()
-    };
-    test_kind(
-        json!({
-            "kind": name, "version": 1, "category": "developer",
-            "displayName": "Test", "description": "A test kind.", "icon": "test",
-            "params": [], "outputsDeriveFromParams": false,
-            "inputs": handles("inputs", inputs), "outputs": handles("outputs", outputs),
-        }),
-        None,
-        Box::new(PassThroughExecutor),
-    )
-}
-
 /// The kinds the tests' graphs use: a source with no input, a step, a step with two inputs, and a
 /// loop whose second output starts its body.
 fn kinds() -> NodeKindTable {
-    let mut loop_kind = kind("test.loop", 1, 2);
-    loop_kind.loop_output = Some(1);
+    let kind = |name: &str, handles: (usize, usize)| {
+        main_test_kind(name, "developer", handles, Box::new(PassThroughExecutor))
+    };
     NodeKindTable::new(vec![
-        kind("test.trigger", 0, 1),
-        kind("test.step", 1, 1),
-        kind("test.pair", 2, 1),
-        loop_kind,
+        kind("test.trigger", (0, 1)),
+        kind("test.step", (1, 1)),
+        kind("test.pair", (2, 1)),
+        loop_test_kind(),
     ])
     .expect("the test kinds build")
 }

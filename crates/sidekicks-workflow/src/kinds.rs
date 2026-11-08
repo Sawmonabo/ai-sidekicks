@@ -420,6 +420,52 @@ pub(crate) fn test_kind(
     }
 }
 
+/// The test kind `kind` in `category` with `input_count` main inputs and `output_count` main
+/// outputs, `inputs/main/<i>` and `outputs/main/<i>`, run by `executor`.
+#[cfg(test)]
+pub(crate) fn main_test_kind(
+    kind: &str,
+    category: &str,
+    (input_count, output_count): (usize, usize),
+    executor: Box<dyn NodeExecutor>,
+) -> NodeKind {
+    let handles = |side: &str, label: &str, count: usize| -> Vec<Value> {
+        (0..count)
+            .map(|index| {
+                serde_json::json!({
+                    "type": "main", "id": format!("{side}/main/{index}"), "label": label,
+                })
+            })
+            .collect()
+    };
+    test_kind(
+        serde_json::json!({
+            "kind": kind, "version": 1, "category": category, "displayName": kind,
+            "description": "A test kind.", "icon": "test", "params": [],
+            "outputsDeriveFromParams": false,
+            "inputs": handles("inputs", "In", input_count),
+            "outputs": handles("outputs", "Out", output_count),
+        }),
+        None,
+        executor,
+    )
+}
+
+/// The loop kind `test.loop`, with one main input, its done output and the loop output that
+/// starts its body, passing its inputs on.
+#[cfg(test)]
+pub(crate) fn loop_test_kind() -> NodeKind {
+    NodeKind {
+        loop_output: Some(1),
+        ..main_test_kind(
+            "test.loop",
+            "developer",
+            (1, 2),
+            Box::new(PassThroughExecutor),
+        )
+    }
+}
+
 /// The command step `developer.shell` at version 1, with one main input and one main output,
 /// whose shell line is the `command` param it lists, which runs in its provider's sandbox, passing
 /// its inputs on as its outputs.
