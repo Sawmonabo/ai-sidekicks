@@ -165,11 +165,8 @@ interface SessionStreamFrame {
   // `childRunSummary` is present on an event of a child run: the child's summary as of this event.
   // `endedRows` names the rows the event ended (at its run's turn end or its rollback, the events
   // after which no later piece joins them), each with the block starts it had not yet sent or why
-  // their cut failed. `draftRevision` is present on `session.draft.changed`, which every save,
-  // clear and Stop's or interrupt's return to the draft appends: the draft's revision as the stream
-  // read it, never below the one the change made, so a client holding an older revision reads the
-  // draft again with `session.read`. A frame is cut by bytes under the page budget as a page is,
-  // and the stream reads the next one at once.
+  // their cut failed. A frame is cut by bytes under the page budget as a page is, and the
+  // stream reads the next one at once.
   changes: Array<{
     cursor: EventCursor;
     event: EventEnvelope;
@@ -187,7 +184,6 @@ interface SessionStreamFrame {
       blockStarts?: Uint8Array;
       blockCutFailure?: BlockCutFailure;
     }>;
-    draftRevision?: number;
   }>;
   // Present only on the frame with no changes that tells a subscriber it is behind: the newest cursor
   // the daemon holds for the session. A frame with changes carries no frame cursor.
@@ -397,9 +393,8 @@ interface SessionDraft {
 
 // SessionDraftUpdate — session.draft.update. A save over a draft that changed since the client read
 // it, another device's save or a message a Stop or an interrupt put back, is refused with
-// `session.draft.revisionStale` and writes nothing; the client reads the draft again, puts the
-// person's unsaved typing back on top of it and saves over that. A save that is taken appends
-// `session.draft.changed` in the same write.
+// `session.draft.revisionStale` and writes nothing; the client merges as `SessionDraftSubscribe`
+// says and saves over the newer revision.
 interface SessionDraftUpdateRequest {
   sessionId: SessionId;
   draft: SessionDraft; // the whole draft; an empty one, no words and no extras, clears it
@@ -409,6 +404,23 @@ interface SessionDraftUpdateResponse {
   sessionId: SessionId;
   revision: number; // the draft's new revision
   updatedAt: string;
+}
+
+// SessionDraftSubscribe — session.draft.subscribe. Follows the session's draft outside its event
+// log: the held draft with its revision at once, then again after each save and after each Stop's
+// or interrupt's return to the draft commits, a slow reader sent only the newest; a wake that finds
+// the revision already sent sends nothing, and nothing is written to the session's history. The
+// composer keeps the text of the revision it last read or saved as its base; when a newer draft
+// arrives, or a save is refused stale, it merges three ways — the base, its own text and the newer
+// draft — so a returned message and the person's unsaved typing both survive, then saves over the
+// newer revision. While its own save is in flight it applies no draft this sends, and after the
+// save's reply it skips the one whose revision equals the reply's, which is that save coming back.
+interface SessionDraftSubscribeRequest {
+  sessionId: SessionId;
+}
+interface HeldSessionDraft {
+  draft: SessionDraft;
+  revision: number; // 0 before any draft was held
 }
 
 // SessionAttachmentAdd — session.attachment.add. Staging COPIES each file to the daemon and keeps
@@ -595,13 +607,6 @@ interface SessionOutputStyleChangedPayload {
   sessionId: SessionId;
   outputStyle: string; // the style's name, as Claude Code lists it
   at: string; // ISO 8601
-}
-
-// session.draft.changed payload. Appended in the write of every save, clear and Stop's or
-// interrupt's return to the draft; the stream adds the draft's revision, and a reader takes the
-// draft from `session.read`.
-interface SessionDraftChangedPayload {
-  sessionId: SessionId;
 }
 
 // SessionSearch — session.search. One search over session titles, message text, tool calls, session
@@ -829,6 +834,7 @@ The console's `session.*` operations beyond the [Plan-005](../../plans/005-local
 | `session.spendLimit.update` | `mutation` | `SessionSpendLimitUpdateRequest` | `SessionBudgetState` |
 | `session.tokensPerRun.update` | `mutation` | `SessionTokensPerRunUpdateRequest` | `SessionBudgetState` |
 | `session.draft.update` | `mutation` | `SessionDraftUpdateRequest` | `SessionDraftUpdateResponse` |
+| `session.draft.subscribe` | `subscription` | `SessionDraftSubscribeRequest` | `HeldSessionDraft` (stream) |
 | `session.attachment.add` | `mutation` | `SessionAttachmentAddRequest` | `SessionAttachmentAddResponse` |
 | `session.attachment.remove` | `mutation` | `SessionAttachmentRemoveRequest` | `SessionAttachmentRemoveResponse` |
 | `session.mute` | `mutation` | `SessionTargetRequest` | `EmptyPayload` |

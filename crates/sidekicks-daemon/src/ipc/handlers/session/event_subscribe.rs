@@ -1,7 +1,6 @@
 //! `session.event.subscribe`: a session's events, caught up from after `afterCursor` (from the
 //! start of its log when absent) and then followed, in batched frames, each change carrying its
-//! cursor and, for an event of a run, the run stamp its transcript row carries; a draft change
-//! carries the draft's revision, read once per page that holds one. A tool call the
+//! cursor and, for an event of a run, the run stamp its transcript row carries. A tool call the
 //! session's driver reads as a change to the agent's task list is left out, as the transcript
 //! leaves it, and the stream reads on past it; the driver is the lead's provider's, resolved again
 //! when the lead moves to another provider. The stream reads its first frame when the call is taken
@@ -17,7 +16,6 @@ use std::sync::{Arc, Mutex};
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_contracts::event::envelope::EventEnvelope;
-use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
 use sidekicks_contracts::jsonrpc::page::{PAGE_MAX_BYTES, count_entries_fitting_one_frame};
 use sidekicks_contracts::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, SubscriptionId};
@@ -37,7 +35,6 @@ use sidekicks_ipc::stream::feed::{ChangeRecord, Feed, RecordPage};
 use sidekicks_ipc::stream::frame_batcher::ChangeFeed;
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_session::draft_store::read_draft_revision;
 use sidekicks_session::run::agent::read_session_lead;
 use sidekicks_session::transcript::block_cut::{BlockParse, MARKDOWN_PARSE};
 use sidekicks_session::transcript::stream_state::{
@@ -99,9 +96,8 @@ enum SessionEventStreamError {
     /// An event of a run could not be attributed to its turn.
     #[error(transparent)]
     Attribution(#[from] TurnAttributionError),
-    /// A read of the page's pieces, of a row met partway, of a child run's count or of the
-    /// draft's revision failed.
-    #[error("a read of a streamed page's pieces, a row, a child run's count or the draft failed")]
+    /// A read of the page's pieces, of a row met partway or of a child run's count failed.
+    #[error("a read of a streamed page's pieces, a row or a child run's count failed")]
     Rows(#[from] rusqlite::Error),
 }
 
@@ -275,16 +271,6 @@ impl ChangeRecord for SessionEventRecord {
                             }
                         }
                         drop(left_pieces);
-                        let is_draft_change = |event: &EventEnvelope| {
-                            event.event_type.as_str()
-                                == SessionEventType::SessionDraftChanged.as_str()
-                        };
-                        // One read serves every draft change the page sends.
-                        let draft_revision = if page.events[..kept].iter().any(is_draft_change) {
-                            Some(read_draft_revision(connection, &session_id)?)
-                        } else {
-                            None
-                        };
                         let mut changes = Vec::with_capacity(kept);
                         for (event, content) in page.events.into_iter().zip(contents).take(kept) {
                             // Every event read is folded once, a left-out one too, as the
@@ -302,8 +288,6 @@ impl ChangeRecord for SessionEventRecord {
                             let cursor = encode_event_cursor(i64::from(event.sequence))
                                 .map_err(EventLogReadError::from)?;
                             let Some(attributed) = attributed else {
-                                let draft_revision =
-                                    draft_revision.filter(|_| is_draft_change(&event));
                                 changes.push(SessionStreamChange {
                                     cursor,
                                     event,
@@ -311,7 +295,6 @@ impl ChangeRecord for SessionEventRecord {
                                     piece: None,
                                     child_run_summary: None,
                                     ended_rows: None,
-                                    draft_revision,
                                 });
                                 continue;
                             };
@@ -338,7 +321,6 @@ impl ChangeRecord for SessionEventRecord {
                                 piece,
                                 child_run_summary,
                                 ended_rows,
-                                draft_revision: None,
                             });
                         }
                         Ok(RecordPage {
@@ -366,8 +348,8 @@ impl ChangeRecord for SessionEventRecord {
 }
 
 /// The most bytes a change takes beside its event, its piece's body and its starts: its cursor,
-/// its run stamp, its piece's place, a child's summary, the rows it ends and a draft's revision,
-/// each a few ids and integers.
+/// its run stamp, its piece's place, a child's summary and the rows it ends, each a few ids and
+/// integers.
 const CHANGE_BESIDE_BODIES_MAX_BYTES: usize = 1024;
 
 // How many leading events go out in one frame: as many as fit the page budget with their pieces'

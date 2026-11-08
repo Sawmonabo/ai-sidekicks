@@ -89,26 +89,17 @@ impl From<SessionWriteError> for HandlerError {
     }
 }
 
-/// Where [`session_checked_statements`] puts the session's check, the position a write refused for
-/// a session with no row names.
-pub const SESSION_CHECK_STATEMENT_INDEX: usize = 0;
+// Where `write_while_session_exists` puts the session's check, the position a write refused for
+// a session with no row names.
+const SESSION_CHECK_STATEMENT_INDEX: usize = 0;
 
-/// Where [`session_checked_statements`] puts the change, the position a write refused by the
+/// Where [`write_while_session_exists`] puts the change, the position a write refused by the
 /// change's own row count names.
 pub const SESSION_CHANGE_STATEMENT_INDEX: usize = 1;
 
-/// `change` behind the check that `session_id` has a directory row, for one write, so a purge
-/// cannot land between them: the check at [`SESSION_CHECK_STATEMENT_INDEX`] and the change at
-/// [`SESSION_CHANGE_STATEMENT_INDEX`].
-pub fn session_checked_statements(
-    session_id: &SessionId,
-    change: WriteStatement,
-) -> Vec<WriteStatement> {
-    vec![session_exists_statement(session_id), change]
-}
-
-/// Writes `change` only while `session_id` has a directory row, as [`session_checked_statements`]
-/// orders them, and returns what `change` did. Fails with [`SessionWriteError::Refused`]
+/// Writes `change` only while `session_id` has a directory row, the check at the write's start and
+/// the change at [`SESSION_CHANGE_STATEMENT_INDEX`] in one write, so a purge cannot land between
+/// them, and returns what `change` did. Fails with [`SessionWriteError::Refused`]
 /// (`session.notFound`) for a session with no row, and with [`SessionWriteError::Write`] when the
 /// write is not kept, a refusal of the change at [`SESSION_CHANGE_STATEMENT_INDEX`] among it.
 pub async fn write_while_session_exists(
@@ -117,7 +108,7 @@ pub async fn write_while_session_exists(
     change: WriteStatement,
 ) -> Result<StatementResult, SessionWriteError> {
     match writer
-        .write(session_checked_statements(session_id, change))
+        .write(vec![session_exists_statement(session_id), change])
         .await
     {
         Ok(mut results) => Ok(results.swap_remove(SESSION_CHANGE_STATEMENT_INDEX)),

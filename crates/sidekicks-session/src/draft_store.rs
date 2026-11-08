@@ -1,8 +1,11 @@
 //! Each session's unsent composer draft, one `session_drafts` row per session: its words, what
 //! rides with them as JSON, and its revision. A save carries the revision it was typed over and is
-//! refused over a newer draft; an empty draft keeps the row, so its revision keeps counting. Each
-//! write that moves the revision appends `session.draft.changed` in the same write, so every
-//! subscriber to the session's events learns the draft changed.
+//! refused over a newer draft; an empty draft keeps the row, so its revision keeps counting.
+//!
+//! The draft sits outside the session's event log. A follower gets the held draft at once, then
+//! again after each save and after each Stop's or interrupt's return to the draft commits, which it
+//! hears from the log by the returned messages' `agent.queueItem.canceled`. Each follower reads on
+//! a task of its own, and a read that finds the revision it last sent sends nothing.
 
 use std::borrow::Cow;
 use std::sync::{Arc, LazyLock};
@@ -10,10 +13,10 @@ use std::sync::{Arc, LazyLock};
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension as _, named_params};
 use sidekicks_contracts::artifacts::attachment_reference::AttachmentReferenceList;
-use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::draft::{
-    SessionDraft, SessionDraftChangedPayload, SessionDraftExtras, SessionDraftUpdateResponse,
+    HeldSessionDraft, SessionDraft, SessionDraftExtras, SessionDraftUpdateResponse,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -21,6 +24,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_ipc::stream::latest_value::LatestValueOutlet;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -28,25 +32,20 @@ use sidekicks_store::database::statement::{StatementBindings, WriteStatement, te
 use sidekicks_store::database::stored_column::{
     StoredJsonFault, optional_text_column, safe_int_column,
 };
-use sidekicks_store::events::log_service::EventAppendError;
-use sidekicks_store::events::session::appender::{
-    SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
-    SessionEventEmitError, SessionEventLinkage,
-};
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 
 use crate::directory::lookups::{
-    SESSION_CHANGE_STATEMENT_INDEX, SESSION_CHECK_STATEMENT_INDEX, session_checked_statements,
+    SESSION_CHANGE_STATEMENT_INDEX, SessionWriteError, session_exists, write_while_session_exists,
 };
+use crate::follower_wakes::{FollowerWake, SessionFollowerWakes};
 use crate::queue_store::QueueMessageBody;
 
-/// The statements the store's reads run: the held draft and its revision alone.
+/// The statements the store's reads run: the held draft, and whether the session has a row.
 pub const SESSION_DRAFT_STORE_STATEMENT_CAPACITY: usize = 2;
 
 const SELECT_DRAFT_SQL: &str =
     "SELECT text, extras, revision FROM session_drafts WHERE session_id = @sessionId";
-
-const SELECT_REVISION_SQL: &str =
-    "SELECT revision FROM session_drafts WHERE session_id = @sessionId";
 
 // Writes the draft at `@revision` only while the held revision, 0 for no row, is the one the save
 // was typed over; no row written means the save was stale.
@@ -98,20 +97,19 @@ fn joined_list_sql(path: &str) -> String {
     )
 }
 
-/// Why a draft was not read or stored; a refused store keeps nothing.
+/// Why a draft was not read, stored or followed; a refused store keeps nothing.
 #[derive(Debug, thiserror::Error)]
 pub enum SessionDraftError {
-    /// The session is not one this daemon holds (`session.notFound`), or takes no write while its
-    /// history is rebuilt or damaged.
+    /// The session is not one this daemon holds (`session.notFound`).
     #[error(transparent)]
-    Refused(DomainError),
+    Refused(#[from] DomainError),
+    /// The session is not one this daemon holds (`session.notFound`), or the save was not kept.
+    #[error(transparent)]
+    Write(#[from] SessionWriteError),
     /// The draft changed since the revision the save was typed over
     /// (`session.draft.revisionStale`).
     #[error("the draft changed since the revision the save was typed over")]
     RevisionStale,
-    /// The save and its event were not kept.
-    #[error(transparent)]
-    Emit(#[from] SessionEventEmitError),
     /// SQLite refused the read.
     #[error("a read of a session's draft failed")]
     Database(#[from] rusqlite::Error),
@@ -122,84 +120,77 @@ pub enum SessionDraftError {
 }
 
 impl From<SessionDraftError> for HandlerError {
-    /// A store refused for its session answers as that refusal does; a failed read is a fault in
-    /// the daemon.
+    /// A refusal answers by its code; a failed read or a save not kept is a fault in the daemon.
     fn from(error: SessionDraftError) -> Self {
         match error {
             SessionDraftError::Refused(refusal) => Self::Refused(refusal),
+            SessionDraftError::Write(write) => write.into(),
             stale @ SessionDraftError::RevisionStale => Self::Refused(DomainError::new(
                 stale.to_string(),
                 RefusalCode::SessionDraftRevisionStale,
             )),
-            fault @ (SessionDraftError::Emit(_)
-            | SessionDraftError::Database(_)
-            | SessionDraftError::Pool(_)) => Self::Internal(Box::new(fault)),
+            fault @ (SessionDraftError::Database(_) | SessionDraftError::Pool(_)) => {
+                Self::Internal(Box::new(fault))
+            }
         }
     }
 }
 
-/// A session's draft as the store holds it, with its revision: 0 before any draft was held.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct StoredDraft {
-    /// The draft, whole.
-    pub draft: SessionDraft,
-    /// Its revision.
-    pub revision: SafeInt<0>,
-}
-
-/// Reads each session's draft through the daemon's read pool and stores it, with its
-/// `session.draft.changed`, through the session event appender.
+/// Reads each session's draft through the daemon's read pool, stores it through its writer, and
+/// answers each session's followers.
 pub struct SessionDraftStore {
     pool: Arc<DatabaseReadPool>,
-    appender: Arc<SessionEventAppender>,
+    writer: Arc<DatabaseWriter>,
+    /// Each followed session's followers, woken after each of its draft changes.
+    followers: Arc<SessionFollowerWakes>,
+    // Wakes a session's followers as a return to its draft commits; detached with the store.
+    _returns: FollowerAttachment,
 }
 
 impl SessionDraftStore {
-    /// The store reading through `pool` and writing through `appender`.
-    pub fn new(pool: Arc<DatabaseReadPool>, appender: Arc<SessionEventAppender>) -> Self {
-        Self { pool, appender }
+    /// The store reading through `pool`, writing through `writer`, and hearing from `log_followers`
+    /// each Stop's and interrupt's return to a draft as it commits.
+    pub fn new(
+        pool: Arc<DatabaseReadPool>,
+        writer: Arc<DatabaseWriter>,
+        log_followers: &Arc<SessionEventFollowers>,
+    ) -> Self {
+        let followers = Arc::new(SessionFollowerWakes::default());
+        let returned_to = Arc::clone(&followers);
+        // A return to the draft commits with each returned message's `agent.queueItem.canceled`.
+        // This runs on the writer's pump, so it only raises wakes; a person's own removal of a
+        // waiting message raises them too, and the read it costs sends nothing.
+        let returns = log_followers.follow_all(move |event| {
+            if event.envelope.event_type() == SessionEventType::AgentQueueItemCanceled {
+                returned_to.wake(event.envelope.session_id());
+            }
+            Ok(())
+        });
+        Self {
+            pool,
+            writer,
+            followers,
+            _returns: returns,
+        }
     }
 
     /// The session's held draft with its revision, or an empty one at revision 0 when none is held.
     /// Fails with [`SessionDraftError::Database`] or [`SessionDraftError::Pool`] when the read
     /// does, including stored extras that don't parse and a revision outside the safe integers.
-    pub async fn read(&self, session_id: SessionId) -> Result<StoredDraft, SessionDraftError> {
+    pub async fn read(&self, session_id: SessionId) -> Result<HeldSessionDraft, SessionDraftError> {
         self.pool
             .read(ReadLength::Short, move |connection| {
-                let draft = connection
-                    .prepare_cached(SELECT_DRAFT_SQL)?
-                    .query_row(
-                        named_params! { "@sessionId": session_id.text().as_str() },
-                        |row| {
-                            Ok(StoredDraft {
-                                draft: SessionDraft {
-                                    text: row.get(0)?,
-                                    extras: optional_text_column(row, 1, |text| {
-                                        serde_json::from_str::<SessionDraftExtras>(&text)
-                                            .map_err(StoredJsonFault::from)
-                                    })?
-                                    .unwrap_or_default(),
-                                },
-                                revision: safe_int_column(row, 2)?,
-                            })
-                        },
-                    )
-                    .optional()?;
-                Ok(draft.unwrap_or_else(|| StoredDraft {
-                    draft: SessionDraft::default(),
-                    revision: SafeInt::from_usize(0),
-                }))
+                Ok(read_held_draft(connection, &session_id)?)
             })
             .await
     }
 
     /// Holds `draft`, an empty one clearing it, as the session's draft while its revision is still
-    /// `expected_revision`, with its `session.draft.changed` in the same write, and answers the new
-    /// revision, one past it, and when it was stored once committed. Fails with
-    /// [`SessionDraftError::RevisionStale`] when the draft changed since, or when no revision
-    /// follows `expected_revision` within the safe integers, which no held draft reaches; with
-    /// [`SessionDraftError::Refused`] for a session this daemon holds no row for or that takes no
-    /// write; and with [`SessionDraftError::Emit`] when the write is not kept.
+    /// `expected_revision`, wakes the session's followers, and answers the new revision, one past
+    /// it, and when it was stored once committed. Fails with [`SessionDraftError::RevisionStale`]
+    /// when the draft changed since, or when no revision follows `expected_revision` within the
+    /// safe integers, which no held draft reaches; and with [`SessionDraftError::Write`]:
+    /// `session.notFound` for a session this daemon holds no row for, or the write not kept.
     pub async fn write(
         &self,
         session_id: SessionId,
@@ -226,87 +217,127 @@ impl SessionDraftStore {
             bindings: StatementBindings::Named(bindings),
             expected_row_count: Some(1),
         };
-        let linkage = SessionEventLinkage {
-            transactional_prelude: session_checked_statements(&session_id, change),
-            ..SessionEventLinkage::default()
-        };
-        let appended = self
-            .appender
-            .append(
-                draft_changed_event(session_id).map_err(SessionEventEmitError::from)?,
-                linkage,
-            )
-            .await;
-        let Err(error) = appended else {
-            return Ok(SessionDraftUpdateResponse {
-                session_id,
-                revision,
-                updated_at,
-            });
-        };
-        Err(match error.refused_statement_index() {
-            Some(SESSION_CHECK_STATEMENT_INDEX) => {
-                SessionDraftError::Refused(session_not_found(&session_id))
-            }
-            Some(SESSION_CHANGE_STATEMENT_INDEX) => SessionDraftError::RevisionStale,
-            _ => match error {
-                SessionEventAppendError::Append(EventAppendError::SessionWriteRefused(refusal)) => {
-                    SessionDraftError::Refused(refusal.into())
-                }
-                fault @ (SessionEventAppendError::Append(_)
-                | SessionEventAppendError::OccurredAt(_)) => {
-                    SessionDraftError::Emit(SessionEventEmitError::Append(fault))
-                }
-            },
+        match write_while_session_exists(&self.writer, &session_id, change).await {
+            Ok(_saved) => {}
+            Err(SessionWriteError::Write(WriteError::Refused {
+                statement_index: SESSION_CHANGE_STATEMENT_INDEX,
+                ..
+            })) => return Err(SessionDraftError::RevisionStale),
+            Err(error) => return Err(error.into()),
+        }
+        self.followers.wake(session_id);
+        Ok(SessionDraftUpdateResponse {
+            session_id,
+            revision,
+            updated_at,
         })
+    }
+
+    /// Sends the session's held draft through `outlet` now, then again after each change to it,
+    /// until the returned detach runs; a later read that fails ends the stream with that failure,
+    /// and the read pool closing at the daemon's stop ends it finished. Refused `session.notFound`
+    /// for an unknown session, following nothing; fails when that check's read fails.
+    pub async fn follow(
+        self: &Arc<Self>,
+        session_id: SessionId,
+        outlet: LatestValueOutlet<HeldSessionDraft>,
+    ) -> Result<Box<dyn FnOnce() + Send>, SessionDraftError> {
+        let is_known = self
+            .pool
+            .read(ReadLength::Short, move |connection| {
+                Ok::<_, SessionDraftError>(session_exists(connection, &session_id)?)
+            })
+            .await?;
+        if !is_known {
+            return Err(session_not_found(&session_id).into());
+        }
+        let wake = self.followers.add(session_id);
+        // The first read: the draft held now.
+        wake.notify_one();
+        let reading = tokio::spawn(read_until_detached(
+            Arc::clone(self),
+            session_id,
+            Arc::clone(&wake),
+            outlet,
+        ));
+        let store = Arc::clone(self);
+        Ok(Box::new(move || {
+            reading.abort();
+            store.followers.remove(session_id, &wake);
+        }))
     }
 }
 
-/// The revision of `session_id`'s draft read on `connection`, 0 when none is held. Fails when
-/// SQLite refuses the read or the stored revision is outside the safe integers.
-pub fn read_draft_revision(
+// Reads the session's draft each time `wake` is raised and sends it when its revision is not the
+// one last sent, until the follow is detached or a read fails.
+async fn read_until_detached(
+    store: Arc<SessionDraftStore>,
+    session_id: SessionId,
+    wake: FollowerWake,
+    outlet: LatestValueOutlet<HeldSessionDraft>,
+) {
+    let mut sent_revision = None;
+    loop {
+        wake.notified().await;
+        match store.read(session_id).await {
+            Ok(held) => {
+                if sent_revision != Some(held.revision) {
+                    sent_revision = Some(held.revision);
+                    outlet.send(held);
+                }
+            }
+            Err(SessionDraftError::Pool(DatabaseReadError::Closed)) => return,
+            Err(failure) => {
+                outlet.fail(failure.into());
+                return;
+            }
+        }
+    }
+}
+
+// The session's held draft read on `connection`, an empty one at revision 0 when none is held.
+fn read_held_draft(
     connection: &Connection,
     session_id: &SessionId,
-) -> rusqlite::Result<SafeInt<0>> {
-    Ok(connection
-        .prepare_cached(SELECT_REVISION_SQL)?
+) -> rusqlite::Result<HeldSessionDraft> {
+    let held = connection
+        .prepare_cached(SELECT_DRAFT_SQL)?
         .query_row(
             named_params! { "@sessionId": session_id.text().as_str() },
-            |row| safe_int_column(row, 0),
+            |row| {
+                Ok(HeldSessionDraft {
+                    draft: SessionDraft {
+                        text: row.get(0)?,
+                        extras: optional_text_column(row, 1, |text| {
+                            serde_json::from_str::<SessionDraftExtras>(&text)
+                                .map_err(StoredJsonFault::from)
+                        })?
+                        .unwrap_or_default(),
+                    },
+                    revision: safe_int_column(row, 2)?,
+                })
+            },
         )
-        .optional()?
-        .unwrap_or_else(|| SafeInt::from_usize(0)))
+        .optional()?;
+    Ok(held.unwrap_or_else(|| HeldSessionDraft {
+        draft: SessionDraft::default(),
+        revision: SafeInt::from_usize(0),
+    }))
 }
 
-/// A write that moves a session's draft revision, for a caller's own write: the statement and the
-/// `session.draft.changed` that commits with it.
-pub struct DraftChangeWrite {
-    /// The statement that changes the draft.
-    pub statement: WriteStatement,
-    /// The event that tells the session's subscribers.
-    pub event: SessionEventDraft,
-}
-
-// The `session.draft.changed` of `session_id`.
-fn draft_changed_event(session_id: SessionId) -> Result<SessionEventDraft, SessionEventDraftError> {
-    SessionEventDraft::of_session(
-        session_id,
-        &SessionEvent::SessionDraftChanged(SessionDraftChangedPayload { session_id }),
-    )
-}
-
-/// The write that puts `messages`, the lead messages a Stop or an interrupt returns in queue order,
-/// back into `session_id`'s draft whole, with its `session.draft.changed`: their words one line
-/// each ahead of the held draft's, their files and skill picks after the held draft's, and the
-/// first speed and repository among them where the held draft names none, the draft's revision
-/// moving on by one. `None` when no message is returned. Fails when the event cannot be drafted.
-pub fn returned_messages_write(
+/// The statement that puts `messages`, the lead messages a Stop or an interrupt returns in queue
+/// order, back into `session_id`'s draft whole, for a caller's write that also records each
+/// message canceled: their words one line each ahead of the held draft's, their files and skill
+/// picks after the held draft's, and the first speed and repository among them where
+/// the held draft names none, the draft's revision moving on by one. `None` when no message is
+/// returned.
+pub fn returned_messages_statement(
     session_id: &SessionId,
     messages: &[&QueueMessageBody],
     now: &WireInstant,
-) -> Result<Option<DraftChangeWrite>, SessionEventDraftError> {
+) -> Option<WriteStatement> {
     if messages.is_empty() {
-        return Ok(None);
+        return None;
     }
     let text = messages
         .iter()
@@ -329,18 +360,15 @@ pub fn returned_messages_write(
             .find_map(|message| message.output_speed_for_turn.clone()),
         workspace_id: messages.iter().find_map(|message| message.workspace_id),
     };
-    Ok(Some(DraftChangeWrite {
-        statement: WriteStatement {
-            sql: Cow::Borrowed(JOIN_RETURNED_DRAFT_SQL.as_str()),
-            bindings: StatementBindings::Named(draft_bindings(
-                session_id,
-                SessionDraft { text, extras },
-                now,
-            )),
-            expected_row_count: None,
-        },
-        event: draft_changed_event(*session_id)?,
-    }))
+    Some(WriteStatement {
+        sql: Cow::Borrowed(JOIN_RETURNED_DRAFT_SQL.as_str()),
+        bindings: StatementBindings::Named(draft_bindings(
+            session_id,
+            SessionDraft { text, extras },
+            now,
+        )),
+        expected_row_count: None,
+    })
 }
 
 // The bindings of `draft` for `session_id` at `updated_at`, its extras `NULL` when none ride with
@@ -362,4 +390,167 @@ fn draft_bindings(
         (Cow::Borrowed("@extras"), extras),
         text_binding("@updatedAt", updated_at.as_str()),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use sidekicks_contracts::event::session::SessionEvent;
+    use sidekicks_contracts::run::queue::{
+        AgentQueueItemCanceledPayload, AgentQueueItemCanceledState, QueueItemId,
+    };
+    use sidekicks_contracts::session::draft::{HeldSessionDraft, SessionDraft};
+    use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_contracts::wire::instant::WireInstant;
+    use sidekicks_contracts::wire::integer::SafeInt;
+    use sidekicks_ipc::registry::HandlerError;
+    use sidekicks_ipc::stream::feed::{CreditGate, Feed};
+    use sidekicks_ipc::stream::latest_value::LatestValueFeed;
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::schema::session_directory::insert_session_row;
+    use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+    use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
+    use sidekicks_store::events::session::appender::{
+        SessionEventAppender, SessionEventDraft, SessionEventLinkage,
+    };
+    use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+
+    use super::{
+        SESSION_DRAFT_STORE_STATEMENT_CAPACITY, SessionDraftStore, returned_messages_statement,
+    };
+    use crate::questions::schema::schema_parts;
+    use crate::queue_store::test_items::words;
+
+    /// One session's draft store over a test log, with a follow of its draft opened.
+    struct FollowedDraft {
+        // Holds the database file for the test's length.
+        _database: TestDatabase,
+        log: TestLog,
+        session_id: SessionId,
+        store: Arc<SessionDraftStore>,
+        feed: Box<dyn Feed<Emission = HeldSessionDraft>>,
+        gate: CreditGate,
+    }
+
+    impl FollowedDraft {
+        /// Opens the follow; the draft held now, an empty one at revision 0, is read first.
+        async fn open() -> Self {
+            let database = TestDatabase::new(schema_parts());
+            let log = open_log(&database, None).await;
+            let session_id = test_session_id();
+            insert_session_row(&database.reader(), session_id.text().as_str(), None, None);
+            let store = Arc::new(SessionDraftStore::new(
+                Arc::new(DatabaseReadPool::new(
+                    database.path(),
+                    SESSION_DRAFT_STORE_STATEMENT_CAPACITY,
+                )),
+                Arc::clone(&log.writer),
+                &log.followers,
+            ));
+            let following = Arc::clone(&store);
+            let feed = LatestValueFeed::open(|outlet| async move {
+                following
+                    .follow(session_id, outlet)
+                    .await
+                    .map_err(HandlerError::from)
+            })
+            .await
+            .expect("the follow opens");
+            let mut followed = Self {
+                _database: database,
+                log,
+                session_id,
+                store,
+                feed: Box::new(feed),
+                gate: CreditGate::with_credit(64),
+            };
+            let first = followed.next().await;
+            assert_eq!(first.revision, SafeInt::from_usize(0));
+            followed
+        }
+
+        /// The next draft the follow sends; fails the test when none comes within a few seconds.
+        async fn next(&mut self) -> HeldSessionDraft {
+            tokio::time::timeout(Duration::from_secs(5), self.feed.next(&self.gate))
+                .await
+                .expect("a follower hears the change")
+                .expect("the draft reads")
+                .expect("the follow goes on")
+        }
+
+        /// Puts a waiting message of `text` back into the draft as a Stop's return writes it: the
+        /// draft's statement committed with the message's `agent.queueItem.canceled`.
+        async fn return_to_draft(&self, text: &str) {
+            let returned = words(text);
+            let statement =
+                returned_messages_statement(&self.session_id, &[&returned], &WireInstant::now())
+                    .expect("a returned message writes the draft");
+            let canceled = SessionEventDraft::of_session(
+                self.session_id,
+                &SessionEvent::AgentQueueItemCanceled(AgentQueueItemCanceledPayload {
+                    session_id: self.session_id,
+                    queue_item_id: QueueItemId::try_from(mint_uuid_v7())
+                        .expect("a minted UUID is a queue item id"),
+                    state: AgentQueueItemCanceledState::Value,
+                }),
+            )
+            .expect("the cancel is drafted");
+            SessionEventAppender::new(Arc::clone(&self.log.service), SESSION_EVENT_VERSION.clone())
+                .append(
+                    canceled,
+                    SessionEventLinkage {
+                        transactional_prelude: vec![statement],
+                        ..SessionEventLinkage::default()
+                    },
+                )
+                .await
+                .expect("the return commits");
+        }
+    }
+
+    /// A Stop's return of a waiting message reaches a follower of the draft with the returned
+    /// words and the new revision, a second return moving it on again. Killed by the return's
+    /// commit waking no follower, and by the return over a held draft not moving its revision.
+    #[tokio::test]
+    async fn a_stops_return_to_the_draft_reaches_its_followers_with_the_new_revision() {
+        let mut followed = FollowedDraft::open().await;
+
+        followed.return_to_draft("First").await;
+        let first = followed.next().await;
+        followed.return_to_draft("Second").await;
+        let second = followed.next().await;
+
+        assert_eq!(
+            (first.draft.text.as_str(), first.revision),
+            ("First", SafeInt::from_usize(1))
+        );
+        assert_eq!(
+            (second.draft.text.as_str(), second.revision),
+            ("Second\nFirst", SafeInt::from_usize(2))
+        );
+    }
+
+    /// A save reaches a follower of the draft with the saved words and the revision it answered.
+    /// Killed by the save waking no follower.
+    #[tokio::test]
+    async fn a_save_reaches_the_drafts_followers() {
+        let mut followed = FollowedDraft::open().await;
+        let draft = SessionDraft {
+            text: "Half a thought".to_owned(),
+            ..SessionDraft::default()
+        };
+
+        let saved = followed
+            .store
+            .write(followed.session_id, draft.clone(), SafeInt::from_usize(0))
+            .await
+            .expect("the save is taken");
+        let heard = followed.next().await;
+
+        assert_eq!(heard.draft, draft);
+        assert_eq!(heard.revision.get(), saved.revision.get());
+    }
 }

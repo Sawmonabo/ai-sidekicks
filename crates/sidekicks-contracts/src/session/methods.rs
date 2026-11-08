@@ -322,8 +322,7 @@ pub struct SessionEventSubscribeRequest {
 /// One change on a session's stream: an event of the session's log, the cursor it sits at and,
 /// exactly when the event belongs to a run, the daemon's run stamp for it. A piece of a reply or of
 /// reasoning also carries its text and its place in its row; a child run's event carries the
-/// child's summary; a change that ends rows carries the rest of their block starts; and a draft
-/// change carries the draft's revision.
+/// child's summary; and a change that ends rows carries the rest of their block starts.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -369,15 +368,6 @@ pub struct SessionStreamChange {
     )]
     #[schemars(with = "BoundedVec<SessionStreamEndedRow, 1, { usize::MAX }>")]
     pub ended_rows: Option<BoundedVec<SessionStreamEndedRow, 1, { usize::MAX }>>,
-    /// On `session.draft.changed`: the draft's revision as the stream read it, never below the one
-    /// the change made, so a reader holding an older one reads the draft again.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "SafeInt<0>")]
-    pub draft_revision: Option<SafeInt<0>>,
 }
 
 /// One piece of a reply or of reasoning on the stream: the row it joins, where its text starts in

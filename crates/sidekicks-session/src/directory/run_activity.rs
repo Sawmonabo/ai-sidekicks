@@ -120,7 +120,6 @@ pub(crate) fn run_outcome_of(
         | SessionEventType::SessionRestoreCompleted
         | SessionEventType::SessionAdvisorChanged
         | SessionEventType::SessionOutputStyleChanged
-        | SessionEventType::SessionDraftChanged
         | SessionEventType::AgentProviderBindingChanged
         | SessionEventType::AgentProviderBindingChangeFailed
         | SessionEventType::WorkspacePreparing

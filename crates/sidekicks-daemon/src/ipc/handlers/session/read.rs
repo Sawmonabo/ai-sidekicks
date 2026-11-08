@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use futures::FutureExt as _;
+use sidekicks_contracts::session::draft::HeldSessionDraft;
 use sidekicks_contracts::session::methods::{
     SessionRead, SessionReadRequest, SessionReadResponse, SessionRecord,
 };
@@ -13,7 +14,7 @@ use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
 use sidekicks_session::addresses::SessionInboxAddresses;
-use sidekicks_session::draft_store::{SessionDraftStore, StoredDraft};
+use sidekicks_session::draft_store::SessionDraftStore;
 use sidekicks_session::service::{SessionLogRead, SessionReadRecord, SessionService};
 use sidekicks_session::staged_attachments::StagedAttachments;
 
@@ -80,7 +81,7 @@ async fn read_session(
         live_runs,
         standing_events,
     } = sources.sessions.read_session(request).await?;
-    let StoredDraft {
+    let HeldSessionDraft {
         draft,
         revision: draft_revision,
     } = sources.drafts.read(session_id).await?;
@@ -157,12 +158,10 @@ mod tests {
     use sidekicks_store::database::schema::session_directory::insert_session_row;
     use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
     use sidekicks_store::events::log_service::test_fixture::open_log;
-    use sidekicks_store::events::session::appender::SessionEventAppender;
-    use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
     use super::register_session_read;
     use crate::daemon::schema::schema_parts;
-    use crate::ipc::handlers::session::draft_update::register_session_draft_update;
+    use crate::ipc::handlers::session::draft::register_session_draft;
 
     /// A session with no files staged.
     struct NoStagedAttachments;
@@ -190,10 +189,7 @@ mod tests {
     /// `session.draft.update` and `session.read` over one session in `database` that runs in a
     /// distribution the start did not list.
     async fn registry_over_one_session(database: &TestDatabase) -> (MethodRegistry, SessionId) {
-        let appender = Arc::new(SessionEventAppender::new(
-            open_log(database, None).await.service,
-            SESSION_EVENT_VERSION.clone(),
-        ));
+        let log = open_log(database, None).await;
         let session_id = test_session_id();
         insert_session_row(
             &database.reader(),
@@ -205,10 +201,14 @@ mod tests {
             database.path(),
             SESSION_SERVICE_STATEMENT_CAPACITY + SESSION_DRAFT_STORE_STATEMENT_CAPACITY,
         ));
-        let drafts = Arc::new(SessionDraftStore::new(Arc::clone(&reads), appender));
+        let drafts = Arc::new(SessionDraftStore::new(
+            Arc::clone(&reads),
+            log.writer,
+            &log.followers,
+        ));
         let mut builder = MethodRegistryBuilder::new();
-        register_session_draft_update(&mut builder, Arc::clone(&drafts))
-            .expect("session.draft.update registers");
+        register_session_draft(&mut builder, Arc::clone(&drafts))
+            .expect("the draft methods register");
         register_session_read(
             &mut builder,
             Arc::new(SessionService::new(

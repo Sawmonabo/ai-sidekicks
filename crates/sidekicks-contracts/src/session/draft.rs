@@ -15,6 +15,7 @@ use crate::artifacts::attachment_reference::AttachmentReferenceList;
 use crate::artifacts::id::ArtifactId;
 use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
 use crate::jsonrpc::refusal::RefusalCode;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::mcp::server::McpServerName;
 use crate::method::methods;
 use crate::repo::mount::WorkspaceId;
@@ -128,13 +129,26 @@ pub struct SessionDraftUpdateResponse {
     pub updated_at: WireInstant,
 }
 
-/// The `session.draft.changed` payload: the session whose draft a save, a clear, a Stop or an
-/// interrupt changed. A reader takes the new draft from `session.read`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// `session.draft.subscribe`: follows a session's draft, the draft held now and again after each
+/// change.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SessionDraftChangedPayload {
+#[garde(allow_unvalidated)]
+pub struct SessionDraftSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
+}
+
+/// A session's draft as the daemon holds it, with its revision: an empty draft at revision 0
+/// before any draft was held.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct HeldSessionDraft {
+    /// The draft, whole.
+    pub draft: SessionDraft,
+    /// Its revision.
+    pub revision: SafeInt<0>,
 }
 
 /// One staged file as the daemon holds it. Every member is what the daemon found in the bytes it
@@ -402,6 +416,14 @@ methods! {
             result: SessionDraftUpdateResponse,
             refusals: [SessionNotFound, SessionDraftRevisionStale],
         },
+        /// Follows the session's draft.
+        SessionDraftSubscribe = subscription "session.draft.subscribe" {
+            mutating: false,
+            params: SessionDraftSubscribeRequest,
+            result: SubscribeAcknowledgmentResponse,
+            emission: HeldSessionDraft,
+            refusals: [SessionNotFound],
+        },
         /// Stages files for the next message; each refused item rides in the reply.
         SessionAttachmentAdd = mutation "session.attachment.add" {
             mutating: true,
@@ -437,7 +459,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionDraft>(),
         Definition::read::<SessionDraftUpdateRequest>().checked(),
         Definition::read::<SessionDraftUpdateResponse>().checked(),
-        Definition::read::<SessionDraftChangedPayload>().checked(),
+        Definition::read::<SessionDraftSubscribeRequest>(),
+        Definition::read::<HeldSessionDraft>().checked(),
         Definition::read::<SessionAttachmentSummary>(),
         Definition::read::<SessionAttachmentItem>(),
         Definition::read::<SessionAttachmentAddRequest>().checked(),
