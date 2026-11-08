@@ -8,6 +8,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -98,6 +99,15 @@ pub enum ProviderSessionError {
     NoConversation {
         /// The session.
         session_id: SessionId,
+    },
+    /// Calls an undo's settle named are still open in the session's log after its provider
+    /// answered, so the turns they were made in are not cut.
+    #[error("session {session_id} still holds cut tool calls open after their settle")]
+    HeldCallsOpen {
+        /// The session.
+        session_id: SessionId,
+        /// The calls still open.
+        tool_call_ids: Vec<ToolCallId>,
     },
     /// The binding or its cursor was not recorded.
     #[error(transparent)]
@@ -298,6 +308,7 @@ impl From<ProviderSessionError> for HandlerError {
             | ProviderSessionError::ResumeRefused { .. }
             | ProviderSessionError::NotResumable(_)
             | ProviderSessionError::NotOpen { .. }
+            | ProviderSessionError::HeldCallsOpen { .. }
             | ProviderSessionError::NoConversation { .. }
             | ProviderSessionError::Cursor(_)
             | ProviderSessionError::ResumedRuns { .. }
