@@ -78,6 +78,7 @@ use crate::session::controls::events::{
     SessionSideQuestionAnsweredPayload, SessionSpendLimitReachedPayload,
 };
 use crate::session::convert::SessionConvertedPayload;
+use crate::session::draft::SessionDraftChangedPayload;
 use crate::session::events::{
     SessionAdvisorChangedPayload, SessionCreatedPayload, SessionLifecycleChangePayload,
     SessionMarkChangePayload, SessionOutputStyleChangedPayload,
@@ -509,6 +510,9 @@ session_events! {
     SessionGoalUpdated(#[garde(dive)] SessionGoalUpdatedPayload) = "session.goal.updated",
     /// Emitted when a session is renamed.
     SessionRenamed(SessionRenamedPayload) = "session.renamed",
+    /// Emitted in each write that moves a session's draft revision: a save, a clear, and a Stop's
+    /// or an interrupt's return of waiting messages.
+    SessionDraftChanged(SessionDraftChangedPayload) = "session.draft.changed",
     /// Emitted when the holder of a shell changes.
     TerminalControlChanged(#[garde(dive)] TerminalControlChangedPayload)
         = "terminal.control.changed",

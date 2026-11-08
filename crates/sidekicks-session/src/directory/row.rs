@@ -339,6 +339,7 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         | SessionEventType::SessionRestoreCompleted
         | SessionEventType::SessionAdvisorChanged
         | SessionEventType::SessionOutputStyleChanged
+        | SessionEventType::SessionDraftChanged
         | SessionEventType::AgentProviderBindingChanged
         | SessionEventType::AgentProviderBindingChangeFailed
         | SessionEventType::WorkspacePreparing
@@ -451,10 +452,12 @@ struct DirectoryUpdate {
 // Maintenance events are the log's own bookkeeping, so they never say when the session was last
 // active. A reasoning update arrives many times within one turn, and each move of last activity
 // would re-order the list, change its shown time and make the search index re-read the session's
-// tag rows, so it does not move it either.
+// tag rows, so it does not move it either. A draft change comes at each pause in the person's
+// typing and changes nothing the list shows, so it moves neither time.
 fn describe_directory_update(
     event: &DirectoryEvent<'_>,
 ) -> Result<DirectoryUpdate, DirectoryRowError> {
+    let is_draft_change = event.event_type == SessionEventType::SessionDraftChanged.as_str();
     Ok(DirectoryUpdate {
         change: change_of(event)?,
         occurred_at: normalize_occurred_at(event.occurred_at)
@@ -462,8 +465,9 @@ fn describe_directory_update(
             .as_str()
             .to_owned(),
         moves_last_activity: event.category != EventCategory::EventMaintenance
-            && event.event_type != SessionEventType::AgentThinkingUpdated.as_str(),
-        moves_updated_at: event.category == EventCategory::SessionLifecycle,
+            && event.event_type != SessionEventType::AgentThinkingUpdated.as_str()
+            && !is_draft_change,
+        moves_updated_at: event.category == EventCategory::SessionLifecycle && !is_draft_change,
     })
 }
 

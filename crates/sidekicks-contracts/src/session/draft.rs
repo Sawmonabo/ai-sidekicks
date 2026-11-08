@@ -128,6 +128,15 @@ pub struct SessionDraftUpdateResponse {
     pub updated_at: WireInstant,
 }
 
+/// The `session.draft.changed` payload: the session whose draft a save, a clear, a Stop or an
+/// interrupt changed. A reader takes the new draft from `session.read`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionDraftChangedPayload {
+    /// The session.
+    pub session_id: SessionId,
+}
+
 /// One staged file as the daemon holds it. Every member is what the daemon found in the bytes it
 /// copied, never what the caller declared: the name it stored the file under, the media type it
 /// read from the bytes, and the size it measured.
@@ -428,6 +437,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionDraft>(),
         Definition::read::<SessionDraftUpdateRequest>().checked(),
         Definition::read::<SessionDraftUpdateResponse>().checked(),
+        Definition::read::<SessionDraftChangedPayload>().checked(),
         Definition::read::<SessionAttachmentSummary>(),
         Definition::read::<SessionAttachmentItem>(),
         Definition::read::<SessionAttachmentAddRequest>().checked(),

@@ -175,6 +175,7 @@ session_event_types! {
         SessionRestoreCompleted = "session.restore.completed",
         SessionAdvisorChanged = "session.advisor.changed",
         SessionOutputStyleChanged = "session.outputStyle.changed",
+        SessionDraftChanged = "session.draft.changed",
         AgentProviderBindingChanged = "agent.providerBinding.changed",
         AgentProviderBindingChangeFailed = "agent.providerBinding.changeFailed",
         WorkspacePreparing = "workspace.preparing",

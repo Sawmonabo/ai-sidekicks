@@ -557,7 +557,7 @@ pub(crate) fn build_session_services(
         list_feed,
         drafts: Arc::new(SessionDraftStore::new(
             Arc::clone(&reads),
-            Arc::clone(&writer),
+            Arc::clone(&appender),
         )),
         tags: Arc::new(SessionTagService::new(
             Arc::clone(&reads),

@@ -2,12 +2,15 @@ use std::time::Duration;
 
 use serde_json::json;
 use sidekicks_contracts::method::Method as _;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_ipc::call_fixtures::{context, request};
 use sidekicks_ipc::registry::{Dispatch as _, EncodedFeed, Reply};
 use sidekicks_ipc::stream::feed::CreditGate;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::task_list::TaskListChange;
 use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_provider};
+use sidekicks_session::draft_store::returned_messages_write;
+use sidekicks_session::queue_store::test_items::words;
 use sidekicks_session::run::engine::test_fixture::insert_run;
 use sidekicks_session::transcript::test_log::{
     STALLING_TEXT, stalling_parse, wire_block_starts, wire_message,
@@ -18,6 +21,8 @@ use sidekicks_store::database::writer::test_file::{
 };
 use sidekicks_store::events::log_service::EventLogAppendOptions;
 use sidekicks_store::events::log_service::test_fixture::open_log;
+use sidekicks_store::events::session::appender::{SessionEventAppender, SessionEventLinkage};
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 use super::*;
 use crate::daemon::schema::schema_parts;
@@ -558,4 +563,72 @@ async fn a_read_ending_in_a_task_list_call_reads_through_it() {
     assert_eq!(tail.changes, []);
     assert_eq!(tail.read_through, Some(through_task_list));
     assert!(tail.is_cut_short);
+}
+
+/// Puts a waiting message of `text` back into `session_id`'s draft as a Stop's return writes it:
+/// the draft's statement and its change in one append.
+async fn return_to_draft(log: &Arc<EventLogService>, session_id: SessionId, text: &str) {
+    let returned = words(text);
+    let write = returned_messages_write(&session_id, &[&returned], &WireInstant::now())
+        .expect("the draft change is drafted")
+        .expect("a returned message writes the draft");
+    let linkage = SessionEventLinkage {
+        transactional_prelude: vec![write.statement],
+        ..SessionEventLinkage::default()
+    };
+    SessionEventAppender::new(Arc::clone(log), SESSION_EVENT_VERSION.clone())
+        .append(write.event, linkage)
+        .await
+        .expect("the append commits");
+}
+
+/// A Stop's return of a waiting message reaches a subscriber as a draft change carrying the
+/// draft's new revision, and no other change carries one. Mutations: the return's write appending
+/// no draft change, the return over a held draft not moving its revision, or the stream sending
+/// the change without its revision.
+#[tokio::test]
+async fn a_stops_return_to_the_draft_reaches_the_stream_with_the_new_revision() {
+    let database = TestDatabase::new(schema_parts());
+    let log = open_log(&database, None).await.service;
+    let session_id = test_session_id();
+    return_to_draft(&log, session_id, "First").await;
+    let start = log
+        .read_follow_start(session_id, FollowStart::StartOfLog)
+        .await
+        .expect("the session's start reads");
+    let record =
+        SessionEventRecord::new(Arc::clone(&log), no_drivers(), session_id, MARKDOWN_PARSE);
+
+    let first = record.read_after(&start, 64).await.expect("the page reads");
+    pin(&log, session_id).await;
+    return_to_draft(&log, session_id, "Second").await;
+    let last_read = &first.changes[first.changes.len() - 1].cursor;
+    let second = record
+        .read_after(last_read, 64)
+        .await
+        .expect("the page reads");
+
+    let sent = |page: &SessionStreamPage| -> Vec<(String, Option<SafeInt<0>>)> {
+        page.changes
+            .iter()
+            .map(|change| {
+                (
+                    change.event.event_type.as_str().to_owned(),
+                    change.draft_revision,
+                )
+            })
+            .collect()
+    };
+    let draft_change = SessionEventType::SessionDraftChanged.as_str().to_owned();
+    assert_eq!(
+        sent(&first),
+        [(draft_change.clone(), Some(SafeInt::from_usize(1)))]
+    );
+    assert_eq!(
+        sent(&second),
+        [
+            ("session.pinned".to_owned(), None),
+            (draft_change, Some(SafeInt::from_usize(2))),
+        ]
+    );
 }

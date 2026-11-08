@@ -473,6 +473,7 @@ fn sessions_named(event: &CommittedEvent) -> Result<Vec<SessionId>, serde_json::
         | SessionEventType::SessionRestoreCompleted
         | SessionEventType::SessionAdvisorChanged
         | SessionEventType::SessionOutputStyleChanged
+        | SessionEventType::SessionDraftChanged
         | SessionEventType::AgentProviderBindingChanged
         | SessionEventType::AgentProviderBindingChangeFailed
         | SessionEventType::WorkspaceRootLost

@@ -5,7 +5,7 @@
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_session::draft_store::returned_messages_statement;
+use sidekicks_session::draft_store::returned_messages_write;
 use sidekicks_session::queue_store::{QueueItemBody, QueueItemOutcome, QueueItemRecord};
 use sidekicks_session::run::state_change::RunWriteCompanions;
 use sidekicks_store::events::session::appender::SessionEventDraftError;
@@ -54,7 +54,7 @@ pub fn stop_message_ends_with_taken(
 }
 
 // The ends of `items` for one write, each to the outcome `outcome_of` answers, with those canceled
-// put back into the draft.
+// put back into the draft and its change told after their own events.
 fn ends_at_stop(
     items: &[QueueItemRecord],
     outcome_of: impl Fn(&QueueItemRecord) -> QueueItemOutcome,
@@ -74,9 +74,10 @@ fn ends_at_stop(
             .iter()
             .filter_map(|item| item.body.as_message())
             .collect();
-        companions
-            .statements
-            .extend(returned_messages_statement(&session_id, &messages, now));
+        if let Some(draft) = returned_messages_write(&session_id, &messages, now)? {
+            companions.statements.push(draft.statement);
+            companions.preceding_events.push(draft.event);
+        }
     }
     Ok(companions)
 }

@@ -541,6 +541,7 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         | SessionEvent::AgentRunParentCorrected(_)
         | SessionEvent::SessionAdvisorChanged(_)
         | SessionEvent::SessionOutputStyleChanged(_)
+        | SessionEvent::SessionDraftChanged(_)
         | SessionEvent::RepoMountHealthChanged(_)
         | SessionEvent::AgentRunRejected(_)
         | SessionEvent::ArtifactPublished(_)

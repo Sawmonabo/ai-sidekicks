@@ -165,8 +165,11 @@ interface SessionStreamFrame {
   // `childRunSummary` is present on an event of a child run: the child's summary as of this event.
   // `endedRows` names the rows the event ended (at its run's turn end or its rollback, the events
   // after which no later piece joins them), each with the block starts it had not yet sent or why
-  // their cut failed. A frame is cut by bytes under the page budget as a page is, and the
-  // stream reads the next one at once.
+  // their cut failed. `draftRevision` is present on `session.draft.changed`, which every save,
+  // clear and Stop's or interrupt's return to the draft appends: the draft's revision as the stream
+  // read it, never below the one the change made, so a client holding an older revision reads the
+  // draft again with `session.read`. A frame is cut by bytes under the page budget as a page is,
+  // and the stream reads the next one at once.
   changes: Array<{
     cursor: EventCursor;
     event: EventEnvelope;
@@ -184,6 +187,7 @@ interface SessionStreamFrame {
       blockStarts?: Uint8Array;
       blockCutFailure?: BlockCutFailure;
     }>;
+    draftRevision?: number;
   }>;
   // Present only on the frame with no changes that tells a subscriber it is behind: the newest cursor
   // the daemon holds for the session. A frame with changes carries no frame cursor.
@@ -394,7 +398,7 @@ interface SessionDraft {
 // SessionDraftUpdate — session.draft.update. A save over a draft that changed since the client read
 // it, another device's save or a message a Stop put back, is refused with
 // `session.draft.revisionStale` and writes nothing; the client reads the draft again and saves over
-// that.
+// that. A save that is taken appends `session.draft.changed` in the same write.
 interface SessionDraftUpdateRequest {
   sessionId: SessionId;
   draft: SessionDraft; // the whole draft; an empty one, no words and no extras, clears it
@@ -590,6 +594,13 @@ interface SessionOutputStyleChangedPayload {
   sessionId: SessionId;
   outputStyle: string; // the style's name, as Claude Code lists it
   at: string; // ISO 8601
+}
+
+// session.draft.changed payload. Appended in the write of every save, clear and Stop's or
+// interrupt's return to the draft; the stream adds the draft's revision, and a reader takes the
+// draft from `session.read`.
+interface SessionDraftChangedPayload {
+  sessionId: SessionId;
 }
 
 // SessionSearch — session.search. One search over session titles, message text, tool calls, session
