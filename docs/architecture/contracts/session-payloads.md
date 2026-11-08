@@ -222,12 +222,11 @@ interface SessionRecord {
   // The working-folder move a run boundary will apply, the folder it moves to, or null when none is
   // pending (`session.workingFolder.update` below).
   pendingWorkingFolder: { path: string } | null;
-  // The daemon-held composer store below: the whole unsent draft (empty when there is none) and the whole
-  // staged set, so every device opens the same half-written message.
-  draft: SessionDraft;
-  // The draft's revision, which a save carries back as `expectedRevision`: 0 before any save, and
-  // one more at each save and at each message a Stop or an interrupt puts back into it.
-  draftRevision: number;
+  // The daemon-held composer store below: the whole unsent draft (empty when there is none) with its
+  // revision, and the whole staged set, so every device opens the same half-written message. The
+  // revision is what a save carries back as `expectedRevision`: 0 before any save, and one more at
+  // each save and at each message a Stop or an interrupt puts back into it.
+  draft: HeldSessionDraft;
   attachments: SessionAttachmentSummary[];
   // This session's OWN bound on how many steps one turn may take, absent where the person set none —
   // in which case the machine's own Runtime value applies, and where that is unset the turn is
@@ -400,7 +399,7 @@ interface SessionDraft {
 interface SessionDraftUpdateRequest {
   sessionId: SessionId;
   draft: SessionDraft; // the whole draft; an empty one, no words and no extras, clears it
-  expectedRevision: number; // the `draftRevision` the save was typed over
+  expectedRevision: number; // the draft's `revision` the save was typed over
 }
 interface SessionDraftUpdateResponse {
   sessionId: SessionId;

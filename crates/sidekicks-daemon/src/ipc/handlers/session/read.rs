@@ -6,7 +6,6 @@
 use std::sync::Arc;
 
 use futures::FutureExt as _;
-use sidekicks_contracts::session::draft::HeldSessionDraft;
 use sidekicks_contracts::session::methods::{
     SessionRead, SessionReadRequest, SessionReadResponse, SessionRecord,
 };
@@ -81,10 +80,7 @@ async fn read_session(
         live_runs,
         standing_events,
     } = sources.sessions.read_session(request).await?;
-    let HeldSessionDraft {
-        draft,
-        revision: draft_revision,
-    } = sources.drafts.read(session_id).await?;
+    let draft = sources.drafts.read(session_id).await?;
     let attachments = sources.attachments.read(&session_id).await?;
     let SessionReadRecord {
         id,
@@ -114,7 +110,6 @@ async fn read_session(
             created_at,
             updated_at,
             draft,
-            draft_revision,
             attachments,
             max_steps_per_turn,
             permission_level,
@@ -268,8 +263,8 @@ mod tests {
                 .await
                 .expect("the save is taken");
             let read = call(&registry, SessionRead::DESCRIPTOR.method, &read_params).await;
-            assert_eq!(read["session"]["draft"], draft);
-            assert_eq!(read["session"]["draftRevision"], expected_revision + 1);
+            assert_eq!(read["session"]["draft"]["draft"], draft);
+            assert_eq!(read["session"]["draft"]["revision"], expected_revision + 1);
             assert_eq!(read["session"]["place"], json!({ "distro": "Ubuntu" }));
             assert_eq!(
                 read["session"]["addresses"][0]["place"],
@@ -311,7 +306,7 @@ mod tests {
             &json!({ "sessionId": session_id }),
         )
         .await;
-        assert_eq!(read["session"]["draft"], newer);
-        assert_eq!(read["session"]["draftRevision"], 2);
+        assert_eq!(read["session"]["draft"]["draft"], newer);
+        assert_eq!(read["session"]["draft"]["revision"], 2);
     }
 }
