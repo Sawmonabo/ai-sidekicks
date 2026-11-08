@@ -26,6 +26,7 @@ use sidekicks_contracts::wire::integer::{MAX_SAFE_SIGNED_INTEGER, SafeInt};
 use sidekicks_contracts::wire::record::RecordKey;
 use sidekicks_contracts::wire::text::FreeFormText;
 
+use crate::database::schema::SESSION_EVENTS_TYPE_INDEX;
 use crate::events::content::codec::{
     BodyStreamError, StoredBodyPlace, out_of_memory_read_failure, stored_body_place_sql,
 };
@@ -88,13 +89,18 @@ pub enum SessionLogReadError {
     Malformed(#[from] MalformedStoredEventError),
 }
 
-/// Which of the events after a position a read takes; every one when a member is `None`.
+/// Which of the events after a position a read takes, every one when a member is `None`, and how a
+/// read of given types finds them.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SessionEventFilter<'types> {
     /// Only events of these types.
     pub event_types: Option<&'types [&'types str]>,
     /// Only events before this sequence.
     pub before_sequence: Option<i64>,
+    /// Whether the read is sparse, stopping at a limit far short of the log's end, so a read of
+    /// `event_types` seeks each type's events through the type index; a full pass in log order,
+    /// such as a projection rebuild, leaves it false and walks the sequence index.
+    pub is_sparse: bool,
 }
 
 /// The envelope's columns, in the order [`SessionEventReads::read_envelopes`] reads them; a
@@ -121,16 +127,25 @@ static AFTER_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// A read of given types names the type index: unhinted, the planner walks the sequence index and
-// reads every event between the position and the matching ones, to the log's end when few match.
-// Through the type index it reads, per type, the matching events after the position up to the
-// limit.
-const TYPE_INDEX: &str = "INDEXED BY idx_session_events_type";
+// A sparse read of given types, one that stops at a limit, names the type index: unhinted, the
+// planner walks the sequence index and reads every event between the position and the matching
+// ones, to the log's end when few match. Through the type index it reads, per type, the matching
+// events after the position up to the limit. A full pass in log order, such as a projection
+// rebuild, reads most of the log anyway, so it stays on the sequence index and reads it once.
+static TYPE_INDEX: LazyLock<String> =
+    LazyLock::new(|| format!("INDEXED BY {SESSION_EVENTS_TYPE_INDEX}"));
 
-static AFTER_OF_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
+// The events of given types after a position, in log order through the sequence index.
+static AFTER_OF_TYPES_SQL: LazyLock<String> = LazyLock::new(|| after_of_types_sql(""));
+
+// The same, sparse, through the type index.
+static SPARSE_AFTER_OF_TYPES_SQL: LazyLock<String> =
+    LazyLock::new(|| after_of_types_sql(&TYPE_INDEX));
+
+fn after_of_types_sql(index: &str) -> String {
     format!(
         "SELECT {SELECTED_COLUMNS}
-       FROM session_events AS event {TYPE_INDEX}
+       FROM session_events AS event {index}
       WHERE session_id = ? AND sequence > ? AND sequence < ?
         AND type IN (SELECT value FROM json_each(?))
         AND {} AND NOT {}
@@ -139,7 +154,7 @@ static AFTER_OF_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
         outside_skipped_ranges_sql("event"),
         stored_patch_part_sql("event"),
     )
-});
+}
 
 // The events after a position, counted over at most the given number of them with their stored
 // bytes: the payload's and the body's, which counts a body of 1 KiB or more as compressed.
@@ -147,7 +162,7 @@ static DISTANCE_SQL: LazyLock<String> = LazyLock::new(|| distance_sql("", ""));
 
 // The same, only of the given types.
 static DISTANCE_OF_TYPES_SQL: LazyLock<String> =
-    LazyLock::new(|| distance_sql(TYPE_INDEX, "AND type IN (SELECT value FROM json_each(?5))"));
+    LazyLock::new(|| distance_sql(&TYPE_INDEX, "AND type IN (SELECT value FROM json_each(?5))"));
 
 fn distance_sql(index: &str, type_filter: &str) -> String {
     format!(
@@ -437,7 +452,11 @@ where
                 params![session_id.text().as_str(), after_position, before, limit],
             ),
             Some(event_types) => self.read_envelopes(
-                &AFTER_OF_TYPES_SQL,
+                if filter.is_sparse {
+                    &SPARSE_AFTER_OF_TYPES_SQL
+                } else {
+                    &AFTER_OF_TYPES_SQL
+                },
                 params![
                     session_id.text().as_str(),
                     after_position,

@@ -521,6 +521,7 @@ impl EventLogService {
                         SessionEventFilter {
                             event_types,
                             before_sequence: None,
+                            is_sparse: true,
                         },
                     )
                     .map_err(EventLogReadError::from)?;
