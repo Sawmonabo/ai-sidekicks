@@ -278,10 +278,67 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
+    use rusqlite::params;
+    use sidekicks_contracts::wire::instant::WireInstant;
+    use sidekicks_contracts::wire::integer::MAX_SAFE_SIGNED_INTEGER;
+
+    use super::{SessionEventInsertError, insert_session_event};
     use crate::database::schema::schema_parts;
+    use crate::database::writer::test_file::{TestDatabase, session_event_row, test_session_id};
+    use crate::events::content::codec::BodyEncoder;
     use crate::events::session::read::SessionEventReads;
     use crate::events::test_log::{AT, SessionTestLog};
     use crate::transcript::rejoin::RowReads;
+
+    // Killed by the guard checking the head rather than its successor, which fails the write on
+    // the log's unique sequence as a database error, and by a sequence past the safe integers
+    // being written.
+    #[test]
+    fn a_session_at_the_highest_safe_sequence_refuses_the_next_event_and_writes_nothing() {
+        let database = TestDatabase::new(schema_parts());
+        let connection = database.opener()().expect("the test creates its database");
+        let session_id = test_session_id();
+        connection
+            .execute(
+                "INSERT INTO session_events
+                   (id, session_id, sequence, occurred_at, monotonic_ns, category, type, payload)
+                 VALUES (?1, ?2, ?3, ?4, 0, 'sessionLifecycle', 'session.created', '{}')",
+                params![
+                    mint_uuid_v7().to_string(),
+                    session_id.text().as_str(),
+                    MAX_SAFE_SIGNED_INTEGER,
+                    WireInstant::now().as_str(),
+                ],
+            )
+            .expect("the test writes the session's head");
+
+        let refusal = insert_session_event(
+            &connection,
+            &mut BodyEncoder::new(),
+            &session_event_row(&session_id),
+        )
+        .expect_err("no sequence follows the highest safe one");
+
+        match refusal {
+            SessionEventInsertError::NoNextSequence {
+                session_id: refused,
+                head,
+            } => {
+                assert_eq!(refused, session_id);
+                assert_eq!(head, MAX_SAFE_SIGNED_INTEGER);
+            }
+            other => panic!("expected the ceiling's refusal, got {other:?}"),
+        }
+        let (rows, cursors): (i64, i64) = connection
+            .query_row(
+                "SELECT (SELECT count(*) FROM session_events WHERE session_id = ?1),
+                        (SELECT count(*) FROM projection_cursors WHERE session_id = ?1)",
+                [session_id.text().as_str()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("the test reads what was written");
+        assert_eq!((rows, cursors), (1, 0));
+    }
 
     // Killed by a piece after its run's turn end or rollback joining the row that event closed, by
     // that row still listed as taking pieces, by the run's end closing a row, by a read that does
