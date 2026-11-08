@@ -457,7 +457,7 @@ Measured at `2.1.278`, recorded at its own build on the [`rewind_conversation` p
 - **`clientId`** is the client the server's owner issued; the sign-in presents it with no registration. Its secret is kept in the keychain, never in the entry.
 - **`callbackPort`**, a positive integer, is the redirect `http://localhost:<port>/callback`. Given alone, it is a dynamic registration at that callback.
 - **`scopes`** is one space-separated string and takes precedence over the challenge's scope. `offline_access` is added where the authorization server's metadata lists it.
-- **`authServerMetadataUrl`** is an `https:` address of at most 4,096 characters, fetched with `Accept: application/json` in place of the protected-resource and well-known discovery, for the sign-in and for the revocation. With no `scopes`, the sign-in asks for that metadata's `scopes_supported`. A fetch that fails is logged and the sign-in discovers the metadata as it would with no address. A revocation whose fetch fails revokes nothing.
+- **`authServerMetadataUrl`** is an `https:` address of at most 4,096 characters, fetched with `Accept: application/json` in place of the protected-resource and well-known discovery, for the sign-in and for the revocation. With no `scopes`, the sign-in asks for that metadata's own `scope` string, else its `default_scope` string, else its `scopes_supported`, and adds `offline_access` where the metadata lists it. A fetch that fails is logged and the sign-in discovers the metadata as it would with no address. A revocation whose fetch fails revokes nothing.
 
 The schema also has `xaa`, a cross-app sign-in switch the daemon does not read.
 
