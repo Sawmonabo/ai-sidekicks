@@ -7,6 +7,7 @@
 use std::path::Path;
 use std::time::Duration;
 
+use sidekicks_std::elapsed::elapsed_ms_since;
 use sidekicks_std::error_description::describe_error;
 use tokio::time::Instant;
 
@@ -93,7 +94,7 @@ async fn delete_conversation(
         .await;
     tracing::debug!(
         thread_id = %thread_id,
-        elapsed_ms = u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX),
+        elapsed_ms = elapsed_ms_since(began).get(),
         "a codex conversation's delete ended"
     );
     if let Err(CodexError::Unanswered {
