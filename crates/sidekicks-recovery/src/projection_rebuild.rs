@@ -265,29 +265,6 @@ impl ProjectionRebuildService {
         self.reported(sessions)
     }
 
-    /// The last event sequence the session's projection rows reflect, by its cursor; `None` when
-    /// the session has no cursor or its rows reflect no event. Fails as
-    /// [`ProjectionRebuildService::list_sessions_to_rebuild`] does.
-    #[expect(dead_code, reason = "the daemon's recovery pass at start")]
-    pub(crate) async fn read_last_applied_sequence(
-        &self,
-        session_id: SessionId,
-    ) -> Result<Option<i64>, ProjectionRebuildError> {
-        let cursor = self
-            .pool
-            .read(
-                ReadLength::Short,
-                move |reader: &Connection| -> Result<_, ProjectionRebuildError> {
-                    Ok(read_cursor(reader, &session_id)?)
-                },
-            )
-            .await;
-        Ok(self
-            .reported(cursor)?
-            .map(|cursor| cursor.last_sequence)
-            .filter(|last_sequence| *last_sequence >= 0))
-    }
-
     /// The session's newest event's sequence, `-1` for a log with none. Fails as
     /// [`ProjectionRebuildService::list_sessions_to_rebuild`] does.
     pub(crate) async fn read_head_sequence(
