@@ -319,16 +319,14 @@ mod tests {
         )
         .expect_err("no sequence follows the highest safe one");
 
-        match refusal {
-            SessionEventInsertError::NoNextSequence {
-                session_id: refused,
-                head,
-            } => {
-                assert_eq!(refused, session_id);
-                assert_eq!(head, MAX_SAFE_SIGNED_INTEGER);
-            }
-            other => panic!("expected the ceiling's refusal, got {other:?}"),
-        }
+        assert!(
+            matches!(
+                refusal,
+                SessionEventInsertError::NoNextSequence { session_id: refused, head }
+                    if refused == session_id && head == MAX_SAFE_SIGNED_INTEGER
+            ),
+            "{refusal:?}"
+        );
         let (rows, cursors): (i64, i64) = connection
             .query_row(
                 "SELECT (SELECT count(*) FROM session_events WHERE session_id = ?1),
