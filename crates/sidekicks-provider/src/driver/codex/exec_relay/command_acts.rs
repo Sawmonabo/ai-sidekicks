@@ -19,6 +19,7 @@ use sidekicks_std::mutex_lock::lock;
 
 use crate::command::running_set::takes_no_input;
 use crate::driver::codex::exec_relay::executor::CodexExecutor;
+use crate::driver::codex::exec_relay::methods::PROCESS_WRITE_METHOD;
 use crate::driver::codex::exec_relay::terminate_hold::WrapperStop;
 use crate::driver::codex::exec_relay::{CodexExecRelay, RelayedCommand};
 use crate::driver::codex::lifecycle::CodexDriver;
@@ -38,8 +39,6 @@ const WRITE_WAIT: Duration = Duration::from_secs(5);
 
 /// The byte a terminal reads as the end of input.
 const END_OF_INPUT: &str = "\u{4}";
-
-const PROCESS_WRITE_METHOD: &str = "process/write";
 
 // The executor's answer to a write.
 #[derive(Deserialize)]

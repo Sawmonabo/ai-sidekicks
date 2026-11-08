@@ -13,7 +13,6 @@ use std::time::Duration;
 
 use futures::{SinkExt as _, StreamExt as _};
 use process_wrap::tokio::ChildWrapper;
-use serde::Deserialize;
 use serde_json::json;
 use serde_json::value::RawValue;
 use sidekicks_platforms::{Spawner, wrap_child_command};
@@ -23,7 +22,10 @@ use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
 
-use crate::driver::codex::exec_relay::{INITIALIZE_METHOD, INITIALIZED_METHOD};
+use crate::driver::codex::exec_relay::message::{RoutedMessage, splice, text_of};
+use crate::driver::codex::exec_relay::methods::{
+    INITIALIZE_METHOD, INITIALIZED_METHOD, PROCESS_CLOSED_METHOD, PROCESS_EXITED_METHOD,
+};
 use crate::driver::codex::session::errors::CodexError;
 
 /// What opens the id of every request the relay sends itself, so its answer is told apart from an
@@ -46,39 +48,11 @@ const LINE_QUEUE_CAPACITY: usize = 256;
 /// The name the relay gives the executor at its `initialize`.
 const RELAY_CLIENT_NAME: &str = "sidekicks-relay";
 
-const PROCESS_EXITED_METHOD: &str = "process/exited";
-const PROCESS_CLOSED_METHOD: &str = "process/closed";
-
 /// How long the relay's own `initialize` may take.
 const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The answer a request of the relay's own gets: its result, or the executor's refusal in words.
 type RelayAnswer = Result<Box<RawValue>, String>;
-
-// The members of any message the relay routes by; the rest passes on as it came.
-#[derive(Deserialize)]
-struct RoutedMessage<'line> {
-    #[serde(borrow)]
-    id: Option<&'line RawValue>,
-    method: Option<String>,
-    #[serde(borrow)]
-    params: Option<&'line RawValue>,
-    #[serde(borrow)]
-    result: Option<&'line RawValue>,
-    error: Option<RefusedRequest>,
-}
-
-#[derive(Deserialize)]
-struct RefusedRequest {
-    message: Option<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProcessNamed {
-    process_id: String,
-    exit_code: Option<i32>,
-}
 
 /// How one of the executor's processes ended: the exit code its `process/exited` reported, `None`
 /// for one that closed or whose connection ended with no code.
@@ -261,7 +235,7 @@ impl CodexExecutor {
             "\"{CLIENT_REQUEST_PREFIX}{}\"",
             self.next_client_request.fetch_add(1, Ordering::Relaxed)
         );
-        let relayed = replace_id(line, id, &relay_id);
+        let relayed = splice(line, [(id, relay_id.as_str())]);
         lock(&self.client_requests).insert(
             relay_id,
             ClientRequest {
@@ -368,7 +342,7 @@ impl CodexExecutor {
 
     // Routes one line the executor wrote.
     async fn take_line(&self, line: String) {
-        let Ok(message) = serde_json::from_str::<RoutedMessage<'_>>(&line) else {
+        let Some(message) = RoutedMessage::read(&line) else {
             tracing::warn!(
                 length = line.len(),
                 "the Codex executor wrote a line that is no message"
@@ -410,23 +384,22 @@ impl CodexExecutor {
                 );
                 return;
             };
-            let answer = replace_id(&line, id, &request.client_id);
+            let answer = splice(&line, [(id, &*request.client_id)]);
             self.answer_connection(request.connection, answer).await;
             return;
         }
         if let Some(method) = message.method.as_deref()
             && message.id.is_none()
             && (method == PROCESS_EXITED_METHOD || method == PROCESS_CLOSED_METHOD)
-            && let Some(named) = message
-                .params
-                .and_then(|params| serde_json::from_str::<ProcessNamed>(params.get()).ok())
+            && let Some(params) = &message.params
+            && let Some(process_id) = params.process_id.and_then(text_of)
         {
             let mut exits = lock(&self.exits);
-            if let Some(exit) = exits.get(&named.process_id) {
-                record_end(exit, named.exit_code);
+            if let Some(exit) = exits.get(&process_id) {
+                record_end(exit, params.exit_code);
             }
             if method == PROCESS_CLOSED_METHOD {
-                exits.remove(&named.process_id);
+                exits.remove(&process_id);
             }
         }
         self.send_to_every_connection(line).await;
@@ -444,18 +417,6 @@ impl CodexExecutor {
         lock(&self.clients).clear();
         lock(&self.client_requests).clear();
     }
-}
-
-// `line` with `replacement` in place of `id`, the slice of `line` its parse borrowed, so the rest
-// of the line is copied once and never parsed again.
-fn replace_id(line: &str, id: &RawValue, replacement: &str) -> String {
-    let start = id.get().as_ptr().addr() - line.as_ptr().addr();
-    let end = start + id.get().len();
-    let mut replaced = String::with_capacity(line.len() - id.get().len() + replacement.len());
-    replaced.push_str(&line[..start]);
-    replaced.push_str(replacement);
-    replaced.push_str(&line[end..]);
-    replaced
 }
 
 // Records a process's end with `exit_code` where none was recorded yet: a `process/closed` after

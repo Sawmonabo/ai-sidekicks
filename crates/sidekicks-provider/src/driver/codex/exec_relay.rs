@@ -13,6 +13,8 @@
 mod command_acts;
 mod endpoint;
 mod executor;
+mod message;
+mod methods;
 mod start_rewrite;
 mod terminate_hold;
 
@@ -22,9 +24,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
-use serde::Deserialize;
 use serde_json::json;
-use serde_json::value::RawValue;
 use sidekicks_contracts::command::{CommandId, ExitCode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
@@ -36,6 +36,8 @@ use tokio::task::JoinHandle;
 
 use self::endpoint::RelayEndpoint;
 use self::executor::{CodexExecutor, ProcessEnd, RelayConnectionId};
+use self::message::RoutedMessage;
+use self::methods::ClientMethod;
 use crate::bearer_token::BearerToken;
 use crate::command::channel::CommandChannel;
 use crate::command::channel::records::LineCapture;
@@ -54,12 +56,6 @@ pub(crate) const CODEX_EXECUTOR_ARGUMENTS: [&str; 3] = ["exec-server", "--listen
 
 /// The folder under a session's channel folder that its relayed commands' channel opens in.
 const RELAY_CHANNEL_FOLDER: &str = "codex-relay";
-
-/// The handshake every executor connection opens with.
-const INITIALIZE_METHOD: &str = "initialize";
-const INITIALIZED_METHOD: &str = "initialized";
-const PROCESS_START_METHOD: &str = "process/start";
-const PROCESS_TERMINATE_METHOD: &str = "process/terminate";
 
 /// The channel folder of `session_id`'s relayed commands under `command_channel_root`, which the
 /// session's command sandbox lets commands write.
@@ -141,14 +137,6 @@ impl Drop for SessionChannel {
     fn drop(&mut self) {
         self.follower.abort();
     }
-}
-
-// The members of a client's message the relay routes by.
-#[derive(Deserialize)]
-struct ClientMessage<'message> {
-    #[serde(borrow)]
-    id: Option<&'message RawValue>,
-    method: Option<String>,
 }
 
 /// One service's relay.
@@ -422,22 +410,23 @@ impl CodexExecRelay {
         text: String,
     ) {
         let line = one_line(text);
-        let Ok(message) = serde_json::from_str::<ClientMessage<'_>>(&line) else {
+        let Some(message) = RoutedMessage::read(&line) else {
             forward(executor, line).await;
             return;
         };
         let Some(relay) = self.me.upgrade() else {
             return;
         };
-        let (id, method) = match (message.id, message.method) {
-            (Some(id), Some(method)) => (id, method),
-            (None, Some(method)) if method == INITIALIZED_METHOD => return,
+        let method = message.method.as_deref().and_then(ClientMethod::of);
+        let id = match (message.id, method) {
+            (None, Some(ClientMethod::Initialized)) => return,
+            (Some(id), _) if message.method.is_some() => id,
             _ => {
                 forward(executor, line).await;
                 return;
             }
         };
-        if method == INITIALIZE_METHOD {
+        if method == Some(ClientMethod::Initialize) {
             let answer = json!({ "id": id, "result": executor.initialize_result() });
             executor
                 .answer_connection(connection, answer.to_string())
@@ -445,16 +434,17 @@ impl CodexExecRelay {
             return;
         }
         let line = executor.relay_client_request(connection, &line, id);
-        match method.as_str() {
-            PROCESS_START_METHOD => {
+        match method {
+            Some(ClientMethod::ProcessStart) => {
                 #[cfg(test)]
                 self.process_starts.fetch_add(1, Ordering::Relaxed);
                 tokio::spawn(relay.forward_process_start(Arc::clone(executor), line));
             }
-            PROCESS_TERMINATE_METHOD => {
+            Some(ClientMethod::ProcessTerminate) => {
                 tokio::spawn(relay.forward_terminate(Arc::clone(executor), line));
             }
-            _ => forward(executor, line).await,
+            Some(ClientMethod::Initialize | ClientMethod::Initialized | ClientMethod::Passed)
+            | None => forward(executor, line).await,
         }
     }
 
