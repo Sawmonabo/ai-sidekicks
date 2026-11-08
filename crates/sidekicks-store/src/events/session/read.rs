@@ -99,7 +99,8 @@ pub struct SessionEventFilter<'types> {
     pub before_sequence: Option<i64>,
     /// Whether the read is sparse, stopping at a limit far short of the log's end, so a read of
     /// `event_types` seeks each type's events through the type index; a full pass in log order,
-    /// such as a projection rebuild, leaves it false and walks the sequence index.
+    /// such as a projection rebuild, leaves it false and walks the sequence index. It does nothing
+    /// when `event_types` is `None`.
     pub is_sparse: bool,
 }
 
