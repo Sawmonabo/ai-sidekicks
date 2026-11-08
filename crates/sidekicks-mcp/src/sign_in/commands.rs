@@ -1,7 +1,8 @@
 //! The receipted sign-in and sign-out commands: a press is answered once per key, its target read
 //! from the binding and acted on inside the receipt. A sign-in's page address is served and never
 //! saved, so a retry under the key answers the acknowledgment alone and starts nothing; a
-//! sign-out answers `{}`, and a retry under the key replays it.
+//! sign-out answers `{}`, and a retry under the key replays it. A press keeps the address its
+//! target read as for the binding, and once answered settles the owed sign-outs.
 
 use std::sync::Arc;
 
@@ -14,7 +15,8 @@ use sidekicks_ipc::registry::HandlerError;
 
 use crate::mutation::service::command::{McpCommand, McpCommandAnswer};
 use crate::mutation::service::{McpMutationService, response_of, response_value};
-use crate::sign_in::service::SignInService;
+use crate::sign_in::owed_sign_out::OwedSignOuts;
+use crate::sign_in::service::{SignInService, SignInTarget, addressed_server};
 use crate::sign_in::target::SignInTargetReads;
 
 /// The receipted sign-in and sign-out commands the daemon's handlers forward to.
@@ -22,20 +24,24 @@ pub struct McpSignInCommands {
     mutations: Arc<McpMutationService>,
     sign_ins: Arc<SignInService>,
     targets: SignInTargetReads,
+    owed: Arc<OwedSignOuts>,
 }
 
 impl McpSignInCommands {
-    /// The commands over the receipts of `mutations`, the launches of `sign_ins` and the target
-    /// reads `targets`.
+    /// The commands over the receipts of `mutations`, the launches of `sign_ins`, the target
+    /// reads `targets` and the owed sign-outs `owed`, which each press keeps its address in and
+    /// settles once answered.
     pub fn new(
         mutations: Arc<McpMutationService>,
         sign_ins: Arc<SignInService>,
         targets: SignInTargetReads,
+        owed: Arc<OwedSignOuts>,
     ) -> Self {
         Self {
             mutations,
             sign_ins,
             targets,
+            owed,
         }
     }
 
@@ -56,6 +62,7 @@ impl McpSignInCommands {
                 &binding,
                 || async {
                     let read = self.targets.read(&binding).await?;
+                    self.note_declared(&read.target).await;
                     let authorization_url = self
                         .sign_ins
                         .launch(&read.target, &read.scopes, &read.provider_accounts)
@@ -70,8 +77,9 @@ impl McpSignInCommands {
                     })
                 },
             )
-            .await?;
-        response_of(answer).map_err(HandlerError::Refused)
+            .await;
+        self.owed.start_settle();
+        response_of(answer?).map_err(HandlerError::Refused)
     }
 
     /// Signs out of the server `request`'s binding reaches once per key, answering `{}`, and a
@@ -92,6 +100,7 @@ impl McpSignInCommands {
                 &binding,
                 || async {
                     let read = self.targets.read(&binding).await?;
+                    self.note_declared(&read.target).await;
                     self.sign_ins
                         .sign_out(&read.target)
                         .await
@@ -103,8 +112,28 @@ impl McpSignInCommands {
                     })
                 },
             )
-            .await?;
-        response_of(answer).map_err(HandlerError::Refused)
+            .await;
+        self.owed.start_settle();
+        response_of(answer?).map_err(HandlerError::Refused)
+    }
+
+    // Keeps the address `target` reached as its binding's last declared one, so a press after the
+    // address changed owes the old one's sign-out; a write that fails is logged and the press goes
+    // on, since the next read keeps it.
+    async fn note_declared(&self, target: &SignInTarget) {
+        let Some(server) = addressed_server(target) else {
+            return;
+        };
+        if let Err(error) = self
+            .owed
+            .note_declared(&target.binding, &server.address)
+            .await
+        {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "an MCP binding's last declared address was not kept"
+            );
+        }
     }
 }
 
@@ -164,6 +193,7 @@ mod tests {
     use crate::mutation::receipts::tests::idempotency_key;
     use crate::mutation::service::{McpMutationService, McpMutationSources};
     use crate::sign_in::canonical_server_address;
+    use crate::sign_in::owed_sign_out::OwedSignOuts;
     use crate::sign_in::service::SignInService;
     use crate::sign_in::sign_out::tests::{
         address, presented_authorization, received_revocations, signed_in,
@@ -200,11 +230,18 @@ mod tests {
             removal_rows: None,
             board: Arc::clone(&sources.board),
         }));
+        let owed = OwedSignOuts::new(
+            Arc::clone(sign_ins),
+            sources.target_reads(),
+            Arc::clone(&sources.reads),
+            Arc::clone(&sources.writer),
+        );
         TestCommands {
             commands: McpSignInCommands::new(
                 mutations,
                 Arc::clone(sign_ins),
                 sources.target_reads(),
+                owed,
             ),
             _sources: sources,
             _receipt_keychain: (data_folder, platform_store),

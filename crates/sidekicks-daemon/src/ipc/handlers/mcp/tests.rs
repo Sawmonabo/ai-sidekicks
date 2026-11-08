@@ -29,6 +29,7 @@ use sidekicks_mcp::sign_in::admitted_client::{
 };
 use sidekicks_mcp::sign_in::credential_store::SignInCustody;
 use sidekicks_mcp::sign_in::oauth_http_client::OAuthHttpPools;
+use sidekicks_mcp::sign_in::owed_sign_out::{MCP_OWED_SIGN_OUT_STATEMENT_CAPACITY, OwedSignOuts};
 use sidekicks_mcp::sign_in::registration::RELAY_ADDRESS;
 use sidekicks_mcp::sign_in::service::SignInService;
 use sidekicks_mcp::sign_in::target::SignInTargetReads;
@@ -61,9 +62,10 @@ use super::*;
 use crate::daemon::schema::schema_parts;
 
 /// The statements the methods' read connections keep prepared: the binding store's, the
-/// accounts' and the attached roots', which the inventory reads, and the sign-ins' admitted
-/// clients'.
-const MCP_METHODS_READ_STATEMENT_CAPACITY: usize = 8 + MCP_ADMITTED_CLIENT_STATEMENT_CAPACITY;
+/// accounts' and the attached roots', which the inventory reads, the sign-ins' admitted clients'
+/// and the owed sign-outs'.
+const MCP_METHODS_READ_STATEMENT_CAPACITY: usize =
+    9 + MCP_ADMITTED_CLIENT_STATEMENT_CAPACITY + MCP_OWED_SIGN_OUT_STATEMENT_CAPACITY;
 
 /// Long enough for a frame that is coming to come, many windows over.
 const QUIET: Duration = Duration::from_millis(250);
@@ -146,26 +148,42 @@ async fn mcp_methods_over(
         removal_rows: None,
         board: Arc::clone(board),
     }));
-    let sign_ins = Arc::new(McpSignInCommands::new(
-        Arc::clone(&mutations),
-        SignInService::new(
-            SignInCustody::new(Arc::new(secret_items.keychain(KeychainService::McpSignIns))),
-            Arc::new(AdmittedClientStore::new(reads, Arc::clone(&log.writer))),
-            Arc::clone(&providers),
-            OAuthHttpPools::new().expect("the sign-ins' pools build"),
-            &RELAY_ADDRESS,
-            Arc::new(SessionEventAppender::new(
-                Arc::clone(&log.service),
-                SESSION_EVENT_VERSION.clone(),
-            )),
-        ),
+    let service = SignInService::new(
+        SignInCustody::new(Arc::new(secret_items.keychain(KeychainService::McpSignIns))),
+        Arc::new(AdmittedClientStore::new(
+            Arc::clone(&reads),
+            Arc::clone(&log.writer),
+        )),
+        Arc::clone(&providers),
+        OAuthHttpPools::new().expect("the sign-ins' pools build"),
+        &RELAY_ADDRESS,
+        Arc::new(SessionEventAppender::new(
+            Arc::clone(&log.service),
+            SESSION_EVENT_VERSION.clone(),
+        )),
+    );
+    let accounts = Arc::new(PortRegistration::new("provider accounts"));
+    let settings = Arc::new(FixedMachineSettings(MachineSettings::default()));
+    let target_reads = || {
         SignInTargetReads::new(
             Arc::clone(&inventory),
-            providers,
-            Arc::new(PortRegistration::new("provider accounts")),
-            Arc::new(FixedMachineSettings(MachineSettings::default())),
-            projects,
-        ),
+            Arc::clone(&providers),
+            Arc::clone(&accounts),
+            Arc::clone(&settings) as _,
+            Arc::clone(&projects),
+        )
+    };
+    let owed = OwedSignOuts::new(
+        Arc::clone(&service),
+        target_reads(),
+        reads,
+        Arc::clone(&log.writer),
+    );
+    let sign_ins = Arc::new(McpSignInCommands::new(
+        Arc::clone(&mutations),
+        service,
+        target_reads(),
+        owed,
     ));
     let mut builder = MethodRegistryBuilder::new();
     register_mcp_methods(

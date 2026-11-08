@@ -30,6 +30,7 @@ use sidekicks_mcp::client::McpClient;
 use sidekicks_mcp::client::dispatch::McpToolDispatch;
 use sidekicks_mcp::inventory_service::McpInventoryService;
 use sidekicks_mcp::mutation::service::McpMutationService;
+use sidekicks_mcp::sign_in::owed_sign_out::OwedSignOuts;
 use sidekicks_mcp::sign_in::service::SignInService;
 use sidekicks_platforms::{
     DaemonRunFolder, Spawner, TOOL_MEMORY_CAP_ENFORCEABLE, WallClock, available_memory,
@@ -253,6 +254,8 @@ pub(crate) struct MethodInputs {
     pub(crate) mcp_mutations: Arc<McpMutationService>,
     /// The MCP server sign-ins, whose open attempts the stop closes.
     pub(crate) mcp_sign_ins: Arc<SignInService>,
+    /// The sign-outs the MCP bindings' removals owe, which the start settles.
+    pub(crate) mcp_owed_sign_outs: Arc<OwedSignOuts>,
     /// The provider accounts' background observer, started once the recovery pass has run.
     pub(crate) provider_accounts: ProviderAccountObservation,
     /// The daemon's one client of the sessions' tool servers, which the stop stops.
@@ -328,11 +331,9 @@ pub(crate) async fn register_method_inputs(
         mcp_attribution: Arc::clone(&mcp.attribution),
         mcp_tool_servers: Arc::clone(&mcp.session_tool_servers),
     })?;
-    let (mcp_inventory, mcp_mutations) = mcp.build_governance(&McpGovernanceStart {
+    let mcp_inventory = mcp.build_governance(&McpGovernanceStart {
         providers: &registry,
         projects: &port.project_records,
-        secret_items: &secret_items,
-        writer: &writer,
         reads: &reads,
     });
     mcp.session_tool_servers
@@ -450,7 +451,7 @@ pub(crate) async fn register_method_inputs(
     let mcp_sign_ins = build_sign_ins(&McpSignInStart {
         providers: &registry,
         inventory: &mcp_inventory,
-        mutations: &mcp_mutations,
+        board: &mcp.board,
         provider_accounts: &providers.ports.provider_accounts,
         settings: &settings_reader,
         projects: &port.project_records,
@@ -757,7 +758,7 @@ pub(crate) async fn register_method_inputs(
                 log: Arc::clone(&database.event_log),
                 board: mcp.board,
                 inventory: Arc::clone(&mcp_inventory),
-                mutations: Arc::clone(&mcp_mutations),
+                mutations: Arc::clone(&mcp_sign_ins.mutations),
                 sign_ins: mcp_sign_ins.commands,
             },
             run_safety_holds: Arc::clone(&session.run_safety_holds),
@@ -839,8 +840,9 @@ pub(crate) async fn register_method_inputs(
         web_address_sender,
         workspace_work: workspace.work,
         mcp_inventory,
-        mcp_mutations,
+        mcp_mutations: mcp_sign_ins.mutations,
         mcp_sign_ins: mcp_sign_ins.service,
+        mcp_owed_sign_outs: mcp_sign_ins.owed_sign_outs,
         provider_accounts: accounts.observation,
         mcp_client,
     })
