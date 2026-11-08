@@ -5,10 +5,10 @@
 //!
 //! - Whether the tree is clean is one `git status` on each change burst, read before the burst's
 //!   change goes out; a folder holding no standing tree costs one row read and runs no git.
-//! - Whether its branch merged back, or a merged one gained commits of its own again, is read after
-//!   the change goes out, so no subscriber waits for it: at the watch's start, after a change in the
-//!   tree's git folder, which every commit, merge, fetch or ref move makes, and after the tree reads
-//!   clean again, never after a burst of file changes alone that leaves it as it was
+//! - Whether its branch merged back, or a merged one gained commits of its own again, is read
+//!   after the change goes out, so no subscriber waits for it: at the watch's start, after a change
+//!   in the tree's git folder, which every commit, merge, fetch or ref move makes, and after the
+//!   tree reads clean again, never after a burst of file changes alone that leaves it as it was
 //!   ([`super::merged`]).
 //! - Every failure is logged, and the folder's next change checks again.
 

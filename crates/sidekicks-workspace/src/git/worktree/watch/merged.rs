@@ -155,9 +155,9 @@ impl MergedCheck {
         Ok(verdict)
     }
 
-    /// The tip of `tree`'s branch, merged back and checked out at `folder`, once it holds commits of
-    /// its own past the recorded tip that neither the base nor its upstream holds, which the row
-    /// then records; `None` while it holds none. Fails as git does.
+    /// The tip of `tree`'s merged branch, checked out at `folder`, once it holds commits of its own
+    /// past the recorded tip that neither the base nor its upstream holds, which the row then
+    /// records; `None` while it holds none. Fails as git does.
     pub(super) async fn reopened_tip(
         &mut self,
         git: &GitRunner,
@@ -284,9 +284,9 @@ async fn count_past(
     parse_number(&strip_line_end(read(git, place, folder, &arguments).await?))
 }
 
-// The commit of the newest commit, amend or pick in the branch's reflog that changed a path and that
-// the base or its upstream holds; `None` when none did. It is read only while the branch's tip is
-// contained, so a commit the branch still holds is held there too.
+// The newest commit, amend or pick in the branch's reflog that changed a path and that the base or
+// its upstream holds; `None` when none did. It is read only while the branch's tip is contained,
+// so a commit the branch still holds is held there too.
 async fn newest_own_commit_on(
     git: &GitRunner,
     place: Option<&Place>,
@@ -563,8 +563,8 @@ async fn read_with_input(
         .stdout)
 }
 
-/// Records `tip` on the row of the worktree `worktree_id` as the last tip of its branch seen holding
-/// commits of its own.
+/// Records `tip` on the row of the worktree `worktree_id` as the last tip of its branch seen
+/// holding commits of its own.
 pub(super) fn own_commit_tip_statement(
     worktree_id: &WorktreeId,
     tip: &str,
