@@ -172,6 +172,7 @@ where
         let filter = SessionEventFilter {
             event_types: Some(run_queued.as_slice()),
             before_sequence: None,
+            is_sparse: true,
         };
         Ok(self
             .reads

@@ -55,8 +55,10 @@ async fn next_sequences(feed: &mut Box<dyn EncodedFeed>, gate: &CreditGate) -> V
         .expect("the stream goes on");
     let frame: SessionStreamFrame =
         serde_json::from_slice(&value.json).expect("the frame reads as its type");
-    frame
-        .changes
+    let SessionStreamFrame::Changes { changes } = frame else {
+        panic!("the stream was moved to the head: {frame:?}");
+    };
+    changes
         .into_vec()
         .into_iter()
         .map(|change| change.event.sequence.get())
