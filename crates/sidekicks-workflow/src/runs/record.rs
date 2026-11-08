@@ -191,15 +191,13 @@ pub(crate) enum RunProgress {
     Finished,
 }
 
-/// A run's status, end and summary line as its row stores them, read to tell how far it has come.
+/// A run's status and end as its row stores them, read to tell how far it has come.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct StoredRunProgress {
     /// Where it stands.
     pub(crate) status: WorkflowRunStatus,
     /// When it ended; absent while it has not.
     pub(crate) finished_at: Option<WireInstant>,
-    /// Its one summary line; absent until a `Write a summary` step writes one.
-    pub(crate) summary: Option<NonEmptyText>,
 }
 
 impl StoredRunProgress {
@@ -217,7 +215,7 @@ impl StoredRunProgress {
 }
 
 const RUN_PROGRESS_SQL: &str =
-    "SELECT status, finished_at, summary FROM workflow_runs WHERE id = @workflow_run_id";
+    "SELECT status, finished_at FROM workflow_runs WHERE id = @workflow_run_id";
 
 /// The progress of run `workflow_run_id`, `None` where no row answers to it. Fails with
 /// `rusqlite::Error::FromSqlConversionFailure` for a stored value that does not read as its type.
@@ -233,7 +231,6 @@ pub(crate) fn read_run_progress(
                 Ok(StoredRunProgress {
                     status: text_column(row, 0, closed_word)?,
                     finished_at: optional_text_column(row, 1, WireInstant::try_from)?,
-                    summary: optional_text_column(row, 2, closed_word)?,
                 })
             },
         )

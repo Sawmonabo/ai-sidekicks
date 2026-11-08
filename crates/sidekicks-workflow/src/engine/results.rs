@@ -1,23 +1,19 @@
-//! Posting a finished run's results into the session that asks for them. A post appends
-//! `workflow.results.posted` to the asking session's log, naming that session, the run and the
-//! run's summary line, whichever session the run lives in; a run that has not finished is refused.
-//! The results post handler posts for `/workflow results` and the agent's tool, and the run's
-//! ending posts for a run a chat asked for.
+//! A run's results posted into the session that asks for them: `workflow.results.posted`,
+//! naming that session, the run and the run's summary line, whichever session the run lives in.
+//! The ending of a run a chat or an agent asked for posts it in the ending's own write; the results
+//! post handler posts it for `/workflow results` and the agent's tool, refused for a run that has
+//! not finished.
 
 use std::borrow::Cow;
 use std::sync::{Arc, LazyLock};
 
 use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::run::events::WorkflowResultsPostedPayload;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_store::database::connection::read_pool::{
-    DatabaseReadError, DatabaseReadPool, ReadLength,
-};
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_store::events::session::appender::{
@@ -27,24 +23,14 @@ use sidekicks_store::events::session::appender::{
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 use crate::not_found::WorkflowNotFound;
-use crate::runs::record::{RunProgress, finished_run_condition, read_run_progress};
-
-/// The statements the poster's reads run: the run's progress.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the results post handler and the run's ending, which post a finished run's results"
-    )
-)]
-pub(crate) const WORKFLOW_RESULTS_POSTER_STATEMENT_CAPACITY: usize = 1;
+use crate::runs::record::finished_run_condition;
 
 /// The position in a post's write of the statement that refuses the write unless the run has
 /// finished.
 pub(crate) const RESULTS_FINISHED_CHECK_STATEMENT_INDEX: usize = 0;
 
-// Matches the run only while it has finished, so a post's write refuses a run deleted since its
-// read: a finished run never goes back to going.
+// Matches the run only while it has finished, so a post's write refuses a run still going, parked
+// on its failed step or deleted: a finished run never goes back to going.
 static FINISHED_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT run.id FROM workflow_runs AS run WHERE run.id = @workflow_run_id AND {}",
@@ -52,22 +38,44 @@ static FINISHED_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+/// Whether the ending of a run started in `mode` posts its results into the session that asked:
+/// a chat's and an agent's runs do, a retry does as the run it retries would by `retried_mode`,
+/// and every other run does not.
+pub(crate) fn run_posts_results(
+    mode: WorkflowRunMode,
+    retried_mode: Option<WorkflowRunMode>,
+) -> bool {
+    match mode {
+        WorkflowRunMode::Chat | WorkflowRunMode::Agent => true,
+        WorkflowRunMode::Retry => {
+            retried_mode.is_some_and(|retried| run_posts_results(retried, None))
+        }
+        WorkflowRunMode::Manual
+        | WorkflowRunMode::Trigger
+        | WorkflowRunMode::Webhook
+        | WorkflowRunMode::SubWorkflow => false,
+    }
+}
+
+/// The results event of run `workflow_run_id` posted into `session_id`, with its summary line.
+pub(crate) fn results_posted_event(
+    session_id: SessionId,
+    workflow_run_id: WorkflowRunId,
+    summary: Option<NonEmptyText>,
+) -> SessionEvent {
+    SessionEvent::WorkflowResultsPosted(WorkflowResultsPostedPayload {
+        session_id,
+        workflow_run_id,
+        summary,
+    })
+}
+
 /// Why a run's results were not posted; nothing was appended.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WorkflowResultsPostError {
-    /// No run has the id (`workflow.run.notFound`).
+    /// No finished run has the id (`workflow.run.notFound`).
     #[error(transparent)]
     NotFound(#[from] WorkflowNotFound),
-    /// The run has not finished (`workflow.invalidTransition`).
-    #[error(transparent)]
-    Refused(DomainError),
-    /// The read pool is closed, a connection did not open, or the read's blocking task did not
-    /// finish.
-    #[error(transparent)]
-    Pool(#[from] DatabaseReadError),
-    /// SQLite refused the run's read, or a stored value did not read as its type.
-    #[error("a read of the run to post failed")]
-    Read(#[from] rusqlite::Error),
     /// The results event broke one of its type's checks.
     #[error("the run's results event could not be drafted")]
     Draft(#[from] SessionEventDraftError),
@@ -77,96 +85,56 @@ pub(crate) enum WorkflowResultsPostError {
 }
 
 impl From<WorkflowResultsPostError> for HandlerError {
-    /// A run not found and a run not finished answer their refusals; any other failure is a fault
-    /// in the daemon.
+    /// A run not found answers its refusal; any other failure is a fault in the daemon.
     fn from(error: WorkflowResultsPostError) -> Self {
         match error {
             WorkflowResultsPostError::NotFound(not_found) => Self::Refused(not_found.into()),
-            WorkflowResultsPostError::Refused(refusal) => Self::Refused(refusal),
-            fault @ (WorkflowResultsPostError::Pool(_)
-            | WorkflowResultsPostError::Read(_)
-            | WorkflowResultsPostError::Draft(_)
-            | WorkflowResultsPostError::Append(_)) => Self::Internal(Box::new(fault)),
+            fault @ (WorkflowResultsPostError::Draft(_) | WorkflowResultsPostError::Append(_)) => {
+                Self::Internal(Box::new(fault))
+            }
         }
     }
 }
 
-/// Posts finished runs' results into the sessions that ask, reading through the daemon's read
-/// pool and appending through the event log.
+/// Posts finished runs' results into the sessions that ask, appending through the event log.
 #[cfg_attr(
     not(test),
     expect(
         dead_code,
-        reason = "the results post handler and the run's ending, which post a finished run's results"
+        reason = "the results post handler, which posts a finished run's results"
     )
 )]
 pub(crate) struct WorkflowResultsPoster {
-    pool: Arc<DatabaseReadPool>,
     appender: SessionEventAppender,
 }
 
 impl WorkflowResultsPoster {
-    /// The poster reading through `pool` and appending to `event_log`.
+    /// The poster appending to `event_log`.
     #[cfg_attr(
         not(test),
         expect(
             dead_code,
-            reason = "the results post handler and the run's ending, which post a finished run's \
-                      results"
+            reason = "the results post handler, which posts a finished run's results"
         )
     )]
-    pub(crate) fn new(pool: Arc<DatabaseReadPool>, event_log: Arc<EventLogService>) -> Self {
+    pub(crate) fn new(event_log: Arc<EventLogService>) -> Self {
         Self {
-            pool,
             appender: SessionEventAppender::new(event_log, SESSION_EVENT_VERSION.clone()),
         }
     }
 
-    /// Appends `workflow.results.posted` for run `workflow_run_id` to `session_id`'s log, the
-    /// session that asked, with the run's summary line. Fails with
-    /// [`WorkflowResultsPostError::NotFound`] for a run there is none of, deleted ones included,
-    /// and with [`WorkflowResultsPostError::Refused`] (`workflow.invalidTransition`) for a run
-    /// still going or parked on its failed step, appending nothing either way.
+    /// Appends `workflow.results.posted` for run `workflow_run_id` with `summary` to
+    /// `session_id`'s log, the session that asked, in a write that first checks the run has
+    /// finished. Fails with [`WorkflowResultsPostError::NotFound`] for a run there is none of,
+    /// deleted ones included, or one still going or parked on its failed step, appending nothing.
     #[cfg_attr(
         not(test),
         expect(
             dead_code,
-            reason = "the results post handler and the run's ending, which post a finished run's \
-                      results"
+            reason = "the results post handler, which posts a finished run's results"
         )
     )]
     pub(crate) async fn post(
-        &self,
-        workflow_run_id: WorkflowRunId,
-        session_id: SessionId,
-    ) -> Result<(), WorkflowResultsPostError> {
-        let stored = self
-            .pool
-            .read(ReadLength::Short, move |connection| {
-                Ok::<_, WorkflowResultsPostError>(read_run_progress(connection, workflow_run_id)?)
-            })
-            .await?
-            .ok_or(WorkflowNotFound::Run { workflow_run_id })?;
-        match stored.progress() {
-            RunProgress::Going | RunProgress::ParkedOnFailedStep => {
-                Err(WorkflowResultsPostError::Refused(DomainError::new(
-                    format!(
-                        "Workflow run {workflow_run_id} has not finished, so its results cannot \
-                         be posted yet."
-                    ),
-                    RefusalCode::WorkflowInvalidTransition,
-                )))
-            }
-            RunProgress::Finished => {
-                self.append_posted(workflow_run_id, session_id, stored.summary)
-                    .await
-            }
-        }
-    }
-
-    // Appends the results event drafted for `session_id`, in a write that first checks the run has
-    // finished, so a run deleted since the read is refused as not found.
-    async fn append_posted(
         &self,
         workflow_run_id: WorkflowRunId,
         session_id: SessionId,
@@ -174,11 +142,7 @@ impl WorkflowResultsPoster {
     ) -> Result<(), WorkflowResultsPostError> {
         let draft = SessionEventDraft::of_session(
             session_id,
-            &SessionEvent::WorkflowResultsPosted(WorkflowResultsPostedPayload {
-                session_id,
-                workflow_run_id,
-                summary,
-            }),
+            &results_posted_event(session_id, workflow_run_id, summary),
         )?;
         let finished_check = WriteStatement {
             sql: Cow::Borrowed(FINISHED_RUN_SQL.as_str()),
@@ -214,8 +178,10 @@ mod tests {
     use serde_json::{Value, json};
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::text::NonEmptyText;
     use sidekicks_contracts::workflow::run::id::WorkflowRunId;
     use sidekicks_contracts::workflow::run::status::WorkflowRunStatus;
+    use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
     use sidekicks_ipc::registry::HandlerError;
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::writer::test_file::TestDatabase;
@@ -225,10 +191,7 @@ mod tests {
     };
     use sidekicks_store::events::session::followers::SessionEventFollowers;
 
-    use super::{
-        WORKFLOW_RESULTS_POSTER_STATEMENT_CAPACITY, WorkflowResultsPostError, WorkflowResultsPoster,
-    };
-    use crate::not_found::WorkflowNotFound;
+    use super::{WorkflowResultsPoster, run_posts_results};
     use crate::test_rows::{insert_run, insert_workflow_version};
 
     const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e50";
@@ -248,7 +211,7 @@ mod tests {
         );
         let pool = Arc::new(DatabaseReadPool::new(
             database.path(),
-            EVENT_LOG_STATEMENT_CAPACITY + WORKFLOW_RESULTS_POSTER_STATEMENT_CAPACITY,
+            EVENT_LOG_STATEMENT_CAPACITY,
         ));
         let event_log = Arc::new(EventLogService::new(EventLogServiceDependencies {
             writer,
@@ -260,7 +223,7 @@ mod tests {
         }));
         let rows = database.reader();
         insert_workflow_version(&rows, DEFINITION_ID, VERSION_ID, "Nightly");
-        (WorkflowResultsPoster::new(pool, event_log), rows)
+        (WorkflowResultsPoster::new(event_log), rows)
     }
 
     fn run_id() -> WorkflowRunId {
@@ -293,10 +256,9 @@ mod tests {
     }
 
     /// A finished run, a failed one that ended among them, posts one results event into the
-    /// asking session's log, naming that session and the run, with the summary line exactly where
-    /// the run's row holds one; the run's own session's log gets none. Mutations: draft the event
-    /// for the run's own session; name the run's session in the payload; refuse every failed run;
-    /// drop or invent the summary.
+    /// asking session's log, naming that session, the run and the summary line handed; the run's
+    /// own session's log gets none. Mutations: draft the event for the run's own session; name the
+    /// run's session in the payload; refuse every failed run; drop the summary.
     #[rstest]
     #[case::succeeded_with_a_summary(WorkflowRunStatus::Succeeded, Some("Shipped three fixes."))]
     #[case::canceled(WorkflowRunStatus::Canceled, None)]
@@ -310,14 +272,13 @@ mod tests {
         let database = TestDatabase::new(crate::schema::schema_parts());
         let (poster, rows) = open_poster(&database).await;
         insert_run(&rows, RUN_ID, VERSION_ID, status, STARTED, Some(ENDED));
-        rows.execute(
-            "UPDATE workflow_runs SET summary = ?1 WHERE id = ?2",
-            rusqlite::params![summary, RUN_ID],
-        )
-        .expect("the test writes the run's summary");
 
         poster
-            .post(run_id(), asking_session_id())
+            .post(
+                run_id(),
+                asking_session_id(),
+                summary.map(|line| NonEmptyText::new(line.to_owned()).expect("the test's summary")),
+            )
             .await
             .expect("a finished run's results post");
 
@@ -331,29 +292,17 @@ mod tests {
         );
     }
 
-    /// A run still going or parked on its failed step is refused `workflow.invalidTransition`, and
-    /// a run no row answers to `workflow.run.notFound`; none appends anything. Mutations: drop the
-    /// parked condition; drop the going statuses; answer a missing run `invalidTransition`.
+    /// The post's own write refuses a run still going, one parked on its failed step and one no row
+    /// answers to, `workflow.run.notFound`, appending nothing. Mutations: drop the finished check
+    /// from the write; leave its expected row count unset; drop the parked condition.
     #[rstest]
-    #[case::new(Some(WorkflowRunStatus::New), RefusalCode::WorkflowInvalidTransition)]
-    #[case::running(
-        Some(WorkflowRunStatus::Running),
-        RefusalCode::WorkflowInvalidTransition
-    )]
-    #[case::waiting(
-        Some(WorkflowRunStatus::Waiting),
-        RefusalCode::WorkflowInvalidTransition
-    )]
-    #[case::parked(
-        Some(WorkflowRunStatus::Failed),
-        RefusalCode::WorkflowInvalidTransition
-    )]
-    #[case::missing(None, RefusalCode::WorkflowRunNotFound)]
+    #[case::new(Some(WorkflowRunStatus::New))]
+    #[case::running(Some(WorkflowRunStatus::Running))]
+    #[case::waiting(Some(WorkflowRunStatus::Waiting))]
+    #[case::parked(Some(WorkflowRunStatus::Failed))]
+    #[case::missing(None)]
     #[tokio::test]
-    async fn an_unfinished_or_missing_run_posts_nothing(
-        #[case] status: Option<WorkflowRunStatus>,
-        #[case] code: RefusalCode,
-    ) {
+    async fn an_unfinished_or_missing_run_posts_nothing(#[case] status: Option<WorkflowRunStatus>) {
         let database = TestDatabase::new(crate::schema::schema_parts());
         let (poster, rows) = open_poster(&database).await;
         if let Some(status) = status {
@@ -361,12 +310,14 @@ mod tests {
         }
 
         let error = poster
-            .post(run_id(), asking_session_id())
+            .post(run_id(), asking_session_id(), None)
             .await
             .expect_err("the post is refused");
 
         match HandlerError::from(error) {
-            HandlerError::Refused(refusal) => assert_eq!(refusal.code, code),
+            HandlerError::Refused(refusal) => {
+                assert_eq!(refusal.code, RefusalCode::WorkflowRunNotFound);
+            }
             other @ (HandlerError::Internal(_) | HandlerError::Canceled) => {
                 panic!("expected a refusal, got {other:?}")
             }
@@ -374,35 +325,22 @@ mod tests {
         assert_eq!(posted_events(&rows), Vec::new());
     }
 
-    /// The post's own write refuses a run that has not finished, so a run deleted between the read
-    /// and the write appends nothing. Mutations: drop the finished check from the write; leave its
-    /// expected row count unset.
-    #[tokio::test]
-    async fn the_append_refuses_a_run_that_is_not_finished() {
-        let database = TestDatabase::new(crate::schema::schema_parts());
-        let (poster, rows) = open_poster(&database).await;
-        insert_run(
-            &rows,
-            RUN_ID,
-            VERSION_ID,
-            WorkflowRunStatus::Running,
-            STARTED,
-            None,
-        );
-
-        let error = poster
-            .append_posted(run_id(), asking_session_id(), None)
-            .await
-            .expect_err("the write is refused at its finished check");
-
-        assert!(
-            matches!(
-                error,
-                WorkflowResultsPostError::NotFound(WorkflowNotFound::Run { workflow_run_id })
-                    if workflow_run_id == run_id()
-            ),
-            "{error:?}"
-        );
-        assert_eq!(posted_events(&rows), Vec::new());
+    /// A chat's and an agent's runs post their results, a retry as the run it retries would, and
+    /// no other run. Mutations: post for every mode; post every retry; post no agent run.
+    #[rstest]
+    #[case::chat(WorkflowRunMode::Chat, None, true)]
+    #[case::agent(WorkflowRunMode::Agent, None, true)]
+    #[case::retry_of_a_chat_run(WorkflowRunMode::Retry, Some(WorkflowRunMode::Chat), true)]
+    #[case::retry_of_a_manual_run(WorkflowRunMode::Retry, Some(WorkflowRunMode::Manual), false)]
+    #[case::manual(WorkflowRunMode::Manual, None, false)]
+    #[case::trigger(WorkflowRunMode::Trigger, None, false)]
+    #[case::webhook(WorkflowRunMode::Webhook, None, false)]
+    #[case::sub_workflow(WorkflowRunMode::SubWorkflow, None, false)]
+    fn which_runs_post_their_results(
+        #[case] mode: WorkflowRunMode,
+        #[case] retried_mode: Option<WorkflowRunMode>,
+        #[case] posts: bool,
+    ) {
+        assert_eq!(run_posts_results(mode, retried_mode), posts);
     }
 }

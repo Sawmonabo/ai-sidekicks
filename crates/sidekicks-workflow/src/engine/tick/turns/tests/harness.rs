@@ -482,8 +482,8 @@ impl Harness {
     }
 
     /// Stores the workflow of `nodes` and `edges`, the node `trigger` its trigger, unless an
-    /// earlier run stored it, and writes the run of the scope's run id as the start does, on
-    /// `trigger_items`; `before_start` runs once the run is stored and before the loop takes it.
+    /// earlier run stored it, and writes the run of the scope's run id and mode as the start does,
+    /// on `trigger_items`; `before_start` runs once the run is stored and before the loop takes it.
     /// Answers the run's cancel.
     pub(in crate::engine::tick::turns) async fn start(
         &self,
@@ -526,7 +526,7 @@ impl Harness {
             workflow_run_id: base.run_id,
             workflow_version_id: base.workflow_version_id,
             session_id: base.session_id,
-            mode: WorkflowRunMode::Manual,
+            mode: base.mode,
             trigger: trigger.clone(),
             started_by: WorkflowStartedBy::Schedule {},
             chain: WorkflowRunChainPlace::Starts {},
@@ -542,7 +542,7 @@ impl Harness {
                 workflow_run_id: base.run_id,
                 definition_id: base.workflow_id,
                 workflow_version_id: base.workflow_version_id,
-                mode: WorkflowRunMode::Manual,
+                mode: base.mode,
                 started_by: WorkflowStartedBy::Schedule {},
                 trigger: trigger.clone(),
                 chain: WorkflowRunChainPlace::Starts {},
@@ -577,7 +577,7 @@ impl Harness {
         let scope = RunScope {
             run_id: base.run_id,
             trigger,
-            ..test_run_scope(WorkflowRunMode::Manual, nodes)
+            ..test_run_scope(base.mode, nodes)
         };
         let cancel = scope.cancel.clone();
         let started = StartedRun {

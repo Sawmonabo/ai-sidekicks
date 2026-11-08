@@ -24,6 +24,7 @@ use sidekicks_store::database::statement::{
 };
 
 use super::{RunEnding, RunTurnCommit};
+use crate::engine::results::results_posted_event;
 use crate::engine::tick::run_status::{
     GoingRunStatus, RunStatusChange, going_run_status, person_wait_after, run_status_change,
 };
@@ -136,9 +137,9 @@ impl RunTurnCommit {
     }
 
     /// Adds the run's `ending` to the turn, at the instant of its last event, or now where the
-    /// turn has none: its run event as the turn's last, the open wait on people closed, and the
-    /// statement that ends the row after every other. Answers the status stored and the index of
-    /// the ending's event.
+    /// turn has none: its run event, then the results event where the run posts them, as the
+    /// turn's last, the open wait on people closed, and the statement that ends the row after every
+    /// other. Answers the status stored and the index of the ending's event.
     pub(super) fn add_run_ending(&mut self, ending: RunEnding) -> (WorkflowRunStatus, usize) {
         let at = self
             .events
@@ -185,6 +186,11 @@ impl RunTurnCommit {
         };
         self.push(&at, event);
         let ending_event = self.events.len() - 1;
+        if self.posts_results {
+            // The run's own live state holds no summary line: no step kind the tick runs writes one.
+            let posted = results_posted_event(self.keys.session_id, self.run_id, None);
+            self.push(&at, posted);
+        }
         self.statements
             .push(end_run_row(self.run_id, status, &at, error.as_ref()));
         (status, ending_event)

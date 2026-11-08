@@ -202,6 +202,7 @@ impl RunTurnCommit {
             moves,
             gates,
             ending: _,
+            posts_results: _,
         } = self;
         let drafted = events
             .into_iter()

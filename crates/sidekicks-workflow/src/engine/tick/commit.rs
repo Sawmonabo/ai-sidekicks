@@ -112,6 +112,8 @@ pub(crate) struct RunTurnCommit {
     gates: Vec<(ApprovalDecision, Option<WorkflowNodeId>)>,
     /// The run's ending, which the turn's write stores in place of its status move.
     ending: Option<RunEnding>,
+    /// Whether the ending posts the run's results into its session after the ending event.
+    posts_results: bool,
 }
 
 /// How a run ends, which the turn that decides it writes as its last row change and run event.
@@ -331,6 +333,7 @@ impl RunTurnCommit {
             moves: Vec::new(),
             gates: Vec::new(),
             ending: None,
+            posts_results: false,
         }
     }
 
@@ -340,9 +343,11 @@ impl RunTurnCommit {
     }
 
     /// Ends the run as `ending` says in this turn's write, its row and its run event after every
-    /// other, at the instant of the turn's last event.
-    pub(crate) fn end(&mut self, ending: RunEnding) {
+    /// other, at the instant of the turn's last event, followed by `workflow.results.posted` into
+    /// the run's session where `posts_results`.
+    pub(crate) fn end(&mut self, ending: RunEnding, posts_results: bool) {
         self.ending = Some(ending);
+        self.posts_results = posts_results;
     }
 
     /// Applies `report` of `reported`, its events at its instant and its row changes after the

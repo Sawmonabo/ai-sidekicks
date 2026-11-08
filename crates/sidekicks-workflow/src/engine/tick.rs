@@ -64,15 +64,11 @@ pub(crate) struct RunScope {
     pub(crate) workflow_version_id: WorkflowVersionId,
     /// The workflow's name, as the run's expressions read it.
     pub(crate) workflow_name: WorkflowName,
-    /// How the run was started.
-    #[cfg_attr(
-        test,
-        expect(
-            dead_code,
-            reason = "the start keeps pins for a manual run only, so no step reads the mode"
-        )
-    )]
+    /// How the run was started, which decides whether its ending posts its results.
     pub(crate) mode: WorkflowRunMode,
+    /// For a retry, how the first run of its chain of retries that is not a retry was started,
+    /// which its ending posts as; `None` for every run that is not a retry.
+    pub(crate) retried_mode: Option<WorkflowRunMode>,
     /// The trigger node that started the run.
     pub(crate) trigger: WorkflowRunTrigger,
     /// The pinned version's nodes by id, the trigger included.
@@ -129,6 +125,7 @@ pub(crate) fn test_run_scope(mode: WorkflowRunMode, nodes: Vec<WorkflowNode>) ->
             .expect("the test's version id is a UUID"),
         workflow_name: bindings.workflow_name,
         mode,
+        retried_mode: None,
         trigger: bindings.run_trigger,
         node_params: Arc::new(
             nodes

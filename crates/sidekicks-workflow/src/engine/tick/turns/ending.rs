@@ -15,6 +15,7 @@ use tokio::sync::oneshot;
 
 use super::reports::{stop_agent_run, stop_steps};
 use super::{EngineTick, ReadiedNext, RunTurn};
+use crate::engine::results::run_posts_results;
 use crate::engine::tick::commit::RunEnding;
 use crate::engine::tick::live_runs::{LiveRun, LiveStep};
 use crate::engine::tick::step_failure::{RunStop, step_failure_error};
@@ -183,7 +184,8 @@ fn capped_step(live: &LiveRun) -> &LiveStep {
 
 /// Adds the ending of the run of `live` to `turn` where the run is over: the ending a stop decided
 /// once every step left live is a failed one with nothing winding down and nothing this turn
-/// readied goes on, else `Completed` for a run no stop touched with no step left live or readied.
+/// readied goes on, else `Completed` for a run no stop touched with no step left live or readied;
+/// a run whose mode posts its results posts them after its ending event.
 pub(super) fn end_when_over(live: &mut LiveRun, turn: &mut RunTurn) {
     let is_wound_down = live.steps.values().all(|live_step| {
         live_step.status == WorkflowStepStatus::Failed && !live_step.is_winding_down
@@ -194,21 +196,24 @@ pub(super) fn end_when_over(live: &mut LiveRun, turn: &mut RunTurn) {
     if !is_wound_down {
         return;
     }
+    let posts_results = run_posts_results(live.scope.mode, live.scope.retried_mode);
     if let Some(ending) = live.ending.take() {
-        turn.commit.end(ending);
+        turn.commit.end(ending, posts_results);
     } else if live.stop.is_none() && live.steps.is_empty() {
-        turn.commit.end(RunEnding::Completed);
+        turn.commit.end(RunEnding::Completed, posts_results);
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use rusqlite::Connection;
     use serde_json::{Value, json};
 
     use sidekicks_contracts::wire::instant::WireInstant;
     use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
+    use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
     use tokio::time::timeout;
 
     use crate::engine::tick::step_failure::run_cap_failure;
@@ -281,12 +286,21 @@ mod tests {
     }
 
     /// A run whose steps all succeed reads `succeeded`, ended at the instant of its last event,
-    /// with one `workflow.run.completed` as that write's last event, and leaves the live set.
-    /// Mutations: write nothing for a run whose steps all settled, which leaves it `running`;
-    /// stamp the end with a fresh clock read.
+    /// with one `workflow.run.completed` in that write, and leaves the live set; a chat's run posts
+    /// its results into its session once, as the write's last event after the ending, and a manual
+    /// run posts none. Mutations: write nothing for a run whose steps all settled, which leaves it
+    /// `running`; stamp the end with a fresh clock read; post outside the ending's write; post for
+    /// every mode.
+    #[rstest]
+    #[case::manual(WorkflowRunMode::Manual, false)]
+    #[case::chat(WorkflowRunMode::Chat, true)]
     #[tokio::test]
-    async fn a_run_whose_steps_all_succeed_ends_succeeded() {
+    async fn a_run_whose_steps_all_succeed_ends_succeeded(
+        #[case] mode: WorkflowRunMode,
+        #[case] posts_results: bool,
+    ) {
         let mut harness = Harness::new(None).await;
+        harness.scope.mode = mode;
         harness
             .start(
                 vec![
@@ -303,20 +317,48 @@ mod tests {
             .await;
         tokio::time::sleep(QUIET).await;
 
-        let events = harness.events();
-        let (_, last_type, last_at, _) = events.last().expect("the run wrote its events");
-        assert_eq!(last_type, "workflow.run.completed");
         let (_, _, completed_at, _) = harness.event("workflow.step.completed", "A");
-        assert_eq!(last_at, &completed_at, "the ending rides A's write");
+        let ending_write: Vec<_> = harness
+            .events()
+            .into_iter()
+            .filter(|(_, _, at, _)| at == &completed_at)
+            .map(|(_, event_type, _, _)| event_type)
+            .collect();
+        let mut expected_tail = vec!["workflow.run.completed".to_owned()];
+        if posts_results {
+            expected_tail.push("workflow.results.posted".to_owned());
+        }
+        assert!(
+            ending_write.ends_with(&expected_tail),
+            "the ending rides A's write: {ending_write:?}"
+        );
         assert_eq!(
             run_row(&harness.rows),
             ("succeeded".to_owned(), Some(completed_at), None)
         );
-        let completed: Vec<_> = run_events(&harness)
+        let mut expected_run_events = vec![(
+            "workflow.run.completed".to_owned(),
+            json!({
+                "sessionId": harness.scope.session_id,
+                "workflowRunId": harness.scope.run_id,
+                "definitionId": harness.scope.workflow_id,
+                "workflowVersionId": harness.scope.workflow_version_id,
+            }),
+        )];
+        if posts_results {
+            expected_run_events.push((
+                "workflow.results.posted".to_owned(),
+                json!({
+                    "sessionId": harness.scope.session_id,
+                    "workflowRunId": harness.scope.run_id,
+                }),
+            ));
+        }
+        let ended: Vec<_> = run_events(&harness)
             .into_iter()
-            .filter(|(event_type, _)| event_type == "workflow.run.completed")
+            .filter(|(event_type, _)| event_type != "workflow.run.started")
             .collect();
-        assert_eq!(completed.len(), 1);
+        assert_eq!(ended, expected_run_events);
         assert!(!harness.recorder.has_sequence(harness.scope.run_id));
     }
 

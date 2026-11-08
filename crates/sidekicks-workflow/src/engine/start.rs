@@ -589,6 +589,7 @@ impl WorkflowRunStarter {
                     workflow_version_id,
                     workflow_name: checked.workflow_name,
                     mode,
+                    retried_mode: None,
                     trigger: checked.trigger_node,
                     nodes: checked.nodes,
                     node_params: Arc::new(node_params),
