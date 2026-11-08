@@ -199,8 +199,45 @@ where
         tool_call_id: &str,
         before_sequence: i64,
     ) -> Result<Option<EpochPosition>, TurnAttributionError> {
+        let Some((opening_sequence, payload)) =
+            self.read_tool_call_opening(session_id, run_id, tool_call_id, before_sequence)?
+        else {
+            return Ok(None);
+        };
+        match stamped_source_of(&payload) {
+            Some(source) => Ok(Some(source)),
+            None => self
+                .read_standing_before(session_id, run_id, opening_sequence)
+                .map(Some),
+        }
+    }
+
+    /// The sequence of the run's newest `agent.toolCall.invoked` row of the call `tool_call_id`
+    /// before `before_sequence`, or `None` when no such call opened.
+    pub fn read_tool_call_opening_sequence(
+        &self,
+        session_id: &SessionId,
+        run_id: &RunId,
+        tool_call_id: &str,
+        before_sequence: i64,
+    ) -> Result<Option<i64>, TurnAttributionError> {
+        Ok(self
+            .read_tool_call_opening(session_id, run_id, tool_call_id, before_sequence)?
+            .map(|(sequence, _payload)| sequence))
+    }
+
+    // The sequence and payload of the run's newest opening of the call `tool_call_id` before
+    // `before_sequence`.
+    fn read_tool_call_opening(
+        &self,
+        session_id: &SessionId,
+        run_id: &RunId,
+        tool_call_id: &str,
+        before_sequence: i64,
+    ) -> Result<Option<(i64, serde_json::Map<String, serde_json::Value>)>, TurnAttributionError>
+    {
         let read_bound = session_read_bound(&self.read_damaged_from_sequence, session_id, None);
-        let opening = self
+        Ok(self
             .reader
             .prepare_cached(&SELECT_TOOL_CALL_OPENING_SQL)?
             .query_row(
@@ -214,16 +251,7 @@ where
                 },
                 |row| Ok((row.get::<_, i64>(0)?, json_object_column(row, 1)?)),
             )
-            .optional()?;
-        let Some((opening_sequence, payload)) = opening else {
-            return Ok(None);
-        };
-        match stamped_source_of(&payload) {
-            Some(source) => Ok(Some(source)),
-            None => self
-                .read_standing_before(session_id, run_id, opening_sequence)
-                .map(Some),
-        }
+            .optional()?)
     }
 
     /// A run's fold seeded from its log before `before_sequence`: where it stands, and its turns
