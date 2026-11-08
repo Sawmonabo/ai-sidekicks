@@ -205,7 +205,8 @@ pub(crate) enum EngineFault {
     /// A run's turn was not written; the run left the live set, and the restart settles what the
     /// log holds.
     TurnWriteFailed,
-    /// An artifact a failed turn or settlement wrote, which no record names, could not be deleted.
+    /// An artifact a failed turn or settlement wrote, or a kept value a turn replaced named, which
+    /// no record names, could not be deleted.
     TurnPayloadLeftBehind,
     /// A payload of a step could not be stored; the step failed in its place.
     SettlementWriteFailed,

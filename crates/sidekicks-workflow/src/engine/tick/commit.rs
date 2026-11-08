@@ -101,6 +101,9 @@ pub(crate) struct RunTurnCommit {
     pending: Vec<(WorkflowStepKey, usize)>,
     /// Each artifact a payload ref this turn stores names, which a failed write leaves unnamed.
     artifact_ids: Vec<ArtifactId>,
+    /// The index among `statements` of each read of the artifacts the kept values this turn
+    /// replaces name, which the committed write answers.
+    dropped_reads: Vec<usize>,
     /// Each applied report that moved its step, recorded once the write commits.
     moves: Vec<(WorkflowStepKey, StepMove)>,
     /// Each gate answer the turn writes, its outcome beside its approval step, recorded once the
@@ -242,8 +245,9 @@ pub(crate) struct SettlementWriteFailure {
 }
 
 /// What a committed turn answers: each event's sequence, in write order, the readying sequence of
-/// each step whose `pending` row the write stored, and the run's step counts and person-wait
-/// columns after the turn, which the tick keeps for the run's next turn.
+/// each step whose `pending` row the write stored, the run's step counts and person-wait columns
+/// after the turn, which the tick keeps for the run's next turn, and the artifacts of the kept
+/// values the write replaced, which the tick deletes.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct RunTurnCommitted {
@@ -256,6 +260,9 @@ pub(crate) struct RunTurnCommitted {
     pub(crate) counts: RunStepCounts,
     /// The run's person-wait columns after the turn.
     pub(crate) person_wait: RunPersonWait,
+    /// Each artifact a kept value the write replaced named, which no record names now, for the
+    /// tick to delete through the payload store.
+    pub(crate) dropped_kept_artifact_ids: Vec<ArtifactId>,
 }
 
 /// Why a turn's write was not kept; none of it is stored.
@@ -292,6 +299,7 @@ impl RunTurnCommit {
             statements: Vec::new(),
             pending: Vec::new(),
             artifact_ids: Vec::new(),
+            dropped_reads: Vec::new(),
             moves: Vec::new(),
             gates: Vec::new(),
         }

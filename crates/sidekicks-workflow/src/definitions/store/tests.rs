@@ -32,6 +32,8 @@ use super::{
 use crate::definitions::drafts::{WORKFLOW_DRAFT_STORE_STATEMENT_CAPACITY, WorkflowDraftStore};
 use crate::definitions::errors::DefinitionRefusal;
 use crate::definitions::library::{WORKFLOW_LIBRARY_STATEMENT_CAPACITY, WorkflowLibrary};
+use crate::engine::ports::StepPayloadArtifacts;
+use crate::engine::ports::kept_payloads::KeptPayloads;
 use crate::kinds::{NodeKind, NodeKindTable, PassThroughExecutor, command_test_kind, test_kind};
 use crate::not_found::{WorkflowNotFound, WorkflowVersionAddress};
 use crate::schema::schema_parts;
@@ -61,15 +63,21 @@ fn saved_document(name: &str, path: &str) -> WorkflowDocument {
 }
 
 /// A shell-line bound far past every command line here.
-const SHELL_LINE_LIMIT: usize = 4_096;
+pub(super) const SHELL_LINE_LIMIT: usize = 4_096;
 
 /// The store and the draft store over one test database holding the workflow tables, the store
-/// reading command lines inside a bound of `shell_line_limit` bytes and knowing two kinds: the
-/// command step `developer.shell`, whose line is its `command` param, and [`call_kind`].
-async fn open_stores(
+/// reading command lines inside a bound of `shell_line_limit` bytes, knowing two kinds, the
+/// command step `developer.shell`, whose line is its `command` param, and [`call_kind`], and
+/// deleting kept artifacts through the payload store answered beside them.
+pub(super) async fn open_stores(
     database: &TestDatabase,
     shell_line_limit: usize,
-) -> (WorkflowDefinitionStore, WorkflowDraftStore) {
+) -> (
+    WorkflowDefinitionStore,
+    WorkflowDraftStore,
+    Arc<KeptPayloads>,
+) {
+    let payloads = Arc::new(KeptPayloads::default());
     let writer = Arc::new(
         DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
             .await
@@ -90,8 +98,10 @@ async fn open_stores(
                     .expect("the test's kinds table builds"),
             ),
             Arc::new(ShellLineReadingBound::new(shell_line_limit)),
+            Arc::clone(&payloads) as Arc<dyn StepPayloadArtifacts>,
         ),
         WorkflowDraftStore::new(pool, writer),
+        payloads,
     )
 }
 
@@ -196,7 +206,7 @@ fn update(definition_id: WorkflowDefinitionId, name: &str) -> WorkflowDefinition
 #[tokio::test]
 async fn a_save_clears_its_draft_and_a_refused_name_leaves_nothing() {
     let database = TestDatabase::new(schema_parts());
-    let (store, drafts) = open_stores(&database, SHELL_LINE_LIMIT).await;
+    let (store, drafts, _payloads) = open_stores(&database, SHELL_LINE_LIMIT).await;
     let nightly = create(&store, "Nightly").await;
     let weekly = create(&store, "Weekly").await;
     hold_draft(&drafts, nightly).await;
@@ -243,7 +253,7 @@ async fn a_save_clears_its_draft_and_a_refused_name_leaves_nothing() {
 #[tokio::test]
 async fn a_create_from_the_new_workflow_draft_clears_it_and_an_import_leaves_it() {
     let database = TestDatabase::new(schema_parts());
-    let (store, drafts) = open_stores(&database, SHELL_LINE_LIMIT).await;
+    let (store, drafts, _payloads) = open_stores(&database, SHELL_LINE_LIMIT).await;
     let hold_new_draft = || async {
         drafts
             .update(&WorkflowDraftUpdateRequest::New(
@@ -304,7 +314,7 @@ fn definition_name(rows: &Connection, definition_id: WorkflowDefinitionId) -> St
 #[tokio::test]
 async fn a_duplicate_takes_a_free_copy_name_and_its_source_locks_only_for_the_same_content() {
     let database = TestDatabase::new(schema_parts());
-    let (store, _drafts) = open_stores(&database, SHELL_LINE_LIMIT).await;
+    let (store, _drafts, _payloads) = open_stores(&database, SHELL_LINE_LIMIT).await;
     let source = create_from(
         &store,
         "Nightly",
@@ -437,7 +447,7 @@ async fn every_save_refuses_a_command_fill_that_does_not_expand(
 ) {
     let (shell_line_limit, command, reason) = line_case;
     let database = TestDatabase::new(schema_parts());
-    let (store, _drafts) = open_stores(&database, shell_line_limit).await;
+    let (store, _drafts, _payloads) = open_stores(&database, shell_line_limit).await;
     let source = create_from(
         &store,
         "Nightly",
@@ -530,7 +540,7 @@ async fn a_save_refuses_a_secret_its_params_cannot_resolve(
     #[case] expected: Value,
 ) {
     let database = TestDatabase::new(schema_parts());
-    let (store, _drafts) = open_stores(&database, SHELL_LINE_LIMIT).await;
+    let (store, _drafts, _payloads) = open_stores(&database, SHELL_LINE_LIMIT).await;
     let mut document = document("Calls", "notes.md");
     document["nodes"][0] = json!({
         "id": "call", "kind": "http.call", "kindVersion": 1, "name": "Call",
@@ -581,7 +591,7 @@ async fn a_save_refuses_a_tool_binding_carrying_a_policy(
     #[case] approval_mode: Option<&str>,
 ) {
     let database = TestDatabase::new(schema_parts());
-    let (store, _drafts) = open_stores(&database, SHELL_LINE_LIMIT).await;
+    let (store, _drafts, _payloads) = open_stores(&database, SHELL_LINE_LIMIT).await;
     let mut tool = json!({
         "binding": { "scope": "user", "provider": "codex", "serverName": "github" },
         "toolName": "search",
@@ -664,7 +674,7 @@ fn provider(id: &str) -> ProviderId {
 #[tokio::test]
 async fn a_provider_pick_is_kept_beside_the_versions() {
     let database = TestDatabase::new(schema_parts());
-    let (store, _drafts) = open_stores(&database, SHELL_LINE_LIMIT).await;
+    let (store, _drafts, _payloads) = open_stores(&database, SHELL_LINE_LIMIT).await;
     let rows = database.reader();
     let picked = store
         .create(

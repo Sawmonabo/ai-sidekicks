@@ -44,6 +44,7 @@ use super::live_runs::{LiveRun, LiveStep, TurnAsk};
 use super::node_settings::main_inputs;
 use super::walk::WalkReady;
 use super::{ReadyStep, RunSnapshot, StepReport, StepReportKind, StepSettlement};
+use crate::definitions::kept_values::remove_dropped;
 use crate::engine::chain::KeepGoingIntake;
 use crate::engine::event_record::{EngineFault, EngineRecorder};
 use crate::engine::ports::{PortError, RunSnapshotPoints, StepAdmission, StepPayloadArtifacts};
@@ -524,6 +525,15 @@ impl EngineTick {
             .await
         {
             Ok(committed) => {
+                // The replaced kept values' artifacts go while the run's record can still take
+                // what was left behind.
+                for (_, removal) in
+                    remove_dropped(&*self.payloads, &committed.dropped_kept_artifact_ids).await
+                {
+                    live.record
+                        .fault(None, EngineFault::TurnPayloadLeftBehind, &*removal)
+                        .await;
+                }
                 live.counts = committed.counts;
                 live.person_wait = committed.person_wait;
                 let mut dispatched: Vec<ReadyStep> = held_dispatches
@@ -637,12 +647,10 @@ impl EngineTick {
         self.deadlines.skip_run(live.scope.run_id);
         // The dropped run's deadline may be the one armed.
         self.needs_deadline_read = true;
-        for artifact_id in &artifact_ids {
-            if let Err(removal) = self.payloads.delete(artifact_id).await {
-                live.record
-                    .fault(None, EngineFault::TurnPayloadLeftBehind, &*removal)
-                    .await;
-            }
+        for (_, removal) in remove_dropped(&*self.payloads, &artifact_ids).await {
+            live.record
+                .fault(None, EngineFault::TurnPayloadLeftBehind, &*removal)
+                .await;
         }
         live.record
             .fault(None, EngineFault::TurnWriteFailed, &error)

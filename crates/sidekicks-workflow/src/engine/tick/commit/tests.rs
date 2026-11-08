@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use rstest::rstest;
@@ -36,6 +37,7 @@ use crate::engine::ports::{EngineRecordSink, KeptEngineRecords, StepPayloadArtif
 use crate::engine::tick::run_status::{RunPersonWait, RunStepCounts};
 use crate::engine::tick::walk::{WalkReady, WalkSkip};
 use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
+use crate::kinds::step_context::StepRunVariable;
 use crate::runs::gate_resolution::RunEventKeys;
 use crate::secrets::redaction::RunRedaction;
 use crate::test_rows::{
@@ -466,6 +468,7 @@ async fn a_turn_is_one_write_in_report_order() {
                 ..RunStepCounts::default()
             },
             person_wait: RunPersonWait::default(),
+            dropped_kept_artifact_ids: Vec::new(),
         }
     );
     let events = harness.events();
@@ -590,4 +593,78 @@ async fn a_canceled_held_step_adds_its_cut_hold(
     if is_sibling_failure {
         assert_eq!(events[0].3["cancellationReason"], json!("siblingFailure"));
     }
+}
+
+/// A step that keeps a value above the cap under a name holding an artifact answers that artifact
+/// once its write commits; a refused write answers it nowhere, not even among the failure's
+/// artifacts, which the tick deletes, and neither deletes it. Mutations: the replaced artifact
+/// removed before the commit; the read's index not kept on the turn, or read off the wrong
+/// result; the replaced artifact handed to the failed write's cleanup.
+#[rstest]
+#[case::committed(false)]
+#[case::refused(true)]
+#[tokio::test]
+async fn a_replaced_kept_artifact_is_answered_once_its_write_commits(#[case] is_refused: bool) {
+    let harness = TurnHarness::new().await;
+    // A step with no row refuses the write that settles it.
+    let step = if is_refused {
+        step_key(TEST_NODE_ID, 1)
+    } else {
+        harness.store_step(1, WorkflowStepStatus::Running)
+    };
+    let replaced = artifact_id();
+    harness
+        .rows
+        .execute(
+            "INSERT INTO workflow_node_state
+               (definition_id, node_id, key, value_json, kept_by_run_id, updated_at)
+             VALUES (?1, '', 'report', ?2, ?3, ?4)",
+            params![
+                DEFINITION_ID,
+                serde_json::to_string(&artifact_payload(replaced))
+                    .expect("a payload ref writes as JSON"),
+                RUN_ID,
+                RUN_STARTED_AT,
+            ],
+        )
+        .expect("the test keeps a value");
+    let completed = StepReportKind::Settled(StepSettlement::Completed {
+        outputs: vec![Vec::new()],
+        cost: None,
+        log_lines: Vec::new(),
+        run_variables: BTreeMap::from([(
+            "report".to_owned(),
+            StepRunVariable {
+                value: json!("y".repeat(70 * 1024)),
+                is_kept: true,
+            },
+        )]),
+    });
+    let mut commit = harness.commit();
+    commit
+        .report(
+            report(&step, "2026-10-02T00:05:00.000Z", completed),
+            harness.reported(sequence(0), None),
+        )
+        .await
+        .expect("the kept value's artifact writes");
+    let kept: Vec<ArtifactId> = harness
+        .payloads
+        .writes()
+        .iter()
+        .map(|write| write.artifact_id)
+        .collect();
+    assert_eq!(kept.len(), 1, "only the kept value is above the cap");
+
+    match commit.append(&harness.appender, &harness.record, []).await {
+        Ok(committed) => {
+            assert!(!is_refused, "a step with no row refuses the write");
+            assert_eq!(committed.dropped_kept_artifact_ids, [replaced]);
+        }
+        Err(failure) => {
+            assert!(is_refused, "{:?}", failure.error);
+            assert_eq!(failure.artifact_ids, kept);
+        }
+    }
+    assert_eq!(harness.payloads.deletes(), []);
 }

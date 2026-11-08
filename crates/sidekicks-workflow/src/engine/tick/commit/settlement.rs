@@ -257,6 +257,8 @@ impl RunTurnCommit {
             }),
             at,
         ) {
+            self.dropped_reads
+                .push(self.statements.len() + kept_write.dropped_read);
             self.statements.extend(kept_write.statements);
         }
         let session_id = self.keys.session_id;

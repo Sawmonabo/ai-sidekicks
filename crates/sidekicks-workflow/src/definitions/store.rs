@@ -34,7 +34,8 @@ use sidekicks_contracts::workflow::definition::document::{
 use sidekicks_contracts::workflow::definition::item::WorkflowPinnedItem;
 use sidekicks_contracts::workflow::definition::methods::{
     WorkflowCreateOrigin, WorkflowDefinitionCreateRequest, WorkflowDefinitionCreateResponse,
-    WorkflowDefinitionUpdateRequest, WorkflowDefinitionUpdateResponse,
+    WorkflowDefinitionDeleteResponse, WorkflowDefinitionUpdateRequest,
+    WorkflowDefinitionUpdateResponse,
 };
 use sidekicks_contracts::workflow::definition::refusals::{
     WorkflowDefinitionFinding, check_workflow_graph,
@@ -55,8 +56,10 @@ use tokio::task::JoinError;
 use crate::definitions::content_hash::{WorkflowDocumentHash, hash_workflow_body};
 use crate::definitions::drafts::clear_workflow_draft_statement;
 use crate::definitions::errors::DefinitionRefusal;
+use crate::definitions::kept_values::KeptArtifactsLeftBehind;
 use crate::definitions::library::{WorkflowLibrary, name_holder_statement};
 use crate::definitions::store::params::check_node_params;
+use crate::engine::ports::StepPayloadArtifacts;
 use crate::expressions::save_check::check_expressions;
 use crate::kinds::NodeKindTable;
 use crate::not_found::{WorkflowNotFound, WorkflowVersionAddress};
@@ -152,7 +155,8 @@ pub(crate) struct WorkflowSaveAuthor {
     pub(crate) agent_id: Option<AgentId>,
 }
 
-/// Why a write to the library was not kept; a refused write leaves nothing behind.
+/// Why a write to the library was not kept; a refused write leaves nothing behind, and a delete
+/// whose kept artifacts were left behind stands.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WorkflowDefinitionStoreError {
     /// The document breaks a rule or names a held name (`workflow.definition.refused`), or the
@@ -182,6 +186,16 @@ pub(crate) enum WorkflowDefinitionStoreError {
     /// The contract check a tool binding is read through could not be built.
     #[error("the check of a tool binding could not be built")]
     BindingCheck(#[from] ReceivedCheckError),
+    /// The delete committed, but an artifact one of the workflow's kept values named could not be
+    /// deleted.
+    #[error("the workflow was deleted, but artifacts its kept values named were left behind")]
+    KeptArtifactsLeftBehind {
+        /// The committed delete's answer.
+        deleted: WorkflowDefinitionDeleteResponse,
+        /// Each artifact left behind, beside why.
+        #[source]
+        left_behind: KeptArtifactsLeftBehind,
+    },
 }
 
 impl From<WorkflowDefinitionStoreError> for HandlerError {
@@ -196,7 +210,10 @@ impl From<WorkflowDefinitionStoreError> for HandlerError {
             | WorkflowDefinitionStoreError::Database(_)
             | WorkflowDefinitionStoreError::Pool(_)
             | WorkflowDefinitionStoreError::ShellLineReading(_)
-            | WorkflowDefinitionStoreError::BindingCheck(_)) => Self::Internal(Box::new(fault)),
+            | WorkflowDefinitionStoreError::BindingCheck(_)
+            | WorkflowDefinitionStoreError::KeptArtifactsLeftBehind { .. }) => {
+                Self::Internal(Box::new(fault))
+            }
         }
     }
 }
@@ -219,12 +236,15 @@ pub(crate) struct WorkflowDefinitionStore {
     writer: Arc<DatabaseWriter>,
     node_kinds: Arc<NodeKindTable>,
     shell_line_bound: Arc<ShellLineReadingBound>,
+    /// The store a deleted workflow's kept artifacts are deleted through.
+    payloads: Arc<dyn StepPayloadArtifacts>,
 }
 
 impl WorkflowDefinitionStore {
     /// The store reading through `pool`, writing through `writer`, checking each save against the
-    /// rules `node_kinds` gives each node's kind, and reading command lines inside
-    /// `shell_line_bound`, the daemon's one bound on shell-line reads.
+    /// rules `node_kinds` gives each node's kind, reading command lines inside `shell_line_bound`,
+    /// the daemon's one bound on shell-line reads, and deleting a deleted workflow's kept artifacts
+    /// through `payloads`.
     #[cfg_attr(
         not(test),
         expect(
@@ -237,12 +257,14 @@ impl WorkflowDefinitionStore {
         writer: Arc<DatabaseWriter>,
         node_kinds: Arc<NodeKindTable>,
         shell_line_bound: Arc<ShellLineReadingBound>,
+        payloads: Arc<dyn StepPayloadArtifacts>,
     ) -> Self {
         Self {
             pool,
             writer,
             node_kinds,
             shell_line_bound,
+            payloads,
         }
     }
 
