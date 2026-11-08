@@ -11,7 +11,7 @@ use super::{
     ATTEMPT_LIFETIME, AddressedServer, OwnerIssuedClient, ProviderAccounts, SignInServer,
     SignInTarget,
 };
-use crate::errors::{McpRefusal, SignInLaunchError};
+use crate::errors::{McpRefusal, SignInLaunchError, SignInUnsupportedReason};
 use crate::sign_in::test_service::{
     FakeServerAnswers, Harness, addressed_target, harness, launch_to_browser, provider,
     serve_authorization_server, server_name,
@@ -299,4 +299,45 @@ async fn the_entrys_resource_reaches_the_authorization_request_once() {
         [rmcp_resource.as_str(), entry_resource]
     );
     assert_eq!(parameters(&same, "resource"), [rmcp_resource.as_str()]);
+}
+
+/// A server whose metadata names an authorization page that is no web address is refused as
+/// unsupported, and the receiver bound for the launch is closed at once, with no attempt kept.
+/// Killed by the attempt kept, its receiver listening until its life runs out.
+#[tokio::test]
+async fn a_page_that_is_no_web_address_keeps_no_attempt() {
+    let server = serve_authorization_server(FakeServerAnswers {
+        authorization_endpoint: Some("ftp://files.example.test/authorize"),
+        ..FakeServerAnswers::default()
+    })
+    .await;
+    let harness = harness().await;
+    let port = free_port().await;
+    let callback_url =
+        Url::parse(&format!("http://127.0.0.1:{port}/owner/return")).expect("a callback address");
+    let target = entry_target(
+        &server.base,
+        Some(OwnerIssuedClient {
+            client_id: None,
+            callback_url: Some(callback_url),
+        }),
+        None,
+    );
+
+    let refusal = harness
+        .service
+        .launch(&target, &[], &ProviderAccounts::new())
+        .await;
+
+    assert!(matches!(
+        refusal,
+        Err(SignInLaunchError::Refused(
+            McpRefusal::ServerSignInUnsupported {
+                reason: SignInUnsupportedReason::UnusableMetadata,
+                ..
+            }
+        ))
+    ));
+    assert!(!is_listening(port).await);
+    assert!(super::lock(&harness.service.attempts).by_address.is_empty());
 }

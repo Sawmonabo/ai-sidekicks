@@ -33,6 +33,7 @@ use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::web_address::WebAddress;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
@@ -269,9 +270,10 @@ impl SignInService {
 
     /// Launches a sign-in to `target` asking for `scopes`, ending the server's open attempt
     /// first, through the daemon's own client or, where the server does not admit it, a provider's
-    /// own, run for that provider's account in `provider_accounts`. Answers the address the browser
-    /// opens, which nothing else holds; refuses with `mcp.server.signInUnsupported`, naming why,
-    /// when the binding or the server offers no sign-in the daemon or a provider can run,
+    /// own, run for that provider's account in `provider_accounts`. Answers the web address the
+    /// browser opens, which nothing else holds; refuses with `mcp.server.signInUnsupported`, naming
+    /// why, when the binding or the server offers no sign-in the daemon or a provider can run or
+    /// the page to open is no `http:` or `https:` address, which keeps no attempt or flow open,
     /// `mcp.server.signInFailed` when one could not be started, and as the driver's error answers
     /// when a provider's driver failed before the browser opened.
     pub(crate) async fn launch(
@@ -279,7 +281,7 @@ impl SignInService {
         target: &SignInTarget,
         scopes: &[String],
         provider_accounts: &ProviderAccounts,
-    ) -> Result<Url, SignInLaunchError> {
+    ) -> Result<WebAddress, SignInLaunchError> {
         let unsupported = |reason| {
             SignInLaunchError::from(McpRefusal::ServerSignInUnsupported {
                 binding: Box::new(target.binding.clone()),
@@ -490,6 +492,13 @@ impl SignInService {
                 };
             }
             Err(error) => return Err(failed(Box::new(error))),
+        };
+        // The metadata can name a page of any scheme; the receiver closes as the launch returns.
+        let Some(browser_url) = WebAddress::new(browser_url.as_str()) else {
+            tracing::warn!(
+                "the authorization server's metadata names a sign-in page that is no web address"
+            );
+            return Err(unsupported(SignInUnsupportedReason::UnusableMetadata));
         };
 
         self.open_attempt(

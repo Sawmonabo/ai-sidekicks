@@ -47,6 +47,7 @@ use secrecy::SecretString;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::web_address::WebAddress;
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::sign_in::{
@@ -78,8 +79,8 @@ type FlowEnd = Option<Result<ProviderSignInTakeover, DriverError>>;
 /// How a provider's flow began: the address the browser opens, or that no provider's flow admits
 /// the server.
 pub(super) enum ProviderFlowStart {
-    /// A driver named the address the browser opens; the flow goes on behind it.
-    Opened(Url),
+    /// A driver named the web address the browser opens; the flow goes on behind it.
+    Opened(WebAddress),
     /// No provider offers a flow for the server, or the one asked failed before the browser
     /// opened, with that failure.
     NoneAdmits {
@@ -154,7 +155,8 @@ impl SignInService {
     /// address the browser opens once a driver names one, or that no provider's flow admits the
     /// server. Refuses with `mcp.server.signInFailed`, carrying the cause, when the flow's
     /// listener cannot be bound for a driver whose flow returns through it, or the daemon is
-    /// stopping.
+    /// stopping, and with `mcp.server.signInUnsupported` when the driver names a page that is no
+    /// `http:` or `https:` address, the flow ended and its listener closed first.
     pub(super) async fn run_provider_flow(
         self: &Arc<Self>,
         target: &SignInTarget,
@@ -248,6 +250,17 @@ impl SignInService {
             }));
             // The address comes first; a closed channel means the driver ended without one.
             if let Ok(browser_url) = opened.await {
+                // A driver can name a page of any scheme: its flow ends and its listener closes
+                // before the refusal.
+                let Some(page) = WebAddress::new(browser_url.as_str()) else {
+                    drop(flow);
+                    drop(listener);
+                    self.end_provider_flow(&server.canonical_address, Some(flow_id));
+                    return Err(McpRefusal::ServerSignInUnsupported {
+                        binding: Box::new(target.binding.clone()),
+                        reason: SignInUnsupportedReason::UnusableMetadata,
+                    });
+                };
                 let running = RunningFlow {
                     binding: target.binding.clone(),
                     address: server.address.clone(),
@@ -262,7 +275,7 @@ impl SignInService {
                     .filter(|browser_return| !browser_return.is_closed())
                     .zip(listener.take());
                 self.follow_flow(running, flow, daemon_receiver, &browser_url);
-                return Ok(ProviderFlowStart::Opened(browser_url));
+                return Ok(ProviderFlowStart::Opened(page));
             }
             let failure = match (&mut flow).await {
                 Ok(Some(Err(DriverError::NoPersonServerEntry(_)))) => {
@@ -298,7 +311,7 @@ impl SignInService {
         client: SignInClient,
         provider_accounts: &ProviderAccounts,
         tried: &mut ProviderFlowsTried,
-    ) -> ControlFlow<Result<Url, SignInLaunchError>, OAuthClientConfig> {
+    ) -> ControlFlow<Result<WebAddress, SignInLaunchError>, OAuthClientConfig> {
         let binding = Box::new(target.binding.clone());
         let (admitted_provider, refusal_if_none_admits) = match client {
             SignInClient::OwnClient(own_client) => return ControlFlow::Continue(own_client),

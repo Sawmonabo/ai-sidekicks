@@ -209,7 +209,7 @@ async fn a_failed_provider_flow_appends_its_reason_and_writes_no_admitted_row(
         .await
         .expect("the provider's flow opens the browser");
 
-    assert_eq!(browser_url, scripted_browser_url());
+    assert_eq!(browser_url.as_str(), scripted_browser_url().as_str());
     let completions = settled_completions(&harness).await;
     assert_eq!(completions.len(), 1);
     assert_eq!(completions[0]["outcome"], "failure");
@@ -262,8 +262,10 @@ async fn the_bindings_provider_is_tried_before_another() {
     let browser_url = harness.service.launch(&target, &[], &accounts).await;
 
     assert_eq!(
-        browser_url.expect("the other provider's flow opens the browser"),
-        scripted_browser_url()
+        browser_url
+            .expect("the other provider's flow opens the browser")
+            .as_str(),
+        scripted_browser_url().as_str()
     );
     assert_eq!(*lock(&calls), ["binding's", "other"]);
 }
@@ -361,8 +363,10 @@ async fn a_server_without_s256_signs_in_through_a_provider_or_is_refused_for_it(
     assert_eq!(*lock(&calls), ["only"], "the provider's flow is asked");
     if does_provider_admit {
         assert_eq!(
-            launched.expect("the provider's flow opens the browser"),
-            scripted_browser_url()
+            launched
+                .expect("the provider's flow opens the browser")
+                .as_str(),
+            scripted_browser_url().as_str()
         );
         let completions = settled_completions(&harness).await;
         assert_eq!(completions[0]["outcome"], "success");
@@ -590,7 +594,7 @@ async fn a_failed_provider_flow_sends_the_next_press_to_the_own_client() {
         .launch(&target, &[], &accounts)
         .await
         .expect("the provider's flow opens the browser");
-    assert_eq!(first, scripted_browser_url());
+    assert_eq!(first.as_str(), scripted_browser_url().as_str());
     let completions = settled_completions(&harness).await;
     assert_eq!(completions[0]["outcome"], "failure");
     assert!(!is_own_client_unfinished(&harness, &address).await);
@@ -604,7 +608,8 @@ async fn a_failed_provider_flow_sends_the_next_press_to_the_own_client() {
     assert!(
         next.as_str()
             .starts_with(&format!("{}/authorize", server.base)),
-        "the own client's authorization address opens, not {next}"
+        "the own client's authorization address opens, not {}",
+        next.as_str()
     );
     assert_eq!(*lock(&calls), ["only"], "the provider's flow runs once");
 }

@@ -181,6 +181,8 @@ pub(crate) struct FakeServerAnswers {
     pub(crate) is_issuer_in_response: bool,
     /// The PKCE methods its metadata lists; it names the field only when there are some.
     pub(crate) pkce_methods: &'static [&'static str],
+    /// The authorization endpoint its metadata names; its own `/authorize` for `None`.
+    pub(crate) authorization_endpoint: Option<&'static str>,
     /// Whether it refuses every registration with 403.
     pub(crate) is_registration_refused: bool,
     /// Whether it refuses every token request with `invalid_grant`.
@@ -197,6 +199,7 @@ impl Default for FakeServerAnswers {
         Self {
             is_issuer_in_response: false,
             pkce_methods: &["S256"],
+            authorization_endpoint: None,
             is_registration_refused: false,
             is_code_refused: false,
             pushed_request_refusal: None,
@@ -221,6 +224,7 @@ pub(crate) async fn serve_authorization_server(
     let FakeServerAnswers {
         is_issuer_in_response,
         pkce_methods,
+        authorization_endpoint,
         is_registration_refused,
         is_code_refused,
         pushed_request_refusal,
@@ -235,7 +239,8 @@ pub(crate) async fn serve_authorization_server(
     );
     let mut metadata = json!({
         "issuer": base,
-        "authorization_endpoint": format!("{base}/authorize"),
+        "authorization_endpoint": authorization_endpoint
+            .map_or_else(|| format!("{base}/authorize"), str::to_owned),
         "token_endpoint": format!("{base}/token"),
         "registration_endpoint": format!("{base}/register"),
         "revocation_endpoint": format!("{base}/revoke"),
@@ -392,7 +397,7 @@ pub(crate) async fn launch_to_browser(harness: &Harness, target: &SignInTarget) 
         .launch(target, &[], &ProviderAccounts::new())
         .await
     {
-        Ok(browser_url) => browser_url,
+        Ok(browser_url) => Url::parse(browser_url.as_str()).expect("a web address parses"),
         Err(refusal) => unreachable!("the launch was refused: {refusal}"),
     }
 }

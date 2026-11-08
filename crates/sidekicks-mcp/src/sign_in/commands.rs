@@ -9,11 +9,9 @@ use sidekicks_contracts::mcp::server::requests::{
     McpServerSignInRequest, McpServerSignInResponse, McpServerSignOutRequest,
 };
 use sidekicks_contracts::method_descriptor::EmptyPayload;
-use sidekicks_contracts::web_address::WebAddress;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_ipc::registry::HandlerError;
 
-use crate::errors::{McpRefusal, SignInUnsupportedReason};
 use crate::mutation::service::command::{McpCommand, McpCommandAnswer};
 use crate::mutation::service::{McpMutationService, response_of, response_value};
 use crate::sign_in::service::SignInService;
@@ -57,8 +55,7 @@ impl McpSignInCommands {
 
     /// Starts a sign-in to `request`'s binding once per key, answering the sign-in page's address,
     /// and a retry under the key with the acknowledgment alone. Refuses as the receipt, the target
-    /// read and the launch refuse, and `mcp.server.signInUnsupported` when the page the launch
-    /// opens is no `http:` or `https:` address.
+    /// read and the launch refuse.
     pub(crate) async fn sign_in(
         &self,
         request: McpServerSignInRequest,
@@ -73,20 +70,10 @@ impl McpSignInCommands {
                 &binding,
                 || async {
                     let read = self.targets.read(&binding).await?;
-                    let browser_url = self
+                    let authorization_url = self
                         .sign_ins
                         .launch(&read.target, &read.scopes, &read.provider_accounts)
                         .await?;
-                    // The server's metadata or a provider's flow can name a page of any scheme.
-                    let Some(authorization_url) = WebAddress::new(browser_url.as_str()) else {
-                        return Err(HandlerError::Refused(
-                            McpRefusal::ServerSignInUnsupported {
-                                binding: Box::new(binding.clone()),
-                                reason: SignInUnsupportedReason::UnusableMetadata,
-                            }
-                            .into(),
-                        ));
-                    };
                     Ok(McpCommandAnswer {
                         served: response_value(&McpServerSignInResponse {
                             authorization_url: Some(authorization_url),
