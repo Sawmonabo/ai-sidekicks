@@ -18,6 +18,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -31,6 +32,7 @@ use tokio::time::Instant;
 use crate::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
 use crate::driver::codex::event_normalizer::{
     CODEX_ITEM_COMPLETED_METHOD, CODEX_THREAD_SETTINGS_UPDATED_METHOD, CODEX_TURN_COMPLETED_METHOD,
+    CODEX_TURN_STARTED_METHOD,
 };
 use crate::driver::codex::lifecycle::CodexDriverParts;
 use crate::driver::codex::lifecycle::account_move::CodexBindingMove;
@@ -65,7 +67,7 @@ use crate::driver::codex::session::slots::{CodexSessionLetGo, let_go_codex_sessi
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::session::thread_turns::{CodexEndedTurn, CodexThreadTurns, TurnFrame};
 use crate::driver::codex::telemetry::held_responses::{
-    CodexExportedResponse, CodexHeldResponse, CodexHeldResponses,
+    CodexExportedResponse, CodexHeldResponse, CodexHeldResponses, CodexOffStreamPlacement,
 };
 use crate::driver::codex::thread::permission_profiles;
 use crate::driver::codex::transport::connection::{CodexForgottenRequest, read_codex_object};
@@ -334,6 +336,18 @@ impl CodexSessionIntake {
         let parts = Arc::clone(&self.parts);
         // Before a side question's divert, so the hold knows its copy's turns too.
         let ended = self.thread_turns.observe(&method, &params, Instant::now());
+        // The session's own live turn, which an unplaced reviewer request may be given to.
+        if method == CODEX_TURN_STARTED_METHOD
+            && let Some(record) = &self.record
+            && let Some(turn_id) = self.thread_turns.live_turn(&record.thread_id)
+        {
+            record.service.dependencies().exports.turn_started(
+                record.service.id(),
+                record.session_id,
+                turn_id,
+                read_unix_time_ms(),
+            );
+        }
         match &ended {
             Some(CodexEndedTurn::Settled(settled)) => {
                 self.held.turn_settled(&settled.thread_id, &settled.turn_id);
@@ -375,11 +389,13 @@ impl CodexSessionIntake {
         // Only a settled turn feeds the export status; a replaced one never reported its end.
         match ended {
             Some(CodexEndedTurn::Settled(settled)) => {
-                record.service.dependencies().exports.turn_settled(
+                let exports = &record.service.dependencies().exports;
+                exports.turn_settled(
                     record.service.id(),
                     settled.made_request,
                     settled.started_at,
                 );
+                exports.turn_ended(record.service.id(), record.session_id, &settled.turn_id);
             }
             Some(CodexEndedTurn::Replaced { .. }) | None => {}
         }
@@ -491,6 +507,10 @@ impl CodexSessionIntake {
         let Some(record) = self.record.take() else {
             return;
         };
+        if let Some(turn_id) = self.thread_turns.live_turn(&record.thread_id) {
+            let exports = &record.service.dependencies().exports;
+            exports.turn_ended(record.service.id(), self.session_id, turn_id);
+        }
         let parts = &self.parts;
         let_go_codex_session(
             &record,
@@ -564,6 +584,10 @@ impl CodexSessionInboundHandler for CodexSessionIntake {
                 // The process that ran the session's turns ended, so none of them settles.
                 for (thread_id, turn_id) in self.thread_turns.take_live_turns() {
                     self.held.turn_settled(&thread_id, &turn_id);
+                    if let Some(record) = &self.record {
+                        let exports = &record.service.dependencies().exports;
+                        exports.turn_ended(record.service.id(), record.session_id, &turn_id);
+                    }
                 }
             }
             // A dropped reply tells the caller the record is gone.
@@ -603,13 +627,14 @@ impl CodexSessionInboundHandler for CodexSessionIntake {
     fn exported_response(&mut self, exported: CodexExportedResponse) -> BoxFuture<'_, ()> {
         async move {
             let response = &exported.response;
-            if self.record.is_none() {
+            let Some(own_thread) = self.record.as_ref().map(|record| record.thread_id.clone())
+            else {
                 tracing::info!(
                     conversation_id = response.conversation_id.as_str(),
                     "a codex completed response reached a session already let go; it is dropped"
                 );
                 return;
-            }
+            };
             if self
                 .routing
                 .streamed_responses()
@@ -617,10 +642,27 @@ impl CodexSessionInboundHandler for CodexSessionIntake {
             {
                 return;
             }
-            // A response placed below a held thread waits on that thread's live turn.
-            let turn_thread = exported.turn_thread().to_owned();
-            let turn_id = self.thread_turns.live_turn(&turn_thread).map(str::to_owned);
-            if let Some(pushed_out) = self.held.hold(exported, turn_id, Some(turn_thread)) {
+            // A response waits on the live turn of its own thread or the held thread it was placed
+            // below; one placed on a turn of the session's thread waits on it only while it is live.
+            let (turn_id, awaited_thread) = match &exported.placed {
+                Some(CodexOffStreamPlacement::OnTurn { turn_id }) => {
+                    let is_live =
+                        self.thread_turns.live_turn(&own_thread) == Some(turn_id.as_str());
+                    (Some(turn_id.clone()), is_live.then_some(own_thread))
+                }
+                Some(CodexOffStreamPlacement::BelowThread { session_thread, .. }) => {
+                    let turn_id = self.thread_turns.live_turn(session_thread);
+                    (turn_id.map(str::to_owned), Some(session_thread.clone()))
+                }
+                None => {
+                    let turn_id = self.thread_turns.live_turn(&response.conversation_id);
+                    (
+                        turn_id.map(str::to_owned),
+                        Some(response.conversation_id.clone()),
+                    )
+                }
+            };
+            if let Some(pushed_out) = self.held.hold(exported, turn_id, awaited_thread) {
                 tracing::info!(
                     conversation_id = pushed_out.exported.response.conversation_id.as_str(),
                     "a codex session's held responses are full; the oldest is decided now"
@@ -721,6 +763,16 @@ fn read_ended_turn_id(record: &CodexSessionRecord, params: &RawValue) -> Option<
         return None;
     }
     frame.turn?.id.filter(|turn_id| !turn_id.is_empty())
+}
+
+// Now in Unix milliseconds by the wall clock, the clock Codex's records and reviews are stamped
+// by; zero for a clock set before 1970.
+fn read_unix_time_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|since| u64::try_from(since.as_millis()).ok())
+        .unwrap_or(0)
 }
 
 // The turn an `item/completed` names, whose step it ended.

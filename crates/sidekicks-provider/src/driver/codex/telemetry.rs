@@ -6,5 +6,5 @@
 pub(crate) mod completed_response;
 pub(crate) mod exports;
 pub(crate) mod held_responses;
-mod placement;
+pub(crate) mod placement;
 pub(crate) mod streamed_responses;

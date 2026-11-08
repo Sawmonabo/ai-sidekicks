@@ -33,22 +33,19 @@ pub(crate) enum CodexOffStreamPlacement {
         /// The thread one hop below it, which files the response.
         child_thread: String,
     },
+    /// On `turn_id` of the session's own thread: the turn of the review window it was joined to,
+    /// or the turn live when its first record was observed.
+    OnTurn {
+        /// The turn it is filed on.
+        turn_id: String,
+    },
 }
 
 impl CodexExportedResponse {
-    /// The thread whose live turn the response is filed on: the held thread it was placed below,
-    /// else its own.
-    pub(crate) fn turn_thread(&self) -> &str {
-        match &self.placed {
-            None => &self.response.conversation_id,
-            Some(CodexOffStreamPlacement::BelowThread { session_thread, .. }) => session_thread,
-        }
-    }
-
     /// The thread the response is filed as: the child it was placed through, else its own.
     pub(crate) fn owner_thread(&self) -> &str {
         match &self.placed {
-            None => &self.response.conversation_id,
+            None | Some(CodexOffStreamPlacement::OnTurn { .. }) => &self.response.conversation_id,
             Some(CodexOffStreamPlacement::BelowThread { child_thread, .. }) => child_thread,
         }
     }

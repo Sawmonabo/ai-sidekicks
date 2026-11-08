@@ -26,7 +26,7 @@ use crate::driver::codex::telemetry::completed_response::{
 };
 use crate::driver::codex::telemetry::held_responses::CodexExportedResponse;
 use crate::driver::codex::telemetry::placement::{
-    CodexLaunchPlacement, place_off_stream, retry_kept,
+    CodexLaunchPlacement, CodexReviewWindow, place_off_stream, retry_kept,
 };
 use crate::pricing::export_status::ExportStatusTracker;
 use crate::pricing::receiver::{TelemetryExport, TelemetryExportReader};
@@ -208,6 +208,52 @@ impl CodexExports {
                 "a codex launch's export check could not be armed"
             );
         }
+    }
+
+    /// Opens `window`, a review on a session of `service_id`'s current launch, which that launch's
+    /// unplaced reviewer requests are joined to. A service with no launch changes nothing.
+    pub(crate) fn review_window(&self, service_id: CodexServiceId, window: CodexReviewWindow) {
+        if let Some(placement) = self.launch_placement(service_id) {
+            lock(&placement).open_review_window(window);
+        }
+    }
+
+    /// `session_id`'s own turn `turn_id` on `service_id`'s current launch began at
+    /// `started_at_ms`, in Unix milliseconds. A service with no launch changes nothing.
+    pub(crate) fn turn_started(
+        &self,
+        service_id: CodexServiceId,
+        session_id: SessionId,
+        turn_id: &str,
+        started_at_ms: u64,
+    ) {
+        if let Some(placement) = self.launch_placement(service_id) {
+            lock(&placement).turn_started(session_id, turn_id, started_at_ms);
+        }
+    }
+
+    /// `session_id`'s turn `turn_id` on `service_id`'s current launch settled or went.
+    pub(crate) fn turn_ended(
+        &self,
+        service_id: CodexServiceId,
+        session_id: SessionId,
+        turn_id: &str,
+    ) {
+        if let Some(placement) = self.launch_placement(service_id) {
+            lock(&placement).turn_ended(session_id, turn_id);
+        }
+    }
+
+    // The placement state of `service_id`'s current launch, taken out of the register's lock.
+    fn launch_placement(
+        &self,
+        service_id: CodexServiceId,
+    ) -> Option<Arc<Mutex<CodexLaunchPlacement>>> {
+        lock(&self.launches)
+            .by_tag
+            .values()
+            .find(|launch| launch.service_id == service_id)
+            .map(|launch| Arc::clone(&launch.placement))
     }
 
     // Marks the launch whose tag `resource_logs` carries as exporting and hands each completed

@@ -128,12 +128,16 @@ fn first_completed_response() -> CodexCompletedResponse {
 }
 
 // Killed by matching on the record's `event_name`, by reading integer counts only, by reading
-// every `response.completed` record, and by logging the record's own attributes.
+// every `response.completed` record, by reading the observed time in another unit, and by logging
+// the record's own attributes.
 #[test]
 fn a_mixed_export_yields_its_one_completed_response_and_logs_it_without_identity() {
     let resource = one_resource(vec![
         vec![
-            codex_record(completed_response_attributes(THREAD, &COUNTS)),
+            LogRecord {
+                observed_time_unix_nano: 1_762_600_000_123_456_789,
+                ..codex_record(completed_response_attributes(THREAD, &COUNTS))
+            },
             sse_record("response.completed", vec![text("duration_ms", "12")]),
             sse_record(
                 "response.completed",
@@ -175,6 +179,7 @@ fn a_mixed_export_yields_its_one_completed_response_and_logs_it_without_identity
             model_id: FreeFormText::new("gpt-5.6-luna".to_owned()).expect("the model fits"),
             service_tier: BoundedText::new("priority".to_owned()),
             counts: COUNTS,
+            observed_at_ms: 1_762_600_000_123,
         }]
     );
     assert!(recorded.counters().is_empty(), "{:?}", recorded.texts());

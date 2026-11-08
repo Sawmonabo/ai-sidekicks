@@ -1,10 +1,11 @@
 //! Where an exported response on a thread no session streams belongs: the walk up its parents, a
-//! bounded cache of what it found, and the kept responses it could not place yet.
+//! bounded cache of what it found, the kept responses it could not place yet, and the review
+//! windows and live turns they are joined to.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use serde_json::{Map, json};
+use serde_json::{Map, Value, json};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
@@ -23,6 +24,7 @@ use crate::driver::codex::thread::ancestry::{
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
+use crate::record_readers::read_non_empty_string;
 
 /// How many threads one launch remembers the placement of; past it the oldest is forgotten.
 const PLACEMENTS_KEPT: usize = 64;
@@ -31,14 +33,51 @@ const PLACEMENTS_KEPT: usize = 64;
 /// each; past it the oldest is logged and dropped.
 const KEPT_RESPONSES: usize = 1_000;
 
-/// One launch's placement state: where its off-stream threads were found and the responses it
-/// keeps until the launch's next export retries them. Its kept responses are logged as it drops.
+/// How many review windows one launch keeps; past it the oldest is dropped.
+const REVIEW_WINDOWS_KEPT: usize = 64;
+
+/// One launch's placement state: where its off-stream threads were found, the responses it keeps
+/// until the launch's next export retries them, its sessions' review windows and live turns. Its
+/// kept responses are logged as it drops.
 #[derive(Default)]
 pub(crate) struct CodexLaunchPlacement {
     // Oldest first, each thread once.
     placements: VecDeque<CodexPlacedThread>,
     // Oldest first.
     kept: VecDeque<CodexKeptResponse>,
+    // Oldest first, each review once.
+    windows: VecDeque<CodexReviewWindow>,
+    // Each session's own live turn, at most one each.
+    live_turns: Vec<CodexLiveTurn>,
+}
+
+/// A review Codex ran for a session's turn, from its start; an unplaced reviewer request is
+/// joined to the latest window that opened before it.
+pub(crate) struct CodexReviewWindow {
+    review_id: String,
+    session_id: SessionId,
+    turn_id: String,
+    started_at_ms: u64,
+}
+
+impl CodexReviewWindow {
+    /// The window a review's started or completed notification on `session_id` names; `None`
+    /// where it names no review or turn, or a start before 1970.
+    pub(crate) fn read(session_id: SessionId, members: &Map<String, Value>) -> Option<Self> {
+        Some(Self {
+            review_id: read_non_empty_string(members, "reviewId")?.to_owned(),
+            session_id,
+            turn_id: read_non_empty_string(members, "turnId")?.to_owned(),
+            started_at_ms: u64::try_from(members.get("startedAtMs")?.as_i64()?).ok()?,
+        })
+    }
+}
+
+// A session's own live turn and when it began, in Unix milliseconds.
+struct CodexLiveTurn {
+    session_id: SessionId,
+    turn_id: String,
+    started_at_ms: u64,
 }
 
 // A thread the walk found below a held thread.
@@ -83,6 +122,69 @@ impl CodexLaunchPlacement {
     fn forget(&mut self, thread_id: &str) {
         self.placements
             .retain(|placed| placed.thread_id != thread_id);
+    }
+
+    /// Opens `window`, unless its review already has one, the oldest dropped past the bound.
+    pub(crate) fn open_review_window(&mut self, window: CodexReviewWindow) {
+        if self
+            .windows
+            .iter()
+            .any(|open| open.review_id == window.review_id)
+        {
+            return;
+        }
+        if self.windows.len() >= REVIEW_WINDOWS_KEPT {
+            self.windows.pop_front();
+        }
+        self.windows.push_back(window);
+    }
+
+    /// `session_id`'s own turn `turn_id` began at `started_at_ms`, replacing any turn of the
+    /// session's that never settled; a start repeated for the live turn changes nothing.
+    pub(crate) fn turn_started(
+        &mut self,
+        session_id: SessionId,
+        turn_id: &str,
+        started_at_ms: u64,
+    ) {
+        if self
+            .live_turns
+            .iter()
+            .any(|live| live.session_id == session_id && live.turn_id == turn_id)
+        {
+            return;
+        }
+        self.live_turns.retain(|live| live.session_id != session_id);
+        self.live_turns.push(CodexLiveTurn {
+            session_id,
+            turn_id: turn_id.to_owned(),
+            started_at_ms,
+        });
+    }
+
+    /// `session_id`'s turn `turn_id` settled or went; any other turn changes nothing.
+    pub(crate) fn turn_ended(&mut self, session_id: SessionId, turn_id: &str) {
+        self.live_turns
+            .retain(|live| live.session_id != session_id || live.turn_id != turn_id);
+    }
+
+    // The session and turn a bucket first observed at `observed_at_ms` joins: the review window
+    // that opened last at or before it, with no upper bound, else the live turn that began last
+    // before it.
+    fn join_target(&self, observed_at_ms: u64) -> Option<(SessionId, String)> {
+        let window = self
+            .windows
+            .iter()
+            .filter(|window| window.started_at_ms <= observed_at_ms)
+            .max_by_key(|window| window.started_at_ms)
+            .map(|window| (window.session_id, window.turn_id.clone()));
+        window.or_else(|| {
+            self.live_turns
+                .iter()
+                .filter(|live| live.started_at_ms <= observed_at_ms)
+                .max_by_key(|live| live.started_at_ms)
+                .map(|live| (live.session_id, live.turn_id.clone()))
+        })
     }
 
     // Whether a response on `thread_id` is kept, so a new one waits for the retry beside it.
@@ -252,7 +354,7 @@ async fn place_bucket(
         ),
         Ok(CodexThreadPlacement::Unplaced(CodexUnplacedThread::NotListed)) => {
             if bucket.iter().any(|kept| kept.is_unlisted) {
-                join_unlisted(service, &thread_id);
+                join_unlisted(service, launch, &thread_id, bucket);
             } else {
                 let unlisted = bucket.into_iter().map(|kept| CodexKeptResponse {
                     is_unlisted: true,
@@ -272,13 +374,41 @@ async fn place_bucket(
     }
 }
 
-// The responses of a thread the listing still lacks after a second walk.
-fn join_unlisted(service: &CodexService, thread_id: &str) {
-    refuse_unplaced(
-        thread_id,
-        service.provider_account_id(),
-        "its thread is not listed",
-    );
+// Joins `bucket`, the responses of a thread the listing still lacks after a second walk, to the
+// review window or live turn its first record falls in, filed on that turn of its session; a
+// review runs only for a turn that asked an approval, so this keeps it on the account that ran
+// it. A bucket nothing covers, and a record with no observed time, is refused.
+fn join_unlisted(
+    service: &CodexService,
+    launch: &Mutex<CodexLaunchPlacement>,
+    thread_id: &str,
+    bucket: Vec<CodexKeptResponse>,
+) {
+    let (timed, untimed): (Vec<_>, Vec<_>) = bucket
+        .into_iter()
+        .partition(|kept| kept.response.observed_at_ms > 0);
+    if !untimed.is_empty() {
+        refuse_unplaced(
+            thread_id,
+            service.provider_account_id(),
+            "its record carries no time it was observed",
+        );
+    }
+    let Some(first) = timed.first() else {
+        return;
+    };
+    let target = lock(launch).join_target(first.response.observed_at_ms);
+    match target {
+        Some((session_id, turn_id)) => {
+            let placed = CodexOffStreamPlacement::OnTurn { turn_id };
+            push_bucket(service, session_id, timed, Some(&placed));
+        }
+        None => refuse_unplaced(
+            thread_id,
+            service.provider_account_id(),
+            "no review window or live turn covers its thread",
+        ),
+    }
 }
 
 // Pushes each of `bucket` onto `session_id`'s queue, placed at `placed`.

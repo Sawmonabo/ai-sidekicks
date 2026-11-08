@@ -1,9 +1,11 @@
 //! A session's completed responses from Codex's log export: each counted once on its session, the
-//! stream's twin passed over by its counts, and a request turn's settle arming one export check.
+//! stream's twin passed over by its counts, a reviewer fork's joined to its review window or live
+//! turn, and a request turn's settle arming one export check.
 
 use std::sync::Arc;
 use std::time::Duration;
 
+use opentelemetry_proto::tonic::logs::v1::LogRecord;
 use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_std::mutex_lock::lock;
@@ -22,6 +24,7 @@ use crate::driver::codex::telemetry::exports::tests::{export_checks, export_tagg
 use crate::driver::codex::telemetry::exports::{
     CODEX_EXPORT_INTERVAL, CodexExportTag, CodexExports,
 };
+use crate::driver::diagnostics::RecordedEvents;
 use crate::port::usage_sink::MeteredUsageOwner;
 use crate::pricing::receiver::TelemetryExportReader as _;
 use crate::usage_delta_accountant::UsageAxisCounts;
@@ -90,8 +93,13 @@ impl ExportingSession {
     // An export of one completed response of `counts` on the session's thread.
     async fn export(&self, counts: &UsageAxisCounts) {
         let record = codex_record(completed_response_attributes(TEST_THREAD, counts));
+        self.export_records(vec![record]).await;
+    }
+
+    // An export of `records` under the launch's tag.
+    async fn export_records(&self, records: Vec<LogRecord>) {
         self.exports
-            .read_telemetry_export(export_tagged(&self.tag, vec![record]))
+            .read_telemetry_export(export_tagged(&self.tag, records))
             .await;
     }
 
@@ -229,6 +237,140 @@ async fn an_exported_response_is_counted_once_on_its_session(#[case] arrival: Ar
         assert_eq!(exported.owner, MeteredUsageOwner::Run);
         assert_eq!(exported.binding_id, session.live.binding_id);
     }
+}
+
+/// The thread of a reviewer's fork, which no listing names.
+const FORK_THREAD: &str = "fork-1";
+
+/// How a reviewer fork's case covers its requests.
+enum ReviewCover {
+    /// Two review windows open on the session, the latest on the run's turn.
+    LatestWindow,
+    /// No window opens; the run's turn is live.
+    LiveTurnOnly,
+    /// The listing fails and more responses come than a launch keeps.
+    ListingFails,
+}
+
+// Now in Unix milliseconds, the clock a record's observed time and a review's start read.
+fn unix_time_ms() -> u64 {
+    let since = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("the clock is past 1970");
+    u64::try_from(since.as_millis()).expect("the time fits")
+}
+
+// A completed response on the fork's thread carrying `counts` and the person's identity, observed
+// at `observed_at_ms`.
+fn fork_record(counts: &UsageAxisCounts, observed_at_ms: u64) -> LogRecord {
+    LogRecord {
+        observed_time_unix_nano: observed_at_ms * 1_000_000,
+        ..codex_record(completed_response_attributes(FORK_THREAD, counts))
+    }
+}
+
+// A review's start on the session's thread for `turn_id`, begun at `started_at_ms`.
+fn review_started(review_id: &str, turn_id: &str, started_at_ms: u64) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "method": "item/autoApprovalReview/started",
+        "params": {
+            "threadId": TEST_THREAD,
+            "turnId": turn_id,
+            "startedAtMs": started_at_ms,
+            "reviewId": review_id,
+            "targetItemId": null,
+        },
+    })
+}
+
+// How many recorded messages read `message`.
+fn messages_reading(recorded: &RecordedEvents, message: &str) -> usize {
+    recorded
+        .messages()
+        .iter()
+        .filter(|recorded| recorded.as_str() == message)
+        .count()
+}
+
+// A reviewer fork's requests, on a thread no listing names, are counted once on the session under
+// its account: joined to the latest review window on the session's turn, else to the turn live at
+// their first record, and none of the person's identity is logged. Killed: `latest_window` by
+// refusing a not-listed bucket without the join (no rows), by the first window in place of the
+// latest (rows on `turn-0`) and by logging a record's attributes (the identity in a log line);
+// `live_turn_only` by refusing a bucket no window covers while a turn is live (no rows);
+// `listing_fails` by an unbounded keep (no drop line, and 1,001 dropped with the launch).
+#[rstest]
+#[case::latest_window(ReviewCover::LatestWindow)]
+#[case::live_turn_only(ReviewCover::LiveTurnOnly)]
+#[case::listing_fails(ReviewCover::ListingFails)]
+#[tokio::test]
+async fn a_reviewer_fork_s_requests_cost_once_on_the_session_under_its_account(
+    #[case] cover: ReviewCover,
+) {
+    let recorded = RecordedEvents::default();
+    let _recording = recorded.record_until_dropped();
+    let mut session = ExportingSession::start().await;
+    let now = unix_time_ms();
+    if let ReviewCover::LatestWindow = cover {
+        let script = &session.live.scripted.script;
+        script.send(&review_started("review-0", "turn-0", now - 20_000));
+        script.send(&review_started("review-1", TEST_TURN, now - 10_000));
+        // The windows open before the fork's records are joined.
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    if let ReviewCover::ListingFails = cover {
+        let records = (0..=1_000)
+            .map(|_| fork_record(&counts(10, 1), now))
+            .collect();
+        session.export_records(records).await;
+        let list = session.live.scripted.next_request("thread/list").await;
+        session.live.scripted.script.send(&json!({
+            "jsonrpc": "2.0",
+            "id": list["id"],
+            "error": { "code": -32603, "message": "the listing failed" },
+        }));
+        let dropped = "a codex launch keeps too many unplaced responses; the oldest is dropped";
+        poll_until(|| messages_reading(&recorded, dropped), |count| *count >= 1).await;
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert_eq!(messages_reading(&recorded, dropped), 1);
+        // The relaunch drops the launch with what it keeps, each logged.
+        session.exports.launched(&session.live.scripted.service);
+        let gone = "a codex launch that kept an unplaced response is gone; it is dropped";
+        assert_eq!(messages_reading(&recorded, gone), 1_000);
+        return;
+    }
+    let first = counts(300, 20);
+    let second = counts(200, 10);
+    session
+        .export_records(vec![fork_record(&first, now), fork_record(&second, now)])
+        .await;
+    let unlisted = json!({ "data": [], "nextCursor": null });
+    let list = session.live.scripted.next_request("thread/list").await;
+    session.live.scripted.script.answer(&list, &unlisted);
+    // The launch's next export retries the thread once, still not listed.
+    session.export_records(Vec::new()).await;
+    let list = session.live.scripted.next_request("thread/list").await;
+    session.live.scripted.script.answer(&list, &unlisted);
+    session.complete_turn();
+    answer_region_read(&mut session.live.scripted).await;
+
+    assert_eq!(
+        session.settled_rows(2).await,
+        vec![(Some(300), Some(20)), (Some(200), Some(10))]
+    );
+    for metered in lock(&session.usage.metered).iter() {
+        assert_eq!(metered.owner, MeteredUsageOwner::Run);
+        assert_eq!(metered.binding_id, session.live.binding_id);
+        assert_eq!(metered.delta.attributed_turn_id.as_deref(), Some(TEST_TURN));
+    }
+    let texts = recorded.texts();
+    assert!(
+        texts
+            .iter()
+            .all(|text| !text.contains("person-email-value") && !text.contains("account-id-value")),
+        "no log line carries the person's identity"
+    );
 }
 
 // A request turn's settle arms one export check on its launch while no export arrives. Killed by
