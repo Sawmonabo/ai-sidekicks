@@ -169,10 +169,47 @@ impl WatchedTree {
             .expect("the row reads")
     }
 
+    // Joins two lines of the branch's own work: `first.txt` committed on the branch with a past
+    // committer date, so the side line's `side.txt` on the repository's branch `side` is the
+    // newer, then `side` merged into the branch and the watch told. Answers the first commit.
+    async fn join_two_own_lines(&mut self) -> String {
+        let (git, repository, tree) = (
+            self.fixture.git.clone(),
+            self.repository.clone(),
+            self.tree.clone(),
+        );
+        git_in(&git, &repository, &["switch", "--quiet", "-c", "side"]).await;
+        std::fs::write(repository.join("side.txt"), "side").expect("written");
+        git_in(&git, &repository, &["add", "side.txt"]).await;
+        commit_empty(&git, &repository, "side").await;
+        git_in(&git, &repository, &["switch", "--quiet", "main"]).await;
+        let earlier = test_git_runner_with_environment(&[(
+            "GIT_COMMITTER_DATE",
+            "2001-01-01 00:00:00 +0000",
+        )]);
+        std::fs::write(tree.join("first.txt"), "first").expect("written");
+        git_in(&git, &tree, &["add", "first.txt"]).await;
+        commit_empty(&earlier, &tree, "first.txt").await;
+        let first = git_in(&git, &tree, &["rev-parse", "HEAD"]).await;
+        git_in(&git, &tree, &MERGE_SIDE).await;
+        self.tell_ref_moved("feature").await;
+        first
+    }
+
     fn event(&self, kind: &str, state: &str) -> String {
         format!("worktree.{kind} {} {state}", self.worktree_id)
     }
 }
+
+// Merges the branch `side` with a merge commit of its own.
+const MERGE_SIDE: [&str; 6] = [
+    "-c",
+    "commit.gpgSign=false",
+    "merge",
+    "--no-ff",
+    "--no-edit",
+    "side",
+];
 
 /// How a test merges a tree's branch into its base.
 #[derive(Clone, Copy, Debug)]
@@ -309,21 +346,26 @@ enum BranchHistory {
     /// The branch's own work comes in two lines joined by a merge, the side line's commit the
     /// newer; the branch is reset to its base, and its base merges the side line alone.
     TwoLinesOneMerged,
+    /// The branch's own work comes in two lines joined by a merge, and its base merges each line
+    /// on its own, never the branch's merge.
+    TwoLinesMergedApart,
 }
 
 // A branch whose own work never reached its base reads `ready` with no event, and one whose work
-// did reads `merged` though an empty commit follows it. Kills, by case: a fast-forward sync's
-// moved tip read as merged (a reflog seed that takes any entry, or a contained tip read as merged
-// with no recorded one); a merge commit counted as the branch's own work, which records the merge
-// as its commit; the checks run on the current tip, which the reset left contained, in place of the
-// recorded one that holds the discarded work; an empty commit counted as work of its own, or taken
-// as the reflog's seed, which reads the base's fast-forward to it as merged; a branch whose commits
-// past its base change no path read as applied there; the branch's tip recorded in place of its
-// newest commit that changes a path, which leaves merged work behind an empty commit unread; the
-// per-commit test reading the commits whose changes a sync merge replaced with the base's (as
-// `--full-history` on the patch log does), which finds the replaced commit's patch nowhere and
-// reads the picked branch as not merged; and the newest of two lines recorded though it lacks the
-// other, which reads the base's merge of that one line as merged.
+// did reads `merged` though an empty commit follows it or its lines landed apart. Kills, by case: a
+// fast-forward sync's moved tip read as merged (a reflog seed that takes any entry, or a contained
+// tip read as merged with no recorded one); a merge commit counted as the branch's own work, which
+// records the merge as its commit; the checks run on the current tip, which the reset left
+// contained, in place of the recorded one that holds the discarded work; an empty commit counted as
+// work of its own, or taken as the reflog's seed, which reads the base's fast-forward to it as
+// merged; a branch whose commits past its base change no path read as applied there; the branch's
+// tip recorded in place of its newest commit that changes a path, which leaves merged work behind
+// an empty commit unread; the per-commit test reading the commits whose changes a sync merge that
+// took the base's side on every path the branch changes replaced (as `--full-history` on the patch
+// log does), which finds the replaced commit's patch nowhere and reads the picked branch as not
+// merged; the newest of two lines recorded though it lacks the other, which reads the base's merge
+// of that one line as merged; and a recorded merge of two lines read as merged only when the base
+// holds the merge itself, which leaves both lines merged apart unread.
 #[rstest]
 #[case::fast_forward_sync(BranchHistory::FastForwardSync)]
 #[case::merge_commit_sync(BranchHistory::MergeCommitSync)]
@@ -332,6 +374,7 @@ enum BranchHistory {
 #[case::empty_commit_past_merged_work(BranchHistory::EmptyCommitPastMergedWork)]
 #[case::sync_taking_base_side_then_picked(BranchHistory::SyncTakingBaseSideThenPicked)]
 #[case::two_lines_one_merged(BranchHistory::TwoLinesOneMerged)]
+#[case::two_lines_merged_apart(BranchHistory::TwoLinesMergedApart)]
 #[tokio::test]
 async fn a_branch_reads_merged_only_once_its_own_work_reached_its_base(
     #[case] style: BranchHistory,
@@ -407,28 +450,22 @@ async fn a_branch_reads_merged_only_once_its_own_work_reached_its_base(
             .await;
         }
         BranchHistory::TwoLinesOneMerged => {
-            let later = test_git_runner_with_environment(&[(
-                "GIT_COMMITTER_DATE",
-                "2090-01-01 00:00:00 +0000",
-            )]);
-            git_in(&git, &repository, &["switch", "--quiet", "-c", "side"]).await;
-            std::fs::write(repository.join("side.txt"), "side").expect("written");
-            git_in(&git, &repository, &["add", "side.txt"]).await;
-            commit_empty(&later, &repository, "side").await;
-            git_in(&git, &repository, &["switch", "--quiet", "main"]).await;
-            watched.write_and_commit_file("first.txt").await;
-            let merge_side = [
+            watched.join_two_own_lines().await;
+            git_in(&git, &tree, &["reset", "--hard", "main"]).await;
+            git_in(&git, &repository, &MERGE_SIDE).await;
+        }
+        BranchHistory::TwoLinesMergedApart => {
+            let first = watched.join_two_own_lines().await;
+            let merge_first = [
                 "-c",
                 "commit.gpgSign=false",
                 "merge",
                 "--no-ff",
                 "--no-edit",
-                "side",
+                &first,
             ];
-            git_in(&git, &tree, &merge_side).await;
-            watched.tell_ref_moved("feature").await;
-            git_in(&git, &tree, &["reset", "--hard", "main"]).await;
-            git_in(&git, &repository, &merge_side).await;
+            git_in(&git, &repository, &merge_first).await;
+            git_in(&git, &repository, &MERGE_SIDE).await;
         }
     }
     watched.tell_ref_moved("feature").await;
@@ -436,7 +473,9 @@ async fn a_branch_reads_merged_only_once_its_own_work_reached_its_base(
 
     let expected = if matches!(
         style,
-        BranchHistory::EmptyCommitPastMergedWork | BranchHistory::SyncTakingBaseSideThenPicked
+        BranchHistory::EmptyCommitPastMergedWork
+            | BranchHistory::SyncTakingBaseSideThenPicked
+            | BranchHistory::TwoLinesMergedApart
     ) {
         ("merged".to_owned(), vec![watched.event("merged", "merged")])
     } else {
@@ -452,6 +491,7 @@ async fn a_branch_reads_merged_only_once_its_own_work_reached_its_base(
                 | BranchHistory::EmptyCommitPastMergedWork
                 | BranchHistory::SyncTakingBaseSideThenPicked
                 | BranchHistory::TwoLinesOneMerged
+                | BranchHistory::TwoLinesMergedApart
         ),
         "only a branch that held work of its own records a commit"
     );

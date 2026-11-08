@@ -10,12 +10,13 @@
 //!   by a fast-forward or a merge commit, never left it or made only empty commits records none and
 //!   never reads merged.
 //! - The checks run on the tip while it holds work of its own, else on the recorded commit, never
-//!   on a later tip that discarded its work: it has merged when the base or its upstream holds it,
-//!   or, where neither does, when nothing on it is left unapplied there: the patch of each of its
-//!   commits whose changes the branch kept found on that side, or all of its changes as one
-//!   squashed patch. A commit whose changes a sync merge replaced with the base's has nothing left
-//!   to land. The patch test runs once per combination of the commit it tests, the
-//!   base's tip and the upstream's.
+//!   on a later tip that discarded its work: it has merged when the base or its upstream holds it
+//!   or every commit on it that changes a path, merge commits left out, as when its two lines
+//!   landed by separate merges; or, where neither does, when nothing on it is left unapplied there:
+//!   the patch of each of its commits whose changes the branch kept found on that side, or all of
+//!   its changes as one squashed patch. Where a sync merge took the base's side on every path the
+//!   branch changes, the commits whose changes it replaced have nothing left to land. The patch
+//!   test runs once per combination of the commit it tests, the base's tip and the upstream's.
 //! - A merged branch reads reopened once a check finds such a commit of its own past its recorded
 //!   one.
 //! - A base that names no local or remote-tracking branch, and a recorded commit the repository no
@@ -126,9 +127,12 @@ impl MergedCheck {
                 record_newest_own_commit(deps, tree, &seed).await?;
                 seed
             };
-            match count_past(git, place, folder, &recorded, &tips.targets).await {
-                Ok(0) => return Ok(true),
-                Ok(_) => {}
+            // Merged once the base or its upstream holds every commit of its own on the recorded
+            // one, whether they hold the commit itself or took its lines by separate merges.
+            let past = exclusions(&tips.targets);
+            match newest_own_commit_past(git, place, folder, &recorded, &past).await {
+                Ok(None) => return Ok(true),
+                Ok(Some(_)) => {}
                 Err(error) => {
                     if is_commit_held(git, place, folder, &recorded).await? {
                         return Err(error.into());
@@ -263,7 +267,7 @@ async fn count_past(
     commit: &str,
     past: &[String],
 ) -> Result<u64, GitError> {
-    let excluded: Vec<String> = past.iter().map(|target| format!("^{target}")).collect();
+    let excluded = exclusions(past);
     let mut arguments = vec!["rev-list", "--count", commit];
     arguments.extend(excluded.iter().map(String::as_str));
     arguments.push("--");
@@ -281,7 +285,7 @@ async fn own_commit_to_record(
     commit: &str,
     past: &[String],
 ) -> Result<Option<String>, GitError> {
-    let mut excluded: Vec<String> = past.iter().map(|target| format!("^{target}")).collect();
+    let mut excluded = exclusions(past);
     let Some(newest) = newest_own_commit_past(git, place, folder, commit, &excluded).await? else {
         return Ok(None);
     };
@@ -292,6 +296,11 @@ async fn own_commit_to_record(
     } else {
         commit.to_owned()
     }))
+}
+
+// Each of `commits` as a revision a walk stops at, `^<commit>`.
+fn exclusions(commits: &[String]) -> Vec<String> {
+    commits.iter().map(|commit| format!("^{commit}")).collect()
 }
 
 // The newest commit `commit` holds that changes a path, merge commits left out, past the
@@ -522,9 +531,9 @@ struct TargetPatches {
 // commit can hold one of the branch's. Only the target's commits that touch a path the branch's
 // commits touch can, so the log reads both sides limited to those paths: a target commit that made
 // one of the branch's changes beside others holds it, and no branch commit loses a path it changes.
-// The branch's side lists the commits whose changes the branch kept: where a merge took the
-// target's side on those paths, the log follows that side, past the commits whose changes it
-// replaced.
+// The branch's side lists the commits whose changes the branch kept: where a sync merge took the
+// target's side on every path the branch changes, the log follows that side, past the commits
+// whose changes it replaced.
 async fn read_patches_on(
     git: &GitRunner,
     place: Option<&Place>,
