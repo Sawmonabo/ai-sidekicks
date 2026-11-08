@@ -239,3 +239,36 @@ async fn a_call_kept_past_the_memory_bound_is_traced_from_disk() {
         "the file goes once nothing on it waits"
     );
 }
+
+// A helper's end forgets the arguments of its calls still awaiting results, so none outlives it.
+// Killed by an end that leaves the helper's open calls kept (the bytes stay).
+#[tokio::test(start_paused = true)]
+async fn a_helpers_end_forgets_its_calls_awaiting_results() {
+    let session = ScriptedSession::new().await;
+    session.hold_lead_turn("lead");
+    session.frame(&init());
+    // A foreground helper, which waits on the call that started it.
+    let mut started = helper_started("helper", "local_agent", "agent-call");
+    started["is_backgrounded"] = json!(false);
+    session.frame(&started);
+    let input = json!({"file_path": "/repo/a.txt"});
+    session.frame(&helper_call("helper", "h-open", "Read", &input));
+    settle().await;
+    assert_eq!(
+        session.stream.tool_call_arguments.in_memory_bytes(),
+        input.to_string().len(),
+        "the helper's open call is kept"
+    );
+
+    // The lead's answer to the call that started the helper ends it.
+    session.frame(&json!({
+        "type": "user",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        "message": {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "agent-call", "content": "Done"}],
+        },
+    }));
+    settle().await;
+    assert_eq!(session.stream.tool_call_arguments.in_memory_bytes(), 0);
+}

@@ -231,6 +231,12 @@ impl ToolCallArgumentStore {
             std::panic::resume_unwind(panic);
         }
     }
+
+    /// The bytes of the arguments kept in memory.
+    #[cfg(test)]
+    pub(crate) fn in_memory_bytes(&self) -> usize {
+        lock(&self.shelf).in_memory_bytes
+    }
 }
 
 impl KeptToolCallArguments {
