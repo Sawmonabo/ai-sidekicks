@@ -9,6 +9,7 @@
 // infers cleanliness. The fold keeps the order it receives and never sorts.
 
 import {
+  type NewWorktreeSuggestion,
   WorktreeStatusReadResponseSchema,
   type WorktreeStatusReadResponse,
 } from "@ai-sidekicks/contracts/worktree/lifecycle";
@@ -68,11 +69,7 @@ export interface WorktreeStatusReading {
   /** When the ahead and behind figures were last true, when the last fetch failed. */
   readonly countsAsOf: string | null;
   /** The new-worktree form's suggestion, when the read named the asking session. */
-  readonly newWorktree: {
-    readonly fixedPart: string;
-    readonly suggestedTail: string;
-    readonly folderBefore: string;
-  } | null;
+  readonly newWorktree: NewWorktreeSuggestion | null;
 }
 
 // --------------------------------------------------------------------------
@@ -114,11 +111,7 @@ interface WorktreeStatusReadResponseDraft {
   readonly repoRoot: { readonly path: string; readonly branchName: string };
   readonly worktrees: readonly (AppMadeWorktreeDraft | PersonMadeWorktreeDraft)[];
   readonly countsAsOf?: string;
-  readonly newWorktree?: {
-    readonly fixedPart: string;
-    readonly suggestedTail: string;
-    readonly folderBefore: string;
-  };
+  readonly newWorktree?: NewWorktreeSuggestion;
 }
 
 // The drafts restate each record arm unbranded, so nothing structural ties them to the contract:

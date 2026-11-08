@@ -84,7 +84,8 @@ interface HealState {
   asideFolder: string | undefined;
 }
 
-// What one pass did; the binding and resume steps are not built, so their counts stay at zero.
+// What one pass did; the binding and resume steps are not built, so their counts stay at zero, and
+// a restart's settlement ends no run `stopped`.
 interface RecoveryTally {
   eventsApplied: number;
   bindingsRestored: number;
@@ -92,6 +93,7 @@ interface RecoveryTally {
   runsFailedDeterministically: number;
   runsHaltedForReconciliation: number;
   runsInterrupted: number;
+  runsStopped: number;
 }
 
 const RECOVERY_EVENT_VERSION = EventEnvelopeVersionSchema.parse("1.0");
@@ -135,6 +137,7 @@ export class StartupRecovery {
       runsFailedDeterministically: 0,
       runsHaltedForReconciliation: 0,
       runsInterrupted: 0,
+      runsStopped: 0,
     };
     const base: RecoveryEventBase = {
       nodeId: this.#deps.nodeId,
