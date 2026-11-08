@@ -2,10 +2,10 @@
 //! managed workspaces, the agent memory folder, the artifact store, whose payloads the restored
 //! database names, every session's storage folder, with its checkpoint copies and capture folders,
 //! each conversation folder its provider's descriptor names in every account home the app manages
-//! and in each provider's switching home, and the clones each session kept on another volume,
-//! copied from that volume while it is mounted and restored as plain copies into the data folder.
-//! No root is wider than what it keeps, since a restore removes from a place whatever its copy
-//! lacks.
+//! and in each provider's switching home, the clones each session kept on another volume, copied
+//! from that volume while it is mounted and restored as plain copies into the data folder, and each
+//! workflow run's capture folders. No root is wider than what it keeps, since a restore removes
+//! from a place whatever its copy lacks.
 
 use std::error::Error;
 use std::ffi::OsStr;
@@ -27,10 +27,13 @@ use sidekicks_session::checkpoints::volume_folders::{
 use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::backup_mirror::{MirrorRoot, MirrorRootError};
-use sidekicks_store::data_folder::{agent_memory_folder, data_folder, session_storage_root};
+use sidekicks_store::data_folder::{
+    agent_memory_folder, data_folder, read_workflow_run_folders, session_storage_root,
+};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
+use sidekicks_workspace::git::turn_snapshot::capture_folder::CAPTURES_SEGMENT;
 use sidekicks_workspace::managed::service::managed_workspaces_folder;
 
 use crate::daemon::artifact_methods::ARTIFACTS_FOLDER_NAME;
@@ -186,6 +189,31 @@ async fn read_mirror_roots(
             is_restored_present,
         )
         .map_err(|source| refused(restored, source))?;
+        roots.push(root);
+    }
+    let workflows_home = home_folder.to_path_buf();
+    let workflows_data_folder = data_folder.clone();
+    let workflow_roots = meter
+        .run_blocking(move || workflow_capture_roots(&workflows_home, &workflows_data_folder))
+        .await
+        .map_err(io::Error::other)??;
+    roots.extend(workflow_roots);
+    Ok(roots)
+}
+
+// One root per workflow run's folder in `data_folder` that holds a captures folder, named for its
+// workflow and its run, its place that captures folder alone, since the run's folder and the
+// workflows' folder also hold the run's working files and each version's packages. Blocking.
+fn workflow_capture_roots(home: &Path, data_folder: &Path) -> io::Result<Vec<MirrorRoot>> {
+    let mut roots = Vec::new();
+    for run in read_workflow_run_folders(data_folder)? {
+        let captures = run.folder.join(CAPTURES_SEGMENT);
+        if fs::symlink_metadata(&captures).none_if_missing()?.is_none() {
+            continue;
+        }
+        let name = format!("workflow-captures-{}-{}", run.definition, run.run);
+        let root = MirrorRoot::under_home(name, home, &captures)
+            .map_err(|source| refused(captures, source))?;
         roots.push(root);
     }
     Ok(roots)

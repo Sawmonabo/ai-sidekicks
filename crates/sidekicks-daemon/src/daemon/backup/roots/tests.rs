@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::str::FromStr as _;
 
@@ -8,8 +9,9 @@ use sidekicks_platforms::VolumeId;
 use sidekicks_session::checkpoints::store::shadows::VolumeFolder;
 use sidekicks_session::checkpoints::volume_folders::{VolumeFolderState, restored_clone_folder};
 use sidekicks_store::backup_mirror::MirrorRoot;
+use sidekicks_store::data_folder::data_folder;
 
-use super::volume_clone_root;
+use super::{volume_clone_root, workflow_capture_roots};
 
 const SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";
 
@@ -117,4 +119,34 @@ fn a_clone_root_is_one_plain_name_under_the_home_folder(#[case] volume_id: &str)
     let listed = serde_json::to_value(&root).expect("the root serializes");
     let read_back: MirrorRoot = serde_json::from_value(listed).expect("a restore reads the root");
     assert_eq!(read_back.place(home), place);
+}
+
+// A data folder holding a run with a capture folder, a run with only a working file, and a
+// version's package gives one root, over the first run's captures folder alone. Killed by the
+// workflow roots left out (no root), by a root over the run's folder or the workflows' folder (its
+// place), and by a run with no captures folder given a root (two roots).
+#[test]
+fn the_roots_hold_each_workflow_runs_capture_folder_and_nothing_else_of_it() {
+    let scratch = tempfile::tempdir().expect("a scratch folder");
+    let home = scratch.path();
+    let data_folder = data_folder(home);
+    let workflow = data_folder.join("workflows/d");
+    let capture_folder = workflow.join("runs/r1/captures").join("a".repeat(64));
+    fs::create_dir_all(&capture_folder).expect("the capture folder is made");
+    fs::write(capture_folder.join("HEAD"), "ref: refs/heads/main\n").expect("written");
+    fs::create_dir_all(workflow.join("runs/r2")).expect("the second run's folder is made");
+    fs::write(workflow.join("runs/r2/notes.md"), "working\n").expect("written");
+    let step = workflow.join("versions/v/steps/s");
+    fs::create_dir_all(&step).expect("the step's folder is made");
+    fs::write(step.join("package.json"), "{}\n").expect("written");
+
+    let roots = workflow_capture_roots(home, &data_folder).expect("the roots are listed");
+
+    let expected = MirrorRoot::under_home(
+        "workflow-captures-d-r1".to_owned(),
+        home,
+        &workflow.join("runs/r1/captures"),
+    )
+    .expect("a root");
+    assert_eq!(roots, [expected]);
 }
