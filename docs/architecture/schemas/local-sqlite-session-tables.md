@@ -64,6 +64,8 @@ CREATE TABLE sessions (
 CREATE INDEX idx_sessions_group ON sessions(group_id);
 -- The list's shape grouping and the chats count.
 CREATE INDEX idx_sessions_shape_state ON sessions(shape, state);
+-- A purge's unlinking of the purged session's forks.
+CREATE INDEX idx_sessions_parent ON sessions(parent_session_id) WHERE parent_session_id IS NOT NULL;
 
 -- One row per pair of sessions and kind. The daemon writes or bumps a row when the event that makes it
 -- is recorded, never by a rescan. Rows name sessions by id, so a rename changes none. Only a 'related'

@@ -157,6 +157,8 @@ CREATE TABLE sessions (
 CREATE INDEX idx_sessions_group ON sessions(group_id);
 -- The list's shape grouping and the chats count.
 CREATE INDEX idx_sessions_shape_state ON sessions(shape, state);
+-- A purge's unlinking of the purged session's forks.
+CREATE INDEX idx_sessions_parent ON sessions(parent_session_id) WHERE parent_session_id IS NOT NULL;
 -- A search by tag and words reads each tagged session's rowid and last activity from here alone.
 CREATE INDEX idx_sessions_activity ON sessions(id, last_activity_at);
 
