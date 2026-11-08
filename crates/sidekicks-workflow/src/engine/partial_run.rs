@@ -24,7 +24,7 @@ use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::stored_column::{safe_int_column, text_column};
 
 use crate::definitions::stored_document::{StoredDocumentError, parse_stored_workflow_body};
-use crate::definitions::versions::difference::diff_workflow_bodies;
+use crate::definitions::versions::difference::{diff_workflow_bodies, version_node_id};
 use crate::definitions::versions::history::{VersionRow, WorkflowVersions, WorkflowVersionsError};
 use crate::engine::tick::RunGraph;
 
@@ -397,17 +397,6 @@ fn dirty_nodes(
         );
     }
     dirty
-}
-
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the workflow.node.execute handler")
-)]
-fn version_node_id(node: &WorkflowVersionNode) -> &WorkflowNodeId {
-    match node {
-        WorkflowVersionNode::Node(node) => &node.id,
-        WorkflowVersionNode::Trigger(trigger) => &trigger.id,
-    }
 }
 
 #[cfg_attr(
