@@ -23,6 +23,7 @@ pub(crate) struct CodexExportedResponse {
 }
 
 /// Where the drain placed a response on a thread no session streams.
+#[derive(Clone)]
 pub(crate) enum CodexOffStreamPlacement {
     /// Below `session_thread`, a thread the session holds, through `child_thread`, the thread
     /// one hop below it, which the response is filed as.

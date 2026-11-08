@@ -25,7 +25,9 @@ use crate::driver::codex::telemetry::completed_response::{
     CodexCompletedResponse, read_codex_completed_responses,
 };
 use crate::driver::codex::telemetry::held_responses::CodexExportedResponse;
-use crate::driver::codex::telemetry::placement::{CodexLaunchPlacement, place_off_stream};
+use crate::driver::codex::telemetry::placement::{
+    CodexLaunchPlacement, place_off_stream, retry_kept,
+};
 use crate::pricing::export_status::ExportStatusTracker;
 use crate::pricing::receiver::{TelemetryExport, TelemetryExportReader};
 
@@ -68,13 +70,23 @@ pub(crate) struct CodexExports {
     stop: CancellationToken,
 }
 
-// One completed response the reader handed off, with the service that ran it and its launch's
-// placement state, since a relaunch drops the tag it was read under.
-struct CodexExportItem {
-    service: Weak<CodexService>,
-    launch: Weak<Mutex<CodexLaunchPlacement>>,
-    response: CodexCompletedResponse,
-    arrived_at: Instant,
+// What the reader hands the drain, each with the service that ran it and its launch's placement
+// state, since a relaunch drops the tag it was read under: one completed response of the export
+// numbered `export_number`, or, after that export's responses, a retry of the responses the launch
+// kept before it.
+enum CodexExportItem {
+    Response {
+        service: Weak<CodexService>,
+        launch: Weak<Mutex<CodexLaunchPlacement>>,
+        response: CodexCompletedResponse,
+        arrived_at: Instant,
+        export_number: u64,
+    },
+    Retry {
+        service: Weak<CodexService>,
+        launch: Weak<Mutex<CodexLaunchPlacement>>,
+        export_number: u64,
+    },
 }
 
 /// The drain of the register's hand-off, which takes each completed response to the session that
@@ -91,11 +103,13 @@ struct CodexLaunchExports {
 }
 
 // One launch: the service it started, which a later launch of the same service replaces, its
-// export status and where its off-stream threads were placed, which go with it.
+// export status, how many of its exports were read, and where its off-stream threads were placed
+// and the responses it keeps, which go with it.
 struct CodexLaunchExport {
     service_id: CodexServiceId,
     service: Weak<CodexService>,
     tracker: Arc<ExportStatusTracker>,
+    exports_read: u64,
     placement: Arc<Mutex<CodexLaunchPlacement>>,
 }
 
@@ -160,6 +174,7 @@ impl CodexExports {
                 service_id,
                 service: Arc::downgrade(service),
                 tracker,
+                exports_read: 0,
                 placement: Arc::default(),
             },
         );
@@ -215,15 +230,17 @@ impl CodexExports {
         let launch = text
             .and_then(|text| text.parse::<u64>().ok())
             .and_then(|tag| {
-                lock(&self.launches).by_tag.get(&tag).map(|launch| {
+                lock(&self.launches).by_tag.get_mut(&tag).map(|launch| {
+                    launch.exports_read += 1;
                     (
                         Arc::clone(&launch.tracker),
                         Weak::clone(&launch.service),
                         Arc::downgrade(&launch.placement),
+                        launch.exports_read,
                     )
                 })
             });
-        let Some((tracker, service, placement)) = launch else {
+        let Some((tracker, service, placement, export_number)) = launch else {
             tracing::info!(tag = ?text, "a codex export names no launch the daemon holds");
             return;
         };
@@ -244,34 +261,45 @@ impl CodexExports {
         let provider_account_id = live_service.provider_account_id();
         for response in read_codex_completed_responses(resource_logs, provider_account_id.as_ref())
         {
-            self.offer(CodexExportItem {
+            self.offer(CodexExportItem::Response {
                 service: Weak::clone(&service),
                 launch: Weak::clone(&placement),
                 response,
                 arrived_at,
+                export_number,
             });
         }
+        self.offer(CodexExportItem::Retry {
+            service,
+            launch: placement,
+            export_number,
+        });
     }
 
-    // Hands `item` to the drain without waiting; a full or closed hand-off drops it, logged.
+    // Hands `item` to the drain without waiting; a full or closed hand-off drops it, logged. A
+    // dropped retry loses nothing, since the launch's next export retries what it keeps.
     fn offer(&self, item: CodexExportItem) {
         match self.hand_off.try_send(item) {
             Ok(()) => {}
-            Err(TrySendError::Full(item)) => {
-                let response = &item.response;
+            Err(TrySendError::Full(CodexExportItem::Response { response, .. })) => {
                 tracing::warn!(
                     conversation_id = response.conversation_id.as_str(),
                     tokens = ?response.counts,
                     "the codex export hand-off is full; a completed response is dropped"
                 );
             }
-            Err(TrySendError::Closed(item)) => {
-                let response = &item.response;
+            Err(TrySendError::Closed(CodexExportItem::Response { response, .. })) => {
                 tracing::info!(
                     conversation_id = response.conversation_id.as_str(),
                     tokens = ?response.counts,
                     "the codex export drain has stopped; a completed response is dropped"
                 );
+            }
+            Err(
+                TrySendError::Full(CodexExportItem::Retry { .. })
+                | TrySendError::Closed(CodexExportItem::Retry { .. }),
+            ) => {
+                tracing::debug!("a codex launch's retry of its kept responses was not handed off");
             }
         }
     }
@@ -304,39 +332,53 @@ impl CodexExportDrain {
 }
 
 // Pushes `item`'s response onto the queue of the session holding its thread on its service, else
-// places it off the stream on its launch; a response whose service or launch is gone is logged
-// and dropped.
+// places or keeps it off the stream on its launch; a retry places what its launch kept. An item
+// whose service or launch is gone is logged and dropped.
 async fn deliver(item: CodexExportItem) {
-    let CodexExportItem {
-        service,
-        launch,
-        response,
-        arrived_at,
-    } = item;
-    let Some(service) = service.upgrade() else {
-        tracing::info!(
-            conversation_id = response.conversation_id.as_str(),
-            "a codex completed response's service is gone; it is dropped"
-        );
-        return;
-    };
-    if let Some(session_id) = service.session_of_thread(&response.conversation_id) {
-        let exported = CodexExportedResponse {
+    match item {
+        CodexExportItem::Response {
+            service,
+            launch,
             response,
             arrived_at,
-            placed: None,
-        };
-        push_exported_response(&service, session_id, exported);
-        return;
+            export_number,
+        } => {
+            let Some(service) = service.upgrade() else {
+                tracing::info!(
+                    conversation_id = response.conversation_id.as_str(),
+                    "a codex completed response's service is gone; it is dropped"
+                );
+                return;
+            };
+            if let Some(session_id) = service.session_of_thread(&response.conversation_id) {
+                let exported = CodexExportedResponse {
+                    response,
+                    arrived_at,
+                    placed: None,
+                };
+                push_exported_response(&service, session_id, exported);
+                return;
+            }
+            let Some(launch) = launch.upgrade() else {
+                tracing::info!(
+                    conversation_id = response.conversation_id.as_str(),
+                    "a codex completed response's launch was replaced; it is dropped"
+                );
+                return;
+            };
+            place_off_stream(&service, &launch, response, arrived_at, export_number).await;
+        }
+        CodexExportItem::Retry {
+            service,
+            launch,
+            export_number,
+        } => {
+            // A launch that went logged its kept responses as it went.
+            if let Some((service, launch)) = service.upgrade().zip(launch.upgrade()) {
+                retry_kept(&service, &launch, export_number).await;
+            }
+        }
     }
-    let Some(launch) = launch.upgrade() else {
-        tracing::info!(
-            conversation_id = response.conversation_id.as_str(),
-            "a codex completed response's launch was replaced; it is dropped"
-        );
-        return;
-    };
-    place_off_stream(&service, &launch, response, arrived_at).await;
 }
 
 /// Pushes `exported` onto `session_id`'s queue on `service`; one no session took is logged and
