@@ -153,10 +153,8 @@ pub(crate) enum ScriptedSignInPlace {
 pub(crate) struct ScriptedSignInStart {
     /// Its whole environment.
     pub(crate) environment: Vec<(String, String)>,
-    /// The servers file it was handed, as read when it started.
-    pub(crate) servers: Value,
-    /// Whether it was told to load only the servers that file declares.
-    pub(crate) loads_only_its_servers: bool,
+    /// The servers file it was handed, as read when it started; `None` where it was handed none.
+    pub(crate) servers: Option<Value>,
 }
 
 /// Every start answered as scripted; a start with nothing scripted fails as a spawn would.
@@ -548,14 +546,21 @@ impl ClaudeProcessStarts for ScriptedStarts {
     ) -> BoxFuture<'_, Result<ClaudeMcpProcess, ClaudeLaunchError>> {
         let scripted = self.lock().sign_ins.pop_front();
         async move {
-            let servers = tokio::fs::read(&start.servers_file)
-                .await
-                .map_err(ClaudeLaunchError::Spawn)?;
+            let servers =
+                match &start.servers_file {
+                    Some(servers_file) => {
+                        let servers = tokio::fs::read(servers_file)
+                            .await
+                            .map_err(ClaudeLaunchError::Spawn)?;
+                        Some(serde_json::from_slice(&servers).map_err(|error| {
+                            ClaudeLaunchError::Spawn(std::io::Error::other(error))
+                        })?)
+                    }
+                    None => None,
+                };
             self.lock().sign_in_starts.push(ScriptedSignInStart {
                 environment: start.environment.clone(),
-                servers: serde_json::from_slice(&servers)
-                    .map_err(|error| ClaudeLaunchError::Spawn(std::io::Error::other(error)))?,
-                loads_only_its_servers: start.loads_only_its_servers,
+                servers,
             });
             let ScriptedSignIn {
                 channel,

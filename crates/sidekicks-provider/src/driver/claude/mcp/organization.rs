@@ -1,30 +1,35 @@
 //! An organization's MCP servers for Claude Code: whether its administrator's MCP file is on this
-//! computer, and the servers a Claude Code process reports from it and from the managed settings'
-//! `managedMcpServers`, a remote one served with its address's host only. A `managedMcpServers`
-//! entry is always a remote one, since Claude Code drops one that names a program, and is kept
-//! whole, its headers included, only in the form a probe sends. The file's own entries are never
-//! read: the process reports each of them as an `enterprise` row, a program's included.
+//! computer and the entries it declares, and the servers a Claude Code process reports from it and
+//! from the managed settings' `managedMcpServers`, a remote one served with its address's host
+//! only. A `managedMcpServers` entry is always a remote one, since Claude Code drops one that names
+//! a program, and is kept whole, its headers included, only in the form a probe sends. The file's
+//! entries are read as written for a sign-in's address and its takeover; a listing still takes each
+//! from the process, which reports it as an `enterprise` row, a program's included.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use url::{Position, Url};
 
 use crate::driver::claude::DESCRIPTOR;
-use crate::driver::claude::mcp::config::{ClaudeMcpEndpoint, ClaudeMcpServer};
+use crate::driver::claude::mcp::config::{
+    ClaudeMcpEndpoint, ClaudeMcpServer, MCP_SERVERS_MEMBER, read_json_file,
+};
 use crate::driver::claude::mcp::machine_probe::sent_entry::compose_tool_server_entry;
+use crate::driver::claude::session::settings_file::ClaudeSettingsReadError;
 use crate::driver::claude::session::transport::control::ClaudeToolServerEntry;
 use crate::driver::claude::session::transport::mcp_status::ClaudeMcpServerStatusRow;
 use crate::driver::mcp_server::address::{
     ServerAddressIdentity, ServerAddressReading, read_server_address,
 };
 
-/// The administrator's MCP file, whose presence makes Claude Code exit at startup when it is told
-/// to load only the servers it is given.
+/// The administrator's MCP file, whose entries a sign-in reads for its server's address and its
+/// takeover, and whose presence makes Claude Code exit at startup when it is told to load only the
+/// servers it is given or, on a workstation, is handed servers with `--mcp-config`.
 const CLAUDE_MANAGED_MCP_FILE: &str = "managed-mcp.json";
 
 /// Whether Claude Code can read an administrator's MCP file in `managed_settings_folder`, the
@@ -38,6 +43,32 @@ pub(crate) async fn has_readable_managed_mcp_file(managed_settings_folder: Optio
     tokio::fs::File::open(folder.join(CLAUDE_MANAGED_MCP_FILE))
         .await
         .is_ok()
+}
+
+/// The servers of the administrator's MCP file in `managed_settings_folder`, by name, each entry as
+/// the administrator wrote it with its `${VAR}` unfilled, for any reader of the file's servers:
+/// `None` where Claude Code can read no such file, and no servers where the file does not parse or
+/// lists none, since it is still deployed. Fails as the file's read fails for a reason other than its
+/// absence or its permissions.
+pub(crate) async fn read_managed_mcp_servers(
+    managed_settings_folder: Option<&Path>,
+) -> Result<Option<Map<String, Value>>, ClaudeSettingsReadError> {
+    let Some(folder) = managed_settings_folder else {
+        return Ok(None);
+    };
+    if !has_readable_managed_mcp_file(Some(folder)).await {
+        return Ok(None);
+    }
+    let file: Option<Map<String, Value>> =
+        read_json_file(&folder.join(CLAUDE_MANAGED_MCP_FILE)).await?;
+    let servers = match file.and_then(|mut file| file.remove(MCP_SERVERS_MEMBER)) {
+        Some(Value::Object(servers)) => servers,
+        Some(
+            Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_),
+        )
+        | None => Map::new(),
+    };
+    Ok(Some(servers))
 }
 
 /// An organization's servers as one account's process reports them: each one's declaration, and
@@ -259,7 +290,10 @@ fn push_unlisted(servers: &mut Vec<ClaudeMcpServer>, server: ClaudeMcpServer) {
 
 #[cfg(test)]
 mod tests {
-    use super::{CLAUDE_MANAGED_MCP_FILE, has_readable_managed_mcp_file};
+    use rstest::rstest;
+    use serde_json::{Value, json};
+
+    use super::{CLAUDE_MANAGED_MCP_FILE, has_readable_managed_mcp_file, read_managed_mcp_servers};
 
     // The check reads the folder it is handed: a test folder with the file and one without.
     // Killed by a check that reads a fixed path, which finds the file in neither.
@@ -274,5 +308,39 @@ mod tests {
         assert!(has_readable_managed_mcp_file(Some(with_file.path())).await);
         assert!(!has_readable_managed_mcp_file(Some(without_file.path())).await);
         assert!(!has_readable_managed_mcp_file(None).await);
+    }
+
+    // An entry of the file as the administrator writes it, a variable in its address.
+    fn docs_entry() -> Value {
+        json!({"type": "http", "url": "https://${HOST:-docs.example.test}/mcp"})
+    }
+
+    // The file's servers are read as written where it is deployed, none where it does not parse,
+    // and no file where there is none. Killed by the file not read, by another member read, and by
+    // an unparsed file read as absent.
+    #[rstest]
+    #[case::deployed(
+        Some(json!({"mcpServers": {"docs": docs_entry()}}).to_string()),
+        Some(json!({"docs": docs_entry()}))
+    )]
+    #[case::unparsed(Some("not JSON".to_owned()), Some(json!({})))]
+    #[case::absent(None, None)]
+    #[tokio::test]
+    async fn the_managed_file_servers_are_read_where_it_is_deployed(
+        #[case] contents: Option<String>,
+        #[case] expected: Option<Value>,
+    ) {
+        let folder = tempfile::tempdir().expect("a test folder");
+        if let Some(contents) = contents {
+            tokio::fs::write(folder.path().join(CLAUDE_MANAGED_MCP_FILE), contents)
+                .await
+                .expect("the file is written");
+        }
+
+        let read = read_managed_mcp_servers(Some(folder.path()))
+            .await
+            .expect("the file reads");
+
+        assert_eq!(read.map(Value::Object), expected);
     }
 }

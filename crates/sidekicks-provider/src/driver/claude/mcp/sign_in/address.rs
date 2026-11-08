@@ -4,7 +4,7 @@
 use serde_json::Value;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 
-use super::{ClaudeSignInSources, read_sign_in_entry};
+use super::{ClaudeMcpSignInSources, read_sign_in_entry};
 use crate::driver::claude::mcp::config::URL_MEMBER;
 use crate::driver::claude::mcp::machine_probe::variables::expand_remote_address;
 use crate::driver::contract::error::DriverError;
@@ -16,24 +16,21 @@ use crate::driver::contract::sign_in::{
 const VARIABLE_OPENING: &str = "${";
 
 /// Reads the whole address `request`'s server entry declares, its `url` filled from
-/// `environment`: a server of an administrator's MCP file, whose entry only Claude Code's own
-/// process reads, answers [`McpServerAddressReading::ReadByProviderOnly`]. Fails with
-/// [`DriverError::NoPersonServerEntry`] for a connector, an organization's server read for no
-/// account, and an entry that is gone or names no `url`, and as the entry's read fails.
+/// `environment`, an organization's server read from the administrator's MCP file's entry where
+/// one declares it. Fails with [`DriverError::NoPersonServerEntry`] for a connector, an
+/// organization's server the file does not declare read for no account, and an entry that is gone
+/// or names no `url`, and as the entry's read fails.
 pub(crate) async fn read_claude_server_address(
-    sources: &ClaudeSignInSources<'_>,
+    sources: &ClaudeMcpSignInSources<'_>,
     environment: &[(String, String)],
     request: &McpServerAddressRead,
 ) -> Result<McpServerAddressReading, DriverError> {
-    let Some(entry) = read_sign_in_entry(
+    let entry = read_sign_in_entry(
         sources,
         &request.binding,
         request.provider_account_id.as_ref(),
     )
-    .await?
-    else {
-        return Ok(McpServerAddressReading::ReadByProviderOnly);
-    };
+    .await?;
     let Some(url) = entry.get(URL_MEMBER).and_then(Value::as_str) else {
         return Err(DriverError::from(NoPersonServerEntry {
             binding: request.binding.clone(),
@@ -55,12 +52,13 @@ mod tests {
     use std::sync::Arc;
 
     use rstest::rstest;
-    use serde_json::json;
+    use serde_json::{Map, Value, json};
     use sidekicks_contracts::mcp::server::McpServerBindingRef;
 
     use super::super::tests::{
         PERSON_CONFIG, SERVER_NAME, driver_on_environment, name, user_binding,
     };
+    use super::read_claude_server_address;
     use crate::driver::DriverServices;
     use crate::driver::claude::DESCRIPTOR;
     use crate::driver::claude::session::scripted::driver::ScriptedDriver;
@@ -170,5 +168,47 @@ mod tests {
             ),
             "a connector reads the no-entry arm, not {refused:?}"
         );
+    }
+
+    // A server of the administrator's MCP file is read from the file's entry, its `url` filled,
+    // whether or not the organization's managed settings declare the same name, with no account
+    // read. Killed by answering `ReadByProviderOnly` for it, by reading the organization's entry
+    // first, and by leaving the file's `${VAR}` unfilled.
+    #[rstest]
+    #[case::file_alone(false)]
+    #[case::shared_name(true)]
+    #[tokio::test]
+    async fn a_managed_file_server_is_read_whole(#[case] is_shared_name: bool) {
+        let scripted = ScriptedDriver::new();
+        if is_shared_name {
+            scripted.starts.script_account_servers(
+                json!({"mcpServers": []}),
+                json!({"effective": {"managedMcpServers": {
+                    SERVER_NAME: {"type": "http", "url": "https://org.example.test/mcp"},
+                }}}),
+            );
+        }
+        let servers: Map<String, Value> = serde_json::from_value(json!({
+            SERVER_NAME: {"type": "http", "url": "https://${HOST:-docs.example.test}/mcp?key=k"},
+        }))
+        .expect("the file's servers are an object");
+        let managed = McpServerBindingRef::Managed {
+            provider: DESCRIPTOR.provider_id(),
+            server_name: name(),
+        };
+
+        let reading = read_claude_server_address(
+            &scripted.driver.sign_in_sources_for(Some(servers)).await,
+            &scripted.driver.sources.base_environment,
+            &address_read(managed),
+        )
+        .await
+        .expect("the file's entry reads");
+
+        let McpServerAddressReading::Declared(address) = &reading else {
+            panic!("the file's address is declared, not {reading:?}");
+        };
+        assert_eq!(address.as_str(), "https://docs.example.test/mcp?key=k");
+        assert_eq!(scripted.starts.take_account_servers_read_count(), 0);
     }
 }
