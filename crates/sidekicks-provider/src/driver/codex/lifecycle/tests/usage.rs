@@ -249,7 +249,10 @@ async fn a_total_that_did_not_grow_records_and_prices_nothing() {
             .is_ok()
     );
 
-    let counts = |input: u64, output: u64| json!({"inputTokens": input, "outputTokens": output, "totalTokens": input + output});
+    let counts = |input: u64, output: u64| {
+        let total = input + output;
+        json!({"inputTokens": input, "outputTokens": output, "totalTokens": total})
+    };
     let first = token_usage_frame(TEST_THREAD, &counts(1_000, 100), &counts(1_000, 100));
     live.scripted.script.send(&first);
     live.scripted.script.send(&first);

@@ -20,6 +20,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::record::Record;
 
 use super::{RESTART_WAITS_PASSED, start_params};
+use crate::bounded_poll::poll_until;
 use crate::driver::claude::session::establishment::context::{
     CLAUDE_ADVISOR_ROW_ID, CLAUDE_OUTPUT_STYLE_ROW_ID,
 };
@@ -736,7 +737,7 @@ async fn a_process_end_lets_go_the_held_presses_of_every_binding_it_served(
     }
 
     let released = PortCall::PressesReleased(binding_id("lead"));
-    ScriptedDriver::wait_for(|| fixture.ports.calls().contains(&released)).await;
+    poll_until(|| fixture.ports.calls(), |calls| calls.contains(&released)).await;
 }
 
 // Stores `output_style` as the session's own, as a change of it in the session is stored.

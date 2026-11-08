@@ -19,6 +19,7 @@ use sidekicks_std::mutex_lock::lock;
 use tokio_util::sync::CancellationToken;
 
 use super::start_params;
+use crate::bounded_poll::poll_until;
 use crate::command::running_set::unbound_running_command_sets;
 use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::claude::session::conversation_home::claude_conversation_home_metadata;
@@ -391,7 +392,7 @@ async fn a_run_started_through_the_driver_trait_ends_on_the_process_result() {
         .await
         .expect("the run starts");
     end_turn_of(&claude, &start, session_id);
-    ScriptedDriver::wait_for(|| !run_ends(&fixture, run_id).is_empty()).await;
+    poll_until(|| run_ends(&fixture, run_id), |ends| !ends.is_empty()).await;
 
     assert!(matches!(
         run_ends(&fixture, run_id).as_slice(),

@@ -419,7 +419,14 @@ mod tests {
         [1_000, 100, 0, 0],
         priced(6_000)
     )]
-    #[case::thirty_minute_write("gpt-6.1-sol", None, None, API_KEY, [0, 0, 0, 1_000], priced(2_500))]
+    #[case::thirty_minute_write(
+        "gpt-6.1-sol",
+        None,
+        None,
+        API_KEY,
+        [0, 0, 0, 1_000],
+        priced(2_500)
+    )]
     #[case::plan(
         "gpt-6.1-sol",
         None,

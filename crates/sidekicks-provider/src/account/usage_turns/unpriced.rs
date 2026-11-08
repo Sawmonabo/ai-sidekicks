@@ -330,7 +330,8 @@ mod tests {
     };
 
     const OTHER_MODEL: &str = "claude-sonnet-4-5";
-    // The start the reads run as, after the one that wrote every row, so every unpriced row is read.
+    // The start the reads run as, after the one that wrote every row, so every unpriced row is
+    // read.
     const THIS_START: &str = "2026-10-14T09:00:00.000Z";
 
     // One row's every field as plain values, so a test reads each one.

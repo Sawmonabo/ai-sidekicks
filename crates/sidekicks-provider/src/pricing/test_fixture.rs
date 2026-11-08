@@ -18,6 +18,7 @@ use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
+use crate::bounded_poll::poll_until;
 use crate::pricing::store::{HeldPriceList, PriceListConfig};
 
 const SEED_COPY: &[u8] =
@@ -117,6 +118,8 @@ pub(crate) async fn open_held(
 
 /// A list opened in `folder` that took `copy` under `etag` from a stand-in server of its own, its
 /// fetch task running until `stop`; answers the list and its server, which a test scripts further.
+/// `copy` must decode with rows for `m1` and `seed-only`, the models in use, or the list keeps its
+/// seed and the wait for the copy fails.
 pub(crate) async fn started_list(
     folder: &Path,
     etag: &'static str,
@@ -126,12 +129,13 @@ pub(crate) async fn started_list(
     let server = Arc::new(ListServer::default());
     let clock = Arc::new(TestWallClock::default());
     let price_list = open_held(folder, serve(&server).await, &clock).await;
-    let mut table_watch = price_list.subscribe();
+    let table_watch = price_list.subscribe();
     server.script(StatusCode::OK, Some(etag), copy);
     drop(price_list.start(stop.clone()));
-    table_watch
-        .changed()
-        .await
-        .expect("the list sends the copy it took");
+    poll_until(
+        || table_watch.has_changed().is_ok_and(|is_changed| is_changed),
+        |is_changed| *is_changed,
+    )
+    .await;
     (price_list, server)
 }

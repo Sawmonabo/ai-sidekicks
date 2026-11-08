@@ -119,7 +119,8 @@ impl UsageSink for CostRecord {
     fn record_cost(&self, request: PricedRequest) -> BoxedAnswer<'_, ()> {
         async move {
             let figures = request.rows.iter().map(|priced| {
-                json!({"eventId": priced.row.event_id.as_str(), "costUsdMicros": priced.cost_usd_micros})
+                let event_id = priced.row.event_id.as_str();
+                json!({"eventId": event_id, "costUsdMicros": priced.cost_usd_micros})
             });
             let event: SessionEvent = serde_json::from_value(json!({
                 "type": "usage.cost.updated",

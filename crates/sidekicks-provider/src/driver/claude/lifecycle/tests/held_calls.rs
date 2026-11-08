@@ -15,6 +15,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::PathRules;
 
+use crate::bounded_poll::poll_until;
 use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::claude::session::restart::ClaudeSessionStanding;
 use crate::driver::claude::session::scripted::channel::{
@@ -506,7 +507,11 @@ async fn a_persons_close_stops_each_surviving_task_before_its_process_ends(
         cause: SessionCloseCause::Person,
     });
     let while_held = async {
-        ScriptedDriver::wait_for(|| channel.writes().contains(&ScriptedWrite::Terminate)).await;
+        poll_until(
+            || channel.writes(),
+            |writes| writes.contains(&ScriptedWrite::Terminate),
+        )
+        .await;
         assert_eq!(stopped_tasks(&channel), ["task-A"]);
         if !matches!(persons_close, PersonsClose::StopUnanswered) {
             hand_scripted_frame(

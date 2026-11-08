@@ -148,8 +148,8 @@ pub(crate) fn quote_request(
 
 /// Prices one request of several rows, each row as a [`RequestUsage`] naming the request's own
 /// selectors and its whole long-context sum: the figure is one quote over the rows' summed counts
-/// and searches, shared across them by [`split_figure`] over each row's own quote. Answers one share
-/// per row, in order; refused as [`quote_request`] refuses any of those quotes, or with
+/// and searches, shared across them by [`split_figure`] over each row's own quote. Answers one
+/// share per row, in order; refused as [`quote_request`] refuses any of those quotes, or with
 /// [`QuoteRefusal::Overflow`] when a sum passes the integers.
 pub(crate) fn quote_request_rows(
     table: &PriceTable,
