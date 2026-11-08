@@ -367,7 +367,7 @@ async fn a_capture_folders_copy_holds_its_lock_and_every_object_its_copied_refs_
         "got {stopped_run:?}"
     );
     assert_eq!(left_refs, Vec::<PathBuf>::new());
-    assert!(report.skipped_folders.is_empty());
+    assert_eq!(report.skipped_folders, Vec::<PathBuf>::new());
     assert!(swept.is_ok(), "got {swept:?}");
     let copied_refs = git_at(&git, &copy, &["for-each-ref", "--format=%(refname)"]).await;
     assert!(copied_refs.contains("/turn-1\n"), "got {copied_refs}");
@@ -452,7 +452,7 @@ async fn index_objects(git: &GitRunner, folder: &Path) -> Vec<String> {
 // it lacks), and by an object the live folder also lacks and still names counted moved (the
 // workspace is named skipped).
 #[tokio::test(flavor = "multi_thread")]
-async fn a_live_repositorys_copy_reads_its_refs_again_when_they_move_during_it() {
+async fn a_live_repository_copy_reads_its_refs_again_when_they_move_during_it() {
     let git = test_git_runner();
     let scratch = tempfile::tempdir().expect("a scratch folder");
     let root = real_path(scratch.path()).expect("the scratch folder resolves");

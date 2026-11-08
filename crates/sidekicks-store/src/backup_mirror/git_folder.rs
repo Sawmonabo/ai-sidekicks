@@ -123,13 +123,7 @@ impl Leveling<'_> {
         staged: &[PathBuf],
     ) -> Result<CopiedIndexCheck, LevelStop> {
         let again = self.list_tree_entries(folder, &[Path::new("")], &mut Vec::new())?;
-        let compared = |entries: &'_ [ListedEntry]| -> Vec<&ListedEntry> {
-            entries
-                .iter()
-                .filter(|entry| !is_index_part(&entry.relative))
-                .collect()
-        };
-        let (before, after) = (compared(pointers), compared(&again));
+        let (before, after) = (compared_entries(pointers), compared_entries(&again));
         let is_changed = before.len() != after.len()
             || before.iter().zip(&after).any(|(before, after)| {
                 before.relative != after.relative
@@ -531,6 +525,14 @@ pub(super) fn is_git_folder(folder: &Path) -> bool {
     is(HEAD_FILE_NAME, fs::Metadata::is_file)
         && is(OBJECTS_FOLDER_NAME, fs::Metadata::is_dir)
         && is(REFS_FOLDER_NAME, fs::Metadata::is_dir)
+}
+
+// The entries of `entries` a second read compares, every one but an index's parts.
+fn compared_entries(entries: &[ListedEntry]) -> Vec<&ListedEntry> {
+    entries
+        .iter()
+        .filter(|entry| !is_index_part(&entry.relative))
+        .collect()
 }
 
 // Whether `relative`, a path in a git folder, is a part of an index git reads there: the index
