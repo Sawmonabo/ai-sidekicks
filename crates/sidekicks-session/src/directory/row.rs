@@ -348,7 +348,9 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         | SessionEventType::WorktreeCreated
         | SessionEventType::WorktreeBound
         | SessionEventType::WorktreeDirtied
+        | SessionEventType::WorktreeCleaned
         | SessionEventType::WorktreeMerged
+        | SessionEventType::WorktreeReopened
         | SessionEventType::WorktreeRetired
         | SessionEventType::RepoMountHealthChanged
         | SessionEventType::SessionSweptToCheckout

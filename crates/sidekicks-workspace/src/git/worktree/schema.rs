@@ -89,6 +89,13 @@ CREATE TABLE worktrees (
     CHECK(state IN ({worktree_states})),
   created_at            TEXT NOT NULL,
   updated_at            TEXT NOT NULL,
+  -- The commit that holds the branch's own work: the newest commit a check saw on the branch that
+  -- changes a path, is no merge commit and neither the base nor its upstream holds, or the tip
+  -- where that commit lacks some of that work; while none is recorded and the tip is contained,
+  -- the newest commit, amend or pick in the branch's reflog that changes a path and that the base
+  -- or its upstream holds. The merged checks run on it once the tip holds no work of its own. NULL
+  -- while none was seen, so a branch that only caught up with its base never reads merged.
+  own_work_commit       TEXT,
   -- What the risk read showed when the daemon retired a tree it made and could not hand over, as
   -- a digest; NULL for any other retirement, whose removal showed nothing to lose. The sweep
   -- deletes the folder only while a read shows nothing to lose or this same digest.

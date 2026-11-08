@@ -1,5 +1,5 @@
 //! Worktree lifecycle events: the one seam every worktree state transition appends its event
-//! through, for the five `worktree.*` events, and the two session records a tree's life writes: a
+//! through, for the seven `worktree.*` events, and the two session records a tree's life writes: a
 //! session swept back to the repository's checkout, and a session's branch changed.
 //!
 //! - A transition appends its event in the same write as its row change, which rides in the
@@ -47,16 +47,12 @@ pub(crate) struct EmitWorktreeEventInput {
     pub(crate) actor: Option<LifecycleActor>,
 }
 
-/// Appends the five worktree lifecycle events and the two session records a tree's life writes.
+/// Appends the seven worktree lifecycle events and the two session records a tree's life writes.
 /// Each emit returns the receipt carrying the sequence the append assigned.
 pub struct WorktreeEventEmitter {
     appender: SessionEventAppender,
 }
 
-#[expect(
-    dead_code,
-    reason = "the worktree dirty and merge detection and the removal's session sweep"
-)]
 impl WorktreeEventEmitter {
     /// An emitter appending to `event_log` at the session events' envelope version.
     pub fn new(event_log: Arc<EventLogService>) -> Self {
@@ -120,6 +116,18 @@ impl WorktreeEventEmitter {
         self.append(draft, linkage).await
     }
 
+    /// Appends `worktree.cleaned`: a dirty checkout reads clean again, so the tree is `ready`.
+    /// Fails as [`SessionEventEmitError`] says.
+    pub(crate) async fn emit_worktree_cleaned(
+        &self,
+        input: EmitWorktreeEventInput,
+        linkage: SessionEventLinkage,
+    ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
+        let payload = lifecycle_payload(WorktreeTransition::Cleaned, input);
+        let draft = SessionEventDraft::new(payload, SessionEvent::WorktreeCleaned)?;
+        self.append(draft, linkage).await
+    }
+
     /// Appends `worktree.merged`: the tree's branch has merged back. Fails as
     /// [`SessionEventEmitError`] says.
     pub(crate) async fn emit_worktree_merged(
@@ -129,6 +137,18 @@ impl WorktreeEventEmitter {
     ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
         let payload = lifecycle_payload(WorktreeTransition::Merged, input);
         let draft = SessionEventDraft::new(payload, SessionEvent::WorktreeMerged)?;
+        self.append(draft, linkage).await
+    }
+
+    /// Appends `worktree.reopened`: a merged tree's branch gained commits of its own again, so the
+    /// tree is `ready`. Fails as [`SessionEventEmitError`] says.
+    pub(crate) async fn emit_worktree_reopened(
+        &self,
+        input: EmitWorktreeEventInput,
+        linkage: SessionEventLinkage,
+    ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
+        let payload = lifecycle_payload(WorktreeTransition::Reopened, input);
+        let draft = SessionEventDraft::new(payload, SessionEvent::WorktreeReopened)?;
         self.append(draft, linkage).await
     }
 
@@ -199,13 +219,14 @@ impl WorktreeEventEmitter {
 }
 
 /// The worktree events, each naming the one state its tree is in after it.
-#[expect(dead_code, reason = "the worktree dirty and merge detection")]
 #[derive(Clone, Copy, Debug)]
 enum WorktreeTransition {
     Created,
     Bound,
     Dirtied,
+    Cleaned,
     Merged,
+    Reopened,
     Retired,
 }
 
@@ -213,7 +234,7 @@ impl WorktreeTransition {
     fn state(self) -> WorktreeState {
         match self {
             Self::Created => WorktreeState::Creating,
-            Self::Bound => WorktreeState::Ready,
+            Self::Bound | Self::Cleaned | Self::Reopened => WorktreeState::Ready,
             Self::Dirtied => WorktreeState::Dirty,
             Self::Merged => WorktreeState::Merged,
             Self::Retired => WorktreeState::Retired,

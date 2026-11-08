@@ -34,6 +34,8 @@ use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::schema::schema_parts;
 use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
+mod tree_state;
+
 const WAIT: Duration = Duration::from_secs(10);
 
 // Long enough for a change that would wrongly be sent to arrive.
@@ -78,6 +80,7 @@ impl Fixture {
             git: git.clone(),
             reads: Arc::clone(&reads),
             occupancy: MountOccupancyReader::new(reads),
+            writer: Arc::clone(&log.writer),
             events: Arc::new(WorktreeEventEmitter::new(Arc::clone(&log.service))),
             scheduler: Arc::new(Scheduler::start(
                 Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),

@@ -129,6 +129,7 @@ impl SetupFixture {
         let runner = test_setup_runner(
             git,
             reads,
+            Arc::clone(&log.writer),
             Arc::new(WorktreeEventEmitter::new(Arc::clone(&log.service))),
             Arc::clone(&sources) as _,
         );
