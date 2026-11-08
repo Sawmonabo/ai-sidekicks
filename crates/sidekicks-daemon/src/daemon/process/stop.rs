@@ -30,7 +30,7 @@ use crate::daemon::process::database::{
 };
 use crate::daemon::process::providers::{ProvidersRegistrationStopFailure, shut_down_drivers};
 use crate::daemon::process::start_error::DaemonStartError;
-use crate::daemon::process::stop::mcp::stop_mcp_settle;
+use crate::daemon::process::stop::mcp::{stop_mcp_settle, stop_mcp_sign_ins};
 use crate::daemon::process::{DAEMON_STOP_DRAIN_BOUND, DaemonProcess};
 use crate::daemon::stop_drain::describe_drain;
 use crate::data_acts::erase::EraseStep;
@@ -239,10 +239,11 @@ pub(crate) enum CrashMonitorEndFailure {
 /// file recount, whose watermark a clean end stores, the renames' name pushes, the highlighter, the
 /// terminals, the provider accounts' sign-ins, the start's sweep of new accounts' homes and the
 /// account observer, the scheduler, the working-folder watch, the projects list, the search index,
-/// the drivers, the person's Stop's drain of the live runs, the turn end captures under way, the
-/// git trees a failed call left and, last, the kept worktrees' reads. The drivers are told
-/// `reason`'s intent, once a stop the person asked for over the socket since has replaced a
-/// restart, which writes the intent there. Answers each step's failure, every step having run.
+/// the MCP binding edits' settle pass, the MCP server sign-ins, the drivers, the person's Stop's
+/// drain of the live runs, the turn end captures under way, the git trees a failed call left and,
+/// last, the kept worktrees' reads. The drivers are told `reason`'s intent, once a stop the person
+/// asked for over the socket since has replaced a restart, which writes the intent there. Answers
+/// each step's failure, every step having run.
 pub(crate) async fn stop_work(
     process: &mut DaemonProcess,
     reason: DaemonStopReason,
@@ -575,6 +576,7 @@ pub(crate) async fn stop_work(
         }
     }
     failures.extend(stop_mcp_settle(process, remaining()).await);
+    failures.extend(stop_mcp_sign_ins(process, remaining()).await);
     if let Some(drivers) = drivers {
         process
             .stop_record

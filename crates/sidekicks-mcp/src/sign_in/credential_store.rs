@@ -10,9 +10,10 @@
 //! sign-in held as it was. A keychain refusal is never remembered, so the next read asks again.
 //!
 //! The custody also keeps the set of servers that hold a sign-in, written under each server's
-//! lock by the save that keeps a sign-in and by every removal, so the set never reads a sign-in
-//! that is gone. A sign-out counts on the server, and an attempt's save that began before the
-//! latest sign-out is refused, so a sign-out is never undone by a sign-in it raced.
+//! lock by the save that keeps a sign-in, by every removal and by the start's seed from the items
+//! the keychain files, which marks only a server not yet read or written, so the set never reads
+//! a sign-in that is gone. A sign-out counts on the server, and an attempt's save that began
+//! before the latest sign-out is refused, so a sign-out is never undone by a sign-in it raced.
 //!
 //! Each server has one renewal hold, which every renewal of its sign-in takes before its custody,
 //! so two renewals never cross; a sign-out takes none and removes the sign-in at once. A renewal's
@@ -124,14 +125,7 @@ pub(crate) struct SignOutGeneration(u64);
 
 /// Every server's sign-in custody over the one keychain service the sign-ins are filed under,
 /// shared by every credential store so each server's item is read once per daemon life.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds it for the sign-in and its renewal"
-    )
-)]
-pub(crate) struct SignInCustody {
+pub struct SignInCustody {
     /// The sign-ins' keychain service.
     keychain: Arc<dyn SecretKeychain>,
     /// Each server's custody by its canonical address, made at its first store.
@@ -191,16 +185,9 @@ enum SecretsOnSave {
     },
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds it for the sign-in and its renewal"
-    )
-)]
 impl SignInCustody {
     /// The custody of sign-ins kept in `keychain`, the `ai-sidekicks-mcp-sign-ins` service.
-    pub(crate) fn new(keychain: Arc<dyn SecretKeychain>) -> Arc<Self> {
+    pub fn new(keychain: Arc<dyn SecretKeychain>) -> Arc<Self> {
         Arc::new(Self {
             keychain,
             servers: Mutex::new(HashMap::new()),
@@ -211,8 +198,27 @@ impl SignInCustody {
 
     /// The canonical addresses of the servers that hold a sign-in, as each sign-in is kept or
     /// forgotten.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the inventory's signed-in mark reads it")
+    )]
     pub(crate) fn signed_in_addresses(&self) -> watch::Receiver<BTreeSet<String>> {
         self.signed_in_addresses.subscribe()
+    }
+
+    /// Marks signed in every server the keychain files a sign-in for, reading no item: each
+    /// server this daemon life has not read or written yet, under its custody's lock, so a seed
+    /// that ends after a sign-in, a sign-out or a refused renewal there never undoes it. Fails with
+    /// the [`KeychainRefusal`] when the keychain refuses to list its items.
+    pub async fn seed_signed_in(&self) -> Result<(), KeychainRefusal> {
+        for account in self.keychain.accounts().await? {
+            let server = self.server_at(account);
+            let state = server.held.lock().await;
+            if matches!(*state, HeldState::Unread) {
+                self.mark_signed_in(&server.account);
+            }
+        }
+        Ok(())
     }
 
     // Marks the server at `canonical_address` as holding no sign-in, under its custody's lock:
@@ -222,7 +228,8 @@ impl SignInCustody {
             .send_if_modified(|addresses| addresses.remove(canonical_address));
     }
 
-    // Marks the server at `canonical_address` as holding a sign-in, which only a kept save writes.
+    // Marks the server at `canonical_address` as holding a sign-in, which a kept save and the
+    // start's seed write.
     fn mark_signed_in(&self, canonical_address: &str) {
         self.signed_in_addresses
             .send_if_modified(|addresses| addresses.insert(canonical_address.to_owned()));
@@ -286,7 +293,11 @@ impl SignInCustody {
 
     // The custody of the server at `address`, made at its first use.
     fn server(&self, address: &McpServerAddress) -> Arc<ServerCustody> {
-        let account = canonical_server_address(address);
+        self.server_at(canonical_server_address(address))
+    }
+
+    // The custody of the server whose canonical address is `account`, made at its first use.
+    fn server_at(&self, account: String) -> Arc<ServerCustody> {
         Arc::clone(
             lock(&self.servers)
                 .entry(account.clone())

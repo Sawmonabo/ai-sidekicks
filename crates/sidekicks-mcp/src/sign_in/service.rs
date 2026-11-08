@@ -98,13 +98,6 @@ pub(super) enum NamedMetadataError {
 
 /// The binding a sign-in is asked for and how its server is reached.
 #[derive(Clone)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the mcp.server.signIn handler builds it from the binding"
-    )
-)]
 pub(crate) struct SignInTarget {
     /// The binding: its provider, scope and server name name the sign-in to a person and on the
     /// completion event.
@@ -123,13 +116,6 @@ pub(crate) struct SignInTarget {
 
 /// How a binding's server is reached, as the provider's declaration says.
 #[derive(Clone)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the mcp.server.signIn handler reads it from the binding"
-    )
-)]
 pub(crate) enum SignInServer {
     /// A program the provider starts, which no sign-in reaches.
     Stdio,
@@ -163,13 +149,6 @@ impl AddressedServer {
     /// `asks_offline_access_where_listed` and the metadata lists it. `address` is the whole one the
     /// server's entry declares, its user name and query kept, held only in memory and never the
     /// stripped address the inventory serves.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the mcp.server.signIn handler builds it from the binding"
-        )
-    )]
     pub(crate) fn new(
         address: McpServerAddress,
         owner_client: Option<OwnerIssuedClient>,
@@ -192,13 +171,6 @@ impl AddressedServer {
 /// the id to sign in as, with no registration, and the callback address the receiver listens on
 /// and the client is registered with.
 #[derive(Clone)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the mcp.server.signIn handler reads it from the entry"
-    )
-)]
 pub(crate) struct OwnerIssuedClient {
     /// The `client_id` the owner issued; `None` takes the client the sign-in's order finds.
     pub(crate) client_id: Option<String>,
@@ -211,14 +183,7 @@ pub(crate) struct OwnerIssuedClient {
 pub(crate) type ProviderAccounts = HashMap<ProviderId, ProviderAccountId>;
 
 /// The daemon's sign-ins to MCP servers: the launch, and the one open attempt per server.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds it for the sign-in handlers"
-    )
-)]
-pub(crate) struct SignInService {
+pub struct SignInService {
     /// Every server's sign-in in the keychain.
     pub(super) custody: Arc<SignInCustody>,
     /// Which client each server admitted.
@@ -231,8 +196,9 @@ pub(crate) struct SignInService {
     attempts: Mutex<Attempts>,
     /// Where each settled sign-in appends its completion event.
     pub(super) events: Arc<SessionEventAppender>,
-    /// Stops every revocation still running, a sign-out's or a refused renewal's, and every
-    /// provider's flow, at `close` or when the service drops.
+    /// Stops every revocation still running, a sign-out's or a refused renewal's, every
+    /// provider's flow and the start's seed of the signed-in servers, at `close` or when the
+    /// service drops.
     pub(super) revocations: DropGuard,
 }
 
@@ -282,19 +248,12 @@ impl SignInAttempt {
 #[error("the daemon is stopping, so no sign-in opens")]
 pub(super) struct SignInServiceClosed;
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start and the sign-in handlers call it"
-    )
-)]
 impl SignInService {
     /// The service over `custody`, `admitted_clients` and the OAuth `pools`, offering the relay's
     /// client metadata document when `relay` holds the relay's address, signing in through the
     /// own clients of `providers`' drivers where the server does not admit the daemon's, and
     /// appending each settled sign-in's completion event through `events`.
-    pub(crate) fn new(
+    pub fn new(
         custody: Arc<SignInCustody>,
         admitted_clients: Arc<AdmittedClientStore>,
         providers: Arc<ProviderRegistry>,
@@ -591,11 +550,33 @@ impl SignInService {
         Ok(browser_url)
     }
 
-    /// Ends every open attempt, every provider's flow and every revocation still running for the
-    /// daemon's stop, each attempt closing its listener and appending nothing, and opens none
-    /// after. A mark that does not keep is logged, since the stop goes on.
-    #[cfg_attr(test, expect(dead_code, reason = "the daemon's stop calls it"))]
-    pub(crate) async fn close(&self) {
+    /// Marks signed in, on a task that `close` or the service's drop ends, every server the
+    /// keychain files a sign-in for, so a keychain call waiting on a prompt never holds the caller.
+    /// A keychain that refuses to list them is logged, and the servers are marked as each is next
+    /// signed in or out.
+    pub fn start_signed_in_seed(&self) {
+        let custody = Arc::clone(&self.custody);
+        let stop = self.revocations.token().clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                () = stop.cancelled() => {}
+                seeded = custody.seed_signed_in() => {
+                    if let Err(refusal) = seeded {
+                        tracing::warn!(
+                            error = &refusal as &(dyn std::error::Error + 'static),
+                            "the MCP sign-ins in the keychain were not listed, so none is marked \
+                             signed in"
+                        );
+                    }
+                }
+            }
+        });
+    }
+
+    /// Ends every open attempt, every provider's flow, every revocation still running and the
+    /// start's seed for the daemon's stop, each attempt closing its listener and appending
+    /// nothing, and opens none after. A mark that does not keep is logged, since the stop goes on.
+    pub async fn close(&self) {
         self.revocations.token().cancel();
         let ended: Vec<SignInAttempt> = {
             let mut attempts = lock(&self.attempts);

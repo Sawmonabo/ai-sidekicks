@@ -1,8 +1,9 @@
 //! What the daemon's start builds over its store, its providers and its repository services for the
-//! serving socket: the MCP services, the session directory's port, the session services, the
-//! terminals' table, the project and clone services, the worktree creator and its setup card, the
-//! workspace services, the recovery services and the stored data's methods, then every method
-//! table registered over them; it hands back the parts the start runs next and the stop ends.
+//! serving socket: the MCP services, the session directory's port, the session services, the MCP
+//! server sign-ins, the terminals' table, the project and clone services, the worktree creator and
+//! its setup card, the workspace services, the recovery services and the stored data's methods,
+//! then every method table registered over them; it hands back the parts the start runs next and
+//! the stop ends.
 
 pub(crate) mod error;
 mod mcp;
@@ -29,6 +30,7 @@ use sidekicks_mcp::client::McpClient;
 use sidekicks_mcp::client::dispatch::McpToolDispatch;
 use sidekicks_mcp::inventory_service::McpInventoryService;
 use sidekicks_mcp::mutation::service::McpMutationService;
+use sidekicks_mcp::sign_in::service::SignInService;
 use sidekicks_platforms::{
     DaemonRunFolder, Spawner, TOOL_MEMORY_CAP_ENFORCEABLE, WallClock, available_memory,
     physical_memory, read_process_peak_bytes,
@@ -90,7 +92,9 @@ use crate::daemon::machine_settings::methods::{
 };
 use crate::daemon::process::database::DatabaseFile;
 use crate::daemon::process::method_inputs::error::MethodInputsError;
-use crate::daemon::process::method_inputs::mcp::{McpGovernanceStart, open_mcp_status};
+use crate::daemon::process::method_inputs::mcp::{
+    McpGovernanceStart, McpSignInStart, build_sign_ins, open_mcp_status,
+};
 use crate::daemon::process::method_inputs::recovery::{
     RecoveryServiceStart, RecoveryServices, build_recovery_services,
 };
@@ -247,6 +251,8 @@ pub(crate) struct MethodInputs {
     /// The MCP binding edits' service, whose pass over the edits a stop left unfinished the start
     /// requests.
     pub(crate) mcp_mutations: Arc<McpMutationService>,
+    /// The MCP server sign-ins, whose open attempts the stop closes.
+    pub(crate) mcp_sign_ins: Arc<SignInService>,
     /// The provider accounts' background observer, started once the recovery pass has run.
     pub(crate) provider_accounts: ProviderAccountObservation,
     /// The daemon's one client of the sessions' tool servers, which the stop stops.
@@ -441,6 +447,19 @@ pub(crate) async fn register_method_inputs(
         mcp_status: Arc::clone(&mcp.status),
         mcp_first_observations: mcp.first_observations,
     })?;
+    let mcp_sign_ins = build_sign_ins(&McpSignInStart {
+        providers: &registry,
+        inventory: &mcp_inventory,
+        mutations: &mcp_mutations,
+        provider_accounts: &providers.ports.provider_accounts,
+        settings: &settings_reader,
+        projects: &port.project_records,
+        secret_items: &secret_items,
+        writer: &writer,
+        reads: &reads,
+        appender: &session.appender,
+    })
+    .map_err(MethodInputsError::McpSignInPools)?;
     let accounts = build_provider_account_plane(ProviderAccountPlaneStart {
         reads: Arc::clone(&reads),
         writer: Arc::clone(&writer),
@@ -739,6 +758,7 @@ pub(crate) async fn register_method_inputs(
                 board: mcp.board,
                 inventory: Arc::clone(&mcp_inventory),
                 mutations: Arc::clone(&mcp_mutations),
+                sign_ins: mcp_sign_ins.commands,
             },
             run_safety_holds: Arc::clone(&session.run_safety_holds),
             sessions: Arc::clone(&session.sessions),
@@ -820,6 +840,7 @@ pub(crate) async fn register_method_inputs(
         workspace_work: workspace.work,
         mcp_inventory,
         mcp_mutations,
+        mcp_sign_ins: mcp_sign_ins.service,
         provider_accounts: accounts.observation,
         mcp_client,
     })

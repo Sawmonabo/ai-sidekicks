@@ -24,14 +24,7 @@ use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use crate::sign_in::canonical_server_address;
 
 /// The statements the store's reads run: the server's row.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start adds it to the read pool's statement set"
-    )
-)]
-pub(crate) const MCP_ADMITTED_CLIENT_STATEMENT_CAPACITY: usize = 1;
+pub const MCP_ADMITTED_CLIENT_STATEMENT_CAPACITY: usize = 1;
 
 const SELECT_ADMITTED_CLIENT_SQL: &str =
     "SELECT admitted_oauth_client, own_client_unfinished_at IS NOT NULL
@@ -93,22 +86,14 @@ struct StoredProviderIdInvalid;
 
 /// Holds each server's admitted client in `mcp_server_admitted_clients`, reading through the
 /// daemon's read pool and writing through its writer, keyed by the server's canonical address.
-pub(crate) struct AdmittedClientStore {
+pub struct AdmittedClientStore {
     pool: Arc<DatabaseReadPool>,
     writer: Arc<DatabaseWriter>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds the store and the sign-in records each attempt's end \
-                  in it"
-    )
-)]
 impl AdmittedClientStore {
     /// The store reading through `pool` and writing through `writer`.
-    pub(crate) fn new(pool: Arc<DatabaseReadPool>, writer: Arc<DatabaseWriter>) -> Self {
+    pub fn new(pool: Arc<DatabaseReadPool>, writer: Arc<DatabaseWriter>) -> Self {
         Self { pool, writer }
     }
 

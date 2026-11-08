@@ -36,14 +36,7 @@ use crate::sign_in::service::{
 /// What a sign-in's target is read from: the inventory's declarations, the providers' drivers,
 /// whose reads give the whole address, the provider accounts, and the machine's settings and the
 /// projects, whose environment rows fill the address's variables.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds the sign-in commands that read it"
-    )
-)]
-pub(crate) struct SignInTargetReads {
+pub struct SignInTargetReads {
     inventory: Arc<McpInventoryService>,
     providers: Arc<ProviderRegistry>,
     provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
@@ -53,13 +46,6 @@ pub(crate) struct SignInTargetReads {
 
 /// A sign-in's target as read: the target, the scopes its entry asks for and the account each
 /// provider's flow runs for.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds the sign-in commands that read it"
-    )
-)]
 pub(crate) struct SignInTargetRead {
     /// The binding and how its server is reached.
     pub(crate) target: SignInTarget,
@@ -69,17 +55,10 @@ pub(crate) struct SignInTargetRead {
     pub(crate) provider_accounts: ProviderAccounts,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds the sign-in commands that read it"
-    )
-)]
 impl SignInTargetReads {
     /// The reads over `inventory`, the drivers of `providers`, the accounts reader
     /// `provider_accounts` holds, the settings `machine_settings` reads and the `projects`.
-    pub(crate) fn new(
+    pub fn new(
         inventory: Arc<McpInventoryService>,
         providers: Arc<ProviderRegistry>,
         provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,

@@ -1,7 +1,8 @@
 //! The MCP services the start builds: first, over the store, the binding store with the drain
 //! that records each binding first observed, the notice board, the attribution table, the status
 //! tracker and the composer of a session's tool servers; then, over the project records, the
-//! inventory and the binding edits' service.
+//! inventory and the binding edits' service; last, over the session events' appender, the
+//! sign-in service and the sign-in commands.
 
 use std::sync::Arc;
 
@@ -12,15 +13,26 @@ use sidekicks_mcp::binding::session_tool_servers::McpSessionToolServers;
 use sidekicks_mcp::binding::store::{McpBindingStore, open_first_observation_drain};
 use sidekicks_mcp::inventory_service::{McpInventoryService, McpInventorySources};
 use sidekicks_mcp::mutation::service::{McpMutationService, McpMutationSources};
+use sidekicks_mcp::sign_in::admitted_client::AdmittedClientStore;
+use sidekicks_mcp::sign_in::commands::McpSignInCommands;
+use sidekicks_mcp::sign_in::credential_store::SignInCustody;
+use sidekicks_mcp::sign_in::oauth_http_client::OAuthHttpPools;
+use sidekicks_mcp::sign_in::registration::RELAY_ADDRESS;
+use sidekicks_mcp::sign_in::service::SignInService;
+use sidekicks_mcp::sign_in::target::SignInTargetReads;
 use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_mcp::status::machine_probe::McpMachineProbeGate;
 use sidekicks_mcp::status::notices::McpNoticeBoard;
+use sidekicks_provider::driver::ProviderAccountReader;
 use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::credential_store::items::SecretItems;
 use sidekicks_store::credential_store::service::KeychainService;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::DatabaseWriter;
+use sidekicks_store::events::session::appender::SessionEventAppender;
+use sidekicks_workspace::machine_settings::MachineSettingsReader;
 use sidekicks_workspace::project::records::ProjectRecords;
 
 /// The MCP services the session directory's port, the session services and the methods share.
@@ -104,4 +116,74 @@ impl McpStatusServices {
         }));
         (inventory, mutations)
     }
+}
+
+/// What the sign-ins to MCP servers are built over, beside the inventory and the binding edits'
+/// service.
+pub(super) struct McpSignInStart<'start> {
+    /// The registered drivers, whose own clients sign in where the daemon's cannot.
+    pub(super) providers: &'start Arc<ProviderRegistry>,
+    /// The inventory a sign-in's target is read from.
+    pub(super) inventory: &'start Arc<McpInventoryService>,
+    /// The binding edits' service, whose receipts each sign-in and sign-out press runs under.
+    pub(super) mutations: &'start Arc<McpMutationService>,
+    /// The port the provider accounts' reader is registered on.
+    pub(super) provider_accounts: &'start Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
+    /// The machine's settings, whose environment rows fill a server address's variables.
+    pub(super) settings: &'start Arc<dyn MachineSettingsReader>,
+    /// The project records, whose roots and rows a target reads.
+    pub(super) projects: &'start Arc<ProjectRecords>,
+    /// Where the sign-ins are kept.
+    pub(super) secret_items: &'start Arc<SecretItems>,
+    /// The daemon's one writer.
+    pub(super) writer: &'start Arc<DatabaseWriter>,
+    /// The daemon's one read pool.
+    pub(super) reads: &'start Arc<DatabaseReadPool>,
+    /// Where each settled sign-in appends its completion event.
+    pub(super) appender: &'start Arc<SessionEventAppender>,
+}
+
+/// The sign-ins to MCP servers: the service the stop closes and the commands the methods forward
+/// to.
+pub(super) struct McpSignIns {
+    /// The service, which holds each open attempt.
+    pub(super) service: Arc<SignInService>,
+    /// The receipted sign-in and sign-out commands.
+    pub(super) commands: Arc<McpSignInCommands>,
+}
+
+/// Builds the sign-in service and its commands over `start`, and starts the service's seed of the
+/// signed-in servers from the keychain. Fails when the sign-ins' HTTP pools cannot be built.
+pub(super) fn build_sign_ins(start: &McpSignInStart<'_>) -> Result<McpSignIns, reqwest::Error> {
+    let custody = SignInCustody::new(Arc::new(
+        start.secret_items.keychain(KeychainService::McpSignIns),
+    ));
+    let admitted_clients = Arc::new(AdmittedClientStore::new(
+        Arc::clone(start.reads),
+        Arc::clone(start.writer),
+    ));
+    let service = SignInService::new(
+        custody,
+        admitted_clients,
+        Arc::clone(start.providers),
+        OAuthHttpPools::new()?,
+        &RELAY_ADDRESS,
+        Arc::clone(start.appender),
+    );
+    service.start_signed_in_seed();
+    let targets = SignInTargetReads::new(
+        Arc::clone(start.inventory),
+        Arc::clone(start.providers),
+        Arc::clone(start.provider_accounts),
+        Arc::clone(start.settings),
+        Arc::clone(start.projects),
+    );
+    Ok(McpSignIns {
+        commands: Arc::new(McpSignInCommands::new(
+            Arc::clone(start.mutations),
+            Arc::clone(&service),
+            targets,
+        )),
+        service,
+    })
 }

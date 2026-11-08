@@ -74,13 +74,6 @@ enum RevocationError {
     TimedOut,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds them and its handlers call them"
-    )
-)]
 impl SignInService {
     /// Signs out of `target`'s server at once, a renewal under way or not: forgets its sign-in,
     /// ends its waiting attempt or provider's flow and marks it signed out, then revokes its

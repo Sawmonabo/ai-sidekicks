@@ -1,8 +1,10 @@
+use std::collections::BTreeSet;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use reqwest::Url;
 use rstest::rstest;
+use secrecy::SecretString;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -13,6 +15,7 @@ use super::{
     SignInTarget, named_metadata_scopes,
 };
 use crate::errors::{McpRefusal, SignInLaunchError, SignInUnsupportedReason};
+use crate::sign_in::canonical_server_address;
 use crate::sign_in::test_service::{
     FakeServerAnswers, Harness, NAMED_METADATA_PATH, addressed_target, harness, launch_to_browser,
     provider, serve_authorization_server, server_name,
@@ -163,6 +166,82 @@ async fn a_press_after_an_attempt_ran_out_reaches_the_own_client_where_no_provid
             .await
             .expect("the admitted client reads"),
         None
+    );
+}
+
+/// The daemon's stop ends a waiting attempt: its port is free to bind again, the daemon's own
+/// client is marked unfinished, nothing is appended, and a launch after it keeps no attempt.
+/// Killed by a close that leaves the listener open (the bind fails), by a completion appended at
+/// the close, and by a launch after the close that keeps its attempt.
+#[tokio::test]
+async fn a_closed_service_frees_its_attempts_port_and_opens_no_attempt_after() {
+    let server = serve_authorization_server(FakeServerAnswers::default()).await;
+    let harness = harness().await;
+    let target = addressed_target(&server.base);
+    let port = receiver_port(&launch_to_browser(&harness, &target).await);
+
+    harness.service.close().await;
+
+    drop(
+        tokio::net::TcpListener::bind(("127.0.0.1", port))
+            .await
+            .expect("the attempt's port is free again"),
+    );
+    let address = McpServerAddress::new(&server.base).expect("a server address");
+    assert!(is_marked_unfinished(&harness, &address).await);
+    assert_eq!(harness.completions(), Vec::<serde_json::Value>::new());
+    let refusal = harness
+        .service
+        .launch(&target, &[], &ProviderAccounts::new())
+        .await;
+    assert!(matches!(
+        refusal,
+        Err(SignInLaunchError::Refused(
+            McpRefusal::ServerSignInFailed { .. }
+        ))
+    ));
+    assert!(super::lock(&harness.service.attempts).by_address.is_empty());
+}
+
+/// The start's seed marks signed in each server the keychain files a sign-in for that this daemon
+/// life has not read yet, and leaves a server already read as its read found it, so a seed that
+/// ends after a sign-out never undoes it. Killed by a seed that marks nothing, and by one that
+/// marks a server already read.
+#[tokio::test]
+async fn the_seed_marks_only_the_filed_servers_this_life_has_not_read() {
+    let harness = harness().await;
+    let unread = McpServerAddress::new("https://unread.example.test/mcp").expect("an address");
+    let read = McpServerAddress::new("https://read.example.test/mcp").expect("an address");
+    // Read while the keychain held nothing for it, as a sign-out leaves it, and filed after.
+    let held = harness
+        .service
+        .custody
+        .credential_store(&read)
+        .held()
+        .await
+        .expect("the keychain reads");
+    assert!(held.is_none());
+    for address in [&unread, &read] {
+        harness
+            .keychain
+            .write(
+                &canonical_server_address(address),
+                &SecretString::from("not read by the seed".to_owned()),
+            )
+            .await
+            .expect("the keychain keeps the item");
+    }
+
+    harness
+        .service
+        .custody
+        .seed_signed_in()
+        .await
+        .expect("the keychain lists its items");
+
+    assert_eq!(
+        *harness.service.custody.signed_in_addresses().borrow(),
+        BTreeSet::from([canonical_server_address(&unread)])
     );
 }
 

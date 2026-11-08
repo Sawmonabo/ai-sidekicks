@@ -166,13 +166,6 @@ enum McpReceiptOperation {
     /// A governance mutation.
     Mutation(McpOperation),
     /// A sign-in or sign-out command.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the mcp.server.signIn and mcp.server.signOut commands run through it"
-        )
-    )]
     Command(McpCommand),
 }
 

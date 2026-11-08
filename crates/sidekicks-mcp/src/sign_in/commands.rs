@@ -18,30 +18,16 @@ use crate::sign_in::service::SignInService;
 use crate::sign_in::target::SignInTargetReads;
 
 /// The receipted sign-in and sign-out commands the daemon's handlers forward to.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds them and its handlers call them"
-    )
-)]
-pub(crate) struct McpSignInCommands {
+pub struct McpSignInCommands {
     mutations: Arc<McpMutationService>,
     sign_ins: Arc<SignInService>,
     targets: SignInTargetReads,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds them and its handlers call them"
-    )
-)]
 impl McpSignInCommands {
     /// The commands over the receipts of `mutations`, the launches of `sign_ins` and the target
     /// reads `targets`.
-    pub(crate) fn new(
+    pub fn new(
         mutations: Arc<McpMutationService>,
         sign_ins: Arc<SignInService>,
         targets: SignInTargetReads,
@@ -56,7 +42,7 @@ impl McpSignInCommands {
     /// Starts a sign-in to `request`'s binding once per key, answering the sign-in page's address,
     /// and a retry under the key with the acknowledgment alone. Refuses as the receipt, the target
     /// read and the launch refuse.
-    pub(crate) async fn sign_in(
+    pub async fn sign_in(
         &self,
         request: McpServerSignInRequest,
     ) -> Result<McpServerSignInResponse, HandlerError> {
@@ -92,7 +78,7 @@ impl McpSignInCommands {
     /// retry under the key with the same answer. Refuses as the receipt and the target read
     /// refuse, `mcp.server.signInUnsupported` for a binding no sign-in reaches, and
     /// `mcp.server.signOutFailed` when the keychain keeps the sign-in.
-    pub(crate) async fn sign_out(
+    pub async fn sign_out(
         &self,
         request: McpServerSignOutRequest,
     ) -> Result<EmptyPayload, HandlerError> {

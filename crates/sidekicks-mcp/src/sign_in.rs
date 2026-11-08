@@ -7,18 +7,18 @@
 //! renews its token on each request, and the sign-out that forgets and revokes it; the target
 //! read from a binding, and the receipted sign-in command the daemon's handler forwards to.
 
-pub(crate) mod admitted_client;
+pub mod admitted_client;
 pub(crate) mod authorizer;
-pub(crate) mod commands;
+pub mod commands;
 pub(crate) mod completion_event;
-pub(crate) mod credential_store;
-pub(crate) mod oauth_http_client;
+pub mod credential_store;
+pub mod oauth_http_client;
 pub(crate) mod provider_flow;
 pub(crate) mod redemption;
 pub mod registration;
-pub(crate) mod service;
+pub mod service;
 pub(crate) mod sign_out;
-pub(crate) mod target;
+pub mod target;
 #[cfg(test)]
 mod test_service;
 

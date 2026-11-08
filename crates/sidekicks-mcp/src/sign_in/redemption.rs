@@ -12,15 +12,6 @@
 //!   sent to its result page; the attempt, and with it the listener, goes once that page has been
 //!   served.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds the sign-in service whose launch hands the receiver \
-                  its owner"
-    )
-)]
-
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 

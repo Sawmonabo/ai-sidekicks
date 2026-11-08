@@ -44,13 +44,6 @@ impl McpCommand {
 
 /// What a command answers: the response it serves now, and the one its receipt saves for a retry
 /// under the same key, which leaves out what must never be stored.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the mcp.server.signIn and mcp.server.signOut commands run through it"
-    )
-)]
 pub(crate) struct McpCommandAnswer {
     /// The response, as it goes on the wire.
     pub(crate) served: Value,
@@ -66,13 +59,6 @@ impl McpMutationService {
     /// receipt key cannot be used, a commit failing after `act` leaving the receipt `pending`; a
     /// refusal `act` answers is saved, while a fault or a cancel expires the receipt and passes
     /// through.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the mcp.server.signIn and mcp.server.signOut commands run through it"
-        )
-    )]
     pub(crate) async fn run_command<Act, ActFuture>(
         &self,
         command: McpCommand,

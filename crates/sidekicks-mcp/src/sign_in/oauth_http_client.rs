@@ -80,39 +80,17 @@ const PROXY_VARIABLES: [&str; 6] = [
 
 /// The three filtered pools every sign-in's OAuth calls share, one per reach a server's address
 /// allows, each resolving names through the filter and following no redirect itself.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds the one set the sign-ins share"
-    )
-)]
 #[derive(Clone)]
-pub(crate) struct OAuthHttpPools {
+pub struct OAuthHttpPools {
     public: reqwest::Client,
     loopback: reqwest::Client,
     private: reqwest::Client,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds the pools and the sign-in's launch takes a client \
-                  from them for each manager"
-    )
-)]
 impl OAuthHttpPools {
     /// The pools over the system's resolver, leaving the hosts of the environment's proxies
     /// unfiltered. Fails when reqwest cannot build a pool.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start builds the one set the sign-ins share"
-        )
-    )]
-    pub(crate) fn new() -> Result<Self, reqwest::Error> {
+    pub fn new() -> Result<Self, reqwest::Error> {
         let proxy_hosts: Arc<[String]> = PROXY_VARIABLES
             .iter()
             .filter_map(|variable| std::env::var(variable).ok())
@@ -250,14 +228,6 @@ pub(crate) enum OAuthCallError {
     Send(#[from] DpopSendError),
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the sign-in's launch fills the key slot and sends the pushed authorization \
-                  request"
-    )
-)]
 impl ServerOAuthHttpClient {
     /// Signs the server's token, pushed authorization and revocation requests with `dpop_key` from
     /// now on, or none of them for a bearer sign-in.

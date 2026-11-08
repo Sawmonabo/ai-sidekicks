@@ -23,14 +23,6 @@
 //!   that the daemon's own client did not finish, so the next press reaches the own client again,
 //!   and appends its failure.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the mcp.server.signIn handler launches the sign-in that runs a provider's flow"
-    )
-)]
-
 use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};

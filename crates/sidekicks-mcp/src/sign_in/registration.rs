@@ -67,10 +67,6 @@ impl RelayAddress {
 /// What a sign-in asks of its client: the server, the redirect address its receiver listens on
 /// (an owner-issued one or the daemon's loopback one), the client the server's owner issued for
 /// it, if any, and the scopes it asks for.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the sign-in's launch asks for its client with it")
-)]
 pub(crate) struct ClientRequest<'a> {
     /// The server signed in to.
     pub(crate) server_address: &'a McpServerAddress,
@@ -85,10 +81,6 @@ pub(crate) struct ClientRequest<'a> {
 /// The client a sign-in goes through, or why the daemon's own cannot: what the launch and the
 /// provider's flow act on.
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the sign-in's launch acts on it")
-)]
 pub(crate) enum SignInClient {
     /// The daemon's own client, configured on the manager; the launch builds the authorization
     /// address from it.
@@ -122,10 +114,6 @@ pub(crate) enum SignInClient {
 /// authorization server's, and `is_published` says whether the server published it (discovered,
 /// or read at the address its entry names) rather than rmcp making its endpoints up. The relay's
 /// client metadata document is offered only when `relay` holds the relay's address.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the sign-in's launch picks its client through it")
-)]
 pub(crate) async fn choose_client(
     request: &ClientRequest<'_>,
     admitted_clients: &AdmittedClientStore,
@@ -197,13 +185,6 @@ pub(crate) async fn choose_client(
 /// What a refusal of the pushed authorization request means for the sign-in: the server does
 /// not admit the daemon's own client (`invalid_client`, `unauthorized_client`), so a provider's
 /// flow signs in; any other refusal failed it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the sign-in's launch reads a refused pushed authorization request through it"
-    )
-)]
 pub(crate) fn classify_pushed_authorization_refusal(
     refusal: PushedAuthorizationRefusal,
 ) -> SignInClient {
