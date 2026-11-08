@@ -21,11 +21,14 @@ use tokio_util::sync::CancellationToken;
 
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
 use crate::driver::codex::session::side_questions::copy_turn::SessionUsageFiling;
-use crate::driver::codex::telemetry::completed_response::read_codex_completed_responses;
+use crate::driver::codex::telemetry::completed_response::{
+    RecordRefusal, read_codex_completed_responses,
+};
 use crate::driver::codex::telemetry::copy_threads::CodexEndedCopy;
 use crate::driver::codex::telemetry::drain::{CodexExportDrain, CodexExportItem};
 use crate::driver::codex::telemetry::placement::{CodexLaunchPlacement, CodexReviewWindow};
 use crate::pricing::export_status::ExportStatusTracker;
+use crate::pricing::receiver::bearers::TelemetryHolderId;
 use crate::pricing::receiver::{TelemetryExport, TelemetryExportReader};
 use crate::usage_delta_accountant::UsageAxisCounts;
 
@@ -52,6 +55,11 @@ impl CodexExportTag {
     /// SDK splits the variable on `,` and each pair at its first `=`, and a number holds neither.
     pub(crate) fn resource_attributes(&self) -> String {
         format!("{SERVICE_TAG_KEY}={}", self.0)
+    }
+
+    /// The holder the launch's telemetry token is minted for, named by the tag's number.
+    pub(crate) fn holder(&self) -> TelemetryHolderId {
+        TelemetryHolderId::new(self.0)
     }
 }
 
@@ -289,8 +297,8 @@ impl CodexExports {
             .collect()
     }
 
-    // Every launch's service and placement state, taken out of the register's lock.
-    fn placements(&self) -> Vec<(Weak<CodexService>, Arc<Mutex<CodexLaunchPlacement>>)> {
+    /// Every launch's service and placement state, taken out of the register's lock.
+    pub(super) fn placements(&self) -> Vec<(Weak<CodexService>, Arc<Mutex<CodexLaunchPlacement>>)> {
         lock(&self.launches)
             .by_tag
             .values()
@@ -310,11 +318,12 @@ impl CodexExports {
             .map(|launch| Arc::clone(&launch.placement))
     }
 
-    // Marks the launch whose tag `resource_logs` carries as exporting and hands each completed
-    // response its records state to the drain; a resource with no tag, an unreadable one or one
-    // no live launch holds is logged with its text, and one whose service is gone with its count.
-    fn read_resource_logs(&self, resource_logs: &ResourceLogs) {
-        let text = resource_logs
+    // Marks `holder`'s launch, whose token the export presented, as exporting and hands each
+    // completed response `resource_logs` states to the drain. A resource whose tag is absent,
+    // unreadable or names another launch is dropped and counted once under the holder's account;
+    // a holder whose launch was replaced is logged, and one whose service is gone with its count.
+    fn read_resource_logs(&self, holder: TelemetryHolderId, resource_logs: &ResourceLogs) {
+        let tag = resource_logs
             .resource
             .iter()
             .flat_map(|resource| &resource.attributes)
@@ -326,22 +335,40 @@ impl CodexExports {
                 } else {
                     None
                 }
-            });
-        let launch = text
-            .and_then(|text| text.parse::<u64>().ok())
-            .and_then(|tag| {
-                lock(&self.launches).by_tag.get_mut(&tag).map(|launch| {
-                    launch.exports_read += 1;
-                    (
-                        Arc::clone(&launch.tracker),
-                        Weak::clone(&launch.service),
-                        Arc::downgrade(&launch.placement),
-                        launch.exports_read,
-                    )
-                })
+            })
+            .and_then(|text| text.parse::<u64>().ok());
+        if tag != Some(holder.number()) {
+            let service = lock(&self.launches)
+                .by_tag
+                .get(&holder.number())
+                .map(|launch| Weak::clone(&launch.service));
+            let provider_account_id = service
+                .and_then(|service| service.upgrade())
+                .and_then(|service| service.provider_account_id());
+            RecordRefusal {
+                field: SERVICE_TAG_KEY,
+                reason: "its resource names no launch its token was minted for",
+            }
+            .report(provider_account_id.as_ref());
+            return;
+        }
+        let launch = lock(&self.launches)
+            .by_tag
+            .get_mut(&holder.number())
+            .map(|launch| {
+                launch.exports_read += 1;
+                (
+                    Arc::clone(&launch.tracker),
+                    Weak::clone(&launch.service),
+                    Arc::downgrade(&launch.placement),
+                    launch.exports_read,
+                )
             });
         let Some((tracker, service, placement, export_number)) = launch else {
-            tracing::info!(tag = ?text, "a codex export names no launch the daemon holds");
+            tracing::info!(
+                tag = holder.number(),
+                "a codex export's launch was replaced; its records are dropped"
+            );
             return;
         };
         tracker.export_arrived();
@@ -422,11 +449,15 @@ impl Drop for CodexCopyThreadRead {
 }
 
 impl TelemetryExportReader for CodexExports {
-    fn read_telemetry_export(&self, export: TelemetryExport) -> BoxFuture<'_, ()> {
+    fn read_telemetry_export(
+        &self,
+        holder: TelemetryHolderId,
+        export: TelemetryExport,
+    ) -> BoxFuture<'_, ()> {
         match export {
             TelemetryExport::Logs(request) => {
                 for resource_logs in &request.resource_logs {
-                    self.read_resource_logs(resource_logs);
+                    self.read_resource_logs(holder, resource_logs);
                 }
             }
             // Every launch sets Codex's trace exporter off.

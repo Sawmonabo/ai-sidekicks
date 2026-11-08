@@ -156,6 +156,7 @@ impl ClaudeShortProcess {
                     provider_session_id: mint_uuid_v7().to_string(),
                     account: ClaudeProcessAccount::new(provider_account_id),
                     token,
+                    telemetry_target: None,
                 },
                 listener,
                 None,

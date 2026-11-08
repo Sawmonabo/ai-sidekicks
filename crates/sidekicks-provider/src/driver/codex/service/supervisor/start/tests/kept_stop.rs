@@ -43,6 +43,7 @@ use crate::driver::codex::service::supervisor::test_service::{
     bind_test_listener, test_codex_service_dependencies, write_failing_codex,
 };
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceSocket};
+use crate::pricing::receiver::bearers::TelemetryBearer;
 use crate::spawned_version::ResolvedProviderExecutable;
 
 // Fails when the erase's end of a recorded service that is gone leaves the home's link naming the
@@ -245,7 +246,7 @@ async fn a_daemon_stop_of_kept_records_leaves_a_live_service_s_record_to_its_sup
 struct BesideLaunch {
     service: Arc<CodexService>,
     // Taken by the one launch the set-up is for.
-    process_launch: Option<CodexProcessLaunch>,
+    process_launch: Option<(CodexProcessLaunch, Option<TelemetryBearer>)>,
     executable: ResolvedProviderExecutable,
     log_file: PathBuf,
     own_socket: PathBuf,

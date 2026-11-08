@@ -1,5 +1,6 @@
-//! The secret a loopback client the daemon started presents: minted at each start and checked on
-//! every request or connection, so only the process the daemon handed it to reaches the endpoint.
+//! The secret a loopback client the daemon started presents: minted at each start for the exec
+//! relay, and for each provider process or launch that exports telemetry, and checked on every
+//! request or connection, so only the process the daemon handed it to reaches the endpoint.
 
 use sidekicks_std::random_hex::random_hex;
 use subtle::ConstantTimeEq as _;
@@ -11,7 +12,7 @@ const TOKEN_BYTES: usize = 32;
 /// What opens the header value a client presents its token in.
 pub(crate) const BEARER_PREFIX: &str = "Bearer ";
 
-/// One start's token.
+/// One token: a start's, or one provider process's or launch's.
 pub struct BearerToken(Zeroizing<String>);
 
 impl BearerToken {

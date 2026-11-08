@@ -1,8 +1,8 @@
 //! The telemetry switches each Codex process the daemon launches carries for its kind of home: a
-//! service running the daemon's sessions exports its logs to the daemon's receiver with the
-//! token and its launch's tag, every exporter off on a read service, on the executor, on the calibration run and on a
-//! short command on a home of the daemon's own, and nothing on the person's own folder's terminal
-//! service or short commands, which keep the person's own settings.
+//! service running the daemon's sessions exports its logs to the daemon's receiver with its
+//! launch's own token and tag, every exporter off on a read service, on the executor, on the
+//! calibration run and on a short command on a home of the daemon's own, and nothing on the
+//! person's own folder's terminal service or short commands, which keep the person's own settings.
 
 use serde_json::json;
 
@@ -10,6 +10,7 @@ use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::service::command_line::write_config_override;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceKind};
 use crate::driver::codex::telemetry::exports::CodexExportTag;
+use crate::pricing::receiver::bearers::TelemetryBearer;
 use crate::pricing::receiver::{LOGS_PATH_SUFFIX, TelemetryTarget};
 
 /// The log exporter's key, set to the daemon's receiver.
@@ -53,30 +54,37 @@ pub(crate) struct TelemetrySwitches {
     pub(crate) config_overrides: Vec<String>,
     /// The environment pairs set on the process, past the withhold of the person's settings.
     pub(crate) environment: Vec<(String, String)>,
+    /// The guard of the launch's own token where it exports to the daemon, which the launch's
+    /// process keeps until it ends.
+    pub(crate) bearer: Option<TelemetryBearer>,
 }
 
 /// The switches a service of `service_kind` on a home of `home_kind` launches with: the daemon's
-/// export, its token and the launch's `tag` where the daemon's sessions run and `target` is
-/// registered, every exporter off on a read service and before `target` is registered, and none
-/// on the person's own folder's terminal service.
+/// export, the launch's own token minted for `tag` and the tag itself where the daemon's sessions
+/// run and `target` is registered, every exporter off on a read service and before `target` is
+/// registered, and none on the person's own folder's terminal service. Fails when the token
+/// cannot be minted.
 pub(crate) fn compose_telemetry_switches(
     home_kind: &CodexHomeKind,
     service_kind: CodexServiceKind,
     target: Option<&TelemetryTarget>,
     tag: &CodexExportTag,
-) -> TelemetrySwitches {
+) -> Result<TelemetrySwitches, getrandom::Error> {
     match home_kind {
         CodexHomeKind::Account(_) | CodexHomeKind::ApiKeyAccount(_) | CodexHomeKind::Switching => {
-            target.map_or_else(exporters_off, |target| compose_daemon_export(target, tag))
+            target.map_or_else(
+                || Ok(exporters_off()),
+                |target| compose_daemon_export(target, tag),
+            )
         }
         CodexHomeKind::CapabilityRead
         | CodexHomeKind::McpSignIn
-        | CodexHomeKind::TokenStatusRead => exporters_off(),
-        CodexHomeKind::PersonalFolder => match service_kind {
+        | CodexHomeKind::TokenStatusRead => Ok(exporters_off()),
+        CodexHomeKind::PersonalFolder => Ok(match service_kind {
             // A read's transient service on the folder.
             CodexServiceKind::Account => exporters_off(),
             CodexServiceKind::Terminal | CodexServiceKind::Joined => TelemetrySwitches::default(),
-        },
+        }),
     }
 }
 
@@ -95,8 +103,15 @@ pub(crate) fn compose_command_telemetry_switches(home_kind: &CodexHomeKind) -> V
 }
 
 // The log export to `target`, with traces, metrics and each record's content off, and the token
-// and the launch's `tag` in the process's environment, the token never on its command line.
-fn compose_daemon_export(target: &TelemetryTarget, tag: &CodexExportTag) -> TelemetrySwitches {
+// minted for the launch's `tag` and the tag itself in the process's environment, the token never
+// on its command line. Fails when the token cannot be minted.
+fn compose_daemon_export(
+    target: &TelemetryTarget,
+    tag: &CodexExportTag,
+) -> Result<TelemetrySwitches, getrandom::Error> {
+    let bearer = target
+        .bearers()
+        .mint(DESCRIPTOR.provider_id(), tag.holder())?;
     let exporter = json!({
         "otlp-http": {
             "endpoint": format!(
@@ -113,22 +128,24 @@ fn compose_daemon_export(target: &TelemetryTarget, tag: &CodexExportTag) -> Tele
             .chain(RECORD_CONTENT_OFF)
             .map(str::to_owned),
     );
-    TelemetrySwitches {
+    Ok(TelemetrySwitches {
         config_overrides,
         environment: vec![
-            (LOGS_HEADERS_VARIABLE.to_owned(), target.exporter_headers()),
+            (LOGS_HEADERS_VARIABLE.to_owned(), bearer.exporter_headers()),
             (
                 RESOURCE_ATTRIBUTES_VARIABLE.to_owned(),
                 tag.resource_attributes(),
             ),
         ],
-    }
+        bearer: Some(bearer),
+    })
 }
 
 fn exporters_off() -> TelemetrySwitches {
     TelemetrySwitches {
         config_overrides: exporters_off_overrides(),
         environment: Vec::new(),
+        bearer: None,
     }
 }
 

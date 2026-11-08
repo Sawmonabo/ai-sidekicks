@@ -28,6 +28,7 @@ use crate::driver::claude::spawn::settings::telemetry_switches::{
     NoOtelHeadersHelper, compose_claude_telemetry_switches,
 };
 use crate::pricing::receiver::TelemetryTarget;
+use crate::pricing::receiver::bearers::TelemetryBearer;
 use crate::run::posture::{CredentialDenyPath, CredentialDenyPathKind};
 
 /// How many days Claude Code keeps a conversation file before cleaning it up: long enough that a
@@ -103,10 +104,14 @@ impl ClaudeSpawnSettings {
         }
     }
 
-    /// Puts the telemetry switches into the document: the export to `target`'s receiver where it
-    /// is registered, every exporter off where it is not, and no exporter headers helper.
-    pub(crate) fn set_telemetry_switches(&mut self, target: Option<&TelemetryTarget>) {
-        self.env.extend(compose_claude_telemetry_switches(target));
+    /// Puts the telemetry switches into the document: the export to the target's receiver under
+    /// the process's own bearer where both are given, every exporter off where they are not, and
+    /// no exporter headers helper.
+    pub(crate) fn set_telemetry_switches(
+        &mut self,
+        export: Option<(&TelemetryTarget, &TelemetryBearer)>,
+    ) {
+        self.env.extend(compose_claude_telemetry_switches(export));
         self.otel_headers_helper = Some(NoOtelHeadersHelper);
     }
 }

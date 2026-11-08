@@ -62,6 +62,7 @@ use crate::driver::codex::version::{
 };
 use crate::driver::contract::params_and_results::DriverCliVersionReport;
 use crate::output_validation::check_cli_version_report;
+use crate::pricing::receiver::bearers::TelemetryBearer;
 use crate::service_log::provider_service_log_file;
 use crate::spawned_version::{
     ResolvedProviderExecutable, SpawnedProviderVersionReading, parse_cli_version_report,
@@ -322,7 +323,8 @@ async fn start_own_child_service(
     cancel: &CancellationToken,
     executable: &ResolvedProviderExecutable,
 ) -> Result<StartedService, StartFailure> {
-    let process_launch = compose_launch(
+    // Its home exports nothing, so the launch carries no token.
+    let (process_launch, _no_bearer) = compose_launch(
         service,
         executable,
         service.launch_config_overrides(),
@@ -400,7 +402,8 @@ pub(super) fn name_lasting_log_file(service: &CodexService) -> Result<PathBuf, S
     Ok(log_file)
 }
 
-/// Launches `process_launch` as a lasting service writing `log_file`, keeps its record under
+/// Launches `process_launch`, with the guard of its own telemetry token where it carries one, as a
+/// lasting service writing `log_file` and keeping that guard, keeps its record under
 /// `locked`, published on `service` first, as launched and, once it answers on `launch_socket`
 /// under the ticket `launch`, with where its socket really is; `cancel` stands the wait down.
 /// Fails as the launch, the connect, the socket's read or a record's write does, a launched
@@ -410,15 +413,20 @@ pub(super) async fn launch_lasting_service(
     service: &Arc<CodexService>,
     launch: u64,
     cancel: &CancellationToken,
-    process_launch: CodexProcessLaunch,
+    process_launch: (CodexProcessLaunch, Option<TelemetryBearer>),
     log_file: &Path,
     locked: &Arc<LockedServiceRecord>,
     launch_socket: &Path,
 ) -> Result<LaunchedLastingService, StartFailure> {
-    let lasting =
-        start_lasting_codex_service(&service.dependencies().spawner, process_launch, log_file)
-            .await
-            .map_err(|error| start_failed("The Codex service could not be started.", error))?;
+    let (process_launch, telemetry_bearer) = process_launch;
+    let lasting = start_lasting_codex_service(
+        &service.dependencies().spawner,
+        process_launch,
+        telemetry_bearer,
+        log_file,
+    )
+    .await
+    .map_err(|error| start_failed("The Codex service could not be started.", error))?;
     let record_file = locked.file().clone();
     // Published before the write, so a daemon stop under way leaves the record to this service.
     let published = PublishedRecordFile::publish(service, record_file.clone());
@@ -619,24 +627,31 @@ pub(super) fn read_service_version(
 }
 
 // The launch of a service on the native program the build runs, with the launcher's variables
-// set, in the dedicated empty working folder. Its home's telemetry switches come first, composed
-// against the telemetry target as registered now and the tag the launch takes from the driver's
-// export register, with their environment pairs set past the withhold; every service carries the privacy choices read now from the person's own Codex folder,
-// last, so they win over any switch before them, whichever home it runs on. Fails as that read
-// does.
+// set, in the dedicated empty working folder, and the guard of the launch's own telemetry token
+// where it exports to the daemon. Its home's telemetry switches come first, composed against the
+// telemetry target as registered now and the tag the launch takes from the driver's export
+// register, with their environment pairs set past the withhold; every service carries the
+// privacy choices read now from the person's own Codex folder, last, so they win over any switch
+// before them, whichever home it runs on. Fails as the token's mint or that read does.
 async fn compose_launch(
     service: &Arc<CodexService>,
     executable: &ResolvedProviderExecutable,
     additional_config_overrides: Vec<String>,
     launch_socket: &Path,
-) -> Result<CodexProcessLaunch, StartFailure> {
+) -> Result<(CodexProcessLaunch, Option<TelemetryBearer>), StartFailure> {
     let target = service
         .dependencies()
         .telemetry_target
         .port()
         .map(Arc::as_ref);
     let tag = service.dependencies().exports.launched(service);
-    let switches = compose_telemetry_switches(&service.home().kind, service.kind(), target, &tag);
+    let switches = compose_telemetry_switches(&service.home().kind, service.kind(), target, &tag)
+        .map_err(|error| {
+        start_failed(
+            "The Codex service's telemetry token could not be minted.",
+            error,
+        )
+    })?;
     let privacy = read_codex_privacy(&service.dependencies().personal_home).await?;
     let mut config_overrides = switches.config_overrides;
     config_overrides.extend(additional_config_overrides);
@@ -652,7 +667,7 @@ async fn compose_launch(
         .await?;
     launch.environment.extend(switches.environment);
     service.set_native_command(Some(command));
-    Ok(launch)
+    Ok((launch, switches.bearer))
 }
 
 /// A launch of the native Codex program, with the command it runs, which a command run beside a

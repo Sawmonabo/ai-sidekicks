@@ -38,6 +38,7 @@ use crate::child_ending::{ChildEnding, ChildEnds};
 use crate::driver::child_records::{
     ChildRecord, ChildSecret, DaemonChildRecords, RecordedChild, spawn_recorded_child,
 };
+use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::driver::claude::session::control_requests::{
     ClaudeAccountMoveMarker, ClaudeControlRequests,
@@ -60,6 +61,8 @@ use crate::driver::claude::spawn::environment::CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VAR
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::driver::claude::spawn::settings::ClaudeSpawnSettings;
 use crate::driver::claude::spawn::settings::private_file::ClaudeSpawnSettingsFile;
+use crate::pricing::receiver::TelemetryTarget;
+use crate::pricing::receiver::bearers::TelemetryHolderId;
 use crate::process_exit::compose_process_exit;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::process_registry::ProviderProcessRegistry;
@@ -97,6 +100,9 @@ pub(crate) struct ClaudeProcessLaunch {
     /// never as a variable; the launcher reads the one sealed for a pasted token's account where
     /// this is `None`.
     pub(crate) token: Option<SecretString>,
+    /// Where the process exports its telemetry, under a token of its own minted at its start;
+    /// `None` before the target is registered, and every exporter is off.
+    pub(crate) telemetry_target: Option<Arc<TelemetryTarget>>,
 }
 
 /// One stream frame the process wrote, with the facts it is routed by.
@@ -145,10 +151,12 @@ pub(crate) struct ClaudeCodeProcess {
 impl ClaudeCodeProcess {
     /// Starts the process on `spawner`'s thread, recorded in `child_records` until its reap and
     /// its spawn counted in `registry`, with its reader handing what it writes to `listener` and
-    /// releasing `turn_holds`' turn at a turn-ending lead `result`. The launch's settings are
+    /// releasing `turn_holds`' turn at a turn-ending lead `result`. The launch's settings, with the
+    /// telemetry switches and the process's own telemetry token minted for its spawn sequence, are
     /// written to a private file in `settings_folder` first, named last on the command line and
-    /// removed at the reap or as the start fails; the launch's token is handed on a pipe the
-    /// process alone inherits. Fails with `SettingsFile` as the file cannot be written, and with
+    /// removed, its token refused with it, at the reap or as the start fails; the launch's token
+    /// is handed on a pipe the process alone inherits. Fails with `TelemetryBearer` as the
+    /// telemetry token cannot be minted, with `SettingsFile` as the file cannot be written, and with
     /// `Spawn` carrying the record's error, the spawn's, the spawner's when its thread has ended,
     /// or `Unsupported` for a token on a system with no such pipe.
     pub(crate) async fn start(
@@ -160,9 +168,34 @@ impl ClaudeCodeProcess {
         listener: Arc<dyn ClaudeProcessListener>,
         turn_holds: Option<ClaudeTurnHolds>,
     ) -> Result<Self, ClaudeLaunchError> {
-        let settings_file = ClaudeSpawnSettingsFile::write(settings_folder, &launch.settings)
-            .await
-            .map_err(ClaudeLaunchError::SettingsFile)?;
+        // Drawn before the settings file, so the token names the process the registry maps.
+        let spawn_sequence = registry.mint_spawn_sequence();
+        let mut settings = launch.settings;
+        let telemetry = launch
+            .telemetry_target
+            .map(|target| {
+                target
+                    .bearers()
+                    .mint(
+                        DESCRIPTOR.provider_id(),
+                        TelemetryHolderId::new(spawn_sequence),
+                    )
+                    .map(|bearer| (target, bearer))
+            })
+            .transpose()
+            .map_err(ClaudeLaunchError::TelemetryBearer)?;
+        settings.set_telemetry_switches(
+            telemetry
+                .as_ref()
+                .map(|(target, bearer)| (target.as_ref(), bearer)),
+        );
+        let settings_file = ClaudeSpawnSettingsFile::write(
+            settings_folder,
+            &settings,
+            telemetry.map(|(_target, bearer)| bearer),
+        )
+        .await
+        .map_err(ClaudeLaunchError::SettingsFile)?;
         let mut arguments = launch.arguments;
         arguments.push("--settings".to_owned());
         arguments.push(settings_file.path().to_string_lossy().into_owned());
@@ -203,7 +236,7 @@ impl ClaudeCodeProcess {
                     "the Claude Code process started with no id",
                 ))
             })?,
-            spawn_sequence: registry.mint_spawn_sequence(),
+            spawn_sequence,
         };
         let standard_input = child
             .stdin()

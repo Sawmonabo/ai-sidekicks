@@ -12,6 +12,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::{create_new_file, create_private_folder, remove_tree_awaited};
 
 use crate::driver::claude::spawn::settings::ClaudeSpawnSettings;
+use crate::pricing::receiver::bearers::TelemetryBearer;
 
 /// The data folder's folder of the processes' settings files.
 const CLAUDE_SETTINGS_FOLDER: [&str; 2] = ["claude", "settings"];
@@ -27,17 +28,24 @@ pub(crate) fn compose_claude_settings_folder(data_folder: &Path) -> PathBuf {
         .fold(data_folder.to_path_buf(), |folder, name| folder.join(name))
 }
 
-/// One process's settings file, removed on a blocking thread when this drops: the process holds
-/// it until its reap, and a start that fails drops it at once.
+/// One process's settings file, removed on a blocking thread when this drops, the telemetry token
+/// it carries refused with it: the process holds it until its reap, and a start that fails drops
+/// it at once.
 pub(crate) struct ClaudeSpawnSettingsFile {
     path: PathBuf,
+    bearer: Option<TelemetryBearer>,
 }
 
 impl ClaudeSpawnSettingsFile {
     /// Writes `settings` to a new file of its own in `folder`, made private first, readable and
-    /// writable by the daemon's user alone. Fails with the system's error from the folder, the
-    /// file's make or its write; a file made before its write failed is removed.
-    pub(crate) async fn write(folder: &Path, settings: &ClaudeSpawnSettings) -> io::Result<Self> {
+    /// writable by the daemon's user alone, keeping `bearer`, the guard of the token the document
+    /// carries, until the file is dropped. Fails with the system's error from the folder, the
+    /// file's make or its write; a file made before its write failed is removed, its token refused.
+    pub(crate) async fn write(
+        folder: &Path,
+        settings: &ClaudeSpawnSettings,
+        bearer: Option<TelemetryBearer>,
+    ) -> io::Result<Self> {
         let document =
             serde_json::to_vec(settings).expect("the settings document always serializes");
         let name = format!("{}.json", mint_uuid_v7());
@@ -46,7 +54,7 @@ impl ClaudeSpawnSettingsFile {
             create_private_folder(&folder)?;
             let path = folder.join(name);
             let mut file = create_new_file(&path, SETTINGS_FILE_MODE)?;
-            let written = Self { path };
+            let written = Self { path, bearer };
             file.write_all(&document)?;
             Ok(written)
         })
@@ -63,6 +71,8 @@ impl ClaudeSpawnSettingsFile {
 impl Drop for ClaudeSpawnSettingsFile {
     fn drop(&mut self) {
         let path = std::mem::take(&mut self.path);
+        // The token goes with its process, before the file's removal is even begun.
+        drop(self.bearer.take());
         let remove = move || log_unremoved(std::fs::remove_file(&path));
         match tokio::runtime::Handle::try_current() {
             Ok(runtime) => drop(runtime.spawn_blocking(remove)),

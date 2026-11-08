@@ -792,6 +792,7 @@ pub(crate) async fn keep_former_service(
             environment: vec![("PATH".to_owned(), "/usr/bin:/bin".to_owned())],
             working_folder: folder.to_owned(),
         },
+        None,
         &folder.join("kept.log"),
     )
     .await

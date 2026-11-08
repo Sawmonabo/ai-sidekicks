@@ -17,9 +17,9 @@ use sidekicks_std::file::atomic_write::write_file_atomically;
 use sidekicks_std::port_registration::PortRegistration;
 
 use super::{ClaudeLaunchError, ClaudeProcessLauncher};
-use crate::bearer_token::BearerToken;
 use crate::bounded_poll::poll_until;
 use crate::driver::child_records::UnrecordedChildren;
+use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::process::{
     ClaudeProcessEnd, ClaudeProcessLaunch, ClaudeProcessListener, ClaudeStreamFrame,
@@ -32,6 +32,7 @@ use crate::driver::{
     AccountFoldersError, CurrentProviderAccount, ProviderAccountFolders, ProviderAccountReader,
 };
 use crate::pricing::receiver::TelemetryTarget;
+use crate::pricing::receiver::bearers::{TelemetryBearers, TelemetryHolderId};
 use crate::process_registry::ProviderProcessRegistry;
 use crate::runtime_binding::test_store::test_provider_account_id;
 use crate::spawned_version::ResolvedProviderExecutable;
@@ -188,6 +189,7 @@ fn compose_launch(folder: &Path, program: PathBuf) -> ClaudeProcessLaunch {
         provider_session_id: "conversation".to_owned(),
         account: ClaudeProcessAccount::new(Some(test_provider_account_id())),
         token: None,
+        telemetry_target: None,
     }
 }
 
@@ -201,9 +203,23 @@ cp "$last" "$RECORD/settings"
 cat > /dev/null
 "#;
 
+// The `Authorization` value the copied settings document in `folder` presents its exports with.
+fn recorded_authorization(folder: &Path) -> String {
+    let settings: Value = serde_json::from_str(
+        &std::fs::read_to_string(folder.join("settings")).expect("the stand-in copied the file"),
+    )
+    .expect("the file holds the document");
+    settings["env"]["OTEL_EXPORTER_OTLP_HEADERS"]
+        .as_str()
+        .and_then(|headers| headers.strip_prefix("authorization="))
+        .expect("the document presents an authorization")
+        .to_owned()
+}
+
 // Killed by the document inline on the command line, by the token in an argument, by the file
-// left after the process's end, by the file's mode left to the umask, and by the person's hooks
-// turned off on a short process that does not ask for it.
+// left after the process's end, by the file's mode left to the umask, by the person's hooks
+// turned off on a short process that does not ask for it, by one token shared by every process,
+// and by the token's guard dropped before the reap or kept after it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_process_reads_its_settings_from_a_private_file_gone_at_its_end() {
     let folder = tempfile::tempdir().expect("a scratch folder is made");
@@ -211,20 +227,22 @@ async fn a_process_reads_its_settings_from_a_private_file_gone_at_its_end() {
     write_file_atomically(&program, SETTINGS_STAND_IN, 0o755)
         .await
         .expect("the stand-in is written");
-    let bearer = Arc::new(BearerToken::mint().expect("a token mints"));
-    let token = bearer.text().to_owned();
+    let bearers = Arc::new(TelemetryBearers::default());
     let launcher = compose_launcher(
         folder.path(),
         Arc::new(SealedToken {
             mode: ProviderAuthMode::OauthSubscription,
             tokens_read: AtomicUsize::new(0),
         }),
-        Some(TelemetryTarget::new(43_210, bearer)),
+        Some(TelemetryTarget::new(43_210, Arc::clone(&bearers))),
     );
+    let resolve = |authorization: &str| {
+        bearers.resolve(&DESCRIPTOR.provider_id(), Some(authorization.as_bytes()))
+    };
 
     let process = launcher
         .start(
-            compose_launch(folder.path(), program),
+            compose_launch(folder.path(), program.clone()),
             Arc::new(NoSession),
             None,
         )
@@ -232,6 +250,10 @@ async fn a_process_reads_its_settings_from_a_private_file_gone_at_its_end() {
         .expect("the process starts");
     let recorded = folder.path().join("recorded");
     poll_until(|| recorded.exists(), |is_recorded| *is_recorded).await;
+    let authorization = recorded_authorization(folder.path());
+    let token = authorization
+        .strip_prefix("Bearer ")
+        .expect("the authorization presents a bearer");
 
     let arguments = std::fs::read_to_string(folder.path().join("arguments"))
         .expect("the stand-in recorded its arguments");
@@ -246,7 +268,7 @@ async fn a_process_reads_its_settings_from_a_private_file_gone_at_its_end() {
         Some(compose_claude_settings_folder(folder.path()).as_path())
     );
     assert!(
-        !arguments.iter().any(|argument| argument.contains(&token)),
+        !arguments.iter().any(|argument| argument.contains(token)),
         "no argument carries the token"
     );
     assert!(
@@ -272,6 +294,32 @@ async fn a_process_reads_its_settings_from_a_private_file_gone_at_its_end() {
     );
     assert_eq!(settings["otelHeadersHelper"], "");
     assert_eq!(settings["disableAllHooks"], Value::Null);
+    assert_eq!(
+        resolve(&authorization),
+        Some(TelemetryHolderId::new(process.identity().spawn_sequence)),
+        "the token names its own process while it runs"
+    );
+
+    let beside_folder = tempfile::tempdir().expect("a scratch folder is made");
+    let beside = launcher
+        .start(
+            compose_launch(beside_folder.path(), program),
+            Arc::new(NoSession),
+            None,
+        )
+        .await
+        .expect("the process beside it starts");
+    let beside_recorded = beside_folder.path().join("recorded");
+    poll_until(|| beside_recorded.exists(), |is_recorded| *is_recorded).await;
+    let beside_authorization = recorded_authorization(beside_folder.path());
+    assert_ne!(
+        beside_authorization, authorization,
+        "each process has its own token"
+    );
+    assert_eq!(
+        resolve(&beside_authorization),
+        Some(TelemetryHolderId::new(beside.identity().spawn_sequence))
+    );
 
     process.stop(Duration::from_secs(10), None).await;
     let ended = tokio::time::timeout(Duration::from_secs(30), process.exited())
@@ -279,6 +327,16 @@ async fn a_process_reads_its_settings_from_a_private_file_gone_at_its_end() {
         .expect("the stand-in exits once its input closes");
     assert!(ended.is_ok(), "{ended:?}");
     poll_until(|| path.exists(), |is_there| !*is_there).await;
+    assert_eq!(
+        resolve(&authorization),
+        None,
+        "a reaped process's token is refused"
+    );
+    assert!(
+        resolve(&beside_authorization).is_some(),
+        "the process beside it keeps its own"
+    );
+    beside.stop(Duration::from_secs(10), None).await;
 }
 
 // Killed by the file's guard made after the spawn, which leaves the written file behind when the

@@ -58,6 +58,9 @@ pub(crate) enum ClaudeLaunchError {
     /// The file the process reads its settings from could not be written.
     #[error("the Claude Code process's settings file could not be written")]
     SettingsFile(#[source] io::Error),
+    /// The process's own telemetry token could not be minted.
+    #[error("the Claude Code process's telemetry token could not be minted")]
+    TelemetryBearer(#[source] getrandom::Error),
     /// The empty folder a process that keeps nothing runs in could not be made.
     #[error("the folder Claude Code's control-only process runs in could not be made")]
     ControlOnlyFolder(#[source] io::Error),
@@ -110,6 +113,7 @@ impl From<ClaudeLaunchError> for DriverError {
             | ClaudeLaunchError::SealedToken(_)
             | ClaudeLaunchError::Spawn(_)
             | ClaudeLaunchError::SettingsFile(_)
+            | ClaudeLaunchError::TelemetryBearer(_)
             | ClaudeLaunchError::ControlOnlyFolder(_)
             | ClaudeLaunchError::Settings(_)
             | ClaudeLaunchError::CommandRanTurn { .. }
@@ -171,11 +175,12 @@ impl ClaudeProcessLauncher {
 
     /// Starts one process and keeps it until it exits: a launch naming a pasted token's account and
     /// carrying no token is handed the token sealed for that account, so every process on a token
-    /// account signs in with it, and its settings take the telemetry switches for the target as
-    /// registered now. Fails with `Stopping` once the daemon's stop began, a process that started
-    /// meanwhile being stopped again, with `SealedToken` when the account's sign-in or its token
-    /// cannot be read, with `SettingsFile` when its settings file cannot be written, and with
-    /// `Spawn` when it could not be started.
+    /// account signs in with it, and it exports to the telemetry target as registered now under a
+    /// token of its own. Fails with `Stopping` once the daemon's stop began, a process that
+    /// started meanwhile being stopped again, with `SealedToken` when the account's sign-in or its
+    /// token cannot be read, with `TelemetryBearer` when its telemetry token cannot be minted,
+    /// with `SettingsFile` when its settings file cannot be written, and with `Spawn` when it
+    /// could not be started.
     pub(crate) async fn start(
         &self,
         mut launch: ClaudeProcessLaunch,
@@ -192,9 +197,7 @@ impl ClaudeProcessLauncher {
                 .await
                 .map_err(ClaudeLaunchError::SealedToken)?;
         }
-        launch
-            .settings
-            .set_telemetry_switches(self.telemetry_target.port().map(Arc::as_ref));
+        launch.telemetry_target = self.telemetry_target.port().cloned();
         let process = Arc::new(
             ClaudeCodeProcess::start(
                 &self.spawner,

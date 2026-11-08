@@ -1,6 +1,6 @@
 //! The telemetry switches every Claude Code process carries in its settings document's `env`: its
-//! logs and traces exported to the daemon's receiver with the start's token where the target is
-//! registered, every exporter off before it is, and in both every exporter setting a settings file
+//! logs and traces exported to the daemon's receiver with the process's own token where the target
+//! is registered, every exporter off before it is, and in both every exporter setting a settings file
 //! below the document could carry cancelled, with no prompt, reply or tool content in a record.
 //! The person's opt-outs of Anthropic's own telemetry are never touched.
 
@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use serde::{Serialize, Serializer};
 
 use crate::driver::claude::DESCRIPTOR;
+use crate::pricing::receiver::bearers::TelemetryBearer;
 use crate::pricing::receiver::{LOGS_PATH_SUFFIX, TRACES_PATH_SUFFIX, TelemetryTarget};
 
 /// The telemetry switches Claude Code reads outside the `OTEL_` names, each set in the document
@@ -57,7 +58,7 @@ const LOGS_ENDPOINT: &str = "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT";
 /// The trace endpoint, the base path with the receiver's trace suffix.
 const TRACES_ENDPOINT: &str = "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT";
 
-/// The exporters' headers, each presenting the start's token.
+/// The exporters' headers, each presenting the process's own token.
 const HEADERS: [&str; 3] = [
     "OTEL_EXPORTER_OTLP_HEADERS",
     "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
@@ -148,12 +149,12 @@ impl Serialize for NoOtelHeadersHelper {
     }
 }
 
-/// The `env` pairs of a process's settings document: the logs and traces exported to `target`'s
-/// receiver with its token where `target` is registered, every exporter off where it is not, and
-/// in both every other exporter setting cancelled, each content switch `0` and each standard
-/// attribute at its default.
+/// The `env` pairs of a process's settings document: the logs and traces exported to the target's
+/// receiver with the process's own bearer where `export` names both, every exporter off where it
+/// is `None`, and in both every other exporter setting cancelled, each content switch `0` and each
+/// standard attribute at its default.
 pub(crate) fn compose_claude_telemetry_switches(
-    target: Option<&TelemetryTarget>,
+    export: Option<(&TelemetryTarget, &TelemetryBearer)>,
 ) -> BTreeMap<&'static str, String> {
     let mut switches: BTreeMap<&'static str, String> = CLAUDE_TELEMETRY_VARIABLES
         .into_iter()
@@ -168,7 +169,7 @@ pub(crate) fn compose_claude_telemetry_switches(
     set(&mut switches, &INCLUDED_ATTRIBUTES, "true");
     set(&mut switches, &EXCLUDED_ATTRIBUTES, "false");
     set(&mut switches, &[METRICS_EXPORTER], "none");
-    let Some(target) = target else {
+    let Some((target, bearer)) = export else {
         set(&mut switches, &SIGNAL_EXPORTERS, "none");
         for names in [&PROTOCOLS[..], &HEADERS, &COMPRESSIONS, &EXPORT_INTERVALS] {
             set(&mut switches, names, "");
@@ -184,7 +185,7 @@ pub(crate) fn compose_claude_telemetry_switches(
     set(&mut switches, &[ENABLE_TELEMETRY, ENHANCED_TELEMETRY], "1");
     set(&mut switches, &SIGNAL_EXPORTERS, "otlp");
     set(&mut switches, &PROTOCOLS, "http/protobuf");
-    set(&mut switches, &HEADERS, &target.exporter_headers());
+    set(&mut switches, &HEADERS, &bearer.exporter_headers());
     set(&mut switches, &COMPRESSIONS, "none");
     set(&mut switches, &EXPORT_INTERVALS, EXPORT_INTERVAL_MS);
     set(
@@ -211,8 +212,9 @@ mod tests {
         BASE_ENDPOINT, CONTENT_SWITCHES, HEADERS, LOGS_ENDPOINT, SIGNAL_EXPORTERS, TRACES_ENDPOINT,
         compose_claude_telemetry_switches,
     };
-    use crate::bearer_token::BearerToken;
+    use crate::driver::claude::DESCRIPTOR;
     use crate::pricing::receiver::TelemetryTarget;
+    use crate::pricing::receiver::bearers::{TelemetryBearers, TelemetryHolderId};
 
     // Killed by a base without `/telemetry/claude`, a pair missing from the no-target case, a
     // content switch left out, and the session switch cancelled with `""`, which drops
@@ -221,13 +223,14 @@ mod tests {
     #[case::with_target(true)]
     #[case::with_none(false)]
     fn the_export_reaches_only_the_receiver_and_stops_with_no_target(#[case] has_target: bool) {
-        let target = TelemetryTarget::new(
-            43_210,
-            Arc::new(BearerToken::mint().expect("a token mints")),
-        );
-        let target = has_target.then_some(&target);
+        let bearers = Arc::new(TelemetryBearers::default());
+        let bearer = bearers
+            .mint(DESCRIPTOR.provider_id(), TelemetryHolderId::new(1))
+            .expect("a token mints");
+        let target = TelemetryTarget::new(43_210, bearers);
+        let export = has_target.then_some((&target, &bearer));
 
-        let switches = compose_claude_telemetry_switches(target);
+        let switches = compose_claude_telemetry_switches(export);
 
         let value = |name: &str| {
             switches
@@ -235,8 +238,8 @@ mod tests {
                 .unwrap_or_else(|| panic!("{name} is set"))
                 .as_str()
         };
-        if let Some(target) = target {
-            let headers = target.exporter_headers();
+        if let Some((_target, bearer)) = export {
+            let headers = bearer.exporter_headers();
             assert_eq!(
                 value(BASE_ENDPOINT),
                 "http://127.0.0.1:43210/telemetry/claude"

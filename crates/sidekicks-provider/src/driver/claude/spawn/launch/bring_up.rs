@@ -172,6 +172,7 @@ pub(crate) async fn bring_up_claude_process(
                 provider_session_id: request.provider_session_id,
                 account: request.account,
                 token: None,
+                telemetry_target: None,
             },
             request.listener,
             request.turn_holds,

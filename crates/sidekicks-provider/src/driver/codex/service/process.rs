@@ -32,6 +32,7 @@ use crate::child_ending::ChildEnds;
 use crate::driver::child_records::{
     ChildRecord, DaemonChildRecords, RecordedChild, spawn_recorded_child,
 };
+use crate::pricing::receiver::bearers::TelemetryBearer;
 use crate::process_exit::compose_process_exit;
 use crate::service_log::{open_provider_service_log, read_provider_service_log_tail};
 
@@ -263,6 +264,8 @@ pub(crate) struct LastingCodexService {
     record: ProcessRecord,
     // Only for a service this daemon started, which is still its child.
     exit: Option<CodexServiceExit>,
+    // Held, never read: its drop refuses the launch's telemetry token once the service is gone.
+    _telemetry_bearer: Option<TelemetryBearer>,
 }
 
 impl LastingCodexService {
@@ -373,13 +376,15 @@ struct UnrecordedServiceError {
 /// Starts a lasting Codex service, on the person's own Codex folder or an account home, on
 /// `spawner`'s thread: its log begun again at `log_file`, the former start's tail kept beside it,
 /// taking the service's error output; a session or job of its own apart from the daemon's, pinned,
-/// then moved out of the daemon's scope where the system has one. The caller keeps its record in
-/// the folder's record file. Fails when the log cannot be opened, or the start cannot be spawned
+/// then moved out of the daemon's scope where the system has one, keeping `telemetry_bearer`, the
+/// launch's own token, until the service is dropped. The caller keeps its record in the folder's
+/// record file. Fails when the log cannot be opened, or the start cannot be spawned
 /// or pinned (on Windows a refused breakaway from the daemon's job among them), with the log's
 /// tail beside the cause.
 pub(crate) async fn start_lasting_codex_service(
     spawner: &Spawner,
     mut launch: CodexProcessLaunch,
+    telemetry_bearer: Option<TelemetryBearer>,
     log_file: &Path,
 ) -> io::Result<LastingCodexService> {
     let error_output = open_provider_service_log(log_file).await?;
@@ -443,6 +448,7 @@ pub(crate) async fn start_lasting_codex_service(
         process,
         record,
         exit: Some(share_service_exit(exit_received)),
+        _telemetry_bearer: telemetry_bearer,
     })
 }
 
@@ -456,6 +462,7 @@ pub(crate) fn repin_lasting_codex_service(
         process,
         record,
         exit: None,
+        _telemetry_bearer: None,
     }))
 }
 

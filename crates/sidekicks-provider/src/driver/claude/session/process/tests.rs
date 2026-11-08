@@ -90,6 +90,7 @@ async fn a_claude_code_process_is_recorded_from_its_start_to_its_reap() {
         provider_session_id: "conversation".to_owned(),
         account: ClaudeProcessAccount::default(),
         token: None,
+        telemetry_target: None,
     };
 
     let process = ClaudeCodeProcess::start(
@@ -147,6 +148,7 @@ async fn a_stop_with_a_deadline_kills_a_process_that_ignores_its_input_and_its_s
         provider_session_id: "conversation".to_owned(),
         account: ClaudeProcessAccount::default(),
         token: None,
+        telemetry_target: None,
     };
     let listener = Arc::new(NoSession::default());
     let process = ClaudeCodeProcess::start(

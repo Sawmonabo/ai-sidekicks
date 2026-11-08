@@ -108,7 +108,7 @@ impl ExportingSession {
     // An export of `records` under the launch's tag.
     async fn export_records(&self, records: Vec<LogRecord>) {
         self.exports
-            .read_telemetry_export(export_tagged(&self.tag, records))
+            .read_telemetry_export(self.tag.holder(), export_tagged(&self.tag, records))
             .await;
     }
 

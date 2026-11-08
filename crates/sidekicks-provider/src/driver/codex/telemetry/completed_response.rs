@@ -111,14 +111,19 @@ pub(crate) fn read_codex_completed_responses(
         .collect()
 }
 
-// Why a completed response's record was refused, by the attribute that failed.
-struct RecordRefusal {
-    field: &'static str,
-    reason: &'static str,
+/// Why a record of Codex's export was refused, by the attribute that failed: a completed
+/// response's own, or its resource's launch tag.
+pub(crate) struct RecordRefusal {
+    /// The attribute's name, the one thing the report carries from the record.
+    pub(crate) field: &'static str,
+    /// Why it failed, completing "because".
+    pub(crate) reason: &'static str,
 }
 
 impl RecordRefusal {
-    fn report(&self, provider_account_id: Option<&ProviderAccountId>) {
+    /// Reports the refusal once under `provider_account_id`, naming the attribute, never its
+    /// value.
+    pub(crate) fn report(&self, provider_account_id: Option<&ProviderAccountId>) {
         let mut details = Map::new();
         details.insert("field".to_owned(), json!(self.field));
         emit_driver_diagnostic(&DriverDiagnosticRecord {
@@ -127,7 +132,7 @@ impl RecordRefusal {
             kind: DriverDiagnosticKind::TelemetryRecordRefused,
             raw_wire_type: Some(SSE_EVENT_NAME.to_owned()),
             disposition_reason: format!(
-                "A completed response's record was refused whole because {}.",
+                "A record in Codex's export was refused whole because {}.",
                 self.reason
             ),
             details,

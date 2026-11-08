@@ -23,8 +23,8 @@ use tokio_util::sync::CancellationToken;
 
 use super::kept_records::{KeptServicesStop, retire_former_service, stop_kept_services};
 use super::{StartFailure, StartedService, compose_launch, start_codex_service};
-use crate::bearer_token::BearerToken;
 use crate::driver::child_records::UnrecordedChildren;
+use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::exec_relay::compose_codex_executor_arguments;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::service::process::{
@@ -40,6 +40,7 @@ use crate::driver::codex::service::supervisor::test_service::{
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceSocket};
 use crate::driver::codex::session::errors::CodexError;
 use crate::pricing::receiver::TelemetryTarget;
+use crate::pricing::receiver::bearers::{TelemetryBearers, TelemetryHolderId};
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 /// The survivor's stand-in: this test program, which holds a connection to the test's socket open
@@ -151,9 +152,10 @@ async fn a_former_service_its_record_no_longer_pins_leaves_no_tree_running() {
         working_folder: folder.path().to_owned(),
     };
     let spawner = Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts");
-    let service = start_lasting_codex_service(&spawner, launch, &folder.path().join("codex.log"))
-        .await
-        .expect("the root starts");
+    let service =
+        start_lasting_codex_service(&spawner, launch, None, &folder.path().join("codex.log"))
+            .await
+            .expect("the root starts");
     let mut survivor = tokio::time::timeout(SURVIVOR_WAIT, listener.accept())
         .await
         .expect("the survivor starts in time")
@@ -468,7 +470,7 @@ async fn every_launch_carries_the_person_s_privacy_choices_last() {
             .resolve(service.home())
             .await
             .expect("the test program resolves");
-        let Ok(launch) = compose_launch(
+        let Ok((launch, _bearer)) = compose_launch(
             &service,
             &executable,
             service.launch_config_overrides(),
@@ -570,10 +572,8 @@ async fn a_launch_carries_its_home_s_telemetry_switches(
         Arc::new(UnheardEvents),
         Arc::new(UnrecordedChildren),
     );
-    let target = Arc::new(TelemetryTarget::new(
-        4318,
-        Arc::new(BearerToken::mint().expect("a token mints")),
-    ));
+    let bearers = Arc::new(TelemetryBearers::default());
+    let target = Arc::new(TelemetryTarget::new(4318, Arc::clone(&bearers)));
     if is_registered {
         dependencies
             .telemetry_target
@@ -599,7 +599,8 @@ async fn a_launch_carries_its_home_s_telemetry_switches(
         .resolve(service.home())
         .await
         .expect("the test program resolves");
-    let Ok(launch) = compose_launch(
+    // The launch's own token stays live while its guard is held here.
+    let Ok((launch, _bearer)) = compose_launch(
         &service,
         &executable,
         service.launch_config_overrides(),
@@ -654,21 +655,26 @@ async fn a_launch_carries_its_home_s_telemetry_switches(
             let presented = value
                 .strip_prefix("authorization=")
                 .expect("the header is the authorization");
-            assert!(target.bearer().admits(Some(presented.as_bytes())));
+            let token = presented
+                .strip_prefix("Bearer ")
+                .expect("the authorization presents a bearer");
             assert!(
                 launch
                     .arguments
                     .iter()
-                    .all(|argument| !argument.contains(target.bearer().text())),
+                    .all(|argument| !argument.contains(token)),
                 "the token is on the command line"
             );
             let (_, attributes) = tag.expect("the launch's tag is in the environment");
-            let number = attributes
+            let number: u64 = attributes
                 .strip_prefix("sidekicks.codex.service=")
-                .expect("the attributes are the launch's tag");
-            assert!(
-                !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit()),
-                "{attributes}"
+                .expect("the attributes are the launch's tag")
+                .parse()
+                .expect("the tag is a number");
+            assert_eq!(
+                bearers.resolve(&DESCRIPTOR.provider_id(), Some(presented.as_bytes())),
+                Some(TelemetryHolderId::new(number)),
+                "the launch's token resolves to its own tag"
             );
         }
         LaunchTelemetry::ExportersOff => {

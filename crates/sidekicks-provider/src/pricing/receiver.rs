@@ -1,8 +1,11 @@
 //! The receiver of the providers' OTLP/HTTP telemetry and its hand-off to each provider's reader:
-//! each export is admitted by the start's token and its headers before its body is read, read
-//! within a cap and a bound on bodies read at once, decoded, kept whole as OTLP JSON while raw
-//! messages are recorded, and handed to the reader of the provider its path names. Also the target
-//! a provider's exporter is set to.
+//! each export is admitted by the live token of one provider process or launch and its headers
+//! before its body is read, read within a cap and a bound on bodies read at once, decoded, kept
+//! whole as OTLP JSON while raw messages are recorded, and handed to the reader of the provider its
+//! path names with the holder its token was minted for. Also the target a provider's exporter is
+//! set to.
+
+pub mod bearers;
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -26,8 +29,8 @@ use prost::Message as _;
 use sidekicks_contracts::provider::id::ProviderId;
 use tokio::sync::Semaphore;
 
-use crate::bearer_token::{BEARER_PREFIX, BearerToken};
 use crate::port::raw_provider_messages::RawProviderMessages;
+use crate::pricing::receiver::bearers::{TelemetryBearers, TelemetryHolderId};
 
 /// What every provider's telemetry path starts with.
 const TELEMETRY_PATH_PREFIX: &str = "/telemetry";
@@ -58,16 +61,22 @@ pub fn telemetry_base_path(provider: &ProviderId) -> String {
 }
 
 /// Where every provider process exports its telemetry: the receiver on the loopback listener's
-/// port, and the start's token each export presents.
+/// port, and the registry each process or launch mints the token its exports present from.
 pub struct TelemetryTarget {
     port: u16,
-    bearer: Arc<BearerToken>,
+    bearers: Arc<TelemetryBearers>,
 }
 
 impl TelemetryTarget {
-    /// The receiver on `port` of `127.0.0.1`, admitting exports that present `bearer`.
-    pub fn new(port: u16, bearer: Arc<BearerToken>) -> Self {
-        Self { port, bearer }
+    /// The receiver on `port` of `127.0.0.1`, admitting exports that present a live bearer of
+    /// `bearers`.
+    pub fn new(port: u16, bearers: Arc<TelemetryBearers>) -> Self {
+        Self { port, bearers }
+    }
+
+    /// The registry a driver mints each process's or launch's bearer from.
+    pub fn bearers(&self) -> &Arc<TelemetryBearers> {
+        &self.bearers
     }
 
     /// The address `provider`'s exporter is set to, `http://127.0.0.1:<port>/telemetry/<id>`,
@@ -78,17 +87,6 @@ impl TelemetryTarget {
             self.port,
             telemetry_base_path(provider)
         )
-    }
-
-    /// The token an export presents, as `Bearer <token>` in its `Authorization` header.
-    pub fn bearer(&self) -> &BearerToken {
-        &self.bearer
-    }
-
-    /// The OTLP exporters' headers setting that presents the token, `authorization=Bearer <token>`,
-    /// which an exporter splits at its first `=`; Claude's settings file takes the same value.
-    pub(crate) fn exporter_headers(&self) -> String {
-        format!("authorization={BEARER_PREFIX}{}", self.bearer.text())
     }
 }
 
@@ -112,9 +110,13 @@ impl TelemetryExport {
 
 /// A provider's reader of its telemetry, registered with the receiver under the provider's id.
 pub trait TelemetryExportReader: Send + Sync {
-    /// Takes `export`; answers once the reader has taken it, and the receiver answers the
-    /// exporter after that.
-    fn read_telemetry_export(&self, export: TelemetryExport) -> BoxFuture<'_, ()>;
+    /// Takes `export`, presented under the token minted for `holder`; answers once the reader has
+    /// taken it, and the receiver answers the exporter after that.
+    fn read_telemetry_export(
+        &self,
+        holder: TelemetryHolderId,
+        export: TelemetryExport,
+    ) -> BoxFuture<'_, ()>;
 }
 
 /// The two kinds of export a path names.
@@ -161,21 +163,22 @@ struct RpcStatus {
 
 /// The receiver of every provider's telemetry exports.
 pub struct TelemetryReceiver {
-    bearer: Arc<BearerToken>,
+    bearers: Arc<TelemetryBearers>,
     readers: HashMap<ProviderId, Arc<dyn TelemetryExportReader>>,
     raw_messages: Arc<dyn RawProviderMessages>,
     body_read_permits: Semaphore,
 }
 
 impl TelemetryReceiver {
-    /// A receiver admitting exports that present `bearer`, for the providers `readers` names.
+    /// A receiver admitting exports that present a live bearer of `bearers` minted for the
+    /// provider their path names, for the providers `readers` names.
     pub fn new(
-        bearer: Arc<BearerToken>,
+        bearers: Arc<TelemetryBearers>,
         readers: HashMap<ProviderId, Arc<dyn TelemetryExportReader>>,
         raw_messages: Arc<dyn RawProviderMessages>,
     ) -> Self {
         Self {
-            bearer,
+            bearers,
             readers,
             raw_messages,
             body_read_permits: Semaphore::new(BODIES_READ_AT_ONCE),
@@ -215,8 +218,9 @@ impl TelemetryReceiver {
     }
 }
 
-// Admits one export by its provider, token and headers before its body is read, then reads,
-// decodes, records and hands it over, holding a body permit until its reader has taken it.
+// Admits one export by its provider, its token's live holder and its headers before its body is
+// read, then reads, decodes, records and hands it over under that holder, holding a body permit
+// until its reader has taken it.
 async fn receive(
     receiver: Arc<TelemetryReceiver>,
     provider: Result<Path<String>, PathRejection>,
@@ -236,7 +240,19 @@ async fn receive(
             "No provider here takes telemetry at this path.",
         );
     };
-    if let Some(refused) = refuse_headers(&receiver.bearer, request.headers()) {
+    let Some(holder) = receiver.bearers.resolve(
+        &provider,
+        request
+            .headers()
+            .get(header::AUTHORIZATION)
+            .map(HeaderValue::as_bytes),
+    ) else {
+        return refusal(
+            StatusCode::UNAUTHORIZED,
+            "The telemetry token is missing, wrong or no longer live.",
+        );
+    };
+    if let Some(refused) = refuse_headers(request.headers()) {
         return refused;
     }
     let permit = receiver
@@ -271,7 +287,7 @@ async fn receive(
             ),
         }
     }
-    reader.read_telemetry_export(export).await;
+    reader.read_telemetry_export(holder, export).await;
     drop(permit);
     (
         StatusCode::OK,
@@ -281,19 +297,9 @@ async fn receive(
         .into_response()
 }
 
-// The refusal an export's headers earn, checked in order: the token, compared before anything
-// else is read, then a protobuf `Content-Type`, then no `Content-Encoding` but `identity`.
-fn refuse_headers(bearer: &BearerToken, headers: &HeaderMap) -> Option<Response> {
-    if !bearer.admits(
-        headers
-            .get(header::AUTHORIZATION)
-            .map(HeaderValue::as_bytes),
-    ) {
-        return Some(refusal(
-            StatusCode::UNAUTHORIZED,
-            "The telemetry token is missing or wrong.",
-        ));
-    }
+// The refusal an admitted export's headers earn, checked in order: a protobuf `Content-Type`,
+// then no `Content-Encoding` but `identity`.
+fn refuse_headers(headers: &HeaderMap) -> Option<Response> {
     let is_protobuf = headers
         .get(header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
@@ -387,16 +393,20 @@ mod tests {
         EXPORT_BODY_LIMIT, RpcStatus, TelemetryExport, TelemetryExportReader, TelemetryReceiver,
         TelemetrySignal, receive,
     };
-    use crate::bearer_token::BearerToken;
     use crate::port::raw_provider_messages::RawProviderMessages;
+    use crate::pricing::receiver::bearers::{TelemetryBearer, TelemetryBearers, TelemetryHolderId};
 
-    // A reader that keeps each export it takes.
+    // A reader that keeps each export it takes, with the holder it was presented under.
     #[derive(Default)]
-    struct KeptExports(Mutex<Vec<TelemetryExport>>);
+    struct KeptExports(Mutex<Vec<(TelemetryHolderId, TelemetryExport)>>);
 
     impl TelemetryExportReader for KeptExports {
-        fn read_telemetry_export(&self, export: TelemetryExport) -> BoxFuture<'_, ()> {
-            lock(&self.0).push(export);
+        fn read_telemetry_export(
+            &self,
+            holder: TelemetryHolderId,
+            export: TelemetryExport,
+        ) -> BoxFuture<'_, ()> {
+            lock(&self.0).push((holder, export));
             Box::pin(std::future::ready(()))
         }
     }
@@ -419,11 +429,14 @@ mod tests {
         }
     }
 
-    // A receiver for `codex` alone, with the fakes it hands to and the token it admits.
+    // A receiver for `codex` alone, with the fakes it hands to, its registry, and one live codex
+    // bearer with its token.
     struct Fixture {
         receiver: TelemetryReceiver,
         exports: Arc<KeptExports>,
         raw_messages: Arc<KeptRawMessages>,
+        bearers: Arc<TelemetryBearers>,
+        bearer: TelemetryBearer,
         token: String,
     }
 
@@ -431,8 +444,20 @@ mod tests {
         ProviderId::new("codex".to_owned()).expect("a provider id")
     }
 
+    // The token a bearer's exporters present, read back from its headers setting.
+    fn token_of(bearer: &TelemetryBearer) -> String {
+        bearer
+            .exporter_headers()
+            .strip_prefix("authorization=Bearer ")
+            .expect("the setting presents a bearer")
+            .to_owned()
+    }
+
     fn fixture() -> Fixture {
-        let bearer = Arc::new(BearerToken::mint().expect("a token mints"));
+        let bearers = Arc::new(TelemetryBearers::default());
+        let bearer = bearers
+            .mint(codex(), TelemetryHolderId::new(1))
+            .expect("a token mints");
         let exports = Arc::new(KeptExports::default());
         let raw_messages = Arc::new(KeptRawMessages::default());
         let readers = HashMap::from([(
@@ -440,14 +465,16 @@ mod tests {
             Arc::clone(&exports) as Arc<dyn TelemetryExportReader>,
         )]);
         Fixture {
-            token: bearer.text().to_owned(),
+            token: token_of(&bearer),
             receiver: TelemetryReceiver::new(
-                bearer,
+                Arc::clone(&bearers),
                 readers,
                 Arc::clone(&raw_messages) as Arc<dyn RawProviderMessages>,
             ),
             exports,
             raw_messages,
+            bearers,
+            bearer,
         }
     }
 
@@ -456,6 +483,9 @@ mod tests {
         base: String,
         exports: Arc<KeptExports>,
         raw_messages: Arc<KeptRawMessages>,
+        bearers: Arc<TelemetryBearers>,
+        // Held so the token stays live while the receiver is served.
+        _bearer: TelemetryBearer,
         token: String,
         client: reqwest::Client,
     }
@@ -475,6 +505,8 @@ mod tests {
             receiver,
             exports,
             raw_messages,
+            bearers,
+            bearer,
             token,
         } = fixture();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -486,6 +518,8 @@ mod tests {
             base: format!("http://{address}"),
             exports,
             raw_messages,
+            bearers,
+            _bearer: bearer,
             token,
             client: reqwest::Client::builder()
                 .no_proxy()
@@ -517,16 +551,55 @@ mod tests {
         (status.code, !status.message.is_empty())
     }
 
-    // A wrong token is refused before the body is read, with `UNAUTHENTICATED`: the body here
-    // sends one chunk and never ends, so a read before the check never answers, and its stream
-    // records being polled. The handler is called directly so the check rests on whether the body
-    // was polled, not on whether a client reads an answer sent before its body ended. Killed by
-    // checking the token after the body read, and by a `Status` sent with no code.
+    // A token no live bearer of the path's provider holds: never minted, one whose guard dropped,
+    // or one minted for another provider.
+    enum UnheldToken {
+        NeverMinted,
+        GuardDropped,
+        OtherProvider,
+    }
+
+    // A token no live codex bearer holds is refused before the body is read, with
+    // `UNAUTHENTICATED`: the body here sends one chunk and never ends, so a read before the check
+    // never answers, and its stream records being polled. The handler is called directly so the
+    // check rests on whether the body was polled, not on whether a client reads an answer sent
+    // before its body ended. Killed by checking the token after the body read, by a registry that
+    // keeps a dropped bearer, by a bearer admitted on another provider's path, and by a `Status`
+    // sent with no code.
+    #[rstest]
+    #[case::never_minted(UnheldToken::NeverMinted)]
+    #[case::guard_dropped(UnheldToken::GuardDropped)]
+    #[case::other_provider(UnheldToken::OtherProvider)]
     #[tokio::test]
-    async fn a_wrong_token_is_refused_before_the_body_is_read() {
+    async fn a_token_no_live_bearer_holds_is_refused_before_the_body_is_read(
+        #[case] unheld: UnheldToken,
+    ) {
         let Fixture {
-            receiver, exports, ..
+            receiver,
+            exports,
+            bearers,
+            ..
         } = fixture();
+        let mint = |provider: &str| {
+            bearers
+                .mint(
+                    ProviderId::new(provider.to_owned()).expect("a provider id"),
+                    TelemetryHolderId::new(2),
+                )
+                .expect("a token mints")
+        };
+        // The other provider's bearer stays live through the request.
+        let mut _live_elsewhere = None;
+        let token = match unheld {
+            UnheldToken::NeverMinted => "not-the-token".to_owned(),
+            UnheldToken::GuardDropped => token_of(&mint("codex")),
+            UnheldToken::OtherProvider => {
+                let bearer = mint("claude");
+                let token = token_of(&bearer);
+                _live_elsewhere = Some(bearer);
+                token
+            }
+        };
         let is_polled = Arc::new(AtomicBool::new(false));
         let polled = Arc::clone(&is_polled);
         let body = futures::stream::once(async move {
@@ -537,7 +610,7 @@ mod tests {
         let request = Request::builder()
             .method(Method::POST)
             .uri("/telemetry/codex/v1/logs")
-            .header(header::AUTHORIZATION, "Bearer not-the-token")
+            .header(header::AUTHORIZATION, format!("Bearer {token}"))
             .header(header::CONTENT_TYPE, "application/x-protobuf")
             .body(Body::from_stream(body))
             .expect("a request");
@@ -605,8 +678,9 @@ mod tests {
 
     // A body past the cap is 413 with `RESOURCE_EXHAUSTED`, any encoding but `identity` is 415
     // with `INVALID_ARGUMENT`, and `identity` is read as no encoding and answered with OTLP's
-    // empty success. Killed by an uncapped read, by refusing `identity`, and by a code other than
-    // the status's.
+    // empty success, reaching the reader under the holder of the token it presented while a
+    // second bearer is live. Killed by an uncapped read, by refusing `identity`, by the reader
+    // handed another bearer's holder, and by a code other than the status's.
     #[tokio::test]
     async fn the_body_is_capped_and_only_identity_encoding_is_read() {
         let served = serve().await;
@@ -630,8 +704,15 @@ mod tests {
         let gzip = gzip.bytes().await.expect("the refusal's body");
         assert_eq!(status_of(&gzip), (3, true));
         assert!(lock(&served.exports.0).is_empty());
+        let second = served
+            .bearers
+            .mint(codex(), TelemetryHolderId::new(2))
+            .expect("a token mints");
         let identity = served
-            .export("/telemetry/codex/v1/logs")
+            .client
+            .post(format!("{}/telemetry/codex/v1/logs", served.base))
+            .bearer_auth(token_of(&second))
+            .header(header::CONTENT_TYPE, "application/x-protobuf")
             .header(header::CONTENT_ENCODING, "identity")
             .body(logs_body())
             .send()
@@ -645,7 +726,8 @@ mod tests {
         assert!(identity.bytes().await.expect("the body").is_empty());
         let exports = lock(&served.exports.0);
         assert_eq!(exports.len(), 1);
-        assert!(matches!(exports[0], TelemetryExport::Logs(_)));
+        assert_eq!(exports[0].0, second.holder());
+        assert!(matches!(exports[0].1, TelemetryExport::Logs(_)));
     }
 
     // While raw messages are off the export reaches its reader and nothing is recorded; once on,
