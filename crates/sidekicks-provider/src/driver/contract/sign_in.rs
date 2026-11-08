@@ -158,8 +158,6 @@ pub enum McpServerAddressReading {
     /// The entry's `url`, once filled, still names a variable with no value or is not a web
     /// address.
     Unreadable,
-    /// A server only the provider's own process reads the address of.
-    ReadByProviderOnly,
 }
 
 impl fmt::Debug for McpServerAddressReading {
@@ -167,7 +165,6 @@ impl fmt::Debug for McpServerAddressReading {
         formatter.write_str(match self {
             Self::Declared(_address) => "Declared",
             Self::Unreadable => "Unreadable",
-            Self::ReadByProviderOnly => "ReadByProviderOnly",
         })
     }
 }

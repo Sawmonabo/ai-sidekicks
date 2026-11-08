@@ -172,7 +172,7 @@ mod tests {
 
     // A server of the administrator's MCP file is read from the file's entry, its `url` filled,
     // whether or not the organization's managed settings declare the same name, with no account
-    // read. Killed by answering `ReadByProviderOnly` for it, by reading the organization's entry
+    // read. Killed by answering `Unreadable` for it, by reading the organization's entry
     // first, and by leaving the file's `${VAR}` unfilled.
     #[rstest]
     #[case::file_alone(false)]

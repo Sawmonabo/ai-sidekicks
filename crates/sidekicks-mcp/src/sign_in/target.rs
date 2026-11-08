@@ -146,10 +146,9 @@ impl SignInTargetReads {
                 };
                 let address: McpServerAddress = match driver.read_mcp_server_address(read).await {
                     Ok(McpServerAddressReading::Declared(address)) => address,
-                    Ok(
-                        McpServerAddressReading::Unreadable
-                        | McpServerAddressReading::ReadByProviderOnly,
-                    ) => return Err(unsupported(SignInUnsupportedReason::AddressUnreadable)),
+                    Ok(McpServerAddressReading::Unreadable) => {
+                        return Err(unsupported(SignInUnsupportedReason::AddressUnreadable));
+                    }
                     // The inventory listed the binding and its entry left before this read.
                     Err(DriverError::NoPersonServerEntry(_)) => return Err(not_found()),
                     Err(error) => return Err(HandlerError::from(error)),
