@@ -19,7 +19,11 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::wal_truncation::WriteAheadLogTruncation;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
+use sidekicks_workspace::git::process::test_git_runner;
+use sidekicks_workspace::git::turn_snapshot::capture::GitFloorReports;
+use sidekicks_workspace::git::turn_snapshot::repack::CapturePacking;
 use tempfile::TempDir;
+use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
@@ -27,11 +31,13 @@ use super::{
     BACKUP_STATEMENT_CAPACITY, BackupDeps, BackupManifestFacts, BackupTrigger, Backups,
     MirrorRootsReader,
 };
+use crate::daemon::backup::git_folders::BackupGitFolders;
 use crate::daemon::machine_settings::file::{MachineSettingsFile, machine_settings_file_path};
 use crate::daemon::schema::schema_parts;
 
 /// The service's backups over the test's `database` and `log`, under the home folder
-/// `home_folder`, the mirror keeping what `read_mirror_roots` lists, on a computer named `Studio`.
+/// `home_folder`, the mirror keeping what `read_mirror_roots` lists and copying git folders as the
+/// daemon does over a packing of its own, on a computer named `Studio`.
 pub(crate) fn test_backups(
     database: &TestDatabase,
     log: &TestLog,
@@ -59,6 +65,14 @@ pub(crate) fn test_backups(
         ))),
         home_folder,
         read_mirror_roots,
+        git_folders: Arc::new(BackupGitFolders::new(
+            Arc::new(CapturePacking::new(
+                test_git_runner(),
+                Arc::new(GitFloorReports::default()),
+            )),
+            test_git_runner(),
+            Handle::current(),
+        )),
         manifest_facts: BackupManifestFacts {
             app_version: serde_json::from_value(json!("0.1.0")).expect("a version reads"),
             service_version: serde_json::from_value(json!("0.1.0")).expect("a version reads"),

@@ -2,6 +2,7 @@
 //! person's other files, which backups a run keeps, and the methods Settings › Runtime calls.
 
 pub(crate) mod generations;
+pub(crate) mod git_folders;
 pub(crate) mod methods;
 pub(crate) mod roots;
 pub(crate) mod run;

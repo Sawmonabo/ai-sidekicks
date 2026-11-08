@@ -76,12 +76,14 @@ use sidekicks_workspace::git::process::{GitLimits, GitRunner};
 use sidekicks_workspace::git::worktree::creation::WorktreeCreator;
 use sidekicks_workspace::git::worktree::setup::WorktreeSetupRunner;
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
+use tokio::runtime::Handle;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::bootstrap::{SecureDefaults, SecureDefaultsConfig};
 use crate::daemon::artifact_methods::{ArtifactMethodsDeps, register_artifact_methods};
+use crate::daemon::backup::git_folders::BackupGitFolders;
 use crate::daemon::backup::roots::mirror_roots_reader;
 use crate::daemon::backup::run::{
     BackupDeps, Backups, backup_folder, backup_manifest_facts, default_backup_folder,
@@ -585,6 +587,17 @@ impl DaemonProcess {
                 Arc::clone(&reads),
                 Arc::clone(&providers.registry),
             ),
+            git_folders: Arc::new(BackupGitFolders::new(
+                Arc::clone(
+                    &self
+                        .repo
+                        .as_ref()
+                        .expect("the repository services are built before the backups")
+                        .packing,
+                ),
+                git.clone(),
+                Handle::current(),
+            )),
             manifest_facts: backup_manifest_facts(version.clone()),
         });
         hydrate_capabilities(&providers).await;
