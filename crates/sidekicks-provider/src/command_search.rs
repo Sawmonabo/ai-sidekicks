@@ -11,23 +11,23 @@ use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{ExitStatus, Stdio};
+use std::process::ExitStatus;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use semver::Version;
 use sidekicks_platforms::{
-    ChildTree, ChildTreeOutputError, PathRules, ProgramFolder, Spawner, file_facts,
-    find_executables, program_install_folders, real_path, start_child_tree, user_programs_folder,
+    PathRules, ProgramFolder, Spawner, file_facts, find_executables, program_install_folders,
+    real_path, user_programs_folder,
 };
 use sidekicks_std::missing_entry::is_gone;
 use sidekicks_std::mutex_lock::lock;
-use tokio::process::Command;
 use tokio::sync::OnceCell;
 
 use crate::driver::{InstallFolderBase, ProviderDescriptor};
+use crate::program_run::{ProgramRunError, ProgramRunRequest, run_program_to_end};
 use crate::spawn_environment::{place_folder_first_on_search_path, remove_environment_names};
-use crate::spawned_version::{parse_cli_version_report, start_resolved_build};
+use crate::spawned_version::parse_cli_version_report;
 
 /// How long one build may take to print its version before it ranks below every build that did.
 const VERSION_READ_DEADLINE: Duration = Duration::from_secs(5);
@@ -72,12 +72,8 @@ struct BuildStamp {
 // Why a build's `--version` could not be read.
 #[derive(Debug, thiserror::Error)]
 enum VersionReadError {
-    #[error("the build could not be started")]
-    Start(#[source] io::Error),
-    #[error("the build's output could not be read")]
-    Output(#[source] ChildTreeOutputError),
-    #[error("the build did not print its version within its deadline")]
-    TimedOut,
+    #[error("the build's version read did not run to its end")]
+    Run(#[source] ProgramRunError),
     #[error("the build exited with {0}")]
     Exited(ExitStatus),
 }
@@ -190,8 +186,8 @@ impl ProviderCommandSearch {
         Ok(parsed)
     }
 
-    // What the build printed for `--version`, started from the spawner's thread with its folder
-    // first on its search path, its tree ended when it passes the deadline or its output bound.
+    // What the build printed for `--version`, run to its end with its folder first on its search
+    // path; a run past the deadline or the output bound has its tree ended by the runner.
     async fn read_version_output(
         &self,
         hit: &ProviderCommandSearchHit,
@@ -199,44 +195,25 @@ impl ProviderCommandSearch {
     ) -> Result<Vec<u8>, VersionReadError> {
         let mut environment = spawn_environment.to_vec();
         place_folder_first_on_search_path(&mut environment, &hit.folder, PathRules::NATIVE);
-        let build = hit.build.clone();
-        let daemon_pid = std::process::id();
-        let mut child = self
-            .spawner
-            .run(move || -> io::Result<ChildTree> {
-                let start = start_resolved_build(&build, &environment)?;
-                let mut command = Command::new(&start.program);
-                command
-                    .args(&start.leading_arguments)
-                    .arg("--version")
-                    .env_clear()
-                    .envs(environment)
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped());
-                start_child_tree(command, daemon_pid)
-            })
-            .await
-            .map_err(VersionReadError::Start)?
-            .map_err(VersionReadError::Start)?;
-        let waited = tokio::time::timeout(
-            VERSION_READ_DEADLINE,
-            child.wait_with_output(None, VERSION_OUTPUT_BOUND),
-        )
-        .await;
-        let failure = match waited {
-            Ok(Ok(output)) if output.status.success() => return Ok(output.stdout),
-            Ok(Ok(output)) => return Err(VersionReadError::Exited(output.status)),
-            Ok(Err(error)) => VersionReadError::Output(error),
-            Err(_elapsed) => VersionReadError::TimedOut,
+        let request = ProgramRunRequest {
+            program: hit.build.clone(),
+            arguments: vec!["--version".into()],
+            environment,
+            working_folder: None,
         };
-        if let Err(error) = child.end_tree().await {
-            tracing::warn!(
-                error = &error as &(dyn Error + 'static),
-                "the processes of a provider build's version read could not be ended"
-            );
+        let output = run_program_to_end(
+            &self.spawner,
+            request,
+            VERSION_READ_DEADLINE,
+            VERSION_OUTPUT_BOUND,
+        )
+        .await
+        .map_err(VersionReadError::Run)?;
+        if output.status.success() {
+            Ok(output.stdout)
+        } else {
+            Err(VersionReadError::Exited(output.status))
         }
-        Err(failure)
     }
 }
 
