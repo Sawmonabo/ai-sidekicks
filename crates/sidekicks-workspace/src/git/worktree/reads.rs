@@ -421,9 +421,9 @@ fn parse_upstream_track(track: &[u8]) -> Result<Option<(u64, u64)>, GitError> {
 }
 
 /// Reads, in one git call, the commit, holding tree and upstream of each of `ref_names` (full
-/// names) that exists in the repository at `repository_folder`, by full name; a ref that does not exist has
-/// no entry. Fails as [`GitRunner::run`] does, with `PathText` for a holding tree this system
-/// cannot name.
+/// names) that exists in the repository at `repository_folder`, by full name; a ref that does not
+/// exist has no entry. Fails as [`GitRunner::run`] does, with `PathText` for a holding tree this
+/// system cannot name.
 pub(crate) async fn read_ref_heads(
     git: &GitRunner,
     place: Option<&Place>,

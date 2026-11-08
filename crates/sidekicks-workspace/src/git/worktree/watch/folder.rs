@@ -1,8 +1,8 @@
 //! One watched folder's task: it starts the folder's watches, picks the tree's mode (a watch, or
 //! the slow tick where the machine's watch limit has no room), reads every notice, tick and raise
 //! one at a time, sends one change per burst, writes a changed branch back and moves the folder's
-//! worktree `-> dirty`, back to `ready` or `-> merged`. The folder-change receivers hear each change, the watch's
-//! start and each fall to the slow tick, with the mode.
+//! worktree `-> dirty`, back to `ready` or `-> merged`. The folder-change receivers hear each
+//! change, the watch's start and each fall to the slow tick, with the mode.
 
 use std::collections::HashSet;
 use std::error::Error;
