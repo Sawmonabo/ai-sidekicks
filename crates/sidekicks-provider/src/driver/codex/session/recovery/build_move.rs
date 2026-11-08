@@ -138,7 +138,7 @@ impl CodexServiceRecovery {
             };
             let heard = waiters
                 .into_iter()
-                .filter(|waiter| waiter.send(restarted.clone()).is_ok())
+                .filter_map(|waiter| waiter.send(restarted.clone()).ok())
                 .count();
             if heard == 0
                 && let Err(error) = &restarted
