@@ -19,13 +19,12 @@ use tokio_util::sync::CancellationToken;
 
 use super::session_controls::{one_turn_outcome, one_turn_reply, opus_spend};
 use super::start_params;
+use crate::bounded_poll::poll_until;
 use crate::command::running_set::unbound_running_command_sets;
 use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::ScriptedDriver;
-use crate::driver::claude::session::scripted::{
-    binding_id, priced, register_claude_price_list, settle,
-};
+use crate::driver::claude::session::scripted::{binding_id, register_claude_price_list, settle};
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::declarations::ClaudeHandshakeDeclaration;
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
@@ -178,14 +177,17 @@ async fn a_staged_reviews_process_runs_in_its_levels_own_mode() {
         .start_run(params)
         .await
         .expect("the review starts");
-    ScriptedDriver::wait_for(|| {
-        fixture.engine.moves_of_run(run_id).iter().any(|entry| {
-            matches!(
-                entry,
-                RunStateEntry::Completed { .. } | RunStateEntry::Failed { .. }
-            )
-        })
-    })
+    poll_until(
+        || fixture.engine.moves_of_run(run_id),
+        |moves| {
+            moves.iter().any(|entry| {
+                matches!(
+                    entry,
+                    RunStateEntry::Completed { .. } | RunStateEntry::Failed { .. }
+                )
+            })
+        },
+    )
     .await;
 
     let modes: Vec<_> = fixture
@@ -252,10 +254,10 @@ async fn a_staged_reviews_spend_is_recorded_on_its_run_however_it_ends(
         .start_run(params)
         .await
         .expect("the review starts");
-    ScriptedDriver::wait_for(|| {
-        let moves = fixture.engine.moves_of_run(run_id);
-        (moves.iter()).any(|entry| matches!(entry, RunStateEntry::Failed { .. }))
-    })
+    poll_until(
+        || fixture.engine.moves_of_run(run_id),
+        |moves| (moves.iter()).any(|entry| matches!(entry, RunStateEntry::Failed { .. })),
+    )
     .await;
     stop.cancel();
 
@@ -268,7 +270,7 @@ async fn a_staged_reviews_spend_is_recorded_on_its_run_however_it_ends(
     assert_eq!(metered, [(MeteredUsageOwner::Run, binding_id("lead"))]);
     let account = test_provider_account_id().as_str().to_owned();
     assert_eq!(
-        priced(&fixture.usage.priced()),
+        fixture.usage.priced_shares(),
         [(cost_source, vec![(account, 14_000)])]
     );
 }

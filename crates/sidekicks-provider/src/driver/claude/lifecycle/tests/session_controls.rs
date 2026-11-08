@@ -19,6 +19,7 @@ use sidekicks_std::mutex_lock::lock;
 use tokio_util::sync::CancellationToken;
 
 use super::start_params;
+use crate::bounded_poll::poll_until;
 use crate::command::running_set::unbound_running_command_sets;
 use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::claude::session::conversation_home::claude_conversation_home_metadata;
@@ -28,8 +29,8 @@ use crate::driver::claude::session::scripted::driver::{
 };
 use crate::driver::claude::session::scripted::starts::ScriptedOneTurnRecord;
 use crate::driver::claude::session::scripted::{
-    SCRIPTED_PROVIDER_SESSION_ID, binding_id, hand_scripted_frame, priced,
-    register_claude_price_list, settle,
+    SCRIPTED_PROVIDER_SESSION_ID, binding_id, hand_scripted_frame, register_claude_price_list,
+    settle,
 };
 use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::session::transport::declarations::{
@@ -286,7 +287,7 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_prices_the_copy_a
     );
     let account = test_provider_account_id().as_str().to_owned();
     assert_eq!(
-        priced(&fixture.usage.priced()),
+        fixture.usage.priced_shares(),
         [
             (
                 UsageCostSource::ProviderReported,
@@ -335,6 +336,50 @@ async fn a_side_question_the_model_refuses_is_refused_as_such() {
     };
     assert_eq!(refusal.code, RefusalCode::SessionSideQuestionRefused);
     assert_eq!(answered(&fixture), 0);
+}
+
+// A side question whose caller stops waiting mid-turn still records its copy's spend once the
+// turn ends. Killed by recording the spend on the caller's own future, which the drop ends.
+#[tokio::test(start_paused = true)]
+async fn a_side_question_dropped_mid_turn_still_records_the_copy_spend() {
+    let fixture = ScriptedDriver::new();
+    fixture.starts.script_catalog(json!({"models": [
+        {"value": "opus", "displayName": "Opus", "resolvedModel": FULL_MODEL_ID},
+    ]}));
+    let release = fixture
+        .starts
+        .script_one_turn_until_released(one_turn_outcome(
+            one_turn_reply("late"),
+            Some(opus_spend(&[(1_000, 500)], None)),
+        ));
+    let session_id = new_session_id();
+
+    let asked = fixture.driver.ask_side_question(AskSideQuestionParams {
+        session_id,
+        binding_id: binding_id("lead"),
+        side_question_id: SideQuestionId::try_from(mint_uuid_v7()).expect("a UUID is an id"),
+        question: "Why?".to_owned(),
+        resume: Some(resume_params(session_id)),
+    });
+    let started = poll_until(
+        || fixture.starts.take_one_turns(),
+        |turns| !turns.is_empty(),
+    );
+    tokio::select! {
+        biased;
+        _answered = asked => panic!("the side question waits for its turn's release"),
+        _turns = started => {}
+    }
+    release.send(()).expect("the turn waits for its release");
+
+    let metered = poll_until(|| fixture.usage.metered(), |metered| !metered.is_empty()).await;
+    let recorded: Vec<_> = (metered.iter())
+        .map(|metered| {
+            let axes = metered.delta.axis_deltas;
+            (metered.session_id, axes.input, axes.output)
+        })
+        .collect();
+    assert_eq!(recorded, [(session_id, Some(1_000), Some(500))]);
 }
 
 // The side questions answered so far.
@@ -391,7 +436,7 @@ async fn a_run_started_through_the_driver_trait_ends_on_the_process_result() {
         .await
         .expect("the run starts");
     end_turn_of(&claude, &start, session_id);
-    ScriptedDriver::wait_for(|| !run_ends(&fixture, run_id).is_empty()).await;
+    poll_until(|| run_ends(&fixture, run_id), |ends| !ends.is_empty()).await;
 
     assert!(matches!(
         run_ends(&fixture, run_id).as_slice(),

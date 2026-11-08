@@ -48,6 +48,7 @@ use crate::account::usage_turns::unpriced::{
 use crate::driver::ProviderAccountReader;
 use crate::driver::ports::{HeldRequest, RequestHeldListener};
 use crate::port::usage_sink::{PricedRequest, PricedUsageRow, RecordedUsage, UsageSink};
+use crate::pricing::BoxedError;
 use crate::pricing::rule::{RequestPricer, RequestPricing};
 use crate::pricing::store::HeldPriceList;
 
@@ -57,8 +58,6 @@ pub const HELD_REQUEST_REPRICING_STATEMENT_CAPACITY: usize = 5;
 
 /// The rows a page of a key's held requests takes before the rest of its last request.
 const PAGE_ROWS: NonZeroU32 = NonZeroU32::new(500).expect("five hundred is not zero");
-
-type BoxedError = Box<dyn Error + Send + Sync>;
 
 /// What the repricing is built over.
 pub struct HeldRequestRepricingDependencies {

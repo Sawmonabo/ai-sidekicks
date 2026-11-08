@@ -13,6 +13,7 @@ use crate::driver::codex::pricing::compose_codex_request_facts;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
+use crate::record_readers::is_digits;
 use crate::usage_delta_accountant::{MeteredUsageDelta, UsageAxisCounts, meter_from_zero};
 
 #[cfg(test)]
@@ -235,7 +236,9 @@ fn read_token_count(record: &LogRecord, key: &'static str) -> Result<Option<u64>
     let count = match find_attribute(record, key) {
         None => return Ok(None),
         Some(Value::IntValue(count)) => u64::try_from(*count).ok(),
-        Some(Value::StringValue(digits)) => read_digits(digits),
+        Some(Value::StringValue(digits)) => {
+            is_digits(digits).then(|| digits.parse().ok()).flatten()
+        }
         Some(
             Value::BoolValue(_)
             | Value::DoubleValue(_)
@@ -252,12 +255,4 @@ fn read_token_count(record: &LogRecord, key: &'static str) -> Result<Option<u64>
             field: key,
             reason: "a count is not a whole number the wire can carry",
         })
-}
-
-// `text` as a count when it is ASCII digits alone, with no sign, space or point.
-fn read_digits(text: &str) -> Option<u64> {
-    if text.is_empty() || !text.bytes().all(|byte| byte.is_ascii_digit()) {
-        return None;
-    }
-    text.parse().ok()
 }

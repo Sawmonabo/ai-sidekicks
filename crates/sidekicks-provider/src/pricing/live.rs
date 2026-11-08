@@ -30,12 +30,11 @@ use crate::account::usage_turns::unpriced::{UnpricedRequest, UnpricedUsageKey, U
 use crate::driver::ProviderAccountReader;
 use crate::driver::ports::{DriverPorts, HeldRequest, RequestHeldListener};
 use crate::port::usage_sink::{PricedRequest, PricedUsageRow, RecordedUsage, UsageSink};
+use crate::pricing::BoxedError;
 use crate::pricing::list::PriceTable;
 use crate::pricing::rule::{RequestPricer, RequestPricing};
 use crate::pricing::store::HeldPriceList;
 use crate::usage_delta_accountant::{MeteredUsageDelta, resolve_cost_update_provenance};
-
-type BoxedError = Box<dyn Error + Send + Sync>;
 
 /// One provider's live pricing: its pricer and the ports it marks models in use on, records costs
 /// through and hands held requests to.

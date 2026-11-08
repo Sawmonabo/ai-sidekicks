@@ -545,77 +545,79 @@ impl ClaudeSessionControls {
     }
 
     /// One turn on `copy` in plan mode sending `text`, the copy's own spend recorded on
-    /// `binding_id` however the turn ended. Fails as the copy's turn fails.
+    /// `binding_id` however the turn ended, through [`Self::run_recorded_turn`], so a caller that
+    /// stops waiting still has it recorded. Fails as the copy's turn fails.
     pub(crate) async fn run_copy_turn(
         &self,
         copy: &ClaudeSideQuestionCopy,
         text: String,
         binding_id: &RuntimeBindingId,
     ) -> Result<ClaudeOneTurnReply, DriverError> {
-        let outcome = self
-            .run_one_turn(
-                &copy.legs,
-                copy.provider_account_id.clone(),
-                Some(copy.parent_provider_session_id.clone()),
-                Some(ClaudePermissionMode::Plan),
-                text,
-                CancellationToken::new(),
-            )
-            .await;
-        if let Some(spend) = outcome.spend {
-            let charge = ClaudeOneTurnCharge {
-                session_id: copy.legs.session_id,
-                binding_id: binding_id.clone(),
-                owner: MeteredUsageOwner::Session,
-                provider_account_id: copy.provider_account_id.clone(),
-            };
-            self.one_turn_pricing.record(spend, charge).await;
-        }
-        Ok(outcome.reply?)
+        let turn = self.run_one_turn(
+            copy.legs.clone(),
+            copy.provider_account_id.clone(),
+            Some(copy.parent_provider_session_id.clone()),
+            Some(ClaudePermissionMode::Plan),
+            text,
+            CancellationToken::new(),
+        );
+        let charge = ClaudeOneTurnCharge {
+            session_id: copy.legs.session_id,
+            binding_id: binding_id.clone(),
+            owner: MeteredUsageOwner::Session,
+            provider_account_id: copy.provider_account_id.clone(),
+        };
+        Ok(self.run_recorded_turn(turn, charge).await?)
     }
 
     // Runs one unkept turn on `legs` with the session's rules, the words given as the daemon's,
     // in `permission_mode` where given and else the level's own; no process starts, so nothing is
-    // spent, where the rules cannot be read.
-    async fn run_one_turn(
+    // spent, where the rules cannot be read. The turn owns what it reads, so it can run on a task
+    // of its own.
+    fn run_one_turn(
         &self,
-        legs: &ClaudeSpawnBoundLegs,
+        legs: ClaudeSpawnBoundLegs,
         provider_account_id: ProviderAccountId,
         resume_handle: Option<String>,
         permission_mode: Option<ClaudePermissionMode>,
         text: String,
         stop: CancellationToken,
-    ) -> ClaudeOneTurnOutcome {
-        let session_rules =
-            match read_claude_session_rules(&self.session_rules, legs.session_id).await {
-                Ok(session_rules) => session_rules,
-                Err(error) => {
-                    return ClaudeOneTurnOutcome {
-                        reply: Err(ClaudeLaunchError::Build(DriverError::Internal(error))),
-                        spend: None,
-                    };
-                }
-            };
-        let in_process_servers = self.in_process_tool_servers.port();
-        self.starts
-            .run_one_turn(ClaudeOneTurnRequest {
-                spawn: ClaudeSessionSpawn {
-                    legs,
-                    session_rules: &session_rules,
-                    step_bound: None,
-                    in_process_servers,
-                    path_rules: PathRules::NATIVE,
-                },
-                provider_account_id,
-                resume_handle,
-                permission_mode,
-                text: OutboundText {
-                    text,
-                    origin: OutboundTextOrigin::DriverCommand,
-                },
-                stop,
-            })
-            .await
+    ) -> impl Future<Output = ClaudeOneTurnOutcome> + Send + 'static {
+        let starts = Arc::clone(&self.starts);
+        let session_rules = Arc::clone(&self.session_rules);
+        let in_process_tool_servers = Arc::clone(&self.in_process_tool_servers);
+        async move {
+            let session_rules =
+                match read_claude_session_rules(&session_rules, legs.session_id).await {
+                    Ok(session_rules) => session_rules,
+                    Err(error) => {
+                        return ClaudeOneTurnOutcome {
+                            reply: Err(ClaudeLaunchError::Build(DriverError::Internal(error))),
+                            spend: None,
+                        };
+                    }
+                };
+            let in_process_servers = in_process_tool_servers.port();
+            starts
+                .run_one_turn(ClaudeOneTurnRequest {
+                    spawn: ClaudeSessionSpawn {
+                        legs: &legs,
+                        session_rules: &session_rules,
+                        step_bound: None,
+                        in_process_servers,
+                        path_rules: PathRules::NATIVE,
+                    },
+                    provider_account_id,
+                    resume_handle,
+                    permission_mode,
+                    text: OutboundText {
+                        text,
+                        origin: OutboundTextOrigin::DriverCommand,
+                    },
+                    stop,
+                })
+                .await
+        }
     }
 
     // Delivers in order with the session's rows: in place on its own task, else through its

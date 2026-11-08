@@ -36,8 +36,8 @@ pub enum DriverDiagnosticKind {
     /// A wire-declared per-turn figure disagrees with the derived interval; recorded, never
     /// substituted.
     UsageCrossCheckMismatch,
-    /// A token breakdown satisfying no containment identity is emitted unsubtracted, so the
-    /// overstatement surfaces instead of a silent understatement.
+    /// A token breakdown whose declared total satisfies no containment identity is emitted
+    /// unsubtracted, so the overstatement surfaces instead of a silent understatement.
     UsageContainmentIdentityUnconfirmed,
     /// The router refused a frame with an absent or unrecognized identity.
     ThreadFrameQuarantined,

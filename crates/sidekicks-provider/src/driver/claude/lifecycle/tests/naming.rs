@@ -14,7 +14,7 @@ use super::session_controls::{one_turn_reply, opus_spend};
 use crate::driver::ProviderAccountFolders;
 use crate::driver::claude::session::conversation_home::claude_conversation_home_metadata;
 use crate::driver::claude::session::scripted::driver::{ScriptedDriver, sandbox_cannot_run};
-use crate::driver::claude::session::scripted::{binding_id, priced, register_claude_price_list};
+use crate::driver::claude::session::scripted::{binding_id, register_claude_price_list};
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnOutcome, ClaudeOneTurnReply};
 use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
@@ -244,7 +244,7 @@ fn assert_the_session_s_naming_spend(fixture: &ScriptedDriver, cost_source: Usag
     );
     let row_account = test_provider_account_id().as_str().to_owned();
     assert_eq!(
-        priced(&fixture.usage.priced()),
+        fixture.usage.priced_shares(),
         [(cost_source, vec![(row_account, 14_000)])]
     );
 }

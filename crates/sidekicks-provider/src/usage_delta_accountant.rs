@@ -21,7 +21,7 @@
 //!   floored at zero, re-based at the observed value, and reported.
 //! - The normalized input is uncached input. The cached count is subtracted only where the
 //!   breakdown's sum identity shows it sits inside the input figure; otherwise input is emitted
-//!   unsubtracted with a diagnostic.
+//!   unsubtracted, with a diagnostic where the reading's declared total disagrees with it.
 //!
 //! Readings arrive typed: a driver reports a usage member that is not a non-negative integer where
 //! it reads the wire, so nothing here meets an unknown axis or a non-finite count.
@@ -184,9 +184,9 @@ pub struct MeteredUsageDelta {
 }
 
 impl MeteredUsageDelta {
-    // Whether every count the row would carry is zero or absent: the axes, the longer-lifetime
-    // cache write and the searches, since a change of either of the last two alone is still spend.
-    fn is_unchanged(&self) -> bool {
+    /// Whether every count the row would carry is zero or absent: the axes, the longer-lifetime
+    /// cache write and the searches, since a change of either of the last two alone is still spend.
+    pub(crate) fn is_unchanged(&self) -> bool {
         let axes = &self.axis_deltas;
         [
             axes.input,
@@ -309,14 +309,20 @@ impl UsageDeltaAccountant {
 
     /// Meters one cumulative reading into a per-turn delta; `None` for a thread with no
     /// established base, since metering it would invent a zero base for a resume, and for a
-    /// reading that changed nothing, a repeat, which records and prices nothing. The base
-    /// registers advance either way.
+    /// reading that changed nothing, a repeat, which records and prices nothing and is not
+    /// cross-checked. The base registers advance either way.
     pub(crate) fn meter_reading(
         &mut self,
         reading: CumulativeUsageReading,
     ) -> Option<MeteredUsageDelta> {
-        self.meter_change(reading)
-            .filter(|delta| !delta.is_unchanged())
+        let declared_per_turn = reading.declared_per_turn;
+        let delta = self
+            .meter_change(reading)
+            .filter(|delta| !delta.is_unchanged())?;
+        if let Some(declared_per_turn) = &declared_per_turn {
+            self.cross_check_declared_per_turn(&delta, declared_per_turn);
+        }
+        Some(delta)
     }
 
     // The delta one reading makes against its thread's base registers, advancing them; a reading
@@ -353,7 +359,6 @@ impl UsageDeltaAccountant {
             base_registers.set(axis, cumulative_value);
         }
 
-        self.cross_check_declared_per_turn(&reading, &axis_deltas);
         let (normalized_input_tokens, containment) =
             self.normalize_input_tokens(&reading, &axis_deltas);
 
@@ -377,15 +382,12 @@ impl UsageDeltaAccountant {
     // derived figure is kept.
     fn cross_check_declared_per_turn(
         &self,
-        reading: &CumulativeUsageReading,
-        axis_deltas: &UsageAxisCounts,
+        delta: &MeteredUsageDelta,
+        declared_per_turn: &UsageAxisCounts,
     ) {
-        let Some(declared_per_turn) = &reading.declared_per_turn else {
-            return;
-        };
         for &axis in UsageTokenAxis::VARIANTS {
             let (Some(derived_interval), Some(declared_value)) =
-                (axis_deltas.get(axis), declared_per_turn.get(axis))
+                (delta.axis_deltas.get(axis), declared_per_turn.get(axis))
             else {
                 continue;
             };
@@ -396,8 +398,8 @@ impl UsageDeltaAccountant {
                     "wire-declared per-turn figure disagrees with the derived interval; recorded \
                      as a cross-check and never substituted for it",
                     [
-                        ("threadId", json!(reading.thread_id)),
-                        ("namedTurnId", json!(reading.named_turn_id)),
+                        ("threadId", json!(delta.thread_id)),
+                        ("namedTurnId", json!(delta.attributed_turn_id)),
                         ("axis", json!(<&str>::from(axis))),
                         ("derivedInterval", json!(derived_interval)),
                         ("declaredValue", json!(declared_value)),
@@ -410,8 +412,9 @@ impl UsageDeltaAccountant {
     // Input is input neither read from nor written to the cache only where `total == input +
     // output` on the cumulative counters: a total used up by input plus output leaves the cache
     // counts nowhere to live but inside input, so both are subtracted and every provider counts
-    // the same thing. Otherwise input is emitted unsubtracted, an overstatement surfaced rather
-    // than a silent understatement.
+    // the same thing. Otherwise input is emitted unsubtracted: an overstatement, surfaced rather
+    // than left a silent understatement where the reading declares a total its counts disagree
+    // with; a reading with no total has no identity to fail.
     fn normalize_input_tokens(
         &self,
         reading: &CumulativeUsageReading,
@@ -421,19 +424,22 @@ impl UsageDeltaAccountant {
         let cached_input_delta = axis_deltas.cached_input.unwrap_or(0);
         let cache_write_delta = axis_deltas.cache_write_input.unwrap_or(0);
         let cumulative = &reading.cumulative;
+        // `None` where the reading leaves out the total, input or output the identity reads.
         let is_containment_confirmed = if let (Some(total), Some(input), Some(output)) =
             (cumulative.total, cumulative.input, cumulative.output)
         {
-            input.checked_add(output) == Some(total)
-                && cumulative
-                    .cached_input
-                    .unwrap_or(0)
-                    .checked_add(cumulative.cache_write_input.unwrap_or(0))
-                    .is_some_and(|cached| cached <= input)
+            Some(
+                input.checked_add(output) == Some(total)
+                    && cumulative
+                        .cached_input
+                        .unwrap_or(0)
+                        .checked_add(cumulative.cache_write_input.unwrap_or(0))
+                        .is_some_and(|cached| cached <= input),
+            )
         } else {
-            false
+            None
         };
-        if is_containment_confirmed {
+        if is_containment_confirmed == Some(true) {
             return (
                 input_delta
                     .saturating_sub(cached_input_delta)
@@ -441,7 +447,9 @@ impl UsageDeltaAccountant {
                 UsageContainment::ConfirmedSubtracted,
             );
         }
-        if cached_input_delta > 0 || cache_write_delta > 0 {
+        if is_containment_confirmed == Some(false)
+            && (cached_input_delta > 0 || cache_write_delta > 0)
+        {
             emit_usage_diagnostic(
                 self.provider.clone(),
                 DriverDiagnosticKind::UsageContainmentIdentityUnconfirmed,

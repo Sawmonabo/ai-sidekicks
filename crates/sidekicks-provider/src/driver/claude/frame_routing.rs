@@ -445,21 +445,7 @@ fn meter(
         declared_per_turn: None,
         request,
     })?;
-    let axes = &delta.axis_deltas;
-    // A frame whose only change is a search or a longer-lifetime cache write is still metered.
-    let is_unchanged = [
-        axes.input,
-        axes.cached_input,
-        axes.cache_write_input,
-        axes.output,
-        axes.reasoning_output,
-        axes.total,
-        delta.request.cache_write_extended_tokens,
-        delta.request.web_search_requests,
-    ]
-    .into_iter()
-    .all(|count| count.unwrap_or(0) == 0);
-    (!is_unchanged).then(|| ClaudeMeteredReading {
+    Some(ClaudeMeteredReading {
         subagent_id: observation.subagent_id.clone(),
         delta,
     })

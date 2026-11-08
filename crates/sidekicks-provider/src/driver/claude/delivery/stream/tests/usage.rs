@@ -15,11 +15,10 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use tokio_util::sync::CancellationToken;
 
 use super::{helper_started, init, result};
+use crate::bounded_poll::poll_until;
 use crate::driver::claude::DESCRIPTOR;
-use crate::driver::claude::session::scripted::driver::ScriptedDriver;
 use crate::driver::claude::session::scripted::{
-    SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, priced, register_claude_price_list,
-    settle,
+    SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, register_claude_price_list, settle,
 };
 use crate::port::usage_sink::{MeteredUsageOwner, ProviderQuotaWindow};
 use crate::run::delivery::LateAppendableRow;
@@ -303,20 +302,20 @@ async fn each_result_prices_the_spend_it_states_since_the_previous_result() {
     session.frame(&init());
     session.frame(&priced_message("message-1", opus, 1_000, 500));
     session.frame(&stated(1_000, 500, 0.10, 5.10));
-    ScriptedDriver::wait_for(|| session.usage.priced().len() == 1).await;
+    poll_until(|| session.usage.priced(), |priced| priced.len() == 1).await;
     session.hold_lead_turn("lead");
     session.frame(&priced_message("message-2", opus, 1_000, 500));
-    ScriptedDriver::wait_for(|| session.usage.metered().len() == 2).await;
+    poll_until(|| session.usage.metered(), |metered| metered.len() == 2).await;
     let moved = ProviderAccountId::new("moved-account".to_owned()).expect("an account id");
     session.usage.charge_to(moved.clone());
     session.frame(&priced_message("message-3", opus, 1_000, 500));
     session.frame(&stated(2_000, 1_000, 0.15, 5.25));
-    ScriptedDriver::wait_for(|| session.usage.priced().len() == 2).await;
+    poll_until(|| session.usage.priced(), |priced| priced.len() == 2).await;
     stop.cancel();
 
     let first = test_provider_account_id().as_str().to_owned();
     assert_eq!(
-        priced(&session.usage.priced()),
+        session.usage.priced_shares(),
         [
             (
                 UsageCostSource::ProviderReported,
@@ -354,15 +353,15 @@ async fn a_steers_mid_turn_result_prices_the_spend_it_states() {
     session.frame(&init());
     session.frame(&priced_message("message-1", "claude-opus-5-5", 1_000, 500));
     session.frame(&opus_result(1_000, 500, 0.10, &[]));
-    ScriptedDriver::wait_for(|| session.usage.priced().len() == 1).await;
+    poll_until(|| session.usage.priced(), |priced| priced.len() == 1).await;
     session.frame(&priced_message("message-2", "claude-opus-5-5", 1_000, 500));
     session.frame(&opus_result(1_000, 500, 0.05, &["now-steer"]));
-    ScriptedDriver::wait_for(|| session.usage.priced().len() == 2).await;
+    poll_until(|| session.usage.priced(), |priced| priced.len() == 2).await;
     stop.cancel();
 
     let account = test_provider_account_id().as_str().to_owned();
     assert_eq!(
-        priced(&session.usage.priced()),
+        session.usage.priced_shares(),
         [
             (
                 UsageCostSource::ProviderReported,
@@ -414,7 +413,7 @@ async fn the_spend_no_message_showed_is_recorded_at_its_model_and_priced() {
         opus: {"inputTokens": 1_400, "outputTokens": 600, "costUSD": 0.02, "costBasis": "list"},
         sonnet: {"inputTokens": 3_000, "outputTokens": 200, "costUSD": 0.01, "costBasis": "list"},
     }})));
-    ScriptedDriver::wait_for(|| session.usage.priced().len() == 2).await;
+    poll_until(|| session.usage.priced(), |priced| priced.len() == 2).await;
     stop.cancel();
 
     let lead = binding_id("lead");
@@ -428,7 +427,7 @@ async fn the_spend_no_message_showed_is_recorded_at_its_model_and_priced() {
     );
     let account = test_provider_account_id().as_str().to_owned();
     assert_eq!(
-        priced(&session.usage.priced()),
+        session.usage.priced_shares(),
         [
             (
                 UsageCostSource::ProviderReported,
@@ -454,18 +453,21 @@ async fn rows_past_their_result_carry_a_balance_and_a_figure_with_no_row_is_reco
     session.frame(&init());
     session.frame(&priced_message("message-1", opus, 1_000, 500));
     session.frame(&opus_result(600, 500, 0.01, &[]));
-    ScriptedDriver::wait_for(|| session.usage.priced().len() == 1).await;
+    poll_until(|| session.usage.priced(), |priced| priced.len() == 1).await;
     session.hold_lead_turn("lead");
     session.frame(&opus_result(400, 0, 0.002, &[]));
     session.hold_lead_turn("lead");
     session.frame(&priced_message("message-2", opus, 1_000, 500));
     session.frame(&opus_result(1_000, 500, 0.014, &[]));
     // Each row is a request of its own, so the last result is priced once every row is.
-    ScriptedDriver::wait_for(|| {
-        let metered = session.usage.metered();
-        let messages = (metered.iter()).filter(|row| row.delta.axis_deltas.input == Some(1_000));
-        messages.count() == 2 && session.usage.priced().len() == metered.len()
-    })
+    poll_until(
+        || (session.usage.metered(), session.usage.priced()),
+        |(metered, priced)| {
+            let messages =
+                (metered.iter()).filter(|row| row.delta.axis_deltas.input == Some(1_000));
+            messages.count() == 2 && priced.len() == metered.len()
+        },
+    )
     .await;
     stop.cancel();
 
@@ -486,7 +488,7 @@ async fn rows_past_their_result_carry_a_balance_and_a_figure_with_no_row_is_reco
         )
     };
     assert_eq!(
-        priced(&session.usage.priced()),
+        session.usage.priced_shares(),
         [reported(10_000), reported(2_000), reported(14_000)]
     );
 }
@@ -508,12 +510,12 @@ async fn a_result_stating_no_figures_leaves_its_rows_for_the_next() {
     session.hold_lead_turn("lead");
     session.frame(&priced_message("message-2", opus, 1_000, 500));
     session.frame(&opus_result(2_000, 1_000, 0.20, &[]));
-    ScriptedDriver::wait_for(|| !session.usage.priced().is_empty()).await;
+    poll_until(|| session.usage.priced(), |priced| !priced.is_empty()).await;
     stop.cancel();
 
     let account = test_provider_account_id().as_str().to_owned();
     assert_eq!(
-        priced(&session.usage.priced()),
+        session.usage.priced_shares(),
         [(
             UsageCostSource::ProviderReported,
             vec![(account.clone(), 100_000), (account, 100_000)]
@@ -538,7 +540,7 @@ async fn a_model_the_result_leaves_out_keeps_its_rows_for_the_result_that_states
     session.frame(&result(&json!({"model_usage_since_last_result": {}})));
     session.hold_lead_turn("lead");
     session.frame(&opus_result(1_000, 500, 0.02, &[]));
-    ScriptedDriver::wait_for(|| !session.usage.priced().is_empty()).await;
+    poll_until(|| session.usage.priced(), |priced| !priced.is_empty()).await;
     stop.cancel();
 
     let lead = binding_id("lead");
@@ -548,7 +550,7 @@ async fn a_model_the_result_leaves_out_keeps_its_rows_for_the_result_that_states
     );
     let account = test_provider_account_id().as_str().to_owned();
     assert_eq!(
-        priced(&session.usage.priced()),
+        session.usage.priced_shares(),
         [(UsageCostSource::ProviderReported, vec![(account, 20_000)])]
     );
 }
@@ -578,13 +580,13 @@ async fn a_process_that_ends_before_its_result_prices_its_rows_from_the_list(
     session.hold_lead_turn("lead");
     session.frame(&init());
     session.frame(&message);
-    ScriptedDriver::wait_for(|| session.usage.metered().len() == 1).await;
+    poll_until(|| session.usage.metered(), |metered| metered.len() == 1).await;
     session.exit();
-    ScriptedDriver::wait_for(|| session.usage.priced().len() == 1).await;
+    poll_until(|| session.usage.priced(), |priced| priced.len() == 1).await;
     stop.cancel();
 
     assert_eq!(
-        priced(&session.usage.priced()),
+        session.usage.priced_shares(),
         [(
             UsageCostSource::DerivedExact,
             vec![(
@@ -614,7 +616,7 @@ async fn a_reroute_to_a_model_the_list_lacks_fetches_the_list_at_once() {
         "fallback_model": "claude-haiku-5-5[1m]",
         "session_id": SCRIPTED_PROVIDER_SESSION_ID,
     }));
-    ScriptedDriver::wait_for(|| server.if_none_match().len() == 2).await;
+    poll_until(|| server.if_none_match(), |sent| sent.len() == 2).await;
     stop.cancel();
 
     assert_eq!(

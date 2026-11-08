@@ -15,3 +15,8 @@ pub mod rule;
 pub mod store;
 #[cfg(test)]
 pub(crate) mod test_fixture;
+
+use std::error::Error;
+
+/// A failure a pricing port or store answers, boxed so each port keeps its own error type.
+pub(crate) type BoxedError = Box<dyn Error + Send + Sync>;

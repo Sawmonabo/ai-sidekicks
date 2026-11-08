@@ -17,7 +17,6 @@
 //! driver's one live pricing, which a reroute also marks its model in use on. A row naming no model
 //! is recorded unpriced.
 
-use std::error::Error;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -35,13 +34,12 @@ use crate::driver::codex::config_read::{
 };
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
 use crate::port::usage_sink::{MeteredUsage, UsageSink};
+use crate::pricing::BoxedError;
 use crate::pricing::list::{PriceTable, SpeedPricing};
 use crate::pricing::live::{LivePricing, LiveUsageRow};
 use crate::pricing::quote::{RequestTokenCounts, RequestUsage, quote_request_rows};
 use crate::pricing::rule::{RequestPricer, RequestPricing};
 use crate::usage_delta_accountant::UsageRequestFacts;
-
-type BoxedError = Box<dyn Error + Send + Sync>;
 type RegionWord = BoundedText<1, EVENT_FIELD_MAX_LEN>;
 
 // The region a service on a host that is neither the API's own nor one of its regional hosts
@@ -421,7 +419,14 @@ mod tests {
         [1_000, 100, 0, 0],
         priced(6_000)
     )]
-    #[case::thirty_minute_write("gpt-6.1-sol", None, None, API_KEY, [0, 0, 0, 1_000], priced(2_500))]
+    #[case::thirty_minute_write(
+        "gpt-6.1-sol",
+        None,
+        None,
+        API_KEY,
+        [0, 0, 0, 1_000],
+        priced(2_500)
+    )]
     #[case::plan(
         "gpt-6.1-sol",
         None,

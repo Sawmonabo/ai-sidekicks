@@ -12,6 +12,7 @@ use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 
 use crate::driver::claude::event_normalizer::ClaudeSubagentLifecycleSignal;
 use crate::driver::mcp_server::status::McpServerStatusIngestResult;
+use crate::record_readers::is_digits;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
 /// A fast-mode declaration as sent: `fast_mode_state` and `fast_mode_disabled_reason`, as the
@@ -102,11 +103,9 @@ impl ClaudeInitializeDeclaration {
 // own ids spell it.
 fn canonical_model_id(model: &str) -> String {
     let model = model.trim().to_lowercase();
-    let window = model.rsplit_once('-').filter(|(_, suffix)| {
-        suffix.strip_suffix('m').is_some_and(|digits| {
-            !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
-        })
-    });
+    let window = model
+        .rsplit_once('-')
+        .filter(|(_, suffix)| suffix.strip_suffix('m').is_some_and(is_digits));
     match window {
         Some((base, suffix)) => format!("{base}[{suffix}]"),
         None => model,
