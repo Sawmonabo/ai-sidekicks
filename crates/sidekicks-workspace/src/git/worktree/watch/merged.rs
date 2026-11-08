@@ -2,10 +2,11 @@
 //! merge into any other branch is not read.
 //!
 //! - The row records the last tip seen holding commits of its own: each check that counts a commit
-//!   on the branch, merge commits not counted, that neither the base nor its upstream holds records
-//!   the tip, and while it records none and the tip is contained, the newest `commit:` entry in the
-//!   branch's reflog seeds it. A branch that only caught up with its base, by a fast-forward or a
-//!   merge commit, or never left it, records none and never reads merged.
+//!   on the branch that changes a path, merge commits not counted, and that neither the base nor
+//!   its upstream holds records the tip; while it records none and the tip is contained, the newest
+//!   commit, amend or pick in the branch's reflog that changed a path and that the base or its
+//!   upstream holds seeds it. A branch that only caught up with its base, by a fast-forward or a
+//!   merge commit, never left it or made only empty commits records none and never reads merged.
 //! - The checks run on the recorded tip, never on a later tip that discarded its work: it has
 //!   merged when the base or its upstream holds it, or, where neither does, when nothing on it is
 //!   left unapplied there: each of its commits' patches found on that side, or all of its changes
@@ -36,8 +37,9 @@ const RECORD_OWN_COMMIT_TIP_SQL: &str =
 // The prefix of every remote-tracking branch's full ref name.
 const REMOTE_REF_PREFIX: &str = "refs/remotes/";
 
-// The reflog subject git writes for a commit made on the branch.
-const COMMIT_REFLOG_PREFIX: &[u8] = b"commit:";
+// The reflog subjects git writes for a commit made on the branch: a new one, an amended one and a
+// picked one.
+const OWN_COMMIT_REFLOG_PREFIXES: [&[u8]; 3] = [b"commit:", b"commit (amend):", b"cherry-pick:"];
 
 // `merge-base`'s exit when the two commits share no history.
 const NO_MERGE_BASE_EXIT_CODE: i32 = 1;
@@ -92,7 +94,16 @@ impl MergedCheck {
         else {
             return Ok(false);
         };
-        if count_past(git, place, folder, &tips.tip, &tips, Commits::OwnOnly).await? > 0 {
+        let own_commits = count_past(
+            git,
+            place,
+            folder,
+            &tips.tip,
+            &tips.targets,
+            Commits::OwnOnly,
+        )
+        .await?;
+        if own_commits > 0 {
             // The tip holds work the base and its upstream lack, so neither contains it.
             if tree.own_commit_tip.as_deref() != Some(tips.tip.as_str()) {
                 record_own_commit_tip(deps, tree, &tips.tip).await?;
@@ -101,16 +112,19 @@ impl MergedCheck {
             let recorded = if let Some(recorded) = &tree.own_commit_tip {
                 recorded.clone()
             } else {
-                if count_past(git, place, folder, &tips.tip, &tips, Commits::All).await? > 0 {
+                if count_past(git, place, folder, &tips.tip, &tips.targets, Commits::All).await? > 0
+                {
                     return Ok(false);
                 }
-                let Some(seed) = newest_commit_on(git, place, folder, &branch_ref).await? else {
+                let Some(seed) =
+                    newest_own_commit_on(git, place, folder, &branch_ref, &tips).await?
+                else {
                     return Ok(false);
                 };
                 record_own_commit_tip(deps, tree, &seed).await?;
                 seed
             };
-            match count_past(git, place, folder, &recorded, &tips, Commits::All).await {
+            match count_past(git, place, folder, &recorded, &tips.targets, Commits::All).await {
                 Ok(0) => return Ok(true),
                 Ok(_) => {}
                 Err(error) => {
@@ -198,25 +212,21 @@ impl MergedCheck {
 #[derive(Clone, Copy)]
 enum Commits {
     All,
-    // Merge commits left out.
+    // Only those that change a path, merge commits and empty ones left out.
     OwnOnly,
 }
 
-// The commits `commit` holds that neither the base nor its upstream holds; with `All`, none exactly
-// when either holds `commit`.
+// The commits `commit` holds that none of the commits `past` holds; with `All`, none exactly when
+// one of them holds `commit`.
 async fn count_past(
     git: &GitRunner,
     place: Option<&Place>,
     folder: &Path,
     commit: &str,
-    tips: &BranchTips,
+    past: &[String],
     commits: Commits,
 ) -> Result<u64, GitError> {
-    let excluded: Vec<String> = tips
-        .targets
-        .iter()
-        .map(|target| format!("^{target}"))
-        .collect();
+    let excluded: Vec<String> = past.iter().map(|target| format!("^{target}")).collect();
     let mut arguments = vec!["rev-list", "--count"];
     if matches!(commits, Commits::OwnOnly) {
         arguments.push("--no-merges");
@@ -224,15 +234,22 @@ async fn count_past(
     arguments.push(commit);
     arguments.extend(excluded.iter().map(String::as_str));
     arguments.push("--");
+    // The tree's root as a path keeps only the commits that change one.
+    if matches!(commits, Commits::OwnOnly) {
+        arguments.push(".");
+    }
     parse_number(&strip_line_end(read(git, place, folder, &arguments).await?))
 }
 
-// The commit the newest `commit:` entry in the branch's reflog made; `None` when it records none.
-async fn newest_commit_on(
+// The commit of the newest commit, amend or pick in the branch's reflog that changed a path and that
+// the base or its upstream holds; `None` when none did. It is read only while the branch's tip is
+// contained, so a commit the branch still holds is held there too.
+async fn newest_own_commit_on(
     git: &GitRunner,
     place: Option<&Place>,
     folder: &Path,
     branch_ref: &str,
+    tips: &BranchTips,
 ) -> Result<Option<String>, GitError> {
     let reflog = read(
         git,
@@ -247,12 +264,67 @@ async fn newest_commit_on(
         ],
     )
     .await?;
-    Ok(reflog.split(|byte| *byte == b'\n').find_map(|entry| {
-        let (commit, subject) = entry.split_at(entry.iter().position(|byte| *byte == 0)?);
-        subject[1..]
-            .starts_with(COMMIT_REFLOG_PREFIX)
-            .then(|| String::from_utf8_lossy(commit).into_owned())
-    }))
+    let mut made: Vec<&[u8]> = Vec::new();
+    for entry in reflog.split(|byte| *byte == b'\n') {
+        let Some(end) = entry.iter().position(|byte| *byte == 0) else {
+            continue;
+        };
+        let (commit, subject) = (&entry[..end], &entry[end + 1..]);
+        if OWN_COMMIT_REFLOG_PREFIXES
+            .iter()
+            .any(|prefix| subject.starts_with(prefix))
+            && !made.contains(&commit)
+        {
+            made.push(commit);
+        }
+    }
+    if made.is_empty() {
+        return Ok(None);
+    }
+    // Those that changed a path, newest first.
+    let changed = read_with_input(
+        git,
+        place,
+        folder,
+        &["rev-list", "--no-walk=unsorted", "--stdin", "--", "."],
+        lines_of(made.iter().copied()),
+    )
+    .await?;
+    let changed: Vec<&[u8]> = changed
+        .split(|byte| *byte == b'\n')
+        .filter(|commit| !commit.is_empty())
+        .collect();
+    if changed.is_empty() {
+        return Ok(None);
+    }
+    // A walk from them that stops at the base and its upstream lists every one neither holds.
+    let excluded: Vec<Vec<u8>> = tips
+        .targets
+        .iter()
+        .map(|target| format!("^{target}").into_bytes())
+        .collect();
+    let walk = lines_of(
+        changed
+            .iter()
+            .copied()
+            .chain(excluded.iter().map(Vec::as_slice)),
+    );
+    let outside = read_with_input(git, place, folder, &["rev-list", "--stdin"], walk).await?;
+    let outside: HashSet<&[u8]> = outside.split(|byte| *byte == b'\n').collect();
+    Ok(changed
+        .iter()
+        .find(|commit| !outside.contains(*commit))
+        .map(|commit| String::from_utf8_lossy(commit).into_owned()))
+}
+
+// `lines`, each ended by a newline, as git's standard input takes revisions.
+fn lines_of<'line>(lines: impl Iterator<Item = &'line [u8]>) -> Vec<u8> {
+    let mut input = Vec::new();
+    for line in lines {
+        input.extend_from_slice(line);
+        input.push(b'\n');
+    }
+    input
 }
 
 // Whether the repository holds `commit`.
@@ -330,13 +402,18 @@ async fn is_applied_on(
         .map(|path| path.strip_prefix(b"\n").unwrap_or(path))
         .filter(|path| !path.is_empty())
     {
+        // Standard input ends a path at a newline, so one holding a newline cannot be named there,
+        // and the branch is not read as applied.
+        if path.contains(&b'\n') {
+            return Ok(false);
+        }
         walk.extend_from_slice(path);
         walk.push(b'\n');
         has_paths = true;
     }
-    // Merge commits and empty ones carry no change of the branch's own.
+    // A branch that changes no path holds no work of its own to have applied.
     if !has_paths {
-        return Ok(true);
+        return Ok(false);
     }
     let target_log = [
         &[
