@@ -190,7 +190,7 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
                 notice = next_notice(&mut self.tree_watch) => FolderEvent::Tree(notice),
                 notice = next_notice(&mut self.git_watch) => FolderEvent::GitFolder(notice),
                 () = self.signals.raise.notified() => FolderEvent::Raise,
-                // A change a tick found goes out before the next tick is taken; its wake-up waits.
+                // A pending change goes out before the next tick is taken; its wake-up waits.
                 () = tick_due(self.tick.as_ref()), if !self.is_raise_pending => FolderEvent::Tick,
                 read = ignored_read_done(&mut self.ignored_read) => FolderEvent::IgnoredRead(read),
                 () = std::future::ready(()), if self.is_raise_pending => FolderEvent::Flush,
