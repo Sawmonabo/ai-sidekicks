@@ -626,9 +626,8 @@ mod tests {
     }
 
     // While raw messages are off the export reaches its reader and nothing is recorded; once on,
-    // the whole export is recorded once as OTLP JSON under its provider. Killed by recording the
-    // export while the switch is off. Reading the switch after the JSON is built is equivalent
-    // here and held by review.
+    // the whole export is recorded once as OTLP JSON under its provider. The fake keeps every
+    // message it is handed, so deleting the receiver's switch check kills it.
     #[tokio::test]
     async fn the_whole_export_is_recorded_only_while_raw_messages_are_on() {
         let served = serve().await;

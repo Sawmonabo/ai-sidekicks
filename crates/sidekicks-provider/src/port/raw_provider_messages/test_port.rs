@@ -1,4 +1,5 @@
-//! A raw-message port for tests: its switch a test sets, and each message it records kept.
+//! A raw-message port for tests: its switch a test sets, and every message it is handed kept,
+//! whatever the switch reads, so the switch a test proves is the caller's check.
 
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,7 +10,7 @@ use sidekicks_std::mutex_lock::lock;
 
 use crate::port::raw_provider_messages::RawProviderMessages;
 
-/// Keeps each message recorded while its switch, off at first, is on.
+/// Keeps every message it is handed; its switch, off at first, only answers `is_recording`.
 #[derive(Default)]
 pub(crate) struct KeptRawMessages {
     is_recording: AtomicBool,
@@ -22,7 +23,7 @@ impl KeptRawMessages {
         self.is_recording.store(is_recording, Ordering::SeqCst);
     }
 
-    /// Each message recorded so far, in order, with the provider that sent it.
+    /// Each message handed so far, in order, with the provider that sent it.
     pub(crate) fn messages(&self) -> Vec<(ProviderId, String)> {
         lock(&self.messages).clone()
     }
@@ -34,9 +35,7 @@ impl RawProviderMessages for KeptRawMessages {
     }
 
     fn record(&self, provider: ProviderId, message: String) -> BoxFuture<'_, ()> {
-        if self.is_recording() {
-            lock(&self.messages).push((provider, message));
-        }
+        lock(&self.messages).push((provider, message));
         Box::pin(std::future::ready(()))
     }
 }

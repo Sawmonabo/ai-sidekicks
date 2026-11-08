@@ -1,4 +1,5 @@
-//! A tool-trace port for tests: its switch a test sets, and each trace it records kept.
+//! A tool-trace port for tests: its switch a test sets, and every trace it is handed kept,
+//! whatever the switch reads, so the switch a test proves is the caller's check.
 
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -8,7 +9,7 @@ use sidekicks_std::mutex_lock::lock;
 
 use crate::port::tool_traces::{ToolTrace, ToolTraces};
 
-/// Keeps each trace recorded while its switch, off at first, is on.
+/// Keeps every trace it is handed; its switch, off at first, only answers `is_recording`.
 #[derive(Default)]
 pub(crate) struct KeptToolTraces {
     is_recording: AtomicBool,
@@ -21,7 +22,7 @@ impl KeptToolTraces {
         self.is_recording.store(is_recording, Ordering::SeqCst);
     }
 
-    /// Each trace recorded so far, in order.
+    /// Each trace handed so far, in order.
     pub(crate) fn traces(&self) -> Vec<ToolTrace> {
         lock(&self.traces).clone()
     }
@@ -33,9 +34,7 @@ impl ToolTraces for KeptToolTraces {
     }
 
     fn record(&self, trace: ToolTrace) -> BoxFuture<'_, ()> {
-        if self.is_recording() {
-            lock(&self.traces).push(trace);
-        }
+        lock(&self.traces).push(trace);
         Box::pin(std::future::ready(()))
     }
 }
