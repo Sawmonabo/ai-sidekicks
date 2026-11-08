@@ -21,10 +21,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::workflow::definition::document::WorkflowContentHash;
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-use sidekicks_contracts::workflow::run::step::events::WorkflowStepSkipReason;
-use sidekicks_contracts::workflow::run::step::record::{WorkflowStepKey, WorkflowStepSource};
+use sidekicks_contracts::workflow::run::step::events::{
+    WorkflowReusedStep, WorkflowStepSkipReason,
+};
+use sidekicks_contracts::workflow::run::step::record::{
+    WorkflowPayloadRef, WorkflowStepKey, WorkflowStepSource,
+};
 
 use self::first_to_arrive::FirstToArriveWin;
 use self::graph::SlotTarget;
@@ -74,6 +79,18 @@ pub(crate) struct WalkSkip {
     pub(crate) sources: Vec<Option<WorkflowStepSource>>,
     /// How many items each main output carries on, in output order.
     pub(crate) output_lengths: Vec<usize>,
+    /// The earlier step whose data the skip carries; `Some` exactly when `reason` is `Reused`.
+    pub(crate) reused: Option<ReusedStepRecord>,
+}
+
+/// The earlier step a reused skip carries the data of, as its row and event record it.
+pub(crate) struct ReusedStepRecord {
+    /// The step and the version its run executed.
+    pub(crate) from: WorkflowReusedStep,
+    /// That step's output, which the skip passes on.
+    pub(crate) output_ref: WorkflowPayloadRef,
+    /// The hash of the pin that step ran on, where it recorded one.
+    pub(crate) pin_hash: Option<WorkflowContentHash>,
 }
 
 /// A first-to-arrive win the walk decided: the node that won and which places lost.
@@ -312,6 +329,7 @@ impl RunWalk {
             },
             sources: round.sources(),
             output_lengths: vec![0; node.outputs.len()],
+            reused: None,
         });
     }
 
@@ -691,6 +709,7 @@ impl RunWalk {
             reason: WorkflowStepSkipReason::Disabled,
             sources,
             output_lengths: output_lengths.clone(),
+            reused: None,
         });
         if carries_items {
             let fed = self.feed(

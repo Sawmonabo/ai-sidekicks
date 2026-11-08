@@ -519,7 +519,8 @@ impl RunTurnCommit {
     }
 
     /// Writes the `skipped` row of `skip` at `at`, on `input_ref`, passing `output_ref` on, and
-    /// its `workflow.step.skipped`; answers that event's index, for the steps its write readies.
+    /// its `workflow.step.skipped`, each naming the step a reused skip reused and that step's pin
+    /// hash; answers that event's index, for the steps its write readies.
     pub(crate) fn skipped(
         &mut self,
         skip: &WalkSkip,
@@ -527,6 +528,8 @@ impl RunTurnCommit {
         output_ref: &WorkflowPayloadRef,
         at: WireInstant,
     ) -> usize {
+        let reused = skip.reused.as_ref();
+        let pin_hash = reused.and_then(|reused| reused.pin_hash.as_ref());
         self.statements.push(insert_skipped_step(
             &skip.step,
             &skip.sources,
@@ -534,9 +537,14 @@ impl RunTurnCommit {
             output_ref,
             &skip.output_lengths,
             &at,
+            (reused.map(|reused| &reused.from), pin_hash),
         ));
         self.keep_artifact(input_ref);
-        self.keep_artifact(output_ref);
+        // A reused step's own output belongs to the run that recorded it, so a refused turn
+        // never deletes it; a copy stored for this run is the turn's.
+        if reused.is_none_or(|reused| reused.output_ref != *output_ref) {
+            self.keep_artifact(output_ref);
+        }
         let session_id = self.keys.session_id;
         let step = &skip.step;
         self.events.push(TurnEvent {
@@ -556,6 +564,8 @@ impl RunTurnCommit {
                     .map(SafeInt::from_usize)
                     .collect(),
                 readied: Vec::new(),
+                reused_from: reused.map(|reused| reused.from.clone()),
+                pin_hash: pin_hash.cloned(),
             )),
         });
         self.events.len() - 1

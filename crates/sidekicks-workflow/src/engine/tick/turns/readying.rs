@@ -13,7 +13,7 @@ use crate::engine::tick::branch_cancellation::{BranchCancelReason, BranchLoser, 
 use crate::engine::tick::live_runs::LiveRun;
 use crate::engine::tick::node_settings::main_inputs;
 use crate::engine::tick::step_failure::{RunSibling, SiblingState};
-use crate::engine::tick::walk::WalkTurn;
+use crate::engine::tick::walk::{WalkSkip, WalkTurn};
 use crate::expressions::lineage::{StepKey, StepOutput};
 use crate::kinds::StepFailure;
 use crate::runs::step_payload::write_step_payload;
@@ -89,16 +89,16 @@ impl EngineTick {
         for skip in &skipped {
             let (input_ref, output_ref) = match skip.reason {
                 WorkflowStepSkipReason::Disabled => {
-                    let inputs = live
-                        .walk
-                        .ready_inputs(&skip.step, &skip.sources, &live.outputs);
-                    // A payload that cannot be stored is recorded on the skip, which passes its
-                    // items on in the walk all the same.
-                    let payload = self
-                        .store_input(live, &skip.step, &inputs)
-                        .await
-                        .unwrap_or(WorkflowPayloadRef::Inline { items: Vec::new() });
+                    let payload = self.store_skipped_input(live, skip).await;
                     (payload.clone(), payload)
+                }
+                WorkflowStepSkipReason::Reused => {
+                    let reused = skip
+                        .reused
+                        .as_ref()
+                        .expect("a reused skip names the step it reused");
+                    let input_ref = self.store_skipped_input(live, skip).await;
+                    (input_ref, reused.output_ref.clone())
                 }
                 WorkflowStepSkipReason::NoItems => (
                     WorkflowPayloadRef::Inline { items: Vec::new() },
@@ -195,6 +195,17 @@ impl EngineTick {
             turn.follow_ups.extend(cancelings);
             live.waves.extend(wave);
         }
+    }
+
+    /// The first main input of `skip` as the ref its row stores. A payload that cannot be stored
+    /// is recorded on the skip as an empty input, and the skip passes its items on all the same.
+    async fn store_skipped_input(&self, live: &LiveRun, skip: &WalkSkip) -> WorkflowPayloadRef {
+        let inputs = live
+            .walk
+            .ready_inputs(&skip.step, &skip.sources, &live.outputs);
+        self.store_input(live, &skip.step, &inputs)
+            .await
+            .unwrap_or(WorkflowPayloadRef::Inline { items: Vec::new() })
     }
 
     /// The first main input of `inputs`, the input lists of `step`, as the ref its row stores.

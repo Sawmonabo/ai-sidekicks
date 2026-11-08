@@ -14,6 +14,7 @@ use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::WorkflowContentHash;
 use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
+use sidekicks_contracts::workflow::run::step::events::WorkflowReusedStep;
 use sidekicks_contracts::workflow::run::step::record::{
     WorkflowCost, WorkflowPayloadRef, WorkflowStepKey, WorkflowStepSource,
 };
@@ -33,9 +34,10 @@ pub(crate) const CLEAR_WAIT_COLUMNS_SQL: &str = "wait_cause = NULL, resume_at = 
 // A step the walk readied or skipped: its row is new, written at the event's instant.
 const INSERT_STEP_SQL: &str = "INSERT INTO workflow_steps (workflow_run_id, node_id, attempt,
     execution_index, source_json, status, started_at, finished_at, input_ref, output_ref, log_ref,
-    output_item_counts_json)
+    output_item_counts_json, pin_hash, reused_from_json)
   VALUES (@workflow_run_id, @node_id, @attempt, @execution_index, @source_json, @status,
-    @started_at, @finished_at, @input_ref, @output_ref, @log_ref, @output_item_counts_json)";
+    @started_at, @finished_at, @input_ref, @output_ref, @log_ref, @output_item_counts_json,
+    @pin_hash, @reused_from_json)";
 
 static HOLD_STEP_SQL: LazyLock<String> = LazyLock::new(|| {
     let waiting_memory = <&'static str>::from(WorkflowStepStatus::WaitingMemory);
@@ -150,12 +152,14 @@ pub(crate) fn insert_pending_step(
         (started_at, None),
         [input_ref, &empty_payload(), &empty_payload()],
         &[],
+        (None, None),
     )
 }
 
 /// The row of `step`, skipped at `at` with `sources` on `input_ref`, passing `output_ref` on: a
-/// disabled node's input, or an empty list for a step whose input carried no items, which holds
-/// `output_lengths` items on each main output in output order.
+/// disabled node's input, an empty list for a step whose input carried no items, or a reused
+/// step's output, which holds `output_lengths` items on each main output in output order. A
+/// reused skip stores the step it reused and the hash of that step's pin, each `None` elsewhere.
 pub(crate) fn insert_skipped_step(
     step: &WorkflowStepKey,
     sources: &[Option<WorkflowStepSource>],
@@ -163,6 +167,7 @@ pub(crate) fn insert_skipped_step(
     output_ref: &WorkflowPayloadRef,
     output_lengths: &[usize],
     at: &WireInstant,
+    (reused_from, pin_hash): (Option<&WorkflowReusedStep>, Option<&WorkflowContentHash>),
 ) -> WriteStatement {
     insert_step(
         step,
@@ -171,6 +176,7 @@ pub(crate) fn insert_skipped_step(
         (at, Some(at)),
         [input_ref, output_ref, &empty_payload()],
         output_lengths,
+        (reused_from, pin_hash),
     )
 }
 
@@ -377,7 +383,8 @@ pub(crate) fn wait_step_on_account(
 }
 
 // The new row of `step` at `status`, started and finished at `instants`, storing `payloads`: its
-// input, output and log, the output holding `output_lengths` items on each main output.
+// input, output and log, the output holding `output_lengths` items on each main output, and the
+// step a reused skip reused with the hash of that step's pin.
 fn insert_step(
     step: &WorkflowStepKey,
     sources: &[Option<WorkflowStepSource>],
@@ -385,9 +392,13 @@ fn insert_step(
     (started_at, finished_at): (&WireInstant, Option<&WireInstant>),
     [input_ref, output_ref, log_ref]: [&WorkflowPayloadRef; 3],
     output_lengths: &[usize],
+    (reused_from, pin_hash): (Option<&WorkflowReusedStep>, Option<&WorkflowContentHash>),
 ) -> WriteStatement {
     let source_json =
         serde_json::to_string(sources).expect("a step's sources write as JSON, holding only ids");
+    let reused_from_json = reused_from.map(|reused_from| {
+        serde_json::to_string(reused_from).expect("a reused step writes as JSON, holding only ids")
+    });
     let mut bindings = vec![
         text_binding("@source_json", &source_json),
         text_binding("@status", <&'static str>::from(status)),
@@ -400,6 +411,8 @@ fn insert_step(
             Cow::Borrowed("@output_item_counts_json"),
             output_lengths_value(output_lengths),
         ),
+        nullable_text_binding("@pin_hash", pin_hash.map(|pin_hash| pin_hash.0.as_str())),
+        nullable_text_binding("@reused_from_json", reused_from_json.as_deref()),
     ];
     bindings.extend(step_key_bindings(step));
     WriteStatement {

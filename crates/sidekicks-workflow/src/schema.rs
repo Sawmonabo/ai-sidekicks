@@ -60,6 +60,7 @@ fn workflow_schema_sql() -> String {
     let pending = <&'static str>::from(WorkflowStepStatus::Pending);
     let waiting = <&'static str>::from(WorkflowStepStatus::Waiting);
     let failed = <&'static str>::from(WorkflowStepStatus::Failed);
+    let skipped = <&'static str>::from(WorkflowStepStatus::Skipped);
     let wait_causes = sql_list_of_every::<WorkflowWaitCause>();
     let account = <&'static str>::from(WorkflowWaitCause::Account);
     let person_wait_causes = sql_list_of(
@@ -349,9 +350,15 @@ CREATE TABLE workflow_steps (
   log_ref           TEXT NOT NULL
                     CHECK(json_valid(log_ref)),
   -- The content hash of the pinned items a step gave in place of running, from its
-  -- workflow.step.started; NULL on a step that gave no pin.
+  -- workflow.step.started; on a reused skip, the hash its source step recorded, from its
+  -- workflow.step.skipped; NULL on a step that gave no pin.
   pin_hash          TEXT
                     CHECK(pin_hash IS NULL OR status <> '{pending}'),
+  -- JSON: the step a partial run reused in this skip's place and the version its run executed,
+  -- as its workflow.step.skipped names them; NULL on every other step.
+  reused_from_json  TEXT
+                    CHECK(reused_from_json IS NULL
+                      OR (status = '{skipped}' AND json_valid(reused_from_json))),
   -- JSON array: how many items each main output holds, in output order, so the one joined
   -- list output_ref stores splits back into one list per output handle.
   output_item_counts_json TEXT NOT NULL DEFAULT '[]'

@@ -19,7 +19,8 @@ use sidekicks_contracts::workflow::run::status::{
     WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
 };
 use sidekicks_contracts::workflow::run::step::events::{
-    WorkflowPhaseCancellationReason, WorkflowReadiedStep, WorkflowStepSkipReason,
+    WorkflowPhaseCancellationReason, WorkflowReadiedStep, WorkflowReusedStep,
+    WorkflowStepSkipReason,
 };
 use sidekicks_contracts::workflow::run::step::record::{
     WorkflowPayloadRef, WorkflowStepKey, WorkflowStepSource,
@@ -35,7 +36,7 @@ use crate::engine::event_record::{EngineRecorder, RunEngineRecord};
 use crate::engine::ports::kept_payloads::KeptPayloads;
 use crate::engine::ports::{EngineRecordSink, KeptEngineRecords, StepPayloadArtifacts};
 use crate::engine::tick::run_status::{RunPersonWait, RunStepCounts};
-use crate::engine::tick::walk::{WalkReady, WalkSkip};
+use crate::engine::tick::walk::{ReusedStepRecord, WalkReady, WalkSkip};
 use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
 use crate::kinds::step_context::StepRunVariable;
 use crate::runs::gate_resolution::RunEventKeys;
@@ -47,6 +48,7 @@ use crate::test_rows::{
 pub(super) const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e80";
 pub(super) const VERSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e81";
 const RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e82";
+const EARLIER_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e83";
 const RUN_STARTED_AT: &str = "2026-10-02T00:00:00.000Z";
 
 /// A running run's turn written through the test's event log, with the run's rows beside it and
@@ -415,6 +417,7 @@ async fn a_turn_is_one_write_in_report_order() {
         reason: WorkflowStepSkipReason::Disabled,
         sources: vec![source],
         output_lengths: vec![0],
+        reused: None,
     };
     let ready = WalkReady {
         step: step_key("next", 3),
@@ -536,6 +539,78 @@ async fn a_turn_is_one_write_in_report_order() {
         )
         .expect("the test counts the rows");
     assert_eq!(skipped_rows, 0);
+}
+
+/// A reused skip records the step it reused and that step's pin hash on its row and event and
+/// passes the reused output on, and a refused write of it answers its own input's artifact but
+/// never the reused output's, which the earlier run's record names. Mutations: drop
+/// `reused_from_json` from `insert_skipped_step`'s statement; keep the reused output's artifact
+/// among the turn's.
+#[tokio::test]
+async fn a_reused_skip_names_its_source_and_never_drops_its_output() {
+    let harness = TurnHarness::new().await;
+    let from = WorkflowReusedStep {
+        step: WorkflowStepKey {
+            workflow_run_id: WorkflowRunId::new(EARLIER_RUN_ID).expect("the earlier run's id"),
+            ..step_key(TEST_NODE_ID, 2)
+        },
+        workflow_version_id: WorkflowVersionId::new(VERSION_ID).expect("the test's version id"),
+    };
+    let reused_output = artifact_payload(artifact_id());
+    let pin_hash = WorkflowContentHash(NonEmptyText::new("b3:pin".to_owned()).expect("a hash"));
+    let skip = WalkSkip {
+        step: step_key(TEST_NODE_ID, 1),
+        run_index: 0,
+        reason: WorkflowStepSkipReason::Reused,
+        sources: vec![None],
+        output_lengths: vec![3],
+        reused: Some(ReusedStepRecord {
+            from: from.clone(),
+            output_ref: reused_output.clone(),
+            pin_hash: Some(pin_hash),
+        }),
+    };
+    let input_artifact = artifact_id();
+    let input_ref = artifact_payload(input_artifact);
+    let at = instant("2026-10-02T00:04:00.000Z");
+
+    let mut commit = harness.commit();
+    commit.skipped(&skip, &input_ref, &reused_output, at.clone());
+    harness.append(commit).await;
+
+    let from_wire = serde_json::to_value(&from).expect("a reused step writes");
+    let row: (String, Option<String>) = harness
+        .rows
+        .query_row(
+            "SELECT reused_from_json, pin_hash FROM workflow_steps WHERE execution_index = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("the skipped step's row reads");
+    let row_from: Value = serde_json::from_str(&row.0).expect("the stored reused step is JSON");
+    assert_eq!(
+        (row_from, row.1.as_deref()),
+        (from_wire.clone(), Some("b3:pin"))
+    );
+    let events = harness.events();
+    let (_, _, _, skipped_payload) = events
+        .iter()
+        .find(|(_, event_type, _, _)| event_type == "workflow.step.skipped")
+        .expect("the skip is recorded");
+    assert_eq!(skipped_payload["reusedFrom"], from_wire);
+    assert_eq!(skipped_payload["pinHash"], json!("b3:pin"));
+    assert_eq!(
+        skipped_payload["outputRef"],
+        serde_json::to_value(&reused_output).expect("a payload ref writes")
+    );
+
+    let mut refused = harness.commit();
+    refused.skipped(&skip, &input_ref, &reused_output, at);
+    let failure = refused
+        .append(&harness.appender, &harness.record, [])
+        .await
+        .expect_err("a second row for one step refuses the write");
+    assert_eq!(failure.artifact_ids, [input_artifact]);
 }
 
 // Killed by a sibling-failure marker on a step a merge canceled, and by a cancel that drops the
