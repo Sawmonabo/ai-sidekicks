@@ -30,7 +30,7 @@ use sidekicks_provider::driver::idle_sleep::{KeptSchedule, SessionSleepState};
 use sidekicks_provider::driver::session_control::{
     LiveRunResume, OpenTurnResume, ProviderTurnAnswer, ResumedRunAnswer, SessionToolServer,
 };
-use sidekicks_provider::driver::test_registry::new_run_id;
+use sidekicks_provider::driver::test_registry::{first_provider, new_run_id};
 use sidekicks_provider::runtime_binding::store::mint_runtime_binding_id;
 use sidekicks_session::idle_sleep::openings::SessionProcessWaker;
 use sidekicks_session::run::engine::test_fixture::insert_run;
@@ -44,7 +44,7 @@ use super::{Opening, READ_STATEMENT_CAPACITY, WAIT, unregistered_provider};
 use crate::provider_session::errors::ProviderSessionError;
 use crate::provider_session::resume::ResumedSession;
 use crate::provider_session::resumed_runs::ResumedRuns;
-use crate::provider_session::test_opening::{first_provider, read_provider_missing_notices};
+use crate::provider_session::test_opening::read_provider_missing_notices;
 
 /// The recurring job the wake's test stores for the session.
 const CRON: &str = "0 9 * * 1";

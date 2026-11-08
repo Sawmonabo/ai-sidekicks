@@ -30,7 +30,7 @@ use sidekicks_provider::driver::mcp_server::write::{
     McpServerEntry, McpServerObserved, McpServerObservedEntry, McpServerWrite,
     McpServerWriteOutcome, McpServerWriteRefusal,
 };
-use sidekicks_provider::driver::test_registry::registry_of_first_providers;
+use sidekicks_provider::driver::test_registry::{first_provider, registry_of_first_providers};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::credential_store::service::KeychainService;
 use sidekicks_store::credential_store::test_keychain::{CountingKeychain, test_keychain};
@@ -50,11 +50,6 @@ use crate::test_inventory::open_test_inventory;
 /// `pending`.
 const FAIL_COMMITS_SQL: &str = "CREATE TRIGGER fail_commits BEFORE UPDATE ON mcp_mutation_receipts
      BEGIN SELECT RAISE(ABORT, 'the test fails this commit'); END";
-
-/// The provider the test registry registers first, which every test's driver answers for.
-pub(super) fn first_provider() -> ProviderId {
-    ProviderId::new(PROVIDER_REGISTRATIONS[0].descriptor.id.to_owned()).expect("a provider id")
-}
 
 /// The one entry every server's declaration holds in the scripted config.
 fn entry() -> McpServerEntry {

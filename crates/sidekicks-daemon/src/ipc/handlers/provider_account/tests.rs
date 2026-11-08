@@ -73,8 +73,8 @@ use sidekicks_provider::driver::contract::account::{
     ProviderTokenStatusLegs,
 };
 use sidekicks_provider::driver::contract::error::DriverError;
-use sidekicks_provider::driver::test_registry::registry_of_first_provider;
-use sidekicks_provider::driver::{PROVIDERS, ProviderAccountFolders, ProviderAccountReader};
+use sidekicks_provider::driver::test_registry::{first_provider, registry_of_first_provider};
+use sidekicks_provider::driver::{ProviderAccountFolders, ProviderAccountReader};
 use sidekicks_provider::port::usage_sink::{
     MeteredUsage, PricedRequest, ProviderQuotaWindow, RecordedUsage, UsageSink,
 };
@@ -206,10 +206,6 @@ const READ_STATEMENT_CAPACITY: usize = 64;
 
 // How long a test waits for a notification before it fails.
 const WAIT: Duration = Duration::from_secs(10);
-
-fn first_provider() -> ProviderId {
-    ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id is a provider id")
-}
 
 // An in-memory keychain service that keeps every value written, until it is told to refuse
 // writes.

@@ -9,12 +9,13 @@ use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::test_registry::first_provider;
 
 use super::{McpCommand, McpCommandAnswer};
 use crate::binding::store::McpBindingKey;
 use crate::mutation::receipts::McpIntentReceipt;
 use crate::mutation::receipts::tests::idempotency_key;
-use crate::mutation::service::tests::{Fixture, first_provider, user_binding_ref};
+use crate::mutation::service::tests::{Fixture, user_binding_ref};
 use crate::mutation::settle::tests::{is_owed, settled};
 
 /// The address a sign-in serves, which its receipt never keeps.

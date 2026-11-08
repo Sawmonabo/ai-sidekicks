@@ -19,7 +19,6 @@ use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::approval::ApprovalRequestId;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
-use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
@@ -28,13 +27,13 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 #[cfg(test)]
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_provider::driver::PROVIDERS;
 #[cfg(test)]
 use sidekicks_provider::driver::capabilities::{
     DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
 };
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::{CreateSessionParams, SessionAccountPin};
+use sidekicks_provider::driver::test_registry::first_provider;
 use sidekicks_provider::run::posture::{ExecutionPostureService, compose_execution_posture};
 use sidekicks_provider::runtime_binding::resume::ResumeFunctionLegs;
 use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
@@ -102,11 +101,6 @@ pub(crate) fn read_notices(
             }
         })
         .collect()
-}
-
-/// The table's first provider.
-pub(crate) fn first_provider() -> ProviderId {
-    ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id is a provider id")
 }
 
 /// Composes every session's opening on the table's first provider, read-only over the root, on

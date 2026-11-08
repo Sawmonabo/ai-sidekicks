@@ -266,8 +266,8 @@ pub(crate) mod tests {
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::mcp::server::config::{McpServerAddress, McpServerConfigView};
     use sidekicks_contracts::mcp::server::{McpApprovalMode, McpServerBindingRef, McpServerName};
-    use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_ipc::registry::HandlerError;
+    use sidekicks_provider::driver::CurrentProviderAccount;
     use sidekicks_provider::driver::contract::error::DriverError;
     use sidekicks_provider::driver::contract::sign_in::{
         McpServerAddressReading, NoPersonServerEntry,
@@ -278,9 +278,8 @@ pub(crate) mod tests {
     };
     use sidekicks_provider::driver::registry::ProviderRegistry;
     use sidekicks_provider::driver::test_registry::{
-        registered_test_accounts, registry_of_first_providers,
+        first_provider, registered_test_accounts, registry_of_first_providers,
     };
-    use sidekicks_provider::driver::{CurrentProviderAccount, PROVIDER_REGISTRATIONS};
     use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::writer::DatabaseWriter;
@@ -347,11 +346,6 @@ pub(crate) mod tests {
             board,
             _database: database,
         }
-    }
-
-    /// The provider the test registry registers first.
-    fn first_provider() -> ProviderId {
-        ProviderId::new(PROVIDER_REGISTRATIONS[0].descriptor.id.to_owned()).expect("a provider id")
     }
 
     fn server_name(name: &str) -> McpServerName {
