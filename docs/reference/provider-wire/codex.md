@@ -376,6 +376,15 @@ A hook passed with `-c` at the service's start is the inline `hooks` key, source
   - **A tool-hook row needs a trust record as a command row does.** Keyed `/<session-flags>/config.toml:<event>:<group>:<handler>`, it rides the `thread/start` `config` as `hooks.state.<key>.trusted_hash`, and a row with none is skipped without a word; the hash covers the row and not the server's address, so it is the same for every session's secret (`hooks/src/engine/discovery.rs`).
   - **Codex refuses a tool-hook row at `SessionEnd`** (`hooks/src/engine/discovery.rs`), and a post-tool row's `additionalContext` reaches the model as a command row's does.
 
+### The telemetry export
+
+**Upstream source**, read at `rust-v0.166.0` (`codex-rs/hooks/src/registry.rs`, `codex-rs/hooks/src/engine/command_runner.rs`, `codex-rs/protocol/src/shell_environment.rs`).
+
+- **A token per launch.** Each lasting service launch on a home of the daemon's own exports its logs under a token of its own, minted as it launches and set in `OTEL_EXPORTER_OTLP_LOGS_HEADERS`, never on its command line; the receiver refuses it once that launch's process has ended, a draining one's last exports still admitted.
+- **The launch's tag.** The launch also carries `OTEL_RESOURCE_ATTRIBUTES=sidekicks.codex.service=<n>`, read back from each exported resource; a resource whose tag is absent, unreadable or another launch's than its token's is dropped and counted. A turn counts as a request when a metered usage delta marked it, never a replay or a reading that changed nothing.
+- **Another launch's conversation.** A completed response on a conversation another launch streams now is filed on the session its own launch streamed it for before releasing it, charged to the account it ran on; one on a conversation its own launch never streamed is dropped and counted.
+- **Hook commands inherit it.** The hook registry captures the service's whole environment and every command hook runs with it, and the variables Codex keeps from model-reachable children name no `OTEL_` setting, so a hook command the person set holds its service's token. It reaches no further than that service's own sessions.
+
 ### Conversation settings a client sets per conversation
 
 **Binary probe, Verified at `0.156.0`**, except where a bullet names another source.
