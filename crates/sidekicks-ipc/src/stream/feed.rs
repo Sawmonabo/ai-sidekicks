@@ -110,7 +110,8 @@ pub struct RecordPage<Cursor, Change> {
     /// The cursor after the last record read, a record that is no change among them; `None` when
     /// the read found none.
     pub read_through: Option<Cursor>,
-    /// Whether the read stopped at its count or at a frame's byte budget, so the next one is due.
+    /// Whether the read stopped short of the record's head, at its count or at a frame's byte
+    /// budget, so more is stored and the next read is due.
     pub is_cut_short: bool,
 }
 

@@ -275,10 +275,10 @@ impl ChangeRecord for RunStateRecord {
                     }
                 }));
             }
-            // A run's state changes are small, so a read is cut by its count alone: the log's
-            // short of its head, or the holds' past the frame.
+            // A run's state changes are small, so a read is cut by its count alone. Holds past a
+            // full frame stay held, and the batcher reads again after a full frame.
             Ok(RecordPage {
-                is_cut_short: !has_reached_head || changes.len() == max,
+                is_cut_short: !has_reached_head,
                 changes,
                 read_through,
             })
