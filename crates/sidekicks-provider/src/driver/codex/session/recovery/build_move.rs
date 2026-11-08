@@ -89,7 +89,7 @@ impl CodexServiceRecovery {
     /// not taken its place.
     pub(crate) fn is_restarting(&self, service_id: CodexServiceId) -> bool {
         let state = self.lock();
-        state.restarting.contains_key(&service_id) || state.replacing.contains(&service_id)
+        state.restarting.contains_key(&service_id) || state.replacing.contains_key(&service_id)
     }
 
     // Marks `service` restarting and spawns its restart, or joins the restart under way, `change`
@@ -164,6 +164,18 @@ impl CodexServiceRecovery {
         change: Option<ProviderBuildChange>,
     ) -> Result<(), CodexError> {
         let replacement = self.dependencies.services.replace(service).await?;
+        self.move_sessions_to(service, &replacement, change.as_ref());
+        Ok(())
+    }
+
+    // Moves each session on `service` to `replacement` once idle, each told of `change` once it
+    // resumed there, and retires `service` once it holds none.
+    fn move_sessions_to(
+        self: &Arc<Self>,
+        service: &Arc<CodexService>,
+        replacement: &Arc<CodexService>,
+        change: Option<&ProviderBuildChange>,
+    ) {
         let sessions = service.attached_sessions();
         if sessions.is_empty() {
             self.retire_when_empty(service);
@@ -171,40 +183,57 @@ impl CodexServiceRecovery {
         for inbound in sessions {
             let recovery = Arc::clone(self);
             let from = Arc::clone(service);
-            let to = Arc::clone(&replacement);
-            let change = change.clone();
+            let to = Arc::clone(replacement);
+            let change = change.cloned();
             self.dependencies.tasks.spawn(async move {
                 recovery
                     .move_when_idle(&inbound, &from, &to, change.as_ref())
                     .await;
             });
         }
-        Ok(())
     }
 
     // Where the home's socket cannot be moved, the second service takes it only once the first is
     // free to stop, which lasts as long as the person's terminals stay inside it; so the restart
     // ends once the replacement is asked for, and the first reads as restarting until it is
-    // replaced. A replacement under way is not asked again; a failed one is reported.
+    // replaced. A request while the replacement is under way asks nothing more, its `change`
+    // replacing an earlier one, so the sessions moved once it lands are told of the latest build;
+    // a failed replacement is reported.
     fn replace_terminal_service_once_free(
         self: &Arc<Self>,
         service: &Arc<CodexService>,
         change: Option<ProviderBuildChange>,
     ) {
-        if !self.lock().replacing.insert(service.id()) {
-            return;
+        match self.lock().replacing.entry(service.id()) {
+            Entry::Occupied(mut under_way) => {
+                if change.is_some() {
+                    *under_way.get_mut() = change;
+                }
+                return;
+            }
+            Entry::Vacant(slot) => {
+                slot.insert(change);
+            }
         }
-        let mark = ReplacementMark {
+        let mut mark = ReplacementMark {
             recovery: Arc::clone(self),
             service: Arc::clone(service),
+            is_removed: false,
         };
         self.dependencies.tasks.spawn(async move {
             let replaced = mark
                 .recovery
-                .replace_terminal_service(&mark.service, change)
+                .dependencies
+                .services
+                .replace(&mark.service)
                 .await;
-            if let Err(error) = replaced {
-                report_restart_failed(&mark.service, &error);
+            let change = mark.take_change();
+            match replaced {
+                Ok(replacement) => {
+                    mark.recovery
+                        .move_sessions_to(&mark.service, &replacement, change.as_ref());
+                }
+                Err(error) => report_restart_failed(&mark.service, &error),
             }
         });
     }
@@ -217,10 +246,19 @@ impl CodexServiceRecovery {
         service: &Arc<CodexService>,
         change: Option<&ProviderBuildChange>,
     ) -> Result<(), CodexError> {
-        let held = loop {
-            let mut held: Vec<(CodexSessionClaim<'_>, CodexSessionInboundSender)> = Vec::new();
+        // Sessions already held stay held while a busy one's turn ends, so none of them starts a
+        // turn meanwhile; each round claims only the sessions not held yet.
+        let mut held: Vec<(CodexSessionClaim<'_>, CodexSessionInboundSender)> = Vec::new();
+        loop {
             let mut busy = None;
             for inbound in service.attached_sessions() {
+                let session_id = inbound.session_id();
+                if held
+                    .iter()
+                    .any(|(_claim, kept)| kept.session_id() == session_id)
+                {
+                    continue;
+                }
                 match self.claim_idle(&inbound).await {
                     ClaimedIdle::Idle(claim, _) => held.push((claim, inbound)),
                     ClaimedIdle::Busy => {
@@ -231,12 +269,11 @@ impl CodexServiceRecovery {
                 }
             }
             let Some(busy) = busy else {
-                break held;
+                break;
             };
-            drop(held);
             // A session that closed meanwhile is passed over on the next round.
             let _settled = wait_for_codex_turns(&busy, CodexTurnWait::Idle, None).await;
-        };
+        }
         service.restart_planned().await?;
         self.dependencies.release.forget_service(service.id());
         for (claim, inbound) in held {
@@ -473,18 +510,36 @@ impl Drop for RestartMark {
     }
 }
 
-/// A terminal service's replacement under way, held by the task that runs it; dropped as that
-/// task ends, a panic included, it removes the service from those the recovery is replacing.
+/// A terminal service's replacement under way, held by the task that runs it; dropped before that
+/// task removed it, as a panic drops it, it removes the service from those the recovery is
+/// replacing.
 struct ReplacementMark {
     /// The recovery whose state holds the mark.
     recovery: Arc<CodexServiceRecovery>,
     /// The service being replaced.
     service: Arc<CodexService>,
+    /// Whether the task removed the mark itself.
+    is_removed: bool,
+}
+
+impl ReplacementMark {
+    // Removes the mark and answers the latest build change a request brought, in one step, so a
+    // request between the two is never lost.
+    fn take_change(&mut self) -> Option<ProviderBuildChange> {
+        self.is_removed = true;
+        self.recovery
+            .lock()
+            .replacing
+            .remove(&self.service.id())
+            .expect("the replacement's own entry")
+    }
 }
 
 impl Drop for ReplacementMark {
     fn drop(&mut self) {
-        self.recovery.lock().replacing.remove(&self.service.id());
+        if !self.is_removed {
+            let _unanswered = self.recovery.lock().replacing.remove(&self.service.id());
+        }
     }
 }
 
