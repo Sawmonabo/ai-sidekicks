@@ -466,6 +466,12 @@ async fn a_purge_closes_the_sessions_tool_server_connections() {
     false,
     true
 )]
+#[case::unfinished_create_of_a_marked_session(
+    PurgeCaller::UnfinishedCreate,
+    SessionState::PurgeRequested,
+    false,
+    true
+)]
 #[tokio::test]
 async fn a_purge_marks_a_session_only_from_its_callers_states(
     #[case] caller: PurgeCaller,

@@ -59,8 +59,9 @@ pub(crate) enum PurgeCaller {
     /// `Delete session` on a session whose history is damaged: any state but `provisioning`,
     /// which only [`PurgeCaller::UnfinishedCreate`] takes.
     DamagedHistory,
-    /// `Delete session` on a session whose create never finished: `provisioning`, `archived` or
-    /// `closed`, never activated, so a finish that activated it meanwhile refuses the mark.
+    /// `Delete session` on a session whose create never finished: `provisioning`, `archived`,
+    /// `closed`, or one a failed purge left marked, never activated, so a finish that activated it
+    /// meanwhile refuses the mark.
     UnfinishedCreate,
 }
 
@@ -71,6 +72,7 @@ impl PurgeCaller {
                 SessionState::Provisioning,
                 SessionState::Archived,
                 SessionState::Closed,
+                SessionState::PurgeRequested,
             ],
             Self::Retention => &[
                 SessionState::Archived,

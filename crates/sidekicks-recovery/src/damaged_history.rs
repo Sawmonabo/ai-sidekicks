@@ -77,7 +77,8 @@ static SELECT_LAST_EVENT_BEFORE_SQL: LazyLock<String> = LazyLock::new(|| {
 pub enum SessionDeletion {
     /// Its history is damaged; any state but `provisioning`.
     DamagedHistory,
-    /// Its create never finished: `provisioning`, `archived` or `closed`, never activated.
+    /// Its create never finished: `provisioning`, `archived`, `closed` or left marked by a failed
+    /// purge, never activated.
     UnfinishedCreate,
 }
 

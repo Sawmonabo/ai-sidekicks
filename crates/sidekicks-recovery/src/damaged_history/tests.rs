@@ -361,6 +361,53 @@ async fn a_recovery_action_fits_only_a_damaged_session(
     );
 }
 
+// A delete of an unfinished create whose purge failed after its mark leaves the session
+// `purgeRequested`; pressing `Delete session` again purges it as the first press did. Killed by
+// the lookup leaving out `purgeRequested`, which refuses the second press `notDamaged`.
+#[tokio::test]
+async fn a_second_delete_finishes_an_unfinished_create_a_failed_purge_left_marked() {
+    let fixture = PassFixture::new().await;
+    let session_id = insert_unfinished_create(&fixture, SessionState::Provisioning);
+    fixture
+        .pass(Arc::clone(&fixture.status))
+        .run(&CancellationToken::new())
+        .await;
+    let damaged_history = fixture.damaged_history();
+    damaged_history
+        .delete_session(session_id)
+        .await
+        .expect("the first press purges it");
+    fixture
+        .store
+        .database
+        .reader()
+        .execute(
+            "UPDATE sessions SET state = ?1 WHERE id = ?2",
+            params![
+                <&'static str>::from(SessionState::PurgeRequested),
+                session_id.text().as_str()
+            ],
+        )
+        .expect("the failed purge leaves its mark");
+
+    damaged_history
+        .delete_session(session_id)
+        .await
+        .expect("the second press purges it again");
+
+    assert_eq!(
+        *fixture
+            .purges
+            .deletions
+            .lock()
+            .expect("no purge panics while it records"),
+        vec![
+            (session_id, SessionDeletion::UnfinishedCreate),
+            (session_id, SessionDeletion::UnfinishedCreate)
+        ]
+    );
+}
+
 // A session row in `state` whose create never finished: no event of it was ever written.
 fn insert_unfinished_create(fixture: &PassFixture, state: SessionState) -> SessionId {
     let session_id = test_session_id();
