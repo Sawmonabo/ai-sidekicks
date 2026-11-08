@@ -37,7 +37,6 @@ use self::daemon_services::{
 use self::driver::{ScriptedDriver, create_params};
 use self::starts::SCRIPTED_BUILD_VERSION;
 use crate::background_work::BackgroundWorkForms;
-use crate::driver::PROVIDERS;
 use crate::driver::claude::delivery::requests::ClaudeInboundRequests;
 use crate::driver::claude::delivery::stream::ClaudeSessionStream;
 use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
@@ -71,6 +70,7 @@ use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::session_control::CreateSessionParams;
 use crate::driver::test_registry::{new_agent_id, new_run_id, new_session_id};
+use crate::driver::{DriverServices, PROVIDERS};
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::run::posture::compose_execution_posture;
@@ -206,6 +206,8 @@ pub(crate) struct ScriptedSession {
     pub(crate) helper_steers: Arc<Mutex<ClaudeHelperSteers>>,
     /// The wall clock the driver's scheduler runs on, which a test moves.
     pub(crate) wall_clock: Arc<TestWallClock>,
+    /// The daemon's data folder the driver runs over.
+    pub(crate) data_folder: PathBuf,
     listener: Arc<dyn ClaudeProcessListener>,
     control_frames: Mutex<ClaudeControlFrameReader>,
     // How many control requests the session's start wrote.
@@ -238,6 +240,7 @@ impl ScriptedSession {
             home,
             folder,
             database,
+            services: DriverServices { data_folder, .. },
             ..
         } = ScriptedDriver::new();
         // The process offers the session's model, so its start sets none.
@@ -291,6 +294,7 @@ impl ScriptedSession {
             interventions: Arc::clone(&parts.interventions),
             helper_steers: Arc::clone(&services.helper_steers),
             wall_clock,
+            data_folder,
             parts,
             listener: started.listener,
             control_frames: Mutex::new(control_frames),

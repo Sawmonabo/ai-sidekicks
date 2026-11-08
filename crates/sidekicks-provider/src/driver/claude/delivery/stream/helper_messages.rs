@@ -5,9 +5,10 @@
 
 use super::body::ClaudeFrameBody;
 use super::{ClaudeDeliveryStream, ClaudeSessionStream};
+use crate::driver::claude::delivery::messages::record_claude_traces;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::goals::endings::GoalEndingInput;
-use crate::port::tool_traces::{is_recording_tool_traces, record_tool_traces};
+use crate::port::tool_traces::is_recording_tool_traces;
 
 impl ClaudeDeliveryStream {
     /// Takes one frame of `kind`, `frame_kind` on the wire, that the helper `helper_id` wrote, its
@@ -29,10 +30,11 @@ impl ClaudeDeliveryStream {
                 readings.command_tasks.observe_calls(&message);
                 readings.helper_tool_calls.observe_calls(
                     &mut message,
-                    session.session_id,
+                    &session.tool_call_arguments,
                     helper_id,
                 );
             }
+            session.tool_call_arguments.spill_past_bounds().await;
             if let Some(text) = message.text() {
                 self.classify_goal(session, GoalEndingInput::HelperText(text), frame_kind)
                     .await;
@@ -44,7 +46,7 @@ impl ClaudeDeliveryStream {
                 session.session_id,
                 is_tracing,
             );
-            record_tool_traces(&self.dependencies.tool_traces, traces).await;
+            record_claude_traces(&self.dependencies.tool_traces, traces).await;
         }
     }
 }

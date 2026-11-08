@@ -102,6 +102,7 @@ use crate::driver::session_control::{
 };
 use crate::run::delivery::InboundDelivery;
 use crate::run::posture::CredentialPolicyResolveError;
+use crate::tool_call_arguments::ToolCallArgumentStore;
 
 /// What every establishment shares: the build processes start from, the figures held for it, the
 /// session's slots and runs, and the pieces a live process is wired through.
@@ -533,6 +534,7 @@ impl ClaudeSessionEstablishment {
             Arc::clone(&self.prompts),
             Arc::clone(&permission_mode),
             kept_calls,
+            ToolCallArgumentStore::new(&sources.data_folder, session_id),
         ));
         let is_continuing_turn = continued_turn.is_some();
         if let Some(turn) = continued_turn {

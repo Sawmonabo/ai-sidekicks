@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures::future::BoxFuture;
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::Notify;
 
 use crate::port::tool_traces::{ToolTrace, ToolTraces};
 
@@ -14,6 +15,8 @@ use crate::port::tool_traces::{ToolTrace, ToolTraces};
 pub(crate) struct KeptToolTraces {
     is_recording: AtomicBool,
     traces: Mutex<Vec<ToolTrace>>,
+    // Woken at each trace handed.
+    handed: Notify,
 }
 
 impl KeptToolTraces {
@@ -26,6 +29,20 @@ impl KeptToolTraces {
     pub(crate) fn traces(&self) -> Vec<ToolTrace> {
         lock(&self.traces).clone()
     }
+
+    /// Each trace handed, once at least `count` have been.
+    pub(crate) async fn wait_for(&self, count: usize) -> Vec<ToolTrace> {
+        loop {
+            let handed = self.handed.notified();
+            tokio::pin!(handed);
+            handed.as_mut().enable();
+            let traces = self.traces();
+            if traces.len() >= count {
+                return traces;
+            }
+            handed.await;
+        }
+    }
 }
 
 impl ToolTraces for KeptToolTraces {
@@ -35,6 +52,7 @@ impl ToolTraces for KeptToolTraces {
 
     fn record(&self, trace: ToolTrace) -> BoxFuture<'_, ()> {
         lock(&self.traces).push(trace);
+        self.handed.notify_waiters();
         Box::pin(std::future::ready(()))
     }
 }

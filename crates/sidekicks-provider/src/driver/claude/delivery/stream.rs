@@ -46,7 +46,7 @@ use self::tasks::ClaudeExitHolds;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::messages::{
     ClaudeMessageFrame, ClaudeMessageRow, ClaudeMessageRowKind, read_claude_assistant_rows,
-    read_claude_user_rows,
+    read_claude_user_rows, record_claude_traces,
 };
 use crate::driver::claude::delivery::peer_arrival::{publish_peer_arrival, read_peer_arrival};
 use crate::driver::claude::delivery::run_readings::{ClaudeMessageKey, ClaudeRowDelivery};
@@ -70,7 +70,7 @@ use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics,
 };
 use crate::port::running_command_publisher::RunningCommandPublisher as _;
-use crate::port::tool_traces::{is_recording_tool_traces, record_tool_traces};
+use crate::port::tool_traces::is_recording_tool_traces;
 use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow, RunMarker};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
@@ -585,6 +585,7 @@ impl ClaudeDeliveryStream {
                 session.session_id,
                 lead,
                 &mut readings.open_tool_calls,
+                &session.tool_call_arguments,
                 Timestamp::now(),
             );
             // A goal line draws the goal row alone, never a message in the agent's own words.
@@ -609,6 +610,7 @@ impl ClaudeDeliveryStream {
                 .collect::<Vec<_>>();
             (pieces, rows, counts_step, tasks)
         };
+        session.tool_call_arguments.spill_past_bounds().await;
         if let Some(tasks) = tasks {
             self.publish_turn_tasks(session, tasks);
         }
@@ -689,7 +691,7 @@ impl ClaudeDeliveryStream {
         }
         publish_peer_arrival(&self.dependencies.session_message_readings, arrival);
         self.admit_rows(session, rows, "user").await;
-        record_tool_traces(&self.dependencies.tool_traces, traces).await;
+        record_claude_traces(&self.dependencies.tool_traces, traces).await;
         self.send_backgrounded(session, stand_ins).await;
     }
 

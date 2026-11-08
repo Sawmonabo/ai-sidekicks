@@ -6,7 +6,9 @@
 mod helper_calls;
 
 use std::collections::HashMap;
+use std::error::Error;
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 use jiff::Timestamp;
 use serde::de::{IgnoredAny, SeqAccess};
@@ -23,6 +25,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::transcript::whole_patch::WholePatchFile;
 
 use crate::driver::claude::DESCRIPTOR;
@@ -38,8 +41,9 @@ use crate::lenient_json::{
     Lenient, LenientElement, LenientList, LenientVisitor, lenient_object, read_lenient,
     skip_other_shapes,
 };
-use crate::port::tool_traces::ToolTrace;
+use crate::port::tool_traces::{ToolTrace, ToolTraces, record_tool_traces};
 use crate::run::delivery::{DeliveryOperation, LateAppendableRow};
+use crate::tool_call_arguments::{KeptToolCallArguments, ToolCallArgumentStore};
 
 pub(crate) use self::helper_calls::{ClaudeHelperToolCall, ClaudeHelperToolCalls};
 
@@ -185,7 +189,7 @@ pub(crate) struct ClaudeOpenToolCall {
     started_at: Timestamp,
     // The call's arguments as Claude Code sent them, moved off its frame and kept until its trace
     // takes them; none on an opening rebuilt from the session's log.
-    arguments: Option<Box<RawValue>>,
+    arguments: Option<KeptToolCallArguments>,
 }
 
 impl ClaudeOpenToolCall {
@@ -207,15 +211,15 @@ impl ClaudeOpenToolCall {
         session_id: SessionId,
         call_id: &str,
         result: impl FnOnce() -> Box<RawValue>,
-    ) -> Option<ToolTrace> {
+    ) -> Option<ClaudeKeptTrace> {
         let arguments = self.arguments.take()?;
-        Some(claude_tool_trace(
+        Some(ClaudeKeptTrace {
             session_id,
-            call_id,
-            self.tool_name.as_str(),
+            call_id: call_id.to_owned(),
+            tool_name: self.tool_name.as_str().to_owned(),
             arguments,
-            result(),
-        ))
+            result: result(),
+        })
     }
 
     /// The same opening without its arguments, which stay with this one.
@@ -311,7 +315,7 @@ pub(crate) struct ClaudeUserFrameReading {
     /// Each held call's stand-in result, by the call's id, with the stand-in's words.
     pub(crate) held_stand_ins: Vec<(String, String)>,
     /// The trace of each call the frame answered, while `Record traces` is on.
-    pub(crate) traces: Vec<ToolTrace>,
+    pub(crate) traces: Vec<ClaudeKeptTrace>,
 }
 
 impl ClaudeMessageFrame {
@@ -459,12 +463,13 @@ impl ClaudeMessageFrame {
 /// The rows of one `assistant` frame of the lead on `run`: each thinking block's summary and each
 /// text block under the message's id, a fresh one where the frame names none, and each tool call
 /// as `agent.toolCall.invoked`, which opens the call in `open_tool_calls` on `run` at `now`, its
-/// arguments moved off the frame for its trace.
+/// arguments moved off the frame into `arguments` for its trace.
 pub(crate) fn read_claude_assistant_rows(
     frame: &mut ClaudeMessageFrame,
     session_id: SessionId,
     run: &ClaudeBoundRun,
     open_tool_calls: &mut HashMap<String, ClaudeOpenToolCall>,
+    arguments: &ToolCallArgumentStore,
     now: Timestamp,
 ) -> Vec<ClaudeMessageRow> {
     let run_id = run.run_id;
@@ -528,7 +533,7 @@ pub(crate) fn read_claude_assistant_rows(
             .map_or("{}", RawValue::get)
             .to_owned();
         let mut opened = ClaudeOpenToolCall::new(tool_name.clone(), run.clone(), now);
-        opened.arguments = Some(take_raw_value(&mut block.input));
+        opened.arguments = Some(arguments.keep(take_raw_value(&mut block.input)));
         open_tool_calls.insert(call_id.clone(), opened);
         rows.push(ClaudeMessageRow {
             tool_call_id: Some(call_id),
@@ -722,22 +727,54 @@ fn is_tool_call_block(block: &ClaudeContentBlock) -> bool {
     )
 }
 
-// The trace of the call `call_id` on `session_id` to `tool_name`, with its arguments and result.
-fn claude_tool_trace(
+/// A call's trace whose arguments are still kept, in memory or on disk, until it is recorded.
+pub(crate) struct ClaudeKeptTrace {
     session_id: SessionId,
-    call_id: &str,
-    tool_name: &str,
-    arguments: Box<RawValue>,
+    call_id: String,
+    tool_name: String,
+    arguments: KeptToolCallArguments,
     result: Box<RawValue>,
-) -> ToolTrace {
-    ToolTrace {
-        session_id,
-        provider: DESCRIPTOR.provider_id(),
-        tool_call_id: call_id.to_owned(),
-        tool_name: tool_name.to_owned(),
-        arguments,
-        result,
+}
+
+impl ClaudeKeptTrace {
+    // The trace, its arguments read back; `None`, logged, for arguments the disk cannot give back.
+    async fn read(self) -> Option<ToolTrace> {
+        let arguments = self
+            .arguments
+            .read()
+            .await
+            .inspect_err(|error| {
+                tracing::warn!(
+                    session_id = %self.session_id,
+                    tool_use_id = %self.call_id,
+                    error = error as &(dyn Error + 'static),
+                    "a Claude Code tool call's arguments could not be read back from disk, so the \
+                     call is not traced"
+                );
+            })
+            .ok()?;
+        Some(ToolTrace {
+            session_id: self.session_id,
+            provider: DESCRIPTOR.provider_id(),
+            tool_call_id: self.call_id,
+            tool_name: self.tool_name,
+            arguments,
+            result: self.result,
+        })
     }
+}
+
+/// Records each of `traces` in order through `tool_traces`, its arguments read back first; one
+/// whose arguments the disk cannot give back is logged and not recorded.
+pub(crate) async fn record_claude_traces(
+    tool_traces: &PortRegistration<Arc<dyn ToolTraces>>,
+    traces: impl IntoIterator<Item = ClaudeKeptTrace>,
+) {
+    let mut read = Vec::new();
+    for trace in traces {
+        read.extend(trace.read().await);
+    }
+    record_tool_traces(tool_traces, read).await;
 }
 
 // A member the frame carried, word for word; `null` where the frame left it out.

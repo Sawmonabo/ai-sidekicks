@@ -29,7 +29,9 @@ use sidekicks_std::text_cut::cut_to_code_points;
 use super::{ClaudeDeliveryStream, ClaudeSessionStream, report_engine_failure};
 use crate::driver::claude::delivery::commands::ClaudeTaskFrame;
 use crate::driver::claude::delivery::mcp_tasks::ClaudeHeldCallEnd;
-use crate::driver::claude::delivery::messages::{ClaudeOpenToolCall, close_opened_call};
+use crate::driver::claude::delivery::messages::{
+    ClaudeKeptTrace, ClaudeOpenToolCall, close_opened_call, record_claude_traces,
+};
 use crate::driver::claude::delivery::run_readings::{ClaudeRow, ClaudeRowDelivery};
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::frame_routing::ClaudeMeteredReading;
@@ -39,7 +41,7 @@ use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::reorder_buffer::{ReorderBufferedEvent, ReorderPairingRole};
 use crate::port::held_tool_calls::HeldToolCall;
-use crate::port::tool_traces::{ToolTrace, is_recording_tool_traces, record_tool_traces};
+use crate::port::tool_traces::is_recording_tool_traces;
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner};
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 
@@ -54,8 +56,9 @@ impl ClaudeDeliveryStream {
     /// end moves its child run, the frame's command or tool-server task is read on the run that
     /// started it, the helper's child run where a helper started it and `lead` otherwise, a held
     /// call's end closes it, traced with its notification while `Record traces` is on, and its
-    /// progress becomes its status line, and a call a resume rebuilt is kept by its restored start
-    /// or ended by the first list that leaves it out.
+    /// progress becomes its status line, a call a resume rebuilt is kept by its restored start or
+    /// ended by the first list that leaves it out, and a helper's held call is dropped by a list
+    /// that leaves its task out.
     #[expect(
         clippy::wildcard_enum_match_arm,
         reason = "only the task frames reach this read, and a move changes no held call"
@@ -83,9 +86,7 @@ impl ClaudeDeliveryStream {
             match kind {
                 ClaudeWireFrameKind::SystemTaskStarted => {
                     held.observe_start(&task, &mut readings.open_tool_calls);
-                    readings
-                        .helper_tool_calls
-                        .observe_start(&task, session.session_id);
+                    readings.helper_tool_calls.observe_start(&task);
                     if let Some(task_id) = task.task_id() {
                         readings.restored_calls.confirm(task_id);
                     }
@@ -118,6 +119,7 @@ impl ClaudeDeliveryStream {
                         .unwrap_or_default();
                     let mut ends = held.end_unrestored(unrestored.iter().map(String::as_str));
                     ends.extend(held.settle_unlisted(&task, &readings.restored_calls));
+                    readings.helper_tool_calls.drop_unlisted(&task);
                     (ends, None, None)
                 }
                 ClaudeWireFrameKind::SystemTaskProgress => {
@@ -127,7 +129,7 @@ impl ClaudeDeliveryStream {
             }
         };
         self.close_held_calls(session, ends, frame_kind).await;
-        record_tool_traces(&self.dependencies.tool_traces, helper_trace).await;
+        record_claude_traces(&self.dependencies.tool_traces, helper_trace).await;
         if let (Some((tool_use_id, summary)), Some(statuses)) =
             (progress, self.dependencies.tool_call_statuses.port())
         {
@@ -303,7 +305,7 @@ impl ClaudeDeliveryStream {
         if ends.is_empty() {
             return;
         }
-        let traces: Vec<ToolTrace> = ends
+        let traces: Vec<ClaudeKeptTrace> = ends
             .iter_mut()
             .filter_map(|end| {
                 let notification = end.notification.take()?;
@@ -321,7 +323,7 @@ impl ClaudeDeliveryStream {
             })
             .collect();
         self.admit_rows(session, rows, wire).await;
-        record_tool_traces(&self.dependencies.tool_traces, traces).await;
+        record_claude_traces(&self.dependencies.tool_traces, traces).await;
     }
 
     // The close of `session_id`'s held call `end`, on the run its opening recorded and that run's

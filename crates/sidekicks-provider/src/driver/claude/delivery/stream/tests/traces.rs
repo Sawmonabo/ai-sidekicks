@@ -1,5 +1,8 @@
-//! What a Claude Code session hands the trace recorder: each helper call at its result, and each
-//! tool server's background call, the lead's or a helper's, at its task's notification.
+//! What a Claude Code session hands the trace recorder: each helper call at its result, each tool
+//! server's background call, the lead's or a helper's, at its task's notification, and a call kept
+//! on disk past the memory bound, read back at its result.
+
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
@@ -10,6 +13,8 @@ use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle,
 };
 use crate::port::tool_traces::ToolTrace;
+use crate::run::delivery::LateAppendableRow;
+use crate::tool_call_arguments::{TOOL_CALL_ARGUMENT_BOUNDS, tool_call_arguments_folder};
 
 // A helper's message calling `tool_name` under `call_id` with `input`.
 fn helper_call(helper_id: &str, call_id: &str, tool_name: &str, input: &Value) -> Value {
@@ -147,5 +152,90 @@ async fn helper_calls_and_background_calls_are_traced_at_their_results() {
                 lead_ending,
             ),
         ]
+    );
+}
+
+// Past the bound on calls kept in memory the oldest helper call's arguments go to the process's
+// file, and its trace still carries them word for word, read back at its result; the file goes
+// once nothing on it waits. Mutations: no spill after a helper's calls (no file); arguments past
+// the bound dropped (h-0 untraced, 256 traces); the file kept once read back (a file remains).
+#[tokio::test(start_paused = true)]
+async fn a_call_kept_past_the_memory_bound_is_traced_from_disk() {
+    let session = ScriptedSession::new().await;
+    session.hold_lead_turn("lead");
+    session.ports.tool_traces.set_recording(true);
+    let calls = TOOL_CALL_ARGUMENT_BOUNDS.calls + 1;
+    let input = |index: usize| json!({"file_path": format!("/repo/{index}.txt"), "index": index});
+
+    session.frame(&init());
+    session.frame(&helper_started("helper", "local_agent", "agent-call"));
+    for index in 0..calls {
+        let call_id = format!("h-{index}");
+        session.frame(&helper_call("helper", &call_id, "Read", &input(index)));
+    }
+    // The lead's message comes after every helper frame, so its row says the spill is done.
+    session.frame(&json!({
+        "type": "assistant",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        "message": {
+            "id": "lead-message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "Reading"}],
+        },
+    }));
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        session.engine.wait_until(|_| {
+            session
+                .engine
+                .deliveries()
+                .iter()
+                .any(|delivery| {
+                    matches!(delivery.row, Some(LateAppendableRow::AgentMessageSent(_)))
+                })
+                .then_some(())
+        }),
+    )
+    .await
+    .expect("the lead's message is delivered");
+    let folder = tool_call_arguments_folder(&session.data_folder);
+    let files: Vec<_> = std::fs::read_dir(&folder)
+        .expect("the spill folder is made")
+        .map(|entry| entry.expect("the folder reads").path())
+        .collect();
+    assert_eq!(
+        files.len(),
+        1,
+        "one file holds the process's spilled arguments"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&files[0]).expect("the file reads"),
+        input(0).to_string(),
+        "only the oldest call passed the bound"
+    );
+
+    for index in 0..calls {
+        let call_id = format!("h-{index}");
+        session.frame(&helper_result("helper", &call_id, &json!("read")));
+    }
+    let traces = tokio::time::timeout(
+        Duration::from_secs(10),
+        session.ports.tool_traces.wait_for(calls),
+    )
+    .await
+    .expect("every call is traced");
+    assert_eq!(traces.len(), calls);
+    assert_eq!(traces[0].tool_call_id, "h-0");
+    assert_eq!(traces[0].arguments.get(), input(0).to_string());
+    assert_eq!(
+        traces[calls - 1].arguments.get(),
+        input(calls - 1).to_string()
+    );
+    assert_eq!(
+        std::fs::read_dir(&folder)
+            .expect("the folder reads")
+            .count(),
+        0,
+        "the file goes once nothing on it waits"
     );
 }
