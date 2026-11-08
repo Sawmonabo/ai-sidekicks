@@ -25,6 +25,7 @@ use crate::driver::claude::session::process::{
     ClaudeProcessEnd, ClaudeProcessLaunch, ClaudeProcessListener, ClaudeStreamFrame,
 };
 use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
+use crate::driver::claude::spawn::launch::listed_commands::read_claude_session_commands;
 use crate::driver::claude::spawn::settings::ClaudeSpawnSettings;
 use crate::driver::claude::spawn::settings::private_file::compose_claude_settings_folder;
 use crate::driver::{
@@ -33,6 +34,7 @@ use crate::driver::{
 use crate::pricing::receiver::TelemetryTarget;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::runtime_binding::test_store::test_provider_account_id;
+use crate::spawned_version::ResolvedProviderExecutable;
 
 /// The token sealed for the test's account.
 const SEALED_TOKEN: &str = "sk-ant-oat01-sealed-test-token-5d2e8b";
@@ -200,7 +202,8 @@ cat > /dev/null
 "#;
 
 // Killed by the document inline on the command line, by the token in an argument, by the file
-// left after the process's end, and by the file's mode left to the umask.
+// left after the process's end, by the file's mode left to the umask, and by the person's hooks
+// turned off on a short process that does not ask for it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_process_reads_its_settings_from_a_private_file_gone_at_its_end() {
     let folder = tempfile::tempdir().expect("a scratch folder is made");
@@ -268,6 +271,7 @@ async fn a_process_reads_its_settings_from_a_private_file_gone_at_its_end() {
         format!("authorization=Bearer {token}")
     );
     assert_eq!(settings["otelHeadersHelper"], "");
+    assert_eq!(settings["disableAllHooks"], Value::Null);
 
     process.stop(Duration::from_secs(10), None).await;
     let ended = tokio::time::timeout(Duration::from_secs(30), process.exited())
@@ -358,4 +362,71 @@ async fn a_store_account_s_start_reads_no_keychain() {
         !command_environment.contains("CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR="),
         "no token pipe is named: {command_environment}"
     );
+}
+
+// A stand-in that copies the file its last argument names, then answers each control request
+// with an empty success.
+const INITIALIZE_STAND_IN: &str = r#"#!/bin/sh
+for last; do :; done
+cp "$last" "$RECORD/settings"
+while read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
+  printf '{"type":"control_response","response":{"subtype":"success",'\
+'"request_id":"%s","response":{}}}\n' "$id"
+done
+"#;
+
+// Killed by the command-list read started with the person's hooks on, which runs their
+// `SessionStart` hook on every palette read.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_command_list_read_turns_the_persons_hooks_off() {
+    let folder = tempfile::tempdir().expect("a scratch folder is made");
+    let program = folder.path().join("claude");
+    write_file_atomically(&program, INITIALIZE_STAND_IN, 0o755)
+        .await
+        .expect("the stand-in is written");
+    let launcher = compose_launcher(
+        folder.path(),
+        Arc::new(SealedToken {
+            mode: ProviderAuthMode::OauthSubscription,
+            tokens_read: AtomicUsize::new(0),
+        }),
+        None,
+    );
+    let executable = ResolvedProviderExecutable {
+        requested_command: "claude".to_owned(),
+        resolved_executable_path: program.clone(),
+        start: ProgramStart {
+            program,
+            leading_arguments: Vec::new(),
+        },
+        environment: vec![
+            ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+            (
+                "RECORD".to_owned(),
+                folder.path().to_string_lossy().into_owned(),
+            ),
+        ],
+    };
+
+    let commands = tokio::time::timeout(
+        Duration::from_secs(30),
+        read_claude_session_commands(
+            &launcher,
+            &executable,
+            folder.path().to_path_buf(),
+            test_provider_account_id(),
+            false,
+        ),
+    )
+    .await
+    .expect("the read ends");
+
+    assert!(commands.is_ok(), "{commands:?}");
+    let settings: Value = serde_json::from_str(
+        &std::fs::read_to_string(folder.path().join("settings"))
+            .expect("the stand-in copied the file"),
+    )
+    .expect("the file holds the document");
+    assert_eq!(settings["disableAllHooks"], true);
 }

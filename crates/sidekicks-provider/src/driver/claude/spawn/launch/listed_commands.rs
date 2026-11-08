@@ -58,30 +58,18 @@ pub(crate) async fn read_claude_session_commands(
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use serde_json::{Value, json};
 
     use super::compose_claude_command_read_arguments;
     use crate::driver::claude::spawn::arguments::CLAUDE_NO_MCP_SERVERS;
-    use crate::driver::claude::spawn::settings::ClaudeSpawnSettings;
 
-    // Killed by a read that loads the person's hooks or MCP files, by hooks turned off on every
-    // short process, and by one passing the strict flag under an administrator's MCP file, which
-    // makes Claude Code exit at start.
+    // Killed by a read that loads the person's MCP files, and by one passing the strict flag under
+    // an administrator's MCP file, which makes Claude Code exit at start.
     #[rstest]
     #[case::no_managed_file(false)]
     #[case::managed_file(true)]
-    fn the_read_turns_hooks_off_and_loads_no_mcp_file_of_the_persons(
-        #[case] has_managed_mcp_file: bool,
-    ) {
+    fn the_read_loads_no_mcp_file_of_the_persons(#[case] has_managed_mcp_file: bool) {
         let arguments = compose_claude_command_read_arguments(has_managed_mcp_file);
-        let hooks_off = |are_hooks_off| {
-            serde_json::to_value(ClaudeSpawnSettings::short_process(are_hooks_off))
-                .expect("the settings serialize")["disableAllHooks"]
-                .clone()
-        };
 
-        assert_eq!(hooks_off(true), json!(true));
-        assert_eq!(hooks_off(false), Value::Null);
         assert_eq!(
             arguments
                 .iter()

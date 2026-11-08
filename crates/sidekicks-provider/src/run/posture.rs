@@ -486,7 +486,10 @@ async fn canonical_writable_root(
         .map_err(|refusal| unresolvable(io::Error::other(refusal)))
 }
 
-async fn canonical_deny_path(
+/// `entry` with its path resolved through every link, as the curated list's paths are; a path
+/// absent now keeps its own form. Fails with [`CredentialPolicyResolveError::DenyPath`] for a read
+/// that fails for any reason but the path being absent.
+pub(crate) async fn canonical_deny_path(
     entry: &CredentialDenyPath,
 ) -> Result<CredentialDenyPath, CredentialPolicyResolveError> {
     let path = match resolve_real_path(&entry.path).await {

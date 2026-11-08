@@ -42,7 +42,7 @@ use crate::driver::mcp_server::status::McpServerStatusProducer;
 use crate::driver::session_control::{SessionToolServer, SubagentPolicy};
 use crate::run::posture::{
     CURATED_CREDENTIAL_POLICY_REF, CredentialDenyPath, CredentialDenyPathKind,
-    CredentialPolicyResolveError, ExecutionPostureService,
+    CredentialPolicyResolveError, ExecutionPostureService, canonical_deny_path,
 };
 use crate::spawn_environment::{
     ReservedEnvironmentNames, SessionEnvironment, SpawnEnvironmentError,
@@ -238,7 +238,8 @@ pub(crate) async fn build_claude_spawn_bound_legs(
         credential_deny_paths: compose_claude_deny_paths(
             credential_policy.deny_paths,
             Path::new(services.data_folder.as_ref()),
-        ),
+        )
+        .await?,
         memory_folders: context.memory_folders,
         background_work: Arc::clone(services.background_work),
         spawn_environment,
@@ -248,17 +249,32 @@ pub(crate) async fn build_claude_spawn_bound_legs(
     })
 }
 
-// The curated `deny_paths` with the settings folder beside them: its files hold the telemetry
-// token, which lets whoever holds it post records the receiver prices.
-fn compose_claude_deny_paths(
+// The curated `deny_paths` with the settings folder beside them, under `data_folder` as spelled
+// and as resolved through every link the way the curated paths are: its files hold the telemetry
+// token, which lets whoever holds it post records the receiver prices. The data folder is the one
+// resolved, since the settings folder is made only when the first file is written.
+async fn compose_claude_deny_paths(
     mut deny_paths: Vec<CredentialDenyPath>,
     data_folder: &Path,
-) -> Vec<CredentialDenyPath> {
-    deny_paths.push(CredentialDenyPath {
-        path: compose_claude_settings_folder(data_folder),
+) -> Result<Vec<CredentialDenyPath>, CredentialPolicyResolveError> {
+    let spelled = CredentialDenyPath {
+        path: data_folder.to_path_buf(),
         kind: CredentialDenyPathKind::Folder,
-    });
-    deny_paths
+    };
+    let resolved = canonical_deny_path(&spelled).await?;
+    for data_folder in [
+        Some(spelled.path.as_path()),
+        (resolved != spelled).then_some(resolved.path.as_path()),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        deny_paths.push(CredentialDenyPath {
+            path: compose_claude_settings_folder(data_folder),
+            kind: CredentialDenyPathKind::Folder,
+        });
+    }
+    Ok(deny_paths)
 }
 
 /// Installs the callback-tool registry of the session `legs` start, in `registry`, and returns
@@ -369,4 +385,41 @@ pub(crate) fn assert_claude_spawn_bound_realization(
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use sidekicks_platforms::{make_folder_link, real_path};
+
+    use super::compose_claude_deny_paths;
+    use crate::driver::claude::spawn::settings::private_file::compose_claude_settings_folder;
+
+    // Killed by the settings folder denied only as a linked data folder spells it, which leaves
+    // the real folder, where the files are, readable. The settings folder is not made yet, as on a
+    // first launch.
+    #[tokio::test]
+    async fn the_settings_folder_is_denied_at_its_real_path() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let real = scratch.path().join("real");
+        std::fs::create_dir(&real).expect("the data folder is made");
+        let linked = scratch.path().join("linked");
+        make_folder_link(&real, &linked).expect("the data folder is linked");
+
+        let denied = compose_claude_deny_paths(Vec::new(), &linked)
+            .await
+            .expect("the folder resolves");
+
+        let real_folder =
+            compose_claude_settings_folder(&real_path(&real).expect("the real folder resolves"));
+        assert!(
+            denied.iter().any(|path| path.path == real_folder),
+            "the real folder is denied: {denied:?}"
+        );
+        assert!(
+            denied
+                .iter()
+                .any(|path| path.path == compose_claude_settings_folder(&linked)),
+            "the linked spelling is denied too: {denied:?}"
+        );
+    }
 }
