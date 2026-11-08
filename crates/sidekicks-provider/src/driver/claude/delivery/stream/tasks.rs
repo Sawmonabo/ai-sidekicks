@@ -12,7 +12,7 @@ mod resume;
 use std::collections::HashSet;
 
 use jiff::Timestamp;
-use serde_json::value::{RawValue, to_raw_value};
+use serde_json::value::to_raw_value;
 use sidekicks_contracts::event::envelope::EventOccurredAt;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -266,8 +266,8 @@ impl ClaudeDeliveryStream {
 
     /// Closes each held call in `ends`, read off a frame of `wire`, through the reorder buffer.
     /// Each close is appended after its run and unpaired, since its stand-in result already
-    /// answered the call's opening; a call that kept its arguments is traced with its body as its
-    /// result, `null` where it closed with none.
+    /// answered the call's opening; a call that kept its arguments and closed with a body is traced
+    /// with that body as its result.
     pub(super) async fn close_held_calls(
         &self,
         session: &ClaudeSessionStream,
@@ -280,11 +280,9 @@ impl ClaudeDeliveryStream {
         let traces: Vec<ToolTrace> = ends
             .iter()
             .filter_map(|end| {
+                let text = end.text.as_ref()?;
                 end.opened.trace(session.session_id, &end.tool_use_id, || {
-                    end.text.as_ref().map_or_else(
-                        || RawValue::NULL.to_owned(),
-                        |text| to_raw_value(text).expect("a string writes as JSON"),
-                    )
+                    to_raw_value(text).expect("a string writes as JSON")
                 })
             })
             .collect();
