@@ -5,12 +5,13 @@
 //! nothing; a closed session, or one being purged, takes no change.
 
 use std::error::Error;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::json;
+use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::id::ProviderId;
@@ -51,12 +52,20 @@ use tokio_util::task::TaskTracker;
 
 use crate::run::ids::read_session_run_ids;
 
-/// The statements the session changes prepare on a read connection: the session's facts, its
-/// runs, and the providers their bindings name.
-pub const SESSION_CHANGES_STATEMENT_CAPACITY: usize = 3;
+/// The statements the session changes prepare on a read connection: the session's facts, whether
+/// it was ever activated, its runs, and the providers their bindings name.
+pub const SESSION_CHANGES_STATEMENT_CAPACITY: usize = 4;
 
 const SELECT_FACTS_SQL: &str =
     "SELECT state, name, pinned_at, muted_at FROM sessions WHERE id = ?1";
+
+// Whether the session's create ever finished: `session.activated` is written once, by its finish.
+static SELECT_WAS_ACTIVATED_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT EXISTS (SELECT 1 FROM session_events WHERE session_id = ?1 AND type = '{}')",
+        SessionEventType::SessionActivated.as_str()
+    )
+});
 
 // Holds only while every fact the change was decided from is as it was read.
 const FACTS_UNCHANGED_SQL: &str = "SELECT 1 FROM sessions
@@ -266,24 +275,14 @@ impl SessionChanges {
         Ok(is_written)
     }
 
-    /// Moves an active session into the archived ones, leaving its provider process as it was.
-    /// Refuses a session still `provisioning` with `session.changeRefused`, else as
+    /// Moves a session into the archived ones, leaving its provider process as it was: an active
+    /// one, and one still `provisioning` whose create never finished, which the archive's
+    /// provisioning guard keeps any finish from activating. Refused as
     /// [`SessionChangeError::Refused`] says.
     pub async fn archive(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
-        self.archive_in_state(session_id, false).await
-    }
-
-    async fn archive_in_state(
-        &self,
-        session_id: SessionId,
-        is_provisioning_archived: bool,
-    ) -> Result<(), SessionChangeError> {
         let _hold = self.lock.acquire(session_id).await;
         self.change(session_id, None, |facts| {
             refuse_unchangeable_session(&session_id, facts.state)?;
-            if !is_provisioning_archived {
-                refuse_provisioning_session(&session_id, facts.state)?;
-            }
             Ok((facts.state != SessionState::Archived).then(|| {
                 lifecycle_event(
                     SessionEvent::SessionArchived,
@@ -297,23 +296,43 @@ impl SessionChanges {
         Ok(())
     }
 
-    /// Returns an archived session to the live list; any other session it leaves as it is.
-    /// Refused as [`SessionChangeError::Refused`] says.
+    /// Returns an archived session to the live list, `active`, or `provisioning` when its create
+    /// never finished, for a retry of its create or the daemon's next start to finish; any other
+    /// session it leaves as it is. Refused as [`SessionChangeError::Refused`] says.
     pub async fn reactivate(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
         let _hold = self.lock.acquire(session_id).await;
+        // No finish activates an archived session, so the answer holds while the lock is held.
+        let state = if self.was_activated(session_id).await? {
+            SessionReactivatedState::Active
+        } else {
+            SessionReactivatedState::Provisioning
+        };
         self.change(session_id, None, |facts| {
             refuse_unchangeable_session(&session_id, facts.state)?;
             Ok((facts.state == SessionState::Archived).then(|| {
                 SessionEvent::SessionReactivated(SessionReactivatedPayload {
                     session_id,
                     previous_state: Some(SessionState::Archived),
-                    state: SessionReactivatedState::Active,
+                    state,
                     actor: None,
                 })
             }))
         })
         .await?;
         Ok(())
+    }
+
+    async fn was_activated(&self, session_id: SessionId) -> Result<bool, SessionChangeError> {
+        self.pool
+            .read(
+                ReadLength::Short,
+                move |reader| -> Result<_, SessionChangeError> {
+                    Ok(reader
+                        .prepare_cached(&SELECT_WAS_ACTIVATED_SQL)?
+                        .query_row([session_id.text().as_str()], |row| row.get(0))?)
+                },
+            )
+            .await
     }
 
     /// Closes the session: ends its provider leg through each driver that ran one of its runs,
@@ -459,19 +478,14 @@ impl SessionChanges {
 }
 
 impl ForgottenProjectSessions for SessionChanges {
-    /// Archives a session of a project being forgotten: an active one as
-    /// [`SessionChanges::archive`] does, and one still `provisioning`, whose bind can never come
-    /// now; a closed or purging session is refused as [`SessionChangeError::Refused`] says.
+    /// Archives a session of a project being forgotten as [`SessionChanges::archive`] does, one
+    /// still `provisioning`, whose bind can never come now, among them; a closed or purging
+    /// session is refused as [`SessionChangeError::Refused`] says.
     fn archive_of_forgotten_project(
         &self,
         session_id: SessionId,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        async move {
-            self.archive_in_state(session_id, true)
-                .await
-                .map_err(Into::into)
-        }
-        .boxed()
+        async move { self.archive(session_id).await.map_err(Into::into) }.boxed()
     }
 }
 
@@ -600,8 +614,8 @@ pub(crate) fn session_already_closed(session_id: &SessionId) -> DomainError {
 }
 
 /// Refuses, with `session.changeRefused`, a session still `provisioning`: only an active or
-/// archived session is archived, closed or converted, and a provisioning one is finished by its
-/// create instead.
+/// archived session is closed or converted, and a provisioning one is finished by its create or
+/// archived.
 pub(crate) fn refuse_provisioning_session(
     session_id: &SessionId,
     state: SessionState,
