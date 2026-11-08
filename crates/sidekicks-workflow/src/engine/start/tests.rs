@@ -50,9 +50,8 @@ use crate::definitions::kept_values::{
 };
 use crate::engine::event_record::EngineRecorder;
 use crate::engine::ports::kept_payloads::KeptPayloads;
-use crate::engine::ports::{
-    ChainAskAfterReader, EngineRecordSink, KeptEngineRecords, StepPayloadArtifacts,
-};
+use crate::engine::ports::run_limits::ScriptedRunLimits;
+use crate::engine::ports::{EngineRecordSink, KeptEngineRecords, StepPayloadArtifacts};
 use crate::kinds::{
     NodeKindTable, PassThroughExecutor, command_test_kind, git_test_kind, test_kind,
 };
@@ -66,15 +65,6 @@ const ROOT_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e73";
 const ROOT_STARTED_AT: &str = "2026-10-02T00:00:00.000Z";
 const ROWS_AT: &str = "2026-10-14T09:30:00.000Z";
 const MOUNT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e74";
-
-/// The chain's limit, fixed for the test.
-struct AskAfter(Option<WorkflowChainAskAfterRuns>);
-
-impl ChainAskAfterReader for AskAfter {
-    fn chain_ask_after_runs(&self) -> Option<WorkflowChainAskAfterRuns> {
-        self.0
-    }
-}
 
 fn test_provider() -> ProviderId {
     ProviderId::new("test-provider".to_owned()).expect("the test's provider id")
@@ -151,7 +141,7 @@ impl Fixture {
             machines,
             authorizer: Arc::new(Authorizer::load_built_in().expect("the built-in rules load")),
             payloads: Arc::clone(&payloads) as Arc<dyn StepPayloadArtifacts>,
-            chain_ask_after: Arc::new(AskAfter(chain_ask_after)),
+            run_limits: Arc::new(ScriptedRunLimits::with_chain_ask_after(chain_ask_after)),
             kept_values,
             kinds: Arc::new(
                 NodeKindTable::new(vec![

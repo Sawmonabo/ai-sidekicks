@@ -2,11 +2,14 @@
 //! gate a script or quick Code step waits at, the agent runs an agent step starts, the processes a
 //! step launches and the artifacts its large payloads go to, the approval cards and questions a
 //! step waiting on a person opens, a tool server's tool a step calls, the sink of the engine's own
-//! records and the limit a chain's runs are counted under. The program implements each and hands
-//! the ones the dispatch reads to the engine as one bundle.
+//! records and the limits a run is held to: how many runs a chain may count, and how long one run
+//! may go. The program implements each and hands the ones the dispatch reads to the engine as one
+//! bundle.
 
 #[cfg(test)]
 pub(crate) mod kept_payloads;
+#[cfg(test)]
+pub(crate) mod run_limits;
 pub mod tool_call;
 
 use std::error::Error;
@@ -18,7 +21,7 @@ use futures::future::BoxFuture;
 use secrecy::SecretString;
 use serde_json::{Map, Value};
 use sidekicks_contracts::artifacts::id::ArtifactId;
-use sidekicks_contracts::daemon::config::WorkflowChainAskAfterRuns;
+use sidekicks_contracts::daemon::config::{RunTimeLimitMinutes, WorkflowChainAskAfterRuns};
 use sidekicks_contracts::git::local::WorkflowRunSnapshotPoint;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
@@ -431,11 +434,14 @@ pub trait EngineRecordSink: Send + Sync {
     fn record(&self, entry: Map<String, Value>) -> BoxFuture<'_, ()>;
 }
 
-/// The limit a run joining a chain is counted under, which the daemon reads from its configuration
-/// and hands the engine; it is read again at each joining start, so a change applies to the next.
-pub trait ChainAskAfterReader: Send + Sync {
+/// The limits a run is held to, which the daemon reads from its configuration and hands the
+/// engine; each is read again where it applies, so a change holds from the next read.
+pub trait WorkflowRunLimits: Send + Sync {
     /// `Ask me after one start leads to`, in runs, as set now; `None` is `Never ask`.
     fn chain_ask_after_runs(&self) -> Option<WorkflowChainAskAfterRuns>;
+
+    /// `Stop a run after`, as set now; `None` is `No limit`.
+    fn run_time_limit(&self) -> Option<RunTimeLimitMinutes>;
 }
 
 /// What a refusing test port panics or fails with: a test that reaches one has a fault.
