@@ -123,7 +123,7 @@ async fn record_raw_provider_messages_gates_what_the_drivers_port_writes() {
     raw_messages
         .record(provider(), "off again".to_owned())
         .await;
-    drop(client);
+    client.close().await;
     process
         .stop(DaemonStopReason::Stop)
         .await
@@ -183,7 +183,7 @@ async fn record_traces_gates_what_the_drivers_port_writes() {
     tool_traces.record(trace("while-on")).await;
     set_switch(&client, DaemonConfigUpdateRequest::RecordTraces(false)).await;
     tool_traces.record(trace("off-again")).await;
-    drop(client);
+    client.close().await;
     process
         .stop(DaemonStopReason::Stop)
         .await
