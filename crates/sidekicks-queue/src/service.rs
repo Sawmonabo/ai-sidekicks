@@ -359,6 +359,7 @@ impl RunQueue {
                     content: request.content,
                     attachments: request.attachments,
                     skills,
+                    skill_picks: request.skills,
                     answers_question_id: request.answers_question_id,
                     output_speed_for_turn: request.output_speed_for_turn,
                     workspace_id: request.workspace_id,

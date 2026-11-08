@@ -625,6 +625,9 @@ refusal_codes! {
     /// conversion's `repoMountId`), or a folder outside the chat's place, which never changes
     /// (`reason: folderInAnotherPlace`, with the chat's `place`).
     SessionConversionRefused = "session.conversion.refused" (FailedPrecondition, 409);
+    /// A `session.draft.update` whose `expectedRevision` is not the draft's current revision:
+    /// another save, or a message a Stop or an interrupt put back, changed the draft since.
+    SessionDraftRevisionStale = "session.draft.revisionStale" (Aborted, 409);
     /// An `EventCursor` a session event or transcript read names cannot be decoded to a log
     /// position.
     SessionEventCursorUnresolvable = "session.event.cursorUnresolvable" (InvalidArgument, 400);

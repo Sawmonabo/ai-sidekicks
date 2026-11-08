@@ -19,6 +19,7 @@ pub fn words(text: &str) -> QueueMessageBody {
         content: FreeFormText::new(text.to_owned()).expect("a test message"),
         attachments: None,
         skills: None,
+        skill_picks: None,
         answers_question_id: None,
         output_speed_for_turn: None,
         workspace_id: None,
