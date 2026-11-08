@@ -716,4 +716,11 @@ pub trait ProviderDriver: Send + Sync {
 
     /// Removes the folders of MCP sign-ins a stopped daemon left. Fails as a removal fails.
     fn remove_left_sign_in_folders(&self) -> BoxFuture<'_, Result<(), DriverError>>;
+
+    /// Removes the settings files a stopped daemon's provider processes left. Fails as a removal
+    /// fails.
+    fn remove_left_settings_files(&self) -> BoxFuture<'_, Result<(), DriverError>> {
+        // A driver whose processes write no settings file leaves none.
+        Box::pin(async { Ok(()) })
+    }
 }

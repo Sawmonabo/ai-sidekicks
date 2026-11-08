@@ -508,6 +508,21 @@ pub(crate) async fn sweep_left_sign_in_folders(providers: &Providers) {
     }
 }
 
+/// Removes the settings files a stopped daemon's provider processes left, each driver its own,
+/// before any call can start a process, each failure logged; the next start's sweep takes what
+/// stays.
+pub(crate) async fn sweep_left_settings_files(providers: &Providers) {
+    for (provider, driver) in providers.registry.drivers() {
+        if let Err(error) = driver.remove_left_settings_files().await {
+            tracing::warn!(
+                provider = provider.as_str(),
+                error = &error as &(dyn std::error::Error + 'static),
+                "the provider settings files a previous run left were not removed"
+            );
+        }
+    }
+}
+
 /// The providers' first capability reads running on their own task, which the start waits for
 /// before the run queue's recovery and the stop ends before the drivers.
 pub(crate) struct ProvidersRegistration {
