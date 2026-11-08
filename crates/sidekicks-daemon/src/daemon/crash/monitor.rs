@@ -79,8 +79,10 @@ pub(crate) fn is_partial_dump_name(file_name: &str) -> bool {
         .is_some_and(|stem| stem.ends_with('.'))
 }
 
-// How long the service tries to reach a monitor that is still starting, and how often.
-const CONNECT_BOUND: Duration = Duration::from_secs(10);
+/// How long the service tries to reach a monitor that is still starting.
+pub(crate) const CONNECT_BOUND: Duration = Duration::from_secs(10);
+
+// How often the service tries to reach a monitor that is still starting.
 const CONNECT_RETRY_INTERVAL: Duration = Duration::from_millis(100);
 
 // How long the monitor waits for a service to say it is connected before it ends on its own:
@@ -89,6 +91,11 @@ const SERVICE_WAIT_BOUND: Duration = CONNECT_BOUND.saturating_mul(2);
 
 // A dump or panic record readable by the person alone.
 const CRASH_FILE_MODE: u32 = 0o600;
+
+// Set by the panic hook before the panic's abort. A crash that reaches the crash handler sets no
+// flag: the monitor ends only after it has written that crash's dump, so the restart that may
+// follow while the service goes down costs a start and loses nothing.
+static IS_CRASHING: AtomicBool = AtomicBool::new(false);
 
 /// What a panic said, as the service sends it to the monitor before it aborts: unstripped, since
 /// the report builder strips it.
@@ -318,6 +325,17 @@ pub(crate) fn connect_crash_monitor(socket_path: &Path) -> Result<Client, CrashM
             Err(_not_yet) => thread::sleep(CONNECT_RETRY_INTERVAL),
         }
     }
+}
+
+/// Marks the service as going down after a panic, before the abort that asks the monitor for a
+/// dump, so no new crash monitor is started for a process about to end.
+pub(crate) fn mark_crashing() {
+    IS_CRASHING.store(true, Ordering::SeqCst);
+}
+
+/// Whether the service is going down after a panic.
+pub(crate) fn is_crashing() -> bool {
+    IS_CRASHING.load(Ordering::SeqCst)
 }
 
 /// Attaches the crash handler, which asks the monitor `client` reaches for a dump when the process

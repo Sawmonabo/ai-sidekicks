@@ -138,57 +138,61 @@ interface SubscribeAcknowledgmentResponse {
 // subscriber and drops nothing for it: the subscription holds only the subscriber's cursor and reads
 // its next frame from the daemon's record when the subscriber can take it, so a subscriber that falls
 // behind receives every change late, in order, and never a hole. A subscriber further behind the
-// record's newest than that rule's threshold when its next frame is read is sent one frame with no
-// changes carrying the newest cursor, which says it is behind; it then takes a snapshot read
+// log's head than that rule's threshold when its next frame is read is sent one frame with no
+// changes, `kind: "behind"`, carrying the head cursor; it then takes a snapshot read
 // (`session.read`, then the `transcript.read` window at its latest cursor) instead of every change, and
-// the stream carries on from the newest. A catch-up never moves the reader.
+// the stream carries on from the head. A catch-up never moves the reader.
 // For a subscriber that asked for them, a frame also carries the code colors of each code line that
 // finished since the previous frame, as 32-bit runs. Colors never hold a text frame back: they ride the
 // next frame after the colorer answers. They are derived from the text and never stored, so a replay
 // from a cursor computes them again. `highlight.read` stays the read for files, diffs and history.
-interface SessionStreamFrame {
-  // At most `STREAM_FRAME_MAX_CHANGES`. EventEnvelope: session-event-payloads.md §Plan-004 —
-  // Session Event Taxonomy. `runStamp` is present exactly on an event of a run: the daemon's turn
-  // position, execution epoch and superseded marker for it, the same stamp a `transcript.read` row
-  // of that event carries, because the daemon stamps a live change and a window row from one fold.
-  // A client marks the rows it already holds when an `agent.run.rolledBack` boundary arrives: a
-  // held row of that run at the rollback's epoch or an earlier one is superseded above the lowest
-  // cut of every rollback of the run at its epoch or later, the rule the daemon's fold applies (on
-  // clients `addSupersedingCut` in `packages/contracts/src/transcript/turn-attribution.ts`,
-  // hand-written TypeScript held to the daemon's Rust fold by one shared case table).
-  // `piece` is present on a piece of a reply or of reasoning: the row it joins (the id of the row's
-  // first event), where its text starts in the row's body as a UTF-8 byte offset, its text (its
-  // size alone past the inline cap) and the block starts it froze, or why its row's cut failed, so a
-  // client places a piece a read already gave it by its offset and never draws it twice. A tool
-  // completion carries no `piece`: it goes out once, whole, and the parts its patched files are
-  // stored in are never changes; `transcript.patch.list` reads the patches.
-  // `childRunSummary` is present on an event of a child run: the child's summary as of this event.
-  // `endedRows` names the rows the event ended (at its run's turn end or its rollback, the events
-  // after which no later piece joins them), each with the block starts it had not yet sent or why
-  // their cut failed. A frame is cut by bytes under the page budget as a page is, and the
-  // stream reads the next one at once.
-  changes: Array<{
-    cursor: EventCursor;
-    event: EventEnvelope;
-    runStamp?: TranscriptRunStamp;
-    piece?: {
-      rowId: string;
-      offset: number;
-      content: TranscriptRowContent;
-      blockStarts?: Uint8Array;
-      blockCutFailure?: BlockCutFailure;
-    };
-    childRunSummary?: ChildRunSummary;
-    endedRows?: Array<{
-      rowId: string;
-      blockStarts?: Uint8Array;
-      blockCutFailure?: BlockCutFailure;
-    }>;
-  }>;
-  // Present only on the frame with no changes that tells a subscriber it is behind: the newest cursor
-  // the daemon holds for the session. A frame with changes carries no frame cursor.
-  cursor?: EventCursor;
-}
+type SessionStreamFrame =
+  | {
+      kind: "changes";
+      // One to `STREAM_FRAME_MAX_CHANGES`. EventEnvelope: session-event-payloads.md §Plan-004 —
+      // Session Event Taxonomy. `runStamp` is present exactly on an event of a run: the daemon's
+      // turn position, execution epoch and superseded marker for it, the same stamp a
+      // `transcript.read` row of that event carries, because the daemon stamps a live change and a
+      // window row from one fold. A client marks the rows it already holds when an
+      // `agent.run.rolledBack` boundary arrives: a held row of that run at the rollback's epoch or
+      // an earlier one is superseded above the lowest cut of every rollback of the run at its epoch
+      // or later, the rule the daemon's fold applies (on clients `addSupersedingCut` in
+      // `packages/contracts/src/transcript/turn-attribution.ts`, hand-written TypeScript held to
+      // the daemon's Rust fold by one shared case table).
+      // `piece` is present on a piece of a reply or of reasoning: the row it joins (the id of the
+      // row's first event), where its text starts in the row's body as a UTF-8 byte offset, its
+      // text (its size alone past the inline cap) and the block starts it froze, or why its row's
+      // cut failed, so a client places a piece a read already gave it by its offset and never draws
+      // it twice. A tool completion carries no `piece`: it goes out once, whole, and the parts its
+      // patched files are stored in are never changes; `transcript.patch.list` reads the patches.
+      // `childRunSummary` is present on an event of a child run: the child's summary as of this
+      // event.
+      // `endedRows` names the rows the event ended (at its run's turn end or its rollback, the
+      // events after which no later piece joins them), each with the block starts it had not yet
+      // sent or why their cut failed. A frame is cut by bytes under the page budget as a page is,
+      // and the stream reads the next one at once.
+      changes: Array<{
+        cursor: EventCursor;
+        event: EventEnvelope;
+        runStamp?: TranscriptRunStamp;
+        piece?: {
+          rowId: string;
+          offset: number;
+          content: TranscriptRowContent;
+          blockStarts?: Uint8Array;
+          blockCutFailure?: BlockCutFailure;
+        };
+        childRunSummary?: ChildRunSummary;
+        endedRows?: Array<{
+          rowId: string;
+          blockStarts?: Uint8Array;
+          blockCutFailure?: BlockCutFailure;
+        }>;
+      }>;
+    }
+  // The frame with no changes that tells a subscriber it is behind: the session log's head, which
+  // the stream carries on from.
+  | { kind: "behind"; headCursor: EventCursor };
 
 // A session's shape, decided by its BINDING and carried as a stored discriminator — the `shape` column on
 // the session's row — never a mode flag on a request and never guessed from a path prefix

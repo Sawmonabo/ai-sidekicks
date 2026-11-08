@@ -333,7 +333,6 @@ impl ClaudeSessionControls {
             source_epoch: None,
             source_position: None,
             content_length: None,
-            content_truncated: None,
             content_encoding: None,
         };
         drop(
