@@ -86,13 +86,11 @@ impl ClaudeDeliveryStream {
                     (Vec::new(), None)
                 }
                 ClaudeWireFrameKind::SystemTaskNotification => {
-                    // The notification is the held call's result as Claude Code sent it; the reader
-                    // passed only a line that is one JSON object.
+                    // The notification is the held call's result as Claude Code sent it.
                     let end = held.release(&task).map(|mut end| {
-                        end.notification = is_tracing.then(|| {
-                            RawValue::from_string(text.to_owned())
-                                .expect("a routed frame is one JSON object")
-                        });
+                        if is_tracing {
+                            end.notification = read_notification(session, text);
+                        }
                         end
                     });
                     (end.into_iter().collect(), None)
@@ -350,6 +348,20 @@ impl ClaudeDeliveryStream {
             message_key: None,
         })
     }
+}
+
+// A task notification's `text` as the held call's traced result; `None`, logged, for text that
+// is not one JSON value, which leaves the call untraced.
+fn read_notification(session: &ClaudeSessionStream, text: &str) -> Option<Box<RawValue>> {
+    RawValue::from_string(text.to_owned())
+        .inspect_err(|error| {
+            tracing::warn!(
+                session_id = %session.session_id,
+                error = error as &(dyn std::error::Error + 'static),
+                "a Claude Code task notification is not one JSON value, so its call is not traced"
+            );
+        })
+        .ok()
 }
 
 // The opening of the session log's held call `call`, on its run and binding, timed from its
