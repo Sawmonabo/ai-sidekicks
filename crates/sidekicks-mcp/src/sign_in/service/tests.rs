@@ -10,7 +10,7 @@ use sidekicks_std::mutex_lock::lock;
 
 use super::{
     ATTEMPT_LIFETIME, AddressedServer, OwnerIssuedClient, ProviderAccounts, SignInServer,
-    SignInTarget,
+    SignInTarget, named_metadata_scopes,
 };
 use crate::errors::{McpRefusal, SignInLaunchError, SignInUnsupportedReason};
 use crate::sign_in::test_service::{
@@ -400,4 +400,32 @@ async fn an_entry_naming_its_metadata_address_signs_in_without_discovery(
         "{paths:?}"
     );
     assert_eq!(parameters(&browser_url, "scope"), [expected_scope]);
+}
+
+// A named metadata document's own `scope` comes first, then `default_scope`, then the scopes it
+// lists. Killed by the first two swapped (`both_strings` reads `default`) and by either string
+// skipped.
+#[rstest]
+#[case::both_strings(Some("own extra"), Some("default"), &["own", "extra"])]
+#[case::default_alone(None, Some("default"), &["default"])]
+#[case::neither(None, None, &["listed"])]
+fn a_named_metadata_documents_own_scope_comes_before_its_default_and_its_list(
+    #[case] scope: Option<&str>,
+    #[case] default_scope: Option<&str>,
+    #[case] expected: &[&str],
+) {
+    let mut document = serde_json::json!({
+        "authorization_endpoint": "https://auth.example.test/authorize",
+        "token_endpoint": "https://auth.example.test/token",
+        "scopes_supported": ["listed"],
+    });
+    if let Some(scope) = scope {
+        document["scope"] = scope.into();
+    }
+    if let Some(default_scope) = default_scope {
+        document["default_scope"] = default_scope.into();
+    }
+    let metadata = serde_json::from_value(document).expect("metadata parses");
+
+    assert_eq!(named_metadata_scopes(&metadata), expected);
 }

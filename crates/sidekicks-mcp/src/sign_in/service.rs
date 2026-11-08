@@ -782,10 +782,10 @@ pub(super) async fn read_named_metadata(
         .map_err(|error| NamedMetadataError::Unreadable(error.classify()))
 }
 
-// The scopes a sign-in to `server` asks for: `entry_scopes` where the entry pins any, with
-// `offline_access` added where the entry asks for it and `metadata` lists it; else, for
-// `metadata` read at the address the entry names, the scopes it lists; else rmcp's pick from its
-// discovery, `manager` set to `metadata` so its own `offline_access` rule reads it.
+// The scopes a sign-in to `server` asks for: `entry_scopes` where the entry pins any, else, for
+// `metadata` read at the address the entry names, the scopes that document asks for, either with
+// `offline_access` added where the entry asks for it and `metadata` lists it; else rmcp's pick
+// from its discovery, `manager` set to `metadata` so its own `offline_access` rule reads it.
 async fn requested_scopes(
     manager: &mut AuthorizationManager,
     server: &AddressedServer,
@@ -793,27 +793,37 @@ async fn requested_scopes(
     metadata: &AuthorizationMetadata,
     is_named_metadata: bool,
 ) -> Vec<String> {
-    let lists = |scope: &str| {
-        metadata
-            .scopes_supported
-            .as_ref()
-            .is_some_and(|listed| listed.iter().any(|listed| listed == scope))
+    let mut scopes = if !entry_scopes.is_empty() {
+        entry_scopes.to_vec()
+    } else if is_named_metadata {
+        named_metadata_scopes(metadata)
+    } else {
+        manager.set_metadata(metadata.clone());
+        return manager.select_initial_scopes(&[]).await;
     };
-    if !entry_scopes.is_empty() {
-        let mut scopes = entry_scopes.to_vec();
-        if server.asks_offline_access_where_listed
-            && !scopes.iter().any(|scope| scope == OFFLINE_ACCESS_SCOPE)
-            && lists(OFFLINE_ACCESS_SCOPE)
-        {
-            scopes.push(OFFLINE_ACCESS_SCOPE.to_owned());
-        }
-        return scopes;
+    let is_offline_access_listed = metadata
+        .scopes_supported
+        .as_ref()
+        .is_some_and(|listed| listed.iter().any(|scope| scope == OFFLINE_ACCESS_SCOPE));
+    if server.asks_offline_access_where_listed
+        && is_offline_access_listed
+        && !scopes.iter().any(|scope| scope == OFFLINE_ACCESS_SCOPE)
+    {
+        scopes.push(OFFLINE_ACCESS_SCOPE.to_owned());
     }
-    if is_named_metadata {
-        return metadata.scopes_supported.clone().unwrap_or_default();
-    }
-    manager.set_metadata(metadata.clone());
-    manager.select_initial_scopes(&[]).await
+    scopes
+}
+
+// The scopes a metadata document an entry names asks for: its own `scope`, else its
+// `default_scope`, each a space-separated string, else every scope it lists.
+fn named_metadata_scopes(metadata: &AuthorizationMetadata) -> Vec<String> {
+    ["scope", "default_scope"]
+        .into_iter()
+        .find_map(|member| metadata.additional_fields.get(member)?.as_str())
+        .map_or_else(
+            || metadata.scopes_supported.clone().unwrap_or_default(),
+            |scope| scope.split_whitespace().map(str::to_owned).collect(),
+        )
 }
 
 /// The target's server when its binding is one a sign-in reaches: an address, never a connector.
