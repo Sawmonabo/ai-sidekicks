@@ -50,6 +50,7 @@ use sidekicks_platforms::{
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::command::channel::remove_channel_folders;
+use sidekicks_provider::tool_call_arguments::remove_left_tool_call_arguments;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
 use sidekicks_recovery::database_file::sqlite_shell::SqliteShell;
 use sidekicks_recovery::restart_settle::RestartSettle;
@@ -609,6 +610,14 @@ impl DaemonProcess {
             tracing::warn!(
                 error = &error as &(dyn std::error::Error + 'static),
                 "a command channel folder a previous run left was not removed"
+            );
+        }
+        // A file of tool call arguments a previous run left belonged to a process that ended
+        // with it.
+        if let Err(error) = remove_left_tool_call_arguments(&data_folder).await {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "the tool call arguments a previous run left on disk were not removed"
             );
         }
         // Before the socket, any session's recovery and the capability reads, so a lasting provider

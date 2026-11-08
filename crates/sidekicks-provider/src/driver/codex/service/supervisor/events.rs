@@ -21,8 +21,8 @@ pub(crate) enum CodexServiceRecoveryCause {
     PersonRestart,
 }
 
-/// What one service tells the session's recovery, called from the service's runner, never under
-/// its locks.
+/// What one service tells the session's recovery, called from the service's runner or its command
+/// relay, never under its locks.
 pub(crate) trait CodexServiceEvents: Send + Sync {
     /// The process ended on its own; every running turn on it ended with it. `exit` is how it
     /// ended, `None` for a lasting service a former daemon started, whose end no wait reads.
@@ -44,4 +44,9 @@ pub(crate) trait CodexServiceEvents: Send + Sync {
     /// The terminal service asks for a second service on the program as it is now, its
     /// conversations moved and the first stopped once no terminal session is inside it.
     fn planned_restart_requested(&self, service: &Arc<CodexService>);
+
+    /// The executor that runs the up service's commands ended, so the service restarts on the
+    /// program as it is now, its next start bringing a new executor up and its conversations
+    /// resumed on the new process.
+    fn executor_ended(&self, service: &Arc<CodexService>);
 }

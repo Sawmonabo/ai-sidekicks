@@ -31,5 +31,6 @@ pub mod session_rules;
 pub mod session_wake;
 pub mod tool_call_status_publisher;
 pub mod tool_server_route;
+pub mod tool_traces;
 pub mod turn_reading_publisher;
 pub mod usage_sink;

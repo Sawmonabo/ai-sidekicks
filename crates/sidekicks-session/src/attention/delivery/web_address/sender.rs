@@ -134,6 +134,17 @@ pub struct WebAddressSender {
     attempt: tokio::sync::Mutex<()>,
     // Cancels the attempt in flight.
     attempt_cancel: Mutex<CancellationToken>,
+    // Raised as each pass begins and ends, so a test reads when the task rests between passes.
+    #[cfg(test)]
+    passes: watch::Sender<Passes>,
+}
+
+/// How many passes the task began and how many it ended; the two are equal while it rests.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default)]
+struct Passes {
+    begun: u64,
+    ended: u64,
 }
 
 /// Why a pass of the sender failed; it is tried again at the next wake, or a minute later.
@@ -246,6 +257,8 @@ impl WebAddressSender {
             secrets: tokio::sync::Mutex::new(()),
             attempt: tokio::sync::Mutex::new(()),
             attempt_cancel: Mutex::new(CancellationToken::new()),
+            #[cfg(test)]
+            passes: watch::Sender::new(Passes::default()),
         }
     }
 
@@ -283,6 +296,8 @@ impl WebAddressSender {
         };
         let failure_episode = FailureEpisode::default();
         loop {
+            #[cfg(test)]
+            self.passes.send_modify(|passes| passes.begun += 1);
             match self.pass(&mut follow, &mut settings, &stop).await {
                 Ok(()) => failure_episode.mark_succeeded(),
                 Err(error) => {
@@ -298,6 +313,8 @@ impl WebAddressSender {
                     }
                 }
             }
+            #[cfg(test)]
+            self.passes.send_modify(|passes| passes.ended += 1);
             tokio::select! {
                 () = stop.cancelled() => return,
                 changed = follow.count.changed() => {

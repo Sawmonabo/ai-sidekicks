@@ -19,10 +19,10 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_std::elapsed::elapsed_ms_since;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::watch;
 use tokio::time::Instant;
@@ -589,7 +589,6 @@ impl RunningCommandSets {
         };
         let session_id = row.start.session_id;
         commands.publish_commands();
-        let duration_ms = u64::try_from(row.started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let payload = AgentCommandEndedPayload {
             session_id,
             run_id: row.start.run_id,
@@ -597,7 +596,7 @@ impl RunningCommandSets {
             tool_call_id: row.start.tool_call_id,
             ending,
             exit_code,
-            duration_ms: SafeInt::new(duration_ms).expect("a command runs far less than 2^53 ms"),
+            duration_ms: elapsed_ms_since(row.started),
             source_epoch: None,
             source_position: None,
             content_length: None,

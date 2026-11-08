@@ -10,11 +10,13 @@
 //! connection. Every other message passes unchanged but two: a command's start, rewritten to run
 //! under the command wrapper, and a terminate, held until the wrapper ended the command.
 //! A command whose service was restarted while it ran is ended by the relay at its process's end,
-//! since the new service never reports the old one's items.
+//! since the new service never reports the old one's items. Once the executor ends, the relay
+//! answers its connections itself, as `executor_end` says, and asks its service to start again.
 
 mod command_acts;
 mod endpoint;
 mod executor;
+mod executor_end;
 mod message;
 mod methods;
 mod start_rewrite;
@@ -36,9 +38,11 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::{OnceCell, mpsc};
 use tokio::task::JoinHandle;
+use tokio_util::task::TaskTracker;
 
 use self::endpoint::RelayEndpoint;
 use self::executor::{CodexExecutor, ProcessEnd, RelayConnectionId};
+use self::executor_end::compose_executor_ended_answer;
 use self::message::{RoutedMessage, text_of};
 use self::methods::{ClientMethod, INITIALIZED_METHOD};
 use crate::bearer_token::BearerToken;
@@ -89,6 +93,8 @@ pub(crate) struct CodexExecRelayDependencies {
     pub(crate) wrapper_program: PathBuf,
     /// The command askpass's link, absolute.
     pub(crate) askpass_program: PathBuf,
+    /// The driver's tracked tasks, which run what each executor's end does.
+    pub(crate) tasks: TaskTracker,
 }
 
 /// The session a conversation of the relay's service belongs to and what kind it is; `None` for
@@ -310,6 +316,12 @@ impl CodexExecRelay {
         }
     }
 
+    /// Acts as the relay does once its running executor ended, without ending one.
+    #[cfg(test)]
+    pub(crate) fn report_executor_ended(&self) {
+        (self.on_executor_ended)();
+    }
+
     /// How many process starts Codex sent through the relay.
     #[cfg(test)]
     pub(crate) fn process_starts(&self) -> u64 {
@@ -374,7 +386,8 @@ impl CodexExecRelay {
     }
 
     // Makes `executor` the relay's: every open channel admits the parties under it, and its end
-    // starts the service again. The former executor's commands end as its connection did.
+    // starts the service again and settles its connections. The former executor's commands end as
+    // its connection did.
     fn take_executor(&self, executor: Arc<CodexExecutor>) {
         if let Some(process_id) = executor.process_id() {
             for channel in lock(&self.channels).values().filter_map(|cell| cell.get()) {
@@ -382,11 +395,22 @@ impl CodexExecRelay {
             }
         }
         let mut ended = executor.ended();
+        // Weak, so a relay let go of with its executor running still drops it, which ends it.
+        let watched = Arc::downgrade(&executor);
         let on_executor_ended = Arc::clone(&self.on_executor_ended);
+        let tasks = self.dependencies.tasks.clone();
+        // The wait itself is no tracked task, since an executor outlives the driver's shutdown,
+        // which waits for its tracked tasks; what the end does is one, so a shutdown waits for it.
         tokio::spawn(async move {
-            if ended.wait_for(|is_ended| *is_ended).await.is_ok() {
-                on_executor_ended();
+            if ended.wait_for(|is_ended| *is_ended).await.is_err() {
+                return;
             }
+            tasks.spawn(async move {
+                on_executor_ended();
+                if let Some(executor) = watched.upgrade() {
+                    executor.settle_clients().await;
+                }
+            });
         });
         *lock(&self.executor) = Some(executor);
     }
@@ -407,9 +431,10 @@ impl CodexExecRelay {
     /// executor's one on a task of its own, every other request the executor serves goes on under
     /// a relay id and the relay's id for any process, file or http request it names, a start and a
     /// terminate through their tasks, and an answer only to a request asked of the connection. A
-    /// request the executor does not serve is answered `-32601` and a line that is no message
-    /// `-32600`; a notification is dropped, since the relay sent its own `initialized` and the
-    /// executor closes its one connection at any other.
+    /// request the executor does not serve is answered `-32601`, a line that is no message
+    /// `-32600`, and a relayed request once the executor ended the error naming its end; a
+    /// notification is dropped, since the relay sent its own `initialized` and the executor closes
+    /// its one connection at any other.
     async fn take_client_message(
         &self,
         executor: &Arc<CodexExecutor>,
@@ -469,21 +494,26 @@ impl CodexExecRelay {
                 .await;
             return;
         }
+        if method == ClientMethod::WatchMissing {
+            tokio::spawn(executor.join_missing_watch(connection, id, message.params.as_ref()));
+            return;
+        }
         let own_process_id = message
             .params
             .as_ref()
             .and_then(|params| params.process_id)
             .filter(|_started| method == ClientMethod::ProcessStart)
             .and_then(text_of);
-        let relayed = || {
+        let Some(line) =
             executor.relay_client_request(connection, &line, id, method, message.params.as_ref())
+        else {
+            executor
+                .answer_connection(connection, compose_executor_ended_answer(id.get()))
+                .await;
+            return;
         };
         match method {
-            ClientMethod::WatchMissing => {
-                tokio::spawn(executor.join_missing_watch(connection, id, message.params.as_ref()));
-            }
             ClientMethod::ProcessStart => {
-                let line = relayed();
                 #[cfg(test)]
                 self.process_starts.fetch_add(1, Ordering::Relaxed);
                 match own_process_id {
@@ -498,7 +528,7 @@ impl CodexExecRelay {
                 }
             }
             ClientMethod::ProcessTerminate => {
-                tokio::spawn(relay.forward_terminate(Arc::clone(executor), relayed()));
+                tokio::spawn(relay.forward_terminate(Arc::clone(executor), line));
             }
             // An `initialized` sent as a request is the executor's to refuse.
             ClientMethod::Initialize
@@ -508,7 +538,8 @@ impl CodexExecRelay {
             | ClientMethod::FileNamed
             | ClientMethod::FileClose
             | ClientMethod::HttpRequest
-            | ClientMethod::Passed => forward(executor, relayed()).await,
+            | ClientMethod::WatchMissing
+            | ClientMethod::Passed => forward(executor, line).await,
         }
     }
 

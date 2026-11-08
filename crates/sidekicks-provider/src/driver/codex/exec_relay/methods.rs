@@ -21,6 +21,9 @@ pub(super) const FS_MISSING_CHANGED_METHOD: &str = "fs/missingChanged";
 /// The executor's notification carrying part of a streamed http body.
 pub(super) const HTTP_REQUEST_BODY_DELTA_METHOD: &str = "http/request/bodyDelta";
 
+/// The executor's notification carrying a chunk of a process's output.
+pub(super) const PROCESS_OUTPUT_METHOD: &str = "process/output";
+
 /// The executor's notifications of a process's end.
 pub(super) const PROCESS_EXITED_METHOD: &str = "process/exited";
 pub(super) const PROCESS_CLOSED_METHOD: &str = "process/closed";
@@ -34,7 +37,10 @@ pub(super) const NETWORK_POLICY_REQUEST_METHOD: &str = "network/policyRequest";
 pub(super) fn is_process_notification(method: &str) -> bool {
     matches!(
         method,
-        "process/output" | PROCESS_EXITED_METHOD | PROCESS_CLOSED_METHOD | "network/policyDecision"
+        PROCESS_OUTPUT_METHOD
+            | PROCESS_EXITED_METHOD
+            | PROCESS_CLOSED_METHOD
+            | "network/policyDecision"
     )
 }
 

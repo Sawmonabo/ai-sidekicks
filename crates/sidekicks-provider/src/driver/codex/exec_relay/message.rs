@@ -7,6 +7,7 @@ use std::borrow::Cow;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 
+use crate::driver::codex::exec_relay::executor_end::OutputStream;
 use crate::driver::codex::exec_relay::methods::RelayIdKind;
 
 /// The members of a message the relay routes by; the rest passes on as it came.
@@ -53,8 +54,12 @@ pub(super) struct RoutedParams<'line> {
     /// The http request the message names, as raw JSON.
     #[serde(borrow)]
     pub(super) request_id: Option<&'line RawValue>,
+    /// The number of a process's event, which orders its events.
+    pub(super) seq: Option<u64>,
     /// The exit code a `process/exited` reports.
     pub(super) exit_code: Option<i32>,
+    /// The stream a `process/output` chunk came on.
+    pub(super) stream: Option<OutputStream>,
     /// A missing-path watch's own id, a number.
     pub(super) watch_id: Option<u64>,
     /// The paths a missing-path watch waits to see appear, as raw JSON.

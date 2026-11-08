@@ -7,6 +7,7 @@ mod caller_check;
 mod capability_read;
 mod commands;
 mod controls;
+mod diagnostic_recorders;
 mod intake;
 mod kept_turns;
 mod questions;
@@ -20,6 +21,7 @@ mod usage;
 use std::error::Error;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::future::BoxFuture;
 use interprocess::local_socket::traits::tokio::Listener as _;
@@ -398,6 +400,17 @@ pub(super) fn driver_holding(scripted: &ScriptedCodexService, folder: &Path) -> 
     let mut driver = CodexDriver::new(&services);
     driver.registry = CodexServiceRegistry::holding(scripted);
     driver
+}
+
+/// Yields until `holds` reads true, failing after a bound.
+pub(super) async fn wait_until(mut holds: impl FnMut() -> bool) {
+    for _turn in 0..2_000 {
+        if holds() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    panic!("the condition never held");
 }
 
 /// Answers what stopping a turn sends, a close's or an interrupt's: an interrupt, with the end of

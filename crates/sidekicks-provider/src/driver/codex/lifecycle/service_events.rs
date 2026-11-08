@@ -1,8 +1,10 @@
 //! What each Codex service's events do through the session pieces: a process's end ends the turns
 //! of the sessions on it, a service back resumes their conversations, a crash loop tells them it
 //! stays down, a failed start tells the queue their processes are gone, a rate-limit push is filed
-//! and a terminal service's planned restart moves them. Each event runs off the service's runner,
-//! on the driver's tasks.
+//! and a terminal service's planned restart moves them, as an account service's restart after its
+//! executor ended resumes them. Each event runs off the service's runner, on the driver's tasks,
+//! but a planned restart and an executor's end, which the service's command relay reports: both
+//! hand their restart to the recovery, which runs it on those tasks.
 
 use std::sync::Arc;
 
@@ -113,8 +115,19 @@ impl CodexServiceEvents for CodexDriverServiceEvents {
     }
 
     fn planned_restart_requested(&self, service: &Arc<CodexService>) {
-        self.spawn(service, "planned restart", |parts, service| async move {
-            parts.recovery.move_terminal_service(&service).await;
-        });
+        let Some(parts) = self.link.parts() else {
+            log_event_before_any_session(service, "planned restart");
+            return;
+        };
+        parts.recovery.request_restart(service, None);
+    }
+
+    fn executor_ended(&self, service: &Arc<CodexService>) {
+        match self.link.parts() {
+            Some(parts) => parts.recovery.request_restart(service, None),
+            // Before any session composed the pieces no session is on the service, so its own
+            // planned restart, which resumes nothing, brings the new executor up.
+            None => service.request_planned_restart(),
+        }
     }
 }

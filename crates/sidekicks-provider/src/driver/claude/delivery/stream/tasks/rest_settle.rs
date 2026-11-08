@@ -32,6 +32,7 @@ impl ClaudeDeliveryStream {
                     tool_use_id: call.tool_call_id.into_string(),
                     outcome,
                     text,
+                    notification: None,
                 })
             })
             .collect();

@@ -32,6 +32,7 @@ mod exit;
 mod held_calls;
 mod resume;
 mod steers;
+mod traces;
 mod usage;
 
 pub(super) fn result(members: &Value) -> Value {

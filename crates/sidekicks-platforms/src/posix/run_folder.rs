@@ -130,12 +130,13 @@ fn join_name(folder: OsString, name: &str) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
+    use std::ffi::{OsStr, OsString};
     use std::fs::{self, Permissions};
     use std::os::unix::fs::{PermissionsExt, symlink};
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
     use rstest::rstest;
+    use serde::Deserialize;
 
     use super::{check_private_run_folder, create_private_run_folder, resolve_daemon_run_folder};
     use crate::run_folder::RunFolderRefused;
@@ -148,45 +149,84 @@ mod tests {
             & 0o777
     }
 
-    // The cases desktop main's resolver asserts too.
-    #[rstest]
-    #[case::runtime_folder_set(Some("/run/user/1000"), "/home/ada", true)]
-    #[case::runtime_folder_with_a_trailing_slash(Some("/run/user/1000/"), "/home/ada", true)]
-    #[case::runtime_folder_empty(Some(""), "/home/ada", false)]
-    #[case::runtime_folder_unset(None, "/home/ada/", false)]
-    fn resolves_the_runtime_folder_on_linux_and_the_home_folder_otherwise(
-        #[case] runtime_folder: Option<&str>,
-        #[case] home: &str,
-        #[case] is_runtime_folder_used: bool,
-    ) {
-        let resolved = resolve_daemon_run_folder(
-            |name| {
-                (name == "XDG_RUNTIME_DIR")
-                    .then_some(runtime_folder)
-                    .flatten()
-                    .map(OsString::from)
-            },
-            Path::new(home),
-        );
+    /// The run-folder table the TypeScript resolver's suite reads too.
+    const CASES: &str = include_str!("../../../sidekicks-contracts/tests/fixtures/run-folder.json");
 
-        let expected = if is_runtime_folder_used && cfg!(target_os = "linux") {
-            "/run/user/1000/ai-sidekicks"
+    /// A system, its runtime-folder variable (`null` where unset), the home folder and the run
+    /// folder they resolve.
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields, rename_all = "camelCase")]
+    struct PosixCase {
+        system: System,
+        runtime_folder: Option<String>,
+        home: String,
+        folder: String,
+    }
+
+    /// The system a case resolves on, in Node's spelling.
+    #[derive(Debug, Deserialize, PartialEq, Eq)]
+    #[serde(rename_all = "lowercase")]
+    enum System {
+        Linux,
+        Darwin,
+    }
+
+    /// The table's macOS and Linux half.
+    #[derive(Deserialize)]
+    struct RunFolderCases {
+        posix: Vec<PosixCase>,
+    }
+
+    #[test]
+    fn resolves_the_runtime_folder_on_linux_and_the_home_folder_otherwise() {
+        let cases: RunFolderCases = serde_json::from_str(CASES).expect("the cases read");
+        let system = if cfg!(target_os = "linux") {
+            System::Linux
         } else {
-            "/home/ada/.ai-sidekicks/run"
+            System::Darwin
         };
-        assert_eq!(resolved.folder_path, PathBuf::from(expected));
-        assert_eq!(
-            resolved.socket_path,
-            Path::new(expected).join("daemon.sock")
-        );
-        assert_eq!(
-            resolved.token_path,
-            Path::new(expected).join("daemon.token")
-        );
-        assert_eq!(
-            resolved.status_path,
-            Path::new(expected).join("service-status.json")
-        );
+        let cases: Vec<PosixCase> = cases
+            .posix
+            .into_iter()
+            .filter(|case| case.system == system)
+            .collect();
+        assert!(!cases.is_empty(), "the table holds cases for {system:?}");
+
+        for case in cases {
+            let resolved = resolve_daemon_run_folder(
+                |name| {
+                    (name == "XDG_RUNTIME_DIR")
+                        .then(|| case.runtime_folder.clone())
+                        .flatten()
+                        .map(OsString::from)
+                },
+                Path::new(&case.home),
+            );
+
+            // Compared as bytes: a path's own equality ignores a doubled or trailing `/`.
+            let folder = &case.folder;
+            let context = format!("{:?} under {}", case.runtime_folder, case.home);
+            assert_eq!(
+                resolved.folder_path.as_os_str(),
+                OsStr::new(folder),
+                "{context}"
+            );
+            assert_eq!(
+                resolved.socket_path.as_os_str(),
+                OsStr::new(&format!("{folder}/daemon.sock")),
+                "{context}"
+            );
+            assert_eq!(
+                resolved.token_path.as_os_str(),
+                OsStr::new(&format!("{folder}/daemon.token")),
+                "{context}"
+            );
+            assert_eq!(
+                resolved.status_path.as_os_str(),
+                OsStr::new(&format!("{folder}/service-status.json")),
+                "{context}"
+            );
+        }
     }
 
     #[rstest]

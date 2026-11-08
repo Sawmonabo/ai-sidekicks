@@ -12,9 +12,8 @@
 //! burst of changes during a read costs one more read, never one per change.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::error::Error;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use rusqlite::types::{Type, Value};
@@ -37,7 +36,6 @@ use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_ipc::stream::latest_value::LatestValueOutlet;
-use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -49,9 +47,11 @@ use sidekicks_store::database::stored_column::{
     text_column,
 };
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
-use tokio::sync::Notify;
 
-use crate::directory::lookups::{SessionWriteError, session_exists, write_while_session_exists};
+use crate::directory::lookups::{
+    SESSION_CHANGE_STATEMENT_INDEX, SessionWriteError, session_exists, write_while_session_exists,
+};
+use crate::follower_wakes::{FollowerReadFailure, SessionFollowerWakes, send_each_read};
 use crate::review_note::diff_line::{NoteLocation, NotedLineError, NotedLineReader};
 
 /// The statements the store's reads prepare on a read connection: the session's notes, one note,
@@ -90,9 +90,6 @@ const UPDATE_BODY_SQL: &str =
 const DELETE_NOTES_SQL: &str = "DELETE FROM session_review_notes
   WHERE session_id = @sessionId AND note_id IN (SELECT value FROM json_each(@noteIds))
   RETURNING note_id";
-
-// The change statement's place in a write behind the session's existence check.
-const CHANGE_STATEMENT_INDEX: usize = 1;
 
 /// Stops following a session's working folder when called.
 pub(crate) type WorkingFolderDetach = Box<dyn FnOnce() + Send>;
@@ -165,6 +162,12 @@ impl From<ReviewNoteStoreError> for HandlerError {
     }
 }
 
+impl FollowerReadFailure for ReviewNoteStoreError {
+    fn is_pool_closed(&self) -> bool {
+        matches!(self, Self::Pool(DatabaseReadError::Closed))
+    }
+}
+
 /// One stored note, its line not yet looked up.
 struct StoredNote {
     note_id: ReviewNoteId,
@@ -193,16 +196,13 @@ impl StoredNote {
     }
 }
 
-/// One follower's wake: raised on each note change and folder change, read by its task.
-type FollowerWake = Arc<Notify>;
-
 /// Holds each session's review notes and answers them with their stranded marks read fresh.
 pub struct SessionReviewNoteStore {
     pool: Arc<DatabaseReadPool>,
     writer: Arc<DatabaseWriter>,
     folders: Arc<dyn ReviewNoteFolders>,
     /// Each followed session's followers, woken after each of its note changes.
-    followers: Mutex<HashMap<SessionId, Vec<FollowerWake>>>,
+    followers: SessionFollowerWakes,
 }
 
 impl SessionReviewNoteStore {
@@ -217,7 +217,7 @@ impl SessionReviewNoteStore {
             pool,
             writer,
             folders,
-            followers: Mutex::new(HashMap::new()),
+            followers: SessionFollowerWakes::default(),
         }
     }
 
@@ -285,7 +285,7 @@ impl SessionReviewNoteStore {
         match self.write(session_id, change).await {
             Ok(_updated) => {}
             Err(SessionWriteError::Write(WriteError::Refused {
-                statement_index: CHANGE_STATEMENT_INDEX,
+                statement_index: SESSION_CHANGE_STATEMENT_INDEX,
                 ..
             })) => return Err(review_note_not_found(note_id).into()),
             Err(error) => return Err(error.into()),
@@ -353,11 +353,7 @@ impl SessionReviewNoteStore {
         if !is_known {
             return Err(session_not_found(&session_id).into());
         }
-        let wake: FollowerWake = Arc::new(Notify::new());
-        self.lock_followers()
-            .entry(session_id)
-            .or_default()
-            .push(Arc::clone(&wake));
+        let wake = self.followers.add(session_id);
         let folder_wake = Arc::clone(&wake);
         let folder_detach = match self
             .folders
@@ -366,22 +362,26 @@ impl SessionReviewNoteStore {
         {
             Ok(detach) => detach,
             Err(error) => {
-                self.stop_waking(session_id, &wake);
+                self.followers.remove(session_id, &wake);
                 return Err(error.into());
             }
         };
         // The first read: the whole set at once.
         wake.notify_one();
-        let reading = tokio::spawn(read_until_detached(
-            Arc::clone(self),
-            session_id,
+        let store = Arc::clone(self);
+        let reading = tokio::spawn(send_each_read(
             Arc::clone(&wake),
             outlet,
+            move || {
+                let store = Arc::clone(&store);
+                async move { store.read_notes(session_id).await }
+            },
+            |_notes: &ReviewNoteSet| false,
         ));
         let store = Arc::clone(self);
         Ok(Box::new(move || {
             reading.abort();
-            store.stop_waking(session_id, &wake);
+            store.followers.remove(session_id, &wake);
             if let Some(folder_detach) = folder_detach {
                 folder_detach();
             }
@@ -442,49 +442,8 @@ impl SessionReviewNoteStore {
         change: WriteStatement,
     ) -> Result<StatementResult, SessionWriteError> {
         let result = write_while_session_exists(&self.writer, &session_id, change).await?;
-        if let Some(wakes) = self.lock_followers().get(&session_id) {
-            for wake in wakes {
-                wake.notify_one();
-            }
-        }
+        self.followers.wake(session_id);
         Ok(result)
-    }
-
-    fn stop_waking(&self, session_id: SessionId, wake: &FollowerWake) {
-        let mut followers = self.lock_followers();
-        if let Some(wakes) = followers.get_mut(&session_id) {
-            wakes.retain(|held| !Arc::ptr_eq(held, wake));
-            if wakes.is_empty() {
-                followers.remove(&session_id);
-            }
-        }
-    }
-
-    fn lock_followers(&self) -> MutexGuard<'_, HashMap<SessionId, Vec<FollowerWake>>> {
-        // The map holds no invariant a panicking holder could break.
-        lock(&self.followers)
-    }
-}
-
-// Reads the session's notes each time `wake` is raised and sends each set, until the follow is
-// detached or a read fails. A raise during a read leaves one permit, so a burst of changes costs
-// one more read.
-async fn read_until_detached(
-    store: Arc<SessionReviewNoteStore>,
-    session_id: SessionId,
-    wake: FollowerWake,
-    outlet: LatestValueOutlet<ReviewNoteSet>,
-) {
-    loop {
-        wake.notified().await;
-        match store.read_notes(session_id).await {
-            Ok(notes) => outlet.send(notes),
-            Err(ReviewNoteStoreError::Pool(DatabaseReadError::Closed)) => return,
-            Err(failure) => {
-                outlet.fail(failure.into());
-                return;
-            }
-        }
     }
 }
 

@@ -25,7 +25,8 @@ use crate::driver::claude::delivery::commands::ClaudeCommandTasks;
 use crate::driver::claude::delivery::mcp_tasks::ClaudeToolServerTasks;
 use crate::driver::claude::delivery::mcp_tasks::restored_calls::ClaudeRestoredCalls;
 use crate::driver::claude::delivery::messages::{
-    ClaudeMessageBody, ClaudeMessageRow, ClaudeMessageRowKind, ClaudeOpenToolCall,
+    ClaudeHelperToolCalls, ClaudeMessageBody, ClaudeMessageRow, ClaudeMessageRowKind,
+    ClaudeOpenToolCall,
 };
 use crate::driver::claude::delivery::stream::daemon_ends::ClaudeDaemonEndedRun;
 use crate::driver::claude::delivery::stream::resumes::ClaudeHelperResumes;
@@ -193,6 +194,8 @@ impl ClaudeRow {
 pub(crate) struct ClaudeStreamSession {
     /// The tool calls the lead started and has not answered.
     pub(crate) open_tool_calls: HashMap<String, ClaudeOpenToolCall>,
+    /// The tool calls the helpers started and have not answered, kept for their traces.
+    pub(crate) helper_tool_calls: ClaudeHelperToolCalls,
     /// The rows held for their tool call's start.
     pub(crate) buffer: NormalizedEventReorderBuffer<ClaudeRowDelivery>,
     /// The turn the stream opened, until its end.
@@ -267,6 +270,7 @@ impl ClaudeStreamSession {
     pub(crate) fn new() -> Self {
         Self {
             open_tool_calls: HashMap::new(),
+            helper_tool_calls: ClaudeHelperToolCalls::default(),
             buffer: NormalizedEventReorderBuffer::new(
                 DESCRIPTOR.provider_id(),
                 CLAUDE_THREAD_FRAME_ROUTER_CONFIG.max_pending_hold_frames,

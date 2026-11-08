@@ -133,7 +133,9 @@ use crate::ipc::handlers::session::controls::SessionControlMethods;
 use crate::ipc::handlers::session::mcp_servers::McpServerMethods;
 use crate::ipc::handlers::session::search::SessionSearchMethods;
 use crate::ipc::handlers::session::snapshots::SessionSnapshotSources;
-use crate::observability::diagnostic_buckets::recorders::provider_messages_folder;
+use crate::observability::diagnostic_buckets::recorders::{
+    provider_messages_folder, raw_message_recorder, tool_trace_recorder,
+};
 use crate::orchestration::goal_service::SessionGoals;
 
 /// What the method tables' services are built from: what the start opened, read and built before
@@ -506,6 +508,8 @@ pub(crate) async fn register_method_inputs(
             session_resumes: Arc::clone(&session.stored_resumes),
             provider_sessions: Arc::clone(&session.provider_sessions),
             bun_program: bun,
+            raw_provider_messages: Arc::new(raw_message_recorder(data_folder, &configuration)),
+            tool_traces: Arc::new(tool_trace_recorder(data_folder, &configuration)),
         },
     )?;
     let shells = Arc::new(

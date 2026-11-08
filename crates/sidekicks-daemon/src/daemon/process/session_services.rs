@@ -107,7 +107,7 @@ pub(crate) struct SessionServiceStart {
     pub(crate) writer: Arc<DatabaseWriter>,
     /// The daemon's one event log.
     pub(crate) event_log: Arc<EventLogService>,
-    /// The event log's followers, which the queue's run lifecycle follows.
+    /// The event log's followers, which the queue's run lifecycle and the draft store follow.
     pub(crate) followers: Arc<SessionEventFollowers>,
     /// Where each damaged session's log stops being readable.
     pub(crate) read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
@@ -405,6 +405,11 @@ pub(crate) fn build_session_services(
     let turn_readings = Arc::new(TurnReadings::new(Arc::clone(&reads), &followers));
     let tool_call_statuses = Arc::new(ToolCallStatuses::new(Arc::clone(&reads), &followers));
     let context_readings = Arc::new(ContextReadings::new(Arc::clone(&reads), &followers));
+    let drafts = Arc::new(SessionDraftStore::new(
+        Arc::clone(&reads),
+        Arc::clone(&writer),
+        &followers,
+    ));
     // The run holds take the engine's `Weak`, and the engine takes the run-end gate as it is
     // built, so the approval side is built inside the engine's allocation and leaves it here.
     let mut built_approvals = None;
@@ -594,10 +599,7 @@ pub(crate) fn build_session_services(
             }),
         )),
         list_feed,
-        drafts: Arc::new(SessionDraftStore::new(
-            Arc::clone(&reads),
-            Arc::clone(&writer),
-        )),
+        drafts,
         tags: Arc::new(SessionTagService::new(
             Arc::clone(&reads),
             Arc::clone(&writer),

@@ -88,7 +88,7 @@ use crate::ipc::handlers::session::context::register_context_subscribe;
 use crate::ipc::handlers::session::controls::{SessionControlMethods, register_session_controls};
 use crate::ipc::handlers::session::convert::register_session_convert;
 use crate::ipc::handlers::session::create::register_session_create;
-use crate::ipc::handlers::session::draft_update::register_session_draft_update;
+use crate::ipc::handlers::session::draft::register_session_draft;
 use crate::ipc::handlers::session::event_subscribe::register_session_event_subscribe;
 use crate::ipc::handlers::session::goal::register_session_goal_methods;
 use crate::ipc::handlers::session::group::register_session_groups;
@@ -274,7 +274,7 @@ pub(crate) fn register_method_tables(
     register_session_list(builder, services.list_feed)?;
     register_mcp_methods(builder, services.mcp_methods)?;
     register_session_event_subscribe(builder, services.event_log, Arc::clone(&services.providers))?;
-    register_session_draft_update(builder, services.drafts)?;
+    register_session_draft(builder, services.drafts)?;
     register_session_changes(builder, services.session_changes, services.mcp_client)?;
     register_session_review_notes(builder, services.review_notes)?;
     register_session_snapshots(builder, services.session_snapshots)?;

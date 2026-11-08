@@ -27,6 +27,7 @@ use sidekicks_platforms::{
     ChildEnd, ChildExit, ProgramStart, Spawner, read_child_exit, secret_pipe,
 };
 use sidekicks_std::output_tail::{OutputTail, read_output_chunks};
+use sidekicks_std::port_registration::PortRegistration;
 use tokio::io::AsyncRead;
 use tokio::sync::watch;
 use tokio::time::{Instant, timeout, timeout_at};
@@ -57,6 +58,7 @@ use crate::driver::claude::session::transport::user_message::{
 };
 use crate::driver::claude::spawn::command::compose_claude_command;
 use crate::driver::claude::spawn::environment::CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE;
+use crate::port::raw_provider_messages::RawProviderMessages;
 use crate::process_exit::compose_process_exit;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::process_registry::ProviderProcessRegistry;
@@ -95,6 +97,7 @@ pub(crate) struct ClaudeProcessLaunch {
 }
 
 /// One stream frame the process wrote, with the facts it is routed by.
+#[derive(Clone, Debug)]
 pub(crate) struct ClaudeStreamFrame {
     /// The frame's text, as read.
     pub(crate) text: String,
@@ -140,10 +143,10 @@ pub(crate) struct ClaudeCodeProcess {
 impl ClaudeCodeProcess {
     /// Starts the process on `spawner`'s thread, recorded in `child_records` until its reap and
     /// its spawn counted in `registry`, with its reader handing what it writes to `listener` and
-    /// releasing `turn_holds`' turn at a turn-ending lead `result`; the launch's token is handed on
-    /// a pipe the process alone inherits. Fails with the record's error, the spawn's, the
-    /// spawner's when its thread has ended, and as `Unsupported` for a token on a system with no
-    /// such pipe.
+    /// releasing `turn_holds`' turn at a turn-ending lead `result` and handing each line it reads
+    /// to `raw_messages`; the launch's token is handed on a pipe the process alone inherits. Fails
+    /// with the record's error, the spawn's, the spawner's when its thread has ended, and as
+    /// `Unsupported` for a token on a system with no such pipe.
     pub(crate) async fn start(
         spawner: &Spawner,
         child_records: &Arc<dyn DaemonChildRecords>,
@@ -151,6 +154,7 @@ impl ClaudeCodeProcess {
         launch: ClaudeProcessLaunch,
         listener: Arc<dyn ClaudeProcessListener>,
         turn_holds: Option<ClaudeTurnHolds>,
+        raw_messages: Arc<PortRegistration<Arc<dyn RawProviderMessages>>>,
     ) -> io::Result<Self> {
         let mut command = compose_claude_command(
             &launch.start,
@@ -215,7 +219,7 @@ impl ClaudeCodeProcess {
             launch.provider_session_id,
             launch.account,
         );
-        let reading = tokio::spawn(reader.read(standard_output));
+        let reading = tokio::spawn(reader.read(standard_output, raw_messages));
         let (end_sender, end) = watch::channel(None);
         tokio::spawn(own_child(
             child,

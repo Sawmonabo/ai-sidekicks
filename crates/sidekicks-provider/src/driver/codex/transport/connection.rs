@@ -19,10 +19,12 @@ use sidekicks_contracts::app_identity::APP_DISPLAY_NAME;
 use sidekicks_contracts::jsonrpc::message::JsonRpcId;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::{Mutex as AsyncMutex, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
+use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::event_normalizer::CODEX_OPT_OUT_NOTIFICATION_METHODS;
 use crate::driver::codex::server_requests::{
     CODEX_TOKEN_REFRESH_METHOD, CodexAskKind, CodexRoutedMethod, CodexServerRequestResponder,
@@ -37,6 +39,7 @@ use crate::driver::codex::transport::socket::{
     CodexServiceSocketReceiver, CodexServiceSocketSender, CodexSocketEvent,
 };
 use crate::inbound_json::decode_inbound_json;
+use crate::port::raw_provider_messages::{RawProviderMessages, record_raw_provider_message};
 
 /// How long a request waits for its answer before it fails with `CodexError::Unanswered`.
 pub(crate) const CODEX_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
@@ -91,9 +94,10 @@ pub(crate) trait CodexConnectionEvents: Send + Sync {
 }
 
 /// What one connection hands up: notifications and its close to `events`, routed asks to
-/// `responder`, token refreshes to `token_refresher`. With no responder, every routed ask answers
-/// its own refusal; with no refresher, a token refresh answers `-32601`. Both are in place from the
-/// connection's start, before its `initialize`, so no request finds them missing.
+/// `responder`, token refreshes to `token_refresher`, and every message the service sends, before
+/// it is read, to `raw_messages`. With no responder, every routed ask answers its own refusal;
+/// with no refresher, a token refresh answers `-32601`. Both are in place from the connection's
+/// start, before its `initialize`, so no request finds them missing.
 pub(crate) struct CodexConnectionHandlers {
     /// Notifications, the drop and the held asks let go of.
     pub(crate) events: Arc<dyn CodexConnectionEvents>,
@@ -101,6 +105,8 @@ pub(crate) struct CodexConnectionHandlers {
     pub(crate) responder: Option<Arc<dyn CodexServerRequestResponder>>,
     /// Answers each token refresh; `None` on every service but the switching one.
     pub(crate) token_refresher: Option<Arc<dyn CodexTokenRefresher>>,
+    /// Where every message the service sends is recorded word for word, while it is recording.
+    pub(crate) raw_messages: Arc<PortRegistration<Arc<dyn RawProviderMessages>>>,
 }
 
 /// The sending half of the socket a connection writes to.
@@ -298,10 +304,19 @@ impl CodexAppServerConnection {
             token_refresher: handlers.token_refresher,
         });
         let reader_shared = Arc::clone(&shared);
+        let raw_messages = handlers.raw_messages;
         let reader = tokio::spawn(async move {
             loop {
                 match reader.receive().await {
-                    Ok(CodexSocketEvent::Message(bytes)) => reader_shared.receive(&bytes),
+                    Ok(CodexSocketEvent::Message(bytes)) => {
+                        record_raw_provider_message(
+                            &raw_messages,
+                            || DESCRIPTOR.provider_id(),
+                            &bytes,
+                        )
+                        .await;
+                        reader_shared.receive(&bytes);
+                    }
                     Ok(CodexSocketEvent::Closed { reason }) => {
                         reader_shared.handle_socket_closed(&reason);
                         return;

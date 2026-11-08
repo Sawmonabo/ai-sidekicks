@@ -6,8 +6,9 @@
 //! its connection alone under its own id; a dropped connection's open files are closed. Every
 //! connection's missing-path watch joins one on the executor. An executor request no connection
 //! owns is refused and an unrouted notification dropped, so nothing reaches every connection. Each
-//! process's end is watched so a held terminate or a stop can wait on it, and the answer to a
-//! client's request where the relay keeps something for it.
+//! process's end is watched so a held terminate or a stop can wait on it, the answer to a
+//! client's request where the relay keeps something for it, and what each connection is owed at
+//! the executor's end kept until the relay settles it.
 
 mod connection_ids;
 mod missing_watches;
@@ -34,11 +35,14 @@ use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
 use self::connection_ids::{ConnectionIds, UNKNOWN_ID};
 use self::missing_watches::MissingWatches;
 use self::policy_requests::{PolicyRequests, deny_answer};
+use crate::driver::codex::exec_relay::executor_end::{
+    ProcessEventKind, ProcessLedger, compose_executor_ended_answer,
+};
 use crate::driver::codex::exec_relay::message::{RoutedMessage, RoutedParams, splice, text_of};
 use crate::driver::codex::exec_relay::methods::{
     ClientMethod, FS_CLOSE_METHOD, FS_MISSING_CHANGED_METHOD, HTTP_REQUEST_BODY_DELTA_METHOD,
     INITIALIZE_METHOD, INITIALIZED_METHOD, NETWORK_POLICY_REQUEST_METHOD, PROCESS_CLOSED_METHOD,
-    PROCESS_EXITED_METHOD, RelayIdKind, is_process_notification,
+    RelayIdKind, is_process_notification,
 };
 use crate::driver::codex::session::errors::CodexError;
 
@@ -111,6 +115,7 @@ pub(super) struct CodexExecutor {
     // Keyed by the relay's process id.
     exits: Mutex<HashMap<String, watch::Sender<Option<ProcessEnd>>>>,
     client_replies: Mutex<HashMap<String, oneshot::Sender<bool>>>,
+    ledger: Mutex<ProcessLedger>,
     ended: watch::Sender<bool>,
     process_id: Option<u32>,
     initialize_result: Mutex<Option<Box<RawValue>>>,
@@ -180,6 +185,7 @@ impl CodexExecutor {
             missing_watches: MissingWatches::default(),
             exits: Mutex::new(HashMap::new()),
             client_replies: Mutex::new(HashMap::new()),
+            ledger: Mutex::new(ProcessLedger::default()),
             ended: watch::Sender::new(false),
             process_id,
             initialize_result: Mutex::new(None),
@@ -279,7 +285,8 @@ impl CodexExecutor {
     /// relay's id in its place: minted for a method that mints one, and for any other the one
     /// minted for it, or [`UNKNOWN_ID`] for an id the connection never minted. Both are slices of
     /// `line` its parse read. The connection and its id are kept under the relay id until the
-    /// executor answers it or the connection goes.
+    /// executor answers it, the connection goes or the executor's end answers it. `None` once the
+    /// executor ended, nothing then kept.
     pub(super) fn relay_client_request(
         &self,
         connection: RelayConnectionId,
@@ -287,7 +294,7 @@ impl CodexExecutor {
         id: &RawValue,
         method: ClientMethod,
         params: Option<&RoutedParams<'_>>,
-    ) -> String {
+    ) -> Option<String> {
         let relay_request_id = format!(
             "\"{CLIENT_REQUEST_PREFIX}{}\"",
             self.next_client_request.fetch_add(1, Ordering::Relaxed)
@@ -320,7 +327,13 @@ impl CodexExecutor {
                     .map(|(raw, relay_id)| (*raw, relay_id.as_str())),
             ),
         );
-        lock(&self.client_requests).insert(
+        let mut client_requests = lock(&self.client_requests);
+        // Read under the requests' lock, which the end's settle drains, so a request kept here is
+        // answered by that settle.
+        if *self.ended.borrow() {
+            return None;
+        }
+        client_requests.insert(
             relay_request_id,
             ClientRequest {
                 connection,
@@ -331,7 +344,7 @@ impl CodexExecutor {
                     && params.is_some_and(|params| params.stream_response),
             },
         );
-        relayed
+        Some(relayed)
     }
 
     // The table of `kind`'s ids.
@@ -353,6 +366,31 @@ impl CodexExecutor {
         };
         if client.send(line).await.is_err() {
             tracing::debug!("the Codex relay's client went away before its answer reached it");
+        }
+    }
+
+    /// Hands each attached connection what the executor's end owes it: an error answer to each of
+    /// its requests left unanswered and the end of each of its processes the executor had not
+    /// closed, under its own ids.
+    pub(super) async fn settle_clients(&self) {
+        let requests: Vec<_> = lock(&self.client_requests)
+            .drain()
+            .map(|(_relay_id, request)| {
+                let answer = compose_executor_ended_answer(&request.client_id);
+                (request.connection, answer)
+            })
+            .collect();
+        let process_ends = {
+            let mut process_ids = lock(&self.process_ids);
+            let owed = lock(&self.ledger).take_owed_lines(|relay_id| {
+                let owner = process_ids.owner(relay_id)?;
+                Some((owner.connection, owner.own_id.clone()))
+            });
+            process_ids.clear();
+            owed
+        };
+        for (connection, line) in requests.into_iter().chain(process_ends) {
+            self.answer_connection(connection, line).await;
         }
     }
 
@@ -579,6 +617,11 @@ impl CodexExecutor {
             ClientMethod::ProcessStart => {
                 let (answer, _unowned) =
                     self.mint_answer(RelayIdKind::Process, line, message, id, request);
+                if message.error.is_none()
+                    && let Some(minted) = &request.relay_id
+                {
+                    lock(&self.ledger).open_process(minted);
+                }
                 (answer, None)
             }
             ClientMethod::FileOpen => {
@@ -702,14 +745,17 @@ impl CodexExecutor {
     async fn take_process_notification(&self, line: &str, method: &str, params: &RoutedParams<'_>) {
         let relay_id = params.process_id.and_then(text_of);
         if let Some(relay_id) = &relay_id
-            && (method == PROCESS_EXITED_METHOD || method == PROCESS_CLOSED_METHOD)
+            && let Some(kind) = ProcessEventKind::from_method(method)
         {
-            let mut exits = lock(&self.exits);
-            if let Some(exit) = exits.get(relay_id) {
-                record_end(exit, params.exit_code);
-            }
-            if method == PROCESS_CLOSED_METHOD {
-                exits.remove(relay_id);
+            lock(&self.ledger).record_event(relay_id, kind, params.seq, params.stream);
+            if kind != ProcessEventKind::Output {
+                let mut exits = lock(&self.exits);
+                if let Some(exit) = exits.get(relay_id) {
+                    record_end(exit, params.exit_code);
+                }
+                if kind == ProcessEventKind::Closed {
+                    exits.remove(relay_id);
+                }
             }
         }
         let owned = relay_id.as_ref().and_then(|relay_id| {
@@ -758,8 +804,9 @@ impl CodexExecutor {
         self.answer_connection(owner.connection, routed).await;
     }
 
-    // Marks the connection ended: every waiting request fails, every watched process ends and
-    // every connection onto it closes.
+    // Marks the connection ended: every waiting request fails, every watched process ends and the
+    // connections' files, http requests, watches and policy asks are forgotten. The connections
+    // stay attached, and their requests and processes kept, for what the end owes them.
     fn end(&self) {
         self.ended.send_replace(true);
         lock(&self.pending).clear();
@@ -767,9 +814,6 @@ impl CodexExecutor {
         for exit in lock(&self.exits).values() {
             record_end(exit, None);
         }
-        lock(&self.clients).clear();
-        lock(&self.client_requests).clear();
-        lock(&self.process_ids).clear();
         lock(&self.file_handles).clear();
         lock(&self.http_requests).clear();
         self.missing_watches.clear();

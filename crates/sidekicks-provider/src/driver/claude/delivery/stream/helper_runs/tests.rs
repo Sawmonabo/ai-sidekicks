@@ -121,9 +121,9 @@ async fn a_nested_helper_hangs_under_its_launchers_run_and_an_unknown_one_under_
     let parent_run = routes
         .child_run_for(session.session_id, "p")
         .expect("the launcher has its child run");
-    let nested_run = routes
+    let waiting_run = routes
         .child_run_for(session.session_id, "c")
-        .expect("the nested helper has its child run");
+        .expect("the waiting helper has its child run");
     session.frame(&json!({
         "type": "system",
         "subtype": "task_notification",
@@ -165,8 +165,8 @@ async fn a_nested_helper_hangs_under_its_launchers_run_and_an_unknown_one_under_
     assert_eq!(
         lifecycle_rows(&deliveries, "c"),
         [
-            (true, parent_run, Some(nested_run)),
-            (false, parent_run, Some(nested_run)),
+            (true, parent_run, Some(waiting_run)),
+            (false, parent_run, Some(waiting_run)),
         ]
     );
 }
@@ -777,4 +777,48 @@ fn earlier_refusal() -> RunSetupRefusal {
         cause: "the writable root '/gone/repo.git' could not be resolved".to_owned(),
         is_posture_rejection: false,
     }
+}
+
+// A foreground helper whose launcher has not started yet waits on its call under the lead; the
+// launcher's answer to that call, held until the launcher starts, writes the helper's end row,
+// naming its child run, once the start releases it. Killed by reading a released frame for its
+// metering alone (no end row).
+#[tokio::test(start_paused = true)]
+async fn a_held_frame_that_ends_a_helper_writes_its_end_once_released() {
+    let session = ScriptedSession::new().await;
+    let lead_run = session.hold_lead_turn("lead");
+    session.frame(&init());
+    let mut nested = nested_start("c", "call-c", Some("p"), None);
+    nested["is_backgrounded"] = json!(false);
+    session.frame(&nested);
+    session.frame(&json!({
+        "type": "user",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        "agent_id": "p",
+        "message": {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "call-c", "content": "Planned"}],
+        },
+    }));
+    settle().await;
+    let waiting_run = session.start.routes.child_run_for(session.session_id, "c");
+    assert!(
+        waiting_run.is_some(),
+        "the waiting helper has its child run"
+    );
+    assert_eq!(
+        lifecycle_rows(&session.engine.deliveries(), "c"),
+        [(true, lead_run, waiting_run)]
+    );
+
+    session.frame(&nested_start("p", "call-p", None, None));
+    settle().await;
+
+    assert_eq!(
+        lifecycle_rows(&session.engine.deliveries(), "c"),
+        [
+            (true, lead_run, waiting_run),
+            (false, lead_run, waiting_run)
+        ]
+    );
 }

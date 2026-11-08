@@ -85,6 +85,7 @@ use tokio_util::task::AbortOnDropHandle;
 
 use crate::daemon::bun::BunInstall;
 use crate::daemon::process::session_services::stored_resumes::StoredSessionResumes;
+use crate::observability::diagnostic_buckets::recorders::{RawMessageRecorder, ToolTraceRecorder};
 use crate::program::dispatches_hook_mode;
 
 pub(crate) mod stored_rows;
@@ -355,6 +356,10 @@ pub(crate) struct DriverPortOwners {
     pub(crate) account_home_lock: Arc<AccountHomeLock>,
     /// bun's install, which a driver asks bun's path from for a step that runs under bun.
     pub(crate) bun_program: Arc<BunInstall>,
+    /// The `driver_raw_events` recorder, which each driver's reader hands every provider message.
+    pub(crate) raw_provider_messages: Arc<RawMessageRecorder>,
+    /// The `tool_traces` recorder, which each driver hands every tool call it delivers.
+    pub(crate) tool_traces: Arc<ToolTraceRecorder>,
 }
 
 /// The places the daemon runs sessions in: this computer's own system alone, its login shell's
@@ -432,6 +437,10 @@ pub(crate) fn register_driver_ports(
         .register(owners.session_account_moves)?;
     ports.account_home_lock.register(owners.account_home_lock)?;
     ports.bun_program.register(owners.bun_program)?;
+    ports
+        .raw_provider_messages
+        .register(owners.raw_provider_messages)?;
+    ports.tool_traces.register(owners.tool_traces)?;
     ports.run_pauses.register(owners.run_pauses)
 }
 
