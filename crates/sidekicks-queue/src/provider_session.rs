@@ -677,6 +677,7 @@ impl StoredSessionPosture for ProviderSessions {
                 | ProviderSessionError::Closed { .. }
                 | ProviderSessionError::BeingDeleted { .. }
                 | ProviderSessionError::NotOpen { .. }
+                | ProviderSessionError::HeldCallsOpen { .. }
                 | ProviderSessionError::NoConversation { .. }
                 | ProviderSessionError::Cursor(_)
                 | ProviderSessionError::ResumedRuns { .. }
