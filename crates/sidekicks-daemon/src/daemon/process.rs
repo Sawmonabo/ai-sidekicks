@@ -709,10 +709,8 @@ impl DaemonProcess {
             )
             .await?,
         );
-        let status_run_folder = run_folder.clone();
-        tokio::task::spawn_blocking(move || remove_service_status(&status_run_folder))
+        remove_service_status(run_folder)
             .await
-            .map_err(|ended| DaemonStartError::ServiceStatus(std::io::Error::other(ended)))?
             .map_err(DaemonStartError::ServiceStatus)?;
         self.check_stop("binding the socket")?;
         // A stop settles the wait, so the registration never waits on an index that cannot open.
