@@ -22,6 +22,7 @@ pub mod create;
 pub mod directory;
 pub mod draft_store;
 pub mod driver_resolution;
+pub(crate) mod follower_wakes;
 pub mod groups;
 pub mod idle_sleep;
 pub mod interventions;
