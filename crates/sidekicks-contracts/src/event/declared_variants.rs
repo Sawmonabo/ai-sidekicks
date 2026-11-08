@@ -35,7 +35,7 @@ pub enum ContentEncoding {
 }
 
 ts_constants! {
-    /// The payload key carrying the stored body's UTF-8 byte length, the whole body's.
+    /// The payload key carrying the stored body's UTF-8 byte length.
     pub const CONTENT_LENGTH_PAYLOAD_KEY: &str = "contentLength";
     /// The payload key naming the stored body's encoding, present only on a compressed body.
     pub const CONTENT_ENCODING_PAYLOAD_KEY: &str = "contentEncoding";
