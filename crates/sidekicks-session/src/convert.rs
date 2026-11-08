@@ -1,9 +1,10 @@
-//! Converting a chat to a project in place. The typed folder is attached as a project, or the
-//! project already holding it found, and the conversion recorded under the request's idempotency
-//! key; the chat's files are copied into the working tree the folder sits in without replacing
-//! anything the repository holds, each outcome recorded as it lands; the session binds to that
-//! working tree; and `session.converted` makes it a project. A conversion that stopped part way
-//! resumes from its records, and the files not copied are read back page by page. The session
+//! Converting a chat to a project in place. The typed folder, read in the chat's place, is attached
+//! as a project (a `/mnt/<drive>` path on a chat on Windows attaches the drive path it names), or
+//! the project already holding it found, and the conversion recorded under the request's
+//! idempotency key; the chat's files are copied into the working tree the folder sits in without
+//! replacing anything the repository holds, each outcome recorded as it lands; the session binds to
+//! that working tree; and `session.converted` makes it a project. A conversion that stopped part
+//! way resumes from its records, and the files not copied are read back page by page. The session
 //! keeps its id and transcript, and its managed workspace stays with its history.
 //!
 //! - A convert holds its key's lock, then the session's transition lock, for its whole run, so a
@@ -319,8 +320,9 @@ impl SessionConversion {
         }
     }
 
-    /// `session.convert`: converts the chat into the repository at `request.path` and answers what
-    /// was and was not copied. A key that already converted this session answers that
+    /// `session.convert`: converts the chat into the repository at `request.path`, read in the
+    /// chat's place (a `/mnt/<drive>` path on a chat on Windows is the drive path it names), and
+    /// answers what was and was not copied. A key that already converted this session answers that
     /// conversion's counts and copies nothing; a conversion that stopped part way resumes under
     /// the request's key when the path names the folder it copies into, its counts the whole
     /// conversion's. Refuses, before anything is attached, as [`SessionConversionError::Refused`]
@@ -386,8 +388,9 @@ impl SessionConversion {
             place: None,
         };
         // Resolved once, before anything is attached, so a path that is no repository attaches
-        // nothing. The files go into the working tree of the path typed, and the session binds
-        // there, never into another checkout of the repository.
+        // nothing. The files go into the working tree of the path attached (on a chat on Windows a
+        // `/mnt/<drive>` path's drive path), and the session binds there, never into another
+        // checkout of the repository.
         let resolved = self.mounts.resolve_folder(&attach).await?;
         let working_tree = resolved.working_tree_root.clone();
         let stopped = self.read_conversion(session_id).await?;
