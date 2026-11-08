@@ -1,21 +1,16 @@
 //! Many connections onto the relay's one executor: each answered apart under its own ids, a
 //! closed one's answers reaching no one, and every one closed by the executor's end.
 
-use std::time::Duration;
-
 use futures::StreamExt as _;
 use serde_json::{Value, json};
 use sidekicks_std::mutex_lock::lock;
 use tokio_tungstenite::tungstenite::Message;
 
 use super::{
-    ClientSocket, FakeExecutor, ListeningRelay, SOCKET_READ_WAIT, admitted_socket, listening_relay,
-    next_text, send_text, wait_until,
+    ListeningRelay, SOCKET_READ_WAIT, admitted_socket, assert_quiet, initialize, listening_relay,
+    next_forwarded, next_text, send_text, wait_until,
 };
 use crate::driver::test_registry::new_session_id;
-
-// How long a connection is watched for a message it must not receive.
-const QUIET_WAIT: Duration = Duration::from_millis(100);
 
 // Two connections that each send `initialize` under id 1 and are each answered from the relay's
 // own, with no `initialize` reaching the executor; then each sends a request under id 2, which
@@ -157,19 +152,6 @@ async fn the_executors_end_closes_every_connection() {
     }
 }
 
-// Sends `initialize` under id 1 on `socket` and reads its answer, the relay's executor's own.
-async fn initialize(socket: &mut ClientSocket) {
-    send_text(
-        socket,
-        &json!({ "id": 1, "method": "initialize", "params": { "clientName": "codex" } }),
-    )
-    .await;
-    assert_eq!(
-        next_text(socket).await,
-        json!({ "id": 1, "result": { "sessionId": "executor-1" } })
-    );
-}
-
 // A client's `fs/getMetadata` of `path` under `id`.
 fn metadata_request(id: u64, path: &str) -> Value {
     json!({ "id": id, "method": "fs/getMetadata", "params": { "path": path, "sandbox": null } })
@@ -185,17 +167,4 @@ fn metadata(modified_at_ms: i64) -> Value {
         "createdAtMs": 0,
         "modifiedAtMs": modified_at_ms,
     })
-}
-
-// The next line the executor reads, failing when none comes within the socket's wait.
-async fn next_forwarded(fake: &mut FakeExecutor) -> Value {
-    tokio::time::timeout(SOCKET_READ_WAIT, fake.next_sent())
-        .await
-        .expect("the relay forwards the request")
-}
-
-// Fails when `socket` receives anything within the quiet wait.
-async fn assert_quiet(socket: &mut ClientSocket) {
-    let read = tokio::time::timeout(QUIET_WAIT, socket.next()).await;
-    assert!(read.is_err(), "the connection received {read:?}");
 }

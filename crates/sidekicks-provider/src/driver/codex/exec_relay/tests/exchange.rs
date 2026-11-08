@@ -13,10 +13,10 @@ use crate::driver::codex::exec_relay::RelayedCommand;
 use crate::driver::test_registry::new_session_id;
 
 // Everything the service and the executor say passes unchanged, but the client's `initialize`,
-// answered from the relay's own, each request's id, which reaches the executor as a relay id and
-// comes back as the client's, and a start, whose environment gains the no-prompt variables where
-// no wrapper runs it and whose command is recorded under its call until the executor reports it
-// ended. A connection without the start's token is refused.
+// answered from the relay's own, each request's id and each process's id, which reach the executor
+// as relay ids and come back as the client's, and a start, whose environment gains the no-prompt
+// variables where no wrapper runs it and whose command is recorded under its call until the
+// executor reports it ended. A connection without the start's token is refused.
 #[tokio::test]
 async fn passes_an_exchange_and_admits_only_the_token() {
     let folder = tempfile::tempdir().expect("a test folder");
@@ -53,22 +53,8 @@ async fn passes_an_exchange_and_admits_only_the_token() {
         json!({ "id": 1, "result": { "sessionId": "executor-1" } })
     );
     send_text(&mut socket, &json!({ "method": "initialized" })).await;
-    let read =
-        json!({ "id": 2, "method": "process/read", "params": { "processId": "p", "afterSeq": 0 } });
-    send_text(&mut socket, &read).await;
-    assert_eq!(
-        with_client_id(fake.next_sent().await, &read),
-        read,
-        "no initialize reaches the executor"
-    );
-    let output = json!({
-        "method": "process/output",
-        "params": { "processId": "p", "seq": 1, "chunk": "aGk=" },
-    });
-    fake.write(&output).await;
-    assert_eq!(next_text(&mut socket).await, output);
 
-    let start = json!({ "id": 3, "method": "process/start", "params": {
+    let start = json!({ "id": 2, "method": "process/start", "params": {
         "processId": EXECUTOR_PROCESS,
         "argv": ["/bin/sh", "-lc", "echo hi"],
         "cwd": "file:///tmp",
@@ -80,6 +66,13 @@ async fn passes_an_exchange_and_admits_only_the_token() {
     send_text(&mut socket, &start).await;
     let started = fake.next_sent().await;
     let relay_id = started["id"].clone();
+    let relay_process = started["params"]["processId"].clone();
+    assert!(
+        relay_process
+            .as_str()
+            .is_some_and(|process| process.starts_with("sidekicks-process-")),
+        "no initialize reaches the executor, and the start runs under the relay's id: {started}"
+    );
     let mut started = with_client_id(started, &start);
     let environment = started["params"]["env"]
         .as_object_mut()
@@ -88,25 +81,48 @@ async fn passes_an_exchange_and_admits_only_the_token() {
     assert_eq!(environment["KEPT"], "1");
     assert_eq!(environment["GIT_TERMINAL_PROMPT"], "0");
     started["params"]["env"] = start["params"]["env"].clone();
+    started["params"]["processId"] = start["params"]["processId"].clone();
     assert_eq!(
         started, start,
-        "only the environment changes where no channel is open"
+        "only the environment and the process id change where no channel is open"
     );
-    fake.write(&json!({ "id": relay_id, "result": {} })).await;
+    fake.write(&json!({ "id": relay_id, "result": { "processId": relay_process } }))
+        .await;
     assert_eq!(
         next_text(&mut socket).await,
-        json!({ "id": 3, "result": {} })
+        json!({ "id": 2, "result": { "processId": EXECUTOR_PROCESS } })
     );
     assert_eq!(
         relay.relayed_command(session_id, &command_id()),
         Some(RelayedCommand {
             session_id,
             thread_id: THREAD.to_owned(),
-            executor_process_id: EXECUTOR_PROCESS.to_owned(),
+            executor_process_id: relay_process.as_str().expect("a relay id").to_owned(),
             terminal_process_id: "7".to_owned(),
             accepts_input: false,
             service_start: 0,
         })
+    );
+
+    let read = json!({ "id": 3, "method": "process/read", "params": {
+        "processId": EXECUTOR_PROCESS,
+        "afterSeq": 0,
+    }});
+    send_text(&mut socket, &read).await;
+    let mut forwarded = with_client_id(fake.next_sent().await, &read);
+    assert_eq!(forwarded["params"]["processId"], relay_process);
+    forwarded["params"]["processId"] = read["params"]["processId"].clone();
+    assert_eq!(forwarded, read);
+    let output = |process: &Value| {
+        json!({
+            "method": "process/output",
+            "params": { "processId": process, "seq": 1, "chunk": "aGk=" },
+        })
+    };
+    fake.write(&output(&relay_process)).await;
+    assert_eq!(
+        next_text(&mut socket).await,
+        output(&json!(EXECUTOR_PROCESS))
     );
 
     let terminate = json!({
@@ -116,15 +132,20 @@ async fn passes_an_exchange_and_admits_only_the_token() {
     });
     send_text(&mut socket, &terminate).await;
     assert_eq!(
-        with_client_id(fake.next_sent().await, &terminate),
-        terminate
+        with_client_id(fake.next_sent().await, &terminate)["params"]["processId"],
+        relay_process
     );
-    let exited = json!({
-        "method": "process/exited",
-        "params": { "processId": EXECUTOR_PROCESS, "seq": 2, "exitCode": 0 },
-    });
-    fake.write(&exited).await;
-    assert_eq!(next_text(&mut socket).await, exited);
+    let exited = |process: &Value| {
+        json!({
+            "method": "process/exited",
+            "params": { "processId": process, "seq": 2, "exitCode": 0 },
+        })
+    };
+    fake.write(&exited(&relay_process)).await;
+    assert_eq!(
+        next_text(&mut socket).await,
+        exited(&json!(EXECUTOR_PROCESS))
+    );
     for _turn in 0..100 {
         if relay.relayed_command(session_id, &command_id()).is_none() {
             return;

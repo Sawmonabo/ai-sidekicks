@@ -13,6 +13,15 @@ pub(super) const PROCESS_WRITE_METHOD: &str = "process/write";
 pub(super) const PROCESS_EXITED_METHOD: &str = "process/exited";
 pub(super) const PROCESS_CLOSED_METHOD: &str = "process/closed";
 
+/// Whether `method` is one of the executor's notifications about one process, which reach only the
+/// connection that started it.
+pub(super) fn is_process_notification(method: &str) -> bool {
+    matches!(
+        method,
+        "process/output" | PROCESS_EXITED_METHOD | PROCESS_CLOSED_METHOD
+    )
+}
+
 /// How the relay carries one method a client sends.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ClientMethod {
@@ -20,15 +29,28 @@ pub(super) enum ClientMethod {
     Initialize,
     /// `initialized`, which the relay already sent.
     Initialized,
-    /// `process/start`, rewritten to run under the command wrapper.
+    /// `process/start`, run under a process id the relay mints and rewritten to run under the
+    /// command wrapper; its answer names the connection's own id again.
     ProcessStart,
-    /// `process/terminate`, held until the wrapper ended its command.
+    /// `process/terminate`, under the relay's id for the process, held until the wrapper ended its
+    /// command.
     ProcessTerminate,
+    /// A method that names one of the connection's processes, passed on under the relay's id for
+    /// it.
+    ProcessNamed,
     /// Any other method the executor serves, passed on under the relay's request id.
     Passed,
 }
 
 impl ClientMethod {
+    /// Whether the method names a process by the connection's own id.
+    pub(super) fn names_process(self) -> bool {
+        matches!(
+            self,
+            Self::ProcessStart | Self::ProcessTerminate | Self::ProcessNamed
+        )
+    }
+
     /// How the relay carries `method`; `None` for a method the executor does not serve.
     pub(super) fn of(method: &str) -> Option<Self> {
         Some(match method {
@@ -36,10 +58,8 @@ impl ClientMethod {
             INITIALIZED_METHOD => Self::Initialized,
             "process/start" => Self::ProcessStart,
             "process/terminate" => Self::ProcessTerminate,
-            "process/read"
-            | PROCESS_WRITE_METHOD
-            | "process/signal"
-            | "environment/info"
+            "process/read" | PROCESS_WRITE_METHOD | "process/signal" => Self::ProcessNamed,
+            "environment/info"
             | "environment/status"
             | "environmentConfig/read"
             | "capabilityRoots/discoverV1"

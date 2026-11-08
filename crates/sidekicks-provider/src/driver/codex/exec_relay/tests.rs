@@ -29,6 +29,7 @@ mod acts;
 mod connections;
 mod exchange;
 mod parity;
+mod processes;
 mod starts;
 
 const THREAD: &str = "thread-1";
@@ -38,6 +39,9 @@ const EXECUTOR_PROCESS: &str = "7-0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d";
 
 // How long a test waits for any one message on a client's socket.
 const SOCKET_READ_WAIT: Duration = Duration::from_secs(5);
+
+// How long a connection is watched for a message it must not receive.
+const QUIET_WAIT: Duration = Duration::from_millis(100);
 
 // A client's end of a connection to the relay.
 type ClientSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -183,6 +187,32 @@ async fn send_text(socket: &mut ClientSocket, message: &Value) {
         .send(Message::text(message.to_string()))
         .await
         .expect("the client writes");
+}
+
+// Sends `initialize` under id 1 on `socket` and reads its answer, the relay's executor's own.
+async fn initialize(socket: &mut ClientSocket) {
+    send_text(
+        socket,
+        &json!({ "id": 1, "method": "initialize", "params": { "clientName": "codex" } }),
+    )
+    .await;
+    assert_eq!(
+        next_text(socket).await,
+        json!({ "id": 1, "result": { "sessionId": "executor-1" } })
+    );
+}
+
+// The next line the executor reads, failing when none comes within the socket's wait.
+async fn next_forwarded(fake: &mut FakeExecutor) -> Value {
+    tokio::time::timeout(SOCKET_READ_WAIT, fake.next_sent())
+        .await
+        .expect("the relay forwards the message")
+}
+
+// Fails when `socket` receives anything within the quiet wait.
+async fn assert_quiet(socket: &mut ClientSocket) {
+    let read = tokio::time::timeout(QUIET_WAIT, socket.next()).await;
+    assert!(read.is_err(), "the connection received {read:?}");
 }
 
 fn command_id() -> CommandId {

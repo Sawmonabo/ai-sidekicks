@@ -3,10 +3,10 @@
 //! daemon's own child on standard input and output, and the service reaches it through a loopback
 //! WebSocket the relay serves under a token minted at every start of the service. The relay serves
 //! many connections onto its one executor: it answers each one's `initialize` from its own, and
-//! sends each one's requests on under ids of its own, so every connection's answers come back to
-//! it alone under its own ids. Every other message passes unchanged but two: a command's start,
-//! rewritten to run under the command wrapper, and a terminate, held until the wrapper ended the
-//! command.
+//! sends each one's requests and processes on under ids of its own, so every connection's answers
+//! and the executor's messages about its processes come back to it alone under its own ids. Every
+//! other message passes unchanged but two: a command's start, rewritten to run under the command
+//! wrapper, and a terminate, held until the wrapper ended the command.
 //! A command whose service was restarted while it ran is ended by the relay at its process's end,
 //! since the new service never reports the old one's items.
 
@@ -36,7 +36,7 @@ use tokio::task::JoinHandle;
 
 use self::endpoint::RelayEndpoint;
 use self::executor::{CodexExecutor, ProcessEnd, RelayConnectionId};
-use self::message::RoutedMessage;
+use self::message::{RoutedMessage, text_of};
 use self::methods::ClientMethod;
 use crate::bearer_token::BearerToken;
 use crate::command::channel::CommandChannel;
@@ -108,7 +108,7 @@ pub(crate) struct RelayedCommand {
     pub(crate) session_id: SessionId,
     /// The conversation that ran it.
     pub(crate) thread_id: String,
-    /// The executor's handle on its process.
+    /// The executor's handle on its process, the relay's own id for it.
     pub(crate) executor_process_id: String,
     /// Codex's own id for its process, which its background terminal carries.
     pub(crate) terminal_process_id: String,
@@ -401,8 +401,8 @@ impl CodexExecRelay {
 
     /// Carries one of the connection `connection`'s messages to `executor`: an `initialize` is
     /// answered to that connection with the executor's own, an `initialized` is already sent,
-    /// every other request goes on under a relay id, a start and a terminate through their tasks,
-    /// and everything else passes as it came.
+    /// every other request goes on under a relay id and the relay's id for any process it names,
+    /// a start and a terminate through their tasks, and everything else passes as it came.
     async fn take_client_message(
         &self,
         executor: &Arc<CodexExecutor>,
@@ -433,17 +433,35 @@ impl CodexExecRelay {
                 .await;
             return;
         }
-        let line = executor.relay_client_request(connection, &line, id);
+        let process_id = message.params.as_ref().and_then(|params| params.process_id);
+        let own_process_id = process_id
+            .filter(|_started| method == Some(ClientMethod::ProcessStart))
+            .and_then(text_of);
+        let line = executor.relay_client_request(connection, &line, id, method, process_id);
         match method {
             Some(ClientMethod::ProcessStart) => {
                 #[cfg(test)]
                 self.process_starts.fetch_add(1, Ordering::Relaxed);
-                tokio::spawn(relay.forward_process_start(Arc::clone(executor), line));
+                match own_process_id {
+                    Some(own_process_id) => {
+                        tokio::spawn(relay.forward_process_start(
+                            Arc::clone(executor),
+                            line,
+                            own_process_id,
+                        ));
+                    }
+                    None => forward(executor, line).await,
+                }
             }
             Some(ClientMethod::ProcessTerminate) => {
                 tokio::spawn(relay.forward_terminate(Arc::clone(executor), line));
             }
-            Some(ClientMethod::Initialize | ClientMethod::Initialized | ClientMethod::Passed)
+            Some(
+                ClientMethod::Initialize
+                | ClientMethod::Initialized
+                | ClientMethod::ProcessNamed
+                | ClientMethod::Passed,
+            )
             | None => forward(executor, line).await,
         }
     }
