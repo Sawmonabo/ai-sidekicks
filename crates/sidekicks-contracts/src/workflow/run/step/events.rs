@@ -18,12 +18,14 @@ use crate::wire::id::UuidTextForm;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::text::NonEmptyText;
-use crate::workflow::definition::document::{WorkflowContentHash, WorkflowNodeId};
+use crate::workflow::definition::document::{
+    WorkflowContentHash, WorkflowNodeId, WorkflowVersionId,
+};
 use crate::workflow::definition::item::WorkflowStepError;
 use crate::workflow::run::events::workflow_run_event;
 use crate::workflow::run::gate_resolution::WorkflowGateResolutionId;
 use crate::workflow::run::step::record::{
-    WorkflowCost, WorkflowPayloadRef, WorkflowStepSource, workflow_step_key,
+    WorkflowCost, WorkflowPayloadRef, WorkflowStepKey, WorkflowStepSource, workflow_step_key,
 };
 
 ts_constants! {
@@ -534,7 +536,8 @@ workflow_step_event! {
     pub struct WorkflowParallelJoinBranchesCanceledPayload {}
 }
 
-/// Why a step was skipped: its input carried no items, or its node is disabled.
+/// Why a step was skipped: its input carried no items, its node is disabled, or a partial run
+/// reused an earlier step's data in its place.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
@@ -544,14 +547,37 @@ pub enum WorkflowStepSkipReason {
     NoItems,
     /// Its node is disabled.
     Disabled,
+    /// A partial run reused the data of an earlier step of its node.
+    Reused,
+}
+
+/// The step whose data a reused skip carries, and the version that step's run executed, which
+/// computed that data.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct WorkflowReusedStep {
+    /// The step that computed the data, in an earlier run.
+    #[garde(dive)]
+    pub step: WorkflowStepKey,
+    /// The version that step's run executed.
+    pub workflow_version_id: WorkflowVersionId,
 }
 
 workflow_step_event! {
     /// `workflow.step.skipped`: why the step was skipped, what fed it, the input it skipped and
-    /// the output it passed on.
+    /// the output it passed on; a reused skip also names the step whose data it carries and, where
+    /// that step recorded one, the hash of its pin.
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
+    #[garde(custom(names_its_reused_step_only_when_reused))]
+    #[schemars(extend(
+        "if" = { "properties": { "reason": { "const": "reused" } }, "required": ["reason"] },
+        "then" = { "properties": { "reusedFrom": true }, "required": ["reusedFrom"] },
+        "else" = { "not": { "required": ["reusedFrom"] } },
+        "dependentRequired" = { "pinHash": ["reusedFrom"] },
+    ))]
     pub struct WorkflowStepSkippedPayload {
         /// Why.
         pub reason: WorkflowStepSkipReason,
@@ -570,6 +596,62 @@ workflow_step_event! {
         /// where it readied none.
         #[garde(dive)]
         pub readied: Vec<WorkflowReadiedStep>,
+        /// Present exactly on a reused skip: the step of the same node, in another run, whose data
+        /// it carries.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowReusedStep")]
+        #[garde(dive)]
+        pub reused_from: Option<WorkflowReusedStep>,
+        /// Present only on a reused skip whose source step recorded one: the hash of the pin that
+        /// step ran on.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowContentHash")]
+        pub pin_hash: Option<WorkflowContentHash>,
+    }
+}
+
+/// Refuses a skip that names a reused step unless it is a reused skip, a reused skip naming none,
+/// one naming a step of another node or of its own run, and a pin hash with no reused step.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
+fn names_its_reused_step_only_when_reused(
+    payload: &WorkflowStepSkippedPayload,
+    (): &(),
+) -> garde::Result {
+    let is_reused = payload.reason == WorkflowStepSkipReason::Reused;
+    let Some(source) = &payload.reused_from else {
+        return if is_reused {
+            Err(garde::Error::new("a reused skip names the step it reused"))
+        } else if payload.pin_hash.is_some() {
+            Err(garde::Error::new("only a reused skip carries a pin hash"))
+        } else {
+            Ok(())
+        };
+    };
+    if !is_reused {
+        Err(garde::Error::new(
+            "only a reused skip names a step it reused",
+        ))
+    } else if source.step.node_id != payload.node_id {
+        Err(garde::Error::new(
+            "a reused skip reuses a step of its own node",
+        ))
+    } else if source.step.workflow_run_id == payload.workflow_run_id {
+        Err(garde::Error::new(
+            "a reused skip reuses a step of another run, never its own",
+        ))
+    } else {
+        Ok(())
     }
 }
 
@@ -624,6 +706,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowPhaseCompletedPayload>().checked(),
         Definition::read::<WorkflowParallelJoinBranchesCanceledPayload>().checked(),
         Definition::read::<WorkflowStepSkipReason>(),
+        Definition::read::<WorkflowReusedStep>(),
         Definition::read::<WorkflowStepSkippedPayload>().checked(),
         Definition::read::<WorkflowGateResolvedPayload>().checked(),
     ],
@@ -636,10 +719,12 @@ mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
 
-    use super::WorkflowPhaseSuspendedPayload;
+    use super::{WorkflowPhaseSuspendedPayload, WorkflowStepSkippedPayload};
 
     const SESSION: &str = "018f0000-0000-7000-8000-000000000001";
     const WORKFLOW_RUN: &str = "018f0000-0000-7000-8000-000000000004";
+    const EARLIER_RUN: &str = "018f0000-0000-7000-8000-000000000005";
+    const EARLIER_VERSION: &str = "018f0000-0000-7000-8000-00000000000e";
     const ACCOUNT: &str = "018f0000-0000-7000-8000-00000000000c";
     const DEADLINE: &str = "2020-01-01T10:00:00.000Z";
     const WAIT: &str = "018f0000-0000-7000-8000-00000000000d";
@@ -687,5 +772,54 @@ mod tests {
             .ok()
             .map(|read| serde_json::to_value(read).expect("a read payload writes"));
         assert_eq!(written, is_carried.then_some(wire));
+    }
+
+    /// The step a reused skip names, of node `node_id` in run `run`.
+    fn reused_from(run: &str, node_id: &str) -> Value {
+        json!({
+            "step": {
+                "workflowRunId": run, "nodeId": node_id, "attempt": 1, "executionIndex": 2,
+            },
+            "workflowVersionId": EARLIER_VERSION,
+        })
+    }
+
+    /// A skip names the step it reused exactly when it is a reused skip, that step is its own
+    /// node's in another run, and a pin hash rides only beside it. Mutation: drop the garde check
+    /// on `WorkflowStepSkippedPayload`, which lets every refused case through.
+    #[rstest]
+    #[case::reused_naming_none("reused", None, None, false)]
+    #[case::disabled_naming_one("disabled", Some(reused_from(EARLIER_RUN, "ask")), None, false)]
+    #[case::another_node("reused", Some(reused_from(EARLIER_RUN, "other")), None, false)]
+    #[case::its_own_run("reused", Some(reused_from(WORKFLOW_RUN, "ask")), None, false)]
+    #[case::a_pin_alone("noItems", None, Some("b3:pin"), false)]
+    #[case::reused("reused", Some(reused_from(EARLIER_RUN, "ask")), None, true)]
+    #[case::reused_with_its_pin(
+        "reused",
+        Some(reused_from(EARLIER_RUN, "ask")),
+        Some("b3:pin"),
+        true
+    )]
+    fn a_skip_names_its_reused_step_only_when_reused(
+        #[case] reason: &str,
+        #[case] reused_from: Option<Value>,
+        #[case] pin_hash: Option<&str>,
+        #[case] is_accepted: bool,
+    ) {
+        let mut members = json!({
+            "reason": reason, "sources": [], "inputRef": empty_log(), "outputRef": empty_log(),
+            "outputItemCounts": [], "readied": [],
+        });
+        if let Some(members) = members.as_object_mut() {
+            if let Some(reused_from) = reused_from {
+                members.insert("reusedFrom".into(), reused_from);
+            }
+            if let Some(pin_hash) = pin_hash {
+                members.insert("pinHash".into(), json!(pin_hash));
+            }
+        }
+        let payload = serde_json::from_value::<WorkflowStepSkippedPayload>(step_payload(members))
+            .expect("the skip reads");
+        assert_eq!(garde::Validate::validate(&payload).is_ok(), is_accepted);
     }
 }
