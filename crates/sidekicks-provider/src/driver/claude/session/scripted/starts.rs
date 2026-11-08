@@ -106,8 +106,8 @@ struct ScriptedStartTables {
     session_commands: VecDeque<Vec<ClaudeListedCommand>>,
     session_command_holds: VecDeque<oneshot::Receiver<()>>,
     session_command_reads: usize,
-    // Each scripted one turn's outcome, and whether it waits for its stop before answering it.
-    one_turn_outcomes: VecDeque<(ClaudeOneTurnOutcome, bool)>,
+    // Each scripted one turn's outcome, and what it waits for before answering it.
+    one_turn_outcomes: VecDeque<(ClaudeOneTurnOutcome, OneTurnEnd)>,
     one_turns: Vec<ScriptedOneTurnRecord>,
     one_turn_environments: Vec<Vec<(String, String)>>,
     account_server_channels: VecDeque<Arc<ScriptedChannel>>,
@@ -122,6 +122,16 @@ struct ScriptedStartTables {
     stop_deadlines: Vec<Instant>,
     stop_hold: Option<oneshot::Receiver<()>>,
     next_process_id: u32,
+}
+
+// What a scripted one turn waits for before it answers.
+enum OneTurnEnd {
+    // Nothing.
+    AtOnce,
+    // Its stop.
+    AtStop,
+    // The test's release.
+    AtRelease(oneshot::Receiver<()>),
 }
 
 // One scripted MCP sign-in's process: its channel, the stored credentials it keeps and where, and
@@ -251,12 +261,26 @@ impl ScriptedStarts {
 
     /// Scripts the next one-turn process to end as `outcome`.
     pub(crate) fn script_one_turn(&self, outcome: ClaudeOneTurnOutcome) {
-        self.lock().one_turn_outcomes.push_back((outcome, false));
+        let end = OneTurnEnd::AtOnce;
+        self.lock().one_turn_outcomes.push_back((outcome, end));
     }
 
     /// Scripts the next one-turn process to run until its stop fires, then end as `outcome`.
     pub(crate) fn script_one_turn_until_stopped(&self, outcome: ClaudeOneTurnOutcome) {
-        self.lock().one_turn_outcomes.push_back((outcome, true));
+        let end = OneTurnEnd::AtStop;
+        self.lock().one_turn_outcomes.push_back((outcome, end));
+    }
+
+    /// Scripts the next one-turn process to run until the answered sender sends or drops, then
+    /// end as `outcome`, whether or not anyone still waits for it.
+    pub(crate) fn script_one_turn_until_released(
+        &self,
+        outcome: ClaudeOneTurnOutcome,
+    ) -> oneshot::Sender<()> {
+        let (release, released) = oneshot::channel();
+        let end = OneTurnEnd::AtRelease(released);
+        self.lock().one_turn_outcomes.push_back((outcome, end));
+        release
     }
 
     /// Scripts the next account read to answer `mcp_status` and `settings`, in place of answers
@@ -458,17 +482,22 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 .push(request.spawn.legs.spawn_environment.clone());
             tables.one_turn_outcomes.pop_front()
         };
-        let (outcome, waits_for_stop) = outcome.unwrap_or_else(|| {
+        let (outcome, end) = outcome.unwrap_or_else(|| {
             let outcome = ClaudeOneTurnOutcome {
                 reply: Err(spawn_failure("no one-turn reply scripted")),
                 spend: None,
             };
-            (outcome, false)
+            (outcome, OneTurnEnd::AtOnce)
         });
         let stop = request.stop;
         async move {
-            if waits_for_stop {
-                stop.cancelled().await;
+            match end {
+                OneTurnEnd::AtOnce => {}
+                OneTurnEnd::AtStop => stop.cancelled().await,
+                // A dropped sender releases the turn as a send does.
+                OneTurnEnd::AtRelease(released) => {
+                    let _is_sent = released.await.is_ok();
+                }
             }
             outcome
         }

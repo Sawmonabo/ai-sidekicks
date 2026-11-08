@@ -338,6 +338,50 @@ async fn a_side_question_the_model_refuses_is_refused_as_such() {
     assert_eq!(answered(&fixture), 0);
 }
 
+// A side question whose caller stops waiting mid-turn still records its copy's spend once the
+// turn ends. Killed by recording the spend on the caller's own future, which the drop ends.
+#[tokio::test(start_paused = true)]
+async fn a_side_question_dropped_mid_turn_still_records_the_copy_spend() {
+    let fixture = ScriptedDriver::new();
+    fixture.starts.script_catalog(json!({"models": [
+        {"value": "opus", "displayName": "Opus", "resolvedModel": FULL_MODEL_ID},
+    ]}));
+    let release = fixture
+        .starts
+        .script_one_turn_until_released(one_turn_outcome(
+            one_turn_reply("late"),
+            Some(opus_spend(&[(1_000, 500)], None)),
+        ));
+    let session_id = new_session_id();
+
+    let asked = fixture.driver.ask_side_question(AskSideQuestionParams {
+        session_id,
+        binding_id: binding_id("lead"),
+        side_question_id: SideQuestionId::try_from(mint_uuid_v7()).expect("a UUID is an id"),
+        question: "Why?".to_owned(),
+        resume: Some(resume_params(session_id)),
+    });
+    let started = poll_until(
+        || fixture.starts.take_one_turns(),
+        |turns| !turns.is_empty(),
+    );
+    tokio::select! {
+        biased;
+        _answered = asked => panic!("the side question waits for its turn's release"),
+        _turns = started => {}
+    }
+    release.send(()).expect("the turn waits for its release");
+
+    let metered = poll_until(|| fixture.usage.metered(), |metered| !metered.is_empty()).await;
+    let recorded: Vec<_> = (metered.iter())
+        .map(|metered| {
+            let axes = metered.delta.axis_deltas;
+            (metered.session_id, axes.input, axes.output)
+        })
+        .collect();
+    assert_eq!(recorded, [(session_id, Some(1_000), Some(500))]);
+}
+
 // The side questions answered so far.
 fn answered(fixture: &ScriptedDriver) -> usize {
     fixture

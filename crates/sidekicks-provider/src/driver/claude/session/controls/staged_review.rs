@@ -237,7 +237,7 @@ impl ClaudeSessionControls {
         let provider_account_id = live.admitted_provider_account_id();
         let turn = self
             .run_one_turn(
-                &legs,
+                legs,
                 provider_account_id.clone(),
                 None,
                 None,
