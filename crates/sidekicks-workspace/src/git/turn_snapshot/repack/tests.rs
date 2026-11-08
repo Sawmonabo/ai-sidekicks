@@ -667,3 +667,48 @@ async fn a_sweep_packs_again_a_capture_whose_own_pack_failed_once_an_hour_has_pa
         "the base's file is left out of the pack"
     );
 }
+
+// Fails when a sweep queued behind an owner's hold works on its folder without checking it is
+// still there once the hold drops (counting its objects then fails), or when the hold leaves the
+// owner's capture folder free.
+#[tokio::test]
+async fn a_sweep_queued_behind_the_owners_hold_finds_its_folder_gone() {
+    let git = test_git_runner();
+    let root = tempfile::tempdir().expect("the temporary folder is made");
+    let (repository, _) = repository_with_a_commit(&git, root.path()).await;
+    let common = read_git_common_folder(&git, None, &repository, None)
+        .await
+        .expect("the repository's git folder is read");
+    let packing = CapturePacking::new(git.clone(), Arc::new(GitFloorReports::default()));
+    let owner = root.path().join("owner");
+    let capture_folder = CaptureFolder::open_or_create(&git, None, &owner, &common)
+        .await
+        .expect("the capture folder is made");
+    let folder = capture_folder.folder().to_path_buf();
+    let hold = packing
+        .hold_owner_folders(&owner)
+        .await
+        .expect("the owner's folders are held");
+    let handles = packing.folder_lock.queue_handle_count(folder.clone());
+    let mut sweep = std::pin::pin!(packing.sweep_capture_folder(
+        None,
+        &owner,
+        &common,
+        None,
+        &[],
+        SystemTime::now()
+    ));
+
+    tokio::select! {
+        swept = &mut sweep => panic!("the sweep waits for the hold, got {swept:?}"),
+        () = packing.folder_lock.wait_for_queue_past(folder.clone(), handles) => {}
+    }
+    fs::remove_dir_all(&folder).expect("the capture folder is removed");
+    drop(hold);
+    let swept = sweep.await;
+
+    assert!(
+        matches!(swept, Ok(CaptureFolderSweep::Absent)),
+        "got {swept:?}"
+    );
+}

@@ -12,7 +12,8 @@
 //!   calls only the packs of captures' objects attach the repository, since `prune-packed`, the
 //!   fold and the pack of listed loose objects with it attached would take or leave out an object
 //!   only the repository's packs hold.
-//! - One lock per capture folder orders its packs, folds and sweep passes.
+//! - One lock per capture folder orders its packs, folds and sweep passes, and a purge holds every
+//!   capture folder of its owner on it while they go, so each finds its folder gone after.
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -24,7 +25,7 @@ use std::time::{Duration, SystemTime};
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
-use sidekicks_std::missing_entry::is_gone;
+use sidekicks_std::missing_entry::{MissingEntry as _, is_gone};
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
 
@@ -32,7 +33,9 @@ use crate::git::cat_file::object_lines;
 use crate::git::process::version::GitFeature;
 use crate::git::process::{GitCall, GitError, GitRunner};
 use crate::git::turn_snapshot::capture::{CORE_FSYNC_PIN, GitFloorReports};
-use crate::git::turn_snapshot::capture_folder::{CaptureFolder, OBJECTS_SEGMENT, in_git_folder};
+use crate::git::turn_snapshot::capture_folder::{
+    CAPTURES_SEGMENT, CaptureFolder, OBJECTS_SEGMENT, in_git_folder, is_partial_capture_folder_name,
+};
 use crate::git::turn_snapshot::capture_steps::{UNRESOLVED_NAME_EXIT_CODE, joined};
 use crate::git::turn_snapshot::diagnostics::CaptureDiagnostic;
 use crate::git::turn_snapshot::refs::SNAPSHOT_REFS_PREFIX;
@@ -160,6 +163,13 @@ pub enum CaptureFolderSweep {
     Swept(CaptureFolderPass),
 }
 
+/// A hold on every capture folder of one owner, taken while a purge removes them: a pack, a fold
+/// or a sweep pass of one waits until it drops and then finds the folder gone.
+pub struct OwnerFoldersHold<'a> {
+    /// The lock's hold on each folder, released when this drops.
+    _holds: Vec<KeyHold<'a, PathBuf>>,
+}
+
 /// Why a pack, a fold or a sweep pass failed.
 #[derive(Debug, thiserror::Error)]
 pub enum PackingError {
@@ -220,10 +230,33 @@ impl CapturePacking {
         lock(&self.failed_folds).retain(|folder, _| !folder.starts_with(owner_folder));
     }
 
+    /// Holds every capture folder under the owner folder `owner_folder`, a folder still being made
+    /// aside, once each one's pack, fold or sweep pass under way ends; the hold lasts until the
+    /// answer drops. An owner with no captures folder answers an empty hold. Fails as listing the
+    /// captures folder does.
+    pub async fn hold_owner_folders(
+        &self,
+        owner_folder: &Path,
+    ) -> io::Result<OwnerFoldersHold<'_>> {
+        let captures = owner_folder.join(CAPTURES_SEGMENT);
+        let mut folders = Vec::new();
+        if let Some(mut entries) = tokio::fs::read_dir(&captures).await.none_if_missing()? {
+            while let Some(entry) = entries.next_entry().await? {
+                let name = entry.file_name();
+                if !is_partial_capture_folder_name(&name) {
+                    folders.push(captures.join(name));
+                }
+            }
+        }
+        Ok(OwnerFoldersHold {
+            _holds: self.folder_lock.acquire_all(folders).await,
+        })
+    }
+
     /// Packs what `captured` borrows from the repository beyond its base's tree into its capture
     /// folder, removes the loose copies, and starts a fold on a task of its own when one is due,
-    /// running git for the project at `place`. Never fails: a failure is logged and the remaining
-    /// steps skipped.
+    /// running git for the project at `place`; a folder a purge removed before its turn is left
+    /// alone. Never fails: a failure is logged and the remaining steps skipped.
     pub async fn pack(self: &Arc<Self>, place: Option<&Place>, captured: &CapturedCommit) {
         let capture_folder = &captured.capture_folder;
         let folder = capture_folder.folder().to_path_buf();
@@ -235,6 +268,9 @@ impl CapturePacking {
             revisions.push('\n');
         }
         let hold = self.folder_lock.acquire(folder.clone()).await;
+        if is_folder_removed(&folder).await {
+            return;
+        }
         let packed = self
             .pack_revisions(place, capture_folder, revisions.into_bytes(), &hold)
             .await;
@@ -263,7 +299,7 @@ impl CapturePacking {
     /// One sweep pass over the capture folder of the owner whose folder is `owner_folder`, for the
     /// repository whose common git folder is `common_folder`, running git for the project at
     /// `place`. A repository whose common git folder is gone answers `RepositoryGone` and keeps its
-    /// capture folder. Every pass first removes the owner's capture folders still being made and,
+    /// capture folder; a capture folder a purge removed before the pass's turn answers `Absent`. Every pass first removes the owner's capture folders still being made and,
     /// once git has counted the folder's objects, git's temporaries and the scratch indexes left in
     /// it, each once it is an hour old, a scratch index also once it predates this daemon run.
     /// Skipped when the repository's refs read as `last_pass` left them, read at `read_at`, and the
@@ -306,6 +342,9 @@ impl CapturePacking {
         let pass = CaptureFolderPass { ref_state, read_at };
         let folder = capture_folder.folder().to_path_buf();
         let hold = self.folder_lock.acquire(folder.clone()).await;
+        if is_folder_removed(&folder).await {
+            return Ok(CaptureFolderSweep::Absent);
+        }
         let counts = self.count_objects(place, &folder, &hold).await?;
         // A temporary loose object counts as garbage and a stale one as loose, so the fan-out
         // folders are listed only then.
@@ -441,9 +480,12 @@ impl CapturePacking {
     }
 
     // A fold a capture's pack found due, run when the folder's lock comes free and only when it is
-    // still due then. Never fails: a failure is logged.
+    // still due and still there then. Never fails: a failure is logged.
     async fn fold_when_due(&self, place: Option<&Place>, folder: PathBuf) {
         let hold = self.folder_lock.acquire(folder.clone()).await;
+        if is_folder_removed(&folder).await {
+            return;
+        }
         let folded = self.fold_held(place, &folder, &hold).await;
         drop(hold);
         if let Err(failure) = folded {
@@ -705,6 +747,12 @@ impl CapturePacking {
         self.prune_packed(place, folder).await?;
         Ok(())
     }
+}
+
+// Whether `folder` is known to be gone, as a purge leaves it; a failed check reads as present, so
+// the work goes on and reports its own failure.
+async fn is_folder_removed(folder: &Path) -> bool {
+    matches!(tokio::fs::try_exists(folder).await, Ok(false))
 }
 
 // The name prefix of `folder`'s packs: git names each `pack-<hash>` in the folder's pack folder.
