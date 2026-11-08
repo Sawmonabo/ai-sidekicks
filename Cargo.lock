@@ -9095,6 +9095,7 @@ dependencies = [
  "sidekicks-search",
  "sidekicks-std",
  "sidekicks-store",
+ "sidekicks-workflow",
  "sidekicks-workspace",
  "standardwebhooks",
  "strum 0.28.0",
