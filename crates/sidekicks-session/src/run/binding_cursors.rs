@@ -367,9 +367,10 @@ impl RunBindingCursors {
         Ok(())
     }
 
-    /// Records the binding a resume runs under, whose cursor `open_relaunch` opened, without
-    /// opening it again. Fails as the store fails, its predecessor missing among the refused
-    /// writes, and then forgets the binding's cursor, recording nothing.
+    /// Records the binding a resume or a fork restart runs under, whose cursor `open_relaunch` or
+    /// the fork restart's `fence_cut` opened, without opening it again. Fails as the store fails,
+    /// its predecessor missing among the refused writes, and then forgets the binding's cursor,
+    /// recording nothing.
     pub async fn record_relaunch(
         &self,
         relaunch: RuntimeBindingRelaunch,

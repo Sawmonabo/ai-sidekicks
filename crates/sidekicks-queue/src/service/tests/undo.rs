@@ -5,8 +5,8 @@
 mod cut;
 mod release;
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use serde_json::json;
@@ -22,10 +22,13 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::rewind::RewindConversationResult;
+use sidekicks_provider::driver::session_control::SessionCloseCause;
 use sidekicks_session::checkpoints::store::{Checkpoint, insert_checkpoint_statement};
 use sidekicks_session::run::engine::test_fixture::{append, stored_run_state};
+use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
+use tokio::time::timeout;
 
-use super::{DriverCalls, Fixture, fixture, recording_driver};
+use super::{DriverCalls, Fixture, HELD_WATCH, fixture, recording_driver};
 
 /// The turn position the undo's target message opened; the cut keeps the turns before it.
 const TARGET_TURN: u64 = 2;
@@ -41,15 +44,25 @@ struct Scene {
     calls: Arc<DriverCalls>,
     /// How many conversation cuts the provider was asked for.
     rewinds: Arc<AtomicUsize>,
+    /// Each close of the session's process the provider was asked for, in order.
+    closes: Arc<Mutex<Vec<ProcessClose>>>,
     run_id: RunId,
     target: SessionRestoreTarget,
+}
+
+/// One close of the session's process the provider was asked for.
+#[derive(Debug, PartialEq, Eq)]
+struct ProcessClose {
+    cause: SessionCloseCause,
+    /// Whether the session's append lock could be taken while the close ran.
+    is_append_lock_free: bool,
 }
 
 /// A cut the provider applied in place.
 fn applied_in_place() -> RewindAnswer {
     Arc::new(|| {
         Ok(RewindConversationResult::Applied {
-            binding_id: None,
+            fork: None,
             cut_message_text: Some("Look again".to_owned()),
         })
     })
@@ -68,6 +81,23 @@ async fn scene(answer: RewindAnswer) -> Scene {
             let answered = answer();
             async move { answered }.boxed()
         });
+    let closes = Arc::new(Mutex::new(Vec::new()));
+    let closing = Arc::clone(&closes);
+    driver.expect_close_session().returning(move |params| {
+        let closes = Arc::clone(&closing);
+        async move {
+            let is_append_lock_free =
+                timeout(HELD_WATCH, SESSION_APPEND_LOCK.acquire(params.session_id))
+                    .await
+                    .is_ok();
+            closes.lock().expect("unpoisoned").push(ProcessClose {
+                cause: params.cause,
+                is_append_lock_free,
+            });
+            Ok(())
+        }
+        .boxed()
+    });
     let fixture = fixture(driver).await;
     let run_id = fixture.insert_run("running").await;
     let message_sequence = fixture.insert_sent_message(run_id);
@@ -78,6 +108,7 @@ async fn scene(answer: RewindAnswer) -> Scene {
         fixture,
         calls,
         rewinds,
+        closes,
         run_id,
         target,
     }
