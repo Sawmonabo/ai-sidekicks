@@ -601,7 +601,6 @@ impl RunningCommandSets {
             source_epoch: None,
             source_position: None,
             content_length: None,
-            content_truncated: None,
             content_encoding: None,
         };
         let summary = summary.filter(|_| ending == CommandEnding::Failed);

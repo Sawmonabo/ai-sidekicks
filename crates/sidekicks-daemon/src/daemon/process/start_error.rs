@@ -102,6 +102,12 @@ pub(crate) enum DaemonStartError {
     /// The client bun is fetched through could not be built.
     #[error("bun's download client could not be built")]
     BunClient(#[source] reqwest::Error),
+    /// The thread that holds the machine awake could not start.
+    #[error("the keep-awake hold's thread could not start")]
+    KeepAwake(#[source] std::io::Error),
+    /// The machine's settings could not be read for keep-awake's two switches, so it did not start.
+    #[error("keep-awake could not read the machine's settings")]
+    KeepAwakeSettings(#[source] MachineSettingsFileError),
     /// The wall clock the scheduler's timed jobs run on could not be armed.
     #[error("the scheduler's wall clock could not be armed")]
     WallClock(#[source] std::io::Error),

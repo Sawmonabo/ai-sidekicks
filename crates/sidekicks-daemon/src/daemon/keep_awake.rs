@@ -29,13 +29,6 @@ pub(crate) struct KeepAwakeDeps {
 
 /// Moves the hold as its inputs change until the service stops, then lets go of it. An input
 /// whose sender is gone keeps its last value.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start runs keep-awake over the hold and the power source"
-    )
-)]
 pub(crate) async fn keep_machine_awake(deps: KeepAwakeDeps) {
     let KeepAwakeDeps {
         hold,
@@ -75,7 +68,14 @@ pub(crate) async fn keep_machine_awake(deps: KeepAwakeDeps) {
             Ok(()) = is_on_power.changed() => {}
         }
     }
-    hold.release();
+    // Dropping the hold lets go of it and joins its thread, which can wait on the system, so the
+    // drop runs off the runtime's workers.
+    if let Err(error) = tokio::task::spawn_blocking(move || drop(hold)).await {
+        tracing::error!(
+            error = &error as &(dyn Error + 'static),
+            "the keep-awake hold's release ended abnormally"
+        );
+    }
 }
 
 // The hold the switches, the live runs and the power source call for.

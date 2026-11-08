@@ -6,6 +6,8 @@
 use std::error::Error;
 
 use futures::future::BoxFuture;
+use sidekicks_contracts::session::event_cursor::EventCursor;
+use sidekicks_store::events::log_service::EventStreamDistance;
 use tokio::sync::watch;
 
 use crate::registry::HandlerError;
@@ -33,6 +35,10 @@ pub trait ChangeRecord: Send + Sync {
     type Change: Send;
     /// Why a read failed.
     type Error: Error + Send + Sync + 'static;
+    /// What a stream far behind the record is told when it is moved to the head: the head's
+    /// cursor for a stored record; `Infallible` for a record of a current state, whose stream
+    /// sends every change and is never moved.
+    type Head: Send;
 
     /// The changes among at most `max` stored records after `cursor`, oldest first, with the
     /// cursor after the last record read, which a record that is no change moves too; empty when
@@ -43,6 +49,18 @@ pub trait ChangeRecord: Send + Sync {
         cursor: &Self::Cursor,
         max: usize,
     ) -> RecordPageRead<'_, Self::Cursor, Self::Change, Self::Error>;
+
+    /// How far the record's head stands past `cursor`, measured over at most `max_events` stored
+    /// events after it, so the read stays bounded however far behind it is; `None` for a record
+    /// of a current state. Its implementer runs its database read through `spawn_blocking`.
+    fn read_distance(
+        &self,
+        cursor: &Self::Cursor,
+        max_events: usize,
+    ) -> DistanceRead<'_, Self::Head, Self::Error>;
+
+    /// The cursor a stream moved to `head` reads after.
+    fn cursor_at(head: &Self::Head) -> Self::Cursor;
 
     /// The change signal: a count of the changes appended to the record, which grows by one per
     /// change once that change is readable, so a reader can count the changes signaled since it
@@ -58,6 +76,31 @@ pub trait ChangeRecord: Send + Sync {
 pub type RecordPageRead<'a, Cursor, Change, Error> =
     BoxFuture<'a, Result<RecordPage<Cursor, Change>, Error>>;
 
+/// A read of how far a change record's head stands past a cursor, answering the distance, `None`
+/// for a record of a current state, or the record's error.
+pub type DistanceRead<'a, Head, Error> = BoxFuture<'a, Result<Option<RecordDistance<Head>>, Error>>;
+
+/// How far a stored record's head stands past a stream's cursor, counted over a bounded read.
+#[derive(Debug)]
+pub struct RecordDistance<Head> {
+    /// The record's head.
+    pub head: Head,
+    /// The stored events after the cursor, through the head, at most the read's bound.
+    pub events: usize,
+    /// Those events' stored bytes.
+    pub bytes: usize,
+}
+
+impl From<EventStreamDistance> for RecordDistance<EventCursor> {
+    fn from(distance: EventStreamDistance) -> Self {
+        Self {
+            head: distance.head,
+            events: distance.events,
+            bytes: distance.bytes,
+        }
+    }
+}
+
 /// One read of a change record: its changes, where it read through, and whether it stopped at its
 /// count or at one frame's bytes, so more may be stored.
 #[derive(Debug)]
@@ -67,7 +110,8 @@ pub struct RecordPage<Cursor, Change> {
     /// The cursor after the last record read, a record that is no change among them; `None` when
     /// the read found none.
     pub read_through: Option<Cursor>,
-    /// Whether the read stopped at its count or at a frame's byte budget, so the next one is due.
+    /// Whether the read stopped short of the record's head, at its count or at a frame's byte
+    /// budget, so more is stored and the next read is due.
     pub is_cut_short: bool,
 }
 

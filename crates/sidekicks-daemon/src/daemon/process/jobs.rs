@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
+use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_std::scheduler::{JobCondition, ScheduleError, Scheduler};
 use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::database::writer::jobs::{OPTIMIZE_INTERVAL, PASSIVE_CHECKPOINT_INTERVAL};
@@ -20,7 +21,6 @@ use crate::daemon::backup::run::Backups;
 use crate::daemon::bun::{BunInstall, schedule_bun_install};
 use crate::daemon::crash::reports::{CrashReportDeps, crash_report_job};
 use crate::daemon::machine_settings::file::MachineSettingsFile;
-use crate::daemon::release_version::this_build_release_version;
 use crate::observability::diagnostic_buckets::expiry::{
     DIAGNOSTIC_LOG_EXPIRY_INTERVAL, DiagnosticExpiryDeps, diagnostic_expiry_job,
 };
@@ -43,6 +43,8 @@ pub(crate) struct JobDeps {
     pub(crate) backups: Arc<Backups>,
     /// bun's install, whose first run is scheduled here.
     pub(crate) bun: Arc<BunInstall>,
+    /// The service's own release version, which the crash reports name.
+    pub(crate) version: ReleaseVersion,
 }
 
 /// Why a job could not be scheduled.
@@ -72,6 +74,7 @@ pub(crate) async fn schedule_jobs(
         settings,
         backups,
         bun,
+        version,
     } = deps;
     scheduler.schedule_repeating(
         "passive checkpoint",
@@ -97,7 +100,7 @@ pub(crate) async fn schedule_jobs(
     )?;
     // One release ships the app and the service, so both carry this build's version; a dump that
     // names its own version keeps it.
-    let version = this_build_release_version().as_str().to_owned();
+    let version = version.as_str().to_owned();
     scheduler.schedule_repeating(
         "crash reports",
         JobCondition::Always,
