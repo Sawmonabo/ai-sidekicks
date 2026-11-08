@@ -10,8 +10,11 @@ use std::sync::LazyLock;
 use fixedbitset::FixedBitSet;
 use rusqlite::{Connection, OptionalExtension, Row, named_params};
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::list::UniqueList;
+use sidekicks_contracts::wire::record::JsonRecord;
 use sidekicks_contracts::workflow::definition::document::{
-    WorkflowDefinitionId, WorkflowDocumentHashedBody, WorkflowNodeId, WorkflowVersionId,
+    WorkflowDefinitionId, WorkflowDocumentHashedBody, WorkflowNodeId, WorkflowNodeKindId,
+    WorkflowNodeOnError, WorkflowNodeRetry, WorkflowTriggerInput, WorkflowVersionId,
 };
 use sidekicks_contracts::workflow::definition::versions::WorkflowVersionNode;
 use sidekicks_contracts::workflow::run::control::WorkflowNodeExecuteScope;
@@ -24,7 +27,7 @@ use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::stored_column::{safe_int_column, text_column};
 
 use crate::definitions::stored_document::{StoredDocumentError, parse_stored_workflow_body};
-use crate::definitions::versions::difference::diff_workflow_bodies;
+use crate::definitions::versions::difference::{diff_workflow_bodies, version_node_id};
 use crate::definitions::versions::history::{VersionRow, WorkflowVersions, WorkflowVersionsError};
 use crate::engine::tick::RunGraph;
 
@@ -57,8 +60,9 @@ static NEWEST_SETTLED_STEP_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// What a partial run does with each node it covers: the nodes it executes and the nodes whose
-/// settled step it reuses, each list in graph order, so the executed list is execution order.
+/// What a partial run does with each node it covers: the nodes it executes, and the nodes whose
+/// settled step it reuses or, for a run of one node, reads as that node's prior input, each list in
+/// graph order, so the executed list is execution order.
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(
     not(test),
@@ -67,8 +71,12 @@ static NEWEST_SETTLED_STEP_SQL: LazyLock<String> = LazyLock::new(|| {
 pub(crate) struct PartialRunPlan {
     /// The nodes the run executes.
     pub(crate) executed: Vec<WorkflowNodeId>,
-    /// The nodes whose step the run reuses, each with that step.
+    /// For a run from a node, the nodes whose step the run reuses, each with that step; empty for a
+    /// run of one node.
     pub(crate) reused: Vec<(WorkflowNodeId, SettledStep)>,
+    /// For a run of one node, the covered nodes whose step it reads as its prior input, each with
+    /// that step, used as it is though the node changed since; empty for a run from a node.
+    pub(crate) inputs: Vec<(WorkflowNodeId, SettledStep)>,
 }
 
 /// Why a partial run could not be planned.
@@ -161,12 +169,12 @@ fn settled_step_from_row(node_id: &WorkflowNodeId, row: &Row<'_>) -> rusqlite::R
 }
 
 /// The plan of a partial run of `target_version`, whose run graph is `graph`, on the node `target`,
-/// which the graph holds, over `scope`: the target alone, or the target and its ancestors. The
-/// target always executes; a covered node executes when it has no settled step, when it is dirty,
-/// when its step was not fed by the steps the plan reuses for its feeders, or when
-/// [`executing_places`] says so; every other covered node reuses its step. Reads each covered
-/// node's settled step and each version those steps ran, and fails as [`PartialRunPlanError`]
-/// says.
+/// which the graph holds, over `scope`, covering the places [`covered_places`] names. The target
+/// always executes; a covered node executes when it has no settled step, when its step was not fed
+/// by the steps the plan keeps for its feeders, when [`executing_places`] says so, or, from a node,
+/// when it is dirty; every other covered node's step is reused from a node, or read as the target's
+/// prior input for one node, where no change dirties it. Reads each covered node's settled step and,
+/// from a node, each version those steps ran, and fails as [`PartialRunPlanError`] says.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the workflow.node.execute handler")
@@ -179,24 +187,71 @@ pub(crate) fn plan_partial_run(
     scope: WorkflowNodeExecuteScope,
 ) -> Result<PartialRunPlan, PartialRunPlanError> {
     let target_place = graph.place(target);
-    let mut covered: Vec<usize> = match scope {
-        WorkflowNodeExecuteScope::Node => vec![target_place],
-        WorkflowNodeExecuteScope::FromHere => graph
-            .ancestors(target_place)
-            .chain(iter::once(target_place))
-            .collect(),
-    };
-    covered.sort_unstable();
+    let covered = covered_places(graph, target_place);
     let mut settled = read_settled_steps(
         connection,
         target_version.definition_id,
         covered.iter().map(|&place| &graph.node(place).id),
     )
     .map_err(PartialRunPlanError::SettledSteps)?;
+    let dirty = match scope {
+        WorkflowNodeExecuteScope::Node => BTreeSet::new(),
+        WorkflowNodeExecuteScope::FromHere => {
+            read_dirty_nodes(connection, target_version, graph, &settled)?
+        }
+    };
+    let mut needs_execution = FixedBitSet::with_capacity(graph.node_count());
+    needs_execution.insert(target_place);
+    for &place in &covered {
+        let node_id = &graph.node(place).id;
+        let can_reuse = settled
+            .get(node_id)
+            .is_some_and(|step| !dirty.contains(node_id) && is_fed_by_reused_steps(step, &settled));
+        if !can_reuse {
+            needs_execution.insert(place);
+        }
+    }
+    let executing = executing_places(graph, &covered, needs_execution);
+    let mut plan = PartialRunPlan {
+        executed: Vec::new(),
+        reused: Vec::new(),
+        inputs: Vec::new(),
+    };
+    for place in covered {
+        let node_id = graph.node(place).id.clone();
+        if executing.contains(place) {
+            plan.executed.push(node_id);
+        } else {
+            let step = settled
+                .remove(&node_id)
+                .expect("a node that reuses its step has a settled step");
+            let kept = match scope {
+                WorkflowNodeExecuteScope::Node => &mut plan.inputs,
+                WorkflowNodeExecuteScope::FromHere => &mut plan.reused,
+            };
+            kept.push((node_id, step));
+        }
+    }
+    Ok(plan)
+}
+
+/// The nodes of `graph`, the run graph of `target_version`, whose step in `settled` no change since
+/// the version it ran lets a run reuse, as [`dirty_nodes`] marks them. Reads the target version's
+/// body and each version those steps ran, and fails as [`PartialRunPlanError`] says.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the workflow.node.execute handler")
+)]
+fn read_dirty_nodes(
+    connection: &Connection,
+    target_version: &VersionRow,
+    graph: &RunGraph,
+    settled: &HashMap<WorkflowNodeId, SettledStep>,
+) -> Result<BTreeSet<WorkflowNodeId>, PartialRunPlanError> {
     let target_body = parse_stored_workflow_body(&target_version.definition_body)?;
     let mut node_ids_by_version: BTreeMap<WorkflowVersionId, BTreeSet<WorkflowNodeId>> =
         BTreeMap::new();
-    for (node_id, step) in &settled {
+    for (node_id, step) in settled {
         node_ids_by_version
             .entry(step.workflow_version_id)
             .or_default()
@@ -213,35 +268,33 @@ pub(crate) fn plan_partial_run(
             })
         })
         .collect::<Result<Vec<_>, PartialRunPlanError>>()?;
-    let dirty = dirty_nodes(&target_body, graph, &sources);
-    let mut needs_execution = FixedBitSet::with_capacity(graph.node_count());
-    needs_execution.insert(target_place);
-    for &place in &covered {
-        let node_id = &graph.node(place).id;
-        let can_reuse = settled
-            .get(node_id)
-            .is_some_and(|step| !dirty.contains(node_id) && is_fed_by_reused_steps(step, &settled));
-        if !can_reuse {
-            needs_execution.insert(place);
+    Ok(dirty_nodes(&target_body, graph, &sources))
+}
+
+/// The places a partial run on the node at `target` covers, in either scope, lowest first: the target and its ancestors,
+/// then the body of every covered loop, each node that joins bringing its own ancestors, until
+/// nothing joins. Each node joins once, and no descendant of the target joins, so a target inside a
+/// loop's body leaves the body after it out.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the workflow.node.execute handler")
+)]
+fn covered_places(graph: &RunGraph, target: usize) -> Vec<usize> {
+    let mut covered = FixedBitSet::with_capacity(graph.node_count());
+    let mut joining = vec![target];
+    while let Some(place) = joining.pop() {
+        if covered.contains(place) || graph.ancestors(place).any(|ancestor| ancestor == target) {
+            continue;
+        }
+        covered.insert(place);
+        joining.extend(graph.ancestors(place));
+        if graph.node(place).loop_output.is_some() {
+            joining.extend(
+                (0..graph.node_count()).filter(|&inside| graph.is_in_loop_body(inside, place)),
+            );
         }
     }
-    let executing = executing_places(graph, &covered, needs_execution);
-    let mut plan = PartialRunPlan {
-        executed: Vec::new(),
-        reused: Vec::new(),
-    };
-    for place in covered {
-        let node_id = graph.node(place).id.clone();
-        if executing.contains(place) {
-            plan.executed.push(node_id);
-        } else {
-            let step = settled
-                .remove(&node_id)
-                .expect("a node that reuses its step has a settled step");
-            plan.reused.push((node_id, step));
-        }
-    }
-    Ok(plan)
+    covered.ones().collect()
 }
 
 /// Whether `step` was fed by the very steps `settled` holds for its feeders: each slot's source is
@@ -335,9 +388,10 @@ struct SourceVersion {
 
 /// The nodes of `target_body`, whose run graph is `graph`, that a reused step cannot stand for,
 /// each version of `sources` compared with the target and its marks kept only on the nodes whose
-/// step it ran. A changed node is dirty, and one switched on or off also marks the nodes it feeds;
-/// a node inserted marks the nodes it feeds, and one deleted the nodes it fed that remain; an added
-/// connection marks its destination.
+/// step it ran. A node whose [`RunMembers`] changed is dirty, and one switched on or off also marks
+/// the nodes it feeds; a node inserted marks the nodes it feeds, and one deleted the nodes it fed
+/// that remain; an added connection marks its destination, and a removed one its destination where
+/// the target still holds it.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the workflow.node.execute handler")
@@ -361,9 +415,13 @@ fn dirty_nodes(
         let difference = diff_workflow_bodies(&source.body, target_body);
         let mut marked: Vec<usize> = Vec::new();
         for change in &difference.nodes_changed {
+            let (before, after) = (run_members(&change.before), run_members(&change.after));
+            if before == after {
+                continue;
+            }
             let place = graph.place(version_node_id(&change.after));
             marked.push(place);
-            if is_switched_off(&change.before) != is_switched_off(&change.after) {
+            if before.is_disabled != after.is_disabled {
                 marked.extend(&fed_places[place]);
             }
         }
@@ -388,6 +446,13 @@ fn dirty_nodes(
                 .iter()
                 .map(|edge| graph.place(&edge.target)),
         );
+        marked.extend(
+            difference
+                .edges_removed
+                .iter()
+                .filter(|edge| target_node_ids.contains(&edge.target))
+                .map(|edge| graph.place(&edge.target)),
+        );
         dirty.extend(
             marked
                 .into_iter()
@@ -399,25 +464,59 @@ fn dirty_nodes(
     dirty
 }
 
+/// The members of a node that decide what it runs, so a change to one dirties it; a rename, a notes edit or an `order` change
+/// leaves them as they were.
+#[derive(PartialEq)]
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the workflow.node.execute handler")
 )]
-fn version_node_id(node: &WorkflowVersionNode) -> &WorkflowNodeId {
-    match node {
-        WorkflowVersionNode::Node(node) => &node.id,
-        WorkflowVersionNode::Trigger(trigger) => &trigger.id,
-    }
+struct RunMembers<'node> {
+    /// Its kind.
+    kind: &'node WorkflowNodeKindId,
+    /// Its kind's version.
+    kind_version: SafeInt<1>,
+    /// Its params, an agent node's provider binding among them.
+    params: &'node JsonRecord,
+    /// Whether it is switched off.
+    is_disabled: bool,
+    /// What its failure does.
+    on_error: Option<WorkflowNodeOnError>,
+    /// Its retries.
+    retry: Option<WorkflowNodeRetry>,
+    /// Whether it runs once, over its first item only.
+    is_executed_once: bool,
+    /// Whether it outputs one empty item where it would output none.
+    always_outputs_data: bool,
+    /// The inputs a trigger declares; `None` for another node.
+    inputs: Option<&'node [WorkflowTriggerInput]>,
 }
 
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the workflow.node.execute handler")
 )]
-fn is_switched_off(node: &WorkflowVersionNode) -> bool {
+fn run_members(node: &WorkflowVersionNode) -> RunMembers<'_> {
+    macro_rules! run_members_of {
+        ($node:expr, $inputs:expr) => {
+            RunMembers {
+                kind: &$node.kind,
+                kind_version: $node.kind_version,
+                params: &$node.params,
+                is_disabled: $node.disabled == Some(true),
+                on_error: $node.on_error,
+                retry: $node.retry,
+                is_executed_once: $node.execute_once == Some(true),
+                always_outputs_data: $node.always_output_data == Some(true),
+                inputs: $inputs,
+            }
+        };
+    }
     match node {
-        WorkflowVersionNode::Node(node) => node.disabled == Some(true),
-        WorkflowVersionNode::Trigger(trigger) => trigger.disabled == Some(true),
+        WorkflowVersionNode::Node(node) => run_members_of!(node, None),
+        WorkflowVersionNode::Trigger(trigger) => {
+            run_members_of!(trigger, trigger.inputs.as_ref().map(UniqueList::as_slice))
+        }
     }
 }
 

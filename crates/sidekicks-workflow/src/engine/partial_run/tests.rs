@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashMap};
 
 use rstest::rstest;
-use rusqlite::{Connection, params};
+use rusqlite::Connection;
 use serde_json::{Value, json};
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::{
@@ -18,9 +18,10 @@ use super::{
 };
 use crate::definitions::versions::history::WorkflowVersions;
 use crate::engine::tick::RunGraph;
-use crate::kinds::{NodeKind, NodeKindTable, PassThroughExecutor, test_kind};
+use crate::kinds::{NodeKindTable, PassThroughExecutor, loop_test_kind, main_test_kind};
 use crate::test_rows::{
-    TestStep, insert_run, insert_step, insert_workflow_version_body, workflow_tables,
+    TestSettledStep, insert_later_workflow_version, insert_run, insert_settled_step,
+    insert_workflow_version_body, test_step_sources, workflow_tables,
 };
 
 const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e01";
@@ -36,38 +37,17 @@ type Edge = (&'static str, usize, &'static str, usize);
 /// The chain `T → A → B → C`, `B` taking a second main input that nothing feeds.
 const CHAIN: &[Edge] = &[("T", 0, "A", 0), ("A", 0, "B", 0), ("B", 0, "C", 0)];
 
-/// The test kind `name` with `inputs` main inputs and `outputs` main outputs, which passes its
-/// inputs on.
-fn kind(name: &str, inputs: usize, outputs: usize) -> NodeKind {
-    let handles = |side: &str, count: usize| -> Value {
-        (0..count)
-            .map(|index| {
-                json!({ "type": "main", "id": format!("{side}/main/{index}"), "label": "H" })
-            })
-            .collect()
-    };
-    test_kind(
-        json!({
-            "kind": name, "version": 1, "category": "developer",
-            "displayName": "Test", "description": "A test kind.", "icon": "test",
-            "params": [], "outputsDeriveFromParams": false,
-            "inputs": handles("inputs", inputs), "outputs": handles("outputs", outputs),
-        }),
-        None,
-        Box::new(PassThroughExecutor),
-    )
-}
-
 /// The kinds the tests' graphs use: a source with no input, a step, a step with two inputs, and a
 /// loop whose second output starts its body.
 fn kinds() -> NodeKindTable {
-    let mut loop_kind = kind("test.loop", 1, 2);
-    loop_kind.loop_output = Some(1);
+    let kind = |name: &str, handles: (usize, usize)| {
+        main_test_kind(name, "developer", handles, Box::new(PassThroughExecutor))
+    };
     NodeKindTable::new(vec![
-        kind("test.trigger", 0, 1),
-        kind("test.step", 1, 1),
-        kind("test.pair", 2, 1),
-        loop_kind,
+        kind("test.trigger", (0, 1)),
+        kind("test.step", (1, 1)),
+        kind("test.pair", (2, 1)),
+        loop_test_kind(),
     ])
     .expect("the test kinds build")
 }
@@ -142,54 +122,27 @@ fn body(nodes: &[Value], edges: &[Edge]) -> Value {
 /// The workflow with version 1 holding `first` and version 2 holding `second`.
 fn store_versions(connection: &Connection, first: &Value, second: &Value) {
     insert_workflow_version_body(connection, DEFINITION_ID, FIRST_VERSION_ID, first);
-    connection
-        .execute(
-            "INSERT INTO workflow_versions (id, definition_id, version_number, content_hash, \
-             schema_version, definition_body, created_at) \
-             SELECT ?1, definition_id, 2, content_hash, schema_version, ?2, created_at \
-             FROM workflow_versions WHERE id = ?3",
-            params![SECOND_VERSION_ID, second.to_string(), FIRST_VERSION_ID],
-        )
-        .expect("the test stores a second version");
+    insert_later_workflow_version(connection, FIRST_VERSION_ID, SECOND_VERSION_ID, 2, second);
 }
 
-/// One step a test stores: its node, its execution index in its run, where it stands, when it
-/// ended, and the `(node, execution index)` of the step of its run that fed each input slot.
-struct StoredStep<'step> {
+/// The first attempt of `node_id`'s step at `execution_index`, settled at `status` at
+/// `finished_at`, fed by `sources`, holding no items on its one main output.
+fn settled_row<'step>(
     node_id: &'step str,
     execution_index: u32,
     status: WorkflowStepStatus,
     finished_at: &'step str,
     sources: &'step [(&'step str, u32)],
-}
-
-/// Stores `step` in run `run_id`, holding no items on its one main output.
-fn store_step(connection: &Connection, run_id: &str, step: &StoredStep<'_>) {
-    insert_step(
-        connection,
-        run_id,
-        &TestStep {
-            execution_index: step.execution_index,
-            status: step.status,
-            wait_cause: None,
-            wait_account_id: None,
-            resume_at: None,
-        },
-    );
-    connection
-        .execute(
-            "UPDATE workflow_steps SET node_id = ?1, finished_at = ?2, source_json = ?3, \
-             output_item_counts_json = '[0]' \
-             WHERE workflow_run_id = ?4 AND execution_index = ?5",
-            params![
-                step.node_id,
-                step.finished_at,
-                sources_json(step.sources).to_string(),
-                run_id,
-                step.execution_index
-            ],
-        )
-        .expect("the test settles the step");
+) -> TestSettledStep<'step> {
+    TestSettledStep {
+        node_id,
+        attempt: 1,
+        execution_index,
+        status,
+        finished_at,
+        sources,
+        output_item_counts: &[0],
+    }
 }
 
 /// Stores a finished run `run_id` of `version_id`.
@@ -202,16 +155,6 @@ fn store_run(connection: &Connection, run_id: &str, version_id: &str) {
         "2026-10-02T00:00:00.000Z",
         Some("2026-10-02T01:00:00.000Z"),
     );
-}
-
-/// The `source_json` of a step fed by each of `sources`, a `(node, execution index)` per slot.
-fn sources_json(sources: &[(&str, u32)]) -> Value {
-    sources
-        .iter()
-        .map(|(node_id, execution_index)| {
-            json!({ "nodeId": node_id, "outputIndex": 0, "executionIndex": execution_index })
-        })
-        .collect()
 }
 
 /// The settled step a test expects: run `run_id`'s first attempt at `execution_index` of
@@ -231,7 +174,7 @@ fn settled(
             execution_index: SafeInt::new(execution_index).expect("an execution index"),
         },
         workflow_version_id: WorkflowVersionId::new(version_id).expect("the test's version id"),
-        sources: serde_json::from_value(sources_json(sources)).expect("the sources read"),
+        sources: serde_json::from_value(test_step_sources(sources)).expect("the sources read"),
         output_ref: WorkflowPayloadRef::Inline { items: Vec::new() },
         output_item_counts: vec![SafeInt::new(0).expect("a count")],
     }
@@ -253,25 +196,21 @@ fn the_newest_settled_step_is_read_across_versions_past_a_newer_failed_one() {
     store_run(&connection, FIRST_RUN_ID, FIRST_VERSION_ID);
     store_run(&connection, SECOND_RUN_ID, SECOND_VERSION_ID);
     store_run(&connection, THIRD_RUN_ID, SECOND_VERSION_ID);
-    let step = |node_id, execution_index, status, finished_at| StoredStep {
-        node_id,
-        execution_index,
-        status,
-        finished_at,
-        sources: &[("T", 0)],
+    let step = |node_id, execution_index, status, finished_at| {
+        settled_row(node_id, execution_index, status, finished_at, &[("T", 0)])
     };
     let (succeeded, failed) = (WorkflowStepStatus::Succeeded, WorkflowStepStatus::Failed);
-    store_step(
+    insert_settled_step(
         &connection,
         FIRST_RUN_ID,
         &step("A", 0, succeeded, "2026-10-02T00:00:01.000Z"),
     );
-    store_step(
+    insert_settled_step(
         &connection,
         SECOND_RUN_ID,
         &step("A", 1, succeeded, "2026-10-02T00:00:02.000Z"),
     );
-    store_step(
+    insert_settled_step(
         &connection,
         THIRD_RUN_ID,
         &step("A", 0, failed, "2026-10-02T00:00:03.000Z"),
@@ -282,7 +221,7 @@ fn the_newest_settled_step_is_read_across_versions_past_a_newer_failed_one() {
         WorkflowStepStatus::Canceled,
         "2026-10-02T00:00:03.000Z",
     );
-    store_step(&connection, THIRD_RUN_ID, &canceled);
+    insert_settled_step(&connection, THIRD_RUN_ID, &canceled);
     let definition_id = WorkflowDefinitionId::new(DEFINITION_ID).expect("the test's definition");
     let read = read_settled_steps(
         &connection,
@@ -300,15 +239,43 @@ fn the_newest_settled_step_is_read_across_versions_past_a_newer_failed_one() {
 }
 
 /// Each marking rule, applied to the chain's version 1 against version 2 with every node's step
-/// from version 1, dirties exactly the nodes it names: a params edit the node; an insert or a
-/// delete the node after it; an added connection its destination; switching a node off or on the
-/// node and the node after it. Mutation: mark a node whose switch alone changed only through the
-/// nodes it feeds (the switch cases fail).
+/// from version 1, dirties exactly the nodes it names: a params, kind version or run-once edit the
+/// node; a rename, a notes edit or an `order` change nothing; an insert or a delete the node after
+/// it; an added or a removed connection its destination; switching a node off or on the node and the
+/// node after it. Mutations: mark a node whose switch alone changed only through the nodes it feeds (the switch
+/// cases fail); mark every changed node (`rename`, `notes` and `order` fail); leave `kindVersion`
+/// or `executeOnce` out of the members compared (`kind_version` or `execute_once` fails); skip the
+/// removed connections (`removed_connection` fails).
 #[rstest]
 #[case::params_edit(
     chain(), CHAIN,
     chain_nodes("B", &json!({ "params": { "note": "x" } })), CHAIN,
     &["B"],
+)]
+#[case::kind_version(
+    chain_nodes("B", &json!({ "kindVersion": 2 })), CHAIN,
+    chain(), CHAIN,
+    &["B"],
+)]
+#[case::execute_once(
+    chain(), CHAIN,
+    chain_nodes("B", &json!({ "executeOnce": true })), CHAIN,
+    &["B"],
+)]
+#[case::rename(
+    chain(), CHAIN,
+    chain_nodes("B", &json!({ "name": "Renamed" })), CHAIN,
+    &[],
+)]
+#[case::notes(
+    chain(), CHAIN,
+    chain_nodes("B", &json!({ "notes": "x" })), CHAIN,
+    &[],
+)]
+#[case::order(
+    chain(), CHAIN,
+    chain_nodes("B", &json!({ "order": 9 })), CHAIN,
+    &[],
 )]
 #[case::insert(
     chain(), CHAIN,
@@ -326,6 +293,12 @@ fn the_newest_settled_step_is_read_across_versions_past_a_newer_failed_one() {
     chain(), CHAIN,
     chain(),
     &[("T", 0, "A", 0), ("A", 0, "B", 0), ("B", 0, "C", 0), ("A", 0, "C", 0)],
+    &["C"],
+)]
+#[case::removed_connection(
+    chain(),
+    &[("T", 0, "A", 0), ("A", 0, "B", 0), ("B", 0, "C", 0), ("A", 0, "C", 0)],
+    chain(), CHAIN,
     &["C"],
 )]
 #[case::switched_off(
@@ -381,14 +354,14 @@ fn store_run_steps(
     store_run(connection, run_id, version_id);
     for ((node_id, sources), execution_index) in steps.iter().zip(0..) {
         let finished_at = format!("2026-10-02T00:{minute:02}:{execution_index:02}.000Z");
-        let step = StoredStep {
+        let step = settled_row(
             node_id,
             execution_index,
-            status: WorkflowStepStatus::Succeeded,
-            finished_at: &finished_at,
+            WorkflowStepStatus::Succeeded,
+            &finished_at,
             sources,
-        };
-        store_step(connection, run_id, &step);
+        );
+        insert_settled_step(connection, run_id, &step);
     }
 }
 
@@ -400,30 +373,41 @@ const CHAIN_STEPS: &[(&str, &[(&str, u32)])] = &[
     ("C", &[("B", 2)]),
 ];
 
+/// A node of a plan's list with the run its step came from.
+type KeptStep = (String, WorkflowRunId);
+
 /// The plan of a partial run of version 2, whose body is `target_body`, on `target` over `scope`,
-/// as the nodes it executes and each reused node with the run its step came from.
+/// as the nodes it executes, each reused node and each node read as prior input, the last two each
+/// with the run its step came from.
 fn plan(
     connection: &Connection,
     target_body: &Value,
     target: &str,
     scope: WorkflowNodeExecuteScope,
-) -> (Vec<String>, Vec<(String, WorkflowRunId)>) {
+) -> (Vec<String>, Vec<KeptStep>, Vec<KeptStep>) {
     let version = WorkflowVersions::new(connection)
         .read_version(WorkflowVersionId::new(SECOND_VERSION_ID).expect("the test's version id"))
         .expect("the target version reads");
     let graph = graph_of(&parsed(target_body));
-    let PartialRunPlan { executed, reused } =
-        plan_partial_run(connection, &version, &graph, &node_id_of(target), scope)
-            .expect("the plan reads");
+    let PartialRunPlan {
+        executed,
+        reused,
+        inputs,
+    } = plan_partial_run(connection, &version, &graph, &node_id_of(target), scope)
+        .expect("the plan reads");
+    let kept = |steps: Vec<(WorkflowNodeId, SettledStep)>| -> Vec<KeptStep> {
+        steps
+            .into_iter()
+            .map(|(node_id, settled)| (node_id.as_str().to_owned(), settled.step.workflow_run_id))
+            .collect()
+    };
     (
         executed
             .iter()
             .map(|node_id| node_id.as_str().to_owned())
             .collect(),
-        reused
-            .into_iter()
-            .map(|(node_id, settled)| (node_id.as_str().to_owned(), settled.step.workflow_run_id))
-            .collect(),
+        kept(reused),
+        kept(inputs),
     )
 }
 
@@ -432,25 +416,10 @@ fn names(ids: &[&str]) -> Vec<String> {
     ids.iter().map(|&id| id.to_owned()).collect()
 }
 
-/// `ids`, each reusing its step from run `run_id`.
-fn reused_from(run_id: &str, ids: &[&str]) -> Vec<(String, WorkflowRunId)> {
+/// `ids`, each keeping its step from run `run_id`.
+fn reused_from(run_id: &str, ids: &[&str]) -> Vec<KeptStep> {
     let run_id = WorkflowRunId::new(run_id).expect("the test's run id");
     ids.iter().map(|&id| (id.to_owned(), run_id)).collect()
-}
-
-/// `Run this node` executes the target alone and reuses nothing, though its own step and every
-/// step before it are clean. Mutation: cover the target's ancestors on a node run (they are
-/// reused).
-#[test]
-fn a_node_run_executes_the_target_alone() {
-    let connection = workflow_tables();
-    let chain = body(&chain(), CHAIN);
-    store_versions(&connection, &chain, &chain);
-    store_run_steps(&connection, FIRST_RUN_ID, FIRST_VERSION_ID, 1, CHAIN_STEPS);
-    assert_eq!(
-        plan(&connection, &chain, "B", WorkflowNodeExecuteScope::Node),
-        (names(&["B"]), Vec::new())
-    );
 }
 
 /// A covered node no run settled executes, and so does every node after it. Mutation: reuse a
@@ -464,7 +433,11 @@ fn a_covered_node_with_no_settled_step_executes() {
     store_run_steps(&connection, FIRST_RUN_ID, FIRST_VERSION_ID, 1, steps);
     assert_eq!(
         plan(&connection, &chain, "C", WorkflowNodeExecuteScope::FromHere),
-        (names(&["B", "C"]), reused_from(FIRST_RUN_ID, &["T", "A"]))
+        (
+            names(&["B", "C"]),
+            reused_from(FIRST_RUN_ID, &["T", "A"]),
+            Vec::new()
+        )
     );
 }
 
@@ -502,7 +475,11 @@ fn each_node_is_checked_against_its_own_steps_version() {
             "M",
             WorkflowNodeExecuteScope::FromHere
         ),
-        (names(&["T", "M"]), reused_from(SECOND_RUN_ID, &["S"]))
+        (
+            names(&["T", "M"]),
+            reused_from(SECOND_RUN_ID, &["S"]),
+            Vec::new()
+        )
     );
 }
 
@@ -525,7 +502,11 @@ fn a_dirty_node_makes_the_clean_nodes_after_it_execute() {
             "C",
             WorkflowNodeExecuteScope::FromHere
         ),
-        (names(&["A", "B", "C"]), reused_from(FIRST_RUN_ID, &["T"]))
+        (
+            names(&["A", "B", "C"]),
+            reused_from(FIRST_RUN_ID, &["T"]),
+            Vec::new()
+        )
     );
 }
 
@@ -547,7 +528,11 @@ fn a_step_fed_by_another_run_than_its_reused_feeders_executes() {
     );
     assert_eq!(
         plan(&connection, &chain, "C", WorkflowNodeExecuteScope::FromHere),
-        (names(&["B", "C"]), reused_from(SECOND_RUN_ID, &["T", "A"]))
+        (
+            names(&["B", "C"]),
+            reused_from(SECOND_RUN_ID, &["T", "A"]),
+            Vec::new()
+        )
     );
 }
 
@@ -597,6 +582,108 @@ fn a_loop_executes_whole_when_a_node_in_its_body_executes(
             "Y",
             WorkflowNodeExecuteScope::FromHere
         ),
-        (names(&["L", "X", "Y"]), reused_from(FIRST_RUN_ID, &["T"]))
+        (
+            names(&["L", "X", "Y"]),
+            reused_from(FIRST_RUN_ID, &["T"]),
+            Vec::new()
+        )
     );
+}
+
+/// The loop `T → L`, its body `L → X → L` and its done output `L → D`, or with `Y` after `X` in the
+/// body where `has_second_body_node`, every node's step settled in one run.
+fn store_loop_run(connection: &Connection, has_second_body_node: bool) -> Value {
+    let mut nodes = vec![
+        node("L", "test.loop", 1, &json!({})),
+        node("X", "test.step", 2, &json!({})),
+        node("D", "test.step", 4, &json!({})),
+    ];
+    let mut edges = vec![("T", 0, "L", 0), ("L", 1, "X", 0), ("L", 0, "D", 0)];
+    let first_steps: &[(&str, &[(&str, u32)])] =
+        &[("T", &[]), ("L", &[("T", 0)]), ("X", &[("L", 1)])];
+    let mut steps = first_steps.to_vec();
+    if has_second_body_node {
+        nodes.push(node("Y", "test.step", 3, &json!({})));
+        edges.extend([("X", 0, "Y", 0), ("Y", 0, "L", 0)]);
+        steps.push(("Y", &[("X", 2)]));
+    } else {
+        edges.push(("X", 0, "L", 0));
+    }
+    steps.push(("D", &[("L", 1)]));
+    let loop_body = body(&nodes, &edges);
+    store_versions(connection, &loop_body, &loop_body);
+    store_run_steps(connection, FIRST_RUN_ID, FIRST_VERSION_ID, 1, &steps);
+    loop_body
+}
+
+/// `Run from here` on `D`, after a loop whose body is `X`, covers the body though `X` is no
+/// ancestor of `D`. Mutation: drop the covered loop's body from the covered set (`X` is left out).
+#[test]
+fn run_from_here_past_a_loop_covers_its_body() {
+    let connection = workflow_tables();
+    let loop_body = store_loop_run(&connection, false);
+    assert_eq!(
+        plan(
+            &connection,
+            &loop_body,
+            "D",
+            WorkflowNodeExecuteScope::FromHere
+        ),
+        (
+            names(&["D"]),
+            reused_from(FIRST_RUN_ID, &["T", "L", "X"]),
+            Vec::new()
+        )
+    );
+}
+
+/// A run on `X` inside the body `L → X → Y → L`, in either scope, leaves `Y`, which follows `X`,
+/// out of every list, and `L` executes because `X` does. Mutation: let a descendant of the target
+/// join the covered set (`Y` executes).
+#[rstest]
+#[case::from_here(WorkflowNodeExecuteScope::FromHere)]
+#[case::node(WorkflowNodeExecuteScope::Node)]
+fn no_run_covers_a_descendant_of_its_target(#[case] scope: WorkflowNodeExecuteScope) {
+    let connection = workflow_tables();
+    let loop_body = store_loop_run(&connection, true);
+    let kept = reused_from(FIRST_RUN_ID, &["T"]);
+    let (reused, inputs) = match scope {
+        WorkflowNodeExecuteScope::FromHere => (kept, Vec::new()),
+        WorkflowNodeExecuteScope::Node => (Vec::new(), kept),
+    };
+    assert_eq!(
+        plan(&connection, &loop_body, "X", scope),
+        (names(&["L", "X"]), reused, inputs)
+    );
+}
+
+/// `Run this node` on `C` reads the steps before it as its prior input though `A` changed since,
+/// and with `B` never run, `B` executes before `C` and only `T` and `A` are read. Mutations: mark
+/// dirty nodes on a node run (`A` executes); keep a node with no settled step among the inputs
+/// (the second plan fails).
+#[test]
+fn run_this_node_uses_its_ancestors_steps_as_they_are() {
+    let first = body(&chain(), CHAIN);
+    let second = body(
+        &chain_nodes("A", &json!({ "params": { "note": "x" } })),
+        CHAIN,
+    );
+    let without_b: &[(&str, &[(&str, u32)])] =
+        &[("T", &[]), ("A", &[("T", 0)]), ("C", &[("B", 9)])];
+    for (steps, executed, inputs) in [
+        (CHAIN_STEPS, &["C"][..], &["T", "A", "B"][..]),
+        (without_b, &["B", "C"][..], &["T", "A"][..]),
+    ] {
+        let connection = workflow_tables();
+        store_versions(&connection, &first, &second);
+        store_run_steps(&connection, FIRST_RUN_ID, FIRST_VERSION_ID, 1, steps);
+        assert_eq!(
+            plan(&connection, &second, "C", WorkflowNodeExecuteScope::Node),
+            (
+                names(executed),
+                Vec::new(),
+                reused_from(FIRST_RUN_ID, inputs)
+            )
+        );
+    }
 }
