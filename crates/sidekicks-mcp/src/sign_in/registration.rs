@@ -78,7 +78,7 @@ pub(crate) struct ClientRequest<'a> {
     pub(crate) server_address: &'a McpServerAddress,
     /// The redirect address registered and listened on.
     pub(crate) redirect_address: &'a Url,
-    /// The `client_id` the server's owner issued, which the entry names.
+    /// The `client_id` the server's owner issued, when the entry names one.
     pub(crate) owner_client_id: Option<&'a str>,
     /// The scopes the sign-in asks for.
     pub(crate) scopes: &'a [String],

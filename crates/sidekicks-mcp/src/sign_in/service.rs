@@ -100,7 +100,8 @@ pub(crate) enum SignInServer {
     Address(AddressedServer),
 }
 
-/// A server reached at an address, with the client its owner issued when the entry names one.
+/// A server reached at an address, with the client its owner issued when the entry names either
+/// half of one.
 #[derive(Clone)]
 pub(crate) struct AddressedServer {
     /// The server's address as the binding declares it.
@@ -111,7 +112,7 @@ pub(crate) struct AddressedServer {
 }
 
 impl AddressedServer {
-    /// The server at `address`, signed in to as `owner_client` when its owner issued one.
+    /// The server at `address`, signed in to as `owner_client` where the entry gives either half.
     /// `address` is the whole one the server's entry declares, its user name and query kept, held
     /// only in memory and never the stripped address the inventory serves.
     #[cfg_attr(
@@ -130,8 +131,9 @@ impl AddressedServer {
     }
 }
 
-/// A client the server's owner issued for it: the id to sign in as and the callback address
-/// registered with it.
+/// A client the server's owner issued for it, from whichever half the entry gives, at least one:
+/// the id to sign in as, with no registration, and the callback address the receiver listens on
+/// and the client is registered with.
 #[derive(Clone)]
 #[cfg_attr(
     not(test),
@@ -141,10 +143,10 @@ impl AddressedServer {
     )
 )]
 pub(crate) struct OwnerIssuedClient {
-    /// The `client_id` the owner issued.
-    pub(crate) client_id: String,
-    /// The callback address registered with that client.
-    pub(crate) callback_url: Url,
+    /// The `client_id` the owner issued; `None` takes the client the sign-in's order finds.
+    pub(crate) client_id: Option<String>,
+    /// The callback address registered with the client; `None` listens on a free loopback port.
+    pub(crate) callback_url: Option<Url>,
 }
 
 /// The account each provider's flow runs for, by provider; a provider with no account here offers
@@ -321,17 +323,18 @@ impl SignInService {
             &metadata.authorization_endpoint,
             &metadata.additional_fields,
         );
-        // An owner-issued callback is registered as it is, so it never takes the server's id.
-        let callback_path = if server.owner_client.is_some() || is_issuer_in_response {
+        let owner_callback = server
+            .owner_client
+            .as_ref()
+            .and_then(|owner| owner.callback_url.as_ref());
+        // An owner-issued callback is registered as it is, so it never takes the server's id; the
+        // daemon's own loopback address, a client id alone's included, takes it unless the server
+        // returns `iss`.
+        let callback_path = if owner_callback.is_some() || is_issuer_in_response {
             CallbackPath::Shared
         } else {
             CallbackPath::PerServer(&server.canonical_address)
         };
-
-        let owner_callback = server
-            .owner_client
-            .as_ref()
-            .map(|owner| &owner.callback_url);
         let (listener, redirect_address) =
             match RedirectListener::bind(owner_callback, callback_path).await {
                 Ok(listener) => {
@@ -360,7 +363,7 @@ impl SignInService {
             owner_client_id: server
                 .owner_client
                 .as_ref()
-                .map(|owner| owner.client_id.as_str()),
+                .and_then(|owner| owner.client_id.as_deref()),
             scopes,
         };
         let mut client = choose_client(

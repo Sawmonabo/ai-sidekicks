@@ -7,12 +7,48 @@ use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 
-use super::{ATTEMPT_LIFETIME, ProviderAccounts, SignInServer, SignInTarget};
+use super::{
+    ATTEMPT_LIFETIME, AddressedServer, OwnerIssuedClient, ProviderAccounts, SignInServer,
+    SignInTarget,
+};
 use crate::errors::{McpRefusal, SignInLaunchError};
 use crate::sign_in::test_service::{
     FakeServerAnswers, Harness, addressed_target, harness, launch_to_browser, provider,
     serve_authorization_server, server_name,
 };
+
+/// The client id a test entry's owner issued.
+const OWNER_CLIENT_ID: &str = "owner-client";
+
+// The values of the browser address's parameter `name`, in order.
+fn parameters(browser_url: &Url, name: &str) -> Vec<String> {
+    browser_url
+        .query_pairs()
+        .filter(|(parameter, _value)| parameter == name)
+        .map(|(_parameter, value)| value.into_owned())
+        .collect()
+}
+
+// A user binding of the server at `base` whose entry gives `owner` as its owner's client.
+fn owner_target(base: &str, owner: OwnerIssuedClient) -> SignInTarget {
+    SignInTarget {
+        server: SignInServer::Address(AddressedServer::new(
+            McpServerAddress::new(base).expect("a server address"),
+            Some(owner),
+        )),
+        ..addressed_target(base)
+    }
+}
+
+// A loopback port free when asked, which an owner's callback names.
+async fn free_port() -> u16 {
+    tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("a local port")
+        .local_addr()
+        .expect("the port's address")
+        .port()
+}
 
 // The loopback port the receiver of the attempt behind `browser_url` listens on.
 fn receiver_port(browser_url: &Url) -> u16 {
@@ -160,4 +196,66 @@ async fn a_binding_no_sign_in_reaches_is_refused_before_anything_is_sent(
     ));
     assert_eq!(server.requests.load(Ordering::SeqCst), 0);
     assert!(super::lock(&harness.service.attempts).by_address.is_empty());
+}
+
+/// An entry naming only its owner's client id signs in as that client with no registration, the
+/// browser returning to the daemon's own loopback receiver on the server's own path. Killed by
+/// registering anyway (the fake refuses every registration, which refuses the launch), and by the
+/// shared path taken for a client id alone.
+#[tokio::test]
+async fn a_client_id_alone_signs_in_as_that_client_with_no_registration() {
+    let server = serve_authorization_server(FakeServerAnswers {
+        is_registration_refused: true,
+        ..FakeServerAnswers::default()
+    })
+    .await;
+    let harness = harness().await;
+    let target = owner_target(
+        &server.base,
+        OwnerIssuedClient {
+            client_id: Some(OWNER_CLIENT_ID.to_owned()),
+            callback_url: None,
+        },
+    );
+
+    let browser_url = launch_to_browser(&harness, &target).await;
+
+    assert_eq!(parameters(&browser_url, "client_id"), [OWNER_CLIENT_ID]);
+    let redirect_uri =
+        Url::parse(&parameters(&browser_url, "redirect_uri")[0]).expect("the redirect is a URL");
+    let segments: Vec<&str> = redirect_uri
+        .path_segments()
+        .expect("the redirect has a path")
+        .collect();
+    assert_eq!(segments[0], "callback");
+    assert_eq!(segments.len(), 2, "the server's own path carries its id");
+    assert!(is_listening(receiver_port(&browser_url)).await);
+}
+
+/// An entry naming only its owner's callback is listened for at that callback's port and path,
+/// and the daemon's own client is registered with it. Killed by the service's own loopback
+/// address used in its place, and by the registration skipped.
+#[tokio::test]
+async fn a_callback_alone_is_listened_on_and_registered() {
+    let server = serve_authorization_server(FakeServerAnswers::default()).await;
+    let harness = harness().await;
+    let port = free_port().await;
+    let callback_url =
+        Url::parse(&format!("http://127.0.0.1:{port}/owner/return")).expect("a callback address");
+    let target = owner_target(
+        &server.base,
+        OwnerIssuedClient {
+            client_id: None,
+            callback_url: Some(callback_url.clone()),
+        },
+    );
+
+    let browser_url = launch_to_browser(&harness, &target).await;
+
+    assert_eq!(
+        parameters(&browser_url, "redirect_uri"),
+        [callback_url.as_str()]
+    );
+    assert_eq!(parameters(&browser_url, "client_id"), ["registered-client"]);
+    assert!(is_listening(port).await);
 }

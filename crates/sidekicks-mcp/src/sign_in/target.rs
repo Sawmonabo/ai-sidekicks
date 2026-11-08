@@ -195,19 +195,25 @@ impl SignInTargetReads {
 /// An owner's callback that does not parse as an address.
 struct OwnerCallbackUnparsed;
 
-// The owner's client, built when the entry gives both its id and a callback that parses; any
-// other entry builds none.
+// The owner's client, built from whichever of its id and its callback the entry gives; an entry
+// that gives neither builds none, and a callback that does not parse is refused.
 fn owner_client_of(
     sign_in_client: Option<McpServerSignInClient>,
 ) -> Result<Option<OwnerIssuedClient>, OwnerCallbackUnparsed> {
     let Some(McpServerSignInClient {
-        client_id: Some(client_id),
-        callback_url: Some(callback_url),
+        client_id,
+        callback_url,
     }) = sign_in_client
     else {
         return Ok(None);
     };
-    let callback_url = Url::parse(&callback_url).map_err(|_error| OwnerCallbackUnparsed)?;
+    let callback_url = callback_url
+        .map(|callback_url| Url::parse(&callback_url))
+        .transpose()
+        .map_err(|_error| OwnerCallbackUnparsed)?;
+    if client_id.is_none() && callback_url.is_none() {
+        return Ok(None);
+    }
     Ok(Some(OwnerIssuedClient {
         client_id,
         callback_url,
