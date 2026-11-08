@@ -18,10 +18,11 @@
 //!   receivers.
 //! - Every folder's changes, its watch's start and its end also reach the folder-change
 //!   receivers by its key, whether or not a session subscribes, with how its tree is followed.
-//! - The daemon's worktree at a folder moves `-> dirty`, back to `ready` or `-> merged` with its
-//!   event, checked at the watch's start and before each change goes out, so a reader the change
-//!   wakes reads it; whether its branch merged back is read only at the start and after a change in
-//!   its git folder.
+//! - The daemon's worktree at a folder moves `-> dirty` or back to `ready` with its event, checked
+//!   at the watch's start and before each change goes out, so a reader the change wakes reads it;
+//!   it moves `-> merged` with its event once its branch merged back, read after the start is
+//!   answered and after the change goes out, so no subscriber waits for it, and only at the start,
+//!   after a change in its git folder and once the tree reads clean again.
 
 use std::collections::HashMap;
 use std::io;

@@ -697,6 +697,16 @@ impl WatchedTree {
     // Writes `name` in the tree and tells the watch.
     async fn write_file(&mut self, name: &str) {
         std::fs::write(self.tree.join(name), name).expect("written");
+        self.tell_file_changed(name).await;
+    }
+
+    // Removes `name` from the tree and tells the watch.
+    async fn remove_file(&mut self, name: &str) {
+        std::fs::remove_file(self.tree.join(name)).expect("removed");
+        self.tell_file_changed(name).await;
+    }
+
+    async fn tell_file_changed(&mut self, name: &str) {
         let root = canonical_folder_path(&self.tree)
             .await
             .expect("the tree resolves");
@@ -730,10 +740,12 @@ enum MergeStyle {
 }
 
 // A fresh tree reads neither dirty nor merged; new uncommitted work moves its row `-> dirty`,
-// committing it back to `ready`, and its branch merged back `-> merged`, each with its one event.
-// Kills a move written without its event, an event appended without its move, a fresh tree read as
-// merged, the clean move dropped, a squash merge left unseen, and a fast-forward merge whose commit
-// the watch never saw before it merged left unseeded from the reflog.
+// committing it back to `ready`, and its branch merged back `-> merged`, each with its one event;
+// a merged tree dirtied and cleaned by file edits alone reads merged again. Kills a move written
+// without its event, an event appended without its move, a fresh tree read as merged, the clean
+// move dropped, a squash merge left unseen, a fast-forward merge whose commit the watch never saw
+// before it merged left unseeded from the reflog, and a clean move that leaves the merged check
+// waiting for a change in the git folder.
 #[rstest]
 #[case::fast_forward(MergeStyle::FastForward)]
 #[case::squash(MergeStyle::Squash)]
@@ -776,6 +788,19 @@ async fn a_tree_reads_dirty_then_ready_then_merged_once_its_own_commits_merge_ba
                 watched.event("merged", "merged"),
             ]
         )
+    );
+
+    watched.write_file("scratch.txt").await;
+    watched.remove_file("scratch.txt").await;
+    let (state, events) = watched.settled_state().await;
+    assert_eq!(state, "merged");
+    assert_eq!(
+        events[3..],
+        [
+            watched.event("dirtied", "dirty"),
+            watched.event("cleaned", "ready"),
+            watched.event("merged", "merged"),
+        ]
     );
 }
 

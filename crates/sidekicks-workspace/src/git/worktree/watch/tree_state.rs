@@ -3,11 +3,12 @@
 //! reads clean again, and `ready -> merged` once its branch has merged back, each with its event in
 //! the row's own write.
 //!
-//! - Whether the tree is clean is one `git status` on each change burst; a folder holding no
-//!   standing tree costs one row read and runs no git.
-//! - Whether its branch merged back is read only at the watch's start and after a change in the
-//!   tree's git folder, which every commit, merge, fetch or ref move makes, never after a burst of
-//!   file changes alone ([`super::merged`]).
+//! - Whether the tree is clean is one `git status` on each change burst, read before the burst's
+//!   change goes out; a folder holding no standing tree costs one row read and runs no git.
+//! - Whether its branch merged back is read after the change goes out, so no subscriber waits for
+//!   it: at the watch's start, after a change in the tree's git folder, which every commit, merge,
+//!   fetch or ref move makes, and after the tree reads clean again, never after a burst of file
+//!   changes alone that leaves it as it was ([`super::merged`]).
 //! - Every failure is logged, and the folder's next change checks again.
 
 use std::error::Error;
@@ -77,6 +78,15 @@ static MARK_MERGED_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+/// The daemon's standing tree at a watched folder that reads clean and `ready`, which the merged
+/// check reads, and whether this check moved it back from `dirty`.
+pub(super) struct ReadyTree {
+    /// The tree.
+    pub(super) tree: StandingTree,
+    /// Whether this check wrote its `dirty -> ready` move.
+    pub(super) is_cleaned: bool,
+}
+
 /// The daemon's standing tree at a watched folder, as the state moves read it.
 pub(super) struct StandingTree {
     /// Its row.
@@ -105,59 +115,70 @@ enum StandingTreeReadError {
     Row(#[from] rusqlite::Error),
 }
 
-/// Reads the daemon's standing tree at `target`'s folder and writes each move what the folder at
-/// `key` shows makes due, with its event in the same write; whether its branch merged back is read
-/// only when `is_merged_check_due`. A write the row refused, its tree retired or moved meanwhile,
-/// appends nothing.
-pub(super) async fn check_tree_state(
+/// Reads the daemon's standing tree at `target`'s folder and writes its `-> dirty` or
+/// `dirty -> ready` move where the folder at `key` makes one due, with its event in the same write;
+/// answers the tree when it reads clean and `ready`. A write the row refused, its tree retired or
+/// moved meanwhile, appends nothing.
+pub(super) async fn check_uncommitted_work(
     shared: &WatcherShared,
     key: &Path,
     target: &WatchTarget,
-    merged: &mut MergedCheck,
-    is_merged_check_due: bool,
-) {
+) -> Option<ReadyTree> {
     let tree = match read_standing_tree(shared, target).await {
         Ok(Some(tree)) => tree,
-        Ok(None) => return,
+        Ok(None) => return None,
         Err(error) => {
             tracing::warn!(
                 error = &error as &(dyn Error + 'static),
                 "the worktree at a working folder could not be read, so its state is not written \
                  yet"
             );
-            return;
+            return None;
         }
     };
-    let place = target.place.as_ref();
-    let is_dirty = match has_uncommitted_work(&shared.deps.git, place, key).await {
+    let is_dirty = match has_uncommitted_work(&shared.deps.git, target.place.as_ref(), key).await {
         Ok(is_dirty) => is_dirty,
         Err(error) => {
             tracing::warn!(
                 error = &error as &(dyn Error + 'static),
                 "a worktree's uncommitted work could not be read, so its state is not written yet"
             );
-            return;
+            return None;
         }
     };
     if is_dirty {
         if tree.row.state != WorktreeState::Dirty {
             write_move(shared, &tree.row, TreeMove::Dirtied).await;
         }
-        return;
+        return None;
     }
-    let is_ready = match tree.row.state {
-        WorktreeState::Dirty => write_move(shared, &tree.row, TreeMove::Cleaned).await,
-        WorktreeState::Ready => true,
+    let is_cleaned = match tree.row.state {
+        WorktreeState::Dirty => {
+            if !write_move(shared, &tree.row, TreeMove::Cleaned).await {
+                return None;
+            }
+            true
+        }
+        WorktreeState::Ready => false,
         WorktreeState::Merged
         | WorktreeState::Creating
         | WorktreeState::Retired
-        | WorktreeState::Failed => false,
+        | WorktreeState::Failed => return None,
     };
-    if !is_ready || !is_merged_check_due {
-        return;
-    }
+    Some(ReadyTree { tree, is_cleaned })
+}
+
+/// Writes `tree`'s `ready -> merged` move, with its event in the same write, once its branch,
+/// checked out at `key`, has merged back. A write the row refused appends nothing.
+pub(super) async fn check_merged_back(
+    shared: &WatcherShared,
+    key: &Path,
+    target: &WatchTarget,
+    merged: &mut MergedCheck,
+    tree: &StandingTree,
+) {
     match merged
-        .has_merged_back(&shared.deps, place, key, &tree)
+        .has_merged_back(&shared.deps, target.place.as_ref(), key, tree)
         .await
     {
         Ok(true) => {
