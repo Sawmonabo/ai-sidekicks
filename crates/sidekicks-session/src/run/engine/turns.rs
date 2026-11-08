@@ -4,7 +4,7 @@
 //! the steps of a turn counted against its step bound.
 
 pub(crate) mod guards;
-mod steers;
+pub(crate) mod steers;
 
 use std::error::Error;
 use std::sync::{Arc, LazyLock};

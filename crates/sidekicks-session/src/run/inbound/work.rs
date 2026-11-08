@@ -1,11 +1,14 @@
 //! The engine call a delivery on a binding makes once the inbound dispatch has attributed it: a
-//! run's move, a continue, a child run's start or a marker, each absorbed when its run has ended,
-//! or a child run's parent correction, which lands on an ended run too.
+//! run's move, a continue, a child run's start, a marker or a steer, each absorbed when its run has
+//! ended, or a child run's parent correction, which lands on an ended run too. A steer's row moves
+//! its binding to the next run position once it is written.
 
 use std::error::Error;
 
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::run::delivery::{
     ChildRunSubagent, InboundOutcome, LateEventAbsorbReason, RunMarker,
 };
@@ -13,6 +16,7 @@ use sidekicks_provider::run::state_entry::RunStateReport;
 use sidekicks_provider::run::turn_end::ProviderTurnEnd;
 
 use crate::run::engine::SubagentRunStart;
+use crate::run::engine::turns::steers::SteerRecord;
 use crate::run::epochs::{DeliveryAttribution, EpochBinding};
 use crate::run::inbound::{
     AbsorbedDelivery, InboundDispatchError, RunInboundDispatch, is_ended_run_refusal,
@@ -41,6 +45,11 @@ pub(super) enum RunWork {
     Marker {
         marker: RunMarker,
     },
+    Steered {
+        run_id: RunId,
+        turn_number: SafeInt<1>,
+        message_id: QueueItemId,
+    },
 }
 
 impl RunWork {
@@ -55,6 +64,7 @@ impl RunWork {
                 ("childRunParentCorrected", *child_run_id, None)
             }
             Self::Marker { marker } => ("runMarker", marker.run_id(), None),
+            Self::Steered { run_id, .. } => ("turnSteered", *run_id, None),
         };
         AbsorbedDelivery {
             kind,
@@ -157,6 +167,26 @@ impl RunInboundDispatch {
             RunWork::Marker { marker } => match self.engine.append_run_marker(marker).await? {
                 Some(event_id) => InboundOutcome::Appended { event_id },
                 None => run_ended().await?,
+            },
+            RunWork::Steered {
+                run_id,
+                turn_number,
+                message_id,
+            } => match self
+                .engine
+                .record_steer(run_id, turn_number, message_id)
+                .await?
+            {
+                SteerRecord::Written(event_id) => {
+                    // Moved after the write, so the cursor and the log's fold agree: the driver
+                    // awaits each delivery, and no cut fences a binding while its turn is open.
+                    self.lock_epochs().move_to_next_position(&binding.id)?;
+                    InboundOutcome::Appended { event_id }
+                }
+                SteerRecord::RunEnded => run_ended().await?,
+                // An answer or the daemon's own words written into the turn: no warning, since
+                // answering a held ask is normal operation.
+                SteerRecord::NotSent => InboundOutcome::NotSentByPerson,
             },
         })
     }

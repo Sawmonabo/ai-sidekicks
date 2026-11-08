@@ -223,11 +223,11 @@ impl ExecutionEpochs {
             })
     }
 
-    /// Counts a turn boundary the binding delivered: the current generation moves to its next run
-    /// position, the one the turn's opening message takes. On a frozen binding nothing moves, and
-    /// the boundary belongs to the execution before the cut. Fails with
+    /// Counts one of the person's messages the binding's run took, a turn's opening or a steer: the
+    /// current generation moves to its next run position, the one that message takes. On a frozen
+    /// binding nothing moves, and the message belongs to the execution before the cut. Fails with
     /// [`EpochCursorError::NotOpen`] for a binding with no cursor open.
-    pub(crate) fn open_turn(
+    pub(crate) fn move_to_next_position(
         &mut self,
         binding_id: &RuntimeBindingId,
     ) -> Result<DeliveryAttribution, EpochCursorError> {
@@ -539,7 +539,7 @@ mod tests {
             match *step {
                 Step::Turn => {
                     epochs
-                        .open_turn(&old)
+                        .move_to_next_position(&old)
                         .expect("the binding's cursor is open");
                 }
                 Step::Open(correlation_key) => {

@@ -270,7 +270,7 @@ impl ClaudeDeliveryStream {
                 .note_report(mode, frame_kind, &session.provider_account_id());
         }
         if kind == ClaudeWireFrameKind::CommandLifecycle {
-            self.read_command_lifecycle(session, &members);
+            self.read_command_lifecycle(session, &members).await;
             return after;
         }
         // The account's quota, whichever turn it came on.

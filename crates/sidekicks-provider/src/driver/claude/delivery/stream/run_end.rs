@@ -1,5 +1,6 @@
 //! A turn's opening and its end on the session's task. The first frame of a run's turn opens and
-//! numbers it; the turn-ending lead `result` composes its end, passes the session's terminal gate
+//! numbers it, and the messages of its run taken while no turn of it was open land right after,
+//! its opening aside; the turn-ending lead `result` composes its end, passes the session's terminal gate
 //! once per turn, and is delivered, held while the daemon's own end of the run is not certain,
 //! carried while a steer of the run waits for the turn Claude Code starts with it, or written as a
 //! turn end alone where it moves no run. An end the run engine could not take is followed by a
@@ -36,7 +37,8 @@ impl ClaudeDeliveryStream {
     // The first frame of a run's turn opens it: an interrupt still held answered as taken, the
     // continued run's report, the boundary, then the turn numbered under the uuid of the user
     // message that opened it, which is that message's queue item, the readings of the turn before
-    // emptied.
+    // emptied; the run's other messages taken before it opened land after its start, in the order
+    // taken, and every other run's are dropped.
     pub(super) async fn open_turn(&self, session: &ClaudeSessionStream, lead: &ClaudeBoundRun) {
         let routes = &self.dependencies.routes;
         if session
@@ -51,8 +53,10 @@ impl ClaudeDeliveryStream {
         let opening = opening_uuid
             .as_deref()
             .and_then(|uuid| QueueItemId::new(uuid).ok());
-        let turn_id = opening_uuid.and_then(|uuid| ProviderTurnId::new(uuid).ok());
-        let (interrupted, continues) = {
+        let turn_id = opening_uuid
+            .clone()
+            .and_then(|uuid| ProviderTurnId::new(uuid).ok());
+        let (interrupted, continues, taken) = {
             let mut readings = session.lock();
             readings.carried_ends.remove(&lead.run_id);
             // Claude Code started its next turn with the steers it kept, so the interrupt took.
@@ -68,7 +72,13 @@ impl ClaudeDeliveryStream {
                 run_id: lead.run_id,
                 binding_id: lead.binding_id.clone(),
                 turn_number: None,
+                opening: opening_uuid,
             });
+            let taken: Vec<QueueItemId> = std::mem::take(&mut readings.taken_without_turn)
+                .into_iter()
+                .filter(|taken| taken.run_id == lead.run_id && Some(taken.message_id) != opening)
+                .map(|taken| taken.message_id)
+                .collect();
             readings.failed_call_words.clear();
             readings.helper_resumes.clear_message_calls();
             readings.event_ids_by_message_key.clear();
@@ -78,7 +88,7 @@ impl ClaudeDeliveryStream {
             readings.is_retries_spent = false;
             readings.is_goal_check_capped = false;
             readings.turn_readings.open(lead.run_id, turn_id.clone());
-            (interrupted, continues)
+            (interrupted, continues, taken)
         };
         if let Some(interrupted) = interrupted {
             self.deliver_turn_end(session, lead.run_id, interrupted)
@@ -110,7 +120,19 @@ impl ClaudeDeliveryStream {
         if let Some(turn) = session.lock().turn.as_mut()
             && turn.run_id == lead.run_id
         {
-            turn.turn_number = started.map(|started| started.turn_number);
+            turn.turn_number = started.as_ref().map(|started| started.turn_number);
+        }
+        // A turn its run ended as it opened has no number to land them in.
+        let Some(started) = started else {
+            return;
+        };
+        for message_id in taken {
+            let steered = InboundDelivery::TurnSteered {
+                binding_id: lead.binding_id.clone(),
+                turn_number: started.turn_number,
+                message_id,
+            };
+            self.send(session, steered, None).await;
         }
     }
 

@@ -2,12 +2,12 @@
 //! band and turn waits, and handles each frame, ask and call in arrival order. A frame first opens
 //! the run of a turn Codex started by itself, then feeds the speed, effort and profile readings,
 //! then is routed and delivered; what its delivery reports is applied after: each context-window
-//! reading filed on its turn's run, each steer Codex echoed taken from the queue once, each ended
-//! turn's route retired, its end recorded where no run moved, its pause or continue acted on and
-//! its owed fork let go, each turn's readings and the session's context reading published, and the
-//! spend it metered recorded in metering order. Each settled step publishes the session's
-//! context reading again with no usage when its model or window changed. The driver's own calls on
-//! the record take their place among the frames too.
+//! reading filed on its turn's run, the queue told of each steer Codex echoed, each ended turn's
+//! route retired, its end recorded where no run moved, its pause or continue acted on and its owed
+//! fork let go, each turn's readings and the session's context reading published, and the spend it
+//! metered recorded in metering order. Each settled step publishes the session's context reading
+//! again with no usage when its model or window changed. The driver's own calls on the record take
+//! their place among the frames too.
 //!
 //! A full usage queue holds the task until the sink takes a batch, so no spend is lost: while the
 //! database writer stalls, this session's frames, asks and calls wait behind it, as every other
@@ -47,9 +47,7 @@ use crate::driver::codex::output_speed::observe_codex_output_speed_frame;
 use crate::driver::codex::run::control::CodexRunControl;
 use crate::driver::codex::run::routes::CodexRunRoutes;
 use crate::driver::codex::run::self_started_turns::open_codex_self_started_turn;
-use crate::driver::codex::run::steer::{
-    remember_codex_prompt_hook_run, take_blocked_codex_steers, take_echoed_codex_steer,
-};
+use crate::driver::codex::run::steer::{remember_codex_prompt_hook_run, take_blocked_codex_steers};
 use crate::driver::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnEndWaiters};
 use crate::driver::codex::server_requests::{
     CodexInboundServerRequest, CodexServerRequestDecision,
@@ -545,14 +543,14 @@ pub(crate) struct CodexRoutedFramesIntake<'parts> {
     pub(crate) delivery: &'parts CodexFrameDelivery,
 }
 
-/// Applies what a delivery reported on `record`'s session, in delivery order: each
-/// context-window reading filed on its run and each metered delta attributed to its binding before
-/// any turn's end retires the route, each live turn's tokens received published, each steer Codex
-/// echoed taken from the queue once, each prompt's hook runs remembered, each turn's task list
-/// published, and for each ended turn its blocked steers refused and those a pause or a retry
-/// dropped given back, its end recorded where no run moved, its route retired, its pause or
-/// continue acted on and its owed fork let go. Answers the spend it metered, for the session's
-/// task to record.
+/// Applies what a delivery reported on `record`'s session, in delivery order: each context-window
+/// reading filed on its run and each metered delta attributed to its binding before any turn's end
+/// retires the route, each live turn's tokens received published, the queue told of each steer
+/// Codex echoed, which its frame already landed, each prompt's hook runs remembered, each turn's
+/// task list published, and for each ended turn its blocked steers refused and those a pause or a
+/// retry dropped given back, its end recorded where no run moved, its route retired, its pause or
+/// continue acted on and its owed fork let go. Answers the spend it metered, for the session's task
+/// to record.
 pub(crate) async fn apply_codex_routed_frames(
     intake: &CodexRoutedFramesIntake<'_>,
     record: &mut CodexSessionRecord,
@@ -575,17 +573,12 @@ pub(crate) async fn apply_codex_routed_frames(
             }
         }
         for taken in dispatch.taken_messages {
-            let Some(message_id) =
-                take_echoed_codex_steer(record, &taken.turn_id, &taken.client_message_id)
-            else {
-                continue;
-            };
             let run_id = record
                 .active_turn_run(&taken.turn_id)
                 .or_else(|| record.interrupted_turn_run(&taken.turn_id));
             // Before the queue registers its intake there is no queue to tell.
             if let (Some(run_id), Some(listener)) = (run_id, intake.ports.message_taken.port()) {
-                listener.message_taken(session_id, &message_id.to_string(), run_id);
+                listener.message_taken(session_id, &taken.message_id.to_string(), run_id);
             }
         }
         for hook_run in dispatch.prompt_hook_runs {

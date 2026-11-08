@@ -58,6 +58,10 @@ pub(crate) struct RecordedDelivery {
     pub(crate) ended_turn_number: Option<SafeInt<1>>,
     /// Whether it is the end of the daemon's own interrupt.
     pub(crate) is_daemon_interrupt_end: bool,
+    /// The turn a steer delivery's message joined.
+    pub(crate) steered_turn_number: Option<SafeInt<1>>,
+    /// The queue item whose message a steer delivery says the provider took.
+    pub(crate) message_id: Option<QueueItemId>,
     /// The run the delivery names.
     pub(crate) run_id: Option<RunId>,
     /// The run a child run delivery starts beneath, or a parent correction moves its run under.
@@ -290,6 +294,7 @@ impl InboundDispatch for RecordingRunEngine {
                 None,
             ),
             InboundDelivery::SessionRow { .. }
+            | InboundDelivery::TurnSteered { .. }
             | InboundDelivery::AfterRunRow { .. }
             | InboundDelivery::UnstampedRow { .. }
             | InboundDelivery::ThinkingUpdate { .. }
@@ -467,6 +472,8 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
         turn_end: None,
         ended_turn_number: None,
         is_daemon_interrupt_end: false,
+        steered_turn_number: None,
+        message_id: None,
         run_id: None,
         parent_run_id: None,
         subagent: None,
@@ -479,6 +486,16 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
         InboundDelivery::TurnBoundary { binding_id } => {
             recorded.kind = "turnBoundary";
             recorded.binding_id = Some(binding_id.clone());
+        }
+        InboundDelivery::TurnSteered {
+            binding_id,
+            turn_number,
+            message_id,
+        } => {
+            recorded.kind = "turnSteered";
+            recorded.binding_id = Some(binding_id.clone());
+            recorded.steered_turn_number = Some(*turn_number);
+            recorded.message_id = Some(*message_id);
         }
         InboundDelivery::RunLifecycle {
             binding,

@@ -142,6 +142,7 @@ impl ClaudeSessionStream {
             run_id: run.run_id,
             binding_id: run.binding_id,
             turn_number: Some(turn_number),
+            opening: None,
         });
         before
     }
