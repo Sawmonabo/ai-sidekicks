@@ -2,7 +2,7 @@
 
 The MCP server governance tables of the daemon's one SQLite schema. The [Local SQLite Schema](local-sqlite-schema.md) holds its pragmas, its conventions and every other area.
 
-Machine-scoped governance state for [Spec-024](../../specs/024-mcp-server-configuration-and-governance.md) (V1 feature #15): the binding store (each binding's enabled overlay and native-tool baseline), the per-tool override store, the per-project switch for the servers Claude Code brings itself, the governance-mutation idempotency receipt store with the pin of the key its digests are taken under, and the record of which OAuth client each server admitted. Provider config files remain the config source of truth — the daemon persists only governance state and derives the unified inventory on read, so no table here mirrors provider config ([Spec-024 § State And Data Implications](../../specs/024-mcp-server-configuration-and-governance.md#state-and-data-implications)). All the tables here are daemon-local with no session FK; settled sign-ins are the `mcp.*` event type in the `mcpGovernance` category, appended through the Plan-004 `EventLogService` path, and a status change is a live notice on `mcp.subscribe` written to no log (receipts are retry-window dedup evidence, deliberately not audit rows).
+Machine-scoped governance state for [Spec-024](../../specs/024-mcp-server-configuration-and-governance.md) (V1 feature #15): the binding store (each binding's enabled overlay, native-tool baseline and last declared address), the per-tool override store, the per-project switch for the servers Claude Code brings itself, the governance-mutation idempotency receipt store with the pin of the key its digests are taken under, the record of which OAuth client each server admitted, and the sign-outs a binding's removal owes. Provider config files remain the config source of truth — the daemon persists only governance state and derives the unified inventory on read, so no table here mirrors provider config ([Spec-024 § State And Data Implications](../../specs/024-mcp-server-configuration-and-governance.md#state-and-data-implications)). All the tables here are daemon-local with no session FK; settled sign-ins are the `mcp.*` event type in the `mcpGovernance` category, appended through the Plan-004 `EventLogService` path, and a status change is a live notice on `mcp.subscribe` written to no log (receipts are retry-window dedup evidence, deliberately not audit rows).
 
 ```sql
 -- Owner: Plan-022
@@ -15,6 +15,7 @@ CREATE TABLE mcp_server_bindings (
   server_name        TEXT NOT NULL,
   enabled_override   INTEGER
                      CHECK(enabled_override IS NULL OR enabled_override IN (0, 1)),  -- the daemon's own switch for a binding whose provider keeps none: Claude bindings, every plugin binding and a Codex `local` binding the daemon emulates — Claude user scope has no enabled field, a plugin's declaration is the plugin's, and an emulated `local` add's receipt carries the switch its config asks (on for a new server asking nothing), which the landed commit writes; Codex's other bindings use its native `enabled` config field; NULL = no overlay
+  last_declared_address TEXT,  -- the canonical address the binding's whole address last read as, written at each read that declares one; a removal whose address no longer reads (a variable lost its value) signs this one out, a remaining binding whose address no longer reads keeps its sign-in, and a read at another address owes this one's sign-out; NULL until one has read
   native_tool_baseline_json TEXT,        -- pre-governance snapshot of the binding's native override-projection fields (enabled_tools / disabled_tools / tools.<t>.approval_mode), captured at the first facet materialization, held while any facet is materialized, dropped once facet-free; Codex-materialized bindings only (Claude facets are daemon-enforced — no native writes, no baseline). mcp.toolOverride.clear restores from it (Spec-024 §Tool-Level Overrides) — without it, restore-on-clear would invent values
   first_observed_at  TEXT NOT NULL,
   updated_at         TEXT NOT NULL,
@@ -141,5 +142,17 @@ CREATE TABLE mcp_server_admitted_clients (
   admitted_oauth_client    TEXT,  -- the open id of the provider whose own client the server admitted; NULL until one has
   own_client_unfinished_at TEXT,  -- when the daemon's own client last ended an attempt with no callback; NULL otherwise
   CHECK(admitted_oauth_client IS NOT NULL OR own_client_unfinished_at IS NOT NULL)
+) STRICT;
+```
+
+```sql
+-- Owner: Plan-022
+-- The sign-out a removed binding, or one whose address changed, owes the server it named: written before the
+-- provider's write, so a stop between the write and the sign-out leaves it for the next start, and cleared once a
+-- settle finds another binding naming the address or signs the server out. A credential store that refuses the
+-- sign-out keeps the row for the next settle, at the daemon's start or after a sign-in or sign-out press. Not a
+-- credential.
+CREATE TABLE mcp_server_owed_sign_outs (
+  server_address TEXT NOT NULL PRIMARY KEY  -- the server's canonical address, the account its sign-in is kept under
 ) STRICT;
 ```

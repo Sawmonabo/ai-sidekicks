@@ -389,7 +389,12 @@ interface McpLiveApplicationResult {
 // McpApplicationGrade, liveResults?: McpLiveApplicationResult[], reloadFailure?: string} //
 // removing an emulated Codex
 // local server also removes the daemon's row for it; removing any server removes every approval
-// rule over its tools from the provider's file that holds it, in the same transaction
+// rule over its tools from the provider's file that holds it, in the same transaction; removing
+// the last binding, at any scope on either provider, that names a signed-in server's address signs
+// that server out once the delete lands, as mcp.server.signOut does, and a delete leaving another
+// binding at that address keeps the sign-in; a credential store that refuses the removal refuses
+// nothing: the sign-out stays owed and is retried at the next start and at each later sign-in or
+// sign-out
 //   mcp.server.enabled.update        McpServerBindingRef & {clientIdempotencyKey: string, enabled:
 // boolean, projectRoot?: string, place?: WslPlace} → {server: McpServerInventoryEntry, applied:
 // McpApplicationGrade, liveResults?: McpLiveApplicationResult[], reloadFailure?: string} //
