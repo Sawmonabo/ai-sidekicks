@@ -14,7 +14,7 @@ use sidekicks_contracts::wire::number::PositiveNumber;
 use sidekicks_contracts::wire::record::Record;
 
 use crate::driver::mcp_server::address::read_server_address;
-use crate::driver::mcp_server::read::{McpServerSignInClient, McpServerToolDefaults};
+use crate::driver::mcp_server::read::{McpServerSignInSettings, McpServerToolDefaults};
 use crate::driver::mcp_server::write::ENTRY_SWITCH_MEMBER;
 
 /// The member of a server entry that names the program a stdio server runs.
@@ -64,13 +64,13 @@ const AUTHORIZATION_HEADER: &str = "Authorization";
 // The approval mode Codex gives a server's tools when its entry sets none.
 const CODEX_TOOL_APPROVAL_MODE: McpApprovalMode = McpApprovalMode::Auto;
 
-/// One server entry's redacted declaration, the sign-in client it names and the values it gives
+/// One server entry's redacted declaration, the sign-in settings it names and the values it gives
 /// its tools.
 pub(crate) struct CodexServerDeclaration {
     /// The declaration, every credential-bearing value reduced to its name.
     pub(crate) config: McpServerConfigView,
-    /// The sign-in client the entry names, where it names one.
-    pub(crate) sign_in_client: Option<McpServerSignInClient>,
+    /// The sign-in settings the entry names, where it names a client.
+    pub(crate) sign_in_settings: Option<McpServerSignInSettings>,
     /// The values the entry gives its tools: Codex's allow and deny lists and approval modes.
     pub(crate) tool_defaults: McpServerToolDefaults,
 }
@@ -153,13 +153,16 @@ pub(crate) fn sets_other_members(entry: &Value) -> bool {
 )]
 pub(crate) fn read_codex_server_entry(entry: &Value) -> Option<CodexServerDeclaration> {
     let entry = CodexServerEntry::deserialize(entry).ok()?;
-    let sign_in_client = entry
+    let sign_in_settings = entry
         .oauth
         .as_ref()
         .filter(|oauth| oauth.client_id.is_some() || oauth.callback_url.is_some())
-        .map(|oauth| McpServerSignInClient {
+        .map(|oauth| McpServerSignInSettings {
             client_id: oauth.client_id.clone(),
             callback_url: oauth.callback_url.clone(),
+            // Codex names no metadata address and asks for the entry's scopes exactly.
+            authorization_server_metadata_url: None,
+            asks_offline_access_where_listed: false,
         });
     let startup_timeout_sec = entry
         .startup_timeout_sec
@@ -238,7 +241,7 @@ pub(crate) fn read_codex_server_entry(entry: &Value) -> Option<CodexServerDeclar
     };
     Some(CodexServerDeclaration {
         config,
-        sign_in_client,
+        sign_in_settings,
         tool_defaults,
     })
 }

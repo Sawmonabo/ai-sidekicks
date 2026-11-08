@@ -313,9 +313,15 @@ fn read_connector(
             scope_ref: provider_account_id.clone(),
             server_name,
         },
-        config: remote_server_view("http", address.stripped_url.clone(), url_query_param_names)?,
+        config: remote_server_view(
+            "http",
+            address.stripped_url.clone(),
+            url_query_param_names,
+            None,
+        )?,
         endpoint: address.identity.clone().map(ClaudeMcpEndpoint::Address),
         organization_managed,
+        sign_in_settings: None,
     })
 }
 

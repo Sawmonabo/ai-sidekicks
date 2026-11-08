@@ -230,4 +230,39 @@ mod tests {
         assert_eq!(address.as_str(), "https://docs.example.test/mcp?key=k");
         assert_eq!(scripted.starts.take_account_servers_read_count(), 0);
     }
+
+    // An organization's server whose managed settings entry carries `oauth`, with no file
+    // deployed, is read at its whole address. Killed by the organization's entries keeping only
+    // what a probe can send.
+    #[tokio::test]
+    async fn a_managed_settings_server_signed_in_by_its_owner_is_read() {
+        let scripted = ScriptedDriver::new();
+        scripted.starts.script_account_servers(
+            json!({"mcpServers": []}),
+            json!({"effective": {"managedMcpServers": {
+                SERVER_NAME: {
+                    "type": "http",
+                    "url": "https://docs.example.test/mcp",
+                    "oauth": {"clientId": "owner-client"},
+                },
+            }}}),
+        );
+        let managed = McpServerBindingRef::Managed {
+            provider: DESCRIPTOR.provider_id(),
+            server_name: name(),
+        };
+
+        let reading = read_claude_server_address(
+            &scripted.driver.sign_in_sources_for(None).await,
+            &scripted.driver.sources.base_environment,
+            &address_read(managed, Vec::new()),
+        )
+        .await
+        .expect("the organization's entry reads");
+
+        let McpServerAddressReading::Declared(address) = &reading else {
+            panic!("the organization's address is declared, not {reading:?}");
+        };
+        assert_eq!(address.as_str(), "https://docs.example.test/mcp");
+    }
 }

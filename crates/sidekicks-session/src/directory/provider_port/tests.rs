@@ -473,7 +473,7 @@ async fn an_opening_sends_the_persons_servers_at_its_root(#[case] takes_tool_ser
         superseded_in: Vec::new(),
         disabled_in: Vec::new(),
         is_read_only: false,
-        sign_in_client: None,
+        sign_in_settings: None,
         is_switch_kept_by_daemon: true,
         tool_defaults: McpServerToolDefaults::with_approval_mode(McpApprovalMode::Auto),
         organization_managed: None,

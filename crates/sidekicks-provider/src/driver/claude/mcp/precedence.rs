@@ -139,7 +139,7 @@ pub(crate) fn rank_claude_mcp_servers(
             .map(|root| McpOverrideOrigin::Placed(root.root.clone()))
             .collect(),
         is_read_only: !is_writable(&server.binding),
-        sign_in_client: None,
+        sign_in_settings: server.sign_in_settings.clone(),
         is_switch_kept_by_daemon: true,
         tool_defaults: McpServerToolDefaults::with_approval_mode(CLAUDE_TOOL_APPROVAL_MODE),
         organization_managed: server.organization_managed,
@@ -378,6 +378,7 @@ mod tests {
             },
             endpoint: address.identity.map(ClaudeMcpEndpoint::Address),
             organization_managed: None,
+            sign_in_settings: None,
         }
     }
 

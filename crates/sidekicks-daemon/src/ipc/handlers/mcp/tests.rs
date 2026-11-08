@@ -235,7 +235,7 @@ fn declaration_of(
         superseded_in: Vec::new(),
         disabled_in: vec![McpOverrideOrigin::Placed(switched_off_at.clone())],
         is_read_only: false,
-        sign_in_client: None,
+        sign_in_settings: None,
         is_switch_kept_by_daemon: true,
         tool_defaults: McpServerToolDefaults::with_approval_mode(McpApprovalMode::Prompt),
         organization_managed: None,

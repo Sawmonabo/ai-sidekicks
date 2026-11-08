@@ -18,7 +18,7 @@ use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::sign_in::{
     McpServerAddressRead, McpServerAddressReading,
 };
-use sidekicks_provider::driver::mcp_server::read::McpServerSignInClient;
+use sidekicks_provider::driver::mcp_server::read::McpServerSignInSettings;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::{CurrentProviderAccount, ProviderAccountReader};
 use sidekicks_std::port_registration::PortRegistration;
@@ -173,7 +173,7 @@ impl SignInTargetReads {
                     Err(DriverError::NoPersonServerEntry(_)) => return Err(not_found()),
                     Err(error) => return Err(HandlerError::from(error)),
                 };
-                let owner_client = match owner_client_of(declaration.sign_in_client) {
+                let owner_client = match owner_client_of(declaration.sign_in_settings) {
                     Ok(owner_client) => owner_client,
                     Err(OwnerCallbackUnparsed) => {
                         return Err(unsupported(SignInUnsupportedReason::OwnerCallbackUnserved));
@@ -285,12 +285,13 @@ struct OwnerCallbackUnparsed;
 // The owner's client, built from whichever of its id and its callback the entry gives; an entry
 // that gives neither builds none, and a callback that does not parse is refused.
 fn owner_client_of(
-    sign_in_client: Option<McpServerSignInClient>,
+    sign_in_settings: Option<McpServerSignInSettings>,
 ) -> Result<Option<OwnerIssuedClient>, OwnerCallbackUnparsed> {
-    let Some(McpServerSignInClient {
+    let Some(McpServerSignInSettings {
         client_id,
         callback_url,
-    }) = sign_in_client
+        ..
+    }) = sign_in_settings
     else {
         return Ok(None);
     };
@@ -507,7 +508,7 @@ pub(crate) mod tests {
             superseded_in: Vec::new(),
             disabled_in: Vec::new(),
             is_read_only: false,
-            sign_in_client: None,
+            sign_in_settings: None,
             is_switch_kept_by_daemon: true,
             tool_defaults: McpServerToolDefaults::with_approval_mode(McpApprovalMode::Auto),
             organization_managed: None,

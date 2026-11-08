@@ -17,7 +17,7 @@ use url::{Position, Url};
 
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::mcp::config::{
-    ClaudeMcpEndpoint, ClaudeMcpServer, MCP_SERVERS_MEMBER, read_json_file,
+    ClaudeMcpEndpoint, ClaudeMcpServer, ClaudeOAuthMember, MCP_SERVERS_MEMBER, read_json_file,
 };
 use crate::driver::claude::session::settings_file::ClaudeSettingsReadError;
 use crate::driver::claude::session::transport::mcp_status::ClaudeMcpServerStatusRow;
@@ -69,6 +69,40 @@ pub(crate) async fn read_managed_mcp_servers(
     Ok(Some(servers))
 }
 
+/// Puts in place of each organization server among `servers` that `file_servers`, the
+/// administrator's MCP file's servers, declares by name the file's entry, whole: its transport,
+/// address, program and `oauth`, since Claude Code loads the file's entry where both define a
+/// name. A file entry of no form a declaration reads leaves the server as listed.
+pub(crate) fn take_managed_file_entries(
+    servers: &mut [ClaudeMcpServer],
+    file_servers: &Map<String, Value>,
+) {
+    for server in servers {
+        let McpServerBindingRef::Managed { server_name, .. } = &server.binding else {
+            continue;
+        };
+        let Some(entry) = file_servers
+            .get(server_name.as_str())
+            .and_then(|entry| ClaudeManagedServerEntry::deserialize(entry).ok())
+        else {
+            continue;
+        };
+        let address = entry.url.as_deref().map(read_server_address);
+        let program = entry
+            .command
+            .map(|command| (command, entry.args.unwrap_or_default()));
+        if let Some(file_server) = managed_server(
+            server_name.as_str(),
+            entry.transport.as_deref(),
+            address,
+            program,
+            &entry.oauth,
+        ) {
+            *server = file_server;
+        }
+    }
+}
+
 /// An organization's servers as one account's process reports them: each one's declaration, and
 /// each `managedMcpServers` entry as written, its whole address, headers and `oauth` included. It
 /// derives no `Debug`, so no entry's values print.
@@ -93,7 +127,13 @@ pub(crate) fn read_claude_organization_servers(
     let mut entries = BTreeMap::new();
     for (name, written, entry) in read_managed_server_entries(effective_settings) {
         let address = entry.url.as_deref().map(read_server_address);
-        if let Some(server) = managed_server(name, entry.transport.as_deref(), address, None) {
+        if let Some(server) = managed_server(
+            name,
+            entry.transport.as_deref(),
+            address,
+            None,
+            &entry.oauth,
+        ) {
             if let (McpServerBindingRef::Managed { server_name, .. }, Some(written)) =
                 (&server.binding, written.as_object())
             {
@@ -114,7 +154,14 @@ pub(crate) fn read_claude_organization_servers(
             .clone()
             .map(|command| (command, config.args.clone().unwrap_or_default()));
         let address = config.address.as_ref().map(copy_address);
-        if let Some(server) = managed_server(name, config.transport.as_deref(), address, program) {
+        // A row reports no `oauth`, so it names no sign-in settings of its own.
+        if let Some(server) = managed_server(
+            name,
+            config.transport.as_deref(),
+            address,
+            program,
+            &ClaudeOAuthMember::default(),
+        ) {
             push_unlisted(&mut servers, server);
         }
     }
@@ -163,11 +210,13 @@ fn read_managed_server_entries(
 }
 
 /// The declaration of a remote server reached over `transport`, `http`, `sse` or `ws`, at `url`,
-/// with the names of the query parameters stripped from it; `None` for any other transport.
+/// with the names of the query parameters stripped from it and, for `http` and `sse`, the
+/// `oauth_scopes` its entry asks for; `None` for any other transport.
 pub(crate) fn remote_server_view(
     transport: &str,
     url: String,
     url_query_param_names: Option<Vec<String>>,
+    oauth_scopes: Option<Vec<String>>,
 ) -> Option<McpServerConfigView> {
     Some(match transport {
         "http" => McpServerConfigView::Http {
@@ -176,7 +225,7 @@ pub(crate) fn remote_server_view(
             header_names: None,
             bearer_token_env_var: None,
             env_http_headers: None,
-            oauth_scopes: None,
+            oauth_scopes,
             oauth_resource: None,
             enabled: None,
             required: None,
@@ -189,7 +238,7 @@ pub(crate) fn remote_server_view(
             header_names: None,
             bearer_token_env_var: None,
             env_http_headers: None,
-            oauth_scopes: None,
+            oauth_scopes,
             oauth_resource: None,
             enabled: None,
             required: None,
@@ -205,33 +254,55 @@ pub(crate) fn remote_server_view(
     })
 }
 
-// A `managedMcpServers` entry as `get_settings` reports it: Claude Code keeps only an `http` or
-// `sse` entry at an `https:` address that names no program, no environment and no headers
-// program, and drops any other before it answers, so its transport and its address are all a
-// listing reads.
+// An organization's server entry as a listing reads it: a `managedMcpServers` entry as
+// `get_settings` reports it, where Claude Code keeps only an `http` or `sse` entry at an `https:`
+// address that names no program, no environment and no headers program, so its transport, its
+// address and its `oauth` are all it carries; or an entry of the administrator's MCP file, which
+// may also name a program.
 #[derive(Deserialize)]
 struct ClaudeManagedServerEntry {
     #[serde(rename = "type", default)]
     transport: Option<String>,
     #[serde(default)]
     url: Option<String>,
+    #[serde(default)]
+    command: Option<String>,
+    #[serde(default)]
+    args: Option<Vec<String>>,
+    #[serde(default)]
+    oauth: ClaudeOAuthMember,
 }
 
-// One organization server named `name`: a remote one served with its address's host alone, a
-// program with its command and arguments. `None` for a name that is no server name, or a
-// transport with no declaration form.
+// One organization server named `name`: a remote one served with its address's host alone and
+// the sign-in settings and scopes `oauth` names, a program with its command and arguments. `None`
+// for a name that is no server name, or a transport with no declaration form.
 fn managed_server(
     name: &str,
     transport: Option<&str>,
     address: Option<ServerAddressReading>,
     program: Option<(String, Vec<String>)>,
+    oauth: &ClaudeOAuthMember,
 ) -> Option<ClaudeMcpServer> {
     let server_name = McpServerName::new(name.to_owned()).ok()?;
-    let (config, endpoint) = match (transport, address, program) {
-        (Some(transport @ ("http" | "sse" | "ws")), Some(address), _) => (
-            remote_server_view(transport, address_host(&address.stripped_url), None)?,
+    let (config, endpoint, sign_in_settings) = match (transport, address, program) {
+        (Some("ws"), Some(address), _) => (
+            remote_server_view("ws", address_host(&address.stripped_url), None, None)?,
             address.identity.map(ClaudeMcpEndpoint::Address),
+            None,
         ),
+        (Some(transport @ ("http" | "sse")), Some(address), _) => {
+            let (sign_in_settings, oauth_scopes) = oauth.read_sign_in();
+            (
+                remote_server_view(
+                    transport,
+                    address_host(&address.stripped_url),
+                    None,
+                    oauth_scopes,
+                )?,
+                address.identity.map(ClaudeMcpEndpoint::Address),
+                Some(sign_in_settings),
+            )
+        }
         (None | Some("stdio"), _, Some((command, args))) => (
             McpServerConfigView::Stdio {
                 command: command.clone(),
@@ -243,6 +314,7 @@ fn managed_server(
                 tool_timeout_sec: None,
             },
             Some(ClaudeMcpEndpoint::Command { command, args }),
+            None,
         ),
         _ => return None,
     };
@@ -254,6 +326,7 @@ fn managed_server(
         config,
         endpoint,
         organization_managed: None,
+        sign_in_settings,
     })
 }
 
@@ -290,7 +363,12 @@ mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
 
-    use super::{CLAUDE_MANAGED_MCP_FILE, has_readable_managed_mcp_file, read_managed_mcp_servers};
+    use sidekicks_contracts::mcp::server::config::McpServerConfigView;
+
+    use super::{
+        CLAUDE_MANAGED_MCP_FILE, has_readable_managed_mcp_file, read_claude_organization_servers,
+        read_managed_mcp_servers, take_managed_file_entries,
+    };
 
     // The check reads the folder it is handed: a test folder with the file and one without.
     // Killed by a check that reads a fixed path, which finds the file in neither.
@@ -339,5 +417,44 @@ mod tests {
             .expect("the file reads");
 
         assert_eq!(read.map(Value::Object), expected);
+    }
+
+    // A name the administrator's MCP file and the managed settings both declare lists the file's
+    // entry, whole. Killed by the organization's entry kept, and by only `oauth` taken from the
+    // file.
+    #[test]
+    fn a_name_both_declare_lists_the_files_entry_whole() {
+        let mut organization = read_claude_organization_servers(
+            &[],
+            Some(&json!({ "managedMcpServers": { "docs": {
+                "type": "http",
+                "url": "https://org.example.test/mcp",
+                "oauth": { "clientId": "org-client" },
+            } } })),
+        );
+        let Value::Object(file_servers) = json!({ "docs": {
+            "type": "http",
+            "url": "https://file.example.test/mcp",
+            "oauth": { "clientId": "file-client" },
+        } }) else {
+            unreachable!("an object");
+        };
+
+        take_managed_file_entries(&mut organization.servers, &file_servers);
+
+        let [server] = organization.servers.as_slice() else {
+            panic!("one server lists");
+        };
+        let McpServerConfigView::Http { url, .. } = &server.config else {
+            panic!("an http server: {:?}", server.config);
+        };
+        assert_eq!(url, "file.example.test");
+        assert_eq!(
+            server
+                .sign_in_settings
+                .as_ref()
+                .and_then(|settings| settings.client_id.as_deref()),
+            Some("file-client")
+        );
     }
 }

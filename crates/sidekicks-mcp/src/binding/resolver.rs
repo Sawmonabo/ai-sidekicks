@@ -515,7 +515,7 @@ mod tests {
             superseded_in: Vec::new(),
             disabled_in: Vec::new(),
             is_read_only: false,
-            sign_in_client: None,
+            sign_in_settings: None,
             is_switch_kept_by_daemon: false,
             tool_defaults: McpServerToolDefaults::with_approval_mode(McpApprovalMode::Auto),
             organization_managed: None,

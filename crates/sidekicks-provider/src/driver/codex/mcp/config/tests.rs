@@ -19,7 +19,7 @@ use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::mcp::test_plugin::write_codex_plugin;
 use crate::driver::codex::transport::connection::scripted_service::scripted_connection;
 use crate::driver::mcp_server::read::{
-    McpRootReading, McpServerDeclaration, McpServerSignInClient,
+    McpRootReading, McpServerDeclaration, McpServerSignInSettings,
 };
 
 /// The person's home folder, read when no root is attached.
@@ -209,10 +209,12 @@ async fn a_declaration_reads_names_only_and_no_value_reaches_debug() {
         }
     );
     assert_eq!(
-        declaration(&reading, &user("remote")).sign_in_client,
-        Some(McpServerSignInClient {
+        declaration(&reading, &user("remote")).sign_in_settings,
+        Some(McpServerSignInSettings {
             client_id: Some("client-1".to_owned()),
             callback_url: Some("http://127.0.0.1:5555/callback".to_owned()),
+            authorization_server_metadata_url: None,
+            asks_offline_access_where_listed: false,
         })
     );
     assert_eq!(
