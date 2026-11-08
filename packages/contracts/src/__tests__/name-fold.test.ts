@@ -1,19 +1,66 @@
 // The fold every name held once is compared by: workflow names in the library and the names typed
-// for pasted-token accounts. A machine's language must never move it.
+// for pasted-token accounts. The Rust fold reads the same case table, so the service and the
+// desktop hold the same names apart, and a library upgrade that moves a fold fails here.
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import { foldName } from "../name-fold.js";
 
+// `note` and `unicodeVersion` say how the table was made, for a person reading it. The Rust fold
+// skips `laterCodePoints`, which only this library's newer data folds; here they fold as listed.
+const nameFoldTable = z
+  .object({
+    note: z.string(),
+    unicodeVersion: z.string(),
+    simpleFolds: z.array(z.int().nonnegative()),
+    fullFolds: z.array(z.array(z.int().nonnegative()).min(2)),
+    laterCodePoints: z.array(z.int().nonnegative()),
+  })
+  .strict()
+  .parse(
+    JSON.parse(
+      readFileSync(
+        new URL(
+          "../../../../crates/sidekicks-contracts/tests/fixtures/name-fold.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ),
+  );
+
+/** Each folded code point's fold; every code point missing here folds to itself. */
+function tableFolds(): Map<number, string> {
+  const folds = new Map<number, string>();
+  for (let index = 0; index < nameFoldTable.simpleFolds.length; index += 2) {
+    folds.set(
+      nameFoldTable.simpleFolds[index] ?? expect.fail("a code point"),
+      String.fromCodePoint(nameFoldTable.simpleFolds[index + 1] ?? expect.fail("its fold")),
+    );
+  }
+  for (const [codePoint, ...fold] of nameFoldTable.fullFolds) {
+    folds.set(codePoint ?? expect.fail("a code point"), String.fromCodePoint(...fold));
+  }
+  return folds;
+}
+
 describe("foldName", () => {
-  it("folds by Unicode's full case folding, never by the machine's language", () => {
-    // Full folding turns ß and the capital ẞ into ss, which lower-casing does not.
-    expect(foldName("Straße")).toBe(foldName("STRASSE"));
-    expect(foldName("STRAẞE")).toBe(foldName("STRASSE"));
-    // The dotted capital İ folds to i and a combining dot, so it is not the plain i; the dotless
-    // ı has no folding and stays apart from i, which an upper-then-lower mapping would merge, and
-    // I folds to i as in every language but Turkish.
-    expect(foldName("İ")).toBe("i̇");
-    expect(foldName("ı")).not.toBe(foldName("i"));
-    expect(foldName("I")).toBe("i");
+  // Every scalar value: the dotless ı, which no row names, must fold to itself and stay apart
+  // from i, as ß must fold to ss and İ to i and a combining dot, never by the machine's language.
+  it("folds every code point to the table's fold, or to itself where the table names none", () => {
+    const folds = tableFolds();
+    const misfolded: string[] = [];
+    for (let codePoint = 0; codePoint <= 0x10ffff; codePoint += 1) {
+      if (codePoint >= 0xd800 && codePoint <= 0xdfff) {
+        continue;
+      }
+      const text = String.fromCodePoint(codePoint);
+      if (foldName(text) !== (folds.get(codePoint) ?? text)) {
+        misfolded.push(codePoint.toString(16));
+      }
+    }
+    expect(misfolded).toEqual([]);
   });
 });
