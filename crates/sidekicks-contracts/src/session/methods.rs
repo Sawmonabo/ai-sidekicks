@@ -802,8 +802,8 @@ methods! {
             result: EmptyPayload,
             refusals: [SessionNotFound, SessionRecoveryRefused],
         },
-        /// `Delete session` on a session whose history is damaged: every row of it goes, the copy
-        /// set aside before the repair stays.
+        /// `Delete session` on a session whose history is damaged, whose copy set aside before the
+        /// repair stays, or on one whose create never finished: every row of it goes at once.
         SessionRecoveryDelete = mutation "session.recovery.delete" {
             mutating: true,
             params: SessionTargetRequest,

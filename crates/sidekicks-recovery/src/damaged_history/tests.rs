@@ -14,16 +14,18 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::session::recovery::SessionRecoveryRefusedReason;
 use sidekicks_session::run::engine::test_fixture::stored_run_state;
 use sidekicks_session::service::{
     EventsReadAfterSequenceRequest, SESSION_SERVICE_STATEMENT_CAPACITY, SessionService,
 };
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{test_run_id, test_session_id};
 use tokio_util::sync::CancellationToken;
 
-use super::RecoveryActionError;
+use super::{RecoveryActionError, SessionDeletion};
 use crate::session_write_refusal::refuse_call_naming_session;
 use crate::stop_intent::{StopIntent, StopIntentFile};
 use crate::test_pass::PassFixture;
@@ -248,10 +250,12 @@ enum Target {
     Healthy,
     Unknown,
     Unreadable,
+    UnfinishedCreate,
 }
 
 // Killed by the two refusal reasons swapped, by a delete that purges a session before refusing
-// it, and by a delete that answers done without purging.
+// it, by a delete that answers done without purging, by a delete of a session whose create never
+// finished refused or purged as damaged, and by one of a damaged session purged as such a create.
 #[rstest]
 #[case::continue_a_healthy_session(
     Target::Healthy,
@@ -271,6 +275,12 @@ enum Target {
     ActionEnd::Refused(SessionRecoveryRefusedReason::NoReadableEvent)
 )]
 #[case::delete_an_unreadable_session(Target::Unreadable, false, ActionEnd::Done)]
+#[case::continue_an_unfinished_create(
+    Target::UnfinishedCreate,
+    true,
+    ActionEnd::Refused(SessionRecoveryRefusedReason::NotDamaged)
+)]
+#[case::delete_an_unfinished_create(Target::UnfinishedCreate, false, ActionEnd::Done)]
 #[tokio::test]
 async fn a_recovery_action_fits_only_a_damaged_session(
     #[case] target: Target,
@@ -282,6 +292,21 @@ async fn a_recovery_action_fits_only_a_damaged_session(
         Target::Healthy => fixture.store.session_id,
         Target::Unknown => test_session_id(),
         Target::Unreadable => fixture.stale_session(2, Some(0)).await.0,
+        Target::UnfinishedCreate => {
+            let session_id = test_session_id();
+            let reader = fixture.store.database.reader();
+            insert_session_row(&reader, session_id.text().as_str(), None, None);
+            reader
+                .execute(
+                    "UPDATE sessions SET state = ?1 WHERE id = ?2",
+                    params![
+                        <&'static str>::from(SessionState::Provisioning),
+                        session_id.text().as_str()
+                    ],
+                )
+                .expect("the session is left provisioning");
+            session_id
+        }
     };
     fixture
         .pass(Arc::clone(&fixture.status))
@@ -294,7 +319,7 @@ async fn a_recovery_action_fits_only_a_damaged_session(
             .continue_from_last_good_point(session_id)
             .await
     } else {
-        damaged_history.delete_damaged_session(session_id).await
+        damaged_history.delete_session(session_id).await
     };
 
     let ended = match ended {
@@ -304,15 +329,17 @@ async fn a_recovery_action_fits_only_a_damaged_session(
         Err(failure) => panic!("the action failed: {failure}"),
     };
     assert_eq!(ended, expected);
-    let purged = if !is_continue && matches!(expected, ActionEnd::Done) {
-        vec![session_id]
-    } else {
-        Vec::new()
+    let purged = match target {
+        _ if is_continue || !matches!(expected, ActionEnd::Done) => Vec::new(),
+        Target::UnfinishedCreate => vec![(session_id, SessionDeletion::UnfinishedCreate)],
+        Target::Healthy | Target::Unknown | Target::Unreadable => {
+            vec![(session_id, SessionDeletion::DamagedHistory)]
+        }
     };
     assert_eq!(
         *fixture
             .purges
-            .session_ids
+            .deletions
             .lock()
             .expect("no purge panics while it records"),
         purged

@@ -82,7 +82,9 @@ use tempfile::TempDir;
 use tokio::runtime::Handle;
 use tokio::sync::watch;
 
-use crate::damaged_history::{DamagedHistory, DamagedHistoryDeps, DamagedSessionPurge};
+use crate::damaged_history::{
+    DamagedHistory, DamagedHistoryDeps, SessionDeletePurge, SessionDeletion,
+};
 use crate::database_file::copy::{DATABASE_COPY_MODE, DatabaseFileCopier};
 use crate::projection_rebuild::{ProjectionRebuildService, mark_stale_statement};
 use crate::restart_settle::{RestartSettle, RestartSettleDeps};
@@ -181,22 +183,23 @@ impl SessionProjection for SkippedRunVersions {
     }
 }
 
-/// A purge that removes nothing and keeps each session it was asked to purge, in order.
+/// A purge that removes nothing and keeps each session it was asked to purge, with why, in order.
 #[derive(Default)]
 pub(crate) struct RecordedPurges {
-    /// The sessions asked for.
-    pub(crate) session_ids: Mutex<Vec<SessionId>>,
+    /// The sessions asked for, each with why it was deleted.
+    pub(crate) deletions: Mutex<Vec<(SessionId, SessionDeletion)>>,
 }
 
-impl DamagedSessionPurge for RecordedPurges {
-    fn purge_damaged_session(
+impl SessionDeletePurge for RecordedPurges {
+    fn purge_deleted_session(
         &self,
         session_id: SessionId,
+        deletion: SessionDeletion,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        self.session_ids
+        self.deletions
             .lock()
             .expect("no purge panics while it records")
-            .push(session_id);
+            .push((session_id, deletion));
         async { Ok(()) }.boxed()
     }
 }
@@ -444,7 +447,7 @@ impl PassFixture {
             writer: Arc::clone(&store.writer),
             projection_rebuild: Arc::clone(&projection_rebuild),
             restart_settle: Arc::clone(&restart_settle),
-            purge: Arc::clone(&self.purges) as Arc<dyn DamagedSessionPurge>,
+            purge: Arc::clone(&self.purges) as Arc<dyn SessionDeletePurge>,
             status,
             stop_intent: Arc::clone(&stop_intent),
         }));

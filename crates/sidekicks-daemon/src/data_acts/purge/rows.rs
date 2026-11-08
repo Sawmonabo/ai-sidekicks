@@ -16,6 +16,7 @@ use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::worktree::lifecycle::WorktreeState;
+use sidekicks_session::directory::lookups::never_activated_sql;
 use sidekicks_session::groups::store::remove_empty_groups_of_session_project_statement;
 use sidekicks_session::messaging::exchanges::DELETE_SESSION_EXCHANGES_SQL;
 use sidekicks_session::messaging::paused_queue::DELETE_SESSION_PAUSED_MESSAGES_SQL;
@@ -56,13 +57,17 @@ pub(crate) enum PurgeCaller {
     /// `Delete old data`: an archived or closed session, or one a failed purge left marked.
     Retention,
     /// `Delete session` on a session whose history is damaged: any state but `provisioning`,
-    /// since a damaged session takes no close.
+    /// which [`PurgeCaller::UnfinishedCreate`] takes.
     DamagedHistory,
+    /// `Delete session` on a session whose create never finished: `provisioning`, never activated,
+    /// so a finish that activated it meanwhile refuses the mark.
+    UnfinishedCreate,
 }
 
 impl PurgeCaller {
     fn markable_states(self) -> &'static [SessionState] {
         match self {
+            Self::UnfinishedCreate => &[SessionState::Provisioning],
             Self::Retention => &[
                 SessionState::Archived,
                 SessionState::Closed,
@@ -74,6 +79,14 @@ impl PurgeCaller {
                 SessionState::Closed,
                 SessionState::PurgeRequested,
             ],
+        }
+    }
+
+    // What the mark holds to beside the session's state.
+    fn mark_condition(self) -> Option<String> {
+        match self {
+            Self::UnfinishedCreate => Some(never_activated_sql("@sessionId")),
+            Self::Retention | Self::DamagedHistory => None,
         }
     }
 }
@@ -180,8 +193,8 @@ const RUN_KEYED_DELETES: [&str; 4] = [
 // the children that name it. The attention rows go after the machine's attention count is raised,
 // so its readers drop the session's entries, and an entry's delivery before the entry it is found
 // through. The messaging rows go at either end of a pair, a message held from the session or a wait
-// on it among them.
-const DELETES_THROUGH_SESSION_ROW: [&str; 43] = [
+// on it among them. A fork of the session stays whole and names no parent once its parent is gone.
+const DELETES_THROUGH_SESSION_ROW: [&str; 44] = [
     "DELETE FROM session_snapshots WHERE session_id = @sessionId",
     "DELETE FROM recovery_checkpoints WHERE session_id = @sessionId",
     "DELETE FROM session_events WHERE session_id = @sessionId",
@@ -235,6 +248,7 @@ const DELETES_THROUGH_SESSION_ROW: [&str; 43] = [
     DELETE_SESSION_PAUSED_MESSAGES_SQL,
     DELETE_SESSION_WAITS_SQL,
     DELETE_SESSION_REMINDERS_SQL,
+    "UPDATE sessions SET parent_session_id = NULL WHERE parent_session_id = @sessionId",
     "DELETE FROM sessions WHERE id = @sessionId",
 ];
 
@@ -265,8 +279,8 @@ const WORKSPACES_DELETE_SQL: &str = "DELETE FROM workspaces WHERE session_id = @
 
 /// The mark's write: its hand-off guard, refused while a hand-off of a plan the session made has no
 /// queue item for its seed, then the mark, which moves the session to `purgeRequested` from one of
-/// the states `caller` purges, one row expected, so a session in any other state, or none, refuses
-/// the write.
+/// the states `caller` purges and while the caller's condition holds, one row expected, so a
+/// session in any other state, or none, refuses the write.
 pub(super) fn mark_statements(session_id: SessionId, caller: PurgeCaller) -> Vec<WriteStatement> {
     let from_states = sql_list_of(
         caller
@@ -274,6 +288,9 @@ pub(super) fn mark_statements(session_id: SessionId, caller: PurgeCaller) -> Vec
             .iter()
             .map(|state| <&'static str>::from(*state)),
     );
+    let condition = caller
+        .mark_condition()
+        .map_or_else(String::new, |condition| format!(" AND {condition}"));
     vec![
         WriteStatement {
             sql: Cow::Borrowed(HAND_OFF_GUARD_SQL.as_str()),
@@ -284,7 +301,7 @@ pub(super) fn mark_statements(session_id: SessionId, caller: PurgeCaller) -> Vec
             expected_row_count: Some(1),
         },
         WriteStatement {
-            sql: Cow::Owned(format!("{} ({from_states})", *MARK_SQL)),
+            sql: Cow::Owned(format!("{} ({from_states}){condition}", *MARK_SQL)),
             bindings: StatementBindings::Named(vec![
                 text_binding("@sessionId", session_id.text().as_str()),
                 text_binding("@now", WireInstant::now().as_str()),

@@ -541,13 +541,15 @@ pub(crate) fn fold_directory_row(
     Ok(next)
 }
 
+// A fork's parent is written only while the parent has a row, so a parent the purge removed is
+// never named again.
 static INSERT_CREATED_ROW_SQL: LazyLock<String> = LazyLock::new(|| {
     let provisioning = <&'static str>::from(SessionState::Provisioning);
     format!(
         "INSERT INTO sessions
         (id, shape, state, scratch_for_definition_id, parent_session_id, place,
          created_at, updated_at, last_activity_at)
-      VALUES (?, ?, '{provisioning}', ?, ?, ?, ?, ?, ?)"
+      VALUES (?, ?, '{provisioning}', ?, (SELECT id FROM sessions WHERE id = ?), ?, ?, ?, ?)"
     )
 });
 
@@ -619,13 +621,14 @@ pub fn directory_statements_for(
     }])
 }
 
+// The parent is written as the create's write writes it: only while the parent has a row.
 const UPSERT_ROW_SQL: &str = "INSERT INTO sessions
         (id, shape, state, name, first_message_preview, branch, pinned_at, muted_at,
          scratch_for_definition_id, parent_session_id, place, last_run_outcome, created_at,
          updated_at, last_activity_at)
       VALUES (@id, @shape, @state, @name, @firstMessagePreview, @branch, @pinnedAt, @mutedAt,
-              @scratchForDefinitionId, @parentSessionId, @place, @lastRunOutcome, @createdAt,
-              @updatedAt, @lastActivityAt)
+              @scratchForDefinitionId, (SELECT id FROM sessions WHERE id = @parentSessionId),
+              @place, @lastRunOutcome, @createdAt, @updatedAt, @lastActivityAt)
       ON CONFLICT (id) DO UPDATE SET
         shape = excluded.shape, state = excluded.state, name = excluded.name,
         first_message_preview = excluded.first_message_preview, branch = excluded.branch,
