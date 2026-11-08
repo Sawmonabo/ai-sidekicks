@@ -8,7 +8,10 @@ use rusqlite::{OptionalExtension as _, params};
 use serde_json::{Value, json};
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_session::draft_store::test_follow::TestDraftFollow;
+use sidekicks_session::draft_store::{SESSION_DRAFT_STORE_STATEMENT_CAPACITY, SessionDraftStore};
 use sidekicks_session::queue_store::{QueueItemReader, RecordedQueueItemState};
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::events::session::appender::{SessionEventAppender, SessionEventLinkage};
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
@@ -119,7 +122,8 @@ const SECOND_WORKSPACE: &str = "01900000-0000-7000-8000-000000000006";
 // held draft replaced or put first, the order reversed, a lead message with a file and a skill pick
 // ended not delivered or returned without them, the held file dropped or put last, the held speed
 // overwritten, a helper's message, a review or a plan message canceled, the revision left where it
-// was, or a draft written when no message returned. Two messages with extras also kill the last
+// was, a draft written when no message returned, or the committed return reaching no follower of
+// the draft with its words and its revision. Two messages with extras also kill the last
 // message's speed taken over the first's, the held skill pick or file dropped, the first message's
 // file dropped, a file or skill pick both sides carry kept twice or moved from its first place,
 // and the held repository overwritten; over a held draft with no repository they kill the returned
@@ -256,6 +260,17 @@ async fn a_stop_returns_each_waiting_message_by_its_form(
     let waiting = QueueItemReader::new(&fixture.database.reader())
         .list_waiting_for_run(&fixture.run_id)
         .expect("the test reads the waiting messages");
+    let drafts = Arc::new(SessionDraftStore::new(
+        Arc::new(DatabaseReadPool::new(
+            fixture.database.path(),
+            SESSION_DRAFT_STORE_STATEMENT_CAPACITY,
+        )),
+        Arc::clone(&fixture.log.writer),
+        &fixture.log.followers,
+    ));
+    let mut follow = TestDraftFollow::open(&drafts, fixture.session_id).await;
+    // The draft held before the Stop, read first so the next one heard is the return's.
+    follow.next().await;
 
     let mut companions =
         stop_message_ends(&waiting, &WireInstant::now()).expect("the ends are drafted");
@@ -294,4 +309,11 @@ async fn a_stop_returns_each_waiting_message_by_its_form(
         held_revision(&fixture),
         expected_draft.map(|_| held_revision_before + 1)
     );
+    if let Some(expected_draft) = expected_draft {
+        let heard = follow.next().await;
+        assert_eq!(
+            (heard.draft.text.as_str(), i64::from(heard.revision)),
+            (expected_draft, held_revision_before + 1)
+        );
+    }
 }

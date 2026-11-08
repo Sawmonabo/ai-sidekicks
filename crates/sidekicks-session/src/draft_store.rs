@@ -393,65 +393,30 @@ fn draft_bindings(
     ]
 }
 
-#[cfg(test)]
-mod tests {
+/// A test's follow of one session's draft, for this crate's and other crates' tests.
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_follow {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use sidekicks_contracts::event::session::SessionEvent;
-    use sidekicks_contracts::run::queue::{
-        AgentQueueItemCanceledPayload, AgentQueueItemCanceledState, QueueItemId,
-    };
-    use sidekicks_contracts::session::draft::{HeldSessionDraft, SessionDraft};
+    use sidekicks_contracts::session::draft::HeldSessionDraft;
     use sidekicks_contracts::session::id::SessionId;
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
-    use sidekicks_contracts::wire::instant::WireInstant;
-    use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_ipc::registry::HandlerError;
     use sidekicks_ipc::stream::feed::{CreditGate, Feed};
     use sidekicks_ipc::stream::latest_value::LatestValueFeed;
-    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-    use sidekicks_store::database::schema::session_directory::insert_session_row;
-    use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-    use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
-    use sidekicks_store::events::session::appender::{
-        SessionEventAppender, SessionEventDraft, SessionEventLinkage,
-    };
-    use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
-    use super::{
-        SESSION_DRAFT_STORE_STATEMENT_CAPACITY, SessionDraftStore, returned_messages_statement,
-    };
-    use crate::questions::schema::schema_parts;
-    use crate::queue_store::test_items::words;
+    use super::SessionDraftStore;
 
-    /// One session's draft store over a test log, with a follow of its draft opened.
-    struct FollowedDraft {
-        // Holds the database file for the test's length.
-        _database: TestDatabase,
-        log: TestLog,
-        session_id: SessionId,
-        store: Arc<SessionDraftStore>,
+    /// One session's draft followed on a store, read one sent draft at a time.
+    pub struct TestDraftFollow {
         feed: Box<dyn Feed<Emission = HeldSessionDraft>>,
         gate: CreditGate,
     }
 
-    impl FollowedDraft {
-        /// Opens the follow; the draft held now, an empty one at revision 0, is read first.
-        async fn open() -> Self {
-            let database = TestDatabase::new(schema_parts());
-            let log = open_log(&database, None).await;
-            let session_id = test_session_id();
-            insert_session_row(&database.reader(), session_id.text().as_str(), None, None);
-            let store = Arc::new(SessionDraftStore::new(
-                Arc::new(DatabaseReadPool::new(
-                    database.path(),
-                    SESSION_DRAFT_STORE_STATEMENT_CAPACITY,
-                )),
-                Arc::clone(&log.writer),
-                &log.followers,
-            ));
-            let following = Arc::clone(&store);
+    impl TestDraftFollow {
+        /// Opens a follow of `session_id`'s draft on `store`; panics when the follow is refused.
+        pub async fn open(store: &Arc<SessionDraftStore>, session_id: SessionId) -> Self {
+            let following = Arc::clone(store);
             let feed = LatestValueFeed::open(|outlet| async move {
                 following
                     .follow(session_id, outlet)
@@ -460,96 +425,66 @@ mod tests {
             })
             .await
             .expect("the follow opens");
-            let mut followed = Self {
-                _database: database,
-                log,
-                session_id,
-                store,
+            Self {
                 feed: Box::new(feed),
                 gate: CreditGate::with_credit(64),
-            };
-            let first = followed.next().await;
-            assert_eq!(first.revision, SafeInt::from_usize(0));
-            followed
+            }
         }
 
-        /// The next draft the follow sends; fails the test when none comes within a few seconds.
-        async fn next(&mut self) -> HeldSessionDraft {
+        /// The next draft the follow sends; panics when none comes within five seconds.
+        pub async fn next(&mut self) -> HeldSessionDraft {
             tokio::time::timeout(Duration::from_secs(5), self.feed.next(&self.gate))
                 .await
                 .expect("a follower hears the change")
                 .expect("the draft reads")
                 .expect("the follow goes on")
         }
-
-        /// Puts a waiting message of `text` back into the draft as a Stop's return writes it: the
-        /// draft's statement committed with the message's `agent.queueItem.canceled`.
-        async fn return_to_draft(&self, text: &str) {
-            let returned = words(text);
-            let statement =
-                returned_messages_statement(&self.session_id, &[&returned], &WireInstant::now())
-                    .expect("a returned message writes the draft");
-            let canceled = SessionEventDraft::of_session(
-                self.session_id,
-                &SessionEvent::AgentQueueItemCanceled(AgentQueueItemCanceledPayload {
-                    session_id: self.session_id,
-                    queue_item_id: QueueItemId::try_from(mint_uuid_v7())
-                        .expect("a minted UUID is a queue item id"),
-                    state: AgentQueueItemCanceledState::Value,
-                }),
-            )
-            .expect("the cancel is drafted");
-            SessionEventAppender::new(Arc::clone(&self.log.service), SESSION_EVENT_VERSION.clone())
-                .append(
-                    canceled,
-                    SessionEventLinkage {
-                        transactional_prelude: vec![statement],
-                        ..SessionEventLinkage::default()
-                    },
-                )
-                .await
-                .expect("the return commits");
-        }
     }
+}
 
-    /// A Stop's return of a waiting message reaches a follower of the draft with the returned
-    /// words and the new revision, a second return moving it on again. Killed by the return's
-    /// commit waking no follower, and by the return over a held draft not moving its revision.
-    #[tokio::test]
-    async fn a_stops_return_to_the_draft_reaches_its_followers_with_the_new_revision() {
-        let mut followed = FollowedDraft::open().await;
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
 
-        followed.return_to_draft("First").await;
-        let first = followed.next().await;
-        followed.return_to_draft("Second").await;
-        let second = followed.next().await;
+    use sidekicks_contracts::session::draft::SessionDraft;
+    use sidekicks_contracts::wire::integer::SafeInt;
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::schema::session_directory::insert_session_row;
+    use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+    use sidekicks_store::events::log_service::test_fixture::open_log;
 
-        assert_eq!(
-            (first.draft.text.as_str(), first.revision),
-            ("First", SafeInt::from_usize(1))
-        );
-        assert_eq!(
-            (second.draft.text.as_str(), second.revision),
-            ("Second\nFirst", SafeInt::from_usize(2))
-        );
-    }
+    use super::test_follow::TestDraftFollow;
+    use super::{SESSION_DRAFT_STORE_STATEMENT_CAPACITY, SessionDraftStore};
+    use crate::questions::schema::schema_parts;
 
     /// A save reaches a follower of the draft with the saved words and the revision it answered.
     /// Killed by the save waking no follower.
     #[tokio::test]
     async fn a_save_reaches_the_drafts_followers() {
-        let mut followed = FollowedDraft::open().await;
+        let database = TestDatabase::new(schema_parts());
+        let log = open_log(&database, None).await;
+        let session_id = test_session_id();
+        insert_session_row(&database.reader(), session_id.text().as_str(), None, None);
+        let store = Arc::new(SessionDraftStore::new(
+            Arc::new(DatabaseReadPool::new(
+                database.path(),
+                SESSION_DRAFT_STORE_STATEMENT_CAPACITY,
+            )),
+            Arc::clone(&log.writer),
+            &log.followers,
+        ));
+        let mut follow = TestDraftFollow::open(&store, session_id).await;
+        assert_eq!(follow.next().await.revision, SafeInt::from_usize(0));
         let draft = SessionDraft {
             text: "Half a thought".to_owned(),
             ..SessionDraft::default()
         };
 
-        let saved = followed
-            .store
-            .write(followed.session_id, draft.clone(), SafeInt::from_usize(0))
+        let saved = store
+            .write(session_id, draft.clone(), SafeInt::from_usize(0))
             .await
             .expect("the save is taken");
-        let heard = followed.next().await;
+        let heard = follow.next().await;
 
         assert_eq!(heard.draft, draft);
         assert_eq!(heard.revision.get(), saved.revision.get());
