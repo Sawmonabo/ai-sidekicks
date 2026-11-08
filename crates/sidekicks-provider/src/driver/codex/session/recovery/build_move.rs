@@ -5,8 +5,9 @@
 //! which terminals the person joined share, gets a second service each conversation moves to as its
 //! session goes idle: the conversation leaves the first, which unloads it, since Codex refuses to
 //! resume one another service still writes, and the first is retired once no session is on it and
-//! no conversation is held there for its commands. The person's own service is not the daemon's to
-//! restart; it is only dialed again.
+//! no conversation is held there for its commands; where the system cannot move the home's socket,
+//! that restart ends once the second is asked for, which waits until the first is free to stop.
+//! The person's own service is not the daemon's to restart; it is only dialed again.
 
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
@@ -15,6 +16,7 @@ use futures::FutureExt as _;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::controls::events::SessionNotice;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_platforms::CAN_LINK_A_SOCKET;
 use tokio::sync::oneshot;
 use tokio::time::Instant;
 
@@ -82,9 +84,11 @@ impl CodexServiceRecovery {
     }
 
     /// Whether a restart [`Self::request_restart`] or [`Self::restart_and_wait`] began on the
-    /// service `service_id` has not ended.
+    /// service `service_id` has not ended, or the terminal service's replacement it asked for has
+    /// not taken its place.
     pub(crate) fn is_restarting(&self, service_id: CodexServiceId) -> bool {
-        self.lock().restarting.contains_key(&service_id)
+        let state = self.lock();
+        state.restarting.contains_key(&service_id) || state.replacing.contains(&service_id)
     }
 
     // Marks `service` restarting and spawns its restart, or joins the restart under way, `change`
@@ -137,8 +141,12 @@ impl CodexServiceRecovery {
                 self.restart_account_service(service, change.as_ref()).await
             }
             // Only one that serves is replaced, as its own planned restart replaces only one up.
-            CodexServiceKind::Terminal if service.is_serving() => {
+            CodexServiceKind::Terminal if service.is_serving() && CAN_LINK_A_SOCKET => {
                 self.replace_terminal_service(service, change).await
+            }
+            CodexServiceKind::Terminal if service.is_serving() => {
+                self.replace_terminal_service_once_free(service, change);
+                Ok(())
             }
             CodexServiceKind::Terminal => Ok(()),
             // The redial's recovery resumes its conversations as a reconnect does.
@@ -180,6 +188,33 @@ impl CodexServiceRecovery {
             });
         }
         Ok(())
+    }
+
+    // Where the home's socket cannot be moved, the second service takes it only once the first is
+    // free to stop, which lasts as long as the person's terminals stay inside it; so the restart
+    // ends once the replacement is asked for, and the first reads as restarting until it is
+    // replaced. A replacement under way is not asked again; a failed one is reported.
+    fn replace_terminal_service_once_free(
+        self: &Arc<Self>,
+        service: &Arc<CodexService>,
+        change: Option<ProviderBuildChange>,
+    ) {
+        if !self.lock().replacing.insert(service.id()) {
+            return;
+        }
+        let mark = ReplacementMark {
+            recovery: Arc::clone(self),
+            service: Arc::clone(service),
+        };
+        self.dependencies.tasks.spawn(async move {
+            let replaced = mark
+                .recovery
+                .replace_terminal_service(&mark.service, change)
+                .await;
+            if let Err(error) = replaced {
+                report_restart_failed(&mark.service, &error);
+            }
+        });
     }
 
     // Holds every session on an account's service in its slot once each is idle, restarts the
@@ -443,6 +478,21 @@ impl Drop for RestartMark {
         if !self.is_removed {
             let _unanswered = self.recovery.lock().restarting.remove(&self.service.id());
         }
+    }
+}
+
+/// A terminal service's replacement under way, held by the task that runs it; dropped as that
+/// task ends, a panic included, it removes the service from those the recovery is replacing.
+struct ReplacementMark {
+    /// The recovery whose state holds the mark.
+    recovery: Arc<CodexServiceRecovery>,
+    /// The service being replaced.
+    service: Arc<CodexService>,
+}
+
+impl Drop for ReplacementMark {
+    fn drop(&mut self) {
+        self.recovery.lock().replacing.remove(&self.service.id());
     }
 }
 

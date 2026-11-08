@@ -130,6 +130,8 @@ struct RecoveryState {
     retiring: HashSet<CodexServiceId>,
     // The services whose requested restart has not ended, so a second request joins it.
     restarting: HashMap<CodexServiceId, ServiceRestart>,
+    // The terminal services whose replacement a restart asked for has not taken their place.
+    replacing: HashSet<CodexServiceId>,
     // The sessions each service that came back owes a resume, by recovery, until that recovery
     // resumed them.
     owed_resumes: HashMap<CodexServiceId, HashMap<CodexRecoveryGeneration, Vec<SessionId>>>,
