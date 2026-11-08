@@ -6,6 +6,7 @@ use rstest::rstest;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_std::mutex_lock::lock;
 
 use super::{
     ATTEMPT_LIFETIME, AddressedServer, OwnerIssuedClient, ProviderAccounts, SignInServer,
@@ -13,8 +14,8 @@ use super::{
 };
 use crate::errors::{McpRefusal, SignInLaunchError, SignInUnsupportedReason};
 use crate::sign_in::test_service::{
-    FakeServerAnswers, Harness, addressed_target, harness, launch_to_browser, provider,
-    serve_authorization_server, server_name,
+    FakeServerAnswers, Harness, NAMED_METADATA_PATH, addressed_target, harness, launch_to_browser,
+    provider, serve_authorization_server, server_name,
 };
 
 /// The client id a test entry's owner issued.
@@ -36,11 +37,13 @@ fn entry_target(
     oauth_resource: Option<&str>,
 ) -> SignInTarget {
     SignInTarget {
-        server: SignInServer::Address(AddressedServer::new(
+        server: SignInServer::Address(Box::new(AddressedServer::new(
             McpServerAddress::new(base).expect("a server address"),
             owner_client,
             oauth_resource.map(str::to_owned),
-        )),
+            None,
+            false,
+        ))),
         ..addressed_target(base)
     }
 }
@@ -340,4 +343,61 @@ async fn a_page_that_is_no_web_address_keeps_no_attempt() {
     ));
     assert!(!is_listening(port).await);
     assert!(super::lock(&harness.service.attempts).by_address.is_empty());
+}
+
+// An entry naming its authorization server's metadata address signs in from the metadata read
+// there, discovery refused, asking for its pinned scopes or, with none pinned, for the scopes the
+// metadata lists. Killed by discovery kept (a well-known path is asked and the launch fails), by
+// the configured read dropped, and by the scopes fallback dropped (`no_scopes` sends no scope).
+#[rstest]
+#[case::pinned_scopes(&["read"], "read")]
+#[case::no_scopes(&[], "read write")]
+#[tokio::test]
+async fn an_entry_naming_its_metadata_address_signs_in_without_discovery(
+    #[case] pinned_scopes: &[&str],
+    #[case] expected_scope: &str,
+) {
+    let server = serve_authorization_server(FakeServerAnswers {
+        is_discovery_refused: true,
+        ..FakeServerAnswers::default()
+    })
+    .await;
+    let harness = harness().await;
+    let metadata_address =
+        Url::parse(&format!("{}{NAMED_METADATA_PATH}", server.base)).expect("a URL");
+    let target = SignInTarget {
+        server: SignInServer::Address(Box::new(AddressedServer::new(
+            McpServerAddress::new(&server.base).expect("a server address"),
+            None,
+            None,
+            Some(metadata_address),
+            true,
+        ))),
+        ..addressed_target(&server.base)
+    };
+    let scopes: Vec<String> = pinned_scopes
+        .iter()
+        .map(|scope| (*scope).to_owned())
+        .collect();
+
+    let browser_url = match harness
+        .service
+        .launch(&target, &scopes, &ProviderAccounts::new())
+        .await
+    {
+        Ok(browser_url) => Url::parse(browser_url.as_str()).expect("a web address parses"),
+        Err(refusal) => panic!("the launch was refused: {refusal}"),
+    };
+
+    assert_eq!(browser_url.path(), "/authorize");
+    assert_eq!(
+        browser_url.origin(),
+        Url::parse(&server.base).expect("a URL").origin()
+    );
+    let paths = lock(&server.paths).clone();
+    assert!(
+        !paths.iter().any(|path| path.starts_with("/.well-known/")),
+        "{paths:?}"
+    );
+    assert_eq!(parameters(&browser_url, "scope"), [expected_scope]);
 }

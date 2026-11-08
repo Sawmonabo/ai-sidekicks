@@ -1,7 +1,8 @@
 //! The keychain custody of each MCP server's sign-in: one item per server, under its canonical
 //! address, holding rmcp's stored credentials, access token included, for a `DPoP` sign-in the
-//! proof key's scalar, and for a confidential client its secret, written whole by one verified
-//! write, so a token is never kept beside another sign-in's key or secret.
+//! proof key's scalar, for a confidential client its secret, and the authorization server
+//! metadata address the sign-in read in place of discovery, written whole by one verified write,
+//! so a token is never kept beside another sign-in's key, secret or metadata address.
 //!
 //! A server's item is read from the keychain at most once per daemon life: every later read, from
 //! any store over the same custody, is served from memory, so a request to the server costs no
@@ -20,6 +21,7 @@
 //! credentials it received are kept aside for the authorizer, which revokes them.
 
 use std::collections::{BTreeSet, HashMap};
+use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -36,6 +38,7 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::credential_store::{KeychainRefusal, SecretKeychain};
 use subtle::ConstantTimeEq as _;
 use tokio::sync::watch;
+use url::Url;
 
 use crate::sign_in::canonical_server_address;
 
@@ -43,7 +46,7 @@ use crate::sign_in::canonical_server_address;
 pub(crate) type DpopKeyScalar = SecretBox<[u8; 32]>;
 
 /// A server's sign-in as its keychain item holds it.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct HeldSignIn {
     /// rmcp's credentials: the client, the token response and its scopes, issuer and time.
@@ -63,6 +66,26 @@ pub(crate) struct HeldSignIn {
         with = "client_secret_text"
     )]
     pub(crate) client_secret: Option<SecretString>,
+    /// The address of the authorization server's metadata the sign-in read in place of
+    /// discovery, which its revocation reads again; `None` where the sign-in discovered it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) authorization_server_metadata_url: Option<String>,
+}
+
+// Prints whether a metadata address is held, never the address, which may carry a secret.
+impl fmt::Debug for HeldSignIn {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("HeldSignIn")
+            .field("credentials", &self.credentials)
+            .field("dpop_key", &self.dpop_key)
+            .field("client_secret", &self.client_secret)
+            .field(
+                "has_authorization_server_metadata_url",
+                &self.authorization_server_metadata_url.is_some(),
+            )
+            .finish()
+    }
 }
 
 /// Why a server's sign-in could not be read or kept.
@@ -162,6 +185,9 @@ enum SecretsOnSave {
         dpop_key: Option<Arc<DpopKeyScalar>>,
         // The secret the server issued its client, or none for a public client.
         client_secret: Option<SecretString>,
+        // The metadata address the attempt read in place of discovery, or none where it
+        // discovered.
+        authorization_server_metadata_url: Option<String>,
     },
 }
 
@@ -241,6 +267,7 @@ impl SignInCustody {
                 since,
                 dpop_key,
                 client_secret,
+                authorization_server_metadata_url: None,
             },
         )
     }
@@ -283,6 +310,20 @@ pub(crate) struct McpCredentialStore {
 }
 
 impl McpCredentialStore {
+    /// This store, recording beside the sign-in an attempt's save keeps `metadata_address`, the
+    /// authorization server metadata address the attempt read in place of discovery; a held
+    /// sign-in's store keeps the address its own sign-in recorded, so it is left as it is.
+    pub(crate) fn recording_metadata_address(mut self, metadata_address: Option<&Url>) -> Self {
+        if let SecretsOnSave::Attempt {
+            authorization_server_metadata_url,
+            ..
+        } = &mut self.secrets_on_save
+        {
+            *authorization_server_metadata_url = metadata_address.map(Url::to_string);
+        }
+        self
+    }
+
     /// The server's held sign-in, or `None` when none is kept; the keychain is asked only the
     /// first time in this daemon life. Fails with [`SignInCustodyError`] when the keychain refuses
     /// or its item does not read as a sign-in.
@@ -403,50 +444,64 @@ impl CredentialStore for McpCredentialStore {
     // attempt began, and a kept save marks the server signed in, all under the custody's lock.
     async fn save(&self, credentials: StoredCredentials) -> Result<(), AuthError> {
         let mut state = self.server.held.lock().await;
-        let (dpop_key, client_secret) = match &self.secrets_on_save {
-            SecretsOnSave::Held { renewal } => {
-                let held = self
-                    .read_through(&mut state)
-                    .await
-                    .map_err(|error| store_error(&error))?;
-                let began_from = lock(renewal).began_from.clone();
-                let Some(held) = held.filter(|held| {
-                    began_from
-                        .as_ref()
-                        .is_some_and(|began_from| Arc::ptr_eq(began_from, held))
-                }) else {
-                    let (dpop_key, client_secret) = began_from.map_or((None, None), |began_from| {
-                        (
-                            began_from.dpop_key.clone(),
-                            began_from.client_secret.clone(),
-                        )
-                    });
-                    *lock(&self.server.refused_renewal) = Some(Arc::new(HeldSignIn {
-                        credentials,
-                        dpop_key,
-                        client_secret,
-                    }));
-                    return Err(AuthError::CredentialStoreError(
-                        RenewedSignInGone.to_string(),
-                    ));
-                };
-                (held.dpop_key.clone(), held.client_secret.clone())
-            }
-            SecretsOnSave::Attempt {
-                since,
-                dpop_key,
-                client_secret,
-            } => {
-                if self.server.sign_outs.load(Ordering::Acquire) != since.0 {
-                    return Err(AuthError::CredentialStoreError(SignedOutSince.to_string()));
+        let (dpop_key, client_secret, authorization_server_metadata_url) =
+            match &self.secrets_on_save {
+                SecretsOnSave::Held { renewal } => {
+                    let held = self
+                        .read_through(&mut state)
+                        .await
+                        .map_err(|error| store_error(&error))?;
+                    let began_from = lock(renewal).began_from.clone();
+                    let Some(held) = held.filter(|held| {
+                        began_from
+                            .as_ref()
+                            .is_some_and(|began_from| Arc::ptr_eq(began_from, held))
+                    }) else {
+                        let (dpop_key, client_secret, authorization_server_metadata_url) =
+                            began_from.map_or((None, None, None), |began_from| {
+                                (
+                                    began_from.dpop_key.clone(),
+                                    began_from.client_secret.clone(),
+                                    began_from.authorization_server_metadata_url.clone(),
+                                )
+                            });
+                        *lock(&self.server.refused_renewal) = Some(Arc::new(HeldSignIn {
+                            credentials,
+                            dpop_key,
+                            client_secret,
+                            authorization_server_metadata_url,
+                        }));
+                        return Err(AuthError::CredentialStoreError(
+                            RenewedSignInGone.to_string(),
+                        ));
+                    };
+                    (
+                        held.dpop_key.clone(),
+                        held.client_secret.clone(),
+                        held.authorization_server_metadata_url.clone(),
+                    )
                 }
-                (dpop_key.clone(), client_secret.clone())
-            }
-        };
+                SecretsOnSave::Attempt {
+                    since,
+                    dpop_key,
+                    client_secret,
+                    authorization_server_metadata_url,
+                } => {
+                    if self.server.sign_outs.load(Ordering::Acquire) != since.0 {
+                        return Err(AuthError::CredentialStoreError(SignedOutSince.to_string()));
+                    }
+                    (
+                        dpop_key.clone(),
+                        client_secret.clone(),
+                        authorization_server_metadata_url.clone(),
+                    )
+                }
+            };
         let sign_in = HeldSignIn {
             credentials,
             dpop_key,
             client_secret,
+            authorization_server_metadata_url,
         };
         let item =
             SecretString::from(serde_json::to_string(&sign_in).expect("a sign-in writes as JSON"));

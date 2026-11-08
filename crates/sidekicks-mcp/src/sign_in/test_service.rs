@@ -8,12 +8,11 @@ use axum::Router;
 use axum::body::{Body, Bytes};
 use axum::extract::Request;
 use axum::http::header::AUTHORIZATION;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode, Uri};
 use axum::middleware::{self, Next};
 use axum::response::Response;
 use axum::routing::{get, post};
 use reqwest::Url;
-use rmcp::transport::auth::{AuthorizationManager, OAuthHttpClient};
 use rusqlite::params;
 use serde_json::{Value, json};
 use sidekicks_contracts::dpop::DPOP_PROOF_HEADER_NAME;
@@ -45,6 +44,7 @@ use crate::sign_in::oauth_http_client::OAuthHttpPools;
 use crate::sign_in::registration::RELAY_ADDRESS;
 use crate::sign_in::service::{
     AddressedServer, ProviderAccounts, SignInServer, SignInService, SignInTarget,
+    read_named_metadata,
 };
 
 /// A service over a test database, event log and keychain, with the folders and database it
@@ -126,22 +126,18 @@ impl Harness {
             .collect()
     }
 
-    /// The authorizer of the server at `base` under the sign-in the service holds for it, made
-    /// against the metadata the server publishes, through the service's filtered pools as the
-    /// daemon makes one.
+    /// The authorizer of the server at `base`, a fake authorization server, under the sign-in the
+    /// service holds for it, made against the metadata the fake serves at
+    /// [`NAMED_METADATA_PATH`], which it serves whether or not it refuses discovery, through the
+    /// service's filtered pools as the daemon makes one.
     pub(crate) async fn authorizer(&self, base: &str) -> SignInAuthorizer {
         let address = McpServerAddress::new(base).expect("a server address");
-        let manager = AuthorizationManager::new_with_oauth_http_client(
-            base,
-            Arc::new(self.service.pools.server_client(&address)) as Arc<dyn OAuthHttpClient>,
+        let metadata = read_named_metadata(
+            &self.service.pools.server_client(&address),
+            &Url::parse(&format!("{base}{NAMED_METADATA_PATH}")).expect("a URL"),
         )
         .await
-        .expect("a manager for a loopback server");
-        let metadata = manager
-            .resolve_metadata()
-            .await
-            .expect("the server publishes its metadata")
-            .metadata;
+        .expect("the fake serves its metadata");
         SignInAuthorizer::new(
             &self.service.custody,
             &self.service.pools,
@@ -173,12 +169,25 @@ pub(crate) struct FakeAuthorizationServer {
     pub(crate) revocation_authorizations: Arc<Mutex<Vec<Option<String>>>>,
     /// The `DPoP` proof each revocation request carried, in order.
     pub(crate) revocation_proofs: Arc<Mutex<Vec<Option<String>>>>,
+    /// The path of every request it got, in order.
+    pub(crate) paths: Arc<Mutex<Vec<String>>>,
 }
 
+/// The path the fake serves its metadata at besides its well-known one, which a test entry names
+/// as its metadata address.
+pub(crate) const NAMED_METADATA_PATH: &str = "/metadata";
+
+/// The prefix of every path discovery asks for.
+const WELL_KNOWN_PREFIX: &str = "/.well-known/";
+
 /// How the fake authorization server answers; by default it lists `S256` as its PKCE method,
-/// registers every client, publishes no pushed-request endpoint, answers every token request with
-/// tokens and every revocation with 200.
+/// answers discovery, registers every client, publishes no pushed-request endpoint, answers every
+/// token request with tokens and every revocation with 200.
 #[derive(Clone, Copy)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each switch is one way the fake answers, set on its own"
+)]
 pub(crate) struct FakeServerAnswers {
     /// Whether its metadata says it sends `iss` with every response.
     pub(crate) is_issuer_in_response: bool,
@@ -195,6 +204,9 @@ pub(crate) struct FakeServerAnswers {
     pub(crate) pushed_request_refusal: Option<&'static str>,
     /// The status its revocation endpoint answers.
     pub(crate) revocation_status: StatusCode,
+    /// Whether it answers 500 on every well-known path, so discovery finds nothing; its metadata
+    /// is still served at [`NAMED_METADATA_PATH`].
+    pub(crate) is_discovery_refused: bool,
 }
 
 impl Default for FakeServerAnswers {
@@ -207,6 +219,7 @@ impl Default for FakeServerAnswers {
             is_code_refused: false,
             pushed_request_refusal: None,
             revocation_status: StatusCode::OK,
+            is_discovery_refused: false,
         }
     }
 }
@@ -219,8 +232,9 @@ pub(crate) const REFUSED_CODE_DESCRIPTION: &str = "the fake server refused this 
 /// token request's form; made up for the test.
 pub(crate) const REGISTERED_CLIENT_SECRET: &str = "test-registered-client-secret";
 
-/// Serves a fake authorization server that publishes its metadata, with a revocation endpoint and
-/// client secrets taken in the token request's form, and answers as `answers` says.
+/// Serves a fake authorization server that publishes its metadata, listing the scopes `read` and
+/// `write`, with a revocation endpoint and client secrets taken in the token request's form, and
+/// answers as `answers` says.
 pub(crate) async fn serve_authorization_server(
     answers: FakeServerAnswers,
 ) -> FakeAuthorizationServer {
@@ -232,6 +246,7 @@ pub(crate) async fn serve_authorization_server(
         is_code_refused,
         pushed_request_refusal,
         revocation_status,
+        is_discovery_refused,
     } = answers;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
@@ -249,6 +264,7 @@ pub(crate) async fn serve_authorization_server(
         "revocation_endpoint": format!("{base}/revoke"),
         "token_endpoint_auth_methods_supported": ["client_secret_post"],
         "response_types_supported": ["code"],
+        "scopes_supported": ["read", "write"],
         "authorization_response_iss_parameter_supported": is_issuer_in_response,
     });
     if !pkce_methods.is_empty() {
@@ -268,12 +284,25 @@ pub(crate) async fn serve_authorization_server(
     let received_authorizations = Arc::clone(&revocation_authorizations);
     let revocation_proofs = Arc::new(Mutex::new(Vec::new()));
     let received_proofs = Arc::clone(&revocation_proofs);
+    let paths = Arc::new(Mutex::new(Vec::new()));
+    let received_paths = Arc::clone(&paths);
     let counted = Arc::clone(&requests);
     let counted_tokens = Arc::clone(&token_requests);
+    let named_metadata = metadata.clone();
     let router = Router::new()
         .route(
             "/.well-known/oauth-authorization-server",
-            get(move || async move { answer(200, metadata) }),
+            get(move || async move {
+                if is_discovery_refused {
+                    answer(500, "{}".to_owned())
+                } else {
+                    answer(200, metadata)
+                }
+            }),
+        )
+        .route(
+            NAMED_METADATA_PATH,
+            get(move || async move { answer(200, named_metadata) }),
         )
         .route(
             "/register",
@@ -344,9 +373,19 @@ pub(crate) async fn serve_authorization_server(
                 answer(revocation_status.as_u16(), "{}".to_owned())
             }),
         )
-        .fallback(|| async { answer(404, "{}".to_owned()) })
+        .fallback(move |uri: Uri| async move {
+            if is_discovery_refused && uri.path().starts_with(WELL_KNOWN_PREFIX) {
+                answer(500, "{}".to_owned())
+            } else {
+                answer(404, "{}".to_owned())
+            }
+        })
         .layer(middleware::from_fn(move |request: Request, next: Next| {
             counted.fetch_add(1, Ordering::SeqCst);
+            received_paths
+                .lock()
+                .expect("never poisoned")
+                .push(request.uri().path().to_owned());
             next.run(request)
         }));
     tokio::spawn(async move { axum::serve(listener, router).await });
@@ -358,6 +397,7 @@ pub(crate) async fn serve_authorization_server(
         revocation_forms,
         revocation_authorizations,
         revocation_proofs,
+        paths,
     }
 }
 
@@ -392,11 +432,13 @@ pub(crate) fn addressed_target(base: &str) -> SignInTarget {
             provider: provider(),
             server_name: server_name(),
         },
-        server: SignInServer::Address(AddressedServer::new(
+        server: SignInServer::Address(Box::new(AddressedServer::new(
             McpServerAddress::new(base).expect("a server address"),
             None,
             None,
-        )),
+            None,
+            false,
+        ))),
         root_folder: None,
         every_project_rows: Vec::new(),
         project_rows: Vec::new(),

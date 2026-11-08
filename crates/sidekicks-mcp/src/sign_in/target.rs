@@ -1,7 +1,8 @@
 //! The target of an MCP sign-in, read from its binding: the provider's declaration, the whole
 //! address the binding's entry declares as its driver reads it, never the stripped one the
 //! inventory serves, the client the server's owner issued, the scopes and the resource the entry
-//! asks for, the binding's project root on this computer, the environment rows that fill the
+//! asks for, the `https:` address its authorization server's metadata is read at where the entry
+//! names one, the binding's project root on this computer, the environment rows that fill the
 //! address's variables and each provider's current account.
 
 use std::error::Error;
@@ -96,7 +97,8 @@ impl SignInTargetReads {
 
     /// The target of a sign-in to `binding`. Refuses `mcp.server.signInUnsupported` for a
     /// connector, whose sign-in is its account's own, for a server whose declared address does
-    /// not read and for an owner's callback that is no address, and `mcp.server.notFound` when no
+    /// not read, for an owner's callback that is no address and for a metadata address that is no
+    /// `https:` address (`unusableMetadata`), and `mcp.server.notFound` when no
     /// provider declares the binding; answers an inventory or driver failure as each answers a
     /// call, and an accounts, settings or project read that fails, or a stored project root that
     /// is no path, as a fault.
@@ -173,18 +175,37 @@ impl SignInTargetReads {
                     Err(DriverError::NoPersonServerEntry(_)) => return Err(not_found()),
                     Err(error) => return Err(HandlerError::from(error)),
                 };
-                let owner_client = match owner_client_of(declaration.sign_in_settings) {
+                let settings = declaration.sign_in_settings;
+                let authorization_server_metadata = match settings
+                    .as_ref()
+                    .and_then(|settings| settings.authorization_server_metadata_url.as_deref())
+                    .map(Url::parse)
+                {
+                    None => None,
+                    Some(Ok(metadata_address)) if metadata_address.scheme() == "https" => {
+                        Some(metadata_address)
+                    }
+                    Some(Ok(_) | Err(_)) => {
+                        return Err(unsupported(SignInUnsupportedReason::UnusableMetadata));
+                    }
+                };
+                let asks_offline_access_where_listed = settings
+                    .as_ref()
+                    .is_some_and(|settings| settings.asks_offline_access_where_listed);
+                let owner_client = match owner_client_of(settings) {
                     Ok(owner_client) => owner_client,
                     Err(OwnerCallbackUnparsed) => {
                         return Err(unsupported(SignInUnsupportedReason::OwnerCallbackUnserved));
                     }
                 };
                 (
-                    SignInServer::Address(AddressedServer::new(
+                    SignInServer::Address(Box::new(AddressedServer::new(
                         address,
                         owner_client,
                         oauth_resource,
-                    )),
+                        authorization_server_metadata,
+                        asks_offline_access_where_listed,
+                    ))),
                     oauth_scopes.unwrap_or_default(),
                     every_project_rows,
                     project_rows,
@@ -354,7 +375,8 @@ pub(crate) mod tests {
     };
     use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
     use sidekicks_provider::driver::mcp_server::read::{
-        McpServerDeclaration, McpServerPolicy, McpServerToolDefaults, ProviderMcpServersReading,
+        McpServerDeclaration, McpServerPolicy, McpServerSignInSettings, McpServerToolDefaults,
+        ProviderMcpServersReading,
     };
     use sidekicks_provider::driver::registry::ProviderRegistry;
     use sidekicks_provider::driver::test_registry::{
@@ -369,7 +391,10 @@ pub(crate) mod tests {
     use sidekicks_workspace::project::test_doubles::NoSessions;
     use sidekicks_workspace::test_rows::project_and_mount_rows;
 
+    use reqwest::Url;
+
     use super::{SignInTargetReads, root_folder_of};
+    use crate::errors::SignInUnsupportedReason;
     use crate::inventory_service::McpInventoryService;
     use crate::mutation::receipts::tests::receipts_over_a_database;
     use crate::sign_in::service::SignInServer;
@@ -568,6 +593,69 @@ pub(crate) mod tests {
             panic!("a remote binding is reached at an address");
         };
         assert_eq!(server.address.as_str(), DECLARED_ADDRESS);
+    }
+
+    // An entry naming both client halves, an `https:` metadata address and its scopes reads as a
+    // target holding them, and an `http:` metadata address is refused as unusable. Killed by the
+    // metadata address dropped from the target, and by the scheme check dropped.
+    #[rstest]
+    #[case::https("https://auth.example.test/meta", None)]
+    #[case::http(
+        "http://auth.example.test/meta",
+        Some(SignInUnsupportedReason::UnusableMetadata)
+    )]
+    #[tokio::test]
+    async fn an_entrys_sign_in_settings_reach_its_target(
+        #[case] metadata_address: &str,
+        #[case] refusal: Option<SignInUnsupportedReason>,
+    ) {
+        let binding = docs_binding();
+        let mut declaration = remote_declaration(&binding, "https://docs.example.test/");
+        if let McpServerConfigView::Http { oauth_scopes, .. } = &mut declaration.config {
+            *oauth_scopes = Some(vec!["read".to_owned()]);
+        }
+        declaration.sign_in_settings = Some(McpServerSignInSettings {
+            client_id: Some("owner-client".to_owned()),
+            callback_url: Some("http://localhost:8080/callback".to_owned()),
+            authorization_server_metadata_url: Some(metadata_address.to_owned()),
+            asks_offline_access_where_listed: true,
+        });
+        let mut driver = driver_declaring(vec![declaration]);
+        answer_address_read(&mut driver, Ok(declared(DECLARED_ADDRESS)));
+        let sources = test_sources(vec![Arc::new(driver)]).await;
+
+        let read = sources.target_reads().read(&binding).await;
+
+        let read = match (read, refusal) {
+            (Ok(read), None) => read,
+            (Err(HandlerError::Refused(refused)), Some(reason)) => {
+                assert_eq!(refused.code, RefusalCode::McpServerSignInUnsupported);
+                assert!(
+                    refused.message.contains(&reason.to_string()),
+                    "{}",
+                    refused.message
+                );
+                return;
+            }
+            (read, _) => panic!("the read answered {:?}", read.err()),
+        };
+        let SignInServer::Address(server) = &read.target.server else {
+            panic!("a remote binding is reached at an address");
+        };
+        assert_eq!(
+            server
+                .authorization_server_metadata
+                .as_ref()
+                .map(Url::as_str),
+            Some(metadata_address)
+        );
+        let owner_client = server.owner_client.as_ref().expect("the owner's client");
+        assert_eq!(owner_client.client_id.as_deref(), Some("owner-client"));
+        assert_eq!(
+            owner_client.callback_url.as_ref().map(Url::as_str),
+            Some("http://localhost:8080/callback")
+        );
+        assert_eq!(read.scopes, ["read"]);
     }
 
     /// A binding a test case reads the target of.

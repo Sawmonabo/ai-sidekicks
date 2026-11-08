@@ -131,6 +131,9 @@ pub(crate) struct SignInAuthorizer {
     account: String,
     /// The proof key last read from the held scalar, made again only when the scalar changes.
     dpop_key: Mutex<Option<(Arc<DpopKeyScalar>, Arc<DpopKey>)>>,
+    /// The server's metadata the authorizer was made with, which a refused renewal's revocation
+    /// reads its endpoint from.
+    metadata: AuthorizationMetadata,
 }
 
 /// rmcp's manager and the sign-in it was last set to renew as, held weakly so a sign-in forgotten
@@ -185,7 +188,7 @@ impl SignInAuthorizer {
         )
         .await
         .expect("a server address is a web address");
-        manager.set_metadata(metadata);
+        manager.set_metadata(metadata.clone());
         manager.set_credential_store(custody.credential_store(address));
         Ok(Self {
             manager: tokio::sync::Mutex::new(RenewingManager {
@@ -200,6 +203,7 @@ impl SignInAuthorizer {
             address: address.clone(),
             account,
             dpop_key: Mutex::new(None),
+            metadata,
         })
     }
 }
@@ -330,6 +334,7 @@ impl SignInAuthorizer {
                 Arc::new(self.pools.server_client(&self.address)),
                 self.address.clone(),
                 refused,
+                Some(self.metadata.clone()),
                 self.stop.clone(),
             );
         }

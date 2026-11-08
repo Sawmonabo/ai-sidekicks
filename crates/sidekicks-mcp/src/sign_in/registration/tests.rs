@@ -374,7 +374,8 @@ async fn each_registration_row_ends_in_its_arm(
         &relay,
         &mut manager,
         &http_client,
-        resolution,
+        resolution.metadata,
+        resolution.source.is_discovered(),
     )
     .await;
     if let (SignInClient::OwnClient(_), Some(refusal)) = (&client, row.pushed_refusal) {

@@ -2,11 +2,17 @@
 //!
 //! - **The launch.** A binding reached at an address signs in; a program the provider starts or a
 //!   connector of a provider account is refused before anything is sent or bound. Then, in order:
-//!   the server's metadata is discovered, the redirect receiver is bound so the redirect carries
-//!   its port, the client is chosen, a `DPoP` key is made for this attempt when the server takes
-//!   `DPoP` proofs, and the authorization address is built, naming the resource the entry names
-//!   beside the server's own, and pushed where the server takes pushed requests.
-//!   The address goes back to the caller and nothing here keeps it.
+//!   the server's metadata is read at the address its entry names, with no protected-resource
+//!   request, and discovered where it names none or that read fails; the scopes are chosen; the
+//!   redirect receiver is bound so the redirect carries its port, the client is chosen, a `DPoP`
+//!   key is made for this attempt when the server takes `DPoP` proofs, and the authorization
+//!   address is built, naming the resource the entry names beside the server's own, and pushed
+//!   where the server takes pushed requests. The address goes back to the caller and nothing here
+//!   keeps it; the sign-in it leads to records the metadata address it was read at.
+//! - **The scopes.** The entry's own where it pins any, `offline_access` added where the entry asks
+//!   for it and the metadata lists it; else, where the entry names a metadata address that read,
+//!   that metadata's `scopes_supported`; else rmcp's pick from discovery: the protected resource's
+//!   `scopes_supported`, never the authorization server's.
 //! - **One attempt per server.** Attempts are kept by the server's canonical address. A new launch
 //!   ends the attempt before it, an attempt ends 15 minutes after it opened, and `close` ends
 //!   every attempt at the daemon's stop; each closes its listener and appends nothing. An attempt
@@ -25,8 +31,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
-use reqwest::Url;
-use rmcp::transport::auth::{AuthorizationManager, OAuthHttpClient};
+use reqwest::header::{ACCEPT, HeaderMap, HeaderValue};
+use reqwest::{Method, StatusCode, Url};
+use rmcp::transport::auth::{AuthorizationManager, AuthorizationMetadata, OAuthHttpClient};
 use secrecy::{SecretBox, SecretString};
 use sidekicks_contracts::dpop::DPOP_PROOF_ALGORITHM;
 use sidekicks_contracts::machine::settings::EnvironmentRow;
@@ -50,7 +57,10 @@ use crate::oauth::redirect_receiver::{
 use crate::sign_in::admitted_client::AdmittedClientStore;
 use crate::sign_in::canonical_server_address;
 use crate::sign_in::credential_store::SignInCustody;
-use crate::sign_in::oauth_http_client::{BrowserAddressError, OAuthHttpPools};
+use crate::sign_in::oauth_http_client::{
+    BrowserAddressError, CALL_TIMEOUT, OAuthCall, OAuthCallError, OAuthHttpPools,
+    ServerOAuthHttpClient,
+};
 use crate::sign_in::provider_flow::{ProviderFlowStart, ProviderFlowsTried};
 use crate::sign_in::redemption::{AttemptRedemption, ExpectedIssuer};
 use crate::sign_in::registration::{
@@ -68,6 +78,23 @@ const ISSUER_IN_RESPONSE: &str = "authorization_response_iss_parameter_supported
 
 /// The authorization request's parameter (RFC 8707 §2) naming a resource the token is for.
 const RESOURCE_PARAMETER: &str = "resource";
+
+/// The scope (OIDC Core §11) asking for a refresh token.
+const OFFLINE_ACCESS_SCOPE: &str = "offline_access";
+
+/// Why the authorization server's metadata at the address an entry names did not read.
+#[derive(Debug, thiserror::Error)]
+pub(super) enum NamedMetadataError {
+    /// The request got no response.
+    #[error(transparent)]
+    Call(#[from] OAuthCallError),
+    /// The address answered a status other than success.
+    #[error("the authorization server's metadata address answered {0}")]
+    Refused(StatusCode),
+    /// The body is not authorization server metadata; the failure names its kind, never a value.
+    #[error("the authorization server's metadata did not read ({0:?})")]
+    Unreadable(serde_json::error::Category),
+}
 
 /// The binding a sign-in is asked for and how its server is reached.
 #[derive(Clone)]
@@ -106,27 +133,36 @@ pub(crate) struct SignInTarget {
 pub(crate) enum SignInServer {
     /// A program the provider starts, which no sign-in reaches.
     Stdio,
-    /// A server reached at an address.
-    Address(AddressedServer),
+    /// A server reached at an address, boxed since it holds its addresses whole.
+    Address(Box<AddressedServer>),
 }
 
 /// A server reached at an address, with the client its owner issued when the entry names either
-/// half of one and the resource the entry names.
+/// half of one, the resource the entry names, where its authorization server's metadata is read
+/// and whether the sign-in asks for `offline_access`.
 #[derive(Clone)]
 pub(crate) struct AddressedServer {
     /// The server's address as the binding declares it.
     pub(super) address: McpServerAddress,
     /// The address its sign-in is kept under.
     pub(super) canonical_address: String,
-    owner_client: Option<OwnerIssuedClient>,
+    /// The client the server's owner issued, where the entry gives either half.
+    pub(super) owner_client: Option<OwnerIssuedClient>,
     oauth_resource: Option<String>,
+    /// The address the entry names for its authorization server's metadata, read in place of
+    /// discovery; `None` discovers it.
+    pub(super) authorization_server_metadata: Option<Url>,
+    asks_offline_access_where_listed: bool,
 }
 
 impl AddressedServer {
     /// The server at `address`, signed in to as `owner_client` where the entry gives either half,
-    /// its authorization request also naming `oauth_resource` where the entry names one. `address`
-    /// is the whole one the server's entry declares, its user name and query kept, held only in
-    /// memory and never the stripped address the inventory serves.
+    /// its authorization request also naming `oauth_resource` where the entry names one, its
+    /// metadata read at `authorization_server_metadata` where the entry names one, any address
+    /// taken as given, and `offline_access` added to pinned scopes where
+    /// `asks_offline_access_where_listed` and the metadata lists it. `address` is the whole one the
+    /// server's entry declares, its user name and query kept, held only in memory and never the
+    /// stripped address the inventory serves.
     #[cfg_attr(
         not(test),
         expect(
@@ -138,12 +174,16 @@ impl AddressedServer {
         address: McpServerAddress,
         owner_client: Option<OwnerIssuedClient>,
         oauth_resource: Option<String>,
+        authorization_server_metadata: Option<Url>,
+        asks_offline_access_where_listed: bool,
     ) -> Self {
         Self {
             canonical_address: canonical_server_address(&address),
             address,
             owner_client,
             oauth_resource,
+            authorization_server_metadata,
+            asks_offline_access_where_listed,
         }
     }
 }
@@ -317,11 +357,42 @@ impl SignInService {
         )
         .await
         .map_err(|error| failed(Box::new(error)))?;
-        let resolution = manager
-            .resolve_metadata()
-            .await
-            .map_err(|error| failed(Box::new(error)))?;
-        let metadata = &resolution.metadata;
+        let named = match &server.authorization_server_metadata {
+            Some(metadata_address) => {
+                match read_named_metadata(&http_client, metadata_address).await {
+                    Ok(metadata) => Some((metadata, metadata_address.clone())),
+                    // Claude Code discovers the server's metadata when the named address fails.
+                    Err(error) => {
+                        tracing::warn!(
+                            error = &error as &(dyn std::error::Error + 'static),
+                            "the authorization server's metadata did not read at the address the \
+                             entry names, so the sign-in discovers it"
+                        );
+                        None
+                    }
+                }
+            }
+            None => None,
+        };
+        let (metadata, is_published, metadata_address) =
+            if let Some((metadata, metadata_address)) = named {
+                (metadata, true, Some(metadata_address))
+            } else {
+                let resolution = manager
+                    .resolve_metadata()
+                    .await
+                    .map_err(|error| failed(Box::new(error)))?;
+                let is_published = resolution.source.is_discovered();
+                (resolution.metadata, is_published, None)
+            };
+        let scopes = requested_scopes(
+            &mut manager,
+            server,
+            scopes,
+            &metadata,
+            metadata_address.is_some(),
+        )
+        .await;
         let is_issuer_in_response = metadata
             .additional_fields
             .get(ISSUER_IN_RESPONSE)
@@ -382,7 +453,7 @@ impl SignInService {
                 .owner_client
                 .as_ref()
                 .and_then(|owner| owner.client_id.as_deref()),
-            scopes,
+            scopes: &scopes,
         };
         let mut client = choose_client(
             &request,
@@ -390,7 +461,8 @@ impl SignInService {
             self.relay,
             &mut manager,
             &http_client,
-            resolution.clone(),
+            metadata.clone(),
+            is_published,
         )
         .await;
         let mut tried = ProviderFlowsTried::No;
@@ -411,7 +483,8 @@ impl SignInService {
                         self.relay,
                         &mut manager,
                         &http_client,
-                        resolution,
+                        metadata,
+                        is_published,
                     )
                     .await;
                     if let Some(failure) = &failure
@@ -452,12 +525,11 @@ impl SignInService {
             is_dpop.then(|| Arc::new(SecretBox::new(Box::new(DpopKey::generate().to_scalar()))));
         http_client.set_dpop_key(dpop_key.clone());
         let client_secret = own_client.client_secret.map(SecretString::from);
-        manager.set_credential_store(self.custody.attempt_credential_store(
-            &server.address,
-            since,
-            dpop_key,
-            client_secret.clone(),
-        ));
+        manager.set_credential_store(
+            self.custody
+                .attempt_credential_store(&server.address, since, dpop_key, client_secret.clone())
+                .recording_metadata_address(metadata_address.as_ref()),
+        );
         let scope_names: Vec<&str> = scopes.iter().map(String::as_str).collect();
         let authorization_url = manager
             .get_authorization_url(&scope_names)
@@ -682,6 +754,68 @@ impl SignInService {
     }
 }
 
+/// The authorization server's metadata read at `metadata_address`, the address a server's entry
+/// names in place of discovery: one GET through `client`, the server's filtered OAuth client,
+/// asking for JSON, its redirects followed with each hop judged by the server's filter, within the
+/// OAuth call bound. Fails with [`NamedMetadataError`] when the call gets no response, answers
+/// other than success or its body is not authorization server metadata.
+pub(super) async fn read_named_metadata(
+    client: &ServerOAuthHttpClient,
+    metadata_address: &Url,
+) -> Result<AuthorizationMetadata, NamedMetadataError> {
+    let mut headers = HeaderMap::new();
+    headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
+    let response = client
+        .call(OAuthCall {
+            method: Method::GET,
+            url: metadata_address.clone(),
+            headers,
+            body: Vec::new(),
+            is_following_redirects: true,
+            timeout: CALL_TIMEOUT,
+        })
+        .await?;
+    if !response.status.is_success() {
+        return Err(NamedMetadataError::Refused(response.status));
+    }
+    serde_json::from_slice(&response.body)
+        .map_err(|error| NamedMetadataError::Unreadable(error.classify()))
+}
+
+// The scopes a sign-in to `server` asks for: `entry_scopes` where the entry pins any, with
+// `offline_access` added where the entry asks for it and `metadata` lists it; else, for
+// `metadata` read at the address the entry names, the scopes it lists; else rmcp's pick from its
+// discovery, `manager` set to `metadata` so its own `offline_access` rule reads it.
+async fn requested_scopes(
+    manager: &mut AuthorizationManager,
+    server: &AddressedServer,
+    entry_scopes: &[String],
+    metadata: &AuthorizationMetadata,
+    is_named_metadata: bool,
+) -> Vec<String> {
+    let lists = |scope: &str| {
+        metadata
+            .scopes_supported
+            .as_ref()
+            .is_some_and(|listed| listed.iter().any(|listed| listed == scope))
+    };
+    if !entry_scopes.is_empty() {
+        let mut scopes = entry_scopes.to_vec();
+        if server.asks_offline_access_where_listed
+            && !scopes.iter().any(|scope| scope == OFFLINE_ACCESS_SCOPE)
+            && lists(OFFLINE_ACCESS_SCOPE)
+        {
+            scopes.push(OFFLINE_ACCESS_SCOPE.to_owned());
+        }
+        return scopes;
+    }
+    if is_named_metadata {
+        return metadata.scopes_supported.clone().unwrap_or_default();
+    }
+    manager.set_metadata(metadata.clone());
+    manager.select_initial_scopes(&[]).await
+}
+
 /// The target's server when its binding is one a sign-in reaches: an address, never a connector.
 pub(super) fn addressed_server(target: &SignInTarget) -> Option<&AddressedServer> {
     if matches!(target.binding, McpServerBindingRef::Connector { .. }) {
@@ -689,7 +823,7 @@ pub(super) fn addressed_server(target: &SignInTarget) -> Option<&AddressedServer
     }
     match &target.server {
         SignInServer::Stdio => None,
-        SignInServer::Address(server) => Some(server),
+        SignInServer::Address(server) => Some(server.as_ref()),
     }
 }
 

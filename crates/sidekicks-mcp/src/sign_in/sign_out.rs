@@ -14,13 +14,19 @@
 //!   token that renewal received the same way, so the newest token is revoked with no wait.
 //! - A revocation runs on a task the daemon's stop ends, within the OAuth call bound; a failure is
 //!   logged with no token and never returned, since the sign-in is already forgotten.
+//! - The revocation endpoint is read from the metadata at the address the sign-in recorded, with
+//!   no protected-resource request and no entry read, so a sign-out after the entry's removal
+//!   still revokes; a sign-in that recorded none discovers it, and a recorded address that does
+//!   not read revokes nothing, as Claude Code's own revocation does.
 
 use std::sync::Arc;
 
 use oauth2::TokenResponse as _;
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 use reqwest::{Method, StatusCode, Url};
-use rmcp::transport::auth::{AuthError, AuthorizationManager, OAuthHttpClient};
+use rmcp::transport::auth::{
+    AuthError, AuthorizationManager, AuthorizationMetadata, OAuthHttpClient,
+};
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use tokio_util::sync::CancellationToken;
 
@@ -32,7 +38,9 @@ use crate::sign_in::credential_store::HeldSignIn;
 use crate::sign_in::oauth_http_client::{
     CALL_TIMEOUT, OAuthCall, OAuthCallError, ServerOAuthHttpClient,
 };
-use crate::sign_in::service::{SignInService, SignInTarget, addressed_server};
+use crate::sign_in::service::{
+    NamedMetadataError, SignInService, SignInTarget, addressed_server, read_named_metadata,
+};
 
 /// The metadata field (RFC 8414 §2) naming the authorization server's revocation endpoint.
 const REVOCATION_ENDPOINT: &str = "revocation_endpoint";
@@ -43,9 +51,15 @@ const REFRESH_TOKEN_HINT: &str = "refresh_token";
 /// Why a refresh token was not revoked.
 #[derive(Debug, thiserror::Error)]
 enum RevocationError {
-    /// The server's authorization metadata could not be read.
+    /// The server's authorization metadata could not be discovered.
     #[error("the MCP server's authorization metadata could not be read")]
     Metadata(#[source] AuthError),
+    /// The metadata at the address the sign-in recorded could not be read.
+    #[error("the MCP server's authorization metadata could not be read at its recorded address")]
+    RecordedMetadata(#[source] NamedMetadataError),
+    /// The recorded metadata address is not a web address.
+    #[error("the MCP server's recorded metadata address is not a web address")]
+    RecordedAddress(#[source] url::ParseError),
     /// The published revocation endpoint is not a web address.
     #[error("the MCP server's revocation endpoint is not a web address")]
     Endpoint(#[source] url::ParseError),
@@ -100,6 +114,7 @@ impl SignInService {
                 Arc::new(self.pools.server_client(&server.address)),
                 server.address.clone(),
                 held,
+                None,
                 self.revocations.token().clone(),
             );
         }
@@ -108,17 +123,23 @@ impl SignInService {
 }
 
 /// Revokes `held`'s refresh token at `address`'s authorization server through `client`, on a task
-/// `stop` ends, logging a revocation that fails or runs past the OAuth call bound.
+/// `stop` ends, logging a revocation that fails or runs past the OAuth call bound. The server's
+/// `metadata` is the caller's where it has it; with `None` the task reads it at the address `held`
+/// recorded, or discovers it where `held` recorded none.
 pub(super) fn revoke_on_task(
     client: Arc<ServerOAuthHttpClient>,
     address: McpServerAddress,
     held: Arc<HeldSignIn>,
+    metadata: Option<AuthorizationMetadata>,
     stop: CancellationToken,
 ) {
     tokio::spawn(async move {
         tokio::select! {
             () = stop.cancelled() => {}
-            revoked = tokio::time::timeout(CALL_TIMEOUT, revoke(client, &address, &held)) => {
+            revoked = tokio::time::timeout(
+                CALL_TIMEOUT,
+                revoke(client, &address, &held, metadata),
+            ) => {
                 let failure = match revoked {
                     Ok(Ok(())) => return,
                     Ok(Err(failure)) => failure,
@@ -133,13 +154,16 @@ pub(super) fn revoke_on_task(
     });
 }
 
-// Posts `held`'s refresh token to the revocation endpoint `address`'s metadata publishes, through
+// Posts `held`'s refresh token to the revocation endpoint the server's metadata publishes, through
 // `client`, signed with the sign-in's proof key when it holds one and authenticated with its
-// client's secret when it holds one; no refresh token or no published endpoint sends nothing.
+// client's secret when it holds one; no refresh token or no published endpoint sends nothing. The
+// metadata is `metadata` where given, else read at `held`'s recorded address, else discovered at
+// `address`.
 async fn revoke(
     client: Arc<ServerOAuthHttpClient>,
     address: &McpServerAddress,
     held: &HeldSignIn,
+    metadata: Option<AuthorizationMetadata>,
 ) -> Result<(), RevocationError> {
     let Some(refresh_token) = held
         .credentials
@@ -149,18 +173,29 @@ async fn revoke(
     else {
         return Ok(());
     };
-    let manager = AuthorizationManager::new_with_oauth_http_client(
-        address.as_str(),
-        Arc::clone(&client) as Arc<dyn OAuthHttpClient>,
-    )
-    .await
-    .map_err(RevocationError::Metadata)?;
-    let resolution = manager
-        .resolve_metadata()
-        .await
-        .map_err(RevocationError::Metadata)?;
-    let Some(endpoint) = resolution
-        .metadata
+    let metadata = match (metadata, &held.authorization_server_metadata_url) {
+        (Some(metadata), _) => metadata,
+        (None, Some(recorded)) => {
+            let recorded = Url::parse(recorded).map_err(RevocationError::RecordedAddress)?;
+            read_named_metadata(&client, &recorded)
+                .await
+                .map_err(RevocationError::RecordedMetadata)?
+        }
+        (None, None) => {
+            let manager = AuthorizationManager::new_with_oauth_http_client(
+                address.as_str(),
+                Arc::clone(&client) as Arc<dyn OAuthHttpClient>,
+            )
+            .await
+            .map_err(RevocationError::Metadata)?;
+            manager
+                .resolve_metadata()
+                .await
+                .map_err(RevocationError::Metadata)?
+                .metadata
+        }
+    };
+    let Some(endpoint) = metadata
         .additional_fields
         .get(REVOCATION_ENDPOINT)
         .and_then(serde_json::Value::as_str)
@@ -184,7 +219,7 @@ async fn revoke(
             client_id: &held.credentials.client_id,
             client_secret,
             method: ClientSecretMethod::from_metadata(
-                &resolution.metadata.additional_fields,
+                &metadata.additional_fields,
                 REVOCATION_ENDPOINT_AUTH_METHODS,
             ),
         }
@@ -214,8 +249,8 @@ pub(crate) mod tests {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use axum::http::StatusCode;
-    use reqwest::Method;
     use reqwest::header::AUTHORIZATION;
+    use reqwest::{Method, Url};
     use rmcp::transport::auth::{CredentialStore as _, StoredCredentials};
     use rstest::rstest;
     use secrecy::{SecretBox, SecretString};
@@ -230,8 +265,8 @@ pub(crate) mod tests {
     use crate::sign_in::canonical_server_address;
     use crate::sign_in::credential_store::DpopKeyScalar;
     use crate::sign_in::test_service::{
-        FakeAuthorizationServer, FakeServerAnswers, Harness, TokenForm, addressed_target, harness,
-        serve_authorization_server,
+        FakeAuthorizationServer, FakeServerAnswers, Harness, NAMED_METADATA_PATH, TokenForm,
+        addressed_target, harness, serve_authorization_server,
     };
 
     /// The secret of the confidential client a sign-in may hold; made up for the test.
@@ -247,11 +282,25 @@ pub(crate) mod tests {
         client_secret: Option<&str>,
         dpop_key: Option<Arc<DpopKeyScalar>>,
     ) -> (FakeAuthorizationServer, Harness, SignInAuthorizer) {
+        sign_in_to_fake(revocation_status, client_secret, dpop_key, false).await
+    }
+
+    // A sign-in as `signed_in` keeps one; where `is_metadata_recorded`, the fake refuses
+    // discovery and the sign-in records the address the fake serves its metadata at.
+    async fn sign_in_to_fake(
+        revocation_status: StatusCode,
+        client_secret: Option<&str>,
+        dpop_key: Option<Arc<DpopKeyScalar>>,
+        is_metadata_recorded: bool,
+    ) -> (FakeAuthorizationServer, Harness, SignInAuthorizer) {
         let server = serve_authorization_server(FakeServerAnswers {
             revocation_status,
+            is_discovery_refused: is_metadata_recorded,
             ..FakeServerAnswers::default()
         })
         .await;
+        let metadata_address = is_metadata_recorded
+            .then(|| Url::parse(&format!("{}{NAMED_METADATA_PATH}", server.base)).expect("a URL"));
         let harness = harness().await;
         let token_response = serde_json::from_value(json!({
             "access_token": "test-access-token-1",
@@ -272,6 +321,7 @@ pub(crate) mod tests {
                 dpop_key,
                 client_secret.map(SecretString::from),
             )
+            .recording_metadata_address(metadata_address.as_ref())
             .save(StoredCredentials::new(
                 "test-client".to_owned(),
                 Some(token_response),
@@ -316,22 +366,31 @@ pub(crate) mod tests {
     // the proof key it holds stays; return the revocation's failure from `sign_out`; leave the
     // server marked signed in; send a confidential client's revocation with no secret, or in the
     // form where the metadata names no method; drop `client.set_dpop_key(..)` from `revoke`, so a
-    // `DPoP` sign-in's revocation goes out unsigned.
+    // `DPoP` sign-in's revocation goes out unsigned; have `revoke` discover, or read the metadata
+    // address from the target, whose entry names none, in place of the sign-in's record
+    // (`a_recorded_metadata_address`, whose server refuses discovery, reaches no `/revoke`).
     #[rstest]
-    #[case::revoked(StatusCode::OK, None, false)]
-    #[case::revocation_refused(StatusCode::INTERNAL_SERVER_ERROR, None, false)]
-    #[case::a_confidential_client(StatusCode::OK, Some(CLIENT_SECRET), false)]
-    #[case::a_dpop_sign_in(StatusCode::OK, None, true)]
+    #[case::revoked(StatusCode::OK, None, false, false)]
+    #[case::revocation_refused(StatusCode::INTERNAL_SERVER_ERROR, None, false, false)]
+    #[case::a_confidential_client(StatusCode::OK, Some(CLIENT_SECRET), false, false)]
+    #[case::a_dpop_sign_in(StatusCode::OK, None, true, false)]
+    #[case::a_recorded_metadata_address(StatusCode::OK, None, false, true)]
     #[tokio::test]
     async fn a_sign_out_forgets_the_sign_in_and_revokes_the_refresh_token_it_held(
         #[case] revocation_status: StatusCode,
         #[case] client_secret: Option<&str>,
         #[case] is_dpop: bool,
+        #[case] is_metadata_recorded: bool,
     ) {
         let key = DpopKey::generate();
         let dpop_key = is_dpop.then(|| Arc::new(SecretBox::new(Box::new(key.to_scalar()))));
-        let (server, harness, authorizer) =
-            signed_in(revocation_status, client_secret, dpop_key).await;
+        let (server, harness, authorizer) = sign_in_to_fake(
+            revocation_status,
+            client_secret,
+            dpop_key,
+            is_metadata_recorded,
+        )
+        .await;
         let scheme = if is_dpop { "DPoP" } else { "Bearer" };
         let canonical_address = canonical_server_address(&address(&server));
         assert!(
