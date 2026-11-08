@@ -10,6 +10,7 @@ mod backgrounded;
 mod body;
 pub(crate) mod daemon_ends;
 mod goals;
+mod helper_messages;
 mod helper_runs;
 pub(crate) mod resumes;
 mod rows;
@@ -241,18 +242,9 @@ impl ClaudeDeliveryStream {
         };
         self.read_resume_frame(session, &kind, &routed.route, &body, &turn_at_read)
             .await;
-        // A helper's own message carries no row of the session's, only the lines of its calls;
-        // a goal line of its own draws no goal row.
         if is_helper_frame {
-            if kind == ClaudeWireFrameKind::Assistant
-                && let ClaudeFrameBody::Message(message) = &body
-            {
-                session.lock().command_tasks.observe_calls(message);
-                if let Some(text) = message.text() {
-                    self.classify_goal(session, GoalEndingInput::HelperText(text), frame_kind)
-                        .await;
-                }
-            }
+            self.take_helper_message(session, &kind, frame_kind, body)
+                .await;
             return after;
         }
         let (members, message) = match body {
