@@ -208,10 +208,10 @@ async fn watch_monitor(
         };
         drop(monitor);
         match exit {
-            Ok(status) => tracing::warn!(%status, "the crash monitor ended; a new one is started"),
+            Ok(status) => tracing::warn!(%status, "the crash monitor ended"),
             Err(error) => tracing::warn!(
                 error = &error as &(dyn Error + 'static),
-                "the wait for the crash monitor failed; a new one is started"
+                "the wait for the crash monitor failed"
             ),
         }
         monitor = loop {
