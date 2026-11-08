@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use sidekicks_contracts::event::usage::UsageContextWindowUpdatedPayload;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
@@ -65,7 +66,13 @@ pub(crate) async fn apply_codex_routed_frames(
     for delta in routed.metered_usage {
         publish_turn_usage(intake, record, &delta);
         let owner_thread = delta.thread_id.clone();
-        metered_usage.extend(attribute_codex_usage(intake, record, &owner_thread, delta));
+        metered_usage.extend(attribute_codex_usage(
+            intake,
+            record,
+            &owner_thread,
+            delta,
+            None,
+        ));
     }
     for dispatch in routed.dispatches {
         if let Some(publisher) = intake.ports.turn_readings.port() {
@@ -174,14 +181,16 @@ fn publish_turn_usage(
     );
 }
 
-/// The usage record's entry for a metered delta spent on `owner_thread`: a helper's conversation's
-/// on its child run's binding as that helper's own, any other on the binding of the run its turn
-/// belongs to, else the session's. One with no binding to file on is logged and left unrecorded.
+/// The usage record's entry for a metered delta spent on `owner_thread` under
+/// `provider_account_id`, `None` for its binding's account: a helper's conversation's on its child
+/// run's binding as that helper's own, any other on the binding of the run its turn belongs to,
+/// else the session's. One with no binding to file on is logged and left unrecorded.
 pub(super) fn attribute_codex_usage(
     intake: &CodexRoutedFramesIntake<'_>,
     record: &CodexSessionRecord,
     owner_thread: &str,
     delta: MeteredUsageDelta,
+    provider_account_id: Option<ProviderAccountId>,
 ) -> Option<MeteredUsage> {
     if let Some(child) = record.delivery.child_run_by_thread_id.get(owner_thread) {
         return Some(MeteredUsage {
@@ -189,6 +198,7 @@ pub(super) fn attribute_codex_usage(
             binding_id: child.binding_id.clone(),
             owner: MeteredUsageOwner::Helper(child.subagent_id.clone()),
             delta,
+            provider_account_id,
         });
     }
     let (_run_id, binding_id) =
@@ -202,6 +212,7 @@ pub(super) fn attribute_codex_usage(
         binding_id,
         owner: MeteredUsageOwner::Run,
         delta,
+        provider_account_id,
     })
 }
 

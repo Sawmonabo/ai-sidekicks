@@ -185,6 +185,7 @@ impl ClaudeDeliveryStream {
                 binding_id,
                 owner,
                 delta: reading.delta,
+                provider_account_id: None,
             };
             match record_for_price(&**sink, metered).await {
                 Ok(Some(kept)) => lock(&session.result_pricing).keep(kept),

@@ -296,6 +296,7 @@ async fn record_one_turn_row(
         binding_id: charge.binding_id.clone(),
         owner: charge.owner.clone(),
         delta,
+        provider_account_id: None,
     };
     match record_for_price(sink, metered).await {
         Ok(Some(kept)) => pricing.keep(kept),

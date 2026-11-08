@@ -176,6 +176,7 @@ impl CodexSideQuestion {
                 binding_id: self.binding_id.clone(),
                 owner: MeteredUsageOwner::Session,
                 delta: *delta,
+                provider_account_id: None,
             }))),
             CopyFrameReading::Ended(turn) => CopyFrameTaken::Ended(turn),
             CopyFrameReading::Other => CopyFrameTaken::Kept(None),

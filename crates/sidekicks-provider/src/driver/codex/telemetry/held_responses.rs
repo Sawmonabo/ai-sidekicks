@@ -3,6 +3,7 @@
 
 use std::collections::VecDeque;
 
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use tokio::time::Instant;
 
 use crate::driver::codex::telemetry::completed_response::CodexCompletedResponse;
@@ -20,6 +21,9 @@ pub(crate) struct CodexExportedResponse {
     pub(crate) arrived_at: Instant,
     /// Where it was placed off the session's stream; `None` on a thread the session streams.
     pub(crate) placed: Option<CodexOffStreamPlacement>,
+    /// The account it ran under, set only on a response whose launch streamed its thread before
+    /// the thread moved to another launch; `None` where it ran on its binding's account.
+    pub(crate) provider_account_id: Option<ProviderAccountId>,
 }
 
 /// Where the drain placed a response on a thread no session streams.

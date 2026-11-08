@@ -51,7 +51,8 @@ pub enum MeteredUsageOwner {
 }
 
 /// One metered per-turn delta and where it came from: the session, the binding the reading came
-/// on, whose run and account the record looks up, and whose usage it is.
+/// on, whose run and account the record looks up, whose usage it is, and the account it ran on
+/// where that is not the binding's.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MeteredUsage {
     /// The session.
@@ -62,6 +63,9 @@ pub struct MeteredUsage {
     pub owner: MeteredUsageOwner,
     /// The delta.
     pub delta: MeteredUsageDelta,
+    /// The account the reading ran on, charged in place of the binding's; `None` for a reading
+    /// charged to its binding's account.
+    pub provider_account_id: Option<ProviderAccountId>,
 }
 
 /// A token row the record wrote, and the run, account and helper it charged it to.

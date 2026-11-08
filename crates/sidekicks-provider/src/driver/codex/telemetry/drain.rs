@@ -1,7 +1,9 @@
 //! The drain of the export register's hand-off: each completed response taken, one at a time, to
-//! the session holding its thread, to its copy's ledger, or off the stream to the session its
-//! thread runs below; each launch's kept responses retried; and each ended copy's unstated
-//! responses filed when due.
+//! the session holding its thread on its own launch, to the session its launch streamed it for
+//! before the thread moved to another launch, to its copy's ledger, or off the stream to the
+//! session its thread runs below; one on a thread another launch streams that its own launch
+//! never did is dropped and counted; each launch's kept responses retried; and each ended copy's
+//! unstated responses filed when due.
 
 use std::sync::{Arc, Mutex, Weak};
 
@@ -18,7 +20,7 @@ use crate::driver::codex::telemetry::copy_threads::CodexEndedCopy;
 use crate::driver::codex::telemetry::exports::CodexExports;
 use crate::driver::codex::telemetry::held_responses::CodexExportedResponse;
 use crate::driver::codex::telemetry::placement::{
-    CodexLaunchPlacement, place_off_stream, retry_kept,
+    CodexLaunchPlacement, place_off_stream, refuse_unplaced, retry_kept,
 };
 
 // What the reader hands the drain, each with the service that ran it and its launch's placement
@@ -87,7 +89,7 @@ impl CodexExportDrain {
             let Some(item) = item else {
                 return;
             };
-            deliver(item).await;
+            deliver(&self.register, item).await;
         }
     }
 
@@ -121,10 +123,12 @@ impl CodexExportDrain {
     }
 }
 
-// Pushes `item`'s response onto the queue of the session holding its thread on its service, else
-// places or keeps it off the stream on its launch; a retry places what its launch kept. An item
-// whose service or launch is gone is logged and dropped.
-async fn deliver(item: CodexExportItem) {
+// Pushes `item`'s response onto the queue of the session holding its thread on its service; one
+// on a thread another live launch of `register` streams goes to the session its own service kept
+// for that thread, else is dropped and counted; any other is placed or kept off the stream on its
+// launch. A retry places what its launch kept. An item whose service or launch is gone is logged
+// and dropped.
+async fn deliver(register: &Weak<CodexExports>, item: CodexExportItem) {
     match item {
         CodexExportItem::Response {
             service,
@@ -145,8 +149,20 @@ async fn deliver(item: CodexExportItem) {
                     response,
                     arrived_at,
                     placed: None,
+                    provider_account_id: None,
                 };
                 push_exported_response(&service, session_id, exported);
+                return;
+            }
+            let others = register
+                .upgrade()
+                .map(|register| live_services(&register))
+                .unwrap_or_default();
+            if others
+                .iter()
+                .any(|other| other.session_of_thread(&response.conversation_id).is_some())
+            {
+                deliver_moved(&service, &others, response, arrived_at);
                 return;
             }
             let Some(launch) = launch.upgrade() else {
@@ -173,6 +189,62 @@ async fn deliver(item: CodexExportItem) {
                 retry_kept(&service, &launch, export_number).await;
             }
         }
+    }
+}
+
+// Every live service a launch of `register` started, each once, taken out of its lock.
+fn live_services(register: &CodexExports) -> Vec<Arc<CodexService>> {
+    let mut services: Vec<Arc<CodexService>> = Vec::new();
+    for (service, _placement) in register.placements() {
+        if let Some(service) = service.upgrade()
+            && !services.iter().any(|kept| Arc::ptr_eq(kept, &service))
+        {
+            services.push(service);
+        }
+    }
+    services
+}
+
+// Files `response`, on a thread another of `services` streams now, on the session `service`, its
+// own launch's, streamed it for before releasing it, carrying the account it ran on, through the
+// first of `services` that session is attached to, else logs and drops it; one on a thread
+// `service` never streamed is dropped and counted, so no other launch's session takes it.
+fn deliver_moved(
+    service: &CodexService,
+    services: &[Arc<CodexService>],
+    response: CodexCompletedResponse,
+    arrived_at: Instant,
+) {
+    let Some((session_id, provider_account_id)) =
+        service.former_session_of_thread(&response.conversation_id)
+    else {
+        refuse_unplaced(
+            &response.conversation_id,
+            service.provider_account_id(),
+            "another launch streams its thread and its own launch never did",
+        );
+        return;
+    };
+    let exported = CodexExportedResponse {
+        response,
+        arrived_at,
+        placed: None,
+        provider_account_id,
+    };
+    let attached = services.iter().find(|service| {
+        service
+            .attached_sessions()
+            .iter()
+            .any(|queue| queue.session_id() == session_id)
+    });
+    if let Some(attached) = attached {
+        push_exported_response(attached, session_id, exported);
+    } else {
+        tracing::info!(
+            conversation_id = exported.response.conversation_id.as_str(),
+            %session_id,
+            "no codex session took a completed response; it is dropped"
+        );
     }
 }
 

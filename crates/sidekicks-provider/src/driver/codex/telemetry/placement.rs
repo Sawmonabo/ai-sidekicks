@@ -428,14 +428,19 @@ fn push_bucket(
             response: kept.response,
             arrived_at: kept.arrived_at,
             placed: placed.cloned(),
+            provider_account_id: None,
         };
         push_exported_response(service, session_id, exported);
     }
 }
 
-// Reports one refused bucket on `thread_id` under `provider_account_id`, naming the thread and
-// `reason`, never a value its records carry.
-fn refuse_unplaced(thread_id: &str, provider_account_id: Option<ProviderAccountId>, reason: &str) {
+/// Reports one refused bucket on `thread_id` under `provider_account_id`, naming the thread and
+/// `reason`, never a value its records carry.
+pub(crate) fn refuse_unplaced(
+    thread_id: &str,
+    provider_account_id: Option<ProviderAccountId>,
+    reason: &str,
+) {
     let mut details = Map::new();
     details.insert("threadId".to_owned(), json!(thread_id));
     emit_driver_diagnostic(&DriverDiagnosticRecord {

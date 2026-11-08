@@ -291,6 +291,7 @@ impl CodexSessionIntake {
             record,
             exported.owner_thread(),
             delta,
+            exported.provider_account_id.clone(),
         );
         // A response on a thread the session streams may still have its reading released late,
         // which is matched to it rather than counted again.

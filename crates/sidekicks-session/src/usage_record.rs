@@ -166,6 +166,7 @@ impl UsageRecord {
             binding_id,
             owner,
             delta,
+            provider_account_id,
         } = metered;
         let read_binding_id = binding_id.clone();
         let read_owner = owner.clone();
@@ -184,6 +185,7 @@ impl UsageRecord {
                     &read_binding_id,
                     &read_owner,
                     kept_helper_run,
+                    provider_account_id,
                 )
             })
             .await?;

@@ -12,6 +12,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde_json::Value;
 use serde_json::value::RawValue;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
 use tokio::time::Instant;
@@ -318,6 +319,15 @@ impl CodexService {
     /// The session holding `thread_id` on this service, `None` where none does.
     pub(crate) fn session_of_thread(&self, thread_id: &str) -> Option<SessionId> {
         self.lock_threads().session_for(thread_id).copied()
+    }
+
+    /// The session `thread_id` was bound to when this service released it, with the account it
+    /// ran on; `None` for a thread the service holds now, never held or forgot.
+    pub(crate) fn former_session_of_thread(
+        &self,
+        thread_id: &str,
+    ) -> Option<(SessionId, Option<ProviderAccountId>)> {
+        self.lock_threads().former_session_for(thread_id)
     }
 
     /// Routes one notification the connection `dial` read: called on its reader, so every

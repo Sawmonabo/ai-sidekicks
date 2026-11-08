@@ -153,20 +153,22 @@ pub(super) struct MeteredTarget {
 }
 
 /// The target of a reading on `binding_id` that is `owner`'s, a helper's own run read from the log
-/// only where `kept_helper_run` does not already name it. Fails as the binding, the helper's start
-/// or the account is missing, or a read fails.
+/// only where `kept_helper_run` does not already name it, charged to `ran_on`, the account the
+/// reading ran on, else to the binding's. Fails as the binding, the helper's start or the account
+/// is missing, or a read fails.
 pub(super) fn read_metered_target(
     reader: &Connection,
     session_id: SessionId,
     binding_id: &RuntimeBindingId,
     owner: &MeteredUsageOwner,
     kept_helper_run: Option<RunId>,
+    ran_on: Option<ProviderAccountId>,
 ) -> Result<MeteredTarget, UsageRecordError> {
     let binding =
         read_binding(reader, binding_id)?.ok_or_else(|| UsageRecordError::BindingNotFound {
             binding_id: binding_id.clone(),
         })?;
-    let provider_account_id = binding.spawn_config.provider_account_id;
+    let provider_account_id = ran_on.unwrap_or(binding.spawn_config.provider_account_id);
     let run_id = match owner {
         MeteredUsageOwner::Run => Some(binding.run_id),
         MeteredUsageOwner::Helper(subagent_id) => match kept_helper_run {

@@ -677,9 +677,11 @@ impl CodexService {
         self.register_thread(thread_id, session_id);
     }
 
-    /// Forgets one conversation.
+    /// Forgets one conversation, remembering the session it was bound to and the account it ran
+    /// on until it is registered again.
     pub(crate) fn release_thread(&self, thread_id: &str) {
-        self.lock_threads().release(thread_id);
+        let provider_account_id = self.provider_account_id();
+        self.lock_threads().release(thread_id, provider_account_id);
     }
 
     /// Every conversation one session holds here: its own and its helpers'.

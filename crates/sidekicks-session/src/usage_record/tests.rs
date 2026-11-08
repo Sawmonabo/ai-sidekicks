@@ -58,6 +58,9 @@ use crate::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInter
 
 const ACCOUNT: &str = "account-1";
 
+// The account a reading ran on when that is not its binding's.
+const RAN_ON_ACCOUNT: &str = "account-ran-on";
+
 // An interventions service that takes every limit's interrupt and counts them, each answering
 // once the test lets `answers` go.
 #[derive(Default)]
@@ -242,31 +245,45 @@ impl Harness {
         cache_read: u64,
     ) -> Result<Option<RecordedUsage>, Box<dyn std::error::Error + Send + Sync>> {
         self.record
-            .record_metered(MeteredUsage {
-                session_id: self.session_id,
-                binding_id: self.binding_id.clone(),
-                owner,
-                delta: MeteredUsageDelta {
-                    provider: test_provider(),
-                    thread_id: THREAD.to_owned(),
-                    attributed_turn_id: turn_id.map(str::to_owned),
-                    axis_deltas: UsageAxisCounts {
-                        input: Some(input + cache_read),
-                        cached_input: Some(cache_read),
-                        output: Some(output),
-                        ..UsageAxisCounts::default()
-                    },
-                    normalized_input_tokens: input,
-                    normalized_output_tokens: output,
-                    containment: UsageContainment::ConfirmedSubtracted,
-                    diagnostic_band: UsageDiagnosticBand {
-                        cache_read_tokens_delta: cache_read,
-                        cache_write_tokens_delta: 0,
-                    },
-                    request: UsageRequestFacts::default(),
-                },
-            })
+            .record_metered(self.metered(owner, turn_id, input, output, cache_read))
             .await
+    }
+
+    // `owner`'s reading of `input`, `output` and `cache_read` tokens on the lead's binding, in
+    // the provider's turn `turn_id` where one is named, charged to the binding's account.
+    fn metered(
+        &self,
+        owner: MeteredUsageOwner,
+        turn_id: Option<&str>,
+        input: u64,
+        output: u64,
+        cache_read: u64,
+    ) -> MeteredUsage {
+        MeteredUsage {
+            session_id: self.session_id,
+            binding_id: self.binding_id.clone(),
+            owner,
+            delta: MeteredUsageDelta {
+                provider: test_provider(),
+                thread_id: THREAD.to_owned(),
+                attributed_turn_id: turn_id.map(str::to_owned),
+                axis_deltas: UsageAxisCounts {
+                    input: Some(input + cache_read),
+                    cached_input: Some(cache_read),
+                    output: Some(output),
+                    ..UsageAxisCounts::default()
+                },
+                normalized_input_tokens: input,
+                normalized_output_tokens: output,
+                containment: UsageContainment::ConfirmedSubtracted,
+                diagnostic_band: UsageDiagnosticBand {
+                    cache_read_tokens_delta: cache_read,
+                    cache_write_tokens_delta: 0,
+                },
+                request: UsageRequestFacts::default(),
+            },
+            provider_account_id: None,
+        }
     }
 
     // Waits for every token-limit stop the record started to answer.
@@ -366,7 +383,9 @@ const STOP_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 const RECORDED: &str = "usage.tokenCount.recorded";
 const REACHED: &str = "agent.run.tokenLimit.reached";
 
-// Killed by a generation read once and kept: the second row would carry the first generation.
+// Killed by a generation read once and kept: the second row would carry the first generation;
+// and by the binding's account charged for a reading that ran on another, whose row would name
+// the binding's account and its generation.
 #[tokio::test]
 async fn each_row_carries_the_generation_the_account_holds_at_its_write() {
     let harness = Harness::new(None, true).await;
@@ -387,12 +406,41 @@ async fn each_row_carries_the_generation_the_account_holds_at_its_write() {
         .await
         .expect("the second reading is recorded");
 
+    harness
+        .database
+        .reader()
+        .execute(
+            "INSERT INTO provider_accounts (account_id, provider, credential_home_path,
+               billing_mode, credential_generation, created_at, updated_at)
+             VALUES (?1, ?2, '/accounts/2', 'unknown', 7, '2026-10-01T00:00:00Z',
+               '2026-10-01T00:00:00Z')",
+            params![RAN_ON_ACCOUNT, test_provider().as_str()],
+        )
+        .expect("the test registers the account the reading ran on");
+    let mut ran_elsewhere = harness.metered(MeteredUsageOwner::Run, None, 10, 5, 0);
+    ran_elsewhere.provider_account_id =
+        Some(ProviderAccountId::new(RAN_ON_ACCOUNT.to_owned()).expect("an account id"));
+    harness
+        .record
+        .record_metered(ran_elsewhere)
+        .await
+        .expect("the reading that ran on another account is recorded");
+
     let lead = Some(harness.lead_run_id.text().as_str().to_owned());
     assert_eq!(
         harness.stored(RECORDED, "credentialGeneration"),
         vec![
             (lead.clone(), Some("1".to_owned())),
-            (lead, Some("2".to_owned()))
+            (lead.clone(), Some("2".to_owned())),
+            (lead.clone(), Some("7".to_owned())),
+        ]
+    );
+    assert_eq!(
+        harness.stored(RECORDED, "providerAccountId"),
+        vec![
+            (lead.clone(), Some(ACCOUNT.to_owned())),
+            (lead.clone(), Some(ACCOUNT.to_owned())),
+            (lead, Some(RAN_ON_ACCOUNT.to_owned())),
         ]
     );
 }

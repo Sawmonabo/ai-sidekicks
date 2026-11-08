@@ -220,6 +220,7 @@ impl SessionUsageFiling {
             binding_id: self.binding_id.clone(),
             owner: MeteredUsageOwner::Session,
             delta,
+            provider_account_id: None,
         };
         let (provider_account_id, session_id) = (&self.provider_account_id, self.session_id);
         let report = |error: Box<dyn Error + Send + Sync>| {
