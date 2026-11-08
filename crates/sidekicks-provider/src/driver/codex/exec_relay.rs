@@ -402,7 +402,8 @@ impl CodexExecRelay {
     /// Carries one of the connection `connection`'s messages to `executor`: an `initialize` is
     /// answered to that connection with the executor's own, an `initialized` is already sent,
     /// every other request goes on under a relay id and the relay's id for any process it names,
-    /// a start and a terminate through their tasks, and everything else passes as it came.
+    /// a start and a terminate through their tasks, an answer only to a request asked of the
+    /// connection, and everything else passes as it came.
     async fn take_client_message(
         &self,
         executor: &Arc<CodexExecutor>,
@@ -421,7 +422,15 @@ impl CodexExecRelay {
         let id = match (message.id, method) {
             (None, Some(ClientMethod::Initialized)) => return,
             (Some(id), _) if message.method.is_some() => id,
-            _ => {
+            (Some(id), _) => {
+                if executor.takes_client_answer(connection, id) {
+                    forward(executor, line).await;
+                } else {
+                    tracing::debug!("a Codex relay client answered a request not asked of it");
+                }
+                return;
+            }
+            (None, _) => {
                 forward(executor, line).await;
                 return;
             }

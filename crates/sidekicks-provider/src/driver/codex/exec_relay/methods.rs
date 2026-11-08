@@ -13,12 +13,16 @@ pub(super) const PROCESS_WRITE_METHOD: &str = "process/write";
 pub(super) const PROCESS_EXITED_METHOD: &str = "process/exited";
 pub(super) const PROCESS_CLOSED_METHOD: &str = "process/closed";
 
+/// The executor's ask about a process's network access, which only the connection that started
+/// the process answers.
+pub(super) const NETWORK_POLICY_REQUEST_METHOD: &str = "network/policyRequest";
+
 /// Whether `method` is one of the executor's notifications about one process, which reach only the
 /// connection that started it.
 pub(super) fn is_process_notification(method: &str) -> bool {
     matches!(
         method,
-        "process/output" | PROCESS_EXITED_METHOD | PROCESS_CLOSED_METHOD
+        "process/output" | PROCESS_EXITED_METHOD | PROCESS_CLOSED_METHOD | "network/policyDecision"
     )
 }
 

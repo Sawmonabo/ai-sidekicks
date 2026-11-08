@@ -2,11 +2,12 @@
 //! newline-delimited JSON-RPC both ways, the relay's own requests answered by their ids, each
 //! connection's request sent under a relay id and its answer handed to that connection alone under
 //! the connection's own id, each connection's processes run under relay ids and every message about
-//! one handed to its connection alone under its own id, every other message handed to every
-//! connection, each process's end watched so a held terminate or a stop can wait on it, and the
+//! one, a policy ask among them, handed to its connection alone under its own id, every other
+//! message handed to every connection, each process's end watched so a held terminate or a stop can wait on it, and the
 //! answer to a client's request watched where the relay keeps something for it.
 
 mod connection_ids;
+mod policy_requests;
 
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -26,10 +27,11 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
 
 use self::connection_ids::{ConnectionIds, UNKNOWN_ID};
+use self::policy_requests::{PolicyRequests, deny_answer};
 use crate::driver::codex::exec_relay::message::{RoutedMessage, RoutedParams, splice, text_of};
 use crate::driver::codex::exec_relay::methods::{
-    ClientMethod, INITIALIZE_METHOD, INITIALIZED_METHOD, PROCESS_CLOSED_METHOD,
-    PROCESS_EXITED_METHOD, is_process_notification,
+    ClientMethod, INITIALIZE_METHOD, INITIALIZED_METHOD, NETWORK_POLICY_REQUEST_METHOD,
+    PROCESS_CLOSED_METHOD, PROCESS_EXITED_METHOD, is_process_notification,
 };
 use crate::driver::codex::session::errors::CodexError;
 
@@ -93,6 +95,7 @@ pub(super) struct CodexExecutor {
     client_requests: Mutex<HashMap<String, ClientRequest>>,
     next_client_request: AtomicU64,
     process_ids: Mutex<ConnectionIds>,
+    policy_requests: Mutex<PolicyRequests>,
     // Keyed by the relay's process id.
     exits: Mutex<HashMap<String, watch::Sender<Option<ProcessEnd>>>>,
     client_replies: Mutex<HashMap<String, oneshot::Sender<bool>>>,
@@ -159,6 +162,7 @@ impl CodexExecutor {
             client_requests: Mutex::new(HashMap::new()),
             next_client_request: AtomicU64::new(1),
             process_ids: Mutex::new(ConnectionIds::default()),
+            policy_requests: Mutex::new(PolicyRequests::default()),
             exits: Mutex::new(HashMap::new()),
             client_replies: Mutex::new(HashMap::new()),
             ended: watch::Sender::new(false),
@@ -227,12 +231,22 @@ impl CodexExecutor {
     }
 
     /// Lets the connection `connection` go, forgetting every request it has in flight, whose
-    /// answers then reach no one, and its process ids, whose messages then reach no one, and then
-    /// closing its queue.
-    pub(super) fn detach_client(&self, connection: RelayConnectionId) {
+    /// answers then reach no one, and its process ids, whose messages then reach no one, closing
+    /// its queue, and denying every policy ask it had not answered.
+    pub(super) async fn detach_client(&self, connection: RelayConnectionId) {
         lock(&self.client_requests).retain(|_relay_id, request| request.connection != connection);
         lock(&self.process_ids).forget_connection(connection);
         lock(&self.clients).remove(&connection);
+        let unanswered = lock(&self.policy_requests).take_connection(connection);
+        for id in unanswered {
+            self.deny_policy_request(&id).await;
+        }
+    }
+
+    /// Whether the connection `connection`'s answer under `id` to one of the executor's requests
+    /// goes on to the executor: only when that request was asked of it, and only once.
+    pub(super) fn takes_client_answer(&self, connection: RelayConnectionId, id: &RawValue) -> bool {
+        lock(&self.policy_requests).answer(id, connection)
     }
 
     /// `line`, a request the connection `connection` sent under `id` for `method`, with a new relay
@@ -436,6 +450,13 @@ impl CodexExecutor {
             self.answer_connection(request.connection, answer).await;
             return;
         }
+        if message.method.as_deref() == Some(NETWORK_POLICY_REQUEST_METHOD)
+            && let Some(id) = message.id
+        {
+            let params = message.params.unwrap_or_default();
+            self.take_policy_request(&line, id, &params).await;
+            return;
+        }
         if let Some(method) = message.method.as_deref()
             && message.id.is_none()
             && is_process_notification(method)
@@ -479,6 +500,48 @@ impl CodexExecutor {
                     .map(|(raw, own_id)| (*raw, own_id.as_str())),
             ),
         )
+    }
+
+    // Hands `line`, the executor's policy ask `id` about the process `params` names by its relay
+    // id, to the connection that started it under its own id, keeping the ask until that
+    // connection answers it or goes; an ask no connection can answer is denied at once.
+    async fn take_policy_request(&self, line: &str, id: &RawValue, params: &RoutedParams<'_>) {
+        let owner = params
+            .process_id
+            .and_then(text_of)
+            .and_then(|relay_id| lock(&self.process_ids).owner(&relay_id).cloned());
+        let routed = owner.and_then(|owner| {
+            let raw = params.process_id?;
+            let own_id = serde_json::to_string(&owner.own_id).expect("a string serializes");
+            // Kept while the connection is held, so its detach either finds the ask or comes first.
+            let clients = lock(&self.clients);
+            let client = clients.get(&owner.connection)?.clone();
+            lock(&self.policy_requests).ask(id, owner.connection);
+            drop(clients);
+            Some((
+                owner.connection,
+                client,
+                splice(line, [(raw, own_id.as_str())]),
+            ))
+        });
+        let Some((connection, client, routed)) = routed else {
+            self.deny_policy_request(id.get()).await;
+            return;
+        };
+        if client.send(routed).await.is_err() && lock(&self.policy_requests).answer(id, connection)
+        {
+            self.deny_policy_request(id.get()).await;
+        }
+    }
+
+    // Answers the executor's policy ask `id`, raw JSON text, with the relay's deny.
+    async fn deny_policy_request(&self, id: &str) {
+        if let Err(error) = self.send_line(deny_answer(id)).await {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "the relay's deny of a Codex policy ask could not be sent"
+            );
+        }
     }
 
     // Hands `line`, the executor's `method` about the process `params` names by its relay id, to
@@ -530,6 +593,7 @@ impl CodexExecutor {
         lock(&self.clients).clear();
         lock(&self.client_requests).clear();
         *lock(&self.process_ids) = ConnectionIds::default();
+        lock(&self.policy_requests).clear();
     }
 }
 

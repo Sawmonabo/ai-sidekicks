@@ -196,6 +196,6 @@ async fn serve_connection(stream: TcpStream, token: Arc<BearerToken>, relay: Wea
         let Some(relay) = relay.upgrade() else { break };
         relay.take_client_message(&executor, connection, text).await;
     }
-    executor.detach_client(connection);
+    executor.detach_client(connection).await;
     writing.abort();
 }

@@ -107,6 +107,69 @@ async fn a_process_a_connection_never_started_reaches_no_other() {
     assert_quiet(&mut owner).await;
 }
 
+// The executor asks about the first connection's process: the ask reaches the first alone under
+// its own id, the second's answer to it never reaches the executor and the first's does. An ask
+// about a process no connection owns, and one the first leaves unanswered when it closes, are each
+// denied by the relay at once. Killed by an ask handed to every connection, by an answer taken
+// from a connection the ask was not sent to, and by an ask left waiting with no one to answer it.
+#[tokio::test]
+async fn a_policy_ask_reaches_its_process_alone_and_is_denied_once_none_can_answer() {
+    let folder = tempfile::tempdir().expect("a test folder");
+    let ListeningRelay {
+        relay: _relay,
+        mut fake,
+        url,
+        presented,
+    } = listening_relay(new_session_id(), folder.path()).await;
+    let mut owner = admitted_socket(&url, &presented).await;
+    let mut other = admitted_socket(&url, &presented).await;
+    initialize(&mut owner).await;
+    initialize(&mut other).await;
+    let relay_process = start_own_process(&mut owner, &mut fake).await;
+
+    fake.write(&policy_request(7, &relay_process)).await;
+    assert_eq!(
+        next_text(&mut owner).await,
+        policy_request(7, &json!(OWN_PROCESS))
+    );
+    assert_quiet(&mut other).await;
+    let allowed = json!({ "id": 7, "result": { "decision": { "type": "allow" } } });
+    let owners = json!({ "id": 7, "result": { "decision": { "type": "deny", "reason": "no" } } });
+    send_text(&mut other, &allowed).await;
+    send_text(&mut owner, &owners).await;
+    assert_eq!(next_forwarded(&mut fake).await, owners);
+
+    fake.write(&policy_request(8, &json!("sidekicks-process-99")))
+        .await;
+    assert_eq!(next_forwarded(&mut fake).await, denied(8));
+
+    fake.write(&policy_request(9, &relay_process)).await;
+    assert_eq!(
+        next_text(&mut owner).await,
+        policy_request(9, &json!(OWN_PROCESS))
+    );
+    owner.close(None).await.expect("the client closes");
+    assert_eq!(next_forwarded(&mut fake).await, denied(9));
+    assert_quiet(&mut other).await;
+}
+
+// The executor's ask `id` about `process`'s network access.
+fn policy_request(id: u64, process: &Value) -> Value {
+    json!({
+        "id": id,
+        "method": "network/policyRequest",
+        "params": {
+            "processId": process,
+            "request": { "protocol": "https_connect", "host": "example.com", "port": 443 },
+        },
+    })
+}
+
+// The relay's deny of the ask `id`.
+fn denied(id: u64) -> Value {
+    json!({ "id": id, "result": { "decision": { "type": "deny", "reason": "not_allowed" } } })
+}
+
 // Starts `OWN_PROCESS` on `socket`, answers the start as the executor does, and returns the relay
 // id the executor read it under.
 async fn start_own_process(socket: &mut ClientSocket, fake: &mut FakeExecutor) -> Value {
