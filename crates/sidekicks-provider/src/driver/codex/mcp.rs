@@ -15,6 +15,8 @@ pub(super) mod server_name;
 pub(super) mod session_table;
 pub(super) mod sign_in;
 pub(super) mod status_list;
+#[cfg(test)]
+mod test_plugin;
 
 use std::path::{Path, PathBuf};
 

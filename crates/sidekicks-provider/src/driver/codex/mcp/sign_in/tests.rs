@@ -26,6 +26,7 @@ use super::{
 };
 use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::DESCRIPTOR;
+use crate::driver::codex::mcp::test_plugin::write_codex_plugin;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::service::registry::{CodexServiceRegistry, OneHome, home_socket_path};
 use crate::driver::codex::service::supervisor::test_service::{
@@ -335,15 +336,12 @@ async fn read_declared_address(
             Some(servers),
         ),
         DeclaredEntry::Plugin(servers) => {
-            let plugin = plugin_home(&home_folder, &DESCRIPTOR.provider_id())
-                .join("plugins/cache/market/tools/1.0.0");
-            std::fs::create_dir_all(plugin.join(".codex-plugin"))
-                .expect("the plugin folder is made");
-            std::fs::write(
-                plugin.join(".codex-plugin/plugin.json"),
-                json!({"name": "tools", "mcpServers": servers}).to_string(),
-            )
-            .expect("the manifest is written");
+            write_codex_plugin(
+                &plugin_home(&home_folder, &DESCRIPTOR.provider_id()),
+                "market",
+                "tools",
+                &servers,
+            );
             let binding = McpServerBindingRef::Plugin {
                 provider: DESCRIPTOR.provider_id(),
                 scope_ref: PluginToken::new("tools".to_owned()).expect("a plugin name"),

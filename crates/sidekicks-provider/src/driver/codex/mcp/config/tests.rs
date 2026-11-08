@@ -16,6 +16,7 @@ use sidekicks_contracts::wire::record::Record;
 
 use super::{CodexLoadedServer, CodexMcpConfigReading, CodexMcpRoot, read_codex_mcp_config};
 use crate::driver::codex::DESCRIPTOR;
+use crate::driver::codex::mcp::test_plugin::write_codex_plugin;
 use crate::driver::codex::transport::connection::scripted_service::scripted_connection;
 use crate::driver::mcp_server::read::{
     McpRootReading, McpServerDeclaration, McpServerSignInClient,
@@ -470,17 +471,6 @@ fn plugin_binding(plugin: &str, name: &str) -> McpServerBindingRef {
         scope_ref: PluginToken::new(plugin.to_owned()).expect("a plugin name"),
         server_name: server_name(name),
     }
-}
-
-// Writes a plugin in Codex's own format under `plugin_home`, its servers inline in its manifest.
-fn write_codex_plugin(plugin_home: &Path, marketplace: &str, plugin: &str, servers: &Value) {
-    let folder = plugin_home.join(format!("plugins/cache/{marketplace}/{plugin}/1.0.0"));
-    std::fs::create_dir_all(folder.join(".codex-plugin")).expect("the plugin folder is made");
-    std::fs::write(
-        folder.join(".codex-plugin/plugin.json"),
-        json!({"name": plugin, "mcpServers": servers}).to_string(),
-    )
-    .expect("the manifest is written");
 }
 
 // A plugin switched off by its own key, by every plugin's default, or a plugin's server switched
