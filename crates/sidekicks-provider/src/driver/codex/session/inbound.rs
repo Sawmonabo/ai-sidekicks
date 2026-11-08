@@ -6,6 +6,9 @@
 //! item before the next, so the session's events keep their order, and the driver's calls on the
 //! session's record take their place among its frames.
 
+#[cfg(test)]
+mod tests;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
