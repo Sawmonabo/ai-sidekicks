@@ -590,3 +590,118 @@ async fn a_file_added_to_a_folder_of_ignored_files_is_seen() {
     tree.handle_event(Ok(written([root.join("logs").join("README.md")])));
     assert_eq!(next_change(&mut changes).await.session_id, session_id);
 }
+
+// A fresh tree's branch is its base's commit, then new uncommitted work moves its row `-> dirty`
+// and its branch merged back, once the tree is clean, `-> merged`, each with its one event. Kills
+// a move written without its event, an event appended without its move, and a branch whose tip
+// its base reaches read as merged before it has a commit of its own.
+#[tokio::test]
+async fn a_tree_reads_dirty_on_uncommitted_work_then_merged_once_its_branch_merges_back() {
+    let fixture = Fixture::new(no_ceiling, Duration::from_secs(180)).await;
+    let repository = fixture.repository("one").await;
+    let tree = fixture.scratch.path().join("feature");
+    git_in(
+        &fixture.git,
+        &repository,
+        &["worktree", "add", "-b", "feature", &tree.to_string_lossy()],
+    )
+    .await;
+    let session_id = fixture.session(Some(&tree), "feature");
+    let worktree_id = mint_uuid_v7().to_string();
+    fixture
+        .database
+        .reader()
+        .execute(
+            "INSERT INTO worktrees (id, repo_mount_id, created_by_session_id, branch_name, \
+             base_ref, fs_root, state, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, 'feature', 'main', ?4, 'ready', ?5, ?5)",
+            params![
+                worktree_id,
+                fixture.mount.to_string(),
+                session_id.text().as_str(),
+                tree.to_string_lossy(),
+                PARENT_ROWS_AT,
+            ],
+        )
+        .expect("the tree's row is stored");
+    let (on_change, mut changes) = listener();
+    let _subscription = fixture
+        .watcher
+        .subscribe(&session_id, on_change)
+        .await
+        .expect("subscribed");
+    let tree_state = || -> (String, Vec<String>) {
+        let connection = fixture.database.reader();
+        let state = connection
+            .query_row("SELECT state FROM worktrees", [], |row| row.get(0))
+            .expect("the row reads");
+        let events = connection
+            .prepare(
+                "SELECT type || ' ' || json_extract(payload, '$.worktreeId') || ' ' || \
+                 json_extract(payload, '$.state') FROM session_events \
+                 WHERE type IN ('worktree.dirtied', 'worktree.merged') ORDER BY sequence",
+            )
+            .expect("the query prepares")
+            .query_map([], |row| row.get(0))
+            .expect("the events are read")
+            .collect::<rusqlite::Result<_>>()
+            .expect("each event reads");
+        (state, events)
+    };
+    assert_eq!(
+        tree_state(),
+        ("ready".to_owned(), Vec::new()),
+        "a fresh tree is neither dirty nor merged"
+    );
+
+    std::fs::write(tree.join("work.txt"), "work").expect("written");
+    let root = canonical_folder_path(&tree)
+        .await
+        .expect("the tree resolves");
+    fixture
+        .feeds(&tree)
+        .await
+        .tree
+        .expect("the tree is watched")
+        .handle_event(Ok(written([root.join("work.txt")])));
+    next_change(&mut changes).await;
+    assert_eq!(
+        tree_state(),
+        (
+            "dirty".to_owned(),
+            vec![format!("worktree.dirtied {worktree_id} dirty")]
+        )
+    );
+
+    git_in(&fixture.git, &tree, &["add", "work.txt"]).await;
+    commit_empty(&fixture.git, &tree, "work").await;
+    git_in(
+        &fixture.git,
+        &repository,
+        &["merge", "--ff-only", "feature"],
+    )
+    .await;
+    let common_folder = canonical_folder_path(&repository.join(".git"))
+        .await
+        .expect("the common folder resolves");
+    fixture
+        .feeds(&tree)
+        .await
+        .git_folder
+        .expect("the git folders are watched")
+        .handle_event(Ok(written([common_folder
+            .join("refs")
+            .join("heads")
+            .join("main")])));
+    next_change(&mut changes).await;
+    assert_eq!(
+        tree_state(),
+        (
+            "merged".to_owned(),
+            vec![
+                format!("worktree.dirtied {worktree_id} dirty"),
+                format!("worktree.merged {worktree_id} merged"),
+            ]
+        )
+    );
+}

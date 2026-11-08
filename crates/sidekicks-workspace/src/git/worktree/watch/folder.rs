@@ -1,7 +1,8 @@
 //! One watched folder's task: it starts the folder's watches, picks the tree's mode (a watch, or
 //! the slow tick where the machine's watch limit has no room), reads every notice, tick and raise
-//! one at a time, sends one change per burst, and writes a changed branch back. The folder-change
-//! receivers hear each change, the watch's start and each fall to the slow tick, with the mode.
+//! one at a time, sends one change per burst, writes a changed branch back and moves the folder's
+//! worktree `-> dirty` or `-> merged`. The folder-change receivers hear each change, the watch's
+//! start and each fall to the slow tick, with the mode.
 
 use std::collections::HashSet;
 use std::error::Error;
@@ -19,6 +20,7 @@ use sidekicks_std::scheduler::{JobCondition, ScheduledJobHandle};
 use tokio::sync::{Notify, watch};
 
 use super::branch_write_back::BranchWriteBack;
+use super::dirty_and_merged::check_dirty_or_merged;
 use super::ignored_paths::{
     IGNORE_FILE_NAME, IgnoredPaths, TreeCoverage, count_git_folder_watches, count_kept_folders,
     git_folder_roots, is_git_pointer, may_move_head, read_ignored_paths,
@@ -130,7 +132,8 @@ enum WatchTake {
 
 impl<W: Watcher + Send + 'static> WatchedFolder<W> {
     // Reads the git folders and what git ignores, watches the git folders, then the tree or the
-    // slow tick, then checks the branch once, since it may have changed while nothing watched.
+    // slow tick, then checks the branch and the tree's state once, since either may have changed
+    // while nothing watched.
     async fn start(&mut self) -> Result<(), FolderStartError> {
         let git = &self.shared.deps.git;
         let place = self.target.place.as_ref();
@@ -178,6 +181,7 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
         self.branch
             .check(&self.shared, &self.folder.key, &self.target)
             .await;
+        check_dirty_or_merged(&self.shared, &self.folder.key, &self.target).await;
         Ok(())
     }
 
@@ -200,7 +204,10 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
                 FolderEvent::Raise => self.is_raise_pending = true,
                 FolderEvent::Tick => self.take_tick().await,
                 FolderEvent::IgnoredRead(read) => self.take_ignored_read(read).await,
-                FolderEvent::Flush => self.send_change(),
+                FolderEvent::Flush => {
+                    check_dirty_or_merged(&self.shared, &self.folder.key, &self.target).await;
+                    self.send_change();
+                }
             }
         }
     }

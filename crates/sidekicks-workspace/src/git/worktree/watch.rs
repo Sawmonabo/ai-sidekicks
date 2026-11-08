@@ -18,6 +18,8 @@
 //!   receivers.
 //! - Every folder's changes, its watch's start and its end also reach the folder-change
 //!   receivers by its key, whether or not a session subscribes, with how its tree is followed.
+//! - The daemon's worktree at a folder moves `-> dirty` or `-> merged` with its event, checked at
+//!   the watch's start and before each change goes out, so a reader the change wakes reads it.
 
 use std::collections::HashMap;
 use std::io;
@@ -49,6 +51,7 @@ use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::working_folder::{WorkingFolderReadError, read_working_folder};
 
 mod branch_write_back;
+mod dirty_and_merged;
 mod folder;
 mod ignored_paths;
 mod slow_tick;
@@ -62,6 +65,10 @@ pub const SLOW_TICK_INTERVAL: Duration = Duration::from_secs(180);
 // Repository changes a receiver may fall behind before it reads a lag, which it answers by
 // probing every mount.
 const REPOSITORY_CHANGE_CAPACITY: usize = 16;
+
+/// The statements the watch prepares on a read connection: the live worktree at a folder, which
+/// the dirty and merged moves read.
+pub const WORKING_FOLDER_WATCH_STATEMENT_CAPACITY: usize = 1;
 
 /// Folder changes a receiver may fall behind before it reads a lag, which it answers by opening
 /// the feed again, since a change was missed.
@@ -139,7 +146,7 @@ pub struct WorkingFolderWatcherDeps {
     pub reads: Arc<DatabaseReadPool>,
     /// The sessions standing in a folder, for the branch write-back.
     pub occupancy: MountOccupancyReader,
-    /// Where `session.branch.changed` is appended.
+    /// Where `session.branch.changed`, `worktree.dirtied` and `worktree.merged` are appended.
     pub events: Arc<WorktreeEventEmitter>,
     /// The daemon's scheduler, which runs each slow tick.
     pub scheduler: Arc<Scheduler>,
