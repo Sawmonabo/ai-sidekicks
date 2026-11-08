@@ -274,7 +274,7 @@ mod tests {
     // driver answers once.
     #[tokio::test]
     async fn a_sign_out_runs_once_per_key() {
-        let (server, harness, _authorizer) = signed_in(StatusCode::OK, None).await;
+        let (server, harness, _authorizer) = signed_in(StatusCode::OK, None, None).await;
         let test = commands_over(driver_reaching(&server), &harness.service).await;
         let request: McpServerSignOutRequest = press(&docs_binding());
 
@@ -307,7 +307,7 @@ mod tests {
     // memory before the removal.
     #[tokio::test]
     async fn a_refused_keychain_answers_sign_out_failed() {
-        let (server, harness, authorizer) = signed_in(StatusCode::OK, None).await;
+        let (server, harness, authorizer) = signed_in(StatusCode::OK, None, None).await;
         let test = commands_over(driver_reaching(&server), &harness.service).await;
         harness.platform_store.refuse_next_call(
             KeychainService::McpSignIns.as_str(),
@@ -362,7 +362,7 @@ mod tests {
     async fn a_binding_no_sign_in_reaches_is_refused_and_removes_nothing(
         #[case] case: UnreachedBinding,
     ) {
-        let (server, harness, _authorizer) = signed_in(StatusCode::OK, None).await;
+        let (server, harness, _authorizer) = signed_in(StatusCode::OK, None, None).await;
         let docs = docs_binding();
         let (binding, mut driver) = match case {
             UnreachedBinding::Program => (

@@ -210,6 +210,7 @@ async fn revoke(
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use std::sync::Arc;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use axum::http::StatusCode;
@@ -217,14 +218,17 @@ pub(crate) mod tests {
     use reqwest::header::AUTHORIZATION;
     use rmcp::transport::auth::{CredentialStore as _, StoredCredentials};
     use rstest::rstest;
-    use secrecy::SecretString;
+    use secrecy::{SecretBox, SecretString};
     use serde_json::json;
     use sidekicks_contracts::mcp::server::config::McpServerAddress;
     use sidekicks_std::mutex_lock::lock;
 
     use crate::client::http::McpRequestAuthorizer as _;
+    use crate::oauth::dpop_proof::DpopKey;
+    use crate::oauth::dpop_proof::tests::{decode_part, proof_thumbprint};
     use crate::sign_in::authorizer::SignInAuthorizer;
     use crate::sign_in::canonical_server_address;
+    use crate::sign_in::credential_store::DpopKeyScalar;
     use crate::sign_in::test_service::{
         FakeAuthorizationServer, FakeServerAnswers, Harness, TokenForm, addressed_target, harness,
         serve_authorization_server,
@@ -233,13 +237,15 @@ pub(crate) mod tests {
     /// The secret of the confidential client a sign-in may hold; made up for the test.
     const CLIENT_SECRET: &str = "test-client-secret";
 
-    /// A harness holding a bearer sign-in to a fake server whose revocation endpoint answers
+    /// A harness holding a sign-in to a fake server whose revocation endpoint answers
     /// `revocation_status`, `test-access-token-1` with `test-refresh-token-1`, received now so no
-    /// request renews it, issued to a client holding `client_secret` where one is given, with the
+    /// request renews it, issued to a client holding `client_secret` where one is given, a `DPoP`
+    /// sign-in bound to `dpop_key` where one is given and a bearer one otherwise, with the
     /// authorizer a connection to the server presents its token through; every token is made up.
     pub(crate) async fn signed_in(
         revocation_status: StatusCode,
         client_secret: Option<&str>,
+        dpop_key: Option<Arc<DpopKeyScalar>>,
     ) -> (FakeAuthorizationServer, Harness, SignInAuthorizer) {
         let server = serve_authorization_server(FakeServerAnswers {
             revocation_status,
@@ -249,7 +255,7 @@ pub(crate) mod tests {
         let harness = harness().await;
         let token_response = serde_json::from_value(json!({
             "access_token": "test-access-token-1",
-            "token_type": "Bearer",
+            "token_type": if dpop_key.is_some() { "DPoP" } else { "Bearer" },
             "refresh_token": "test-refresh-token-1",
             "expires_in": 3600,
         }))
@@ -263,7 +269,7 @@ pub(crate) mod tests {
             .attempt_credential_store(
                 &address(&server),
                 custody.sign_out_generation(&address(&server)),
-                None,
+                dpop_key,
                 client_secret.map(SecretString::from),
             )
             .save(StoredCredentials::new(
@@ -309,17 +315,24 @@ pub(crate) mod tests {
     // Mutations: remove the item before reading it (nothing is left to revoke); keep the item, so
     // the proof key it holds stays; return the revocation's failure from `sign_out`; leave the
     // server marked signed in; send a confidential client's revocation with no secret, or in the
-    // form where the metadata names no method.
+    // form where the metadata names no method; drop `client.set_dpop_key(..)` from `revoke`, so a
+    // `DPoP` sign-in's revocation goes out unsigned.
     #[rstest]
-    #[case::revoked(StatusCode::OK, None)]
-    #[case::revocation_refused(StatusCode::INTERNAL_SERVER_ERROR, None)]
-    #[case::a_confidential_client(StatusCode::OK, Some(CLIENT_SECRET))]
+    #[case::revoked(StatusCode::OK, None, false)]
+    #[case::revocation_refused(StatusCode::INTERNAL_SERVER_ERROR, None, false)]
+    #[case::a_confidential_client(StatusCode::OK, Some(CLIENT_SECRET), false)]
+    #[case::a_dpop_sign_in(StatusCode::OK, None, true)]
     #[tokio::test]
     async fn a_sign_out_forgets_the_sign_in_and_revokes_the_refresh_token_it_held(
         #[case] revocation_status: StatusCode,
         #[case] client_secret: Option<&str>,
+        #[case] is_dpop: bool,
     ) {
-        let (server, harness, authorizer) = signed_in(revocation_status, client_secret).await;
+        let key = DpopKey::generate();
+        let dpop_key = is_dpop.then(|| Arc::new(SecretBox::new(Box::new(key.to_scalar()))));
+        let (server, harness, authorizer) =
+            signed_in(revocation_status, client_secret, dpop_key).await;
+        let scheme = if is_dpop { "DPoP" } else { "Bearer" };
         let canonical_address = canonical_server_address(&address(&server));
         assert!(
             harness
@@ -333,7 +346,7 @@ pub(crate) mod tests {
             presented_authorization(&authorizer, &server.base)
                 .await
                 .as_deref(),
-            Some("Bearer test-access-token-1")
+            Some(format!("{scheme} test-access-token-1").as_str())
         );
 
         let signed_out = harness
@@ -373,6 +386,22 @@ pub(crate) mod tests {
             *lock(&server.revocation_authorizations),
             [client_secret.map(|_| "Basic dGVzdC1jbGllbnQ6dGVzdC1jbGllbnQtc2VjcmV0".to_owned())]
         );
+        let proofs = lock(&server.revocation_proofs).clone();
+        if is_dpop {
+            let [Some(proof)] = &proofs[..] else {
+                panic!("one revocation, carrying a proof: {proofs:?}");
+            };
+            assert_eq!(proof_thumbprint(proof), key.thumbprint());
+            let claims = decode_part(proof.split('.').nth(1).expect("a proof has claims"));
+            assert_eq!(claims["htm"], "POST");
+            assert_eq!(claims["htu"], format!("{}/revoke", server.base));
+            assert!(
+                claims.get("ath").is_none(),
+                "a revocation presents no access token"
+            );
+        } else {
+            assert_eq!(proofs, [None]);
+        }
         assert!(
             !harness
                 .service

@@ -538,19 +538,16 @@ mod tests {
     use axum::Router;
     use axum::http::{HeaderMap as AxumHeaderMap, StatusCode as AxumStatusCode, Uri};
     use axum::routing::post;
-    use base64::Engine as _;
-    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    use jwt_simple::prelude::ES256PublicKey;
     use reqwest::dns::{Addrs, Name, Resolve, Resolving};
     use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
     use reqwest::{Method, Url};
     use secrecy::SecretBox;
-    use serde_json::Value;
     use sidekicks_contracts::mcp::server::config::McpServerAddress;
     use sidekicks_std::mutex_lock::lock;
 
     use super::{AddressPolicy, OAuthCall, OAuthCallError, OAuthHttpPools};
     use crate::oauth::dpop_proof::DpopKey;
+    use crate::oauth::dpop_proof::tests::proof_thumbprint;
 
     // Answers each name it knows with its addresses, and any other name with none.
     struct StaticLookup(HashMap<&'static str, Vec<IpAddr>>);
@@ -682,21 +679,6 @@ mod tests {
         );
     }
 
-    // The thumbprint of the key that signed the proof in `headers`.
-    fn proof_thumbprint(headers: &AxumHeaderMap) -> String {
-        let proof = headers
-            .get("dpop")
-            .and_then(|proof| proof.to_str().ok())
-            .expect("a token request carries a proof");
-        let header = proof.split('.').next().expect("a proof has a header");
-        let header: Value =
-            serde_json::from_slice(&URL_SAFE_NO_PAD.decode(header).expect("a base64url header"))
-                .expect("a JSON header");
-        ES256PublicKey::from_jwk(&header["jwk"].to_string())
-            .expect("a public P-256 JWK")
-            .jwk_thumbprint()
-    }
-
     // Mutation: keep one key slot for every server's client; the second server's token request
     // then carries the first server's key.
     #[tokio::test]
@@ -706,7 +688,11 @@ mod tests {
         let router = Router::new().route(
             "/token",
             post(move |headers: AxumHeaderMap| async move {
-                lock(&recorded).push(proof_thumbprint(&headers));
+                let proof = headers
+                    .get("dpop")
+                    .and_then(|proof| proof.to_str().ok())
+                    .expect("a token request carries a proof");
+                lock(&recorded).push(proof_thumbprint(proof));
                 AxumStatusCode::OK
             }),
         );

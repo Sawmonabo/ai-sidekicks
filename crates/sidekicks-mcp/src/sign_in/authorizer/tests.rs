@@ -2,8 +2,9 @@
 //! requests find the token run out, no renewal for a token another request already replaced, a
 //! renewal as the client a sign-in kept since names, a sign-out that overtakes a renewal under way
 //! and the refresh token that renewal received revoked, a `DPoP` sign-in's renewal signed with its
-//! key, which refused renewals forget the sign-in, which expired sign-ins mark the server signed
-//! out, and which issuers keep it.
+//! key, its request presenting the token with a proof of that request, which refused renewals
+//! forget the sign-in, which expired sign-ins mark the server signed out, and which issuers keep
+//! it.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -21,7 +22,8 @@ use reqwest::header::{AUTHORIZATION, HeaderValue};
 use rmcp::transport::auth::{AuthorizationMetadata, CredentialStore as _, StoredCredentials};
 use rstest::rstest;
 use secrecy::SecretBox;
-use serde_json::{Value, json};
+use serde_json::json;
+use sha2::{Digest as _, Sha256};
 use sidekicks_contracts::dpop::DPOP_PROOF_HEADER_NAME;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_store::credential_store::service::KeychainService;
@@ -33,9 +35,11 @@ use tokio_util::sync::CancellationToken;
 use super::{SignInAuthorizationError, SignInAuthorizer};
 use crate::client::http::McpRequestAuthorizer as _;
 use crate::oauth::dpop_proof::DpopKey;
+use crate::oauth::dpop_proof::tests::{decode_part, proof_thumbprint};
 use crate::sign_in::canonical_server_address;
 use crate::sign_in::credential_store::{DpopKeyScalar, SignInCustody};
 use crate::sign_in::oauth_http_client::OAuthHttpPools;
+use crate::sign_in::sign_out::tests::signed_in;
 
 /// How the fake token endpoint answers a renewal.
 #[derive(Clone, Copy)]
@@ -357,14 +361,53 @@ async fn a_dpop_sign_ins_renewal_is_signed_for_the_token_endpoint() {
     let [Some(proof)] = &proofs[..] else {
         panic!("one renewal, carrying a proof: {proofs:?}");
     };
-    let claims: Value = serde_json::from_slice(
-        &URL_SAFE_NO_PAD
-            .decode(proof.split('.').nth(1).expect("a JWT's claims"))
-            .expect("base64url claims"),
-    )
-    .expect("JSON claims");
+    let claims = decode_part(proof.split('.').nth(1).expect("a JWT's claims"));
     assert_eq!(claims["htm"], "POST");
     assert_eq!(claims["htu"], format!("{base}/token"));
+}
+
+// Mutations: in `SignInAuthorizer::authorization`, present the token under
+// `BEARER_AUTHORIZATION_SCHEME`, hand `make_proof` `None` for the access token or for the nonce,
+// or make the key in `SignInAuthorizer::dpop_key` with `DpopKey::generate()` in place of
+// `DpopKey::from_scalar`; each fails an assertion below.
+#[tokio::test]
+async fn a_dpop_sign_in_presents_its_token_with_a_proof_of_the_request() {
+    let key = DpopKey::generate();
+    let (server, _harness, authorizer) = signed_in(
+        StatusCode::OK,
+        None,
+        Some(Arc::new(SecretBox::new(Box::new(key.to_scalar())))),
+    )
+    .await;
+    let base = &server.base;
+
+    let headers = authorizer
+        .authorize(
+            &Method::POST,
+            &format!("{base}/mcp?page=2"),
+            Some("server-nonce-1"),
+        )
+        .await
+        .expect("the request is authorized");
+
+    let header = |name: &str| {
+        headers
+            .iter()
+            .find(|(header, _)| header.as_str() == name)
+            .map(|(_, value)| value.to_str().expect("a text header").to_owned())
+            .unwrap_or_else(|| panic!("a {name} header"))
+    };
+    assert_eq!(header(AUTHORIZATION.as_str()), "DPoP test-access-token-1");
+    let proof = header(DPOP_PROOF_HEADER_NAME);
+    assert_eq!(proof_thumbprint(&proof), key.thumbprint());
+    let claims = decode_part(proof.split('.').nth(1).expect("a proof has claims"));
+    assert_eq!(claims["htm"], "POST");
+    assert_eq!(claims["htu"], format!("{base}/mcp"));
+    assert_eq!(
+        claims["ath"],
+        URL_SAFE_NO_PAD.encode(Sha256::digest("test-access-token-1"))
+    );
+    assert_eq!(claims["nonce"], "server-nonce-1");
 }
 
 // Mutations: compare the issuers as exact text in `is_same_issuer`, drop only a slash ending an

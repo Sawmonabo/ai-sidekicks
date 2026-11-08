@@ -16,6 +16,7 @@ use reqwest::Url;
 use rmcp::transport::auth::{AuthorizationManager, OAuthHttpClient};
 use rusqlite::params;
 use serde_json::{Value, json};
+use sidekicks_contracts::dpop::DPOP_PROOF_HEADER_NAME;
 use sidekicks_contracts::event::envelope::DAEMON_SCOPE_SENTINEL_SESSION_ID;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
@@ -170,6 +171,8 @@ pub(crate) struct FakeAuthorizationServer {
     pub(crate) revocation_forms: Arc<Mutex<Vec<TokenForm>>>,
     /// The `Authorization` each revocation request carried, in order.
     pub(crate) revocation_authorizations: Arc<Mutex<Vec<Option<String>>>>,
+    /// The `DPoP` proof each revocation request carried, in order.
+    pub(crate) revocation_proofs: Arc<Mutex<Vec<Option<String>>>>,
 }
 
 /// How the fake authorization server answers; by default it lists `S256` as its PKCE method,
@@ -263,6 +266,8 @@ pub(crate) async fn serve_authorization_server(
     let received_revocations = Arc::clone(&revocation_forms);
     let revocation_authorizations = Arc::new(Mutex::new(Vec::new()));
     let received_authorizations = Arc::clone(&revocation_authorizations);
+    let revocation_proofs = Arc::new(Mutex::new(Vec::new()));
+    let received_proofs = Arc::clone(&revocation_proofs);
     let counted = Arc::clone(&requests);
     let counted_tokens = Arc::clone(&token_requests);
     let router = Router::new()
@@ -327,6 +332,11 @@ pub(crate) async fn serve_authorization_server(
                             .get(AUTHORIZATION)
                             .map(|value| value.to_str().expect("a text header").to_owned()),
                     );
+                received_proofs.lock().expect("never poisoned").push(
+                    headers
+                        .get(DPOP_PROOF_HEADER_NAME)
+                        .map(|value| value.to_str().expect("a text header").to_owned()),
+                );
                 received_revocations
                     .lock()
                     .expect("never poisoned")
@@ -347,6 +357,7 @@ pub(crate) async fn serve_authorization_server(
         token_forms,
         revocation_forms,
         revocation_authorizations,
+        revocation_proofs,
     }
 }
 

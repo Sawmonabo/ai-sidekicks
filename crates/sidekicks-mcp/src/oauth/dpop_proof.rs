@@ -246,7 +246,7 @@ fn asks_for_dpop_nonce(response: &AuthorizationServerResponse) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::sync::{Arc, Mutex};
 
     use axum::Router;
@@ -265,9 +265,18 @@ mod tests {
 
     use super::{DpopKey, make_proof, send_signed};
 
-    fn decode_part(part: &str) -> Value {
+    /// The JSON one base64url part of a proof holds: its header or its claims.
+    pub(crate) fn decode_part(part: &str) -> Value {
         let bytes = URL_SAFE_NO_PAD.decode(part).expect("a base64url part");
         serde_json::from_slice(&bytes).expect("a JSON part")
+    }
+
+    /// The RFC 7638 thumbprint of the JWK in `proof`'s header: the key that signed it.
+    pub(crate) fn proof_thumbprint(proof: &str) -> String {
+        let header = decode_part(proof.split('.').next().expect("a proof has a header"));
+        ES256PublicKey::from_jwk(&header["jwk"].to_string())
+            .expect("a public P-256 JWK")
+            .jwk_thumbprint()
     }
 
     // The nonce claim of the proof in `headers`, `None` when the proof names none.
