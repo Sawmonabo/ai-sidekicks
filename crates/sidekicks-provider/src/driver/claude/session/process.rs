@@ -97,6 +97,7 @@ pub(crate) struct ClaudeProcessLaunch {
 }
 
 /// One stream frame the process wrote, with the facts it is routed by.
+#[derive(Clone, Debug)]
 pub(crate) struct ClaudeStreamFrame {
     /// The frame's text, as read.
     pub(crate) text: String,
