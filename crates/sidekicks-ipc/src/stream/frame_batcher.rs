@@ -5,20 +5,25 @@
 //! window. The batcher holds its cursor and, until it goes out, the first frame it read when it
 //! opened, so a stream whose first read fails opens nothing; every later frame it reads from the
 //! record once the send gate lets it through, so a slow reader costs no more than the one message
-//! its lane has begun, and loses nothing. A change feed hands its frames to the subscription.
+//! its lane has begun, and loses nothing. A read cut short measures how far the record's head
+//! stands past the cursor, and a stream over a stored record more than `STREAM_BEHIND_MAX_EVENTS`
+//! events or `STREAM_BEHIND_MAX_BYTES` bytes behind it is sent the behind frame in place of the
+//! changes and moved to the head. A change feed hands its frames to the subscription.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
-use sidekicks_contracts::jsonrpc::streaming::STREAM_FRAME_MAX_CHANGES;
+use sidekicks_contracts::jsonrpc::streaming::{
+    STREAM_BEHIND_MAX_BYTES, STREAM_BEHIND_MAX_EVENTS, STREAM_FRAME_MAX_CHANGES,
+};
 use sidekicks_contracts::wire::list::BoundedVec;
 use tokio::sync::watch;
 use tokio::time::{Instant, sleep_until};
 
 use crate::registry::HandlerError;
-use crate::stream::feed::{ChangeRecord, Feed, RecordPage, SendGate};
+use crate::stream::feed::{ChangeRecord, Feed, RecordDistance, RecordPage, SendGate};
 
 /// How long the first change of a frame waits for others before the frame goes out.
 pub(crate) const STREAM_WINDOW: Duration = Duration::from_millis(16);
@@ -36,7 +41,7 @@ pub(crate) struct FrameBatcher<Record: ChangeRecord> {
     /// Whether the next read goes at once: after a full frame, and once a window passed or filled.
     is_read_due: bool,
     /// The first frame, read when the batcher opened, until it goes out.
-    first_frame: Option<Vec<Record::Change>>,
+    first_frame: Option<FrameRead<Record::Change, Record::Head>>,
     /// When the open window closes, kept so a frame read dropped mid-window resumes it.
     window_end: Option<Instant>,
 }
@@ -62,27 +67,28 @@ impl<Record: ChangeRecord> FrameBatcher<Record> {
         Ok(batcher)
     }
 
-    /// The next frame's changes, 1 to `STREAM_FRAME_MAX_CHANGES`, oldest first, read once `gate`
-    /// resolves: at once while changes are due (stored before the stream began, or left past a
-    /// full frame), else one `STREAM_WINDOW` after the first change signaled since the last frame,
-    /// or at once at the `STREAM_FRAME_MAX_CHANGES`th. `Ok(None)` once the gate reports the
+    /// The next frame, read once `gate` resolves: its changes, 1 to `STREAM_FRAME_MAX_CHANGES`,
+    /// oldest first, or the head a stream far behind was moved to. It is read at once while
+    /// changes are due (stored before the stream began, or left past a full frame), else one
+    /// `STREAM_WINDOW` after the first change signaled since the last frame, or at once at the
+    /// `STREAM_FRAME_MAX_CHANGES`th. `Ok(None)` once the gate reports the
     /// subscription closed (or the record's signal is gone); a read failure is the record's error.
     /// Dropped before it resolves, it loses no change and the next call resumes an open window.
     pub(crate) async fn next_frame(
         &mut self,
         gate: &dyn SendGate,
-    ) -> Result<Option<Vec<Record::Change>>, Record::Error> {
+    ) -> Result<Option<FrameRead<Record::Change, Record::Head>>, Record::Error> {
         loop {
             if gate.ready().await.is_err() {
                 return Ok(None);
             }
-            if let Some(changes) = self.first_frame.take() {
-                return Ok(Some(changes));
+            if let Some(frame) = self.first_frame.take() {
+                return Ok(Some(frame));
             }
             // A read whose records are all no change, cut short, leaves the next one due at once.
             while self.is_read_due {
-                if let Some(changes) = self.read().await? {
-                    return Ok(Some(changes));
+                if let Some(frame) = self.read().await? {
+                    return Ok(Some(frame));
                 }
             }
             if !self.wait_for_window().await {
@@ -95,8 +101,12 @@ impl<Record: ChangeRecord> FrameBatcher<Record> {
 
     /// Reads the changes after the cursor and moves the cursor past every record read, a record
     /// that is no change too, so none is read twice; `None` when the read holds no change. A read
-    /// cut short by its count or a frame's bytes leaves the next one due.
-    async fn read(&mut self) -> Result<Option<Vec<Record::Change>>, Record::Error> {
+    /// cut short of the record's head, or one holding a full frame, leaves the next one due, unless
+    /// the head stands past either far-behind limit: then the page is let go, the cursor moves to
+    /// the head and the frame is the head.
+    async fn read(
+        &mut self,
+    ) -> Result<Option<FrameRead<Record::Change, Record::Head>>, Record::Error> {
         // Marked before the read, so a change appended after it is signaled to the wait.
         self.seen = *self.change_count.borrow_and_update();
         let RecordPage {
@@ -107,11 +117,25 @@ impl<Record: ChangeRecord> FrameBatcher<Record> {
             .record
             .read_after(&self.cursor, STREAM_FRAME_MAX_CHANGES)
             .await?;
-        self.is_read_due = is_cut_short;
+        // Only a read cut short of the head can stand behind more than one frame, so a stream at
+        // the head never measures, and a page that reached it is never let go.
+        if is_cut_short
+            && let Some(head) = read_far_behind_head(&*self.record, &self.cursor).await?
+        {
+            self.cursor = Record::cursor_at(&head);
+            self.is_read_due = false;
+            return Ok(Some(FrameRead::Behind(head)));
+        }
+        self.is_read_due = is_cut_short || changes.len() == STREAM_FRAME_MAX_CHANGES;
         if let Some(read_through) = read_through {
             self.cursor = read_through;
         }
-        Ok((!changes.is_empty()).then_some(changes))
+        if changes.is_empty() {
+            return Ok(None);
+        }
+        let changes = BoundedVec::new(changes)
+            .expect("a record reads at most the STREAM_FRAME_MAX_CHANGES changes it is asked for");
+        Ok(Some(FrameRead::Changes(changes)))
     }
 
     /// Waits for the first change signaled since the last read began, then until the window it
@@ -147,8 +171,34 @@ impl<Record: ChangeRecord> FrameBatcher<Record> {
     }
 }
 
+/// `record`'s head when `cursor` stands more than `STREAM_BEHIND_MAX_EVENTS` events or
+/// `STREAM_BEHIND_MAX_BYTES` bytes behind it, measured over one event past the count limit; `None`
+/// when it is nearer, or the record is a current state.
+async fn read_far_behind_head<Record: ChangeRecord>(
+    record: &Record,
+    cursor: &Record::Cursor,
+) -> Result<Option<Record::Head>, Record::Error> {
+    let distance = record
+        .read_distance(cursor, STREAM_BEHIND_MAX_EVENTS + 1)
+        .await?;
+    Ok(distance
+        .filter(|RecordDistance { events, bytes, .. }| {
+            *events > STREAM_BEHIND_MAX_EVENTS || *bytes > STREAM_BEHIND_MAX_BYTES
+        })
+        .map(|distance| distance.head))
+}
+
 /// One frame's changes as its stream's contract holds them.
 pub type FrameChanges<Change> = BoundedVec<Change, 1, STREAM_FRAME_MAX_CHANGES>;
+
+/// One frame a change stream reads from its record.
+#[derive(Debug, PartialEq)]
+pub enum FrameRead<Change, Head> {
+    /// The changes since the previous frame, oldest first.
+    Changes(FrameChanges<Change>),
+    /// The head of the stored record the stream stood far behind, which it now reads after.
+    Behind(Head),
+}
 
 /// A change stream's feed: each frame its batcher reads from the record, made into the stream's
 /// frame by `frame_of`. A failed read ends the subscription as a fault in the daemon, and the
@@ -157,7 +207,7 @@ pub struct ChangeFeed<Record: ChangeRecord, Frame> {
     /// The frames' batcher.
     batcher: FrameBatcher<Record>,
     /// Makes one frame of its changes.
-    frame_of: fn(FrameChanges<Record::Change>) -> Frame,
+    frame_of: fn(FrameRead<Record::Change, Record::Head>) -> Frame,
 }
 
 impl<Record: ChangeRecord, Frame> ChangeFeed<Record, Frame> {
@@ -167,7 +217,7 @@ impl<Record: ChangeRecord, Frame> ChangeFeed<Record, Frame> {
     pub async fn open(
         record: Arc<Record>,
         cursor: Record::Cursor,
-        frame_of: fn(FrameChanges<Record::Change>) -> Frame,
+        frame_of: fn(FrameRead<Record::Change, Record::Head>) -> Frame,
     ) -> Result<Self, HandlerError> {
         let batcher = FrameBatcher::open(record, cursor)
             .await
@@ -185,10 +235,7 @@ impl<Record: ChangeRecord, Frame: Send> Feed for ChangeFeed<Record, Frame> {
     ) -> BoxFuture<'a, Result<Option<Frame>, HandlerError>> {
         async move {
             match self.batcher.next_frame(gate).await {
-                Ok(Some(changes)) => Ok(Some((self.frame_of)(
-                    BoundedVec::new(changes)
-                        .expect("a frame holds one to STREAM_FRAME_MAX_CHANGES changes"),
-                ))),
+                Ok(Some(frame)) => Ok(Some((self.frame_of)(frame))),
                 Ok(None) => Ok(None),
                 Err(error) if Record::is_store_closed(&error) => Ok(None),
                 Err(error) => Err(HandlerError::Internal(Box::new(error))),
@@ -206,19 +253,33 @@ mod tests {
     use futures::future::BoxFuture;
 
     use super::*;
-    use crate::stream::feed::CreditGate;
+    use crate::stream::feed::{CreditGate, DistanceRead};
 
-    /// A record of numbered changes, each change its own cursor.
+    /// The changes of a frame the test expects to carry changes.
+    fn changes_of(frame: Option<FrameRead<u64, u64>>) -> Option<Vec<u64>> {
+        frame.map(|frame| match frame {
+            FrameRead::Changes(changes) => changes.into_vec(),
+            FrameRead::Behind(head) => panic!("the stream was moved to {head}"),
+        })
+    }
+
+    /// A stored record of numbered changes, each change its own cursor and `change_bytes` bytes.
     struct NumberedRecord {
         changes: Mutex<Vec<u64>>,
         count: watch::Sender<u64>,
+        change_bytes: usize,
     }
 
     impl NumberedRecord {
         fn new() -> Arc<Self> {
+            Self::with_change_bytes(8)
+        }
+
+        fn with_change_bytes(change_bytes: usize) -> Arc<Self> {
             Arc::new(Self {
                 changes: Mutex::new(Vec::new()),
                 count: watch::Sender::new(0),
+                change_bytes,
             })
         }
 
@@ -240,6 +301,7 @@ mod tests {
         type Cursor = u64;
         type Change = u64;
         type Error = Infallible;
+        type Head = u64;
 
         fn read_after(
             &self,
@@ -261,6 +323,32 @@ mod tests {
                 is_cut_short: after.len() == max,
                 changes: after,
             })))
+        }
+
+        fn read_distance(
+            &self,
+            cursor: &u64,
+            max_events: usize,
+        ) -> DistanceRead<'_, u64, Infallible> {
+            let changes = self
+                .changes
+                .lock()
+                .expect("no test thread panics holding it");
+            let head = changes.last().copied().unwrap_or(*cursor).max(*cursor);
+            let events = changes
+                .iter()
+                .filter(|change| *change > cursor)
+                .take(max_events)
+                .count();
+            Box::pin(std::future::ready(Ok(Some(RecordDistance {
+                head,
+                events,
+                bytes: events * self.change_bytes,
+            }))))
+        }
+
+        fn cursor_at(head: &u64) -> u64 {
+            *head
         }
 
         fn change_count(&self) -> watch::Receiver<u64> {
@@ -287,7 +375,10 @@ mod tests {
             }
         });
         let expected: Vec<u64> = (1..=STREAM_FRAME_MAX_CHANGES as u64).collect();
-        assert_eq!(frame.expect("the record never fails"), Some(expected));
+        assert_eq!(
+            changes_of(frame.expect("the record never fails")),
+            Some(expected)
+        );
         assert_eq!(started.elapsed(), Duration::ZERO, "no window passed");
     }
 
@@ -303,7 +394,10 @@ mod tests {
             tokio::task::yield_now().await;
             record.append(1);
         });
-        assert_eq!(frame.expect("the record never fails"), Some(vec![1]));
+        assert_eq!(
+            changes_of(frame.expect("the record never fails")),
+            Some(vec![1])
+        );
         assert!(
             started.elapsed() <= STREAM_WINDOW,
             "left after {:?}",
@@ -315,7 +409,10 @@ mod tests {
         record.append(1);
         let started = Instant::now();
         let frame = batcher.next_frame(&gate).await;
-        assert_eq!(frame.expect("the record never fails"), Some(vec![2]));
+        assert_eq!(
+            changes_of(frame.expect("the record never fails")),
+            Some(vec![2])
+        );
         assert_eq!(started.elapsed(), STREAM_WINDOW, "it waited one window");
     }
 
@@ -336,7 +433,10 @@ mod tests {
         let frame = tokio::time::timeout(STREAM_WINDOW * 4, batcher.next_frame(&gate))
             .await
             .expect("the change already signaled goes out without another");
-        assert_eq!(frame.expect("the record never fails"), Some(vec![1]));
+        assert_eq!(
+            changes_of(frame.expect("the record never fails")),
+            Some(vec![1])
+        );
         assert_eq!(
             started.elapsed(),
             STREAM_WINDOW,
@@ -357,8 +457,7 @@ mod tests {
             for _ in 0..3 {
                 let frame = batcher.next_frame(&*reader_gate).await;
                 frames.push(
-                    frame
-                        .expect("the record never fails")
+                    changes_of(frame.expect("the record never fails"))
                         .expect("the gate stays open"),
                 );
             }
@@ -374,5 +473,77 @@ mod tests {
                 .all(|frame| frame.len() <= STREAM_FRAME_MAX_CHANGES)
         );
         assert_eq!(frames.concat(), (1..=120).collect::<Vec<u64>>());
+    }
+
+    // Killed by moving a stream at the limit, by a distance read that never measures, and by a
+    // move that leaves the cursor short of the head.
+    #[tokio::test(start_paused = true)]
+    async fn a_stream_far_behind_is_sent_the_head_and_carries_on_from_it() {
+        let record = NumberedRecord::new();
+        let gate = CreditGate::with_credit(1);
+        let limit = STREAM_BEHIND_MAX_EVENTS as u64;
+        record.append(limit);
+        let mut at_limit = FrameBatcher::open(Arc::clone(&record), 0)
+            .await
+            .expect("the record never fails");
+        let frame = at_limit.next_frame(&gate).await;
+        let first: Vec<u64> = (1..=STREAM_FRAME_MAX_CHANGES as u64).collect();
+        assert_eq!(
+            changes_of(frame.expect("the record never fails")),
+            Some(first),
+            "a stream at the limit is sent its changes"
+        );
+
+        record.append(1);
+        let behind = limit + 1;
+        let mut batcher = FrameBatcher::open(Arc::clone(&record), 0)
+            .await
+            .expect("the record never fails");
+        let frame = batcher.next_frame(&gate).await;
+        assert_eq!(
+            frame.expect("the record never fails"),
+            Some(FrameRead::Behind(behind)),
+            "one frame with no change carries the head"
+        );
+
+        record.append(1);
+        let frame = batcher.next_frame(&gate).await;
+        assert_eq!(
+            changes_of(frame.expect("the record never fails")),
+            Some(vec![behind + 1]),
+            "the next frame reads on from the head"
+        );
+    }
+
+    // Killed by moving a stream at the byte limit, and by a far-behind check that reads the events
+    // alone or needs both limits passed.
+    #[tokio::test(start_paused = true)]
+    async fn a_stream_behind_by_more_bytes_than_the_limit_is_moved_over_few_events() {
+        let gate = CreditGate::with_credit(1);
+        let full_frame = STREAM_FRAME_MAX_CHANGES as u64;
+        let change_bytes = STREAM_BEHIND_MAX_BYTES / STREAM_FRAME_MAX_CHANGES;
+        let record = NumberedRecord::with_change_bytes(change_bytes);
+        // One full frame is cut short, so it is measured, and stands exactly at the byte limit.
+        record.append(full_frame);
+        let mut at_limit = FrameBatcher::open(Arc::clone(&record), 0)
+            .await
+            .expect("the record never fails");
+        let frame = at_limit.next_frame(&gate).await;
+        assert_eq!(
+            changes_of(frame.expect("the record never fails")),
+            Some((1..=full_frame).collect::<Vec<u64>>()),
+            "a stream at the byte limit is sent its changes"
+        );
+
+        record.append(1);
+        let behind = full_frame + 1;
+        let mut batcher = FrameBatcher::open(Arc::clone(&record), 0)
+            .await
+            .expect("the record never fails");
+        let frame = batcher.next_frame(&gate).await;
+        assert_eq!(
+            frame.expect("the record never fails"),
+            Some(FrameRead::Behind(behind))
+        );
     }
 }

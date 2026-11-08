@@ -22,6 +22,7 @@ use tokio::runtime::Handle;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::{HeaderValue, header};
+use tokio_util::task::TaskTracker;
 
 use super::command_acts::write_input;
 use super::endpoint::RelayEndpoint;
@@ -56,6 +57,8 @@ use crate::port::running_command_publisher::{
     CommandStart, RunningCommandParams, RunningCommandPublisher as _,
 };
 use crate::runtime_binding::test_store::test_provider_account_id;
+
+mod executor_end;
 
 const THREAD: &str = "thread-1";
 const COPY_THREAD: &str = "thread-copy";
@@ -150,6 +153,7 @@ fn relay_reporting_to(
         command_capture: Arc::new(PortRegistration::new("command capture")),
         wrapper_program: folder.join("wrapper"),
         askpass_program: folder.join("askpass"),
+        tasks: TaskTracker::new(),
     });
     CodexExecRelay::new(dependencies, thread_sessions, Arc::new(|| {}))
 }

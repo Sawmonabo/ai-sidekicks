@@ -290,9 +290,9 @@ async fn start_relayed_service(
     }
 }
 
-// The relay of `service`, reading its conversations' sessions and asking its planned restart when
-// its executor ends, so the next start brings a new one up.
-fn compose_exec_relay(service: &Arc<CodexService>) -> Arc<CodexExecRelay> {
+/// The relay of `service`, reading its conversations' sessions and telling the service's events
+/// when its executor ends while the service is up, so a restart brings a new one up.
+pub(crate) fn compose_exec_relay(service: &Arc<CodexService>) -> Arc<CodexExecRelay> {
     let threads = Arc::downgrade(service);
     let restarts = Arc::downgrade(service);
     CodexExecRelay::new(
@@ -306,8 +306,12 @@ fn compose_exec_relay(service: &Arc<CodexService>) -> Arc<CodexExecRelay> {
             })
         }),
         Arc::new(move || {
-            if let Some(service) = restarts.upgrade() {
-                service.request_planned_restart();
+            // A service stopping or on its way up restarts nothing, as its planned restart does.
+            if let Some(service) = restarts.upgrade()
+                && service.is_serving()
+                && !service.is_coming_back()
+            {
+                service.dependencies().events.executor_ended(&service);
             }
         }),
     )

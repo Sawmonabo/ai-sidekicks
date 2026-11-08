@@ -63,7 +63,7 @@ CREATE TABLE session_events (
   UNIQUE (session_id, sequence)
 ) STRICT;
 
-CREATE INDEX idx_session_events_type ON session_events(session_id, type);
+CREATE INDEX idx_session_events_type ON session_events(session_id, type, sequence);
 -- The sessions that skipped a damaged range, few or none, so a read over many
 -- sessions' rows probes the skipped ranges of those sessions alone.
 CREATE INDEX idx_session_events_skipped ON session_events(session_id)

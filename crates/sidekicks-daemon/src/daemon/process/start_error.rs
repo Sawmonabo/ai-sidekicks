@@ -99,6 +99,12 @@ pub(crate) enum DaemonStartError {
     /// This machine's row could not be read or minted.
     #[error(transparent)]
     LocalMachine(#[from] LocalMachineError),
+    /// The thread that holds the machine awake could not start.
+    #[error("the keep-awake hold's thread could not start")]
+    KeepAwake(#[source] std::io::Error),
+    /// The machine's settings could not be read for keep-awake's two switches, so it did not start.
+    #[error("keep-awake could not read the machine's settings")]
+    KeepAwakeSettings(#[source] MachineSettingsFileError),
     /// The wall clock the scheduler's timed jobs run on could not be armed.
     #[error("the scheduler's wall clock could not be armed")]
     WallClock(#[source] std::io::Error),

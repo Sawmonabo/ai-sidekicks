@@ -416,6 +416,7 @@ done
             Arc::clone(&services.child_records),
             Arc::clone(&services.processes),
             registered_test_accounts(CurrentProviderAccount::NoneRegistered),
+            Arc::clone(&services.ports.raw_provider_messages),
             &services.data_folder,
         );
         ScriptedRead {

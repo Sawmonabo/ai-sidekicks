@@ -11,7 +11,7 @@ use sidekicks_contracts::transcript::turn_attribution::{
 };
 use strum::VariantArray as _;
 
-use crate::database::schema::SESSION_EVENTS_TABLE;
+use crate::database::schema::{SESSION_EVENTS_TABLE, SESSION_EVENTS_TYPE_INDEX};
 use crate::database::sql_list::sql_list_of;
 use crate::events::session::skipped_ranges::DAMAGED_EVENTS_SKIPPED_TYPE;
 
@@ -85,7 +85,9 @@ CREATE TABLE {SESSION_EVENTS_TABLE} (
   UNIQUE (session_id, sequence)
 ) STRICT;
 
-CREATE INDEX idx_session_events_type ON {SESSION_EVENTS_TABLE}(session_id, type);
+-- A session's events of one type in log order, so a read of given types after a position seeks
+-- past it and stops at its limit.
+CREATE INDEX {SESSION_EVENTS_TYPE_INDEX} ON {SESSION_EVENTS_TABLE}(session_id, type, sequence);
 -- The sessions that skipped a damaged range, few or none, so a read over many sessions' rows
 -- probes the skipped ranges of those sessions alone.
 CREATE INDEX idx_session_events_skipped ON {SESSION_EVENTS_TABLE}(session_id)

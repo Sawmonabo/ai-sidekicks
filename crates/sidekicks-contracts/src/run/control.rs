@@ -422,8 +422,9 @@ pub struct RunStateStreamChange {
 }
 
 stream_frame! {
-    /// The value of each `agent.run.subscribe` notify: the changes since the previous frame.
-    pub struct RunStateStreamFrame(RunStateStreamChange);
+    /// The value of each `agent.run.subscribe` notify: the changes since the previous frame, or
+    /// the mark that the stream was moved to the log's head.
+    pub enum RunStateStreamFrame(RunStateStreamChange, EventCursor);
 }
 
 /// Pauses a run. Not an intervention, but guarded by the same mandatory `expectedRunVersion`.

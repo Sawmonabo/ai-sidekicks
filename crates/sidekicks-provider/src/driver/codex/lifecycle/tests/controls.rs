@@ -1,9 +1,9 @@
-//! A live session's level and mode moves Codex refuses, its switch of its tool servers, and a
-//! settle as the session opens and while it comes back, with the resume its service's return owes
-//! it, through the driver.
+//! A live session's level and mode moves Codex refuses, its switch of its tool servers, a settle
+//! as the session opens and while it comes back, with the resume its service's return owes it, and
+//! its service's restart after the executor's end, through the driver.
 
 use std::pin::pin;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -13,16 +13,21 @@ use serde_json::json;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
+use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 
 use super::super::service_events::CodexDriverServiceEvents;
 use super::{LiveCodexSession, driver_holding};
 use crate::driver::codex::DESCRIPTOR;
+use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::events::{
-    CodexServiceEvents as _, CodexServiceRecoveryCause,
+    CodexServiceEvents, CodexServiceRecoveryCause,
 };
-use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
-use crate::driver::codex::session::errors::CodexSessionSlotState;
+use crate::driver::codex::service::supervisor::start::compose_exec_relay;
+use crate::driver::codex::service::supervisor::test_service::{
+    start_scripted_account_service_reporting_to, start_scripted_codex_service,
+};
+use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
 use crate::driver::codex::session::test_fixture::{
     TEST_THREAD, create_session_params, fork_reply, no_turns, test_thread_settings,
 };
@@ -300,5 +305,59 @@ async fn a_service_back_owes_its_sessions_their_resume_as_its_event_arrives() {
     assert_eq!(
         parts.slots.describe_holder(session_id),
         Some(CodexSessionSlotState::Establishing)
+    );
+}
+
+// A service's events that reach the driver's only for an executor's end, once the driver is
+// built on the service.
+#[derive(Default)]
+struct DriverExecutorEnds(OnceLock<CodexDriverServiceEvents>);
+
+impl CodexServiceEvents for DriverExecutorEnds {
+    fn process_exited(&self, _service: &Arc<CodexService>, _exit: Option<&ProcessExit>) {}
+
+    fn recovered(&self, _service: &Arc<CodexService>, _cause: CodexServiceRecoveryCause) {}
+
+    fn crash_loop(&self, _service: &Arc<CodexService>, _start_failure: Option<Arc<CodexError>>) {}
+
+    fn start_failed(&self, _service: &Arc<CodexService>) {}
+
+    fn rate_limits_observed(&self, _service: &Arc<CodexService>) {}
+
+    fn planned_restart_requested(&self, _service: &Arc<CodexService>) {}
+
+    fn executor_ended(&self, service: &Arc<CodexService>) {
+        if let Some(events) = self.0.get() {
+            events.executor_ended(service);
+        }
+    }
+}
+
+// Driven through the callback the service's relay is composed with, so killed by that callback or
+// the driver's handler restarting the service outside the recovery's mark, as the supervisor's own
+// planned restart does, which resumes none of the home's live sessions.
+#[tokio::test]
+async fn an_executor_s_end_restarts_its_service_under_the_recovery_s_mark() {
+    let ends = Arc::new(DriverExecutorEnds::default());
+    let held = start_scripted_account_service_reporting_to(Arc::clone(&ends) as _);
+    held.mark_started();
+    let LiveCodexSession {
+        driver, scripted, ..
+    } = LiveCodexSession::on_held_service(held, &[]).await;
+    let parts = Arc::clone(driver.parts().expect("the driver composes"));
+    assert!(
+        ends.0
+            .set(CodexDriverServiceEvents::new(Arc::clone(&driver.link)))
+            .is_ok()
+    );
+    let relay = scripted
+        .service
+        .exec_relay_or_insert_with(|| compose_exec_relay(&scripted.service));
+
+    relay.report_executor_ended();
+
+    assert!(
+        parts.recovery.is_restarting(scripted.service.id()),
+        "the restart runs under the recovery's mark"
     );
 }

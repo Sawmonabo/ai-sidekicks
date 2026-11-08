@@ -276,7 +276,7 @@ impl CodexDriver {
             {
                 self.parts()?
                     .recovery
-                    .restart_service(&service, None)
+                    .restart_and_wait(&service, None)
                     .await?;
                 read_service_models(&service).await?
             }

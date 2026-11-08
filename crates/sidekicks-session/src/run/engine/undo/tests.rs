@@ -206,6 +206,7 @@ async fn a_rollback_advances_the_runs_version_and_leaves_its_state() {
     let filter = SessionEventFilter {
         event_types: Some(&event_types),
         before_sequence: None,
+        is_sparse: false,
     };
     let stored = SessionEventReads::new(&reader, |_: &SessionId| None)
         .read_after(&fixture.session_id, -1, -1, filter)

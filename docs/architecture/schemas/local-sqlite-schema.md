@@ -75,7 +75,8 @@ CREATE TABLE session_events (
   UNIQUE(session_id, sequence)
 ) STRICT;
 
-CREATE INDEX idx_session_events_type ON session_events(session_id, type);
+-- A session's events of one type in log order, so a read of given types after a position seeks past it and stops at its limit.
+CREATE INDEX idx_session_events_type ON session_events(session_id, type, sequence);
 CREATE INDEX idx_session_events_skipped ON session_events(session_id) WHERE type = 'session.damagedEvents.skipped';
 -- Each tool call a provider moved to the background, few or none, so the start's read across sessions finds those still open without reading their sessions' other rows.
 CREATE INDEX idx_session_events_backgrounded ON session_events(session_id, sequence) WHERE type = 'agent.toolCall.backgrounded';

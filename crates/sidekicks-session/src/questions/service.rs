@@ -40,6 +40,8 @@ use sidekicks_provider::port::question::{
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::mutex_lock::lock;
+#[cfg(test)]
+use sidekicks_std::pause_point::PausePoint;
 use sidekicks_std::port_registration::{PortRegistration, PortRegistrationError};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -223,6 +225,10 @@ pub struct QuestionsService {
     // instead of polling.
     #[cfg(test)]
     pub(super) held_or_recorded: tokio::sync::Notify,
+    // Where a test holds a waiting question's take after its refused open, between its read of the
+    // run and its read of the question.
+    #[cfg(test)]
+    pub(super) waiting_take_pause: PausePoint,
 }
 
 /// The three ways a question's record is written: open, waiting for its run, or open where its
@@ -260,6 +266,8 @@ impl QuestionsService {
             orphaned_secrets: OrphanedSecretAnswers::default(),
             #[cfg(test)]
             held_or_recorded: tokio::sync::Notify::new(),
+            #[cfg(test)]
+            waiting_take_pause: PausePoint::default(),
         }
     }
 

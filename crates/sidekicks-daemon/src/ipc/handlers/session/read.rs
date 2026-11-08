@@ -80,7 +80,7 @@ async fn read_session(
         live_runs,
         standing_events,
     } = sources.sessions.read_session(request).await?;
-    let draft = sources.drafts.read(session_id).await?;
+    let held_draft = sources.drafts.read(session_id).await?;
     let attachments = sources.attachments.read(&session_id).await?;
     let SessionReadRecord {
         id,
@@ -109,7 +109,7 @@ async fn read_session(
             pending_working_folder,
             created_at,
             updated_at,
-            draft,
+            held_draft,
             attachments,
             max_steps_per_turn,
             permission_level,
@@ -130,6 +130,7 @@ mod tests {
     use futures::FutureExt as _;
     use futures::future::BoxFuture;
     use serde_json::{Value, json};
+    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::method::Method as _;
     use sidekicks_contracts::place::{Place, WindowsPlace};
     use sidekicks_contracts::provider::id::ProviderId;
@@ -137,7 +138,9 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::session::methods::SessionRead;
     use sidekicks_ipc::call_fixtures::{context, request};
-    use sidekicks_ipc::registry::{Dispatch as _, MethodRegistry, MethodRegistryBuilder, Reply};
+    use sidekicks_ipc::registry::{
+        Dispatch as _, DispatchError, MethodRegistry, MethodRegistryBuilder, Reply,
+    };
     use sidekicks_platforms::PathRules;
     use sidekicks_provider::driver::test_registry::session_inbox_addresser;
     use sidekicks_session::addresses::SessionInboxAddresses;
@@ -153,7 +156,7 @@ mod tests {
 
     use super::register_session_read;
     use crate::daemon::schema::schema_parts;
-    use crate::ipc::handlers::session::draft_update::register_session_draft_update;
+    use crate::ipc::handlers::session::draft::register_session_draft;
 
     /// A session with no files staged.
     struct NoStagedAttachments;
@@ -178,10 +181,10 @@ mod tests {
         serde_json::from_slice(&result.json).expect("a result is JSON")
     }
 
-    #[tokio::test]
-    async fn a_read_carries_the_place_and_the_draft_last_saved_and_an_empty_one_once_cleared() {
-        let database = TestDatabase::new(schema_parts());
-        let writer = open_log(&database, None).await.writer;
+    /// `session.draft.update` and `session.read` over one session in `database` that runs in a
+    /// distribution the start did not list.
+    async fn registry_over_one_session(database: &TestDatabase) -> (MethodRegistry, SessionId) {
+        let log = open_log(database, None).await;
         let session_id = test_session_id();
         insert_session_row(
             &database.reader(),
@@ -193,10 +196,14 @@ mod tests {
             database.path(),
             SESSION_SERVICE_STATEMENT_CAPACITY + SESSION_DRAFT_STORE_STATEMENT_CAPACITY,
         ));
-        let drafts = Arc::new(SessionDraftStore::new(Arc::clone(&reads), writer));
+        let drafts = Arc::new(SessionDraftStore::new(
+            Arc::clone(&reads),
+            log.writer,
+            &log.followers,
+        ));
         let mut builder = MethodRegistryBuilder::new();
-        register_session_draft_update(&mut builder, Arc::clone(&drafts))
-            .expect("session.draft.update registers");
+        register_session_draft(&mut builder, Arc::clone(&drafts))
+            .expect("the draft methods register");
         register_session_read(
             &mut builder,
             Arc::new(SessionService::new(
@@ -206,7 +213,6 @@ mod tests {
             )),
             drafts,
             Arc::new(NoStagedAttachments),
-            // The session's own distribution is one the start did not list.
             Arc::new(
                 SessionInboxAddresses::new(
                     PathRules::Windows,
@@ -218,18 +224,50 @@ mod tests {
             ),
         )
         .expect("session.read registers");
-        let registry = builder.freeze();
+        (builder.freeze(), session_id)
+    }
+
+    /// Saves `draft` over `expected_revision` and answers the reply.
+    async fn save(
+        registry: &MethodRegistry,
+        session_id: SessionId,
+        draft: &Value,
+        expected_revision: u64,
+    ) -> Result<Reply, DispatchError> {
+        let params = json!({
+            "sessionId": session_id,
+            "draft": draft,
+            "expectedRevision": expected_revision,
+        });
+        registry
+            .dispatch(
+                request(SessionDraftUpdate::DESCRIPTOR.method, Some(&params)),
+                context(1),
+            )
+            .await
+    }
+
+    #[tokio::test]
+    async fn a_read_carries_the_place_and_the_draft_last_saved_and_an_empty_one_once_cleared() {
+        let database = TestDatabase::new(schema_parts());
+        let (registry, session_id) = registry_over_one_session(&database).await;
         let read_params = json!({ "sessionId": session_id });
 
-        for draft in ["Half a thought about the", ""] {
-            call(
-                &registry,
-                SessionDraftUpdate::DESCRIPTOR.method,
-                &json!({ "sessionId": session_id, "text": draft }),
-            )
-            .await;
+        // A saved file reads back from its stored extras, and a cleared draft reads empty.
+        let saved = json!({
+            "text": "Half a thought about the",
+            "extras": { "attachments": ["01900000-0000-7000-8000-000000000001"] },
+        });
+        for (expected_revision, draft) in [(0, saved), (1, json!({ "text": "", "extras": {} }))] {
+            save(&registry, session_id, &draft, expected_revision)
+                .await
+                .expect("the save is taken");
             let read = call(&registry, SessionRead::DESCRIPTOR.method, &read_params).await;
-            assert_eq!(read["session"]["draft"], draft);
+            assert_eq!(read["session"]["heldDraft"]["draft"], draft);
+            assert_eq!(
+                read["session"]["heldDraft"]["revision"],
+                expected_revision + 1
+            );
             assert_eq!(read["session"]["place"], json!({ "distro": "Ubuntu" }));
             assert_eq!(
                 read["session"]["addresses"][0]["place"],
@@ -240,5 +278,38 @@ mod tests {
                 .expect("an address is text");
             assert!(address.starts_with("/tmp/cc-socks/"), "{address}");
         }
+    }
+
+    /// A save typed over a revision the draft has moved past, as when another device saved first,
+    /// is refused and leaves the draft as it was. Mutation: drop the revision check from the save.
+    #[tokio::test]
+    async fn a_save_over_a_newer_draft_is_refused_and_changes_nothing() {
+        let database = TestDatabase::new(schema_parts());
+        let (registry, session_id) = registry_over_one_session(&database).await;
+        let newer = json!({ "text": "Saved on the other device", "extras": {} });
+        for (expected_revision, draft) in [
+            (0, json!({ "text": "First", "extras": {} })),
+            (1, newer.clone()),
+        ] {
+            save(&registry, session_id, &draft, expected_revision)
+                .await
+                .expect("the save is taken");
+        }
+
+        let stale = json!({ "text": "Typed over the first", "extras": {} });
+        let Err(DispatchError::Refused(refusal)) = save(&registry, session_id, &stale, 1).await
+        else {
+            panic!("a save over a newer draft is refused");
+        };
+
+        assert_eq!(refusal.code, RefusalCode::SessionDraftRevisionStale);
+        let read = call(
+            &registry,
+            SessionRead::DESCRIPTOR.method,
+            &json!({ "sessionId": session_id }),
+        )
+        .await;
+        assert_eq!(read["session"]["heldDraft"]["draft"], newer);
+        assert_eq!(read["session"]["heldDraft"]["revision"], 2);
     }
 }

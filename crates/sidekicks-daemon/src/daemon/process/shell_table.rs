@@ -9,6 +9,7 @@ use std::sync::Arc;
 use futures::FutureExt as _;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::terminal::control::TerminalControlChangedPayload;
 use sidekicks_contracts::trust_statement::DeviceId;
@@ -36,7 +37,6 @@ use sidekicks_workspace::working_folder::{
 use tokio::runtime::Handle;
 
 use crate::daemon::machine_settings::file::MachineSettingsFile;
-use crate::daemon::release_version::this_build_release_version;
 
 /// The folder of the run folder every shell's start writes its scripts and nonce files in.
 const SHELL_STARTUP_FOLDER_NAME: &str = "shell-startup";
@@ -65,6 +65,8 @@ pub(crate) struct ShellTableStart {
     pub(crate) orphan_guard: Arc<OrphanGuard>,
     /// The daemon's own program, whose `shell` mode starts every shell.
     pub(crate) daemon_program: PathBuf,
+    /// The service's own release version, which each shell's terminal names.
+    pub(crate) release_version: ReleaseVersion,
 }
 
 /// Why the shell table could not be built.
@@ -101,6 +103,7 @@ pub(crate) async fn build_shell_table(
         run_folder,
         orphan_guard,
         daemon_program,
+        release_version,
     } = start;
     let shell_mode = shell_mode(daemon_program)?;
     let startup_folder = run_folder.join(SHELL_STARTUP_FOLDER_NAME);
@@ -112,7 +115,7 @@ pub(crate) async fn build_shell_table(
     Ok(ShellTable::new(ShellTableDeps {
         terminals,
         machine_device_id,
-        release_version: this_build_release_version().as_str().to_owned(),
+        release_version: release_version.as_str().to_owned(),
         append_control_change: append_control_change(appender),
         read_working_folder: read_session_working_folder(Arc::clone(&reads)),
         read_shell_settings: read_shell_settings(reads, settings),

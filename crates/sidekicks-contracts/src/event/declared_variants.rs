@@ -35,12 +35,10 @@ pub enum ContentEncoding {
 }
 
 ts_constants! {
-    /// The payload key carrying the stored body's UTF-8 byte length, the whole body's.
+    /// The payload key carrying the stored body's UTF-8 byte length.
     pub const CONTENT_LENGTH_PAYLOAD_KEY: &str = "contentLength";
     /// The payload key naming the stored body's encoding, present only on a compressed body.
     pub const CONTENT_ENCODING_PAYLOAD_KEY: &str = "contentEncoding";
-    /// The payload member that marks the stored body as a prefix.
-    pub const CONTENT_TRUNCATED_PAYLOAD_KEY: &str = "contentTruncated";
 }
 
 /// Refuses a deleted range that ends before it starts.
@@ -95,55 +93,16 @@ pub struct SessionEventCompactedPayload {
 /// `with_machine_content_descriptor!`, or a union of such payloads.
 pub(crate) trait MachineContentDescriptor {}
 
-/// Refuses a cut mark on a payload that reports no body length.
-pub(crate) fn requires_length_beside_cut_mark(
-    is_truncated: bool,
-    has_length: bool,
-) -> garde::Result {
-    if is_truncated && !has_length {
-        Err(garde::Error::new("a cut body reports its length"))
-    } else {
-        Ok(())
-    }
-}
-
-/// The schema twin of [`requires_length_beside_cut_mark`], merged into the payload's own
-/// `dependentRequired` so the epoch stamp's pairs stay beside it.
-pub(crate) fn add_truncation_length_rule(schema: &mut schemars::Schema) {
-    let rule = serde_json::json!([CONTENT_LENGTH_PAYLOAD_KEY]);
-    match schema
-        .get_mut("dependentRequired")
-        .and_then(serde_json::Value::as_object_mut)
-    {
-        Some(dependent_required) => {
-            dependent_required.insert(CONTENT_TRUNCATED_PAYLOAD_KEY.to_owned(), rule);
-        }
-        None => {
-            schema.insert(
-                "dependentRequired".into(),
-                serde_json::json!({ CONTENT_TRUNCATED_PAYLOAD_KEY: rule }),
-            );
-        }
-    }
-}
-
-/// Declares a body-bearing payload: the struct as written, followed by the three members the append
-/// path owns, `contentLength`, `contentTruncated` and `contentEncoding`, each optional because a
-/// row may have no body, the cut mark only beside a length, and a small body stored as it is. The
-/// struct's attributes come with it and include `#[garde(allow_unvalidated)]`.
+/// Declares a body-bearing payload: the struct as written, followed by the two members the append
+/// path owns, `contentLength` and `contentEncoding`, each optional because a row may have no body
+/// and a small body is stored as it is. The struct's attributes come with it and include
+/// `#[garde(allow_unvalidated)]`.
 macro_rules! with_machine_content_descriptor {
     ($(#[$meta:meta])* pub struct $name:ident { $($members:tt)* }) => {
         $(#[$meta])*
-        #[garde(custom(|payload: &Self, (): &()| {
-            $crate::event::declared_variants::requires_length_beside_cut_mark(
-                payload.content_truncated.is_some(),
-                payload.content_length.is_some(),
-            )
-        }))]
-        #[schemars(transform = $crate::event::declared_variants::add_truncation_length_rule)]
         pub struct $name {
             $($members)*
-            /// The stored body's UTF-8 byte length before any cut.
+            /// The stored body's UTF-8 byte length.
             #[serde(
                 default,
                 skip_serializing_if = "Option::is_none",
@@ -151,14 +110,6 @@ macro_rules! with_machine_content_descriptor {
             )]
             #[schemars(with = "crate::wire::integer::SafeInt<0>")]
             pub content_length: Option<$crate::wire::integer::SafeInt<0>>,
-            /// Present, as `true`, only when the stored body is a prefix; never `false`.
-            #[serde(
-                default,
-                skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
-            )]
-            #[schemars(with = "crate::wire::True")]
-            pub content_truncated: Option<$crate::wire::True>,
             /// How the stored body is encoded, present only when it is compressed.
             #[serde(
                 default,
@@ -473,7 +424,6 @@ impl ToolActivityPayload {
             source_epoch: self.source_epoch,
             source_position: self.source_position,
             content_length: self.content_length,
-            content_truncated: self.content_truncated,
             content_encoding: self.content_encoding,
         }
     }

@@ -553,15 +553,7 @@ mod tests {
         let reader = log.database.reader();
         let no_damage = |_: &SessionId| None;
         let events = SessionEventReads::new(&reader, no_damage)
-            .read_after(
-                &session_id,
-                -1,
-                -1,
-                SessionEventFilter {
-                    event_types: None,
-                    before_sequence: None,
-                },
-            )
+            .read_after(&session_id, -1, -1, SessionEventFilter::default())
             .expect("the run's events read");
         let reads = RunTurnReads::new(&reader, no_damage);
         let mut attribution = SessionTurnAttribution::new(session_id);

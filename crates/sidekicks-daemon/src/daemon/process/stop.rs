@@ -234,14 +234,14 @@ pub(crate) enum CrashMonitorEndFailure {
 /// servers' client, the wait for the engine's interrupt hands, the run queue, the worktree
 /// cleanup's requests and the start's background tasks, the clone service with its askpass broker,
 /// the worktrees' setup commands, the repository services' background work, the attention
-/// decisions, the session services' follows with the chats' write watch and file recount, whose
-/// watermark a clean end stores, the renames' name pushes, the highlighter, the terminals, the
-/// provider accounts' sign-ins, the start's sweep of new accounts' homes and the account observer,
-/// the scheduler, the working-folder watch, the projects list, the search index, the drivers, the
-/// person's Stop's drain of the live runs, the turn end captures under way, the git trees a failed
-/// call left and, last, the kept worktrees' reads. The drivers are told `reason`'s intent, once a
-/// stop the person asked for over the socket since has replaced a restart, which writes the intent
-/// there. Answers each step's failure, every step having run.
+/// decisions, the keep-awake hold, the session services' follows with the chats' write watch and
+/// file recount, whose watermark a clean end stores, the renames' name pushes, the highlighter, the
+/// terminals, the provider accounts' sign-ins, the start's sweep of new accounts' homes and the
+/// account observer, the scheduler, the working-folder watch, the projects list, the search index,
+/// the drivers, the person's Stop's drain of the live runs, the turn end captures under way, the
+/// git trees a failed call left and, last, the kept worktrees' reads. The drivers are told
+/// `reason`'s intent, once a stop the person asked for over the socket since has replaced a
+/// restart, which writes the intent there. Answers each step's failure, every step having run.
 pub(crate) async fn stop_work(
     process: &mut DaemonProcess,
     reason: DaemonStopReason,
@@ -417,6 +417,10 @@ pub(crate) async fn stop_work(
             .write_step(DaemonStopStep::AttentionDecisions)
             .await;
         failures.extend(end_start_tasks([("attention decisions", attention)], remaining()).await);
+    }
+    // The work's stop lets go of the keep-awake hold, which is waited out.
+    if let Some(keep_awake) = process.keep_awake.take() {
+        failures.extend(end_start_tasks([("keep-awake", keep_awake)], remaining()).await);
     }
     if let Some(web_address_sender) = process.web_address_sender.take() {
         process

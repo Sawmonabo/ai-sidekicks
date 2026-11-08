@@ -691,6 +691,7 @@ fn read_events_after_sequence(
         SessionEventFilter {
             event_types: event_types.as_deref(),
             before_sequence: request.before_sequence,
+            is_sparse: false,
         },
     )?;
     let page_limit = request

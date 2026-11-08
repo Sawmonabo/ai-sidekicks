@@ -3,10 +3,14 @@
 
 use futures::future::BoxFuture;
 #[cfg(test)]
+use std::sync::Arc;
+#[cfg(test)]
 use std::time::Duration;
 
 #[cfg(test)]
 use serde_json::Value;
+#[cfg(test)]
+use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::mpsc;
 #[cfg(test)]
 use tokio_tungstenite::tungstenite::Bytes;
@@ -114,6 +118,7 @@ pub(crate) fn scripted_connection() -> (
             events,
             responder: None,
             token_refresher: None,
+            raw_messages: Arc::new(PortRegistration::new("raw provider messages")),
         },
     );
     (connection, script, frames)

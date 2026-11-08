@@ -34,6 +34,7 @@ use crate::driver::claude::session::process::{
 };
 use crate::driver::claude::session::rules::ClaudeRulesError;
 use crate::driver::contract::error::DriverError;
+use crate::port::raw_provider_messages::RawProviderMessages;
 use crate::process_registry::ProviderProcessRegistry;
 
 /// The data folder's folder a process that keeps nothing runs in: empty, so Claude Code reads no
@@ -121,6 +122,7 @@ pub(crate) struct ClaudeProcessLauncher {
     child_records: Arc<dyn DaemonChildRecords>,
     processes: Arc<ProviderProcessRegistry>,
     provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
+    raw_messages: Arc<PortRegistration<Arc<dyn RawProviderMessages>>>,
     control_only_folder: PathBuf,
     live: Mutex<LiveProcesses>,
 }
@@ -135,12 +137,14 @@ struct LiveProcesses {
 impl ClaudeProcessLauncher {
     /// A launcher spawning on `spawner`'s thread, recording each process in `child_records` and
     /// counting each spawn in `processes`, reading each account's sealed token through
-    /// `provider_accounts`, whose processes that keep nothing run in a folder under `data_folder`.
+    /// `provider_accounts` and handing every line a process writes to `raw_messages`, whose
+    /// processes that keep nothing run in a folder under `data_folder`.
     pub(crate) fn new(
         spawner: Spawner,
         child_records: Arc<dyn DaemonChildRecords>,
         processes: Arc<ProviderProcessRegistry>,
         provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
+        raw_messages: Arc<PortRegistration<Arc<dyn RawProviderMessages>>>,
         data_folder: &Path,
     ) -> Self {
         Self {
@@ -148,6 +152,7 @@ impl ClaudeProcessLauncher {
             child_records,
             processes,
             provider_accounts,
+            raw_messages,
             control_only_folder: CLAUDE_CONTROL_ONLY_FOLDER
                 .iter()
                 .fold(data_folder.to_path_buf(), |folder, name| folder.join(name)),
@@ -184,6 +189,7 @@ impl ClaudeProcessLauncher {
                 launch,
                 listener,
                 turn_holds,
+                Arc::clone(&self.raw_messages),
             )
             .await
             .map_err(ClaudeLaunchError::Spawn)?,

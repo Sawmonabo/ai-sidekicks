@@ -37,6 +37,7 @@ impl ClaudeDeliveryStream {
                 tool_use_id: call.tool_call_id.into_string(),
                 outcome,
                 text,
+                notification: None,
             };
             let Some(close) = self.held_call_close(session_id, end) else {
                 continue;
