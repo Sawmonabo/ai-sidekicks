@@ -497,7 +497,7 @@ Payload shape: `{sessionId, workflowRunId, stepRunId}`; the step types carry the
 | `workflow.step.completed` | A step finished, its output and log refs recorded with it, plus its cost where a provider was billed. |
 | `workflow.step.failed` | A step failed, the error and the failing item index recorded with it, the words typed with the `Decline` that failed a command step, its `logRef`, and, where its node's `onError` passed its input on, `passedOn`: that output's `outputRef` and `outputItemCounts`. |
 | `workflow.step.canceled` | A step that was running or waiting when its run ended was canceled. |
-| `workflow.step.skipped` | A step was skipped — its input carried no items, or it was disabled — with its `sources`, its `inputRef`, the `outputRef` it passed on and that output's `outputItemCounts`. |
+| `workflow.step.skipped` | A step was skipped — its input carried no items, it was disabled, or a partial run reused an earlier step's data in its place — with its `sources`, its `inputRef`, the `outputRef` it passed on and that output's `outputItemCounts`; a reused skip also names, as `reusedFrom`, the step of its node in an earlier run whose data it carries and the version that run executed, and, as `pinHash`, the hash of the pin that step ran on where it recorded one. |
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 

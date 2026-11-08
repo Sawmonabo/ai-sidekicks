@@ -261,8 +261,11 @@ CREATE TABLE workflow_steps (
                     CHECK(json_valid(output_ref)),
   log_ref           TEXT NOT NULL
                     CHECK(json_valid(log_ref)),
-  pin_hash          TEXT                           -- a step that gave its node's pinned items in a manual run: the content hash of that pin, from its workflow.step.started, so a later partial run tells a pin added, changed or removed; NULL on every other step
+  pin_hash          TEXT                           -- a step that gave its node's pinned items in a manual run: the content hash of that pin, from its workflow.step.started, so a later partial run tells a pin added, changed or removed; on a reused skip, the hash its source step recorded, from its workflow.step.skipped; NULL on every other step
                     CHECK(pin_hash IS NULL OR status <> 'pending'),
+  reused_from_json  TEXT                           -- JSON: on a skip a partial run reused, the step whose data it carries and the version that step's run executed (`$.workflowVersionId`), as its workflow.step.skipped names them; NULL on every other step
+                    CHECK(reused_from_json IS NULL
+                      OR (status = 'skipped' AND json_valid(reused_from_json))),
   -- JSON array: how many items each main output holds, in output order, the error output last, so
   -- output_ref's one joined list splits back into one list per output handle; '[]' until the step
   -- settles with outputs.

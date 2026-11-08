@@ -650,7 +650,10 @@ interface WorkflowPhaseWaitingOnPoolPayload extends WorkflowStepEventPayload {
 // provider was billed; a failed event the error, the item index that failed, the words typed with
 // the `Decline` that failed a command step, its log and, where its node's `onError` passed its
 // input on, that output and its counts; a canceled event the step alone; and a skipped event why it
-// was skipped, what fed it, its input, and the output it passed on with its counts. Each finished, failed, canceled or skipped event lists the steps its
+// was skipped, what fed it, its input, and the output it passed on with its counts. A skip a partial
+// run reused names the step of its node in an earlier run whose data it carries, with the version
+// that run executed, and the hash of the pin that step ran on where it recorded one; it never names
+// a step of its own run. Each finished, failed, canceled or skipped event lists the steps its
 // write readied. A step's started event
 // precedes its finished, failed or canceled event.
 interface WorkflowStepStartedPayload extends WorkflowStepEventPayload {
@@ -678,12 +681,14 @@ interface WorkflowStepCanceledPayload extends WorkflowStepEventPayload {
   readied: WorkflowReadiedStep[];
 }
 interface WorkflowStepSkippedPayload extends WorkflowStepEventPayload {
-  reason: "noItems" | "disabled";
+  reason: "noItems" | "disabled" | "reused";
   sources: Array<{ nodeId: WorkflowNodeId; outputIndex: number; executionIndex: number } | null>;
   inputRef: WorkflowPayloadRef;
   outputRef: WorkflowPayloadRef;
   outputItemCounts: number[];
   readied: WorkflowReadiedStep[];
+  reusedFrom?: { step: WorkflowStepKey; workflowVersionId: string }; // only on `reused`
+  pinHash?: string; // only beside reusedFrom, where the reused step recorded a pin
 }
 // workflow.phase.retried — a failed phase was retried; the step it names is the new attempt, whose
 // `pending` row its write readies.
