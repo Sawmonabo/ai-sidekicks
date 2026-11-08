@@ -263,7 +263,8 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
 )]
 #[case::approval_canceled(
     json!({"type": "approval.canceled", "payload": {
-        "sessionId": SESSION, "runId": RUN, "approvalRequestId": APPROVAL_REQUEST,
+        "sessionId": SESSION, "holder": {"kind": "run", "runId": RUN},
+        "approvalRequestId": APPROVAL_REQUEST,
         "category": "toolExecution", "scope": "once",
     }}),
     AttentionChange::Nothing
