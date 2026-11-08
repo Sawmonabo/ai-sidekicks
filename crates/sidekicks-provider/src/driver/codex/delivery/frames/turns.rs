@@ -614,8 +614,9 @@ impl CodexFrameDelivery {
     }
 
     // Codex resolved an ask. One still held, which Codex settled itself (such as at a turn's
-    // interrupt), is let go of with no answer sent and its card withdrawn; one the daemon answered
-    // was already let go of once its answer was sent, so nothing changes.
+    // interrupt), is let go of with no answer sent and its card withdrawn. One the daemon answered
+    // is let go of by its answer's guard once the answer is sent, normally before this
+    // notification arrives, so nothing changes for it here.
     pub(super) fn forget_resolved_request(
         &self,
         record: &CodexSessionRecord,
