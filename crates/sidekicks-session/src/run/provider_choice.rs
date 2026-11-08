@@ -362,9 +362,10 @@ impl ProviderChoiceResolver {
     /// refused. A report that the run still waits on input keeps the answer held, and a run the
     /// provider ended drops an answer that would have returned it to `running`. An answer whose
     /// run a report already moved settles at any report as its event alone, the provider having
-    /// shown it took it. A driver's own signal that the provider resolved the choice settles the
-    /// held answer the same way. Answers whether it wrote the settlement; fails as the
-    /// settlement's write fails, the answer held again for the next report or answer to settle.
+    /// shown it took it. A driver that could not confirm its answer reports the run's move once
+    /// the provider shows it took it, and that report settles the answer here. Answers whether it
+    /// wrote the settlement; fails as the settlement's write fails, the answer held again for the
+    /// next report or answer to settle.
     pub(crate) async fn settle_held_answer(
         &self,
         run_id: RunId,
