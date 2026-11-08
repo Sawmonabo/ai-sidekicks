@@ -10,12 +10,9 @@ use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
-use tokio_util::task::TaskTracker;
 
-use super::{CodexServiceRecovery, CodexServiceRecoveryDependencies};
-use crate::driver::codex::rate_limits::CodexRateLimitFiling;
+use super::CodexServiceRecovery;
 use crate::driver::codex::run::turn_end_waiters::CodexRecordExit;
-use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
 use crate::driver::codex::service::supervisor::test_service::{
     start_scripted_codex_service, start_scripted_codex_service_whose_start_waits,
@@ -133,22 +130,7 @@ fn test_recovery(
     session_relaunched
         .register(relaunches)
         .expect("the port registers once");
-    Arc::new(CodexServiceRecovery::new(
-        CodexServiceRecoveryDependencies {
-            slots: Arc::clone(&session.slots),
-            establishment: Arc::new(session.establishment(folder)),
-            services: CodexServiceRegistry::holding(&session.scripted),
-            release: Arc::clone(&session.scripted.dependencies.release),
-            run_ends: Arc::clone(&session.engine) as _,
-            dispatch: Arc::clone(&session.engine) as _,
-            answer_steers: session.answer_steers(),
-            reviewer_denials,
-            process_gone,
-            session_relaunched,
-            rate_limits: CodexRateLimitFiling::new(Arc::new(PortRegistration::new("usage"))),
-            tasks: TaskTracker::new(),
-        },
-    ))
+    session.recovery(folder, reviewer_denials, process_gone, session_relaunched)
 }
 
 fn restart_failure() -> CodexError {

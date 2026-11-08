@@ -1,61 +1,108 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use serde_json::{Map, json};
-use tokio::time::Instant;
+use sidekicks_std::port_registration::PortRegistration;
+use tokio::time::{Instant, timeout};
 
-use super::{CODEX_THREAD_DELETE_TIMEOUT, purge_codex_conversations};
+use super::purge_codex_conversations;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
+use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service_whose_start_waits;
+use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInbound};
+use crate::driver::codex::session::test_fixture::TestCodexSession;
 use crate::driver::session_control::{PurgeSessionParams, SessionConversation};
 use crate::driver::test_registry::new_session_id;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
-const THREAD: &str = "purged-thread";
+/// The conversation whose delete Codex never answers.
+const MISSED_THREAD: &str = "missed-thread";
 
-// Killed by a delete sent before the conversation is let go, or with no let-go; by a delete
-// awaited past the limit, or under another; by a miss answered as deleted; and by a miss that
-// restarts no service. The service's own start waits, so the restart is seen as it starts.
+/// An older conversation of the same session on the same service.
+const LATER_THREAD: &str = "later-thread";
+
+fn conversation(thread_id: &str) -> SessionConversation {
+    SessionConversation {
+        resume_handle: thread_id.to_owned(),
+        provider_account_id: test_provider_account_id(),
+        runtime_metadata: Map::new(),
+    }
+}
+
+// Killed by a delete sent before its conversation is let go, or with no let-go; by a delete bound
+// other than 60 s; by a miss answered as deleted; by a later conversation sent to the service that
+// missed; by a miss that asks no restart, or more than one; and by a restart that does not first
+// read the home's live session, as the recovery's restart does so it can resume it afterwards.
 #[tokio::test(start_paused = true)]
-async fn a_purge_lets_go_before_the_delete_and_restarts_the_service_on_a_missed_delete() {
-    let mut scripted = start_scripted_codex_service_whose_start_waits();
+async fn a_missed_delete_restarts_its_service_through_the_recovery_and_sends_it_nothing_more() {
+    let scripted = start_scripted_codex_service_whose_start_waits();
     scripted.mark_started();
-    let registry = CodexServiceRegistry::holding(&scripted);
-    let roles = tempfile::tempdir().expect("the test makes a folder");
+    let mut session = TestCodexSession::start_on(scripted).await;
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let recovery = session.recovery(
+        folder.path(),
+        Arc::new(PortRegistration::new("reviewer denial")),
+        Arc::new(PortRegistration::new("process gone")),
+        Arc::new(PortRegistration::new("session relaunched")),
+    );
+    let registry = CodexServiceRegistry::holding(&session.scripted);
+    let restarts = AtomicUsize::new(0);
+    let restart = |service: &Arc<CodexService>| {
+        restarts.fetch_add(1, Ordering::SeqCst);
+        recovery.request_restart(service, None);
+    };
     let params = PurgeSessionParams {
         session_id: new_session_id(),
-        conversations: vec![SessionConversation {
-            resume_handle: THREAD.to_owned(),
-            provider_account_id: test_provider_account_id(),
-            runtime_metadata: Map::new(),
-        }],
+        conversations: vec![conversation(MISSED_THREAD), conversation(LATER_THREAD)],
     };
+    let roles = folder.path().join("roles");
     let began = Instant::now();
 
     let (purged, ()) = tokio::join!(
-        purge_codex_conversations(&registry, roles.path(), Duration::from_secs(1), &params),
+        purge_codex_conversations(&registry, &restart, &roles, Duration::from_secs(1), &params,),
         async {
-            let unsubscribe = scripted.next_request("thread/unsubscribe").await;
-            assert_eq!(unsubscribe["params"]["threadId"], THREAD);
-            scripted
+            let unsubscribe = session.scripted.next_request("thread/unsubscribe").await;
+            assert_eq!(unsubscribe["params"]["threadId"], MISSED_THREAD);
+            session
+                .scripted
                 .script
                 .answer(&unsubscribe, &json!({"status": "unsubscribed"}));
-            let delete = scripted.next_request("thread/delete").await;
-            assert_eq!(delete["params"]["threadId"], THREAD);
+            let delete = session.scripted.next_request("thread/delete").await;
+            assert_eq!(delete["params"]["threadId"], MISSED_THREAD);
         },
     );
     let waited = began.elapsed();
-    let restarted = tokio::time::timeout(
+    let sent_after = session
+        .scripted
+        .script
+        .next_sent_within(Duration::from_secs(5))
+        .await;
+    let read = timeout(Duration::from_secs(5), session.task.next_item())
+        .await
+        .expect("the restart reads the home's live session before it stops the service");
+    let is_session_read = matches!(
+        read,
+        CodexSessionInbound::Call(CodexSessionCall::ReadSession { .. })
+    );
+    session.task.handle(read).await;
+    let restarted = timeout(
         Duration::from_secs(5),
-        scripted.publish_up_once_starting(None),
+        session.scripted.publish_up_once_starting(None),
     )
     .await;
 
     let failed = purged.expect_err("a delete Codex never answered is no deletion");
-    assert_eq!(failed.failures.len(), 1, "{failed}");
+    assert_eq!(failed.failures.len(), 2, "{failed}");
     assert!(
-        waited >= CODEX_THREAD_DELETE_TIMEOUT
-            && waited < CODEX_THREAD_DELETE_TIMEOUT + Duration::from_secs(1),
+        waited >= Duration::from_secs(60) && waited < Duration::from_secs(61),
         "the purge answered after {waited:?}"
     );
-    assert!(restarted.is_ok(), "the missed delete restarted no service");
+    assert_eq!(sent_after, None, "the service that missed was sent more");
+    assert_eq!(restarts.load(Ordering::SeqCst), 1);
+    assert!(
+        is_session_read,
+        "the restart's first ask of the session reads it"
+    );
+    assert!(restarted.is_ok(), "the restart started no new process");
 }

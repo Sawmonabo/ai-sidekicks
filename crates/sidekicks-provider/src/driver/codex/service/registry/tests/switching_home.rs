@@ -168,6 +168,7 @@ async fn a_purge_deletes_an_unpinned_conversation_from_the_switching_home_alone(
 
     let purged = purge_codex_conversations(
         &registry,
+        &|_service| panic!("an answered delete restarts no service"),
         &services.folder.path().join("roles"),
         startup_timeout,
         &params,

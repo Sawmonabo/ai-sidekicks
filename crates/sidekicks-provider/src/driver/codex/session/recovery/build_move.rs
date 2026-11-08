@@ -1,11 +1,12 @@
-//! Restarting a service on the program as it is now, after a Codex update or when the service asks
-//! for a restart before it lists models, with its conversations resumed on the new process. An
-//! account's service restarts in place once every session on it is idle, each held in its slot so
-//! no turn starts meanwhile. A terminal service, which terminals the person joined share, gets a
-//! second service each conversation moves to as its session goes idle: the conversation leaves
-//! the first, which unloads it, since Codex refuses to resume one another service still writes,
-//! and the first is retired once no session is on it and no conversation is held there for its
-//! commands. The person's own service is not the daemon's to restart; it is only dialed again.
+//! Restarting a service on the program as it is now, after a Codex update, when the service asks
+//! for a restart before it lists models, or when it left a purge's delete unanswered, with its
+//! conversations resumed on the new process. An account's service restarts in place once every
+//! session on it is idle, each held in its slot so no turn starts meanwhile. A terminal service,
+//! which terminals the person joined share, gets a second service each conversation moves to as its
+//! session goes idle: the conversation leaves the first, which unloads it, since Codex refuses to
+//! resume one another service still writes, and the first is retired once no session is on it and
+//! no conversation is held there for its commands. The person's own service is not the daemon's to
+//! restart; it is only dialed again.
 
 use std::sync::Arc;
 
@@ -38,14 +39,24 @@ impl CodexServiceRecovery {
             {
                 continue;
             }
-            let recovery = Arc::clone(self);
-            let change = change.clone();
-            self.dependencies.tasks.spawn(async move {
-                if let Err(error) = recovery.restart_service(&service, Some(change)).await {
-                    report_restart_failed(&service, &error);
-                }
-            });
+            self.request_restart(&service, Some(change.clone()));
         }
+    }
+
+    /// Restarts `service` as [`Self::restart_service`] does on the driver's tasks, a failure
+    /// reported, and answers at once.
+    pub(crate) fn request_restart(
+        self: &Arc<Self>,
+        service: &Arc<CodexService>,
+        change: Option<ProviderBuildChange>,
+    ) {
+        let recovery = Arc::clone(self);
+        let service = Arc::clone(service);
+        self.dependencies.tasks.spawn(async move {
+            if let Err(error) = recovery.restart_service(&service, change).await {
+                report_restart_failed(&service, &error);
+            }
+        });
     }
 
     /// Restarts `service` on the program as it is now, its conversations resumed on the new
