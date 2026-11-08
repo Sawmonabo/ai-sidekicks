@@ -343,19 +343,23 @@ interface LocalSubscriptionParams {
 
 // The batched subscription frame (Plan-005 Phase 2D), framed by the rule of Spec-006 §Required
 // Behavior: the first event of a quiet stream goes at once, and what follows is coalesced into
-// frames, so a lone event is never held while a burst still collapses into one delivery.
-interface LocalSubscriptionFrame {
-  // Changes only, never the whole record, and every change carries its own cursor — which is what
-  // lets a consumer say where it got to without the producer keeping a position per consumer. The
-  // producer never waits for a consumer and drops nothing for it: it holds only the consumer's
-  // cursor and reads the next frame from the daemon's record once the consumer's lane has credit,
-  // so a consumer that falls behind receives every change late, in order, and never a hole. A
-  // consumer further behind the record's newest than that rule's threshold is sent one frame with
-  // no changes that says it is behind and carries the newest cursor; it takes a snapshot read in
-  // place of every change, and the stream carries on from the newest. The record rather than the
-  // screen is the truth.
-  changes: Array<{ cursor: EventCursor; value: EventEnvelope }>;
-}
+// frames, so a lone event is never held while a burst still collapses into one delivery. A feed
+// over a stored record (session events, the transcript, run history) sends this tagged union; a
+// feed over a current state sends the changes member alone.
+type LocalSubscriptionFrame =
+  // Changes only, never the whole record, one to STREAM_FRAME_MAX_CHANGES (50), and every change
+  // carries its own cursor — which is what lets a consumer say where it got to without the
+  // producer keeping a position per consumer. The producer never waits for a consumer and drops
+  // nothing for it: it holds only the consumer's cursor and reads the next frame from the daemon's
+  // record once the consumer's lane has credit, so a consumer that falls behind receives every
+  // change late, in order, and never a hole.
+  | { kind: "changes"; changes: Array<{ cursor: EventCursor; value: EventEnvelope }> }
+  // A consumer more than STREAM_BEHIND_MAX_EVENTS (1,024) events or STREAM_BEHIND_MAX_BYTES
+  // (1,000,000) bytes of stored events behind the record's head when its next frame is read is
+  // sent this frame, with no changes and the head cursor; it takes one snapshot read in place of
+  // every change, and the stream carries on from the head. The record rather than the screen is
+  // the truth.
+  | { kind: "behind"; headCursor: EventCursor };
 ```
 
 The frame above is defined here because it is a cross-cutting wire primitive, the class api-payload-contracts.md §Source-of-Truth Policy keeps in this file; its type, `SubscriptionNotifyParams<T>`, stays canonical in code at `crates/sidekicks-contracts/src/jsonrpc/streaming.rs` under that same policy, and the Rust type there governs on any divergence. Nothing is minted for the batching: the frame rides the registered `$/subscription/notify` method, a consumer that is behind takes the snapshot read its surface already serves, and no method name, error code, or setting is added. Producer side: [Plan-005 §Phase 2D](../../plans/005-local-ipc-and-daemon-control.md#phase-2d--substrate-supplement-the-subscription-frame-is-batched-carries-changes-only-and-never-waits-for-a-consumer). Consumer side: [Plan-020](../../plans/020-desktop-app-and-renderer.md)'s transcript frame, which takes a snapshot read on the frame that says it is behind.
