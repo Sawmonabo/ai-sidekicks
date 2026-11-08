@@ -51,10 +51,10 @@ use std::io;
 use std::path::PathBuf;
 use std::process::Stdio;
 
-use nix::unistd::SysconfVar;
 use tokio::process::Command;
 
 use crate::machine_name::{MachineNameError, require_machine_name};
+use crate::posix::argument_space::read_argument_space;
 use crate::posix::child_command::prepare_child_command;
 #[cfg(any(test, feature = "test-support"))]
 use crate::posix::shell_folder_start::BASH_SHELL_FOLDER_PROBE;
@@ -117,13 +117,11 @@ pub const SHOULD_MEMORY_MAP_READS: bool = true;
 pub const CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER: bool = false;
 
 /// A bound in bytes that no single argument a program can start with reaches:
-/// `sysconf(_SC_ARG_MAX)`, which counts the arguments and the environment together, never
-/// `<limits.h>`'s smaller `ARG_MAX`. Fails with the system's error when the read fails, and with
-/// `Other` when the system sets no limit or one past `usize`.
+/// `sysconf(_SC_ARG_MAX)`, which counts the arguments and the environment together. Fails with the
+/// system's error when the read fails, and with `Other` when the system sets no limit or one past
+/// `usize`.
 pub fn read_command_argument_limit() -> io::Result<usize> {
-    let limit = nix::unistd::sysconf(SysconfVar::ARG_MAX)?
-        .ok_or_else(|| io::Error::other("the system sets no limit on a program's arguments"))?;
-    usize::try_from(limit).map_err(io::Error::other)
+    read_argument_space()
 }
 
 /// The shells the live test opens here, each with no startup files and a prompt of its folder:

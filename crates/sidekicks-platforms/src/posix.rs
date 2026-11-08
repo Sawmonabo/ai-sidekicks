@@ -3,6 +3,7 @@
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) mod allocator;
+pub(crate) mod argument_space;
 pub(crate) mod askpass;
 pub(crate) mod c_string;
 pub(crate) mod child_command;

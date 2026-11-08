@@ -37,8 +37,8 @@
               `K32GetProcessMemoryInfo`, the calling thread's processor time (`GetThreadTimes`), \
               the available-memory reads (macOS's `mach_host_self` and \
               `host_statistics64`, Windows' `GlobalMemoryStatusEx`), macOS's process list \
-              (`proc_listpids`) and process start read (`sysctl` of `KERN_ARGMAX` and \
-              `KERN_PROCARGS2`), its descriptor path read (`fcntl` of `F_GETPATH`), a command \
+              (`proc_listpids`) and process start read (`sysctl` of `KERN_PROCARGS2`), its \
+              descriptor path read (`fcntl` of `F_GETPATH`), a command \
               wrapper's read of its standard input's window size (`TIOCGWINSZ`), a released \
               terminal's wait for its program (`waitid`, and its exit event's registration), \
               mimalloc's `mi_collect`, tree-sitter's `set_allocator`, and the power notifications \

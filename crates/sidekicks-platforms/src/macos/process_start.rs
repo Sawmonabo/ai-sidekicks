@@ -5,6 +5,7 @@ use std::io;
 use std::ptr;
 use std::sync::OnceLock;
 
+use crate::posix::argument_space::read_argument_space;
 use crate::posix::process::id::system_process_id;
 use crate::process_start::ProcessStart;
 
@@ -15,7 +16,8 @@ const ARGUMENT_COUNT_BYTES: usize = size_of::<libc::c_int>();
 // 64-bit process, which is every process this macOS runs.
 const STRING_AREA_ALIGNMENT: usize = size_of::<u64>();
 
-// The most bytes a process's arguments and environment take together (`KERN_ARGMAX`), read once.
+// The most bytes a process's arguments and environment take together, from the argument-space
+// read, made once.
 static ARGUMENT_BYTES: OnceLock<usize> = OnceLock::new();
 
 /// The arguments and environment process `process_id` started with, bytes that are not UTF-8 read
@@ -30,7 +32,7 @@ pub fn read_process_start(process_id: u32) -> io::Result<Option<ProcessStart>> {
     let argument_bytes = if let Some(bytes) = ARGUMENT_BYTES.get() {
         *bytes
     } else {
-        let bytes = read_argument_bytes()?;
+        let bytes = read_argument_space()?;
         *ARGUMENT_BYTES.get_or_init(|| bytes)
     };
     // Allocated per read and freed after it, so no buffer the size of the limit stays held.
@@ -64,29 +66,6 @@ pub fn read_process_start(process_id: u32) -> io::Result<Option<ProcessStart>> {
             format!("process {process_id}'s start was cut short"),
         )
     })
-}
-
-// `KERN_ARGMAX`: the most bytes a process's arguments and environment take together.
-fn read_argument_bytes() -> io::Result<usize> {
-    let mut argument_bytes: libc::c_int = 0;
-    let mut length = size_of::<libc::c_int>();
-    let mut name = [libc::CTL_KERN, libc::KERN_ARGMAX];
-    // SAFETY: `name` holds two integers, the answer is one live `c_int` of `length` bytes, and
-    // nothing else reads either until the call returns.
-    let status = unsafe {
-        libc::sysctl(
-            name.as_mut_ptr(),
-            2,
-            (&raw mut argument_bytes).cast(),
-            &raw mut length,
-            ptr::null_mut(),
-            0,
-        )
-    };
-    if status != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    usize::try_from(argument_bytes).map_err(io::Error::other)
 }
 
 // A `KERN_PROCARGS2` answer is the argument count, then the executable's path, zero bytes that
