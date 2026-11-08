@@ -184,9 +184,9 @@ pub struct MeteredUsageDelta {
 }
 
 impl MeteredUsageDelta {
-    // Whether every count the row would carry is zero or absent: the axes, the longer-lifetime
-    // cache write and the searches, since a change of either of the last two alone is still spend.
-    fn is_unchanged(&self) -> bool {
+    /// Whether every count the row would carry is zero or absent: the axes, the longer-lifetime
+    /// cache write and the searches, since a change of either of the last two alone is still spend.
+    pub(crate) fn is_unchanged(&self) -> bool {
         let axes = &self.axis_deltas;
         [
             axes.input,

@@ -253,9 +253,10 @@ pub(crate) struct ClaudeOneTurnPricing {
 }
 
 impl ClaudeOneTurnPricing {
-    /// Records `spend` as `charge` names and prices it: each message a row of its own, with the
-    /// figures its `result` states priced as the stream prices a result's, else from the price
-    /// list. Nothing while no usage record is registered; a failed record is reported.
+    /// Records `spend` as `charge` names and prices it: each message that spent anything a row of
+    /// its own, as the stream drops a reading that changed nothing, with the figures its `result`
+    /// states priced as the stream prices a result's, else from the price list. Nothing while no
+    /// usage record is registered; a failed record is reported.
     pub(crate) async fn record(&self, spend: ClaudeOneTurnSpend, charge: ClaudeOneTurnCharge) {
         let Some(sink) = self.usage.port() else {
             return;
@@ -266,7 +267,9 @@ impl ClaudeOneTurnPricing {
             let request = message.whole_request();
             let provider = DESCRIPTOR.provider_id();
             let delta = meter_from_zero(provider, thread_id.clone(), message.counts, request);
-            record_one_turn_row(sink, &charge, delta, &mut pricing).await;
+            if !delta.is_unchanged() {
+                record_one_turn_row(sink, &charge, delta, &mut pricing).await;
+            }
         }
         let account = &charge.provider_account_id;
         let mut models = Vec::new();
