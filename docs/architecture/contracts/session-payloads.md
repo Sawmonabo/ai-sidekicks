@@ -415,8 +415,11 @@ interface SessionDraftUpdateResponse {
 // composer keeps the text of the revision it last read or saved as its base; when a newer draft
 // arrives, or a save is refused stale, it merges three ways — the base, its own text and the newer
 // draft — so a returned message and the person's unsaved typing both survive, then saves over the
-// newer revision. While its own save is in flight it applies no draft this sends, and after the
-// save's reply it skips the one whose revision equals the reply's, which is that save coming back.
+// newer revision. While its own save is in flight it applies no draft this sends but keeps the
+// newest one, which may come before or after the save's reply. Once the save is taken it drops a
+// kept draft whose revision equals the reply's, which is that save coming back, and merges a newer
+// one; once the save is refused stale it merges against the kept draft, or the next one this sends
+// when none has come yet, and saves again, never reading the draft a second time.
 interface SessionDraftSubscribeRequest {
   sessionId: SessionId;
 }
