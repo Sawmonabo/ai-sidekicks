@@ -50,7 +50,8 @@ use crate::run::stored_state_change::read_stored_run_state_change;
 use crate::transcript::turn_attribution::{RunTurnReads, TurnAttributionError};
 
 /// The statements the cursors prepare on a pooled connection: a run's row, a session's run ids and
-/// their bindings for its leg, and the run's rollbacks and turn starts its standing is read from.
+/// their bindings for its leg, and the run's rollbacks and its turn starts and steers its standing
+/// is read from.
 pub const RUN_BINDING_CURSORS_STATEMENT_CAPACITY: usize = 3 + 2;
 
 /// Why a binding was not recorded or its cursor not opened; a binding whose cursor did not open

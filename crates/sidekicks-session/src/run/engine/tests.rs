@@ -10,13 +10,14 @@ use std::time::Duration;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use rusqlite::{Connection, params};
-use serde_json::Value;
+use serde_json::{Value, json};
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::run::events::{AgentTurnCompletedPayload, AgentTurnStartedPayload};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{LimitInterruptRecord, RunLimit};
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::cost::TokensPerRun;
 use sidekicks_contracts::session::id::SessionId;
@@ -30,6 +31,9 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::pause_point::PausePoint;
 use sidekicks_store::database::statement::DATABASE_NOW_SQL;
 use sidekicks_store::database::writer::test_file::TestDatabase;
+use sidekicks_store::events::session::appender::{
+    SessionEventAppender, SessionEventDraft, SessionEventLinkage,
+};
 use tokio::sync::oneshot;
 
 use crate::run::engine::RunEngine;
@@ -204,6 +208,45 @@ pub(super) fn provider_end(turn_number: u64) -> ProviderTurnEnd {
 /// A test's run version.
 pub(super) fn run_version(version: u64) -> SafeInt<0> {
     SafeInt::new(version).expect("the test's run versions are safe integers")
+}
+
+/// A new queue item id.
+pub(crate) fn minted_item() -> QueueItemId {
+    QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id")
+}
+
+/// Appends the person's message that queue item `item` sends to `run_id`, under the item's id as
+/// its correlation id, as the queue records it; answers its sequence.
+pub(crate) async fn send(
+    appender: &SessionEventAppender,
+    session_id: SessionId,
+    run_id: RunId,
+    item: QueueItemId,
+) -> SafeInt<0> {
+    let event: SessionEvent = serde_json::from_value(json!({
+        "type": "user.message.sent",
+        "payload": {
+            "sessionId": session_id,
+            "queueItemId": item,
+            "runId": run_id,
+            "actor": "device-1",
+            "deviceId": "device-1",
+            "message": "Go on",
+        },
+    }))
+    .expect("the test writes a sent message");
+    let draft = SessionEventDraft::of_session(session_id, &event).expect("the message passes");
+    let linkage = SessionEventLinkage {
+        correlation_id: Some(
+            FreeFormText::new(item.to_string()).expect("a queue item id is a short text"),
+        ),
+        ..SessionEventLinkage::default()
+    };
+    appender
+        .append(draft, linkage)
+        .await
+        .expect("the message is appended")
+        .sequence
 }
 
 /// The start of turn `turn_number` of `run_id` at run version `version`.

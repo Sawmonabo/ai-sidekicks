@@ -4,7 +4,7 @@
 //! the steps of a turn counted against its step bound.
 
 pub(crate) mod guards;
-mod steers;
+pub(crate) mod steers;
 
 use std::error::Error;
 use std::sync::{Arc, LazyLock};
@@ -23,7 +23,7 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::restore::SnapshotId;
 use sidekicks_contracts::transcript::turn_attribution::{
-    EpochPosition, standing_after_turn_started,
+    EpochPosition, standing_after_message_taken,
 };
 use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -283,7 +283,7 @@ impl RunEngine {
                     session_id: run.session_id,
                     message_sequence,
                     run_id,
-                    turn: standing_after_turn_started(standing, started_payload),
+                    turn: standing_after_message_taken(standing, started_payload),
                 }));
             }
             let draft = SessionEventDraft::of_session(

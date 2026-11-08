@@ -3,9 +3,7 @@
 
 use std::sync::Arc;
 
-use serde_json::json;
 use sidekicks_contracts::event::envelope::{SourceEpoch, SourcePosition};
-use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::event_cursor::encode_event_cursor;
@@ -14,57 +12,21 @@ use sidekicks_contracts::session::restore::SessionRestoreTarget;
 use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use sidekicks_store::events::log_service::test_fixture::open_log;
 use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
-use sidekicks_store::events::session::appender::{
-    SessionEventAppender, SessionEventDraft, SessionEventLinkage,
-};
+use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 use crate::checkpoints::schema::schema_parts;
 use crate::checkpoints::store::{list_checkpoints, read_checkpoint};
 use crate::run::engine::RunEngine;
 use crate::run::engine::test_fixture::{end_run_aside, insert_run, test_engine};
-use crate::run::engine::tests::{stored_events, turn};
+use crate::run::engine::tests::{minted_item, send, stored_events, turn};
+use crate::run::engine::turns::steers::SteerRecord;
 use crate::run::engine::undo::RunCut;
 use crate::run::state_change::RunWriteCompanions;
-
-// Appends the person's message that queue item `item` sends to `run_id`, under the item's id as
-// its correlation id, as the queue records it; answers its sequence.
-async fn send(
-    appender: &SessionEventAppender,
-    session_id: SessionId,
-    run_id: RunId,
-    item: QueueItemId,
-) -> SafeInt<0> {
-    let event: SessionEvent = serde_json::from_value(json!({
-        "type": "user.message.sent",
-        "payload": {
-            "sessionId": session_id,
-            "queueItemId": item,
-            "runId": run_id,
-            "actor": "device-1",
-            "deviceId": "device-1",
-            "message": "Go on",
-        },
-    }))
-    .expect("the test writes a sent message");
-    let draft = SessionEventDraft::of_session(session_id, &event).expect("the message passes");
-    let linkage = SessionEventLinkage {
-        correlation_id: Some(
-            FreeFormText::new(item.to_string()).expect("a queue item id is a short text"),
-        ),
-        ..SessionEventLinkage::default()
-    };
-    appender
-        .append(draft, linkage)
-        .await
-        .expect("the message is appended")
-        .sequence
-}
 
 // Starts a turn of `run_id` opened by `opening`; answers its number, `None` once the run ended.
 async fn start(engine: &RunEngine, run_id: RunId, opening: Option<QueueItemId>) -> Option<u64> {
@@ -89,10 +51,6 @@ async fn end(engine: &Arc<RunEngine>, run_id: RunId, turn_number: u64) {
         .expect("the turn's end is written")
         .log_resend_failure(run_id);
     assert!(is_written, "turn {turn_number}'s end is no duplicate");
-}
-
-fn minted_item() -> QueueItemId {
-    QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id")
 }
 
 fn epoch_position(epoch: u64, position: u64) -> EpochPosition {
@@ -204,9 +162,10 @@ async fn each_opened_turn_writes_one_checkpoint_before_its_message_with_its_star
     );
 }
 
-// Killed by the version guard dropped from the steer's write, which lands the stale steer and its
-// row, by a row at the run's standing rather than the steer's position, and by a row keyed on the
-// opening's message.
+// A steer lands at the run's next position with its checkpoint; a message the person never sent
+// and a steer on an ended run write nothing. Killed by a row at the run's standing rather than its
+// next position, by a row keyed on the opening's message, by the sent-message check dropped (a
+// steer row with no checkpoint) and by the ended-run check dropped (the late steer written).
 #[tokio::test]
 async fn a_steers_write_records_its_checkpoint_at_its_position() {
     let database = TestDatabase::new(schema_parts());
@@ -218,7 +177,7 @@ async fn a_steers_write_records_its_checkpoint_at_its_position() {
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
     insert_run(&database, session_id, run_id, "running");
-    let [opening, steer, late_steer] = [(); 3].map(|()| minted_item());
+    let [opening, steer, never_sent, late_steer] = [(); 4].map(|()| minted_item());
     let steered_count = || {
         stored_events(&database, &run_id)
             .into_iter()
@@ -229,12 +188,11 @@ async fn a_steers_write_records_its_checkpoint_at_its_position() {
     let opening_sequence = send(&appender, session_id, run_id, opening).await;
     assert_eq!(start(&engine, run_id, Some(opening)).await, Some(1));
     let steer_sequence = send(&appender, session_id, run_id, steer).await;
-    let run = engine.require_run(run_id).await.expect("the run reads");
-    let steered_position = SourcePosition(SafeInt::new(2).expect("a small position"));
-    engine
-        .record_steer(run_id, &run, turn(1), steered_position, steer)
+    let written = engine
+        .record_steer(run_id, turn(1), steer)
         .await
         .expect("the steer is written");
+    assert!(matches!(written, SteerRecord::Written(_)), "{written:?}");
     let recorded = vec![
         (opening_sequence, epoch_position(0, 1)),
         (steer_sequence, epoch_position(0, 2)),
@@ -245,14 +203,22 @@ async fn a_steers_write_records_its_checkpoint_at_its_position() {
     );
     assert_eq!(steered_count(), 1);
 
-    // The run moves past the version read before the late steer is written.
+    assert_eq!(
+        engine
+            .record_steer(run_id, turn(1), never_sent)
+            .await
+            .expect("an unsent message's landing reads"),
+        SteerRecord::NotSent
+    );
     send(&appender, session_id, run_id, late_steer).await;
     end_run_aside(&database.path(), &run_id);
-    let late_position = SourcePosition(SafeInt::new(3).expect("a small position"));
-    engine
-        .record_steer(run_id, &run, turn(1), late_position, late_steer)
-        .await
-        .expect_err("a steer at a stale run version is refused");
+    assert_eq!(
+        engine
+            .record_steer(run_id, turn(1), late_steer)
+            .await
+            .expect("a steer on an ended run reads"),
+        SteerRecord::RunEnded
+    );
     assert_eq!(
         check_listed_checkpoints(&database, session_id, run_id),
         recorded

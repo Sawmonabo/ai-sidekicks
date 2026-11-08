@@ -1,14 +1,17 @@
 //! The run engine's inbound dispatch: where each provider delivery is attributed to its execution
-//! before anything is written. A lifecycle event, child run, parent correction, marker, live state,
-//! unstamped row or permission ask from the execution before an undo's cut is absorbed there; one
-//! for a run already ended, a parent correction aside, which lands on an ended run, is absorbed by
-//! the refusal of its own write, with a diagnostic unless it is the provider's end of a turn the
-//! daemon interrupted or belongs to a helper refused at its setup, and so is a piece of a reply or
-//! of reasoning once no turn of its ended run is open; any other row is appended, stamped with its
-//! source pair when it is late, a reasoning update among them with its body. A session notice or
-//! session row belongs to no execution and is appended as it is, and so is a run's row that lands
-//! after its run, unstamped, whatever its binding's cursor holds, unless the log shows its tool
-//! call opened in a turn an undo superseded: then it is absorbed.
+//! before anything is written. A turn boundary moves its binding to the next run position, and so
+//! does a steer of one of the person's messages once its row is written; a steer of a message the
+//! person never sent writes nothing and moves nothing. A lifecycle event, steer, child run, parent
+//! correction, marker, live state, unstamped row or permission ask from the execution before an
+//! undo's cut is absorbed there; one for a run already ended, a parent correction aside, which
+//! lands on an ended run, is absorbed by the refusal of its own write, with a diagnostic unless it
+//! is the provider's end of a turn the daemon interrupted or belongs to a helper refused at its
+//! setup, and so is a piece of a reply or of reasoning once no turn of its ended run is open; any
+//! other row is appended, stamped with its source pair when it is late, a reasoning update among
+//! them with its body. A session notice or session row belongs to no execution and is appended as
+//! it is, and so is a run's row that lands after its run, unstamped, whatever its binding's cursor
+//! holds, unless the log shows its tool call opened in a turn an undo superseded: then it is
+//! absorbed.
 
 mod absorb;
 #[cfg(test)]
@@ -395,7 +398,27 @@ impl RunInboundDispatch {
                 })));
             }
             InboundDelivery::TurnBoundary { binding_id } => {
-                return self.open_turn(&binding_id).map(Attributed::Settled);
+                return self
+                    .move_to_next_position(&binding_id)
+                    .map(Attributed::Settled);
+            }
+            InboundDelivery::TurnSteered {
+                binding_id,
+                turn_number,
+                message_id,
+            } => {
+                let run_id = self.lock_epochs().binding(&binding_id)?.run_id;
+                (
+                    DeliveryBinding {
+                        binding_id,
+                        operation: None,
+                    },
+                    Absorbable::Run(RunWork::Steered {
+                        run_id,
+                        turn_number,
+                        message_id,
+                    }),
+                )
             }
             InboundDelivery::SessionRow {
                 binding,
@@ -567,10 +590,14 @@ impl RunInboundDispatch {
         Ok((attribution, epochs.binding(&binding.binding_id)?.clone()))
     }
 
-    // Counts a turn boundary; one from before a cut is absorbed.
-    fn open_turn(&self, binding_id: &RuntimeBindingId) -> Result<InboundOutcome, EpochCursorError> {
+    // Moves the binding to its next run position at a turn boundary; one from before a cut is
+    // absorbed.
+    fn move_to_next_position(
+        &self,
+        binding_id: &RuntimeBindingId,
+    ) -> Result<InboundOutcome, EpochCursorError> {
         let mut epochs = self.lock_epochs();
-        let attribution = epochs.open_turn(binding_id)?;
+        let attribution = epochs.move_to_next_position(binding_id)?;
         Ok(match attribution {
             DeliveryAttribution::Current => InboundOutcome::TurnOpened,
             DeliveryAttribution::BeforeCut { .. } | DeliveryAttribution::Unknown { .. } => absorb(

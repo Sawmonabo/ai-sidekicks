@@ -1,8 +1,8 @@
 //! Which run position of its run an event belongs to: the rules the daemon stamps every event of a
 //! run by, so a reader stamping a log follows the daemon's rules. A run position counts the
-//! person's messages the run took, a turn's opening or a steer, not turns. A turn boundary moves
-//! the run to its next position, an accepted rollback ends the epoch it rewound and opens the next
-//! at its point, and a row stamped late or belonging to a tool call takes the position it was made
+//! person's messages the run took, a turn's opening or a steer, not turns. A turn boundary or a
+//! steer moves the run to its next position, an accepted rollback ends the epoch it rewound and
+//! opens the next at its point, and a row stamped late or belonging to a tool call takes the position it was made
 //! at. Each accepted rollback cuts the epoch it rewound; a position above its epoch's cut is
 //! superseded, and a later cut below an earlier epoch's point supersedes that epoch's positions
 //! down to it too, because the earlier epoch's surviving prefix is part of the history the later
@@ -20,8 +20,16 @@ use crate::run::id::RunId;
 use crate::transcript::row::{SupersededMarker, TranscriptRunStamp};
 use crate::wire::integer::SafeInt;
 
-/// The event type of a turn boundary, which moves its run to its next position.
+/// The event type of a turn boundary, which moves its run to the position its opening message
+/// takes.
 pub const TURN_STARTED_EVENT_TYPE: &str = SessionEventType::AgentTurnStarted.as_str();
+
+/// The event types that move a run to a position of its own, one per message of the person's the
+/// run took: a turn boundary and a steer.
+pub const RUN_POSITION_EVENT_TYPES: [&str; 2] = [
+    TURN_STARTED_EVENT_TYPE,
+    SessionEventType::AgentTurnSteered.as_str(),
+];
 
 /// The event types that end a turn; every started turn takes exactly one of them.
 pub const TURN_END_EVENT_TYPES: [&str; 3] = [
@@ -116,8 +124,9 @@ pub fn transcript_run_stamp_at(
     }
 }
 
-/// Where a turn boundary moves its run: to the position the provider supplied, else the next.
-pub fn standing_after_turn_started(
+/// Where a turn boundary or a steer moves its run: to the position its payload supplies, which a
+/// steer always carries, else the next.
+pub fn standing_after_message_taken(
     standing: EpochPosition,
     payload: &Map<String, Value>,
 ) -> EpochPosition {
@@ -204,13 +213,13 @@ mod tests {
 
     use super::{
         EpochPosition, SupersededTurns, add_superseding_cut, stamped_source_of,
-        standing_after_rollback, standing_after_turn_started, transcript_run_stamp_at,
+        standing_after_message_taken, standing_after_rollback, transcript_run_stamp_at,
         transcript_tool_call_id_of,
     };
     use crate::event::envelope::{EventCategory, SourcePosition};
     use crate::transcript::row::TranscriptRunStamp;
 
-    /// The table the client's stamping suite reads too.
+    /// The table the stamping tests read.
     const CASES: &str = include_str!("../../tests/fixtures/transcript/turn-attribution.json");
 
     /// The step a case takes, as the cases write it.
@@ -234,7 +243,7 @@ mod tests {
             source: EpochPosition,
             expected: TranscriptRunStamp,
         },
-        StandingAfterTurnStarted {
+        StandingAfterMessageTaken {
             note: String,
             standing: EpochPosition,
             payload: Map<String, Value>,
@@ -280,14 +289,14 @@ mod tests {
                 } => {
                     assert_eq!(transcript_run_stamp_at(&turns, source), expected, "{note}");
                 }
-                TurnCase::StandingAfterTurnStarted {
+                TurnCase::StandingAfterMessageTaken {
                     note,
                     standing,
                     payload,
                     expected,
                 } => {
                     assert_eq!(
-                        standing_after_turn_started(standing, &payload),
+                        standing_after_message_taken(standing, &payload),
                         expected,
                         "{note}"
                     );
