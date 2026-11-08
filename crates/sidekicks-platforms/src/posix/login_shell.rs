@@ -12,7 +12,7 @@ use crate::session_child::SessionCommand;
 /// call; `None` when the entry names none. Fails with the system's error from the read, and with
 /// `NotFound` when the account has no entry.
 pub fn login_shell() -> io::Result<Option<PathBuf>> {
-    Ok(read_current_user()?.1)
+    Ok(read_current_user()?.login_shell)
 }
 
 /// Names `command`'s program `shell` as `login` names a login shell: its name, the first word it
