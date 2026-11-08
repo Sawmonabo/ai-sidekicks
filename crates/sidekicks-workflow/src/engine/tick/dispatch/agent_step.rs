@@ -388,7 +388,7 @@ impl StepDispatch {
                 }
             }
         };
-        let settlement = if is_stopped {
+        if is_stopped {
             StepSettlement::Canceled {
                 hold_started_at,
                 cancellation_reason: None,
@@ -438,8 +438,7 @@ impl StepDispatch {
                     }
                 }
             }
-        };
-        settlement
+        }
     }
 }
 

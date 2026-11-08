@@ -443,7 +443,10 @@ async fn a_reset_at_or_past_the_cap_parks_the_step_unscheduled(#[case] past_cap_
     assert_eq!(step_column(&harness.rows, "A", "resume_at"), None);
     let (_, _, _, suspended) = harness.event("workflow.phase.suspended", "A");
     assert_eq!(suspended.get("resumeAt"), None);
-    assert!(resume_lines(&harness, "deadlineArmed").is_empty());
+    assert_eq!(
+        resume_lines(&harness, "deadlineArmed"),
+        Vec::<Map<String, Value>>::new()
+    );
     let cap_at = instant_after(run_started_at(&harness), cap_ms);
     assert_eq!(
         harness.armed(),
