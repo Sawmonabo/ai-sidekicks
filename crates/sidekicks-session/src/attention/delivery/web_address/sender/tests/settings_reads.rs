@@ -11,7 +11,7 @@ use sidekicks_platforms::WallClock as _;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::armed_instant::ARM_RETRY_DELAY;
 
-use super::{Fixture, requests, result_row};
+use super::{Fixture, requests, result_row, until_received};
 use crate::attention::delivery::web_address::receiver_double::{Answer, serve_answers};
 use crate::attention::delivery::web_address::sender::{RETRY_DELAYS, SEND_RETRY_JOB};
 
@@ -55,8 +55,9 @@ async fn the_switch_off_drops_every_waiting_message_uncounted(#[case] when: Swit
         }
     }
 
+    // Every pending delivery is dropped.
     fixture
-        .until("every pending delivery is dropped", |fixture| {
+        .until(|fixture| {
             dropped.iter().all(|entry| {
                 fixture.delivery(entry).0.as_deref() == Some("undelivered")
                     && fixture.send(entry).is_none()
@@ -67,9 +68,10 @@ async fn the_switch_off_drops_every_waiting_message_uncounted(#[case] when: Swit
         fixture.outcome(),
         Some(result_row("refused", None, Some(500), 0))
     );
+    let ended = fixture.until_resting(0).await;
     fixture.switch(true);
     fixture.advance(Duration::from_hours(1));
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    fixture.until_resting(ended).await;
     assert_eq!(requests(&received), 1, "nothing dropped is sent");
     fixture.stop().await;
 }
@@ -88,7 +90,7 @@ async fn the_file_decides_the_switch_over_its_announcement() {
     fixture.start().await;
 
     fixture.until_delivery(&entry, "delivered", 1).await;
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    fixture.until_resting(0).await;
     assert_eq!(requests(&received), 1);
     assert_eq!(
         fixture.settings.reads.load(Ordering::SeqCst),
@@ -101,18 +103,14 @@ async fn the_file_decides_the_switch_over_its_announcement() {
 // A settings read that fails while an attempt is in flight is no change: the post completes once
 // and its message is delivered. Mutation: the failed read ending the attempt and failing the pass,
 // which leaves the message to a later post.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_failed_read_during_an_attempt_leaves_it_to_run() {
     let (port, received) =
         serve_answers(vec![Answer::After(Duration::from_secs(2), StatusCode::OK)]).await;
     let mut fixture = Fixture::new(port).await;
     fixture.start().await;
     let (_, entry) = fixture.waiting().await;
-    fixture
-        .until("the attempt reaches the address", |_| {
-            requests(&received) == 1
-        })
-        .await;
+    until_received(&received, 1).await;
     fixture
         .settings
         .fails_next_read
@@ -150,8 +148,9 @@ async fn a_failed_pass_is_passed_again_a_minute_later_whatever_is_armed() {
     fixture.advance(RETRY_DELAYS[1]);
     fixture.until_delivery(&retried, "pending", 3).await;
     let armed = fixture.clock.now() + RETRY_DELAYS[2];
+    // The third retry is armed.
     fixture
-        .until("the third retry is armed", |fixture| {
+        .until(|fixture| {
             fixture
                 .sender()
                 .timer
@@ -165,8 +164,9 @@ async fn a_failed_pass_is_passed_again_a_minute_later_whatever_is_armed() {
         .fails_next_read
         .store(true, Ordering::SeqCst);
     let (_, due_now) = fixture.waiting().await;
+    // The failed pass schedules its retry.
     fixture
-        .until("the failed pass schedules its retry", |fixture| {
+        .until(|fixture| {
             fixture
                 .scheduler
                 .waiting_job_names()
