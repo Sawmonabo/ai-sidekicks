@@ -550,7 +550,7 @@ async fn replace_database_file(
             .map_err(DatabaseFileRepairError::File)?;
     }
     let index_folder = options.index_folder_path.to_path_buf();
-    run_file_call(move || remove_tree(&index_folder).none_if_missing().map(drop)).await?;
+    run_file_call(move || remove_tree(&index_folder)).await?;
     if tokio::fs::try_exists(&fresh_path)
         .await
         .map_err(DatabaseFileRepairError::File)?
