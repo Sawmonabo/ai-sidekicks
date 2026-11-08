@@ -55,6 +55,13 @@ pub(super) struct RoutedParams<'line> {
     pub(super) request_id: Option<&'line RawValue>,
     /// The exit code a `process/exited` reports.
     pub(super) exit_code: Option<i32>,
+    /// Whether an http request streams its body as deltas after its answer.
+    pub(super) stream_response: bool,
+    /// Whether a body delta is its request's last.
+    pub(super) done: bool,
+    /// A body delta's failure, which also makes it its request's last, as raw JSON.
+    #[serde(borrow)]
+    pub(super) error: Option<&'line RawValue>,
 }
 
 impl<'line> RoutedParams<'line> {

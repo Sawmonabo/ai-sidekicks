@@ -12,6 +12,9 @@ pub(super) const PROCESS_WRITE_METHOD: &str = "process/write";
 /// The close of an open file, which the relay also sends itself for a dropped connection's files.
 pub(super) const FS_CLOSE_METHOD: &str = "fs/close";
 
+/// The executor's notification carrying part of a streamed http body.
+pub(super) const HTTP_REQUEST_BODY_DELTA_METHOD: &str = "http/request/bodyDelta";
+
 /// The executor's notifications of a process's end.
 pub(super) const PROCESS_EXITED_METHOD: &str = "process/exited";
 pub(super) const PROCESS_CLOSED_METHOD: &str = "process/closed";
@@ -64,6 +67,8 @@ pub(super) enum ClientMethod {
     FileNamed,
     /// `fs/close`, under the relay's handle for the connection's file, whose answer forgets it.
     FileClose,
+    /// `http/request`, under a request id the relay mints, which a streamed body's deltas name.
+    HttpRequest,
     /// Any other method the executor serves, passed on under the relay's request id.
     Passed,
 }
@@ -86,6 +91,7 @@ impl ClientMethod {
             Self::ProcessTerminate | Self::ProcessNamed => (RelayIdKind::Process, false),
             Self::FileOpen => (RelayIdKind::FileHandle, true),
             Self::FileNamed | Self::FileClose => (RelayIdKind::FileHandle, false),
+            Self::HttpRequest => (RelayIdKind::HttpRequest, true),
             Self::Initialize | Self::Initialized | Self::Passed => return None,
         };
         Some(NamedId { kind, mints })
@@ -102,12 +108,12 @@ impl ClientMethod {
             "fs/open" => Self::FileOpen,
             "fs/readBlock" | "fs/writeBlock" => Self::FileNamed,
             FS_CLOSE_METHOD => Self::FileClose,
+            "http/request" => Self::HttpRequest,
             "environment/info"
             | "environment/status"
             | "environmentConfig/read"
             | "capabilityRoots/discoverV1"
             | "capabilities/discoverV2"
-            | "http/request"
             | "fs/readFile"
             | "fs/writeFile"
             | "fs/createDirectory"

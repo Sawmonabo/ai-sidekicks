@@ -500,6 +500,7 @@ impl CodexExecRelay {
             | ClientMethod::FileOpen
             | ClientMethod::FileNamed
             | ClientMethod::FileClose
+            | ClientMethod::HttpRequest
             | ClientMethod::Passed => forward(executor, line).await,
         }
     }

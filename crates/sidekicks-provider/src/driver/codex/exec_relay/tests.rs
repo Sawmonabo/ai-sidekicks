@@ -29,6 +29,7 @@ mod acts;
 mod connections;
 mod exchange;
 mod file_handles;
+mod http_requests;
 mod parity;
 mod processes;
 mod starts;

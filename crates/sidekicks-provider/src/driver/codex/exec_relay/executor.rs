@@ -30,9 +30,9 @@ use self::connection_ids::{ConnectionIds, UNKNOWN_ID};
 use self::policy_requests::{PolicyRequests, deny_answer};
 use crate::driver::codex::exec_relay::message::{RoutedMessage, RoutedParams, splice, text_of};
 use crate::driver::codex::exec_relay::methods::{
-    ClientMethod, FS_CLOSE_METHOD, INITIALIZE_METHOD, INITIALIZED_METHOD,
-    NETWORK_POLICY_REQUEST_METHOD, PROCESS_CLOSED_METHOD, PROCESS_EXITED_METHOD, RelayIdKind,
-    is_process_notification,
+    ClientMethod, FS_CLOSE_METHOD, HTTP_REQUEST_BODY_DELTA_METHOD, INITIALIZE_METHOD,
+    INITIALIZED_METHOD, NETWORK_POLICY_REQUEST_METHOD, PROCESS_CLOSED_METHOD,
+    PROCESS_EXITED_METHOD, RelayIdKind, is_process_notification,
 };
 use crate::driver::codex::session::errors::CodexError;
 
@@ -77,12 +77,13 @@ pub(super) struct RelayConnectionId(u64);
 // A client's request the executor has not answered: the connection that sent it, the id it sent
 // it under, as raw JSON text, how the relay carries its method, and the relay id it names in its
 // method's table: the one it minted, forgotten when the mint is refused, or the handle a close
-// names, forgotten at its answer.
+// names, forgotten at its answer; and whether an http request streams its body.
 struct ClientRequest {
     connection: RelayConnectionId,
     client_id: Box<str>,
     method: ClientMethod,
     relay_id: Option<String>,
+    streams: bool,
 }
 
 /// One executor and the daemon's connection to it.
@@ -246,6 +247,8 @@ impl CodexExecutor {
         });
         lock(&self.process_ids).forget_connection(connection);
         let open_files = lock(&self.file_handles).forget_connection(connection);
+        // A streamed body runs on to its last delta, since no method cancels it, and reaches no one.
+        lock(&self.http_requests).forget_connection(connection);
         lock(&self.clients).remove(&connection);
         let unanswered = lock(&self.policy_requests).take_connection(connection);
         for id in unanswered {
@@ -313,6 +316,8 @@ impl CodexExecutor {
                 client_id: id.get().into(),
                 method,
                 relay_id: kept_id,
+                streams: method == ClientMethod::HttpRequest
+                    && params.is_some_and(|params| params.stream_response),
             },
         );
         relayed
@@ -504,6 +509,12 @@ impl CodexExecutor {
             self.take_policy_request(&line, id, &params).await;
             return;
         }
+        if message.method.as_deref() == Some(HTTP_REQUEST_BODY_DELTA_METHOD) && message.id.is_none()
+        {
+            let params = message.params.unwrap_or_default();
+            self.take_body_delta(&line, &params).await;
+            return;
+        }
         if let Some(method) = message.method.as_deref()
             && message.id.is_none()
             && is_process_notification(method)
@@ -538,6 +549,18 @@ impl CodexExecutor {
             ClientMethod::FileClose => {
                 if let Some(handle) = &request.relay_id {
                     lock(&self.file_handles).close(handle);
+                }
+                (splice(line, [(id, &*request.client_id)]), None)
+            }
+            // A streamed request's id lives until its last delta; any other's ends at its answer.
+            ClientMethod::HttpRequest => {
+                if let Some(minted) = &request.relay_id {
+                    let mut ids = lock(&self.http_requests);
+                    if request.streams && message.error.is_none() {
+                        ids.mark_live(minted);
+                    } else {
+                        ids.forget(minted);
+                    }
                 }
                 (splice(line, [(id, &*request.client_id)]), None)
             }
@@ -663,6 +686,31 @@ impl CodexExecutor {
                 method,
                 process_id = relay_id.as_deref().unwrap_or(UNKNOWN_ID),
                 "the Codex executor wrote of a process no connection owns"
+            );
+            return;
+        };
+        let own_id = serde_json::to_string(&owner.own_id).expect("a string serializes");
+        let routed = splice(line, [(raw, own_id.as_str())]);
+        self.answer_connection(owner.connection, routed).await;
+    }
+
+    // Hands `line`, a body delta of the http request `params` names by its relay id, to the
+    // connection that sent it under its own id, forgetting the id at its last delta; a delta no
+    // connection owns reaches no one, as Codex drops one.
+    async fn take_body_delta(&self, line: &str, params: &RoutedParams<'_>) {
+        let relay_id = params.request_id.and_then(text_of);
+        let owned = relay_id.as_ref().and_then(|relay_id| {
+            let mut ids = lock(&self.http_requests);
+            let owner = ids.owner(relay_id).cloned();
+            if params.done || params.error.is_some() {
+                ids.close(relay_id);
+            }
+            owner
+        });
+        let (Some(raw), Some(owner)) = (params.request_id, owned) else {
+            tracing::debug!(
+                request_id = relay_id.as_deref().unwrap_or(UNKNOWN_ID),
+                "the Codex executor streamed a body no connection asked for"
             );
             return;
         };
