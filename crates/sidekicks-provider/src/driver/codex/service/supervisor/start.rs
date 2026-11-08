@@ -620,12 +620,12 @@ pub(super) fn read_service_version(
 
 // The launch of a service on the native program the build runs, with the launcher's variables
 // set, in the dedicated empty working folder. Its home's telemetry switches come first, composed
-// against the telemetry target as registered now, with their environment pair set past the
-// withhold; every service carries the privacy choices read now from the person's own Codex folder,
+// against the telemetry target as registered now and the tag the launch takes from the driver's
+// export register, with their environment pairs set past the withhold; every service carries the privacy choices read now from the person's own Codex folder,
 // last, so they win over any switch before them, whichever home it runs on. Fails as that read
 // does.
 async fn compose_launch(
-    service: &CodexService,
+    service: &Arc<CodexService>,
     executable: &ResolvedProviderExecutable,
     additional_config_overrides: Vec<String>,
     launch_socket: &Path,
@@ -635,7 +635,8 @@ async fn compose_launch(
         .telemetry_target
         .port()
         .map(Arc::as_ref);
-    let switches = compose_telemetry_switches(&service.home().kind, service.kind(), target);
+    let tag = service.dependencies().exports.launched(service);
+    let switches = compose_telemetry_switches(&service.home().kind, service.kind(), target, &tag);
     let privacy = read_codex_privacy(&service.dependencies().personal_home).await?;
     let mut config_overrides = switches.config_overrides;
     config_overrides.extend(additional_config_overrides);

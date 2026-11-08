@@ -516,8 +516,8 @@ const EXPORTERS_OFF: [&str; 3] = [
 // folder's terminal service among them; by an exporter left on for a read service, for a short
 // command on a home of the daemon's own, or for a launch before the target is registered; by an
 // executor started with any exporter left on; by `statsig` or any metrics exporter left on a read
-// or a short command; by the bearer on the command line; and by a header value the receiver's
-// token refuses.
+// or a short command; by the bearer on the command line; by a header value the receiver's token
+// refuses; and by a launch exporting with no tag, and a tag on a launch that exports nowhere.
 #[rstest]
 #[case::an_account_service(
     CodexHomeKind::Account(test_provider_account_id()),
@@ -620,6 +620,10 @@ async fn a_launch_carries_its_home_s_telemetry_switches(
         .environment
         .iter()
         .find(|(name, _)| name == "OTEL_EXPORTER_OTLP_LOGS_HEADERS");
+    let tag = launch
+        .environment
+        .iter()
+        .find(|(name, _)| name == "OTEL_RESOURCE_ATTRIBUTES");
     match expected {
         LaunchTelemetry::DaemonExport => {
             let exporter = switches[0]
@@ -658,14 +662,24 @@ async fn a_launch_carries_its_home_s_telemetry_switches(
                     .all(|argument| !argument.contains(target.bearer().text())),
                 "the token is on the command line"
             );
+            let (_, attributes) = tag.expect("the launch's tag is in the environment");
+            let number = attributes
+                .strip_prefix("sidekicks.codex.service=")
+                .expect("the attributes are the launch's tag");
+            assert!(
+                !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit()),
+                "{attributes}"
+            );
         }
         LaunchTelemetry::ExportersOff => {
             assert_eq!(switches, EXPORTERS_OFF, "{:?}", launch.arguments);
             assert!(headers.is_none(), "{headers:?}");
+            assert!(tag.is_none(), "{tag:?}");
         }
         LaunchTelemetry::PersonsOwn => {
             assert!(switches.is_empty(), "{switches:?}");
             assert!(headers.is_none(), "{headers:?}");
+            assert!(tag.is_none(), "{tag:?}");
             assert!(launch.environment.contains(&persons_headers));
         }
     }

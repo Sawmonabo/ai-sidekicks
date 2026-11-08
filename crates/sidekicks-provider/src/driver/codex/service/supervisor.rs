@@ -77,6 +77,7 @@ use crate::driver::codex::session::errors::{
 use crate::driver::codex::session::inbound::{CodexSessionInbound, CodexSessionInboundSender};
 use crate::driver::codex::session::state::CODEX_THREAD_FRAME_ROUTER_CONFIG;
 use crate::driver::codex::shells::CodexShellKind;
+use crate::driver::codex::telemetry::exports::CodexExports;
 use crate::driver::codex::transport::connection::{
     CODEX_REQUEST_TIMEOUT, CodexAppServerConnection, CodexConnectionEvents,
     CodexConnectionHandlers, open_codex_connection,
@@ -155,6 +156,8 @@ pub(crate) struct CodexServiceDependencies {
     /// Where the account and switching services export, read at each launch, so a launch before
     /// it is registered sets every exporter off.
     pub(crate) telemetry_target: Arc<PortRegistration<Arc<TelemetryTarget>>>,
+    /// The register each launch takes its tag from, which the driver's export reader reads.
+    pub(crate) exports: Arc<CodexExports>,
 }
 
 /// The socket one service listens on.

@@ -82,6 +82,7 @@ use crate::port::running_command_publisher::{
     RunningCommandParams, WriteCommandInputParams, command_act_unsupported,
 };
 use crate::port::session_inbox_address::SessionInboxAddresser;
+use crate::pricing::receiver::TelemetryExportReader;
 use crate::pricing::rule::RequestPricer;
 
 mod account;
@@ -734,5 +735,9 @@ impl ProviderDriver for CodexDriver {
 
     fn request_pricer(&self) -> Option<Arc<dyn RequestPricer>> {
         Some(Arc::new(pricing::CodexRequestPricer))
+    }
+
+    fn telemetry_export_reader(&self) -> Option<Arc<dyn TelemetryExportReader>> {
+        Some(Arc::clone(&self.exports) as _)
     }
 }

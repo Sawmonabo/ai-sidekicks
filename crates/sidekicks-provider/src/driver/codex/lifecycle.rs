@@ -86,6 +86,7 @@ use crate::driver::codex::session::rewind::CodexConversationRewind;
 use crate::driver::codex::session::side_questions::CodexSideQuestions;
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::shells::read_codex_shells;
+use crate::driver::codex::telemetry::exports::CodexExports;
 use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
 use crate::driver::{DriverServices, attachments::AttachmentResolver};
@@ -151,6 +152,8 @@ pub(crate) struct CodexDriver {
     /// Codex's live pricing, which every session's recorder and every copy price through and a
     /// reroute marks its model in use on.
     pricing: Arc<LivePricing>,
+    /// The register of the driver's launches' exports, which the receiver hands each export to.
+    pub(super) exports: Arc<CodexExports>,
     parts: OnceLock<Arc<CodexDriverParts>>,
 }
 
@@ -251,6 +254,7 @@ impl CodexDriver {
             wrapper_program: command_wrapper_program_path(&link_folder),
             askpass_program: command_askpass_program_path(&link_folder),
         });
+        let exports = Arc::new(CodexExports::new(Arc::clone(&services.scheduler)));
         let dependencies = Arc::new(CodexServiceDependencies {
             spawner: services.spawner.clone(),
             provider_services: Arc::clone(&services.provider_services),
@@ -279,6 +283,7 @@ impl CodexDriver {
             ))),
             provider_accounts: Arc::clone(&services.ports.provider_accounts),
             telemetry_target: Arc::clone(&services.ports.telemetry_target),
+            exports: Arc::clone(&exports),
         });
         let registry = Arc::new(CodexServiceRegistry::new(
             Arc::clone(&homes) as _,
@@ -351,6 +356,7 @@ impl CodexDriver {
                 Arc::new(CodexRequestPricer),
                 &services.ports,
             )),
+            exports,
             parts: OnceLock::new(),
         }
     }

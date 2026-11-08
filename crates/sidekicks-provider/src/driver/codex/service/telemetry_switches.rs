@@ -1,6 +1,6 @@
 //! The telemetry switches each Codex process the daemon launches carries for its kind of home: a
 //! service running the daemon's sessions exports its logs to the daemon's receiver with the
-//! token, every exporter off on a read service, on the executor, on the calibration run and on a
+//! token and its launch's tag, every exporter off on a read service, on the executor, on the calibration run and on a
 //! short command on a home of the daemon's own, and nothing on the person's own folder's terminal
 //! service or short commands, which keep the person's own settings.
 
@@ -9,6 +9,7 @@ use serde_json::json;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::service::command_line::write_config_override;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceKind};
+use crate::driver::codex::telemetry::exports::CodexExportTag;
 use crate::pricing::receiver::{LOGS_PATH_SUFFIX, TelemetryTarget};
 
 /// The log exporter's key, set to the daemon's receiver.
@@ -42,6 +43,9 @@ const OTLP_HTTP_PROTOCOL: &str = "binary";
 /// The environment variable the log exporter reads its headers from.
 const LOGS_HEADERS_VARIABLE: &str = "OTEL_EXPORTER_OTLP_LOGS_HEADERS";
 
+/// The environment variable the SDK reads a process's resource attributes from.
+const RESOURCE_ATTRIBUTES_VARIABLE: &str = "OTEL_RESOURCE_ATTRIBUTES";
+
 /// The telemetry switches of one Codex service's launch.
 #[derive(Default)]
 pub(crate) struct TelemetrySwitches {
@@ -52,17 +56,18 @@ pub(crate) struct TelemetrySwitches {
 }
 
 /// The switches a service of `service_kind` on a home of `home_kind` launches with: the daemon's
-/// export and its token where the daemon's sessions run and `target` is registered, every exporter
-/// off on a read service and before `target` is registered, and none on the person's own folder's
-/// terminal service.
+/// export, its token and the launch's `tag` where the daemon's sessions run and `target` is
+/// registered, every exporter off on a read service and before `target` is registered, and none
+/// on the person's own folder's terminal service.
 pub(crate) fn compose_telemetry_switches(
     home_kind: &CodexHomeKind,
     service_kind: CodexServiceKind,
     target: Option<&TelemetryTarget>,
+    tag: &CodexExportTag,
 ) -> TelemetrySwitches {
     match home_kind {
         CodexHomeKind::Account(_) | CodexHomeKind::ApiKeyAccount(_) | CodexHomeKind::Switching => {
-            target.map_or_else(exporters_off, compose_daemon_export)
+            target.map_or_else(exporters_off, |target| compose_daemon_export(target, tag))
         }
         CodexHomeKind::CapabilityRead
         | CodexHomeKind::McpSignIn
@@ -90,8 +95,8 @@ pub(crate) fn compose_command_telemetry_switches(home_kind: &CodexHomeKind) -> V
 }
 
 // The log export to `target`, with traces, metrics and each record's content off, and the token
-// in the process's environment, never on its command line.
-fn compose_daemon_export(target: &TelemetryTarget) -> TelemetrySwitches {
+// and the launch's `tag` in the process's environment, the token never on its command line.
+fn compose_daemon_export(target: &TelemetryTarget, tag: &CodexExportTag) -> TelemetrySwitches {
     let exporter = json!({
         "otlp-http": {
             "endpoint": format!(
@@ -110,7 +115,13 @@ fn compose_daemon_export(target: &TelemetryTarget) -> TelemetrySwitches {
     );
     TelemetrySwitches {
         config_overrides,
-        environment: vec![(LOGS_HEADERS_VARIABLE.to_owned(), target.exporter_headers())],
+        environment: vec![
+            (LOGS_HEADERS_VARIABLE.to_owned(), target.exporter_headers()),
+            (
+                RESOURCE_ATTRIBUTES_VARIABLE.to_owned(),
+                tag.resource_attributes(),
+            ),
+        ],
     }
 }
 

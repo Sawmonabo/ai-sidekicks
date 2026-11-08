@@ -4,10 +4,6 @@
 //! export status.
 
 pub mod decimal;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "each driver's telemetry feeds it")
-)]
 pub(crate) mod export_status;
 mod fetch;
 pub mod held;
