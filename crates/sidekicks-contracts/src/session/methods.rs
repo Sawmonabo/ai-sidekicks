@@ -24,7 +24,7 @@ use crate::session::controls::methods::{PermissionLevel, SessionMode};
 use crate::session::convert::{
     SessionConversionSkippedFileListRequest, SessionConversionSkippedFileListResponse,
 };
-use crate::session::draft::SessionAttachmentSummary;
+use crate::session::draft::{SessionAttachmentSummary, SessionDraft};
 use crate::session::event_cursor::EventCursor;
 use crate::session::id::SessionId;
 use crate::session::name::SESSION_NAME_MAX_LEN;
@@ -152,7 +152,7 @@ pub struct SessionRecord {
     #[garde(dive)]
     pub updated_at: WireInstant,
     /// The unsent composer draft, whole; empty when none is held.
-    pub draft: String,
+    pub draft: SessionDraft,
     /// The whole staged set of files, so every device opens the same half-written message.
     pub attachments: Vec<SessionAttachmentSummary>,
     /// The session's own bound on the steps one turn may take; absent where the person set none,
