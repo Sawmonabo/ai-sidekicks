@@ -54,8 +54,8 @@ fn conversation(thread_id: &str) -> SessionConversation {
 // Killed by a delete sent before its conversation is let go, or with no let-go; by a delete bound
 // other than 60 s; by a miss answered as deleted; by a later conversation of either session sent
 // to the service while its restart runs; by a miss that asks no restart, or more than one; by a
-// second request that starts a second restart rather than joining the first; and by a restart that
-// does not first read the home's live session, as the recovery's restart does so it can resume it.
+// restart whose mark is gone while it runs; and by a restart that does not first read the home's
+// live session, as the recovery's restart does so it can resume it.
 #[tokio::test(start_paused = true)]
 async fn a_missed_delete_restarts_its_service_once_and_no_purge_sends_it_more_meanwhile() {
     let scripted = start_scripted_codex_service_whose_start_waits();
@@ -114,7 +114,8 @@ async fn a_missed_delete_restarts_its_service_once_and_no_purge_sends_it_more_me
     )
     .await;
     let other_waited = other_began.elapsed();
-    let is_second_request_begun = recovery.request_restart(&session.scripted.service, None);
+    recovery.request_restart(&session.scripted.service, None);
+    let is_still_restarting = recovery.is_restarting(session.scripted.service.id());
     let sent_after = session
         .scripted
         .script
@@ -149,8 +150,8 @@ async fn a_missed_delete_restarts_its_service_once_and_no_purge_sends_it_more_me
     assert_eq!(sent_after, None, "the service that missed was sent more");
     assert_eq!(restarts.requests.load(Ordering::SeqCst), 1);
     assert!(
-        !is_second_request_begun,
-        "a second request began a second restart"
+        is_still_restarting,
+        "a further request finds the restart under way"
     );
     assert!(
         is_session_read,

@@ -654,7 +654,7 @@ where
         to_version: "0.164.0".to_owned(),
     };
     let connection = scripted.publish_reconnecting();
-    let mut restarting = std::pin::pin!(recovery.restart_service(&service, Some(change)));
+    let mut restarting = std::pin::pin!(recovery.restart_and_wait(&service, Some(change)));
     task.drive(async {
         tokio::select! {
             restarted = &mut restarting => {

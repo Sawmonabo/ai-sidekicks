@@ -8,18 +8,21 @@
 //! no conversation is held there for its commands. The person's own service is not the daemon's to
 //! restart; it is only dialed again.
 
+use std::collections::hash_map::Entry;
 use std::sync::Arc;
 
 use futures::FutureExt as _;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::controls::events::SessionNotice;
 use sidekicks_contracts::wire::text::FreeFormText;
+use tokio::sync::oneshot;
 use tokio::time::Instant;
 
 use super::{CodexServiceRecovery, CodexWriterLeft, never_left};
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::run::turn_end_waiters::CodexTurnWait;
 use crate::driver::codex::service::home::CodexServiceKind;
+use crate::driver::codex::service::supervisor::refusals::start_failure;
 use crate::driver::codex::service::supervisor::{
     CODEX_UNLOAD_TIMEOUT, CodexService, CodexServiceId,
 };
@@ -45,39 +48,94 @@ impl CodexServiceRecovery {
         }
     }
 
-    /// Restarts `service` as [`Self::restart_service`] does on the driver's tasks, a failure
-    /// reported, and answers at once whether this request began it: a request while an earlier
-    /// one has not ended joins that one, so one restart runs at a time per service.
+    /// Restarts `service` as [`Self::restart_service`] does on the driver's tasks, without waiting
+    /// for it: a request while an earlier one has not ended joins that one, so one restart runs at
+    /// a time per service, and a failure no caller waits for is reported.
     pub(crate) fn request_restart(
         self: &Arc<Self>,
         service: &Arc<CodexService>,
         change: Option<ProviderBuildChange>,
-    ) -> bool {
-        if !self.lock().restarting.insert(service.id()) {
-            return false;
+    ) {
+        self.enter_restart(service, change, None);
+    }
+
+    /// Restarts `service` as [`Self::request_restart`] does and answers once the restart it began
+    /// or joined has ended. Fails as that restart fails, read as a start's failure is.
+    pub(crate) fn restart_and_wait(
+        self: &Arc<Self>,
+        service: &Arc<CodexService>,
+        change: Option<ProviderBuildChange>,
+    ) -> impl Future<Output = Result<(), CodexError>> + Send + use<> {
+        let (ended, ending) = oneshot::channel();
+        self.enter_restart(service, change, Some(ended));
+        async move {
+            match ending.await {
+                Ok(restarted) => restarted.map_err(start_failure),
+                Err(_unanswered) => Err(CodexError::Transport {
+                    detail: "The Codex service's restart ended without an answer.".to_owned(),
+                    cause: None,
+                }),
+            }
         }
+    }
+
+    /// Whether a restart [`Self::request_restart`] or [`Self::restart_and_wait`] began on the
+    /// service `service_id` has not ended.
+    pub(crate) fn is_restarting(&self, service_id: CodexServiceId) -> bool {
+        self.lock().restarting.contains_key(&service_id)
+    }
+
+    // Marks `service` restarting and spawns its restart, or joins the restart under way; `ended`,
+    // when given, is told how the restart ended.
+    fn enter_restart(
+        self: &Arc<Self>,
+        service: &Arc<CodexService>,
+        change: Option<ProviderBuildChange>,
+        ended: Option<RestartEnded>,
+    ) {
+        let mut state = self.lock();
+        match state.restarting.entry(service.id()) {
+            Entry::Occupied(mut under_way) => {
+                under_way.get_mut().waiters.extend(ended);
+                return;
+            }
+            Entry::Vacant(slot) => {
+                slot.insert(ServiceRestart {
+                    waiters: ended.into_iter().collect(),
+                });
+            }
+        }
+        drop(state);
         let recovery = Arc::clone(self);
         let service = Arc::clone(service);
         self.dependencies.tasks.spawn(async move {
-            if let Err(error) = recovery.restart_service(&service, change).await {
-                report_restart_failed(&service, &error);
+            let restarted = recovery
+                .restart_service(&service, change)
+                .await
+                .map_err(Arc::new);
+            let waiters = recovery
+                .lock()
+                .restarting
+                .remove(&service.id())
+                .unwrap_or_default()
+                .waiters;
+            let heard = waiters
+                .into_iter()
+                .filter(|waiter| waiter.send(restarted.clone()).is_ok())
+                .count();
+            if heard == 0
+                && let Err(error) = &restarted
+            {
+                report_restart_failed(&service, error);
             }
-            recovery.lock().restarting.remove(&service.id());
         });
-        true
-    }
-
-    /// Whether a restart [`Self::request_restart`] began on the service `service_id` has not
-    /// ended.
-    pub(crate) fn is_restarting(&self, service_id: CodexServiceId) -> bool {
-        self.lock().restarting.contains(&service_id)
     }
 
     /// Restarts `service` on the program as it is now, its conversations resumed on the new
     /// process and each session told of `change` where a build move asked for one: an account's
     /// in place once its sessions are idle, a terminal one through its planned restart, and the
     /// person's own redialed. Fails as an account service's start fails.
-    pub(crate) async fn restart_service(
+    async fn restart_service(
         self: &Arc<Self>,
         service: &Arc<CodexService>,
         change: Option<ProviderBuildChange>,
@@ -321,6 +379,16 @@ impl CodexServiceRecovery {
             services.retire(&retiring).await;
         });
     }
+}
+
+/// Told how a restart ended, its failure shared by every caller that waited on it.
+type RestartEnded = oneshot::Sender<Result<(), Arc<CodexError>>>;
+
+/// A restart begun on a service that has not ended, with the callers waiting for its end.
+#[derive(Default)]
+pub(super) struct ServiceRestart {
+    /// Each told how the restart ended.
+    waiters: Vec<RestartEnded>,
 }
 
 /// A session's slot as a move found it.

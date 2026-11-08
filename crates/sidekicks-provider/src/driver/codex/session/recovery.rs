@@ -67,6 +67,7 @@ use crate::port::run_host::RunHost;
 use crate::run::delivery::InboundDelivery;
 use crate::runtime_binding::store::mint_runtime_binding_id;
 
+use self::build_move::ServiceRestart;
 use self::in_place_resume::CodexInPlaceResumeCall;
 
 /// The words a run is failed with when its service ended with no exit the daemon could read.
@@ -130,7 +131,7 @@ struct RecoveryState {
     // The services a build move left, waiting for their held conversations to be let go.
     retiring: HashSet<CodexServiceId>,
     // The services whose requested restart has not ended, so a second request joins it.
-    restarting: HashSet<CodexServiceId>,
+    restarting: HashMap<CodexServiceId, ServiceRestart>,
     // The sessions each service that came back owes a resume, by recovery, until that recovery
     // resumed them.
     owed_resumes: HashMap<CodexServiceId, HashMap<CodexRecoveryGeneration, Vec<SessionId>>>,
