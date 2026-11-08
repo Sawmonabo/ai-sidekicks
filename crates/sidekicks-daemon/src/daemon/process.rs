@@ -580,7 +580,7 @@ impl DaemonProcess {
                 Arc::clone(&reads),
                 Arc::clone(&providers.registry),
             ),
-            manifest_facts: backup_manifest_facts(),
+            manifest_facts: backup_manifest_facts(version.clone()),
         });
         hydrate_capabilities(&providers).await;
         sweep_left_staged_worktrees(&providers).await;
@@ -636,7 +636,7 @@ impl DaemonProcess {
                 run_folder,
                 daemon_program,
                 process_identity,
-                version,
+                version: version.clone(),
                 started_at: self.started_at,
                 process_state: Arc::clone(&self.process_state),
                 in_flight: Arc::clone(&in_flight),
@@ -772,6 +772,7 @@ impl DaemonProcess {
                 data_folder,
                 settings,
                 backups,
+                version,
             },
         )
         .await?;
