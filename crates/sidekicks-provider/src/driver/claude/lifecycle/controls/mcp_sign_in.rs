@@ -5,6 +5,7 @@
 use std::path::Path;
 
 use serde_json::{Map, Value};
+use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_store::data_folder::plugin_home;
 
 use crate::driver::claude::DESCRIPTOR;
@@ -24,41 +25,44 @@ use crate::driver::contract::sign_in::{
 
 impl ClaudeDriver {
     /// Signs in to `request`'s server through Claude Code's own client, in a process whose config
-    /// and credential folders are one the daemon makes for the sign-in and deletes after. Fails as
-    /// the administrator's MCP file's read or the sign-in through Claude Code fails.
+    /// and credential folders are one the daemon makes for the sign-in and deletes after, started
+    /// with `request`'s environment rows as a session's process is. Fails as the administrator's
+    /// MCP file's read or the sign-in through Claude Code fails.
     pub(crate) async fn sign_in_with_own_client(
         &self,
-        request: ProviderSignInTakeoverRequest,
+        mut request: ProviderSignInTakeoverRequest,
     ) -> Result<ProviderSignInTakeover, DriverError> {
+        let every_project_rows = std::mem::take(&mut request.every_project_rows);
+        let project_rows = std::mem::take(&mut request.project_rows);
         sign_in_with_claude_client(
             &*self.starts,
             self.sign_in_sources().await?,
-            |folder| self.sign_in_environment(folder),
+            |folder| self.sign_in_environment(folder, &every_project_rows, &project_rows),
             request,
         )
         .await
     }
 
-    /// Reads the whole address `request`'s server entry declares, its variables filled from the
-    /// base environment every Claude Code process starts from. Fails as the administrator's MCP
-    /// file's read or `read_claude_server_address` fails.
+    /// Reads the whole address `request`'s server entry declares, its variables filled as a
+    /// Claude Code process fills them: from the base environment with `request`'s environment rows
+    /// over it, the names that process withholds withheld, and no home of the daemon's set. Fails
+    /// as the environment's composition, the administrator's MCP file's read or
+    /// `read_claude_server_address` fails.
     pub(crate) async fn read_mcp_server_address(
         &self,
         request: McpServerAddressRead,
     ) -> Result<McpServerAddressReading, DriverError> {
-        read_claude_server_address(
-            &self.sign_in_sources().await?,
-            &self.sources.base_environment,
-            &request,
-        )
-        .await
+        let environment = self
+            .sources
+            .environment_without_home(&request.every_project_rows, &request.project_rows)?;
+        read_claude_server_address(&self.sign_in_sources().await?, &environment, &request).await
     }
 
-    /// Removes the folders, and their keychain items, of MCP sign-ins a stopped daemon left.
-    /// Fails as the folders' removal fails.
+    /// Removes the folders, and their keychain items, of MCP sign-ins a stopped daemon left, each
+    /// item's account read from the folder's record. Fails as the folders' removal fails.
     pub(crate) async fn remove_left_sign_in_folders(&self) -> Result<(), DriverError> {
         remove_left_claude_sign_ins(&self.credentials, &self.sources.data_folder, |folder| {
-            self.sign_in_environment(folder)
+            self.sign_in_environment(folder, &[], &[])
         })
         .await
     }
@@ -95,14 +99,19 @@ impl ClaudeDriver {
         }
     }
 
-    /// The environment of an MCP sign-in's process on its own `folder`, which also names the
-    /// keychain item the process files the sign-in under. Fails as the environment's composition
-    /// fails.
+    /// The environment of an MCP sign-in's process on its own `folder`, with the environment rows
+    /// given, which also names the keychain item the process files the sign-in under. Fails as
+    /// the environment's composition fails.
     pub(crate) fn sign_in_environment(
         &self,
         folder: &Path,
+        every_project_rows: &[EnvironmentRow],
+        project_rows: &[EnvironmentRow],
     ) -> Result<Vec<(String, String)>, DriverError> {
-        self.sources
-            .process_environment(ClaudeProcessHome::Throwaway { folder }, &[], &[])
+        self.sources.process_environment(
+            ClaudeProcessHome::Throwaway { folder },
+            every_project_rows,
+            project_rows,
+        )
     }
 }

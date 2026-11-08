@@ -283,6 +283,8 @@ async fn sign_in_with_servers(
         },
         root_folder: None,
         server_address: address(),
+        every_project_rows: Vec::new(),
+        project_rows: Vec::new(),
         lifetime: Duration::from_secs(30),
         authorization_url,
         browser_return: ProviderSignInReturn::OwnListener,
@@ -354,6 +356,8 @@ async fn read_declared_address(
         binding,
         provider_account_id: Some(test_provider_account_id()),
         root_folder: None,
+        every_project_rows: Vec::new(),
+        project_rows: Vec::new(),
     };
     let reading = tokio::spawn({
         let registry = Arc::clone(&fixture.registry);
@@ -422,6 +426,8 @@ async fn a_connector_has_no_address_of_the_persons() {
         binding: connector.clone(),
         provider_account_id: Some(test_provider_account_id()),
         root_folder: None,
+        every_project_rows: Vec::new(),
+        project_rows: Vec::new(),
     };
 
     let refused =

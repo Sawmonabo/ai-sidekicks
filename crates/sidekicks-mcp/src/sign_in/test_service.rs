@@ -398,6 +398,8 @@ pub(crate) fn addressed_target(base: &str) -> SignInTarget {
             None,
         )),
         root_folder: None,
+        every_project_rows: Vec::new(),
+        project_rows: Vec::new(),
     }
 }
 

@@ -14,8 +14,10 @@
 //! ends the sign-in with that error, a request it waits on is answered as one no one watches, and
 //! its end ends the sign-in. The sign-in is read back from the folder's credentials file, else the
 //! keychain item Claude Code files for the folder, which is removed once read; the process is
-//! closed and the folder removed whatever the outcome, a dropped sign-in's included. The person's
-//! own folders are only read, for the entry.
+//! closed and the folder removed whatever the outcome, a dropped sign-in's included. The folder
+//! records the keychain account the item is filed under before the process starts, so a later
+//! start removes the item of a folder a stopped daemon left. The person's own folders are only
+//! read, for the entry.
 
 pub(crate) mod address;
 pub(crate) mod saved_credentials;
@@ -33,6 +35,7 @@ use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_ipc::redaction::sanitize_failure_reason;
+use sidekicks_platforms::PathRules;
 use sidekicks_std::missing_entry::MissingEntry as _;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::{Interval, MissedTickBehavior};
@@ -41,7 +44,8 @@ use url::Url;
 use self::saved_credentials::{complete_client, holds_sign_in_for, read_saved_sign_in};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::account::credentials::{
-    ClaudeCredentialReadError, ClaudeSignInReader, read_claude_credential_file,
+    ClaudeCredentialReadError, ClaudeSignInReader, claude_keychain_account,
+    read_claude_credential_file,
 };
 use crate::driver::claude::mcp::ClaudeMcpProcess;
 use crate::driver::claude::mcp::config::{
@@ -72,6 +76,7 @@ use crate::driver::error_causes::provider_failure_refusal;
 use crate::driver::mcp_server::address::names_server_at;
 use crate::driver::mcp_server::sign_in_folder::SignInFolder;
 use crate::driver::mcp_server::status::FAILURE_TEXT_MAX_CODE_POINTS;
+use crate::spawn_environment::remove_environment_names;
 
 /// The data folder's folder each sign-in makes its own folder in.
 const CLAUDE_MCP_SIGN_IN_FOLDER: [&str; 2] = ["claude", "mcp-sign-in"];
@@ -81,6 +86,13 @@ const SIGN_IN_FOLDER_NAME_BYTES: usize = 8;
 
 /// The file in the sign-in's folder that declares its one server, which the process loads.
 const SIGN_IN_SERVERS_FILE: &str = "sign-in-servers.json";
+
+/// The file in the sign-in's folder recording the keychain account its process files the sign-in
+/// under, which an environment row can set through `USER`.
+const SIGN_IN_KEYCHAIN_ACCOUNT_FILE: &str = "keychain-account";
+
+/// The variable Claude Code names its keychain account by.
+const KEYCHAIN_ACCOUNT_VARIABLE: &str = "USER";
 
 /// The member of a server entry's `oauth` naming the id of the client its owner issued.
 const OAUTH_CLIENT_ID_MEMBER: &str = "clientId";
@@ -96,7 +108,8 @@ const KEYCHAIN_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 /// credential value.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ClaudeSignInError {
-    /// The sign-in's own folder or its server file could not be made.
+    /// The sign-in's own folder, its server file or its keychain account's record could not be
+    /// made.
     #[error("the folder Claude Code's MCP sign-in runs in could not be made")]
     FolderUnmade(#[source] Box<dyn Error + Send + Sync>),
     /// The caller stopped waiting before the browser opened or returned.
@@ -303,6 +316,13 @@ pub(crate) async fn sign_in_with_claude_client(
                 binding: request.binding.clone(),
             }));
         }
+        // Recorded before the process starts, so no item is filed that a later sweep cannot name.
+        tokio::fs::write(
+            folder.path().join(SIGN_IN_KEYCHAIN_ACCOUNT_FILE),
+            claude_keychain_account(&environment),
+        )
+        .await
+        .map_err(|error| ClaudeSignInError::FolderUnmade(Box::new(error)))?;
         let mut keychain_item = KeychainItemRemoval {
             credentials: sources.credentials.clone(),
             environment: environment.clone(),
@@ -378,8 +398,9 @@ pub(crate) async fn sign_in_with_claude_client(
 }
 
 /// Removes the folders of Claude Code MCP sign-ins a stopped daemon left under `data_folder`,
-/// each one's keychain item first, named by the environment `environment_on` composes for the
-/// folder as the sign-in's did and removed through `credentials`; an item not removed is logged.
+/// each one's keychain item first, removed through `credentials`: its service named by the
+/// environment `environment_on` composes for the folder, and its account by the record the
+/// sign-in kept there. An item not removed, a folder without its record included, is logged.
 /// Fails as the folders' removal fails.
 pub(crate) async fn remove_left_claude_sign_ins(
     credentials: &ClaudeSignInReader,
@@ -389,14 +410,7 @@ pub(crate) async fn remove_left_claude_sign_ins(
     let parent = sign_in_parent(data_folder);
     if credentials.has_keychain() {
         for folder in list_left_folders(&parent).await? {
-            let removed = match environment_on(&folder) {
-                Ok(environment) => credentials
-                    .remove_keychain_record(&environment)
-                    .await
-                    .map(drop)
-                    .map_err(|error| DriverError::Internal(Box::new(error))),
-                Err(error) => Err(error),
-            };
+            let removed = remove_left_keychain_item(credentials, &folder, &environment_on).await;
             if let Err(error) = removed {
                 tracing::warn!(
                     error = &error as &(dyn Error + 'static),
@@ -408,6 +422,32 @@ pub(crate) async fn remove_left_claude_sign_ins(
     sidekicks_platforms::remove_tree_awaited(&parent)
         .await
         .map_err(|error| DriverError::Internal(Box::new(error)))
+}
+
+// Removes the keychain item of the sign-in that left `folder`, its account read from the folder's
+// record over the environment `environment_on` composes for it. Fails as the record cannot be
+// read, absent included, as the environment fails, and as the keychain refuses.
+async fn remove_left_keychain_item(
+    credentials: &ClaudeSignInReader,
+    folder: &Path,
+    environment_on: impl Fn(&Path) -> Result<Vec<(String, String)>, DriverError>,
+) -> Result<(), DriverError> {
+    let internal = |error: Box<dyn Error + Send + Sync>| DriverError::Internal(error);
+    let account = tokio::fs::read_to_string(folder.join(SIGN_IN_KEYCHAIN_ACCOUNT_FILE))
+        .await
+        .map_err(|error| internal(Box::new(error)))?;
+    let mut environment = environment_on(folder)?;
+    remove_environment_names(
+        &mut environment,
+        &[KEYCHAIN_ACCOUNT_VARIABLE],
+        PathRules::NATIVE,
+    );
+    environment.push((KEYCHAIN_ACCOUNT_VARIABLE.to_owned(), account));
+    credentials
+        .remove_keychain_record(&environment)
+        .await
+        .map(drop)
+        .map_err(|error| internal(Box::new(error)))
 }
 
 // Every folder a stopped daemon left under `parent`; none where `parent` is absent.

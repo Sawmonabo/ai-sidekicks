@@ -7,6 +7,7 @@ use std::fmt;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
+use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -17,7 +18,7 @@ use url::Url;
 pub const BEARER_TOKEN_TYPE: &str = "Bearer";
 
 /// What the daemon asks a driver to sign in to through its provider's own client. Its `Debug`
-/// prints no server address.
+/// prints no server address and no environment row.
 pub struct ProviderSignInTakeoverRequest {
     /// The account whose provider runs the flow.
     pub provider_account_id: ProviderAccountId,
@@ -31,6 +32,11 @@ pub struct ProviderSignInTakeoverRequest {
     /// driver matches against the provider's entry and its saved sign-in. It is held only in
     /// memory, and is never the stripped address the inventory serves.
     pub server_address: McpServerAddress,
+    /// The machine's `Every project` rows, which fill a variable in the entry's address.
+    pub every_project_rows: Vec<EnvironmentRow>,
+    /// The binding's project's own rows, which fill a variable in the entry's address over an
+    /// `Every project` row of the same name; none for a binding with no project.
+    pub project_rows: Vec<EnvironmentRow>,
     /// How long the flow waits for the person in the browser before it ends unfinished.
     pub lifetime: Duration,
     /// Takes the authorization address the person's browser opens, sent once.
@@ -148,6 +154,11 @@ pub struct McpServerAddressRead {
     /// The folder on this computer the binding's project root is read at; `None` for a binding
     /// with no project root.
     pub root_folder: Option<PathBuf>,
+    /// The machine's `Every project` rows, which fill a variable in the entry's address.
+    pub every_project_rows: Vec<EnvironmentRow>,
+    /// The binding's project's own rows, which fill a variable in the entry's address over an
+    /// `Every project` row of the same name; none for a binding with no project.
+    pub project_rows: Vec<EnvironmentRow>,
 }
 
 /// The whole address a server's entry declares, as its provider connects to it. Its `Debug` names

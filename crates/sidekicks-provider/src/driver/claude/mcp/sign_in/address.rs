@@ -53,10 +53,11 @@ mod tests {
 
     use rstest::rstest;
     use serde_json::{Map, Value, json};
+    use sidekicks_contracts::machine::settings::EnvironmentRow;
     use sidekicks_contracts::mcp::server::McpServerBindingRef;
 
     use super::super::tests::{
-        PERSON_CONFIG, SERVER_NAME, driver_on_environment, name, user_binding,
+        PERSON_CONFIG, SERVER_NAME, driver_on_environment, environment_rows, name, user_binding,
     };
     use super::read_claude_server_address;
     use crate::driver::DriverServices;
@@ -66,41 +67,59 @@ mod tests {
     use crate::driver::contract::sign_in::{McpServerAddressRead, McpServerAddressReading};
     use crate::runtime_binding::test_store::test_provider_account_id;
 
-    // A read of `binding`'s address for the test account, at no project root.
-    fn address_read(binding: McpServerBindingRef) -> McpServerAddressRead {
+    // A read of `binding`'s address for the test account, at no project root, its project's rows
+    // `project_rows`.
+    fn address_read(
+        binding: McpServerBindingRef,
+        project_rows: Vec<EnvironmentRow>,
+    ) -> McpServerAddressRead {
         McpServerAddressRead {
             binding,
             provider_account_id: Some(test_provider_account_id()),
             root_folder: None,
+            every_project_rows: Vec::new(),
+            project_rows,
         }
     }
 
     // A person's entry is read whole, its user name and query kept, and its `url` filled from the
-    // driver's base environment as Claude Code fills it: a default where the variable is unset,
-    // the value where it is set, and a variable with no value and no default left unreadable.
-    // Killed by answering the stripped address (the user name or query lost), by removing the
-    // expansion (`expand_remote_address(url, environment)` replaced with `url.to_owned()` fails the
-    // default case), and by answering a text that is not an address as `Declared`.
+    // driver's base environment with the read's rows over it, as Claude Code fills it: a default
+    // where the variable is unset, the value where it is set, a project's row's value where only
+    // the row sets it, and a variable with no value and no default left unreadable. Killed by
+    // answering the stripped address (the user name or query lost), by removing the expansion
+    // (`expand_remote_address(url, environment)` replaced with `url.to_owned()` fails the default
+    // case), by answering a text that is not an address as `Declared`, and by filling from the base
+    // environment alone (the row case reads unreadable).
     #[rstest]
     #[case::user_name_and_query_kept(
+        &[],
         &[],
         "https://user@docs.example.test/mcp?key=k",
         Some("https://user@docs.example.test/mcp?key=k")
     )]
     #[case::a_default_where_unset(
         &[],
+        &[],
         "${API_BASE_URL:-https://docs.example.test}/mcp",
         Some("https://docs.example.test/mcp")
     )]
     #[case::the_value_where_set(
         &[("API_BASE_URL", "https://other.example.test")],
+        &[],
         "${API_BASE_URL:-https://docs.example.test}/mcp",
         Some("https://other.example.test/mcp")
     )]
-    #[case::a_variable_with_no_value(&[], "https://${TENANT}.example.test/mcp", None)]
+    #[case::a_project_rows_value(
+        &[],
+        &[("TENANT", "acme")],
+        "https://${TENANT}.example.test/mcp",
+        Some("https://acme.example.test/mcp")
+    )]
+    #[case::a_variable_with_no_value(&[], &[], "https://${TENANT}.example.test/mcp", None)]
     #[tokio::test]
     async fn a_claude_entry_is_read_whole_with_its_variables_filled(
         #[case] variables: &[(&str, &str)],
+        #[case] project_rows: &[(&str, &str)],
         #[case] declared_url: &str,
         #[case] expected: Option<&str>,
     ) {
@@ -129,7 +148,7 @@ mod tests {
         );
 
         let reading = driver
-            .read_mcp_server_address(address_read(user_binding()))
+            .read_mcp_server_address(address_read(user_binding(), environment_rows(project_rows)))
             .await
             .expect("the entry reads");
 
@@ -158,7 +177,7 @@ mod tests {
 
         let refused = scripted
             .driver
-            .read_mcp_server_address(address_read(connector.clone()))
+            .read_mcp_server_address(address_read(connector.clone(), Vec::new()))
             .await;
 
         assert!(
@@ -200,7 +219,7 @@ mod tests {
         let reading = read_claude_server_address(
             &scripted.driver.sign_in_sources_for(Some(servers)).await,
             &scripted.driver.sources.base_environment,
-            &address_read(managed),
+            &address_read(managed, Vec::new()),
         )
         .await
         .expect("the file's entry reads");

@@ -237,6 +237,8 @@ impl SignInService {
                 binding: target.binding.clone(),
                 root_folder: target.root_folder.clone(),
                 server_address: server.address.clone(),
+                every_project_rows: target.every_project_rows.clone(),
+                project_rows: target.project_rows.clone(),
                 lifetime: ATTEMPT_LIFETIME,
                 authorization_url,
                 browser_return: request_return,

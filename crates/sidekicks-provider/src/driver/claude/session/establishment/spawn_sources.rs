@@ -22,7 +22,7 @@ use crate::driver::claude::session::rules::CLAUDE_USER_SETTINGS_FILE;
 use crate::driver::claude::session::settings_file::ClaudeSettingsSources;
 use crate::driver::claude::spawn::environment::{
     ClaudeAccountFolders, ClaudeProcessEnvironmentRequest, ClaudeProcessHome, claude_config_folder,
-    compose_claude_process_environment,
+    compose_claude_environment_without_home, compose_claude_process_environment,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
@@ -77,13 +77,7 @@ impl ClaudeSpawnSources {
         let data_folder = self.data_folder.to_string_lossy();
         compose_claude_process_environment(
             ClaudeProcessEnvironmentRequest {
-                session: SessionEnvironment {
-                    base: &self.base_environment,
-                    every_project_rows,
-                    project_rows,
-                    reserved_names: &self.reserved_names,
-                    rules: PathRules::NATIVE,
-                },
+                session: self.session_environment(every_project_rows, project_rows),
                 deny_env_vars: &[],
                 home,
                 data_folder: &data_folder,
@@ -91,6 +85,35 @@ impl ClaudeSpawnSources {
             &[],
         )
         .map_err(|error| DriverError::Internal(Box::new(error)))
+    }
+
+    /// The environment a Claude Code process would start with on no home of the daemon's, with
+    /// the environment rows given, which a read of a server's address fills its variables from.
+    /// Fails as the environment cannot be composed.
+    pub(crate) fn environment_without_home(
+        &self,
+        every_project_rows: &[EnvironmentRow],
+        project_rows: &[EnvironmentRow],
+    ) -> Result<Vec<(String, String)>, DriverError> {
+        compose_claude_environment_without_home(
+            self.session_environment(every_project_rows, project_rows),
+        )
+        .map_err(|error| DriverError::Internal(Box::new(error)))
+    }
+
+    // The base environment with the rows given, under the native path rules.
+    fn session_environment<'rows>(
+        &'rows self,
+        every_project_rows: &'rows [EnvironmentRow],
+        project_rows: &'rows [EnvironmentRow],
+    ) -> SessionEnvironment<'rows> {
+        SessionEnvironment {
+            base: &self.base_environment,
+            every_project_rows,
+            project_rows,
+            reserved_names: &self.reserved_names,
+            rules: PathRules::NATIVE,
+        }
     }
 
     /// The environment a process on an account's folders starts with, as `folders` give them.

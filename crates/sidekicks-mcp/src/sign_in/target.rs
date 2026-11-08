@@ -1,12 +1,15 @@
 //! The target of an MCP sign-in, read from its binding: the provider's declaration, the whole
 //! address the binding's entry declares as its driver reads it, never the stripped one the
 //! inventory serves, the client the server's owner issued, the scopes and the resource the entry
-//! asks for, the binding's project root on this computer and each provider's current account.
+//! asks for, the binding's project root on this computer, the environment rows that fill the
+//! address's variables and each provider's current account.
 
+use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use reqwest::Url;
+use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::mcp::server::config::{McpServerAddress, McpServerConfigView};
 use sidekicks_ipc::registry::HandlerError;
@@ -19,7 +22,10 @@ use sidekicks_provider::driver::mcp_server::read::McpServerSignInClient;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::{CurrentProviderAccount, ProviderAccountReader};
 use sidekicks_std::port_registration::PortRegistration;
+use sidekicks_workspace::machine_settings::MachineSettingsReader;
+use sidekicks_workspace::project::records::ProjectRecords;
 
+use crate::binding::resolver::attached_root_path;
 use crate::errors::{McpRefusal, SignInUnsupportedReason};
 use crate::inventory_service::McpInventoryService;
 use crate::sign_in::service::{
@@ -27,7 +33,8 @@ use crate::sign_in::service::{
 };
 
 /// What a sign-in's target is read from: the inventory's declarations, the providers' drivers,
-/// whose reads give the whole address, and the provider accounts.
+/// whose reads give the whole address, the provider accounts, and the machine's settings and the
+/// projects, whose environment rows fill the address's variables.
 #[cfg_attr(
     not(test),
     expect(
@@ -39,6 +46,8 @@ pub(crate) struct SignInTargetReads {
     inventory: Arc<McpInventoryService>,
     providers: Arc<ProviderRegistry>,
     provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
+    machine_settings: Arc<dyn MachineSettingsReader>,
+    projects: Arc<ProjectRecords>,
 }
 
 /// A sign-in's target as read: the target, the scopes its entry asks for and the account each
@@ -67,17 +76,21 @@ pub(crate) struct SignInTargetRead {
     )
 )]
 impl SignInTargetReads {
-    /// The reads over `inventory`, the drivers of `providers` and the accounts reader
-    /// `provider_accounts` holds.
+    /// The reads over `inventory`, the drivers of `providers`, the accounts reader
+    /// `provider_accounts` holds, the settings `machine_settings` reads and the `projects`.
     pub(crate) fn new(
         inventory: Arc<McpInventoryService>,
         providers: Arc<ProviderRegistry>,
         provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
+        machine_settings: Arc<dyn MachineSettingsReader>,
+        projects: Arc<ProjectRecords>,
     ) -> Self {
         Self {
             inventory,
             providers,
             provider_accounts,
+            machine_settings,
+            projects,
         }
     }
 
@@ -85,7 +98,8 @@ impl SignInTargetReads {
     /// connector, whose sign-in is its account's own, for a server whose declared address does
     /// not read and for an owner's callback that is no address, and `mcp.server.notFound` when no
     /// provider declares the binding; answers an inventory or driver failure as each answers a
-    /// call, and an accounts read that fails as a fault.
+    /// call, and an accounts, settings or project read that fails, or a stored project root that
+    /// is no path, as a fault.
     pub(crate) async fn read(
         &self,
         binding: &McpServerBindingRef,
@@ -120,8 +134,10 @@ impl SignInTargetReads {
             .ok_or_else(not_found)?;
         let provider_accounts = self.read_provider_accounts().await?;
         let root_folder = root_folder_of(binding);
-        let (server, scopes) = match declaration.config {
-            McpServerConfigView::Stdio { .. } => (SignInServer::Stdio, Vec::new()),
+        let (server, scopes, every_project_rows, project_rows) = match declaration.config {
+            McpServerConfigView::Stdio { .. } => {
+                (SignInServer::Stdio, Vec::new(), Vec::new(), Vec::new())
+            }
             // A WebSocket address is never an `http:` or `https:` one, so it reads no address.
             McpServerConfigView::Ws { .. } => {
                 return Err(unsupported(SignInUnsupportedReason::AddressUnreadable));
@@ -139,10 +155,14 @@ impl SignInTargetReads {
                 let Ok(driver) = self.providers.lookup(provider) else {
                     return Err(not_found());
                 };
+                let (every_project_rows, project_rows) =
+                    self.read_environment_rows(binding).await?;
                 let read = McpServerAddressRead {
                     binding: binding.clone(),
                     provider_account_id: provider_accounts.get(provider).cloned(),
                     root_folder: root_folder.clone(),
+                    every_project_rows: every_project_rows.clone(),
+                    project_rows: project_rows.clone(),
                 };
                 let address: McpServerAddress = match driver.read_mcp_server_address(read).await {
                     Ok(McpServerAddressReading::Declared(address)) => address,
@@ -166,6 +186,8 @@ impl SignInTargetReads {
                         oauth_resource,
                     )),
                     oauth_scopes.unwrap_or_default(),
+                    every_project_rows,
+                    project_rows,
                 )
             }
         };
@@ -174,10 +196,64 @@ impl SignInTargetReads {
                 binding: binding.clone(),
                 server,
                 root_folder,
+                every_project_rows,
+                project_rows,
             },
             scopes,
             provider_accounts,
         })
+    }
+
+    // The `Every project` rows, and the rows of the project whose attached root is a `project` or
+    // `local` binding's root; no project's rows for any other binding, or for a root no attached
+    // project holds, as a session outside a project reads none.
+    async fn read_environment_rows(
+        &self,
+        binding: &McpServerBindingRef,
+    ) -> Result<(Vec<EnvironmentRow>, Vec<EnvironmentRow>), HandlerError> {
+        let internal = |error: Box<dyn Error + Send + Sync>| HandlerError::Internal(error);
+        let every_project_rows = self
+            .machine_settings
+            .read_machine_settings()
+            .await
+            .map_err(internal)?
+            .environment_rows;
+        let (scope_ref, place) = match binding {
+            McpServerBindingRef::Project {
+                scope_ref, place, ..
+            }
+            | McpServerBindingRef::Local {
+                scope_ref, place, ..
+            } => (scope_ref, place),
+            McpServerBindingRef::User { .. }
+            | McpServerBindingRef::Plugin { .. }
+            | McpServerBindingRef::Connector { .. }
+            | McpServerBindingRef::Managed { .. } => return Ok((every_project_rows, Vec::new())),
+        };
+        let mut project_id = None;
+        for root in self
+            .projects
+            .read_attached_roots()
+            .await
+            .map_err(|error| internal(Box::new(error)))?
+        {
+            let root_path = attached_root_path(&root).map_err(|error| internal(Box::new(error)))?;
+            if root_path.path == *scope_ref && root_path.place == *place {
+                project_id = Some(root.project_id);
+                break;
+            }
+        }
+        let Some(project_id) = project_id else {
+            return Ok((every_project_rows, Vec::new()));
+        };
+        let project_rows = self
+            .projects
+            .read_entry(project_id)
+            .await
+            .map_err(|error| internal(Box::new(error)))?
+            .map(|entry| entry.environment_rows)
+            .unwrap_or_default();
+        Ok((every_project_rows, project_rows))
     }
 
     // Each registered provider's current account; a provider with none is left out.
@@ -258,14 +334,17 @@ fn root_folder_of(binding: &McpServerBindingRef) -> Option<PathBuf> {
 #[cfg(test)]
 pub(crate) mod tests {
     use std::path::PathBuf;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
     use futures::future::ready;
     use rstest::rstest;
+    use rusqlite::params;
     use serde_json::json;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+    use sidekicks_contracts::machine::settings::{EnvironmentRow, MachineSettings};
     use sidekicks_contracts::mcp::server::config::{McpServerAddress, McpServerConfigView};
     use sidekicks_contracts::mcp::server::{McpApprovalMode, McpServerBindingRef, McpServerName};
+    use sidekicks_contracts::wire::text::{BoundedText, NulFreeText};
     use sidekicks_ipc::registry::HandlerError;
     use sidekicks_provider::driver::CurrentProviderAccount;
     use sidekicks_provider::driver::contract::error::DriverError;
@@ -284,6 +363,10 @@ pub(crate) mod tests {
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::writer::DatabaseWriter;
     use sidekicks_store::database::writer::test_file::TestDatabase;
+    use sidekicks_workspace::machine_settings::FixedMachineSettings;
+    use sidekicks_workspace::project::records::ProjectRecords;
+    use sidekicks_workspace::project::test_doubles::NoSessions;
+    use sidekicks_workspace::test_rows::project_and_mount_rows;
 
     use super::{SignInTargetReads, root_folder_of};
     use crate::inventory_service::McpInventoryService;
@@ -294,6 +377,9 @@ pub(crate) mod tests {
 
     /// The whole address the test entry declares, its user name and query kept.
     const DECLARED_ADDRESS: &str = "https://user@docs.example.test/mcp?key=k";
+
+    /// The project a test attaches at `/repos/app`, its id its mount's too.
+    const PROJECT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e81";
 
     /// The real inventory over a test's drivers, with the database, writer, read pool and board
     /// under it, which a sign-in's target and its receipts are read from.
@@ -308,18 +394,30 @@ pub(crate) mod tests {
         pub(crate) reads: Arc<DatabaseReadPool>,
         /// The board the inventory's tracker sends on.
         pub(crate) board: Arc<McpNoticeBoard>,
-        _database: TestDatabase,
+        /// The database under them, which a test stores rows in.
+        database: TestDatabase,
     }
 
     impl TestSources {
         /// The target reads over these sources, the accounts answering the test account as every
-        /// provider's current one.
+        /// provider's current one and the machine's settings their defaults, with no rows.
         pub(crate) fn target_reads(&self) -> SignInTargetReads {
+            self.target_reads_over(MachineSettings::default())
+        }
+
+        /// The target reads over these sources, as [`Self::target_reads`] reads them, the
+        /// machine's settings answering `settings`.
+        pub(crate) fn target_reads_over(&self, settings: MachineSettings) -> SignInTargetReads {
             SignInTargetReads::new(
                 Arc::clone(&self.inventory),
                 Arc::clone(&self.providers),
                 registered_test_accounts(CurrentProviderAccount::Current(
                     test_provider_account_id(),
+                )),
+                Arc::new(FixedMachineSettings(settings)),
+                Arc::new(ProjectRecords::new(
+                    Arc::clone(&self.reads),
+                    Arc::new(NoSessions),
                 )),
             )
         }
@@ -344,7 +442,7 @@ pub(crate) mod tests {
             writer,
             reads,
             board,
-            _database: database,
+            database,
         }
     }
 
@@ -561,6 +659,89 @@ pub(crate) mod tests {
             Err(error) => panic!("the read failed: {error:?}"),
         };
         assert_eq!(code, expected);
+    }
+
+    fn rows(entries: &[(&str, &str)]) -> Vec<EnvironmentRow> {
+        entries
+            .iter()
+            .map(|(name, value)| EnvironmentRow {
+                name: BoundedText::new((*name).to_owned()).expect("the test's name is bounded"),
+                value: NulFreeText::new((*value).to_owned()).expect("the test's value has no NUL"),
+            })
+            .collect()
+    }
+
+    // The address read the driver receives and the target both carry the `Every project` rows
+    // for a `project` and a `user` binding, and the rows of the project attached at the binding's
+    // root only for the `project` binding. Killed by the project's rows never read (`project`),
+    // by a project's rows read for a binding with no project (`user`), and by the `Every project`
+    // rows dropped from the read or the target (both).
+    #[rstest]
+    #[case::project(json!({ "scope": "project", "scopeRef": "/repos/app" }), true)]
+    #[case::user(json!({ "scope": "user" }), false)]
+    #[tokio::test]
+    async fn a_target_read_carries_its_bindings_environment_rows(
+        #[case] mut binding: serde_json::Value,
+        #[case] is_in_project: bool,
+    ) {
+        binding["provider"] = json!(first_provider().as_str());
+        binding["serverName"] = json!("docs");
+        let binding: McpServerBindingRef = serde_json::from_value(binding).expect("a binding");
+        let every_project_rows = rows(&[("API_HOST", "every.example.test")]);
+        let project_rows = rows(&[("API_HOST", "project.example.test")]);
+        let mut driver = driver_declaring(vec![remote_declaration(
+            &binding,
+            "https://docs.example.test/",
+        )]);
+        let asked = Arc::new(Mutex::new(None));
+        let asked_by_driver = Arc::clone(&asked);
+        driver
+            .expect_read_mcp_server_address()
+            .times(1)
+            .return_once(move |request| {
+                *asked_by_driver.lock().expect("never poisoned") = Some(request);
+                Box::pin(ready(Ok(declared(DECLARED_ADDRESS))))
+            });
+        let sources = test_sources(vec![Arc::new(driver)]).await;
+        let connection = sources.database.reader();
+        for row in project_and_mount_rows(PROJECT_ID, None) {
+            connection
+                .execute_batch(&row)
+                .expect("the project and its mount are stored");
+        }
+        connection
+            .execute(
+                "UPDATE projects SET environment_rows = ?1 WHERE id = ?2",
+                params![
+                    serde_json::to_string(&project_rows).expect("the rows serialize"),
+                    PROJECT_ID
+                ],
+            )
+            .expect("the project's rows are stored");
+
+        let read = sources
+            .target_reads_over(MachineSettings {
+                environment_rows: every_project_rows.clone(),
+                ..MachineSettings::default()
+            })
+            .read(&binding)
+            .await
+            .expect("the target reads");
+
+        let expected_project_rows = if is_in_project {
+            project_rows
+        } else {
+            Vec::new()
+        };
+        let address_read = asked
+            .lock()
+            .expect("never poisoned")
+            .take()
+            .expect("the driver is asked for the address");
+        assert_eq!(address_read.every_project_rows, every_project_rows);
+        assert_eq!(address_read.project_rows, expected_project_rows);
+        assert_eq!(read.target.every_project_rows, every_project_rows);
+        assert_eq!(read.target.project_rows, expected_project_rows);
     }
 
     // Killed by the place ignored (`local_in_wsl` reads `/home/me/repo`), and by a root given to a

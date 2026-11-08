@@ -29,6 +29,7 @@ use reqwest::Url;
 use rmcp::transport::auth::{AuthorizationManager, OAuthHttpClient};
 use secrecy::{SecretBox, SecretString};
 use sidekicks_contracts::dpop::DPOP_PROOF_ALGORITHM;
+use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -86,6 +87,11 @@ pub(crate) struct SignInTarget {
     /// The folder on this computer the binding's project root is read at, which a provider's flow
     /// reads the server's entry under; `None` for a binding with no project root.
     pub(crate) root_folder: Option<PathBuf>,
+    /// The machine's `Every project` rows, which fill a variable in the server entry's address.
+    pub(crate) every_project_rows: Vec<EnvironmentRow>,
+    /// The binding's project's own rows, which fill a variable in the server entry's address over
+    /// an `Every project` row of the same name; none for a binding with no project.
+    pub(crate) project_rows: Vec<EnvironmentRow>,
 }
 
 /// How a binding's server is reached, as the provider's declaration says.

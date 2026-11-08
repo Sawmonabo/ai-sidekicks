@@ -4,7 +4,7 @@
 //! tool's switches among them, and the home it runs on: an account's folders with the scratch
 //! folder the daemon keeps under its own data folder for each configuration home, a throwaway
 //! folder that holds all three for one read, or a throwaway folder on an account's own credential
-//! store.
+//! store; or, for a read that fills a server entry's variables, no home at all.
 
 use std::path::{Path, PathBuf};
 
@@ -233,6 +233,26 @@ pub(crate) fn compose_claude_process_environment(
             credential_homes: &credential_homes,
         },
         additional_mandated_pairs,
+        CLAUDE_TELEMETRY_WITHHELD,
+    )
+}
+
+/// The environment a Claude Code process composes from `session` on no home of the daemon's: the
+/// names [`compose_claude_process_environment`] withholds withheld and the app's variables set,
+/// with no config, credential or scratch folder, so a read fills an entry's variables as the
+/// process would. Fails as `build_provider_process_environment` does: an inherited account folder
+/// variable that is empty.
+pub(crate) fn compose_claude_environment_without_home(
+    session: SessionEnvironment<'_>,
+) -> Result<Vec<(String, String)>, SpawnEnvironmentError> {
+    build_provider_process_environment(
+        &ProviderEnvironmentRequest {
+            session,
+            descriptor: &DESCRIPTOR,
+            deny_env_vars: &[],
+            credential_homes: &[],
+        },
+        &[],
         CLAUDE_TELEMETRY_WITHHELD,
     )
 }

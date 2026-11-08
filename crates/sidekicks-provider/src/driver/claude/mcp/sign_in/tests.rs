@@ -6,15 +6,18 @@ use rstest::rstest;
 use secrecy::SecretString;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::plugin::PluginToken;
+use sidekicks_contracts::wire::text::{BoundedText, NulFreeText};
+use sidekicks_platforms::PathRules;
 use sidekicks_store::data_folder::plugin_home;
 use tokio::sync::oneshot;
 use url::Url;
 
 use super::saved_credentials::read_claude_saved_sign_in;
-use super::{CLAUDE_MCP_SIGN_IN_FOLDER, sign_in_with_claude_client};
+use super::{CLAUDE_MCP_SIGN_IN_FOLDER, SIGN_IN_KEYCHAIN_ACCOUNT_FILE, sign_in_with_claude_client};
 use crate::driver::DriverServices;
 use crate::driver::claude::account::credentials::{
     CLAUDE_CREDENTIALS_FILE, SECURE_STORAGE_FOLDER_VARIABLE, claude_keychain_account,
@@ -66,6 +69,17 @@ pub(super) fn name() -> McpServerName {
 
 fn address() -> McpServerAddress {
     McpServerAddress::new(SERVER_ADDRESS).expect("a test address is a web address")
+}
+
+/// The environment rows of `entries`, each a name and its value.
+pub(super) fn environment_rows(entries: &[(&str, &str)]) -> Vec<EnvironmentRow> {
+    entries
+        .iter()
+        .map(|(name, value)| EnvironmentRow {
+            name: BoundedText::new((*name).to_owned()).expect("the test's name is bounded"),
+            value: NulFreeText::new((*value).to_owned()).expect("the test's value has no NUL"),
+        })
+        .collect()
 }
 
 pub(super) fn user_binding() -> McpServerBindingRef {
@@ -130,6 +144,8 @@ fn request(
         binding,
         root_folder: None,
         server_address: address(),
+        every_project_rows: Vec::new(),
+        project_rows: Vec::new(),
         lifetime: Duration::from_secs(30),
         authorization_url,
         browser_return: ProviderSignInReturn::ThroughDaemonReceiver {
@@ -430,7 +446,7 @@ async fn a_sign_in_beside_a_managed_file_passes_no_servers_file(
         sign_in_with_claude_client(
             &*driver.starts,
             driver.sign_in_sources_for(Some(servers)).await,
-            |folder| driver.sign_in_environment(folder),
+            |folder| driver.sign_in_environment(folder, &[], &[]),
             request,
         )
         .await
@@ -563,13 +579,19 @@ async fn a_user_entry_is_read_from_the_config_folder_the_persons_environment_nam
 
 // An entry whose `url` names variables matches the request at the address Claude Code connects
 // to, each variable filled from the sign-in process's own environment: a default where the
-// variable is unset, the variable's value where it is set, and a covered credential name read as
-// empty though set. The entry still goes to the process as declared, and its saved sign-in reads
-// back whether Claude Code saved the address filled or as declared. Killed by matching the `url`
-// as written, which names no server, by filling it from no environment, by expanding a covered
-// credential name, and by matching the saved address only as written.
+// variable is unset, the variable's value where it is set, a row's value where only the request's
+// rows set it, and a covered credential name read as empty though set. The process takes every
+// row, `USER` included, and its folder records the keychain account that environment files the
+// sign-in under while the process runs. The entry still goes to the process as declared, and its
+// saved sign-in reads back whether Claude Code saved the address filled or as declared. Killed by
+// matching the `url` as written, which names no server, by filling it from no environment, by the
+// rows not handed to the process's environment (the row case reads the no-entry arm), by no
+// record kept, by expanding a covered credential name, and by matching the saved address only as
+// written. The record is read once the process is up, so a record written after the start but
+// before the browser opens survives this test.
 #[rstest]
 #[case::a_default_where_unset(
+    &[],
     &[],
     "${API_BASE_URL:-https://docs.example.test}/mcp",
     SERVER_ADDRESS,
@@ -577,18 +599,28 @@ async fn a_user_entry_is_read_from_the_config_folder_the_persons_environment_nam
 )]
 #[case::the_value_where_set(
     &[("API_BASE_URL", "https://set.example.test")],
+    &[],
     "${API_BASE_URL:-https://docs.example.test}/mcp",
     "https://set.example.test/mcp",
     "https://set.example.test/mcp"
 )]
+#[case::a_rows_value_and_user(
+    &[],
+    &[("API_BASE_URL", "https://row.example.test"), ("USER", "row-user")],
+    "${API_BASE_URL:-https://docs.example.test}/mcp",
+    "https://row.example.test/mcp",
+    "https://row.example.test/mcp"
+)]
 #[case::a_credential_read_empty(
     &[("NPM_TOKEN", "/npm-secret")],
+    &[],
     "https://docs.example.test${NPM_TOKEN}/mcp",
     SERVER_ADDRESS,
     SERVER_ADDRESS
 )]
 #[case::a_saved_address_as_declared(
     &[("API_BASE_URL", "https://set.example.test")],
+    &[],
     "${API_BASE_URL:-https://docs.example.test}/mcp",
     "https://set.example.test/mcp",
     "${API_BASE_URL:-https://docs.example.test}/mcp"
@@ -596,6 +628,7 @@ async fn a_user_entry_is_read_from_the_config_folder_the_persons_environment_nam
 #[tokio::test]
 async fn an_entry_address_with_variables_matches_as_the_sign_in_process_fills_it(
     #[case] variables: &[(&str, &str)],
+    #[case] rows: &[(&str, &str)],
     #[case] declared_url: &str,
     #[case] requested_address: &str,
     #[case] saved_address: &str,
@@ -616,6 +649,7 @@ async fn an_entry_address_with_variables_matches_as_the_sign_in_process_fills_it
                     .map(|(variable, value)| ((*variable).to_owned(), (*value).to_owned())),
             )
             .collect();
+    let sign_ins = sign_ins_folder(&scripted);
     let driver = driver_on_environment(
         &DriverServices {
             base_environment: Arc::from(base_environment),
@@ -633,10 +667,19 @@ async fn an_entry_address_with_variables_matches_as_the_sign_in_process_fills_it
     let (mut request, opened, returned) = request(user_binding());
     request.server_address =
         McpServerAddress::new(requested_address).expect("a test address is a web address");
+    request.project_rows = environment_rows(rows);
     let signing_in = tokio::spawn(async move { driver.sign_in_with_own_client(request).await });
     opened
         .await
         .expect("the authorization address is handed out");
+    let records: Vec<String> = std::fs::read_dir(&sign_ins)
+        .expect("the sign-ins' folder reads")
+        .map(|folder| {
+            let folder = folder.expect("the sign-in's folder lists").path();
+            std::fs::read_to_string(folder.join(SIGN_IN_KEYCHAIN_ACCOUNT_FILE))
+                .expect("the sign-in's folder records its keychain account")
+        })
+        .collect();
     returned
         .send(Url::parse(RETURNED_URL).expect("an address"))
         .expect("the sign-in waits for the browser");
@@ -657,6 +700,13 @@ async fn an_entry_address_with_variables_matches_as_the_sign_in_process_fills_it
         start.servers,
         Some(json!({"mcpServers": {SERVER_NAME: declared}}))
     );
+    for (name, value) in rows {
+        assert_eq!(
+            PathRules::NATIVE.environment_value(&start.environment, name),
+            Some(*value)
+        );
+    }
+    assert_eq!(records, [claude_keychain_account(&start.environment)]);
 }
 
 // A sign-in's process that writes a frame reporting an error, or exits, before its sign-in ends
@@ -766,8 +816,10 @@ async fn a_sign_in_that_ends_without_a_sign_in_reads_as_its_kind(
 }
 
 // A sign-in dropped while it waits for the browser leaves no folder, and the start's sweep removes
-// a folder a stopped daemon left, with the keychain item named for it. Killed by a folder with no
-// drop guard, by a start that sweeps nothing, and by a sweep that leaves the keychain item.
+// a folder a stopped daemon left, with the keychain item named for it by its folder and the
+// account its record names, one a row set. Killed by a folder with no drop guard, by a start that
+// sweeps nothing, by a sweep that leaves the keychain item, and by one that names the account from
+// an environment composed without the rows, which names the base's item.
 #[tokio::test]
 async fn a_dropped_sign_in_leaves_no_folder_and_the_sweep_removes_a_left_one() {
     let scripted = ScriptedDriver::new();
@@ -804,10 +856,15 @@ async fn a_dropped_sign_in_leaves_no_folder_and_the_sweep_removes_a_left_one() {
     let leftover = sign_ins.join("left-by-a-stopped-daemon");
     std::fs::create_dir_all(&leftover).expect("a leftover folder is planted");
     std::fs::write(leftover.join(CLAUDE_CREDENTIALS_FILE), "{}").expect("its file is planted");
-    let leftover_environment = [(
-        SECURE_STORAGE_FOLDER_VARIABLE.to_owned(),
-        leftover.to_string_lossy().into_owned(),
-    )];
+    std::fs::write(leftover.join(SIGN_IN_KEYCHAIN_ACCOUNT_FILE), "row-user")
+        .expect("its record is planted");
+    let leftover_environment = [
+        (
+            SECURE_STORAGE_FOLDER_VARIABLE.to_owned(),
+            leftover.to_string_lossy().into_owned(),
+        ),
+        ("USER".to_owned(), "row-user".to_owned()),
+    ];
     let keychain = &scripted.starts.keychain;
     let (service, account) = (
         claude_keychain_service(&leftover_environment),

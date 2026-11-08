@@ -150,7 +150,8 @@ impl From<CodexSignInError> for DriverError {
 
 /// Signs in to `request`'s server through Codex's own client on a throwaway service of
 /// `registry`'s, the server's entry read from the person's config at the binding's root, else at
-/// `home_folder`, or from the plugin that carries it. Fails with
+/// `home_folder`, or from the plugin that carries it; `request`'s environment rows are not read,
+/// since Codex fills no variable in an entry's address. Fails with
 /// [`DriverError::NoPersonServerEntry`] for a connector or a binding whose entry is gone or
 /// declares another address, as the entry's read, the service's start or a request fails, and
 /// with [`CodexSignInError`] for every other failure; the service is stopped and its folder
@@ -223,7 +224,8 @@ pub(crate) async fn sign_in_with_codex_client(
 }
 
 /// Reads the whole address `request`'s server entry declares: its `url` as Codex's merged config
-/// or the plugin's file gives it, since Codex fills no variable there. Fails with
+/// or the plugin's file gives it, `request`'s environment rows not read, since Codex fills no
+/// variable there. Fails with
 /// [`DriverError::NoPersonServerEntry`] for a connector and an entry that is gone or names no
 /// `url`, and as the entry's read fails.
 pub(crate) async fn read_codex_server_address(
