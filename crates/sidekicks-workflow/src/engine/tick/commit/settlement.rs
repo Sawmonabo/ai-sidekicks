@@ -133,15 +133,18 @@ impl RunTurnCommit {
             }
             StepSettlement::AccountSpent {
                 provider_account_id,
+                resets_at,
                 run,
             } => {
                 self.statements.push(wait_step_on_account(
                     &step,
                     &provider_account_id,
                     at,
+                    resets_at.as_ref(),
                     cut_hold_milliseconds(reported.last_hold_report_at, at),
                 ));
-                let suspended = account_suspended(self, &step, provider_account_id);
+                let suspended =
+                    account_suspended(self, &step, provider_account_id, resets_at.clone());
                 self.push(at, suspended);
                 self.counts.moved(
                     Some(reported.standing()),
@@ -159,7 +162,10 @@ impl RunTurnCommit {
                         deadline_at: None,
                     },
                 ));
-                Ok(SettlementAnswer::AccountSpent { run })
+                Ok(SettlementAnswer::AccountSpent {
+                    run,
+                    resume_at: resets_at,
+                })
             }
             StepSettlement::Canceled {
                 hold_started_at,
@@ -488,11 +494,12 @@ type CompletedPayloads<'variables> = (
 );
 
 /// The `workflow.phase.suspended` of `step` waiting on the spent account `provider_account_id`,
-/// with no resume instant, since the signal carries no reset boundary.
+/// resuming at `resume_at` where one is armed.
 fn account_suspended(
     commit: &RunTurnCommit,
     step: &WorkflowStepKey,
     provider_account_id: ProviderAccountId,
+    resume_at: Option<WireInstant>,
 ) -> SessionEvent {
     SessionEvent::WorkflowPhaseSuspended(WorkflowPhaseSuspendedPayload::Account {
         session_id: commit.keys.session_id,
@@ -501,7 +508,7 @@ fn account_suspended(
         attempt: step.attempt,
         execution_index: step.execution_index,
         provider_account_id,
-        resume_at: None,
+        resume_at,
         wait_deadline_at: None,
         wait_id: None,
         log_ref: None,

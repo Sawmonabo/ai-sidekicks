@@ -39,11 +39,15 @@ use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
 use crate::engine::chain::{KeepGoingAnswer, KeepGoingIntake};
+use crate::engine::deadlines::{ENGINE_DEADLINE_STATEMENT_CAPACITY, EngineDeadlines};
 use crate::engine::event_record::EngineRecorder;
 use crate::engine::ports::kept_payloads::KeptPayloads;
+use crate::engine::ports::run_limits::ScriptedRunLimits;
 use crate::engine::ports::{
-    ApprovalCardRaiser, EnginePorts, EngineRecordSink, KeptEngineRecords, PersonWaitQuestions,
-    RunSnapshotPoints, ScriptedGate, StepAdmission, StepPayloadArtifacts, refusing_engine_ports,
+    AgentStepRequest, AgentStepRunner, ApprovalCardRaiser, EnginePorts, EngineRecordSink,
+    KeptEngineRecords, PersonWaitQuestions, RunSnapshotPoints, ScriptedAgentRunner, ScriptedGate,
+    StepAdmission, StepAdmissionOutcome, StepPayloadArtifacts, WorkflowRunLimits,
+    refusing_engine_ports,
 };
 use crate::engine::start::StartedRun;
 use crate::engine::tick::dispatch::test_dispatch_recording;
@@ -57,14 +61,11 @@ use crate::engine::tick::turns::{
 };
 use crate::engine::tick::{RunGraph, RunScope, StepReport, test_run_scope};
 use crate::engine::waits::answers::PersonWaitIntake;
-use crate::engine::waits::{
-    PERSON_WAIT_STATEMENT_CAPACITY, PersonWaitAnswer, PersonWaitDeadlines, PersonWaitPorts,
-    PersonWaitRefusal,
-};
+use crate::engine::waits::{PersonWaitAnswer, PersonWaitPorts, PersonWaitRefusal};
 use crate::kinds::step_context::StepContext;
 use crate::kinds::{
-    NodeExecutor, NodeKindTable, PassThroughExecutor, PersonAsk, PersonWait, StepFailure,
-    StepOutcome, test_kind, uncoded_step_error,
+    NodeExecutor, NodeKindTable, PassThroughExecutor, PersonAsk, PersonWait, StepAdmissionNeed,
+    StepFailure, StepOutcome, test_kind, uncoded_step_error,
 };
 use crate::runs::creation::{
     WorkflowRunCreation, trigger_step_key, workflow_run_creation_statements,
@@ -112,6 +113,8 @@ enum Script {
     Ask,
     /// Asks for a form that times out after 120 s.
     Form,
+    /// Asks for an agent run, which the harness's runner makes.
+    Agent,
 }
 
 /// An executor that runs `script`, waking `signal` where the script waits or is canceled.
@@ -196,6 +199,15 @@ impl NodeExecutor for ScriptedExecutor {
                     return Ok(person_wait(PersonAsk::Approval { prompt: prompt() }, 60));
                 }
                 Script::Ask => return Ok(person_wait(PersonAsk::Reply { prompt: prompt() }, 120)),
+                Script::Agent => {
+                    return Ok(StepOutcome::AgentRun(AgentStepRequest {
+                        session_id: context.session_id,
+                        step: context.step.clone(),
+                        node_key: context.node_key.clone(),
+                        permission_level: context.permission_level,
+                        params: serde_json::Map::new(),
+                    }));
+                }
                 Script::Form => {
                     let input_schema = serde_json::Map::new();
                     let form = PersonAsk::Form {
@@ -210,6 +222,14 @@ impl NodeExecutor for ScriptedExecutor {
 
     fn readies_on_first_input(&self, _node: &WorkflowNode) -> bool {
         matches!(self.script, Script::First)
+    }
+
+    fn admission_need(&self, _node: &WorkflowNode) -> StepAdmissionNeed {
+        if matches!(self.script, Script::Agent) {
+            StepAdmissionNeed::OwnRun
+        } else {
+            StepAdmissionNeed::Unweighed
+        }
     }
 }
 
@@ -320,6 +340,7 @@ fn kinds(signal: &Arc<Signals>) -> Arc<NodeKindTable> {
             scripted("test.approve", 1, Script::Approve),
             scripted("test.ask", 1, Script::Ask),
             scripted("test.form", 1, Script::Form),
+            scripted("test.agent", 1, Script::Agent),
         ])
         .expect("the test's kinds build a table"),
     )
@@ -390,7 +411,11 @@ pub(in crate::engine::tick::turns) struct Harness {
     /// The wall clock the deadline clock's scheduler runs on, set to the real clock at the start.
     pub(in crate::engine::tick::turns) clock: Arc<TestWallClock>,
     /// The loop's deadline clock.
-    pub(in crate::engine::tick::turns) deadlines: Arc<PersonWaitDeadlines>,
+    pub(in crate::engine::tick::turns) deadlines: Arc<EngineDeadlines>,
+    /// The runner of the loop's agent steps, every run admitted at once.
+    pub(in crate::engine::tick::turns) agents: Arc<ScriptedAgentRunner>,
+    /// The run limits the deadline clock reads, none set until the test sets one.
+    pub(in crate::engine::tick::turns) limits: Arc<ScriptedRunLimits>,
     /// A sending end of the loop's report channel, which the test reports on as a driver would.
     pub(in crate::engine::tick::turns) reports: mpsc::Sender<StepReport>,
 }
@@ -415,11 +440,17 @@ impl Harness {
         let signal = Arc::new(Signals::default());
         let kinds = kinds(&signal);
         let gate = Arc::new(ScriptedGate::new(None));
+        let agents = Arc::new(ScriptedAgentRunner::new(
+            Some(StepAdmissionOutcome::Admitted),
+            false,
+        ));
         let ports = EnginePorts {
             admission: Arc::clone(&gate) as Arc<dyn StepAdmission>,
+            agent_steps: Arc::clone(&agents) as Arc<dyn AgentStepRunner>,
             payloads: Arc::clone(&payloads) as Arc<dyn StepPayloadArtifacts>,
             ..refusing_engine_ports()
         };
+        let limits = Arc::new(ScriptedRunLimits::default());
         let (dispatch, received_reports, reports) =
             test_dispatch_recording(&database, ports, Arc::clone(&kinds), Arc::clone(&recorder));
         // The stored deadlines are real instants, so the test clock starts at the real clock.
@@ -427,13 +458,14 @@ impl Harness {
         clock.set_now(SystemTime::now());
         let wall_clock: Arc<TestWallClock> = Arc::clone(&clock);
         let scheduler = Arc::new(Scheduler::start(wall_clock, None, watch::channel(0).1));
-        let deadlines = PersonWaitDeadlines::new(
+        let deadlines = EngineDeadlines::new(
             scheduler,
             Arc::new(DatabaseReadPool::new(
                 database.path(),
-                PERSON_WAIT_STATEMENT_CAPACITY,
+                ENGINE_DEADLINE_STATEMENT_CAPACITY,
             )),
             reports.clone(),
+            Arc::clone(&limits) as Arc<dyn WorkflowRunLimits>,
         );
         let order = Arc::new(OrderLog::new(Vec::new()));
         let asks = Arc::new(RecordingAsks::new(database.reader(), Arc::clone(&order)));
@@ -477,6 +509,8 @@ impl Harness {
             order,
             clock,
             deadlines,
+            agents,
+            limits,
             reports,
         }
     }
@@ -514,6 +548,7 @@ impl Harness {
             node_id: nodes[0].id.clone(),
         };
         let started_at = WireInstant::now();
+        let run_started_at = started_at.timestamp().expect("a stored instant reads");
         let trigger_input = write_step_payload(
             self.payloads.as_ref(),
             base.session_id,
@@ -577,6 +612,7 @@ impl Harness {
         let scope = RunScope {
             run_id: base.run_id,
             trigger,
+            run_started_at,
             ..test_run_scope(base.mode, nodes)
         };
         let cancel = scope.cancel.clone();

@@ -8,7 +8,7 @@ mod dispatch;
 mod live_runs;
 pub(crate) mod node_settings;
 pub(crate) mod run_status;
-mod step_failure;
+pub(crate) mod step_failure;
 mod turns;
 mod walk;
 
@@ -233,6 +233,9 @@ pub(crate) enum StepReportKind {
         /// How many running branches the wave canceled.
         count: usize,
     },
+    /// The step's armed resume came due; the tick resumes it while it still waits on its spent
+    /// account.
+    ResumeDue,
     /// The step ended.
     Settled(StepSettlement),
 }
@@ -272,6 +275,8 @@ pub(crate) enum StepSettlement {
     AccountSpent {
         /// The spent account.
         provider_account_id: ProviderAccountId,
+        /// When the account's limit resets, where the provider stated the instant.
+        resets_at: Option<WireInstant>,
         /// The step's agent run, kept to resume when the account is back.
         run: Box<dyn AgentStepRun>,
     },

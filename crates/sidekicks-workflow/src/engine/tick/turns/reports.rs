@@ -31,7 +31,8 @@ use crate::kinds::{PersonAsk, StepFailure};
 
 impl EngineTick {
     /// Offers `report` to the run's waves, then adds it to the turn and follows what a settlement
-    /// answers; the run cap's failure goes to the run whichever step reported it. A wave's
+    /// answers; the run cap's failure goes to the run whichever step reported it, and a spent
+    /// account's reset at or past the run's cap deadline is dropped, so no resume is armed. A wave's
     /// `branchesCanceled` is written whether or not its deciding step is live; a failed step's own
     /// settlement after its cancel ends its wind-down, writing nothing; any other report of a step
     /// that is not live, or is live and failed, is dropped.
@@ -41,7 +42,7 @@ impl EngineTick {
         turn: &mut RunTurn,
         report: StepReport,
     ) {
-        let report = match report {
+        let mut report = match report {
             StepReport {
                 at,
                 kind: StepReportKind::Settled(StepSettlement::Failed { failure, log_lines }),
@@ -52,6 +53,19 @@ impl EngineTick {
             }
             report => report,
         };
+        // The cap wins: a reset at or past the run's cap deadline is not armed.
+        if let StepReportKind::Settled(StepSettlement::AccountSpent { resets_at, .. }) =
+            &mut report.kind
+            && let Some(resets) = resets_at.as_ref().and_then(WireInstant::timestamp)
+            && let Some(cap) = self
+                .deadlines
+                .cap_deadline(live.scope.run_started_at, turn.commit.person_wait())
+                .as_ref()
+                .and_then(WireInstant::timestamp)
+            && resets >= cap
+        {
+            *resets_at = None;
+        }
         let Some(mut report) = offer_to_waves(live, &mut turn.follow_ups, report).await else {
             return;
         };
@@ -102,6 +116,11 @@ impl EngineTick {
                     live_step.is_winding_down = true;
                 }
                 None
+            }
+            StepReportKind::ResumeDue => {
+                self.resume_account_park(live, turn, report.step, report.at)
+                    .await;
+                return;
             }
             StepReportKind::Started { .. }
             | StepReportKind::Progressed
@@ -192,8 +211,9 @@ impl EngineTick {
     /// Follows the settlement of `step` at `at`: a completion or a pass-on settles the walk and
     /// records the outputs; a retry readies the next attempt, canceled unrun in a stopped run; a
     /// cancel drops the step. A park or an end keeps the step live and failed and stops the run's
-    /// other steps, an end deciding the run's ending with the step's error; a person wait or a spent account keeps it waiting, a spent account's agent run
-    /// kept on it.
+    /// other steps, an end deciding the run's ending with the step's error; a person wait or a
+    /// spent account keeps it waiting, a spent account's agent run kept on it and its resume armed
+    /// where one is set.
     pub(super) async fn follow_settlement(
         &self,
         live: &mut LiveRun,
@@ -269,15 +289,76 @@ impl EngineTick {
                     is_point_taken: false,
                 });
             }
-            SettlementAnswer::AccountSpent { run } => {
-                let execution_index = step.execution_index.get();
-                let account = Some(WorkflowWaitCause::Account);
-                live.move_step(execution_index, WorkflowStepStatus::Waiting, account);
-                live.steps
-                    .get_mut(&execution_index)
-                    .expect("a step the turn moved is live")
-                    .parked_agent_run = Some(run);
+            SettlementAnswer::AccountSpent { run, resume_at } => {
+                live.wait_on_account(step.execution_index.get(), run, resume_at);
             }
+        }
+    }
+
+    /// Resumes `step` of `live` from its spent account at `at`, as its armed resume coming due
+    /// does, only while it still waits on the account, is not winding down and its run's ending is
+    /// undecided; else nothing is written. A failed park beside it does not hold it back, since
+    /// its attempt is in flight. Its row goes back to `running` in the turn's write, its resume is
+    /// disarmed, it takes a fresh cancel, a child of the run's, and its kept agent run waits on
+    /// the turn, taken again once the write commits.
+    pub(super) async fn resume_account_park(
+        &self,
+        live: &mut LiveRun,
+        turn: &mut RunTurn,
+        step: WorkflowStepKey,
+        at: WireInstant,
+    ) {
+        let execution_index = step.execution_index.get();
+        let is_parked = live.ending.is_none()
+            && live.steps.get(&execution_index).is_some_and(|live_step| {
+                live_step.status == WorkflowStepStatus::Waiting
+                    && live_step.wait_cause == Some(WorkflowWaitCause::Account)
+                    && !live_step.is_winding_down
+            });
+        if !is_parked {
+            return;
+        }
+        let resumed = StepReport {
+            step: step.clone(),
+            at,
+            kind: StepReportKind::ResumeDue,
+        };
+        turn.commit
+            .report(resumed, self.reported(live, &step))
+            .await
+            .expect("only a settlement stores a payload");
+        live.move_step(execution_index, WorkflowStepStatus::Running, None);
+        let cancel = live.scope.cancel.child_token();
+        let live_step = live
+            .steps
+            .get_mut(&execution_index)
+            .expect("a resumed step is live");
+        live_step.cancel = Some(cancel);
+        let run = live_step
+            .parked_agent_run
+            .take()
+            .expect("a step waiting on its spent account keeps its run");
+        turn.resumes.push((step, run));
+    }
+
+    /// Hands each of `resumes`, a step of `live` whose resume the turn's write just committed,
+    /// with its kept agent run to the dispatch, which takes the run again under the step's cancel.
+    pub(super) fn resume_parked(
+        &self,
+        live: &LiveRun,
+        resumes: Vec<(WorkflowStepKey, Box<dyn AgentStepRun>)>,
+    ) {
+        for (step, run) in resumes {
+            let live_step = live
+                .steps
+                .get(&step.execution_index.get())
+                .expect("a resumed step stays live until its run settles it");
+            let cancel = live_step
+                .cancel
+                .clone()
+                .expect("a resumed step holds its cancel");
+            self.dispatch
+                .resume_agent_step(&live.scope, step, &live_step.inputs, run, cancel);
         }
     }
 

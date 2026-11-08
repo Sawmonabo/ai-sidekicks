@@ -57,7 +57,7 @@ use crate::definitions::content_hash::hash_canonical_json;
 use crate::definitions::kept_values::{WorkflowKeptValue, WorkflowKeptValueStore};
 use crate::definitions::stored_document::parse_stored_pin_data;
 use crate::engine::event_record::{EngineFault, EngineRecorder};
-use crate::engine::ports::{ChainAskAfterReader, StepPayloadArtifacts};
+use crate::engine::ports::{StepPayloadArtifacts, WorkflowRunLimits};
 use crate::engine::tick::{RunGraph, RunPin, RunScope};
 use crate::kinds::NodeKindTable;
 use crate::runs::creation::{
@@ -262,8 +262,8 @@ pub(crate) struct WorkflowRunStarterDependencies {
     pub(crate) authorizer: Arc<Authorizer>,
     /// The store of a trigger input above the inline cap.
     pub(crate) payloads: Arc<dyn StepPayloadArtifacts>,
-    /// The limit a joining run is counted under.
-    pub(crate) chain_ask_after: Arc<dyn ChainAskAfterReader>,
+    /// The limits a run is held to, a joining run's chain count among them.
+    pub(crate) run_limits: Arc<dyn WorkflowRunLimits>,
     /// The values each workflow keeps, which its runs read.
     pub(crate) kept_values: Arc<WorkflowKeptValueStore>,
     /// The kinds a start reads its steps' needs from.
@@ -286,7 +286,7 @@ pub(crate) struct WorkflowRunStarter {
     machines: Arc<MachineRegistry>,
     authorizer: Arc<Authorizer>,
     payloads: Arc<dyn StepPayloadArtifacts>,
-    chain_ask_after: Arc<dyn ChainAskAfterReader>,
+    run_limits: Arc<dyn WorkflowRunLimits>,
     kept_values: Arc<WorkflowKeptValueStore>,
     kinds: Arc<NodeKindTable>,
     data_folder: PathBuf,
@@ -306,7 +306,7 @@ impl WorkflowRunStarter {
             machines,
             authorizer,
             payloads,
-            chain_ask_after,
+            run_limits,
             kept_values,
             kinds,
             data_folder,
@@ -318,7 +318,7 @@ impl WorkflowRunStarter {
             machines,
             authorizer,
             payloads,
-            chain_ask_after,
+            run_limits,
             kept_values,
             kinds,
             data_folder,
@@ -530,7 +530,7 @@ impl WorkflowRunStarter {
         }
         // The limit is read at each joining start, so a changed setting holds the next one.
         let chain_ask_after = match chain {
-            WorkflowRunChainPlace::Joins { .. } => self.chain_ask_after.chain_ask_after_runs(),
+            WorkflowRunChainPlace::Joins { .. } => self.run_limits.chain_ask_after_runs(),
             WorkflowRunChainPlace::Starts {} => None,
         };
         let creation = WorkflowRunCreation {

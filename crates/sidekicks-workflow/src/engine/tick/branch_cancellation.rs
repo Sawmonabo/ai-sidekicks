@@ -197,6 +197,7 @@ mod tests {
             StepReportKind::WaitingOnPool { .. }
             | StepReportKind::Admitted { .. }
             | StepReportKind::Started { .. }
+            | StepReportKind::ResumeDue
             | StepReportKind::Settled(
                 StepSettlement::Completed { .. }
                 | StepSettlement::Failed { .. }
@@ -350,6 +351,7 @@ mod tests {
                     provider_account_id: serde_json::from_value(json!("account-a"))
                         .expect("the test's account id reads"),
                     run: runner.made_run(),
+                    resets_at: None,
                 }),
             )
         };

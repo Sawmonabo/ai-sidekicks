@@ -49,11 +49,14 @@ use super::walk::WalkReady;
 use super::{ReadyStep, RunSnapshot, StepReport, StepReportKind, StepSettlement};
 use crate::definitions::kept_values::remove_dropped;
 use crate::engine::chain::KeepGoingIntake;
+use crate::engine::deadlines::EngineDeadlines;
 use crate::engine::event_record::{EngineFault, EngineRecorder};
-use crate::engine::ports::{PortError, RunSnapshotPoints, StepAdmission, StepPayloadArtifacts};
+use crate::engine::ports::{
+    AgentStepRun, PortError, RunSnapshotPoints, StepAdmission, StepPayloadArtifacts,
+};
 use crate::engine::start::StartedRun;
 use crate::engine::waits::answers::PersonWaitIntake;
-use crate::engine::waits::{PersonWaitDeadlines, PersonWaitPorts, PersonWaitRefusal};
+use crate::engine::waits::{PersonWaitPorts, PersonWaitRefusal};
 use crate::kinds::{NodeKindTable, StepFailure, uncoded_step_error};
 
 /// The most reports one turn takes, and the most inputs from its inbox, so a turn stays bounded.
@@ -106,9 +109,8 @@ pub(crate) struct EngineTickDependencies {
     pub(crate) inbox: mpsc::Receiver<EngineTickInput>,
     /// The approval cards and questions a step waiting on a person asks through.
     pub(crate) person_waits: PersonWaitPorts,
-    /// The deadline clock over every step waiting on a person, read again after a write moves a
-    /// deadline.
-    pub(crate) deadlines: Arc<PersonWaitDeadlines>,
+    /// The engine's deadline clock, read again after a write moves a deadline.
+    pub(crate) deadlines: Arc<EngineDeadlines>,
     /// The snapshot points a run takes, each on its own task.
     pub(crate) snapshot_points: Arc<dyn RunSnapshotPoints>,
 }
@@ -126,7 +128,7 @@ pub(crate) struct EngineTick {
     reports: mpsc::Receiver<StepReport>,
     inbox: mpsc::Receiver<EngineTickInput>,
     person_waits: PersonWaitPorts,
-    deadlines: Arc<PersonWaitDeadlines>,
+    deadlines: Arc<EngineDeadlines>,
     snapshot_points: Arc<dyn RunSnapshotPoints>,
     /// Whether this turn's writes armed or cleared a deadline, took a late answer or dropped a
     /// run, so the deadline clock is read again at the turn's end.
@@ -171,6 +173,9 @@ struct RunTurn {
     /// The reports a cancel or a closed wave queued, applied in order after the report that
     /// queued them, so nothing recurses.
     follow_ups: VecDeque<StepReport>,
+    /// The steps the turn resumed from a spent account, each with its kept agent run, taken
+    /// again once the write commits.
+    resumes: Vec<(WorkflowStepKey, Box<dyn AgentStepRun>)>,
     /// The index and instant of the turn's last event that carries readied steps.
     last_readying_event: Option<(usize, WireInstant)>,
 }
@@ -433,7 +438,7 @@ impl EngineTick {
             *first = trigger_items;
         }
         let ready = ReadyStep {
-            step: trigger.step,
+            step: trigger.step.clone(),
             run_index: trigger.run_index,
             inputs: inputs.clone(),
             input_ref: trigger_input.clone(),
@@ -441,23 +446,9 @@ impl EngineTick {
         live.counts.moved(None, (WorkflowStepStatus::Pending, None));
         live.steps.insert(
             ready.step.execution_index.get(),
-            LiveStep {
-                step: ready.step.clone(),
-                run_index: ready.run_index,
-                status: WorkflowStepStatus::Pending,
-                wait_cause: None,
-                wait_id: None,
-                wait_deadline_at: None,
-                sources: trigger.sources,
-                inputs,
-                input_ref: trigger_input,
-                readying_sequence: started_sequence,
-                last_hold_report_at: None,
-                cancel: None,
-                is_winding_down: false,
-                parked_agent_run: None,
-            },
+            LiveStep::readied(trigger, inputs, trigger_input, started_sequence),
         );
+        live.follow_cap(&self.deadlines, false);
         self.runs.insert(run_id, live);
         (run_id, vec![ready])
     }
@@ -530,6 +521,7 @@ impl EngineTick {
             asks,
             replies: Vec::new(),
             follow_ups: VecDeque::new(),
+            resumes: Vec::new(),
             last_readying_event: None,
         };
         for report in std::mem::take(&mut live.next_batch) {
@@ -557,6 +549,7 @@ impl EngineTick {
             readied,
             asks,
             replies,
+            resumes,
             ..
         } = turn;
         match commit
@@ -576,6 +569,7 @@ impl EngineTick {
                 let ending_sequence = committed.ending_sequence;
                 live.counts = committed.counts;
                 live.person_wait = committed.person_wait;
+                live.follow_cap(&self.deadlines, ending_sequence.is_some());
                 let mut dispatched: Vec<ReadyStep> = held_dispatches
                     .into_iter()
                     .filter_map(|step| still_ready(&live, step))
@@ -612,22 +606,7 @@ impl EngineTick {
                     }
                     live.steps.insert(
                         ready.step.execution_index.get(),
-                        LiveStep {
-                            step: ready.step,
-                            run_index: ready.run_index,
-                            status: WorkflowStepStatus::Pending,
-                            wait_cause: None,
-                            wait_id: None,
-                            wait_deadline_at: None,
-                            sources: ready.sources,
-                            inputs,
-                            input_ref,
-                            readying_sequence,
-                            last_hold_report_at: None,
-                            cancel: None,
-                            is_winding_down: false,
-                            parked_agent_run: None,
-                        },
+                        LiveStep::readied(ready, inputs, input_ref, readying_sequence),
                     );
                 }
                 dispatched.extend(due.into_iter().filter_map(|step| still_ready(&live, step)));
@@ -635,8 +614,9 @@ impl EngineTick {
                     let _unheard = reply.send(Ok(()));
                 }
                 for (step, line) in std::mem::take(&mut live.deadline_lines) {
-                    live.record.decision(Some(&step), line).await;
+                    live.record.decision(step.as_ref(), line).await;
                 }
+                self.resume_parked(&live, resumes);
                 self.ask_people(&mut live, asks).await;
                 self.needs_deadline_read |= std::mem::take(&mut live.needs_deadline_read);
                 if let Some(ending_sequence) = ending_sequence {

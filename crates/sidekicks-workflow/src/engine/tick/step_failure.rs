@@ -193,10 +193,7 @@ pub(crate) fn step_failure_error(
 
 /// The failure the run cap gives the step it cuts, `limit_ms` the cap: `workflow.step.timedOut`,
 /// cause `runCap`, a failure that ends its run.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the run cap's clock, which reports it")
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn run_cap_failure(limit_ms: SafeInt<1>) -> StepFailure {
     let details = WorkflowStepTimedOutDetails {
         cause: WorkflowStepTimedOutCause::RunCap,

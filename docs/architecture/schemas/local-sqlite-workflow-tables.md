@@ -160,6 +160,8 @@ CREATE INDEX idx_workflow_runs_status ON workflow_runs(status)
 CREATE INDEX idx_workflow_runs_chain ON workflow_runs(chain_root_run_id);  -- `Stop them all` cancels every run of the chain still going
 CREATE INDEX idx_workflow_runs_version ON workflow_runs(workflow_version_id);
 CREATE INDEX idx_workflow_runs_started ON workflow_runs(started_at, id);  -- the runs list pages newest first by start, ties broken by id
+CREATE INDEX idx_workflow_runs_unfinished ON workflow_runs(started_at)
+  WHERE finished_at IS NULL;  -- the engine's deadline clock reads every unfinished run's cap, a failed park among them
 
 -- ========================================================================
 -- 4. workflow_gate_resolutions — append-only per C-13 / I5

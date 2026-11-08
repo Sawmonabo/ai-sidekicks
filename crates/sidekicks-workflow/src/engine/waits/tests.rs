@@ -1,43 +1,24 @@
-use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
-use jiff::Timestamp;
 use rstest::rstest;
-use rusqlite::{Connection, params};
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::approval::ApprovalDecision;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::{ComposedText, NonEmptyText};
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
-use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-use sidekicks_contracts::workflow::run::status::{
-    WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
-};
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
-use sidekicks_std::scheduler::Scheduler;
-use sidekicks_std::scheduler::armed_instant::InstantJob as _;
-use sidekicks_std::scheduler::test_wall_clock::{TEST_CLOCK_START, TestWallClock};
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-use sidekicks_store::database::writer::test_file::TestDatabase;
-use tokio::sync::{mpsc, watch};
 
 use super::{
-    PERSON_WAIT_STATEMENT_CAPACITY, PersonWaitAnswer, PersonWaitDeadlines, PersonWaitRefusal,
-    WaitingPersonStep, open_person_wait, settle_person_wait,
+    PersonWaitAnswer, PersonWaitRefusal, WaitingPersonStep, open_person_wait, settle_person_wait,
 };
-use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
-use crate::kinds::{PersonAsk, StepFailure};
-use crate::schema::schema_parts;
-use crate::test_rows::{TEST_NODE_ID, TestStep, insert_run, insert_step, insert_workflow_version};
+use crate::engine::tick::StepSettlement;
+use crate::kinds::PersonAsk;
+use crate::test_rows::TEST_NODE_ID;
 
-const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e50";
-const VERSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e51";
 const RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e52";
 const OPENED_AT: &str = "2026-10-02T00:00:00.000Z";
 const ANSWERED_AT: &str = "2026-10-02T00:00:05.000Z";
-// A wait that should stay silent is given this long to show it does not.
-const QUIET: Duration = Duration::from_millis(50);
 
 fn instant(text: &str) -> WireInstant {
     WireInstant::try_from(text.to_owned()).expect("the test's instant")
@@ -160,219 +141,4 @@ fn an_answer_of_the_waits_kind_settles_the_wait_before_its_deadline(
     });
 
     assert_eq!(settled, expected);
-}
-
-// The test clock's start, moved on by `after`.
-fn clock_instant(after: Duration) -> SystemTime {
-    SystemTime::UNIX_EPOCH + TEST_CLOCK_START + after
-}
-
-// `at` in the stored form.
-fn stored(at: SystemTime) -> String {
-    let timestamp = Timestamp::try_from(at).expect("the test clock reads as a timestamp");
-    WireInstant::from_timestamp(timestamp)
-        .expect("the test clock is after year 0000")
-        .as_str()
-        .to_owned()
-}
-
-// Makes the wait of the step at `execution_index` begin at the clock's start and give up
-// `deadline_after` later.
-fn set_deadline(rows: &Connection, execution_index: u32, deadline_after: Duration) {
-    rows.execute(
-        "UPDATE workflow_steps SET wait_started_at = ?1, wait_deadline_at = ?2 \
-         WHERE execution_index = ?3",
-        params![
-            stored(clock_instant(Duration::ZERO)),
-            stored(clock_instant(deadline_after)),
-            execution_index
-        ],
-    )
-    .expect("the test sets a deadline");
-}
-
-async fn next_report(received: &mut mpsc::Receiver<StepReport>) -> StepReport {
-    tokio::time::timeout(Duration::from_secs(10), received.recv())
-        .await
-        .expect("a report arrives")
-        .expect("the clock still reports")
-}
-
-// The step a report names and the error it failed with, `null` for any other report.
-fn reported_failure(report: StepReport) -> (WorkflowStepKey, Value) {
-    let StepReportKind::Settled(StepSettlement::Failed {
-        failure: StepFailure::Failed(error),
-        ..
-    }) = report.kind
-    else {
-        return (report.step, Value::Null);
-    };
-    (
-        report.step,
-        serde_json::to_value(error).expect("the error writes"),
-    )
-}
-
-fn timed_out(limit_ms: u64) -> Value {
-    json!({
-        "message": "The step's wait passed its timeout",
-        "nodeId": TEST_NODE_ID,
-        "code": "workflow.step.timedOut",
-        "details": {"cause": "stepTimeout", "limitMs": limit_ms},
-    })
-}
-
-/// A dropped run's stored wait stays off the clock: the clock arms at the next run's deadline and
-/// reports only that run's step once the clock passes both. Kills: the earliest read ignoring the
-/// skip, which arms the dropped run's deadline; the due read reporting the dropped run's step.
-#[tokio::test]
-async fn a_dropped_runs_deadline_leaves_the_clock() {
-    const DROPPED_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e53";
-    let database = TestDatabase::new(schema_parts());
-    let rows = database.opener()().expect("the test creates its database");
-    insert_workflow_version(&rows, DEFINITION_ID, VERSION_ID, "Review");
-    // Wait ids come from the execution index and are unique, so the two runs' indexes differ.
-    for (run_id, execution_index, deadline_after) in [(DROPPED_RUN_ID, 0, 10), (RUN_ID, 1, 20)] {
-        insert_run(
-            &rows,
-            run_id,
-            VERSION_ID,
-            WorkflowRunStatus::Waiting,
-            OPENED_AT,
-            None,
-        );
-        insert_step(
-            &rows,
-            run_id,
-            &TestStep {
-                execution_index,
-                status: WorkflowStepStatus::Waiting,
-                wait_cause: Some(WorkflowWaitCause::Approval),
-                wait_account_id: None,
-                resume_at: None,
-            },
-        );
-        set_deadline(&rows, execution_index, Duration::from_secs(deadline_after));
-    }
-    let clock = Arc::new(TestWallClock::default());
-    let wall_clock: Arc<TestWallClock> = Arc::clone(&clock);
-    let scheduler = Arc::new(Scheduler::start(wall_clock, None, watch::channel(0).1));
-    let reads = Arc::new(DatabaseReadPool::new(
-        database.path(),
-        PERSON_WAIT_STATEMENT_CAPACITY,
-    ));
-    let (reports, mut received) = mpsc::channel(8);
-    let deadlines = PersonWaitDeadlines::new(scheduler, reads, reports);
-
-    deadlines.skip_run(WorkflowRunId::new(DROPPED_RUN_ID).expect("the test's run id"));
-    Arc::clone(&deadlines).rearm().await;
-    assert_eq!(
-        deadlines.armed.instant(),
-        Some(clock_instant(Duration::from_secs(20)))
-    );
-
-    clock.set_now(clock_instant(Duration::from_secs(15)));
-    tokio::time::sleep(QUIET).await;
-    assert!(received.try_recv().is_err(), "nothing is due yet");
-    clock.set_now(clock_instant(Duration::from_secs(25)));
-    assert_eq!(
-        reported_failure(next_report(&mut received).await),
-        (test_step(1), timed_out(20_000))
-    );
-    tokio::time::sleep(QUIET).await;
-    assert!(
-        received.try_recv().is_err(),
-        "the dropped run's step is not reported"
-    );
-}
-
-/// The clock arms at the earliest stored deadline, fails only the steps due by the instant it
-/// fired at, once, and reaches the next only when the tick re-arms after the commit. Kills: the
-/// deadline read from anything but the row, a fire that re-arms itself (a second report of the
-/// first step), every waiting step failed at the first fire, the account wait read.
-#[tokio::test]
-async fn a_deadline_that_passed_fails_its_step_once_the_clock_reaches_it() {
-    let database = TestDatabase::new(schema_parts());
-    let rows = database.opener()().expect("the test creates its database");
-    insert_workflow_version(&rows, DEFINITION_ID, VERSION_ID, "Review");
-    insert_run(
-        &rows,
-        RUN_ID,
-        VERSION_ID,
-        WorkflowRunStatus::Waiting,
-        OPENED_AT,
-        None,
-    );
-    let waits = [
-        (WorkflowWaitCause::Approval, None),
-        (WorkflowWaitCause::Form, None),
-        (WorkflowWaitCause::Account, Some("account-one")),
-    ];
-    for (execution_index, (wait_cause, wait_account_id)) in (0..).zip(waits) {
-        insert_step(
-            &rows,
-            RUN_ID,
-            &TestStep {
-                execution_index,
-                status: WorkflowStepStatus::Waiting,
-                wait_cause: Some(wait_cause),
-                wait_account_id,
-                resume_at: None,
-            },
-        );
-    }
-    set_deadline(&rows, 0, Duration::from_secs(10));
-    set_deadline(&rows, 1, Duration::from_secs(20));
-    let clock = Arc::new(TestWallClock::default());
-    let wall_clock: Arc<TestWallClock> = Arc::clone(&clock);
-    let scheduler = Arc::new(Scheduler::start(wall_clock, None, watch::channel(0).1));
-    let reads = Arc::new(DatabaseReadPool::new(
-        database.path(),
-        PERSON_WAIT_STATEMENT_CAPACITY,
-    ));
-    let (reports, mut received) = mpsc::channel(8);
-    let deadlines = PersonWaitDeadlines::new(Arc::clone(&scheduler), reads, reports);
-
-    Arc::clone(&deadlines).rearm().await;
-    assert_eq!(
-        deadlines.armed.instant(),
-        Some(clock_instant(Duration::from_secs(10)))
-    );
-    assert!(received.try_recv().is_err(), "nothing is due yet");
-
-    clock.set_now(clock_instant(Duration::from_secs(15)));
-    assert_eq!(
-        reported_failure(next_report(&mut received).await),
-        (test_step(0), timed_out(10_000))
-    );
-
-    clock.set_now(clock_instant(Duration::from_secs(25)));
-    tokio::time::sleep(QUIET).await;
-    assert!(received.try_recv().is_err(), "the fire armed nothing again");
-
-    // The commit that fails the first step clears its wait; the tick re-arms after it.
-    rows.execute(
-        "UPDATE workflow_steps SET status = ?1, finished_at = ?2, wait_cause = NULL, \
-         wait_deadline_at = NULL, wait_started_at = NULL, wait_id = NULL \
-         WHERE execution_index = 0",
-        params![
-            <&'static str>::from(WorkflowStepStatus::Failed),
-            stored(clock_instant(Duration::from_secs(15)))
-        ],
-    )
-    .expect("the test settles the first step");
-    Arc::clone(&deadlines).rearm().await;
-    assert_eq!(
-        reported_failure(next_report(&mut received).await),
-        (test_step(1), timed_out(20_000))
-    );
-    tokio::time::sleep(QUIET).await;
-    assert!(
-        received.try_recv().is_err(),
-        "the account wait has no deadline"
-    );
-    scheduler
-        .stop(tokio::time::Instant::now() + Duration::from_secs(60))
-        .await
-        .expect("the scheduler stops");
 }

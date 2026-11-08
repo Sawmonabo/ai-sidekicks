@@ -24,8 +24,9 @@ use super::commit::{RunEnding, RunLiveStep};
 use super::run_status::{RunPersonWait, RunStepCounts};
 use super::step_failure::RunStop;
 use super::turns::{RunCancelIntake, RunCancelReply};
-use super::walk::{RunGraph, RunWalk};
+use super::walk::{RunGraph, RunWalk, WalkReady};
 use super::{RunScope, StepReport};
+use crate::engine::deadlines::EngineDeadlines;
 use crate::engine::event_record::{EngineDeadline, EngineDecision, RunEngineRecord};
 use crate::engine::ports::{AgentStepRun, StepAdmissionTicket};
 use crate::engine::waits::OpenedPersonWait;
@@ -74,8 +75,11 @@ pub(crate) struct LiveRun {
     /// Whether the run's turn armed or cleared a wait's deadline, or took a late answer, so the
     /// deadline clock is read again once the turn's write commits.
     pub(crate) needs_deadline_read: bool,
-    /// The deadline arm and clear lines of the run's turn, recorded once its write commits.
-    pub(crate) deadline_lines: Vec<(WorkflowStepKey, EngineDecision<'static>)>,
+    /// The deadline arm and clear lines of the run's turn, each on its step or, for the run's
+    /// cap, on none, recorded once its write commits.
+    pub(crate) deadline_lines: Vec<(Option<WorkflowStepKey>, EngineDecision<'static>)>,
+    /// The run's cap deadline as its last line armed it, `None` while none is armed.
+    pub(crate) cap_at: Option<WireInstant>,
     /// The run's current execution, 0 for its first; a re-execution moves it to the next and
     /// starts its pause count again.
     pub(crate) epoch: WorkflowRunEpoch,
@@ -152,6 +156,37 @@ pub(crate) struct LiveStep {
     /// The agent run it waits on while its account is spent, kept for the account's resume and
     /// stopped when the step is canceled.
     pub(crate) parked_agent_run: Option<Box<dyn AgentStepRun>>,
+    /// When it resumes itself from its spent account's wait, where a resume is armed.
+    pub(crate) resume_at: Option<WireInstant>,
+}
+
+impl LiveStep {
+    /// The step `ready`, `pending` and undispatched, on `inputs`, stored as `input_ref`, readied by
+    /// the write of the event at `readying_sequence`.
+    pub(crate) fn readied(
+        ready: WalkReady,
+        inputs: Vec<Vec<WorkflowItem>>,
+        input_ref: WorkflowPayloadRef,
+        readying_sequence: SafeInt<0>,
+    ) -> Self {
+        Self {
+            step: ready.step,
+            run_index: ready.run_index,
+            status: WorkflowStepStatus::Pending,
+            wait_cause: None,
+            wait_id: None,
+            wait_deadline_at: None,
+            sources: ready.sources,
+            inputs,
+            input_ref,
+            readying_sequence,
+            last_hold_report_at: None,
+            cancel: None,
+            is_winding_down: false,
+            parked_agent_run: None,
+            resume_at: None,
+        }
+    }
 }
 
 impl LiveRun {
@@ -180,6 +215,7 @@ impl LiveRun {
             cancel_replies: Vec::new(),
             needs_deadline_read: false,
             deadline_lines: Vec::new(),
+            cap_at: None,
             epoch: WorkflowRunEpoch(SafeInt::ZERO),
             approval_pauses: 0,
             pausing: Vec::new(),
@@ -198,8 +234,8 @@ impl LiveRun {
     }
 
     /// Moves the live step at `execution_index` to `status`, waiting on `wait_cause` where it
-    /// waits, as the turn's commit moved its row; the step leaves any person wait it held, whose
-    /// deadline is cleared.
+    /// waits, as the turn's commit moved its row; the step leaves any wait it held, whose deadline
+    /// or armed resume is cleared.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn move_step(
         &mut self,
@@ -238,7 +274,68 @@ impl LiveRun {
                 },
                 at: deadline_at.clone(),
             };
-            self.deadline_lines.push((live_step.step.clone(), armed));
+            self.deadline_lines
+                .push((Some(live_step.step.clone()), armed));
+            self.needs_deadline_read = true;
+        }
+    }
+
+    /// Moves the run's cap to where `deadlines` puts it now, or clears it once `is_ended`: a cap
+    /// that moved clears its old line and arms its new one, and queues the clock's read.
+    pub(crate) fn follow_cap(&mut self, deadlines: &EngineDeadlines, is_ended: bool) {
+        let cap_at = if is_ended {
+            None
+        } else {
+            deadlines.cap_deadline(self.scope.run_started_at, &self.person_wait)
+        };
+        if cap_at == self.cap_at {
+            return;
+        }
+        if let Some(at) = self.cap_at.take() {
+            let cleared = EngineDecision::DeadlineCleared {
+                deadline: EngineDeadline::Cap,
+                at,
+            };
+            self.deadline_lines.push((None, cleared));
+        }
+        if let Some(at) = cap_at.clone() {
+            let armed = EngineDecision::DeadlineArmed {
+                deadline: EngineDeadline::Cap,
+                at,
+            };
+            self.deadline_lines.push((None, armed));
+        }
+        self.cap_at = cap_at;
+        self.needs_deadline_read = true;
+    }
+
+    /// Moves the live step at `execution_index` to `waiting` on its spent account, as the turn's
+    /// commit stored it, keeping its agent `run` for the resume and arming its `resume_at` where
+    /// one is set.
+    pub(crate) fn wait_on_account(
+        &mut self,
+        execution_index: u64,
+        run: Box<dyn AgentStepRun>,
+        resume_at: Option<WireInstant>,
+    ) {
+        self.move_step(
+            execution_index,
+            WorkflowStepStatus::Waiting,
+            Some(WorkflowWaitCause::Account),
+        );
+        let live_step = self
+            .steps
+            .get_mut(&execution_index)
+            .expect("a step the turn moved is live");
+        live_step.parked_agent_run = Some(run);
+        live_step.resume_at.clone_from(&resume_at);
+        if let Some(at) = resume_at {
+            let armed = EngineDecision::DeadlineArmed {
+                deadline: EngineDeadline::ResumeAt,
+                at,
+            };
+            self.deadline_lines
+                .push((Some(live_step.step.clone()), armed));
             self.needs_deadline_read = true;
         }
     }
@@ -254,8 +351,8 @@ impl LiveRun {
 
     // Queues the clear line of a deadline a step left, where it held one.
     fn clear_deadline(&mut self, cleared: Option<(WorkflowStepKey, EngineDecision<'static>)>) {
-        if let Some(line) = cleared {
-            self.deadline_lines.push(line);
+        if let Some((step, line)) = cleared {
+            self.deadline_lines.push((Some(step), line));
             self.needs_deadline_read = true;
         }
     }
@@ -280,13 +377,17 @@ impl LiveRun {
     }
 }
 
-// Takes `live_step` out of its person wait, answering the clear line of the deadline it held.
+// Takes `live_step` out of its wait, answering the clear line of the person wait's deadline or
+// the account wait's armed resume it held.
 fn leave_wait(live_step: &mut LiveStep) -> Option<(WorkflowStepKey, EngineDecision<'static>)> {
-    let wait_id = live_step.wait_id.take()?;
-    let at = live_step.wait_deadline_at.take()?;
-    let cleared = EngineDecision::DeadlineCleared {
-        deadline: EngineDeadline::Wait { wait_id },
-        at,
+    let wait_id = live_step.wait_id.take();
+    let deadline_at = live_step.wait_deadline_at.take();
+    let resume_at = live_step.resume_at.take();
+    let (deadline, at) = match (wait_id, deadline_at, resume_at) {
+        (Some(wait_id), Some(at), _) => (EngineDeadline::Wait { wait_id }, at),
+        (_, _, Some(at)) => (EngineDeadline::ResumeAt, at),
+        _ => return None,
     };
+    let cleared = EngineDecision::DeadlineCleared { deadline, at };
     Some((live_step.step.clone(), cleared))
 }

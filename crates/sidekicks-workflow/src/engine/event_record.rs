@@ -177,9 +177,12 @@ pub(crate) enum StepEnding<Failure> {
 }
 
 /// A deadline the engine arms or clears.
-#[expect(
-    dead_code,
-    reason = "the engine's tick and waits, which record each deadline they arm and clear"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the engine's tick and waits, which record each deadline they arm and clear"
+    )
 )]
 pub(crate) enum EngineDeadline {
     /// A person wait's deadline.
