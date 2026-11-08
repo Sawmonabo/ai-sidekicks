@@ -1,7 +1,9 @@
 //! Each connection's processes on the relay's one executor: run under the relay's own ids, every
 //! message about one reaching only the connection that started it.
 
+use futures::SinkExt as _;
 use serde_json::{Value, json};
+use tokio_tungstenite::tungstenite::Message;
 
 use super::{
     ClientSocket, FakeExecutor, ListeningRelay, admitted_socket, assert_quiet, initialize,
@@ -151,6 +153,53 @@ async fn a_policy_ask_reaches_its_process_alone_and_is_denied_once_none_can_answ
     owner.close(None).await.expect("the client closes");
     assert_eq!(next_forwarded(&mut fake).await, denied(9));
     assert_quiet(&mut other).await;
+}
+
+// A request for a method the executor does not serve is answered `-32601` and a line that is no
+// message `-32600`, neither reaching the executor; a notification other than `initialized`, even
+// one naming a served method, is dropped, so the executor's connection stays open and the next
+// served request is the first line it reads. Killed by passing an unserved request or a
+// notification on, which the executor reads first, and by passing on a line that is no message.
+#[tokio::test]
+async fn refuses_what_the_executor_does_not_serve() {
+    let folder = tempfile::tempdir().expect("a test folder");
+    let ListeningRelay {
+        relay: _relay,
+        mut fake,
+        url,
+        presented,
+    } = listening_relay(new_session_id(), folder.path()).await;
+    let mut socket = admitted_socket(&url, &presented).await;
+    initialize(&mut socket).await;
+
+    send_text(
+        &mut socket,
+        &json!({ "id": 2, "method": "thread/start", "params": {} }),
+    )
+    .await;
+    let refused = next_text(&mut socket).await;
+    assert_eq!(refused["id"], 2);
+    assert_eq!(refused["error"]["code"], -32601);
+    for notification in [
+        json!({ "method": "process/cancel", "params": {} }),
+        json!({ "method": "fs/readFile", "params": { "path": "file:///etc/hosts" } }),
+    ] {
+        send_text(&mut socket, &notification).await;
+    }
+    for unreadable in ["not a message", "[1, 2]", "{}"] {
+        socket
+            .send(Message::text(unreadable))
+            .await
+            .expect("the client writes");
+        let refused = next_text(&mut socket).await;
+        assert_eq!(refused["id"], -1, "{unreadable}");
+        assert_eq!(refused["error"]["code"], -32600, "{unreadable}");
+    }
+    let served = json!({ "id": 3, "method": "environment/info", "params": null });
+    send_text(&mut socket, &served).await;
+    let forwarded = next_forwarded(&mut fake).await;
+    assert_eq!(forwarded["method"], "environment/info");
+    assert_quiet(&mut socket).await;
 }
 
 // The executor's ask `id` about `process`'s network access.

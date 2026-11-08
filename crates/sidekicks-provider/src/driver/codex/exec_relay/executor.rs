@@ -79,7 +79,7 @@ pub(super) struct RelayConnectionId(u64);
 struct ClientRequest {
     connection: RelayConnectionId,
     client_id: Box<str>,
-    method: Option<ClientMethod>,
+    method: ClientMethod,
     minted: Option<String>,
 }
 
@@ -260,7 +260,7 @@ impl CodexExecutor {
         connection: RelayConnectionId,
         line: &str,
         id: &RawValue,
-        method: Option<ClientMethod>,
+        method: ClientMethod,
         process_id: Option<&RawValue>,
     ) -> String {
         let relay_id = format!(
@@ -268,12 +268,12 @@ impl CodexExecutor {
             self.next_client_request.fetch_add(1, Ordering::Relaxed)
         );
         let named = process_id
-            .filter(|_named| method.is_some_and(ClientMethod::names_process))
+            .filter(|_named| method.names_process())
             .and_then(|raw| Some((raw, text_of(raw)?)));
         let mut minted = None;
         let relay_process = named.map(|(raw, own_id)| {
             let mut ids = lock(&self.process_ids);
-            let relay_process_id = if method == Some(ClientMethod::ProcessStart) {
+            let relay_process_id = if method == ClientMethod::ProcessStart {
                 let (relay_process_id, is_new) = ids.mint(connection, &own_id);
                 if is_new {
                     minted = Some(relay_process_id.clone());
@@ -442,7 +442,7 @@ impl CodexExecutor {
                 );
                 return;
             };
-            let answer = if request.method == Some(ClientMethod::ProcessStart) {
+            let answer = if request.method == ClientMethod::ProcessStart {
                 self.start_answer(&line, &message, id, &request)
             } else {
                 splice(&line, [(id, &*request.client_id)])
