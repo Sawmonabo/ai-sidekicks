@@ -11,7 +11,7 @@ use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_contracts::worktree::lifecycle::RemovedWorktreeId;
 
 use crate::git::process::{GitCall, GitError, GitRunner};
-use crate::git::worktree::reads::{RefHead, read_ref_heads};
+use crate::git::worktree::reads::{RefHead, UpstreamDistanceRead, read_ref_heads};
 
 /// Where a kept copy's pins live, each under `<prefix>/<removed id>/<pin>`.
 const PIN_REF_PREFIX: &str = "refs/sidekicks/removed";
@@ -140,7 +140,14 @@ pub(crate) async fn delete_pins(
 ) -> Result<(), GitError> {
     let names = pin_ref_names(removed_worktree_id);
     let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
-    let present = read_ref_heads(git, place, common_folder, &name_refs).await?;
+    let present = read_ref_heads(
+        git,
+        place,
+        common_folder,
+        &name_refs,
+        UpstreamDistanceRead::Skipped,
+    )
+    .await?;
     let commands: Vec<String> = names
         .iter()
         .filter_map(|name| {

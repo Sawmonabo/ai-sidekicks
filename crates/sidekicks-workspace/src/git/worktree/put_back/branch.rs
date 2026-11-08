@@ -18,7 +18,7 @@ use crate::git::worktree::claims::KeptCopyClaimsReadError;
 use crate::git::worktree::kept_copy::KEPT_RECORD_ENTRY;
 use crate::git::worktree::kept_copy::pins::{KeptPin, pick_pins, pin_ref_names};
 use crate::git::worktree::kept_copy::saved_state::{SavedStateError, read_rebase_folder};
-use crate::git::worktree::reads::{BRANCH_REF_PREFIX, read_ref_heads};
+use crate::git::worktree::reads::{BRANCH_REF_PREFIX, UpstreamDistanceRead, read_ref_heads};
 use crate::git::worktree::stale_record::{StaleRecordError, at, remove_stale_record_and_refs};
 use crate::git::worktree::tree_records::hold_records;
 
@@ -118,6 +118,7 @@ pub(crate) async fn choose_put_back_branch(
                     tools.place(),
                     kept.canonical_root,
                     &ref_name_refs,
+                    UpstreamDistanceRead::Skipped,
                 )
                 .await
                 .map_err(BranchChoiceStepError::Refs)

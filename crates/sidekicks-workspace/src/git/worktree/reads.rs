@@ -130,8 +130,17 @@ pub(crate) struct RefHead {
     /// The full name of the branch's upstream, or `None` when it follows none.
     pub(crate) upstream: Option<String>,
     /// The commits only the branch holds and only its upstream holds, or `None` when it follows
-    /// none or its upstream is gone.
+    /// none, its upstream is gone or the read did not count them.
     pub(crate) upstream_distance: Option<(u64, u64)>,
+}
+
+/// Whether a ref read counts each branch's commits apart from its upstream's, a walk of both.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum UpstreamDistanceRead {
+    /// Counted, as [`RefHead::upstream_distance`] answers.
+    Counted,
+    /// Not counted, so [`RefHead::upstream_distance`] is `None`.
+    Skipped,
 }
 
 /// Why the record of a linked tree could not be read.
@@ -424,20 +433,26 @@ fn parse_upstream_track(track: &[u8]) -> Result<Option<(u64, u64)>, GitError> {
 }
 
 /// Reads, in one git call, the commit, holding tree and upstream of each of `ref_names` (full
-/// names) that exists in the repository at `repository_folder`, by full name; a ref that does not
-/// exist has no entry. Fails as [`GitRunner::run`] does, with `PathText` for a holding tree this
-/// system cannot name.
+/// names) that exists in the repository at `repository_folder`, by full name, with its upstream
+/// distance as `distance` says; a ref that does not exist has no entry. Fails as
+/// [`GitRunner::run`] does, with `PathText` for a holding tree this system cannot name.
 pub(crate) async fn read_ref_heads(
     git: &GitRunner,
     place: Option<&Place>,
     repository_folder: &Path,
     ref_names: &[&str],
+    distance: UpstreamDistanceRead,
 ) -> Result<HashMap<String, RefHead>, GitError> {
-    let mut arguments = vec![
-        "for-each-ref",
-        "--format=%(refname)%00%(objectname)%00%(worktreepath)%00%(upstream)%00\
-         %(upstream:track,nobracket)%00",
-    ];
+    let format = match distance {
+        UpstreamDistanceRead::Counted => {
+            "--format=%(refname)%00%(objectname)%00%(worktreepath)%00%(upstream)%00\
+             %(upstream:track,nobracket)%00"
+        }
+        UpstreamDistanceRead::Skipped => {
+            "--format=%(refname)%00%(objectname)%00%(worktreepath)%00%(upstream)%00"
+        }
+    };
+    let mut arguments = vec!["for-each-ref", format];
     arguments.extend_from_slice(ref_names);
     let output = git
         .run(
@@ -462,7 +477,9 @@ pub(crate) async fn read_ref_heads(
                 checked_out_at: optional_path(checked_out_at)?,
                 upstream: (!upstream.is_empty())
                     .then(|| String::from_utf8_lossy(upstream).into_owned()),
-                upstream_distance: if upstream.is_empty() {
+                upstream_distance: if upstream.is_empty()
+                    || distance == UpstreamDistanceRead::Skipped
+                {
                     None
                 } else {
                     parse_upstream_track(track)?
@@ -482,11 +499,15 @@ pub(crate) async fn has_branch(
     branch: &str,
 ) -> Result<bool, GitError> {
     let ref_name = format!("{BRANCH_REF_PREFIX}{branch}");
-    Ok(
-        read_ref_heads(git, place, repository_folder, &[ref_name.as_str()])
-            .await?
-            .contains_key(&ref_name),
+    Ok(read_ref_heads(
+        git,
+        place,
+        repository_folder,
+        &[ref_name.as_str()],
+        UpstreamDistanceRead::Skipped,
     )
+    .await?
+    .contains_key(&ref_name))
 }
 
 /// Every local branch's name in the repository at `repository_folder`, in git's order, each read

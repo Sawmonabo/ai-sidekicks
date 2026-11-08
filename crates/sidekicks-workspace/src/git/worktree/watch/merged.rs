@@ -25,7 +25,9 @@ use sidekicks_store::database::writer::WriteError;
 use super::WorkingFolderWatcherDeps;
 use super::tree_state::StandingTree;
 use crate::git::process::{GitCall, GitError, GitRunner, background_read, strip_line_end};
-use crate::git::worktree::reads::{BRANCH_REF_PREFIX, malformed, parse_number, read_ref_heads};
+use crate::git::worktree::reads::{
+    BRANCH_REF_PREFIX, UpstreamDistanceRead, malformed, parse_number, read_ref_heads,
+};
 
 // Records the last tip of the tree's branch seen holding commits of its own.
 const RECORD_OWN_COMMIT_TIP_SQL: &str =
@@ -156,7 +158,8 @@ impl MergedCheck {
         base_refs.dedup();
         let mut names = vec![branch_ref];
         names.extend(base_refs.iter().map(String::as_str));
-        let mut heads = read_ref_heads(git, place, folder, &names).await?;
+        let mut heads =
+            read_ref_heads(git, place, folder, &names, UpstreamDistanceRead::Counted).await?;
         let Some(tip) = heads.remove(branch_ref).map(|head| head.commit) else {
             return Ok(None);
         };
@@ -172,9 +175,15 @@ impl MergedCheck {
         if let (Some(upstream), Some((only_base, only_upstream))) =
             (&base_head.upstream, base_head.upstream_distance)
             && only_upstream > 0
-            && let Some(head) = read_ref_heads(git, place, folder, &[upstream.as_str()])
-                .await?
-                .remove(upstream)
+            && let Some(head) = read_ref_heads(
+                git,
+                place,
+                folder,
+                &[upstream.as_str()],
+                UpstreamDistanceRead::Skipped,
+            )
+            .await?
+            .remove(upstream)
         {
             if only_base == 0 {
                 targets.clear();
