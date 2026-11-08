@@ -383,7 +383,7 @@ interface SessionWorkingFolderUpdateResponse {
 // the draft put back read the same: a lead message taken back joins the draft whole, its words on
 // their own line ahead of the held words, its files and skill picks after the held ones, and its
 // turn speed and repository only where the held draft names none. `attachments` holds a returned
-// message's files until the composer's staged set takes them.
+// message's files, which rejoin the staged set when the composer reads the draft.
 interface SessionDraftExtras {
   attachments?: ArtifactId[]; // the files, in staging order
   skills?: { name: string; folderPath: string }[]; // the skills picked, in the order picked
@@ -396,9 +396,10 @@ interface SessionDraft {
 }
 
 // SessionDraftUpdate — session.draft.update. A save over a draft that changed since the client read
-// it, another device's save or a message a Stop put back, is refused with
-// `session.draft.revisionStale` and writes nothing; the client reads the draft again and saves over
-// that. A save that is taken appends `session.draft.changed` in the same write.
+// it, another device's save or a message a Stop or an interrupt put back, is refused with
+// `session.draft.revisionStale` and writes nothing; the client reads the draft again, puts the
+// person's unsaved typing back on top of it and saves over that. A save that is taken appends
+// `session.draft.changed` in the same write.
 interface SessionDraftUpdateRequest {
   sessionId: SessionId;
   draft: SessionDraft; // the whole draft; an empty one, no words and no extras, clears it
