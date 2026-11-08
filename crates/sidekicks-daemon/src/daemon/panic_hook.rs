@@ -18,7 +18,7 @@ use sidekicks_platforms::{LeftoverSweep, create_private_folder, replace_file_ato
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::standard_error::write_error_line;
 
-use crate::daemon::crash::monitor::{PanicRecord, send_panic_record};
+use crate::daemon::crash::monitor::{PanicRecord, mark_crashing, send_panic_record};
 use crate::daemon::service_log::CRASH_REPORTS_FOLDER_NAME;
 
 /// The start of a panic's record's name in the crash reports folder.
@@ -48,6 +48,7 @@ pub(crate) fn send_panics_to_monitor(client: Arc<minidumper::Client>) {
 pub(crate) fn install_panic_hook(data_folder: &Path, log_file: Option<ArcFileLogWriter>) {
     let crash_reports = data_folder.join(CRASH_REPORTS_FOLDER_NAME);
     std::panic::set_hook(Box::new(move |panic| {
+        mark_crashing();
         let (message, place) = panic_message_and_place(panic);
         let report = strip_url_queries(&scrub_credentials(&describe_panic(&message, &place)));
         tracing::error!(report = %report, "the background service panicked and stops");

@@ -19,7 +19,7 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon::crash::monitor::{
-    CONNECT_BOUND, CRASH_MONITOR_MODE, attach_crash_handler, connect_crash_monitor,
+    CONNECT_BOUND, CRASH_MONITOR_MODE, attach_crash_handler, connect_crash_monitor, is_crashing,
 };
 use crate::daemon::panic_hook::send_panics_to_monitor;
 use crate::daemon::process::start_error::DaemonStartError;
@@ -196,7 +196,8 @@ async fn connect_handler(socket_path: &Path) -> Result<CrashHandler, DaemonStart
 // Waits for `monitor` to end and starts a new one in its place, until `end` fires, answering the
 // monitor running then. A failed attempt is followed by a pause of the connect's own bound, so a
 // registration the system has not yet dropped or a program file being replaced gets time. Past
-// `RESTART_LIMIT` attempts within `RESTART_WINDOW` it logs once and starts no more, answering none.
+// `RESTART_LIMIT` attempts within `RESTART_WINDOW` it logs once and starts no more, answering none;
+// once the service is going down after a crash it starts none, answering none.
 async fn watch_monitor(
     start: MonitorStart,
     mut monitor: ConnectedMonitor,
@@ -217,6 +218,10 @@ async fn watch_monitor(
             ),
         }
         monitor = loop {
+            // A monitor ends once it has written a crash's dump; the process is then aborting.
+            if is_crashing() {
+                return None;
+            }
             let now = Instant::now();
             while restarts
                 .front()
