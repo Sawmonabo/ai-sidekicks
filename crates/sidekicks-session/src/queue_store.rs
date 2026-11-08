@@ -99,8 +99,8 @@ pub struct QueueMessageBody {
     /// The skills the person picked for it, in the order picked, as its provider loads them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skills: Option<Vec<PickedSkill>>,
-    /// The same picks as the person sent them, which a message returned to the composer carries
-    /// back, since only the provider maps a pick to the file it loads.
+    /// The same picks as the person sent them, which a Stop writes back into the draft without
+    /// asking a driver.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill_picks: Option<Vec<QueuedSkillPick>>,
     /// The question it answers.
