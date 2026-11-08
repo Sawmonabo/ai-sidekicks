@@ -156,6 +156,7 @@ impl SeamFixture {
                 session_id: check.approvals.session_id,
                 opening_words: None,
                 workspace_id: None,
+                started_in_workspace_id: None,
                 execution_posture: posture,
             })
             .await

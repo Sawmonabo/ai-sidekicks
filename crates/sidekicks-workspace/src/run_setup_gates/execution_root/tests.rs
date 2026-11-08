@@ -1,5 +1,5 @@
 use std::error::Error;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -7,6 +7,7 @@ use std::time::Duration;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use notify::NullWatcher;
+use rstest::rstest;
 use rusqlite::params;
 use serde_json::json;
 use sidekicks_contracts::agent::definition::AgentId;
@@ -183,6 +184,26 @@ impl GateFixture {
             .expect("the binding never waits on its own hold")
     }
 
+    /// Stores a `ready` workspace of the session bound at `root`, older than any the test binds,
+    /// with its branch context.
+    fn store_bound_workspace(&self, root: &Path) -> WorkspaceId {
+        let root = root.to_string_lossy();
+        self.roots
+            .rows
+            .execute_batch(&format!(
+                "INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, fs_root, \
+                 state, metadata, created_at, updated_at) VALUES ('{OTHER_WORKSPACE_ID}', \
+                 '{SESSION_ID}', '{MOUNT_ID}', 'boundRoot', '{root}', 'ready', \
+                 json_object('boundRoot', '{root}', 'checkoutRoot', '{root}'), \
+                 '{PARENT_ROWS_AT}', '{PARENT_ROWS_AT}');
+                 INSERT INTO branch_contexts (id, workspace_id, base_branch, head_branch, \
+                 created_at, updated_at) VALUES ('branch-context', '{OTHER_WORKSPACE_ID}', 'main', \
+                 'main', '{PARENT_ROWS_AT}', '{PARENT_ROWS_AT}')"
+            ))
+            .expect("the bound workspace is stored");
+        WorkspaceId::new(OTHER_WORKSPACE_ID).expect("the id is a UUID")
+    }
+
     fn text(&self, sql: &str) -> Option<String> {
         self.roots
             .rows
@@ -197,6 +218,15 @@ impl GateFixture {
     }
 }
 
+/// Which of the run's two names carries the workspace it was started in.
+#[derive(Clone, Copy, Debug)]
+enum WorkspaceNaming {
+    /// The provider started it in its parent's workspace.
+    StartedIn,
+    /// The person's send named it.
+    Send,
+}
+
 fn session_id() -> SessionId {
     SessionId::new(SESSION_ID).expect("the id is a UUID")
 }
@@ -207,6 +237,7 @@ fn run_context(run_id: RunId, workspace_id: Option<WorkspaceId>) -> RunSetupCont
         session_id: session_id(),
         opening_words: None,
         workspace_id,
+        started_in_workspace_id: None,
         execution_posture: serde_json::from_value(json!({
             "mode": "yolo",
             "credentialPolicyRef": "curated-credentials",
@@ -302,21 +333,7 @@ async fn a_run_whose_folder_holds_another_repository_is_refused_writing_no_conte
         .expect("the repository sits in the scratch folder")
         .to_path_buf();
     let other = make_test_repository(&fixture.roots.git, &scratch, "other").await;
-    let other_root = other.to_string_lossy().into_owned();
-    fixture
-        .roots
-        .rows
-        .execute_batch(&format!(
-            "INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, fs_root, \
-             state, metadata, created_at, updated_at) VALUES ('{OTHER_WORKSPACE_ID}', \
-             '{SESSION_ID}', '{MOUNT_ID}', 'boundRoot', '{other_root}', 'ready', \
-             json_object('boundRoot', '{other_root}', 'checkoutRoot', '{other_root}'), \
-             '{PARENT_ROWS_AT}', '{PARENT_ROWS_AT}');
-             INSERT INTO branch_contexts (id, workspace_id, base_branch, head_branch, \
-             created_at, updated_at) VALUES ('branch-context', '{OTHER_WORKSPACE_ID}', 'main', \
-             'main', '{PARENT_ROWS_AT}', '{PARENT_ROWS_AT}')"
-        ))
-        .expect("the workspace on the other repository is stored");
+    fixture.store_bound_workspace(&other);
     let run_id = test_run_id();
 
     let refused = fixture
@@ -365,6 +382,47 @@ async fn no_context_is_written_into_a_tree_whose_removal_commits_after_the_bindi
         Some("workspace.rootUnavailable")
     );
     assert_eq!(fixture.contexts_of(run_id), 0);
+}
+
+#[rstest]
+#[case::a_helper_started_in_its_parents_workspace(WorkspaceNaming::StartedIn)]
+#[case::a_send_naming_it(WorkspaceNaming::Send)]
+#[tokio::test]
+async fn a_run_naming_an_older_workspace_is_placed_there_not_in_the_newest(
+    #[case] naming: WorkspaceNaming,
+) {
+    // Catches the session's newest workspace taken for a run that names another: a helper would
+    // leave its parent's process folder, and a send the workspace it named.
+    let fixture = GateFixture::new().await;
+    let newest = fixture.bind(ExecutionMode::BoundRoot).await;
+    let parent_folder = fixture.roots.add_tree("parent-folder").await;
+    let older = fixture.store_bound_workspace(&parent_folder);
+    let run_id = test_run_id();
+    let mut context = run_context(run_id, None);
+    match naming {
+        WorkspaceNaming::StartedIn => context.started_in_workspace_id = Some(older),
+        WorkspaceNaming::Send => context.workspace_id = Some(older),
+    }
+
+    fixture
+        .assert_ready(&context)
+        .await
+        .expect("the run is bound in the workspace it names");
+
+    assert_eq!(
+        fixture
+            .text(&format!(
+                "SELECT workspace_id || ' ' || execution_root FROM run_execution_contexts \
+                 WHERE run_id = '{run_id}'"
+            ))
+            .as_deref(),
+        Some(format!("{older} {}", parent_folder.to_string_lossy()).as_str())
+    );
+    assert_eq!(
+        fixture.roots.workspace(newest).state,
+        "preparing",
+        "the newest workspace made nothing"
+    );
 }
 
 #[tokio::test]

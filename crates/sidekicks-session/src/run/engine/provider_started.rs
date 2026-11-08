@@ -1,7 +1,8 @@
 //! The runs a provider starts itself in a session's open process: a subagent the provider started
 //! beneath a live run, queued beneath its parent with its agent tree node written in the same
 //! append, and the turn it started on an interrupted run with messages it kept from that run's
-//! interrupted turn. Each passes every setup gate at the posture the session's process runs at now
+//! interrupted turn. Each passes every setup gate at the posture the session's process runs at now,
+//! in the workspace it was started in (the parent's for a subagent, its own for a continued run),
 //! before `running` is written, stamped with the posture the gates resolved.
 
 use std::sync::Weak;
@@ -60,41 +61,50 @@ impl RunEngine {
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
         let subagent_id = subagent.subagent_id.clone();
         let parent_subagent_id = subagent.parent_subagent_id.clone();
-        let (session_id, agent_id, admitted_provider_account_id, provider, node, parent_node) =
-            self.pool
-                .read(ReadLength::Short, move |reader| {
-                    let parent = RunStateReader::new(reader)
-                        .read_run(&parent_run_id)?
-                        .ok_or(RunEngineError::Refused(RunRefusal::NotFound {
-                            run_id: parent_run_id,
-                        }))?;
-                    let agents = RunAgentReader::new(reader);
-                    let provider = read_run_provider(reader, &parent_run_id)?
-                        .ok_or(LiveRunDriverError::Unbound {
-                            run_id: parent_run_id,
-                        })?
-                        .provider;
-                    let node =
-                        find_node(reader, parent.session_id, &provider, subagent_id.as_str())?;
-                    let parent_node = match &parent_subagent_id {
-                        Some(parent_subagent_id) => find_node(
-                            reader,
-                            parent.session_id,
-                            &provider,
-                            parent_subagent_id.as_str(),
-                        )?,
-                        None => None,
-                    };
-                    Ok::<_, RunEngineError>((
+        let (
+            session_id,
+            agent_id,
+            admitted_provider_account_id,
+            provider,
+            node,
+            parent_node,
+            parent_workspace_id,
+        ) = self
+            .pool
+            .read(ReadLength::Short, move |reader| {
+                let runs = RunStateReader::new(reader);
+                let parent = runs
+                    .read_run(&parent_run_id)?
+                    .ok_or(RunEngineError::Refused(RunRefusal::NotFound {
+                        run_id: parent_run_id,
+                    }))?;
+                let agents = RunAgentReader::new(reader);
+                let provider = read_run_provider(reader, &parent_run_id)?
+                    .ok_or(LiveRunDriverError::Unbound {
+                        run_id: parent_run_id,
+                    })?
+                    .provider;
+                let node = find_node(reader, parent.session_id, &provider, subagent_id.as_str())?;
+                let parent_node = match &parent_subagent_id {
+                    Some(parent_subagent_id) => find_node(
+                        reader,
                         parent.session_id,
-                        agents.read_agent(&parent.session_id, &parent_run_id)?,
-                        agents.read_admitted_account(&parent.session_id, &parent_run_id)?,
-                        provider,
-                        node,
-                        parent_node,
-                    ))
-                })
-                .await?;
+                        &provider,
+                        parent_subagent_id.as_str(),
+                    )?,
+                    None => None,
+                };
+                Ok::<_, RunEngineError>((
+                    parent.session_id,
+                    agents.read_agent(&parent.session_id, &parent_run_id)?,
+                    agents.read_admitted_account(&parent.session_id, &parent_run_id)?,
+                    provider,
+                    node,
+                    parent_node,
+                    runs.read_run_workspace(&parent_run_id)?,
+                ))
+            })
+            .await?;
         // Fixed before the append, whose build may run again: the event and the node's row share
         // one instant, and a later start keeps the handle its first one minted.
         let started_at = WireInstant::now();
@@ -167,7 +177,7 @@ impl RunEngine {
         )
         .await?;
         // The subagent runs in its session's process, so it is gated at what that process runs at
-        // now, a level move since its parent's start included.
+        // now, a level move since its parent's start included, and in its parent's workspace.
         let Some(execution_posture) = self
             .session_postures
             .get()
@@ -185,6 +195,7 @@ impl RunEngine {
                 session_id,
                 opening_words: None,
                 workspace_id: None,
+                started_in_workspace_id: parent_workspace_id,
                 execution_posture,
             })
             .await;
@@ -290,7 +301,16 @@ impl RunEngine {
         }
         let continued = async {
             // The turn runs in its session's process, so it is gated at what that process runs at
-            // now, a level move since the run was interrupted included.
+            // now, a level move since the run was interrupted included, and in the workspace the
+            // run was bound in.
+            let started_in_workspace_id = self
+                .pool
+                .read(ReadLength::Short, move |reader| {
+                    RunStateReader::new(reader)
+                        .read_run_workspace(&run_id)
+                        .map_err(RunEngineError::from)
+                })
+                .await?;
             let execution_posture = self
                 .session_postures
                 .get()
@@ -303,6 +323,7 @@ impl RunEngine {
                     session_id: run.session_id,
                     opening_words: None,
                     workspace_id: None,
+                    started_in_workspace_id,
                     execution_posture,
                 })
                 .await

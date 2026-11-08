@@ -18,7 +18,8 @@ use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::events::session::append_lock::SessionAppendHold;
 
 /// The run a setup gate checks. Its workspace is the session's own live one: the one the send
-/// that started it named, else the session's newest.
+/// that started it named, else the one a run the provider started was started in, else the
+/// session's newest.
 #[derive(Clone, Debug)]
 pub struct RunSetupContext {
     /// The run.
@@ -30,6 +31,11 @@ pub struct RunSetupContext {
     pub opening_words: Option<MessageContent>,
     /// The workspace the send that started the run bound it to; absent where none was named.
     pub workspace_id: Option<WorkspaceId>,
+    /// The workspace a run the provider started was started in: its parent's, for a helper, which
+    /// runs in its parent's process folder, or its own, for a turn the provider started on an
+    /// interrupted run; absent on a run a send or the daemon started, and where that run bound
+    /// none.
+    pub started_in_workspace_id: Option<WorkspaceId>,
     /// The posture the run runs at: the one it was requested at, or a daemon turn's session's.
     pub execution_posture: ExecutionPosture,
 }

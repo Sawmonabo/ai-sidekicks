@@ -6,6 +6,9 @@
 //! two sessions' runs may work in one folder. The run's end stamps the context released, sweeps the
 //! session out of a removed tree and applies a move held during the run.
 //!
+//! - The run's workspace is the one its send named, else the one a run the provider started was
+//!   started in (a helper works in its parent's process folder), else the session's newest; a
+//!   named one the session no longer holds live refuses the run rather than placing it elsewhere.
 //! - A workspace a re-attach moved waits `preparing` with its root kept; the gate admits it again
 //!   first, so a run never binds the old repository's root.
 //! - Only the binding holds the workspace's preparation hold, and everything it calls takes that
@@ -73,7 +76,7 @@ use crate::trust_envelope::components_equal;
 /// the session's title and the root's ids.
 pub const EXECUTION_ROOT_SETUP_GATE_STATEMENT_CAPACITY: usize = 3;
 
-// The session's live workspace the send named, else its newest, when a detach left an older one
+// The session's live workspace the run names, else its newest, when a detach left an older one
 // archived; with its mount's anchor, place and whether the mount is a chat's own.
 static SELECT_RUN_WORKSPACE_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -243,7 +246,8 @@ struct RunWorkspace {
 /// Why the run's workspace could not be found where the binding looked.
 #[derive(Debug, thiserror::Error)]
 enum RunWorkspaceAbsence {
-    /// The send named a workspace the session does not hold live.
+    /// The send named, or the provider started the run in, a workspace the session does not hold
+    /// live.
     #[error("workspace {0} is no live workspace of the session")]
     NotLive(WorkspaceId),
     /// The session's workspace went while its run was set up.
@@ -493,7 +497,7 @@ impl<W: Watcher + Send + 'static> ExecutionRootSetupGate<W> {
         context: &RunSetupContext,
     ) -> Result<Option<RunWorkspace>, RunSetupGateError> {
         let session_id = context.session_id;
-        let named = context.workspace_id;
+        let named = named_workspace(context);
         self.reads
             .read(ReadLength::Short, move |connection| {
                 read_run_workspace(connection, session_id, named)
@@ -514,15 +518,16 @@ impl<W: Watcher + Send + 'static> ExecutionRootSetupGate<W> {
 
 impl<W: Watcher + Send + Sync + 'static> RunSetupGate for ExecutionRootSetupGate<W> {
     /// Binds the run, refusing `workspace.executionRoot.unresolved` wrapping why it could not,
-    /// which ends the run `failed`; a send that named a workspace the session does not hold live is
-    /// refused so. A session bound to no repository has nothing to bind.
+    /// which ends the run `failed`; a send that named, or a provider-started run started in, a
+    /// workspace the session does not hold live is refused so, never placed in the newest. A
+    /// session bound to no repository has nothing to bind.
     fn assert_run_ready<'a>(
         &'a self,
         context: &'a RunSetupContext,
     ) -> BoxFuture<'a, Result<(), RunSetupGateError>> {
         Box::pin(async move {
             let Some(before) = self.read_workspace(context).await? else {
-                return match context.workspace_id {
+                return match named_workspace(context) {
                     Some(workspace_id) => Err(unresolved(
                         workspace_id,
                         failed(RunWorkspaceAbsence::NotLive(workspace_id)),
@@ -611,6 +616,12 @@ fn run_context_statement(row: &RunContextRow<'_>) -> WriteStatement {
         ]),
         expected_row_count: Some(1),
     }
+}
+
+// The workspace the run names: the one its send named, else the one the provider started it in;
+// `None` takes the session's newest.
+fn named_workspace(context: &RunSetupContext) -> Option<WorkspaceId> {
+    context.workspace_id.or(context.started_in_workspace_id)
 }
 
 fn read_run_workspace(

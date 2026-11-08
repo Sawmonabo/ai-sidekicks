@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex, Weak};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -15,6 +15,7 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
+use sidekicks_contracts::repo::mount::WorkspaceId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queued::{
     AgentRunQueuedNewState, AgentRunQueuedPayload, RunQueuedSessionAgentPayload,
@@ -33,6 +34,7 @@ use sidekicks_provider::driver::test_registry::{
 };
 use sidekicks_provider::run::delivery::ChildRunSubagent;
 use sidekicks_provider::run::posture::{compose_execution_posture, resolve_posture};
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::schema::SchemaParts;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use sidekicks_store::events::log_service::EventReadAfterCursorRequest;
@@ -237,6 +239,87 @@ async fn a_subagent_runs_at_the_posture_its_session_moved_to_since_its_parent_st
     assert_eq!(
         running["executionPosture"],
         serde_json::to_value(&resolved).expect("a posture serializes")
+    );
+}
+
+// A gate that records the workspace each run it checks was started in, and passes it.
+#[derive(Default)]
+struct StartedInGate {
+    started_in: Mutex<Vec<Option<WorkspaceId>>>,
+}
+
+impl RunSetupGate for StartedInGate {
+    fn assert_run_ready<'a>(
+        &'a self,
+        context: &'a RunSetupContext,
+    ) -> BoxFuture<'a, Result<(), RunSetupGateError>> {
+        lock(&self.started_in).push(context.started_in_workspace_id);
+        Box::pin(std::future::ready(Ok(())))
+    }
+}
+
+// Writes `run_id`'s execution context, bound in a workspace of its own, and answers that workspace.
+fn bind_run_in_new_workspace(database: &TestDatabase, run_id: RunId) -> WorkspaceId {
+    let workspace_id = WorkspaceId::try_from(mint_uuid_v7()).expect("a minted UUID is an id");
+    database
+        .reader()
+        .execute(
+            "INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, \
+             execution_mode, execution_root, checkout_root, git_common_dir, branch_context_id, \
+             created_at) VALUES (?1, ?2, ?3, 'boundRoot', '/checkout', '/checkout', \
+             '/checkout/.git', 'branch-context', '2026-10-14T09:30:00.000Z')",
+            params![
+                run_id.text().as_str(),
+                test_session_id().text().as_str(),
+                workspace_id.text().as_str()
+            ],
+        )
+        .expect("the run's context is written");
+    workspace_id
+}
+
+// A helper is gated in its parent's workspace and a continue on its provider's turn in its run's
+// own, never left for the execution-root gate to place in the session's newest. Killed by either
+// start handing its gates no workspace it was started in.
+#[tokio::test]
+async fn a_helper_and_a_continued_run_are_gated_in_the_workspace_they_were_started_in() {
+    let database = TestDatabase::new(subagent_schema_parts());
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let git_folder = home.path().join("repo.git");
+    std::fs::create_dir(&git_folder).expect("the git folder is made");
+    let gate = Arc::new(StartedInGate::default());
+    let engine = test_engine_with(
+        &database,
+        log.service,
+        home.path(),
+        Arc::new(NoPlanHolds),
+        vec![Arc::clone(&gate) as _],
+    );
+    let session_postures = Arc::new(TestSessionPostures::default());
+    engine
+        .set_session_postures(Arc::downgrade(&session_postures) as Weak<_>)
+        .expect("a new engine holds no posture source yet");
+    let parent = start_ask_parent(&database, &engine, &session_postures, &git_folder).await;
+    let parent_workspace = bind_run_in_new_workspace(&database, parent);
+    let interrupted = insert_interrupted_run(&database);
+    let interrupted_workspace = bind_run_in_new_workspace(&database, interrupted);
+
+    running(
+        engine
+            .start_provider_subagent_run(parent, helper("helper-1", None, "call-1"))
+            .await
+            .expect("the subagent's start is answered"),
+    );
+    engine
+        .continue_run_with_kept_messages(interrupted)
+        .await
+        .expect("the continue is written");
+
+    assert_eq!(
+        *lock(&gate.started_in),
+        [None, Some(parent_workspace), Some(interrupted_workspace)],
+        "the parent's send named none; the helper and the continue name where they started"
     );
 }
 
