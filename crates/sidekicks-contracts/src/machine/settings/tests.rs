@@ -59,8 +59,9 @@ fn a_settings_file_reads_over_the_defaults_or_is_refused_whole() {
 }
 
 // A name and a value that each fit their own cap still make an entry Windows refuses once
-// `NAME=value` and its NUL pass the bound. Fails when the row's whole-entry check is dropped,
-// when the update request or the file does not run it, or when it leaves out the `=` or the NUL.
+// `NAME=value` and its NUL pass the bound. Fails when `EnvironmentRow`'s `fits_one_entry` check is
+// dropped or leaves out the `=` or the NUL, or when the update request's or the file's
+// `#[garde(dive)]` toward the rows is.
 #[test]
 fn a_row_whose_whole_entry_passes_the_bound_is_refused() {
     let name = "A".repeat(ENVIRONMENT_ENTRY_MAX_UNITS / 2);
