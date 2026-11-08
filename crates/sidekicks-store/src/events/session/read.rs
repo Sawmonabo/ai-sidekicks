@@ -135,6 +135,23 @@ static AFTER_OF_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// The events after a position, of the given types when the list is not null, counted with their
+// stored payloads' UTF-8 bytes over at most the given number of events.
+static DISTANCE_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT COUNT(*), COALESCE(SUM(LENGTH(CAST(payload AS BLOB))), 0)
+       FROM (SELECT event.payload
+               FROM session_events AS event
+              WHERE session_id = ?1 AND sequence > ?2 AND sequence < ?3
+                AND (?4 IS NULL OR type IN (SELECT value FROM json_each(?4)))
+                AND {} AND NOT {}
+              ORDER BY sequence ASC
+              LIMIT ?5)",
+        outside_skipped_ranges_sql("event"),
+        stored_patch_part_sql("event"),
+    )
+});
+
 static WINDOW_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT {SELECTED_COLUMNS}
@@ -418,6 +435,38 @@ where
                 ],
             ),
         }
+    }
+
+    /// How many of the events [`Self::read_after`] reads after `after_position`, at most `limit`,
+    /// lie past it, and their stored payloads' UTF-8 bytes; only events of `event_types` when
+    /// given.
+    pub fn read_distance(
+        &self,
+        session_id: &SessionId,
+        after_position: i64,
+        limit: i64,
+        event_types: Option<&[&str]>,
+    ) -> Result<(usize, usize), SessionLogReadError> {
+        let before = self.read_bound(session_id, None);
+        let event_types = event_types
+            .map(serde_json::to_string)
+            .transpose()
+            .expect("a list of strings serializes");
+        let (events, bytes): (i64, i64) = self.reader.prepare_cached(&DISTANCE_SQL)?.query_row(
+            params![
+                session_id.text().as_str(),
+                after_position,
+                before,
+                event_types,
+                limit
+            ],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        // A count and a sum of lengths are never negative.
+        Ok((
+            usize::try_from(events).unwrap_or(0),
+            usize::try_from(bytes).unwrap_or(0),
+        ))
     }
 
     /// A page of run `run_id`'s rows of one of `event_types` with a sequence greater than

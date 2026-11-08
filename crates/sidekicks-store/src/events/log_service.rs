@@ -256,6 +256,18 @@ pub struct EventStreamPage {
     pub events: Vec<EventEnvelope>,
 }
 
+/// How far a session's head stands past a change stream's position, counted over a bounded read.
+#[derive(Clone, Copy, Debug)]
+pub struct EventStreamDistance {
+    /// The session's newest readable sequence, `None` when it has none.
+    pub head: Option<i64>,
+    /// The events after the position through the head, of the stream's types, at most the read's
+    /// bound.
+    pub events: usize,
+    /// Those events' stored payloads' UTF-8 bytes.
+    pub bytes: usize,
+}
+
 /// What [`EventLogService::read_after_cursor`] reads.
 #[derive(Clone, Debug)]
 pub struct EventReadAfterCursorRequest {
@@ -518,6 +530,33 @@ impl EventLogService {
                 )
             },
         )
+        .await
+    }
+
+    /// How far `session_id`'s head stands past `after_position` for a change stream reading only
+    /// `event_types` when given, counted over at most `max_events` of its events. Fails as the read
+    /// fails.
+    pub async fn read_stream_distance(
+        &self,
+        session_id: SessionId,
+        after_position: i64,
+        max_events: usize,
+        event_types: Option<&'static [&'static str]>,
+    ) -> Result<EventStreamDistance, EventLogReadError> {
+        self.read(ReadLength::Short, move |reads, _, _| {
+            let head = reads.read_head(&session_id)?;
+            let (events, bytes) = reads.read_distance(
+                &session_id,
+                after_position,
+                i64::try_from(max_events).unwrap_or(i64::MAX),
+                event_types,
+            )?;
+            Ok(EventStreamDistance {
+                head,
+                events,
+                bytes,
+            })
+        })
         .await
     }
 
