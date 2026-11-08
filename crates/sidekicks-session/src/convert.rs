@@ -42,7 +42,7 @@ use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_platforms::{PathRules, distribution_of};
+use sidekicks_platforms::{PathRules, distribution_of, drive_path_of};
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
@@ -371,7 +371,7 @@ impl SessionConversion {
             )
             .into());
         };
-        if !is_in_place(request.path.as_str(), facts.place.as_ref()) {
+        let Some(local_path) = path_in_place(&request.path, facts.place.as_ref()) else {
             return Err(conversion_refused(
                 "The chat's project folder must be in the chat's own place.",
                 SessionConversionRefusedDetails {
@@ -380,9 +380,9 @@ impl SessionConversion {
                 },
             )
             .into());
-        }
+        };
         let attach = RepoMountAttachRequest {
-            local_path: request.path.clone(),
+            local_path,
             place: None,
         };
         // Resolved once, before anything is attached, so a path that is no repository attaches
@@ -767,14 +767,26 @@ fn conversion_record_statement(
     }
 }
 
-// Whether `path` is written in `place`'s own form: a chat in Windows reads no distribution's share,
-// and a chat in a distribution reads a Linux path. A chat with no place, every chat on macOS and
-// Linux, reads any path.
-fn is_in_place(path: &str, place: Option<&Place>) -> bool {
+// The folder a convert attaches for `path` read in `place`'s own form, or `None` for a folder in
+// another place. A chat on Windows reads no distribution's share and attaches a `/mnt/<drive>` path
+// as the drive path it names, any other path as typed for the resolver to judge; a chat in a
+// distribution reads a Linux path as typed; a chat with no place, every chat on macOS and Linux,
+// attaches any path as typed.
+fn path_in_place(path: &FilesystemPath, place: Option<&Place>) -> Option<FilesystemPath> {
     match place {
-        None => true,
-        Some(Place::Windows(_)) => distribution_of(Path::new(path)).is_none(),
-        Some(Place::Wsl(_)) => PathRules::Posix.is_absolute(path),
+        None => Some(path.clone()),
+        Some(Place::Windows(_)) if distribution_of(Path::new(path.as_str())).is_some() => None,
+        Some(Place::Windows(_)) => Some(drive_path_of(path.as_str()).map_or_else(
+            || path.clone(),
+            |drive_path| {
+                FilesystemPath::new(drive_path).expect(
+                    "a drive path is never longer than the path it is read from and holds no NUL",
+                )
+            },
+        )),
+        Some(Place::Wsl(_)) => PathRules::Posix
+            .is_absolute(path.as_str())
+            .then(|| path.clone()),
     }
 }
 

@@ -735,4 +735,4 @@ pub use windows::windowless_app::launch_app_windowless;
 pub use windows::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
 #[cfg(target_os = "windows")]
 pub use windows::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
-pub use wsl::{DistributionPath, distribution_of};
+pub use wsl::{DistributionPath, distribution_of, drive_path_of};
