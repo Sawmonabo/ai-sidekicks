@@ -197,8 +197,8 @@ pub struct SignInService {
     /// Where each settled sign-in appends its completion event.
     pub(super) events: Arc<SessionEventAppender>,
     /// Stops every revocation still running, a sign-out's or a refused renewal's, every
-    /// provider's flow and the start's seed of the signed-in servers, at `close` or when the
-    /// service drops.
+    /// provider's flow, the start's seed of the signed-in servers and every settle of the owed
+    /// sign-outs, at `close` or when the service drops.
     pub(super) revocations: DropGuard,
 }
 
@@ -573,9 +573,10 @@ impl SignInService {
         });
     }
 
-    /// Ends every open attempt, every provider's flow, every revocation still running and the
-    /// start's seed for the daemon's stop, each attempt closing its listener and appending
-    /// nothing, and opens none after. A mark that does not keep is logged, since the stop goes on.
+    /// Ends every open attempt, every provider's flow, every revocation still running, the
+    /// start's seed and every settle of the owed sign-outs for the daemon's stop, each attempt
+    /// closing its listener and appending nothing, and opens none after. A mark that does not keep
+    /// is logged, since the stop goes on.
     pub async fn close(&self) {
         self.revocations.token().cancel();
         let ended: Vec<SignInAttempt> = {

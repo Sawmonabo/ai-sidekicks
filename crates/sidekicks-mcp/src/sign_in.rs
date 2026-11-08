@@ -4,8 +4,9 @@
 //! and the life of each server's one open attempt, the browser's return and the code's redemption,
 //! the sign-in through a provider's own client where the server does not admit the daemon's, the
 //! one completion event each settled sign-in appends, the authorizer that presents and
-//! renews its token on each request, and the sign-out that forgets and revokes it; the target
-//! read from a binding, and the receipted sign-in command the daemon's handler forwards to.
+//! renews its token on each request, the sign-out that forgets and revokes it, and the sign-outs a
+//! binding's removal owes; the target read from a binding, and the receipted sign-in and sign-out
+//! commands the daemon's handlers forward to.
 
 pub mod admitted_client;
 pub(crate) mod authorizer;
@@ -13,6 +14,7 @@ pub mod commands;
 pub(crate) mod completion_event;
 pub mod credential_store;
 pub mod oauth_http_client;
+pub mod owed_sign_out;
 pub(crate) mod provider_flow;
 pub(crate) mod redemption;
 pub mod registration;

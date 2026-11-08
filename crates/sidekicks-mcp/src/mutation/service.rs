@@ -6,6 +6,7 @@
 //! with no provider call. Each committed change sends `mcp.server.config.changed` for its binding.
 //! The sign-in and sign-out commands take the same key, lock and saved check, and a command's
 //! receipt a stop left `pending` is expired, since a command writes no config to settle against.
+//! A removal owes its server's sign-out before its write and settles it once the write answers.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -55,6 +56,7 @@ use crate::mutation::receipts::{
 use crate::mutation::reconciler::McpIntentSettlement;
 use crate::mutation::saved_answer::McpSavedAnswer;
 use crate::mutation::service::command::{McpCommand, McpCommandSettler};
+use crate::mutation::service::removal_sign_out::{McpRemovalSignOut, McpRemovalSignOutHold};
 use crate::mutation::settle::{
     McpIntentSettler, McpIntentSettlers, McpLandedCommit, McpPendingSettle, apply_settlement,
     commit_refusal, observe_settlement, rebuilt_binding, store_unavailable,
@@ -72,7 +74,8 @@ pub const MCP_MUTATION_SERVICE_STATEMENT_CAPACITY: usize =
 pub type McpRemovalRows = Arc<dyn Fn(&McpBindingKey) -> Vec<WriteStatement> + Send + Sync>;
 
 /// The daemon's words when the provider's config could not be read before a write.
-const CONFIG_UNREAD_WORDS: &str = "the provider's config could not be read, so nothing was written";
+pub(crate) const CONFIG_UNREAD_WORDS: &str =
+    "the provider's config could not be read, so nothing was written";
 
 /// The daemon's words when the provider's servers could not be read to check a change.
 const DECLARATIONS_UNREAD_WORDS: &str =
@@ -118,6 +121,8 @@ pub struct McpMutationService {
     key_locks: Arc<KeyedLock<ClientUuid>>,
     /// The pass over the receipts a stop left `pending`.
     pending: McpPendingSettle,
+    /// The sign-outs a removal owes; `None` owes none.
+    removal_sign_out: Option<Arc<dyn McpRemovalSignOut>>,
 }
 
 /// What a mutation and a settle reach: the drivers, the inventory, the receipts, the removal's
@@ -254,6 +259,17 @@ impl McpMutationService {
             receipt_keys,
             key_locks,
             pending,
+            removal_sign_out: None,
+        }
+    }
+
+    /// This service, each removal owing its server's sign-out through `removal_sign_out` before
+    /// its write and settling the owed sign-outs once the write answers.
+    #[must_use]
+    pub fn with_removal_sign_out(self, removal_sign_out: Arc<dyn McpRemovalSignOut>) -> Self {
+        Self {
+            removal_sign_out: Some(removal_sign_out),
+            ..self
         }
     }
 
@@ -345,8 +361,8 @@ impl McpMutationService {
     }
 
     /// Removes `request`'s binding from its provider's config, committing the removal's rows in
-    /// the receipt's write. Refuses as [`Self::upsert`] does, and where the provider declares no
-    /// such binding.
+    /// the receipt's write, and signs its server out where no binding still names it. Refuses as
+    /// [`Self::upsert`] does, and where the provider declares no such binding.
     pub async fn delete(
         &self,
         request: McpServerDeleteRequest,
@@ -387,6 +403,10 @@ impl McpMutationService {
         check_mutation(&check, &bindings_of(&declarations))?;
         let driver = self.parts.driver(&binding)?;
         let before = observe_before(driver, &binding).await?;
+        let owed = match &self.removal_sign_out {
+            Some(removal_sign_out) => removal_sign_out.owe_sign_out(&binding).await?,
+            None => McpRemovalSignOutHold::default(),
+        };
         let key = McpBindingKey::of(&binding);
         let intent = McpIntentReceipt {
             idempotency_key: idempotency_key.clone(),
@@ -401,8 +421,12 @@ impl McpMutationService {
         let answer = self
             .parts
             .write_and_settle(operation, driver, &intent, &receipt_key, write, before)
-            .await?;
-        response_of(answer)
+            .await;
+        drop(owed);
+        if let Some(removal_sign_out) = &self.removal_sign_out {
+            removal_sign_out.settle_owed_sign_outs().await;
+        }
+        response_of(answer?)
     }
 
     /// Starts the pass over the receipts a stop left `pending` in the background, as the daemon's
@@ -829,6 +853,7 @@ fn stored_answer_unreadable(error: serde_json::Error) -> McpRefusal {
 }
 
 pub(crate) mod command;
+pub mod removal_sign_out;
 mod switch;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

@@ -143,6 +143,9 @@ CREATE TABLE mcp_server_bindings (
   -- tool override there, kept while any override is written and dropped once none is, so clearing
   -- an override restores what the provider had.
   native_tool_baseline_json  TEXT,
+  -- The canonical address the binding's whole address last read as, which a removal signs out
+  -- once its variables no longer read; NULL until one has read. It may hold credentials.
+  last_declared_address      TEXT,
   first_observed_at          TEXT NOT NULL,
   updated_at                 TEXT NOT NULL,
   PRIMARY KEY (provider, scope, scope_ref, scope_place, server_name),
@@ -260,6 +263,15 @@ CREATE TABLE mcp_server_admitted_clients (
   -- When the daemon's own client last ended an attempt with no callback; NULL otherwise.
   own_client_unfinished_at  TEXT,
   CHECK(admitted_oauth_client IS NOT NULL OR own_client_unfinished_at IS NOT NULL)
+) STRICT;
+
+-- ---------------------------------------------------------------------------
+-- mcp_server_owed_sign_outs: the canonical address of a server a removed binding, or one whose
+-- address changed, named, whose sign-out is owed unless another binding still names it; a removal
+-- writes it before the provider's write. Not a credential.
+-- ---------------------------------------------------------------------------
+CREATE TABLE mcp_server_owed_sign_outs (
+  server_address  TEXT NOT NULL PRIMARY KEY
 ) STRICT;
 "
     )
