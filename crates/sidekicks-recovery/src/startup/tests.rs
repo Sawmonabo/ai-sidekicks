@@ -15,15 +15,17 @@ use sidekicks_approval::service::test_fixture::SETTLE_WAIT;
 use sidekicks_contracts::event::envelope::DAEMON_SCOPE_SENTINEL_SESSION_ID;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
+use sidekicks_contracts::session::event_cursor::{START_OF_LOG_POSITION, encode_event_cursor};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_provider::port::plan::{ProviderPlan, mint_plan_id};
 use sidekicks_provider::port::question::mint_tool_server_request_id;
 use sidekicks_session::run::engine::test_fixture::{insert_run, stored_run_state};
-use sidekicks_store::database::writer::test_file::test_run_id;
+use sidekicks_store::database::writer::test_file::{test_run_id, test_session_id};
 use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
 use tokio_util::sync::CancellationToken;
 
+use crate::projection_rebuild::mark_stale_statement;
 use crate::restart_settle::RESTART_FAILURE_DETAIL;
 use crate::session_write_refusal::{refuse_call_naming_session, refuse_session_event};
 use crate::status::RecoveryStatusTracker;
@@ -440,4 +442,79 @@ async fn a_pass_withdraws_the_tool_server_questions_a_restart_left() {
         stored_run_state(&fixture.store.database, &paused_run).0,
         "paused"
     );
+}
+
+// `session_id`'s `session.created`, naming `parent` when it is a fork.
+fn session_created(session_id: SessionId, parent: Option<SessionId>) -> Value {
+    let mut created = json!({
+        "type": "session.created",
+        "payload": {
+            "sessionId": session_id,
+            "shape": "chat",
+            "mainAgent": {
+                "agentId": mint_uuid_v7().to_string(),
+                "name": "lead",
+                "binding": {
+                    "providerName": "test-provider",
+                    "modelId": "test-model",
+                    "providerAccountId": null,
+                    "effort": null,
+                },
+                "ancestry": [],
+                "createdAt": "2026-11-08T09:00:00.000Z",
+            },
+        },
+    });
+    if let Some(parent) = parent {
+        created["payload"]["parent"] = json!({
+            "sessionId": parent,
+            "anchorCursor": encode_event_cursor(0).expect("the first position is a cursor"),
+        });
+    }
+    created
+}
+
+// A parent and its fork whose directory rows a fresh file lost, both left stale, the fork logged
+// first: the start rebuilds the parent's row before the fork's, which names a parent only while
+// the parent's row exists, so the fork still names its parent. Killed by the listing's order
+// reversed (`ORDER BY session_id DESC`), which rebuilds the fork while its parent has no row.
+#[tokio::test]
+async fn a_rebuilt_fork_still_names_its_rebuilt_parent() {
+    let fixture = PassFixture::rebuilding_the_directory().await;
+    let parent = test_session_id();
+    let fork = test_session_id();
+    fixture
+        .append(fork, session_created(fork, Some(parent)))
+        .await;
+    fixture.append(parent, session_created(parent, None)).await;
+    let reader = fixture.store.database.reader();
+    reader
+        .execute(
+            "DELETE FROM sessions WHERE id IN (?1, ?2)",
+            [parent.text().as_str(), fork.text().as_str()],
+        )
+        .expect("the rows are lost");
+    fixture
+        .store
+        .writer
+        .write(vec![
+            mark_stale_statement(&fork),
+            mark_stale_statement(&parent),
+        ])
+        .await
+        .expect("both cursors are stale");
+
+    fixture
+        .pass(Arc::clone(&fixture.status))
+        .run(&CancellationToken::new())
+        .await;
+
+    let named: Option<String> = reader
+        .query_row(
+            "SELECT parent_session_id FROM sessions WHERE id = ?1",
+            [fork.text().as_str()],
+            |row| row.get(0),
+        )
+        .expect("the fork's row is rebuilt");
+    assert_eq!(named.as_deref(), Some(parent.text().as_str()));
 }

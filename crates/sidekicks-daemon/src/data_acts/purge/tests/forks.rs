@@ -1,20 +1,27 @@
 //! A purged session's forks: each stays whole and names no parent, and a rebuild of a fork's row
 //! never writes the purged parent back.
 
+use std::sync::Arc;
+
 use rusqlite::Connection;
 use serde_json::json;
 use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::session::event_cursor::{START_OF_LOG_POSITION, encode_event_cursor};
+use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::session::event_cursor::encode_event_cursor;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_recovery::projection_rebuild::{
+    PROJECTION_REBUILD_STATEMENT_CAPACITY, ProjectionRebuildService,
+};
 use sidekicks_session::directory::projection::SessionDirectoryProjection;
 use sidekicks_session::directory::row::{DirectoryEvent, directory_statements_for};
+use sidekicks_session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
 use sidekicks_std::scheduler::budget::ProcessorMeter;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::damage::DatabaseDamageWatch;
 use sidekicks_store::database::writer::test_file::test_envelope;
 use sidekicks_store::events::log_service::EventLogAppendOptions;
-use sidekicks_store::events::projection::SessionProjection as _;
-use sidekicks_store::events::session::read::{SessionEventFilter, SessionEventReads};
 
 use super::{PurgeFixture, only_outcome, purge_fixture, state_of, store_session};
 use crate::data_acts::purge::SessionPurgeOutcome;
@@ -63,30 +70,27 @@ async fn append_fork_created(fixture: &PurgeFixture, fork: SessionId, parent: Se
         .expect("the fork is created");
 }
 
-// Folds `session_id`'s log into its directory row and writes the row over it, as a rebuild does.
+// Rebuilds `session_id`'s directory row from its log through the projection rebuild.
 async fn rebuild_directory_row(fixture: &PurgeFixture, session_id: SessionId) {
-    let reader = fixture.database.reader();
-    let envelopes = SessionEventReads::new(&reader, |_: &SessionId| None)
-        .read_after(
-            &session_id,
-            START_OF_LOG_POSITION,
-            -1,
-            SessionEventFilter::default(),
-        )
-        .expect("the log reads");
-    let mut fold = SessionDirectoryProjection.fold(&session_id);
-    let mut statements = Vec::new();
-    for envelope in &envelopes {
-        let event = SessionEvent::from_envelope(envelope).expect("a stored event reads");
-        fold.apply(envelope, &event, &mut statements)
-            .expect("the log folds");
-    }
-    fixture
-        .log
-        .writer
-        .write(statements)
-        .await
-        .expect("the rebuilt row is written");
+    let reads = Arc::new(DatabaseReadPool::new(
+        fixture.database.path(),
+        SESSION_SERVICE_STATEMENT_CAPACITY + PROJECTION_REBUILD_STATEMENT_CAPACITY,
+    ));
+    let session_events = Arc::new(SessionService::new(
+        Arc::clone(&reads),
+        Arc::new(|_: &SessionId| None),
+        Arc::new(|_: &ProviderId| None),
+    ));
+    ProjectionRebuildService::new(
+        reads,
+        Arc::clone(&fixture.log.writer),
+        session_events,
+        Arc::new(DatabaseDamageWatch::new()),
+        vec![Box::new(SessionDirectoryProjection)],
+    )
+    .rebuild_session(session_id)
+    .await
+    .expect("the row is rebuilt");
 }
 
 fn parent_of(connection: &Connection, session_id: SessionId) -> Option<String> {

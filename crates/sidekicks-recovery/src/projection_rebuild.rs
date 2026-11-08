@@ -315,6 +315,26 @@ impl ProjectionRebuildService {
         self.reported(rebuilt)
     }
 
+    /// Rebuilds every projection of `session_id` from its log, current or not, under a hold of
+    /// its appends the rebuild takes. Fails as [`ProjectionRebuildService::rebuild`] does.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn rebuild_session(
+        &self,
+        session_id: SessionId,
+    ) -> Result<(), ProjectionRebuildError> {
+        self.rebuild(
+            ProjectionRebuildRequest {
+                session_id,
+                is_forced: true,
+                before_sequence: None,
+                stop: None,
+            },
+            None,
+        )
+        .await
+        .map(|_| ())
+    }
+
     // The rebuild, run while the session's append lock is held.
     async fn rebuild_held(
         &self,

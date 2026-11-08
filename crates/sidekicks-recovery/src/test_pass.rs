@@ -5,8 +5,8 @@
 //! sessions that resume a session's conversation through the drivers a test gives, each resume's
 //! runs settled through recovery's own finalize, and the message a test queues for a run.
 
-use std::error::Error;
 use std::fs;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, Weak};
 
 use futures::FutureExt as _;
@@ -50,6 +50,7 @@ use sidekicks_queue::provider_session::resumed_runs::ResumedRunsIngress;
 use sidekicks_queue::provider_session::test_opening::{
     OrphanedAnswersStandIn, test_provider_sessions,
 };
+use sidekicks_session::directory::projection::SessionDirectoryProjection;
 use sidekicks_session::interventions::service::test_fixture::test_intervention_service;
 use sidekicks_session::questions::service::QuestionsService;
 use sidekicks_session::queue_store::QueueItemBody;
@@ -83,7 +84,8 @@ use tokio::runtime::Handle;
 use tokio::sync::watch;
 
 use crate::damaged_history::{
-    DamagedHistory, DamagedHistoryDeps, SessionDeletePurge, SessionDeletion,
+    DamagedHistory, DamagedHistoryDeps, SessionDeletePurge, SessionDeletePurgeError,
+    SessionDeletion,
 };
 use crate::database_file::copy::{DATABASE_COPY_MODE, DatabaseFileCopier};
 use crate::projection_rebuild::{ProjectionRebuildService, mark_stale_statement};
@@ -183,11 +185,14 @@ impl SessionProjection for SkippedRunVersions {
     }
 }
 
-/// A purge that removes nothing and keeps each session it was asked to purge, with why, in order.
+/// A purge that removes nothing and keeps each session it was asked to purge, with why, in order;
+/// once told, it refuses each as one that left the states its deletion takes.
 #[derive(Default)]
 pub(crate) struct RecordedPurges {
     /// The sessions asked for, each with why it was deleted.
     pub(crate) deletions: Mutex<Vec<(SessionId, SessionDeletion)>>,
+    /// Whether each purge is refused as [`SessionDeletePurgeError::NotDeletable`].
+    pub(crate) is_refusing: AtomicBool,
 }
 
 impl SessionDeletePurge for RecordedPurges {
@@ -195,12 +200,20 @@ impl SessionDeletePurge for RecordedPurges {
         &self,
         session_id: SessionId,
         deletion: SessionDeletion,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+    ) -> BoxFuture<'_, Result<(), SessionDeletePurgeError>> {
         self.deletions
             .lock()
             .expect("no purge panics while it records")
             .push((session_id, deletion));
-        async { Ok(()) }.boxed()
+        let is_refusing = self.is_refusing.load(Ordering::SeqCst);
+        async move {
+            if is_refusing {
+                Err(SessionDeletePurgeError::NotDeletable)
+            } else {
+                Ok(())
+            }
+        }
+        .boxed()
     }
 }
 
@@ -227,6 +240,8 @@ pub(crate) struct PassFixture {
     providers: Arc<ProviderRegistry>,
     /// The runtime bindings a test records a session's conversation in.
     bindings: Arc<RuntimeBindingStore>,
+    /// Whether a rebuild also rebuilds each session's directory row.
+    is_directory_rebuilt: bool,
     _home: TempDir,
 }
 
@@ -234,6 +249,15 @@ impl PassFixture {
     /// The fixture over a fresh database, with no provider to resume a conversation on.
     pub(crate) async fn new() -> Self {
         Self::over_drivers(Vec::new()).await
+    }
+
+    /// The fixture over a fresh database, whose rebuilds also rebuild each session's directory
+    /// row from its log.
+    pub(crate) async fn rebuilding_the_directory() -> Self {
+        Self {
+            is_directory_rebuilt: true,
+            ..Self::new().await
+        }
     }
 
     /// The fixture over a fresh database, a session's conversation resumed on the table's first
@@ -337,6 +361,7 @@ impl PassFixture {
             provider_sessions,
             providers,
             bindings,
+            is_directory_rebuilt: false,
             _home: home,
         }
     }
@@ -417,12 +442,17 @@ impl PassFixture {
             Arc::new(|_: &ProviderId| None),
         ));
         let damage = Arc::new(DatabaseDamageWatch::new());
+        let mut projections: Vec<Box<dyn SessionProjection>> =
+            vec![Box::new(PinnedEvents), Box::new(SkippedRunVersions)];
+        if self.is_directory_rebuilt {
+            projections.push(Box::new(SessionDirectoryProjection));
+        }
         let projection_rebuild = Arc::new(ProjectionRebuildService::new(
             Arc::clone(&reads),
             Arc::clone(&store.writer),
             Arc::clone(&session_events),
             Arc::clone(&damage),
-            vec![Box::new(PinnedEvents), Box::new(SkippedRunVersions)],
+            projections,
         ));
         let (approvals, _run_holds) = test_approval_service(
             &store.database,
