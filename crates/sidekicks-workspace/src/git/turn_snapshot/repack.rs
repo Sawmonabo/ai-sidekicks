@@ -13,8 +13,9 @@
 //!   calls only the packs of captures' objects attach the repository, since `prune-packed`, the
 //!   fold and the pack of listed loose objects with it attached would take or leave out an object
 //!   only the repository's packs hold.
-//! - One lock per capture folder orders its packs, folds and sweep passes, and a purge holds every
-//!   capture folder of its owner on it while they go, so each finds its folder gone after.
+//! - One lock per capture folder orders its packs, folds and sweep passes; a purge holds every
+//!   capture folder of its owner on it while they go, so each finds its folder gone after, and a
+//!   backup holds one folder on it while it copies that folder's objects.
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -263,6 +264,13 @@ impl CapturePacking {
         Ok(OwnerFoldersHold {
             _holds: self.folder_lock.acquire_all(folders).await,
         })
+    }
+
+    /// Holds the capture folder `folder`, on the lock its packs, folds and sweep passes take, once
+    /// the one under way ends; the hold lasts until the answer drops. A backup holds it while it
+    /// copies the folder's objects, so nothing moves them during the copy.
+    pub async fn hold_capture_folder(&self, folder: &Path) -> KeyHold<'_, PathBuf> {
+        self.folder_lock.acquire(folder.to_path_buf()).await
     }
 
     /// Packs what `captured` borrows from the repository beyond its base's tree into its capture

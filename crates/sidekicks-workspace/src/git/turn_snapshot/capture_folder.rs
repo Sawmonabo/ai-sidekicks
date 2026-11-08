@@ -36,6 +36,9 @@ const OBJECT_FOLDER_VARIABLE: &str = "GIT_OBJECT_DIRECTORY";
 /// The variable listing the object folders a git call also reads.
 const ALTERNATE_OBJECT_FOLDERS_VARIABLE: &str = "GIT_ALTERNATE_OBJECT_DIRECTORIES";
 
+/// The hex digits of a capture folder's name, the sha256 of its repository's real path.
+const CAPTURE_FOLDER_NAME_LENGTH: usize = 64;
+
 /// The random bytes in the name of a capture folder still being made, so two makers never meet.
 const PARTIAL_NAME_BYTES: usize = 8;
 
@@ -273,6 +276,26 @@ impl CaptureFolder {
         }
         Ok(())
     }
+}
+
+/// Whether `folder` is a capture folder by its path: its name is 64 lowercase hex digits and its
+/// parent is an owner's captures folder, so a copy, a large file's folder and a folder still being
+/// made are not.
+pub fn is_capture_folder(folder: &Path) -> bool {
+    let is_captures_parent = folder
+        .parent()
+        .and_then(Path::file_name)
+        .is_some_and(|parent| parent == CAPTURES_SEGMENT);
+    let is_capture_name = folder
+        .file_name()
+        .and_then(OsStr::to_str)
+        .is_some_and(|name| {
+            name.len() == CAPTURE_FOLDER_NAME_LENGTH
+                && name
+                    .bytes()
+                    .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+        });
+    is_captures_parent && is_capture_name
 }
 
 /// Whether `name`, an entry of an owner's captures folder, names a capture folder still being made:
