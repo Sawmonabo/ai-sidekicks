@@ -509,6 +509,8 @@ impl CodexServiceEvents for UnheardEvents {
     fn rate_limits_observed(&self, _service: &Arc<CodexService>) {}
 
     fn planned_restart_requested(&self, _service: &Arc<CodexService>) {}
+
+    fn executor_ended(&self, _service: &Arc<CodexService>) {}
 }
 
 /// Tells a test how each service process ended, and each time a service is back after a crash.
@@ -549,6 +551,8 @@ impl CodexServiceEvents for ExitsHeard {
     fn rate_limits_observed(&self, _service: &Arc<CodexService>) {}
 
     fn planned_restart_requested(&self, _service: &Arc<CodexService>) {}
+
+    fn executor_ended(&self, _service: &Arc<CodexService>) {}
 }
 
 /// A Codex stand-in: as the executor it answers the relay's `initialize` and waits on its input;

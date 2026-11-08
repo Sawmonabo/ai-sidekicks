@@ -1,6 +1,6 @@
-//! A live session's level and mode moves Codex refuses, its switch of its tool servers, and a
-//! settle as the session opens and while it comes back, with the resume its service's return owes
-//! it, through the driver.
+//! A live session's level and mode moves Codex refuses, its switch of its tool servers, a settle
+//! as the session opens and while it comes back, with the resume its service's return owes it, and
+//! its service's restart after the executor's end, through the driver.
 
 use std::pin::pin;
 use std::sync::Arc;
@@ -300,5 +300,23 @@ async fn a_service_back_owes_its_sessions_their_resume_as_its_event_arrives() {
     assert_eq!(
         parts.slots.describe_holder(session_id),
         Some(CodexSessionSlotState::Establishing)
+    );
+}
+
+// Killed by an executor's end that restarts its service outside the recovery's mark, as the
+// supervisor's own planned restart does, which resumes none of the home's live sessions.
+#[tokio::test]
+async fn an_executor_s_end_restarts_its_service_under_the_recovery_s_mark() {
+    let LiveCodexSession {
+        driver, scripted, ..
+    } = LiveCodexSession::idle().await;
+    let parts = Arc::clone(driver.parts().expect("the driver composes"));
+    let events = CodexDriverServiceEvents::new(Arc::clone(&driver.link));
+
+    events.executor_ended(&scripted.service);
+
+    assert!(
+        parts.recovery.is_restarting(scripted.service.id()),
+        "the restart runs under the recovery's mark"
     );
 }

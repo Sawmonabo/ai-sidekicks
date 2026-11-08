@@ -1,6 +1,7 @@
 //! Restarting a service on the program as it is now, after a Codex update, when the service asks
-//! for a restart before it lists models or its supervisor asks for a planned restart, or when it
-//! left a purge's delete unanswered, with its conversations resumed on the new process. An account's service restarts in place once every
+//! for a restart before it lists models or its supervisor asks for a planned restart, when the
+//! executor running its commands ended, or when it left a purge's delete unanswered, with its
+//! conversations resumed on the new process. An account's service restarts in place once every
 //! session on it is idle, each held in its slot so no turn starts meanwhile. A terminal service,
 //! which terminals the person joined share, gets a second service each conversation moves to as its
 //! session goes idle: the conversation leaves the first, which unloads it, since Codex refuses to
