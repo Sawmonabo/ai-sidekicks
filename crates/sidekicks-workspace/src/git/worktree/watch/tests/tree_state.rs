@@ -157,7 +157,7 @@ impl WatchedTree {
         self.commit_file(name).await;
     }
 
-    // The last tip of the branch the row records holding commits of its own.
+    // The newest commit of its own on the branch the row records.
     fn recorded_tip(&self) -> Option<String> {
         self.fixture
             .database
@@ -184,13 +184,17 @@ enum MergeStyle {
 // committing it back to `ready`, and its branch merged back `-> merged`, each with its one event;
 // a merged tree dirtied and cleaned by file edits alone reads merged again, stays merged while
 // only its base moves, and moves back to `ready` with its event once it commits work of its own,
-// recording that tip. Kills a move written without its event, an event appended without its move,
-// a fresh tree read as merged, the clean move dropped, a squash of two commits compared only
-// commit by commit, a fast-forward merge whose commit the watch never saw before it merged left
-// unseeded from the reflog, a clean move that leaves the merged check waiting for a change in the
-// git folder, a merged tree left unchecked, a reopen count not bounded by the recorded tip (which
-// reads a squash-merged branch as reopened at the base's next commit), and a reopen that does not
-// record its tip.
+// recording that tip. Before the merge the branch's last commit is amended, and a commit made after
+// it is reset away, all unseen by the watch. Kills a move written without its event, an event
+// appended without its move, a fresh tree read as merged, the clean move dropped, a squash of two
+// commits compared only commit by commit, a fast-forward merge whose commit the watch never saw
+// before it merged left unseeded from the reflog, an amend left out of the reflog's seed (which
+// seeds the work commit before it, so the recorded commit is not the amended one), a seed taken
+// from the reflog's newest commit whether or not the base holds it (which seeds the reset commit
+// and reads the fast-forward as not merged), a clean move that leaves the merged check waiting for
+// a change in the git folder, a merged tree left unchecked, a reopen count not bounded by the
+// recorded tip (which reads a squash-merged branch as reopened at the base's next commit), and a
+// reopen that does not record its tip.
 #[rstest]
 #[case::fast_forward(MergeStyle::FastForward)]
 #[case::squash(MergeStyle::Squash)]
@@ -213,7 +217,25 @@ async fn a_tree_reads_dirty_then_ready_then_merged_once_its_own_commits_merge_ba
 
     watched.commit_file("work.txt").await;
     watched.write_and_commit_file("more.txt").await;
-    let (git, repository) = (&watched.fixture.git, &watched.repository);
+    let (git, repository, tree) = (&watched.fixture.git, &watched.repository, &watched.tree);
+    std::fs::write(tree.join("more.txt"), "amended").expect("written");
+    git_in(git, tree, &["add", "more.txt"]).await;
+    git_in(
+        git,
+        tree,
+        &[
+            "-c",
+            "commit.gpgSign=false",
+            "commit",
+            "--quiet",
+            "--amend",
+            "--no-edit",
+        ],
+    )
+    .await;
+    let amended = git_in(git, tree, &["rev-parse", "HEAD"]).await;
+    watched.write_and_commit_file("dropped.txt").await;
+    git_in(git, tree, &["reset", "--hard", &amended]).await;
     match style {
         MergeStyle::FastForward => {
             git_in(git, repository, &["merge", "--ff-only", "feature"]).await;
@@ -235,6 +257,7 @@ async fn a_tree_reads_dirty_then_ready_then_merged_once_its_own_commits_merge_ba
             ]
         )
     );
+    assert_eq!(watched.recorded_tip(), Some(amended));
 
     watched.write_file("scratch.txt").await;
     watched.remove_file("scratch.txt").await;
@@ -264,9 +287,9 @@ async fn a_tree_reads_dirty_then_ready_then_merged_once_its_own_commits_merge_ba
     assert_eq!(watched.recorded_tip(), Some(tip));
 }
 
-/// How a test leaves a tree's branch level with or behind its base without merging work back.
+/// How a test moves a tree's branch and its base.
 #[derive(Clone, Copy, Debug)]
-enum UnmergedStyle {
+enum BranchHistory {
     /// The branch catches up with its base by a fast-forward.
     FastForwardSync,
     /// The branch catches up with its base through a merge commit that also adds a file.
@@ -279,22 +302,24 @@ enum UnmergedStyle {
     EmptyCommitPastMergedWork,
 }
 
-// A branch whose own work never reached its base reads `ready` with no event. Kills, by case: a
-// fast-forward sync's moved tip read as merged (a reflog seed that takes any entry, or a contained
-// tip read as merged with no recorded one); a merge commit counted as the branch's own work, which
-// records the merge as its tip; the checks run on the current tip, which the reset left contained,
-// in place of the recorded one that holds the discarded work; an empty commit counted as work of
-// its own, or taken as the reflog's seed, which reads the base's fast-forward to it as merged; and
-// a branch whose commits past its base change no path read as applied there.
+// A branch whose own work never reached its base reads `ready` with no event, and one whose work
+// did reads `merged` though an empty commit follows it. Kills, by case: a fast-forward sync's
+// moved tip read as merged (a reflog seed that takes any entry, or a contained tip read as merged
+// with no recorded one); a merge commit counted as the branch's own work, which records the merge
+// as its tip; the checks run on the current tip, which the reset left contained, in place of the
+// recorded one that holds the discarded work; an empty commit counted as work of its own, or taken
+// as the reflog's seed, which reads the base's fast-forward to it as merged; a branch whose commits
+// past its base change no path read as applied there; and the branch's tip recorded in place of
+// its newest commit that changes a path, which leaves merged work behind an empty commit unread.
 #[rstest]
-#[case::fast_forward_sync(UnmergedStyle::FastForwardSync)]
-#[case::merge_commit_sync(UnmergedStyle::MergeCommitSync)]
-#[case::reset_to_base(UnmergedStyle::ResetToBase)]
-#[case::empty_commit(UnmergedStyle::EmptyCommit)]
-#[case::empty_commit_past_merged_work(UnmergedStyle::EmptyCommitPastMergedWork)]
+#[case::fast_forward_sync(BranchHistory::FastForwardSync)]
+#[case::merge_commit_sync(BranchHistory::MergeCommitSync)]
+#[case::reset_to_base(BranchHistory::ResetToBase)]
+#[case::empty_commit(BranchHistory::EmptyCommit)]
+#[case::empty_commit_past_merged_work(BranchHistory::EmptyCommitPastMergedWork)]
 #[tokio::test]
-async fn a_branch_whose_own_work_never_reached_its_base_is_not_merged(
-    #[case] style: UnmergedStyle,
+async fn a_branch_reads_merged_only_once_its_own_work_reached_its_base(
+    #[case] style: BranchHistory,
 ) {
     let mut watched = WatchedTree::new().await;
     let (git, repository, tree) = (
@@ -303,28 +328,28 @@ async fn a_branch_whose_own_work_never_reached_its_base_is_not_merged(
         watched.tree.clone(),
     );
     match style {
-        UnmergedStyle::FastForwardSync => {
+        BranchHistory::FastForwardSync => {
             commit_empty(&git, &repository, "elsewhere").await;
             git_in(&git, &tree, &["merge", "--ff-only", "main"]).await;
         }
-        UnmergedStyle::MergeCommitSync => {
+        BranchHistory::MergeCommitSync => {
             commit_empty(&git, &repository, "elsewhere").await;
             git_in(&git, &tree, &["merge", "--no-ff", "--no-commit", "main"]).await;
             std::fs::write(tree.join("resolved.txt"), "resolved").expect("written");
             watched.commit_file("resolved.txt").await;
         }
-        UnmergedStyle::ResetToBase => {
+        BranchHistory::ResetToBase => {
             watched.write_and_commit_file("work.txt").await;
             watched.tell_ref_moved("feature").await;
             commit_empty(&git, &repository, "elsewhere").await;
             git_in(&git, &tree, &["reset", "--hard", "main"]).await;
         }
-        UnmergedStyle::EmptyCommit => {
+        BranchHistory::EmptyCommit => {
             commit_empty(&git, &tree, "start").await;
             watched.tell_ref_moved("feature").await;
             git_in(&git, &repository, &["merge", "--ff-only", "feature"]).await;
         }
-        UnmergedStyle::EmptyCommitPastMergedWork => {
+        BranchHistory::EmptyCommitPastMergedWork => {
             watched.write_and_commit_file("work.txt").await;
             watched.tell_ref_moved("feature").await;
             let work = git_in(&git, &tree, &["rev-parse", "HEAD"]).await;
@@ -336,16 +361,18 @@ async fn a_branch_whose_own_work_never_reached_its_base_is_not_merged(
     watched.tell_ref_moved("feature").await;
     watched.tell_ref_moved("main").await;
 
-    assert_eq!(
-        watched.settled_state().await,
+    let expected = if matches!(style, BranchHistory::EmptyCommitPastMergedWork) {
+        ("merged".to_owned(), vec![watched.event("merged", "merged")])
+    } else {
         ("ready".to_owned(), Vec::new())
-    );
+    };
+    assert_eq!(watched.settled_state().await, expected);
     let is_tip_recorded = watched.recorded_tip().is_some();
     assert_eq!(
         is_tip_recorded,
         matches!(
             style,
-            UnmergedStyle::ResetToBase | UnmergedStyle::EmptyCommitPastMergedWork
+            BranchHistory::ResetToBase | BranchHistory::EmptyCommitPastMergedWork
         ),
         "only a branch that held work of its own records a tip"
     );

@@ -33,7 +33,7 @@ use crate::git::worktree::rows::{
 use crate::git::worktree::service::{WORKTREE_ROW_COLUMNS, worktree_row_of};
 
 // The newest standing tree the daemon made at a folder, with the base its newest branch context
-// names, else its own, and the last tip seen holding commits of its own.
+// names, else its own, and the newest commit of its own seen on its branch.
 static SELECT_STANDING_TREE_AT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT {WORKTREE_ROW_COLUMNS}, COALESCE(newest.base_branch, wt.base_ref),
@@ -104,12 +104,12 @@ pub(super) struct StandingTree {
     pub(super) row: WorktreeRow,
     /// The base its branch merges back into: its newest branch context's, else its own as given.
     pub(super) base: String,
-    /// The last tip of its branch a check saw holding commits of its own, merge commits not
-    /// counted; `None` while none was seen.
+    /// The newest commit of its own a check saw on its branch, one that changes a path and is no
+    /// merge commit; `None` while none was seen.
     pub(super) own_commit_tip: Option<String>,
 }
 
-// The move a check found due; a reopened tree's row records the tip that holds its new commits.
+// The move a check found due; a reopened tree's row records the newest of its new commits.
 #[derive(Clone, Copy, Debug)]
 enum TreeMove<'tip> {
     Dirtied,

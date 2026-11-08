@@ -1,20 +1,21 @@
 //! Whether a watched worktree's branch has merged back into its base or the base's upstream; a
 //! merge into any other branch is not read.
 //!
-//! - The row records the last tip seen holding commits of its own: each check that counts a commit
-//!   on the branch that changes a path, merge commits not counted, and that neither the base nor
-//!   its upstream holds records the tip; while it records none and the tip is contained, the newest
-//!   commit, amend or pick in the branch's reflog that changed a path and that the base or its
-//!   upstream holds seeds it. A branch that only caught up with its base, by a fast-forward or a
-//!   merge commit, never left it or made only empty commits records none and never reads merged.
-//! - The checks run on the recorded tip, never on a later tip that discarded its work: it has
+//! - The row records the branch's newest commit of its own: each check that finds a commit on the
+//!   branch that changes a path, merge commits not counted, and that neither the base nor its
+//!   upstream holds records the newest such commit; while it records none and the tip is
+//!   contained, the newest commit, amend or pick in the branch's reflog that changed a path and
+//!   that the base or its upstream holds seeds it. A branch that only caught up with its base, by a
+//!   fast-forward or a merge commit, never left it or made only empty commits records none and
+//!   never reads merged.
+//! - The checks run on the recorded commit, never on a later tip that discarded its work: it has
 //!   merged when the base or its upstream holds it, or, where neither does, when nothing on it is
 //!   left unapplied there: each of its commits' patches found on that side, or all of its changes
-//!   as one squashed patch. The patch test runs once per combination of the recorded tip, the
-//!   base's and the upstream's.
-//! - A merged branch reads reopened once a check counts such commits of its own past its recorded
-//!   tip.
-//! - A base that names no local or remote-tracking branch, and a recorded tip the repository no
+//!   as one squashed patch. The patch test runs once per combination of the commit it tests, the
+//!   base's tip and the upstream's.
+//! - A merged branch reads reopened once a check finds such a commit of its own past its recorded
+//!   one.
+//! - A base that names no local or remote-tracking branch, and a recorded commit the repository no
 //!   longer holds, read as not merged, each logged once.
 
 use std::collections::HashSet;
@@ -33,7 +34,7 @@ use crate::git::worktree::reads::{
     BRANCH_REF_PREFIX, UpstreamDistanceRead, malformed, parse_number, read_ref_heads,
 };
 
-// Records the last tip of the tree's branch seen holding commits of its own.
+// Records the newest commit of its own the tree's branch was seen holding.
 const RECORD_OWN_COMMIT_TIP_SQL: &str =
     "UPDATE worktrees SET own_commit_tip = @tip, updated_at = @now WHERE id = @worktree_id";
 
@@ -50,11 +51,13 @@ const NO_MERGE_BASE_EXIT_CODE: i32 = 1;
 // `rev-parse --verify --quiet`'s exit when the repository holds no such commit.
 const NOT_HELD_EXIT_CODE: i32 = 1;
 
-/// What a folder's merged checks keep between changes: the last patch test's tips and verdict, and
-/// each base already logged as naming no branch and each recorded tip as gone.
+/// What a folder's merged checks keep between changes: the last patch test's tips and verdict,
+/// the full ref name of the base's upstream, read with the base, and each base already logged as
+/// naming no branch and each recorded commit as gone.
 #[derive(Default)]
 pub(super) struct MergedCheck {
     last_patch_test: Option<(BranchTips, bool)>,
+    upstream_ref: Option<String>,
     unresolved_bases: HashSet<String>,
     missing_tips: HashSet<String>,
 }
@@ -81,7 +84,7 @@ pub(super) enum MergedReadError {
 
 impl MergedCheck {
     /// Whether `tree`'s branch, checked out at `folder`, has merged back into its base, recording
-    /// on its row the last tip seen holding commits of its own. Fails as git or the write does.
+    /// on its row the newest commit of its own seen on it. Fails as git or the write does.
     pub(super) async fn has_merged_back(
         &mut self,
         deps: &WorkingFolderWatcherDeps,
@@ -97,26 +100,18 @@ impl MergedCheck {
         else {
             return Ok(false);
         };
-        let own_commits = count_past(
-            git,
-            place,
-            folder,
-            &tips.tip,
-            &tips.targets,
-            Commits::OwnOnly,
-        )
-        .await?;
-        if own_commits > 0 {
+        if let Some(newest) =
+            newest_own_commit_past(git, place, folder, &tips.tip, &tips.targets).await?
+        {
             // The tip holds work the base and its upstream lack, so neither contains it.
-            if tree.own_commit_tip.as_deref() != Some(tips.tip.as_str()) {
-                record_own_commit_tip(deps, tree, &tips.tip).await?;
+            if tree.own_commit_tip.as_deref() != Some(newest.as_str()) {
+                record_own_commit_tip(deps, tree, &newest).await?;
             }
         } else {
             let recorded = if let Some(recorded) = &tree.own_commit_tip {
                 recorded.clone()
             } else {
-                if count_past(git, place, folder, &tips.tip, &tips.targets, Commits::All).await? > 0
-                {
+                if count_past(git, place, folder, &tips.tip, &tips.targets).await? > 0 {
                     return Ok(false);
                 }
                 let Some(seed) =
@@ -127,7 +122,7 @@ impl MergedCheck {
                 record_own_commit_tip(deps, tree, &seed).await?;
                 seed
             };
-            match count_past(git, place, folder, &recorded, &tips.targets, Commits::All).await {
+            match count_past(git, place, folder, &recorded, &tips.targets).await {
                 Ok(0) => return Ok(true),
                 Ok(_) => {}
                 Err(error) => {
@@ -136,8 +131,8 @@ impl MergedCheck {
                     }
                     if self.missing_tips.insert(recorded) {
                         tracing::warn!(
-                            "a worktree's recorded branch tip is gone from its repository, so its \
-                             branch is not read as merged back"
+                            "a worktree's recorded branch commit is gone from its repository, so \
+                             its branch is not read as merged back"
                         );
                     }
                     return Ok(false);
@@ -155,9 +150,9 @@ impl MergedCheck {
         Ok(verdict)
     }
 
-    /// The tip of `tree`'s merged branch, checked out at `folder`, once it holds commits of its own
-    /// past the recorded tip that neither the base nor its upstream holds, which the row then
-    /// records; `None` while it holds none. Fails as git does.
+    /// The newest commit of its own on `tree`'s merged branch, checked out at `folder`, past the
+    /// recorded one that neither the base nor its upstream holds, which the row then records;
+    /// `None` while it holds none. Fails as git does.
     pub(super) async fn reopened_tip(
         &mut self,
         git: &GitRunner,
@@ -174,29 +169,21 @@ impl MergedCheck {
         };
         let mut past = tips.targets.clone();
         past.extend(tree.own_commit_tip.iter().cloned());
-        let count = match count_past(git, place, folder, &tips.tip, &past, Commits::OwnOnly).await {
-            Ok(count) => count,
-            // A recorded tip the repository no longer holds bounds nothing.
+        match newest_own_commit_past(git, place, folder, &tips.tip, &past).await {
+            Ok(newest) => Ok(newest),
+            // A recorded commit the repository no longer holds bounds nothing.
             Err(error) => match &tree.own_commit_tip {
                 Some(recorded) if !is_commit_held(git, place, folder, recorded).await? => {
-                    count_past(
-                        git,
-                        place,
-                        folder,
-                        &tips.tip,
-                        &tips.targets,
-                        Commits::OwnOnly,
-                    )
-                    .await?
+                    newest_own_commit_past(git, place, folder, &tips.tip, &tips.targets).await
                 }
-                _ => return Err(error),
+                _ => Err(error),
             },
-        };
-        Ok((count > 0).then_some(tips.tip))
+        }
     }
 
-    // The branch's tip and its targets, the base's upstream read only where it holds commits the
-    // base lacks; `None` when the branch is gone or the base names no branch.
+    // The branch's tip and its targets, the base's upstream taken only where it holds commits the
+    // base lacks; `None` when the branch is gone or the base names no branch. The upstream's tip is
+    // read with the base under the name the last check saw, and apart only when that name changed.
     async fn read_tips(
         &mut self,
         git: &GitRunner,
@@ -215,6 +202,11 @@ impl MergedCheck {
         base_refs.dedup();
         let mut names = vec![branch_ref];
         names.extend(base_refs.iter().map(String::as_str));
+        if let Some(upstream) = &self.upstream_ref
+            && !names.contains(&upstream.as_str())
+        {
+            names.push(upstream.as_str());
+        }
         let mut heads =
             read_ref_heads(git, place, folder, &names, UpstreamDistanceRead::Counted).await?;
         let Some(tip) = heads.remove(branch_ref).map(|head| head.commit) else {
@@ -232,56 +224,64 @@ impl MergedCheck {
         if let (Some(upstream), Some((only_base, only_upstream))) =
             (&base_head.upstream, base_head.upstream_distance)
             && only_upstream > 0
-            && let Some(head) = read_ref_heads(
-                git,
-                place,
-                folder,
-                &[upstream.as_str()],
-                UpstreamDistanceRead::Skipped,
-            )
-            .await?
-            .remove(upstream)
         {
-            if only_base == 0 {
-                targets.clear();
+            let head = if self.upstream_ref.as_ref() == Some(upstream) {
+                heads.remove(upstream)
+            } else {
+                read_ref_heads(
+                    git,
+                    place,
+                    folder,
+                    &[upstream.as_str()],
+                    UpstreamDistanceRead::Skipped,
+                )
+                .await?
+                .remove(upstream)
+            };
+            if let Some(head) = head {
+                if only_base == 0 {
+                    targets.clear();
+                }
+                targets.push(head.commit);
             }
-            targets.push(head.commit);
         }
+        self.upstream_ref = base_head.upstream;
         Ok(Some(BranchTips { tip, targets }))
     }
 }
 
-// Which commits a count takes.
-#[derive(Clone, Copy)]
-enum Commits {
-    All,
-    // Only those that change a path, merge commits and empty ones left out.
-    OwnOnly,
-}
-
-// The commits `commit` holds that none of the commits `past` holds; with `All`, none exactly when
-// one of them holds `commit`.
+// The commits `commit` holds that none of the commits `past` holds; none exactly when one of them
+// holds `commit`.
 async fn count_past(
     git: &GitRunner,
     place: Option<&Place>,
     folder: &Path,
     commit: &str,
     past: &[String],
-    commits: Commits,
 ) -> Result<u64, GitError> {
     let excluded: Vec<String> = past.iter().map(|target| format!("^{target}")).collect();
-    let mut arguments = vec!["rev-list", "--count"];
-    if matches!(commits, Commits::OwnOnly) {
-        arguments.push("--no-merges");
-    }
-    arguments.push(commit);
+    let mut arguments = vec!["rev-list", "--count", commit];
     arguments.extend(excluded.iter().map(String::as_str));
     arguments.push("--");
-    // The tree's root as a path keeps only the commits that change one.
-    if matches!(commits, Commits::OwnOnly) {
-        arguments.push(".");
-    }
     parse_number(&strip_line_end(read(git, place, folder, &arguments).await?))
+}
+
+// The newest commit `commit` holds that changes a path, merge commits left out, and that none of
+// the commits `past` holds; `None` when there is none.
+async fn newest_own_commit_past(
+    git: &GitRunner,
+    place: Option<&Place>,
+    folder: &Path,
+    commit: &str,
+    past: &[String],
+) -> Result<Option<String>, GitError> {
+    let excluded: Vec<String> = past.iter().map(|target| format!("^{target}")).collect();
+    let mut arguments = vec!["rev-list", "--max-count=1", "--no-merges", commit];
+    arguments.extend(excluded.iter().map(String::as_str));
+    // The tree's root as a path keeps only the commits that change one.
+    arguments.extend(["--", "."]);
+    let newest = strip_line_end(read(git, place, folder, &arguments).await?);
+    Ok((!newest.is_empty()).then(|| String::from_utf8_lossy(&newest).into_owned()))
 }
 
 // The newest commit, amend or pick in the branch's reflog that changed a path and that the base or
@@ -393,33 +393,115 @@ async fn is_commit_held(
 }
 
 // Whether the base or its upstream holds every change the branch makes: each commit's patch, else
-// the branch's whole change as one squashed patch.
+// the branch's whole change as one squashed patch. One patch-id call reads every target's patches,
+// each headed by a label in place of its commit that names its target and its side.
 async fn is_applied(
     git: &GitRunner,
     place: Option<&Place>,
     folder: &Path,
     tips: &BranchTips,
 ) -> Result<bool, GitError> {
+    let mut input = Vec::new();
+    let mut labels: Vec<(usize, PatchSide)> = Vec::new();
+    let mut tested = 0;
     for target in &tips.targets {
-        if is_applied_on(git, place, folder, target, &tips.tip).await? {
-            return Ok(true);
+        let Some(patches) = read_patches_on(git, place, folder, target, &tips.tip).await? else {
+            continue;
+        };
+        let mut label = |input: &mut Vec<u8>, side| {
+            input.extend_from_slice(COMMIT_HEADER);
+            input.extend_from_slice(format!("{:0>1$x}\n", labels.len(), tips.tip.len()).as_bytes());
+            labels.push((tested, side));
+        };
+        label(&mut input, PatchSide::Squash);
+        input.extend(patches.squash);
+        for line in patches.log.split(|byte| *byte == b'\n') {
+            match line.strip_prefix(COMMIT_HEADER).map(<[u8]>::first) {
+                Some(Some(b'<')) => label(&mut input, PatchSide::Target),
+                Some(Some(b'>')) => label(&mut input, PatchSide::Branch),
+                Some(_) => return Err(malformed("git printed a log header it never writes")),
+                None => {
+                    input.extend_from_slice(line);
+                    input.push(b'\n');
+                }
+            }
+        }
+        tested += 1;
+    }
+    if tested == 0 {
+        return Ok(false);
+    }
+    let ids = read_with_input(git, place, folder, &["patch-id", "--stable"], input).await?;
+    let mut found: Vec<PatchIds> = (0..tested).map(|_| PatchIds::default()).collect();
+    for line in ids
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+    {
+        let Some(space) = line.iter().position(|byte| *byte == b' ') else {
+            return Err(malformed("git printed a patch id it never writes"));
+        };
+        let (patch, label) = (&line[..space], &line[space + 1..]);
+        let Some(&(target, side)) = std::str::from_utf8(label)
+            .ok()
+            .and_then(|label| usize::from_str_radix(label, 16).ok())
+            .and_then(|index| labels.get(index))
+        else {
+            return Err(malformed(
+                "git printed a patch id for a patch it was never given",
+            ));
+        };
+        let target_ids = &mut found[target];
+        match side {
+            PatchSide::Squash => target_ids.squash = Some(patch),
+            PatchSide::Branch => target_ids.branch.push(patch),
+            PatchSide::Target => {
+                target_ids.target.insert(patch);
+            }
         }
     }
-    Ok(false)
+    Ok(found.iter().any(|ids| {
+        ids.branch.iter().all(|patch| ids.target.contains(patch))
+            || ids.squash.is_some_and(|patch| ids.target.contains(patch))
+    }))
 }
 
-// Whether `target` holds each change `tip` makes past it, by patch id and writing nothing: every
-// non-merge commit's patch, or the whole change since the two parted as one patch. Only the
-// commits on `target` that touch a path the branch's commits touch can hold one, so only they are
-// read, each limited to those paths: a commit that made one of the branch's changes beside others
-// holds it.
-async fn is_applied_on(
+// Which patch a label in the patch-id call heads.
+#[derive(Clone, Copy)]
+enum PatchSide {
+    // The branch's whole change since it parted from the target.
+    Squash,
+    // A commit of the branch's that the target lacks.
+    Branch,
+    // A commit of the target's that the branch lacks, limited to the branch's paths.
+    Target,
+}
+
+// The patch ids one target's test found, by side.
+#[derive(Default)]
+struct PatchIds<'id> {
+    squash: Option<&'id [u8]>,
+    branch: Vec<&'id [u8]>,
+    target: HashSet<&'id [u8]>,
+}
+
+// What one target's patch test reads: the branch's whole change since the two parted, and one log
+// of the non-merge commits either holds that the other lacks, each headed `commit <side><commit>`.
+struct TargetPatches {
+    squash: Vec<u8>,
+    log: Vec<u8>,
+}
+
+// The patches the test of `tip` against `target` reads, writing nothing; `None` when no target
+// commit can hold one of the branch's. Only the target's commits that touch a path the branch's
+// commits touch can, so the log reads both sides limited to those paths: a target commit that made
+// one of the branch's changes beside others holds it, and no branch commit loses a path it changes.
+async fn read_patches_on(
     git: &GitRunner,
     place: Option<&Place>,
     folder: &Path,
     target: &str,
     tip: &str,
-) -> Result<bool, GitError> {
+) -> Result<Option<TargetPatches>, GitError> {
     let excluded = format!("^{target}");
     let paths = read(
         git,
@@ -438,7 +520,7 @@ async fn is_applied_on(
         ],
     )
     .await?;
-    let mut walk = format!("{target}\n^{tip}\n--\n").into_bytes();
+    let mut walk = format!("{target}...{tip}\n--\n").into_bytes();
     let mut has_paths = false;
     for path in paths
         .split(|byte| *byte == 0)
@@ -448,7 +530,7 @@ async fn is_applied_on(
         // Standard input ends a path at a newline, so one holding a newline cannot be named there,
         // and the branch is not read as applied.
         if path.contains(&b'\n') {
-            return Ok(false);
+            return Ok(None);
         }
         walk.extend_from_slice(path);
         walk.push(b'\n');
@@ -456,71 +538,42 @@ async fn is_applied_on(
     }
     // A branch that changes no path holds no work of its own to have applied.
     if !has_paths {
-        return Ok(false);
+        return Ok(None);
     }
-    let target_log = [
+    let log_arguments = [
         &[
             "--literal-pathspecs",
             "log",
             "--no-merges",
-            "--format=commit %H",
+            "--left-right",
+            "--format=commit %m%H",
         ][..],
         PATCH_OPTIONS,
         &["--stdin"],
     ]
     .concat();
-    let on_target = read_with_input(git, place, folder, &target_log, walk).await?;
-    if on_target.is_empty() {
-        return Ok(false);
+    let log = read_with_input(git, place, folder, &log_arguments, walk).await?;
+    let target_header = [COMMIT_HEADER, b"<"].concat();
+    if !log
+        .split(|byte| *byte == b'\n')
+        .any(|line| line.starts_with(&target_header))
+    {
+        return Ok(None);
     }
-    // The branch's whole change first, with no commit header, so patch-id names it by the null id.
     let range = format!("{target}...{tip}");
     let diff = [&["diff"][..], PATCH_OPTIONS, &[range.as_str(), "--"]].concat();
-    let mut patches = match read(git, place, folder, &diff).await {
+    let squash = match read(git, place, folder, &diff).await {
         Ok(squash) => squash,
         Err(error) => match read(git, place, folder, &["merge-base", target, tip]).await {
             Err(no_base) if no_base.exit_code() == Some(NO_MERGE_BASE_EXIT_CODE) => Vec::new(),
             _ => return Err(error),
         },
     };
-    let branch_log = [
-        &["log", "--no-merges", "--format=commit %H"][..],
-        PATCH_OPTIONS,
-        &[tip, excluded.as_str(), "--"],
-    ]
-    .concat();
-    let on_branch = read(git, place, folder, &branch_log).await?;
-    let branch_commits: HashSet<&[u8]> = on_branch
-        .split(|byte| *byte == b'\n')
-        .filter_map(|line| line.strip_prefix(COMMIT_HEADER))
-        .collect();
-    patches.extend_from_slice(&on_branch);
-    patches.extend(on_target);
-    let ids = read_with_input(git, place, folder, &["patch-id", "--stable"], patches).await?;
-    let (mut target_patches, mut branch_patches, mut squash) = (HashSet::new(), Vec::new(), None);
-    for line in ids
-        .split(|byte| *byte == b'\n')
-        .filter(|line| !line.is_empty())
-    {
-        let Some(space) = line.iter().position(|byte| *byte == b' ') else {
-            return Err(malformed("git printed a patch id it never writes"));
-        };
-        let (patch, commit) = (&line[..space], &line[space + 1..]);
-        if commit.iter().all(|byte| *byte == b'0') {
-            squash = Some(patch);
-        } else if branch_commits.contains(commit) {
-            branch_patches.push(patch);
-        } else {
-            target_patches.insert(patch);
-        }
-    }
-    Ok(branch_patches
-        .iter()
-        .all(|patch| target_patches.contains(patch))
-        || squash.is_some_and(|patch| target_patches.contains(patch)))
+    Ok(Some(TargetPatches { squash, log }))
 }
 
-// The header line `--format=commit %H` writes before each commit's patch, which patch-id reads.
+// The header line that starts each patch patch-id reads, and each commit's in the log, which
+// writes `<` or `>` after it for a commit of the target's or the branch's.
 const COMMIT_HEADER: &[u8] = b"commit ";
 
 // The diff options both sides' patches are written with, so equal changes give equal patch ids
