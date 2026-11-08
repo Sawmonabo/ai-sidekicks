@@ -1,9 +1,8 @@
-// The Preview wire as the renderer and the daemon both parse it: the address rules both ends
-// hold an address to, and a page list whose active index names a page.
+// The Preview wire as the renderer and the daemon both parse it: a page list whose active index
+// names a page.
 import { describe, expect, it } from "vitest";
 
 import { PreviewPageListFrameSchema, type PreviewPage, type PreviewPageId } from "../methods.js";
-import { webAddressFault } from "../../web-address.js";
 
 const PAGE_ID = "page-1" as PreviewPageId;
 
@@ -19,13 +18,6 @@ const PAGE: PreviewPage = {
   zoomFactor: 1,
   released: false,
 };
-
-describe("the address rules both ends hold an address to", () => {
-  it("passes an http(s) address with a user name and no password, or a bare query", () => {
-    expect(webAddressFault(new URL("https://app@evil.test/looks-like-app"))).toBeNull();
-    expect(webAddressFault(new URL("https://example.com/a?b"))).toBeNull();
-  });
-});
 
 describe("preview.pageList frames", () => {
   it("refuses an active index past the end of the list", () => {

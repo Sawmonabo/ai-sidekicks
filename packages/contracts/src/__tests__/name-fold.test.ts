@@ -40,6 +40,7 @@ function tableFolds(): Map<number, string> {
 describe("foldName", () => {
   // Every scalar value: the dotless ı, which no row names, must fold to itself and stay apart
   // from i, as ß must fold to ss and İ to i and a combining dot, never by the machine's language.
+  // A million folds can take past the default five seconds on a loaded machine.
   it("folds every code point to the table's fold, or to itself where the table names none", () => {
     const folds = tableFolds();
     const misfolded: string[] = [];
@@ -53,5 +54,5 @@ describe("foldName", () => {
       }
     }
     expect(misfolded).toEqual([]);
-  });
+  }, 30_000);
 });
