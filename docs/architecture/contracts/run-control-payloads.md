@@ -574,7 +574,7 @@ interface AgentQueueItemSubscribeRequest {
 type RecordStreamFrame<Change, Cursor> =
   | { kind: "changes"; changes: Change[] }
   | { kind: "behind"; headCursor: Cursor };
-interface StateStreamFrame<Change> {
+interface CurrentStateStreamFrame<Change> {
   changes: Change[];
 }
 // One change on agent.run.subscribe: the delivery and the cursor of the event it came from, or, for
@@ -597,7 +597,7 @@ interface RunQueueStreamChange {
   cursor: EventCursor;
   item: QueueItemSummary;
 }
-type RunQueueStreamFrame = StateStreamFrame<RunQueueStreamChange>;
+type RunQueueStreamFrame = CurrentStateStreamFrame<RunQueueStreamChange>;
 
 // A child's three controls: the session's own steer, interrupt and pause addressed at one child
 // (Spec-003 §Required Behavior). A steer names the helper itself, its session and `childHandle`, so
