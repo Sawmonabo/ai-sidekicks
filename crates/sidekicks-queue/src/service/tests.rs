@@ -280,7 +280,11 @@ impl HaltedRunRecord for HaltedRunsStandIn {
 }
 
 async fn fixture(driver: MockProviderDriver) -> Fixture {
-    let database = TestDatabase::new(schema_parts().with_parts(checkpoint_schema_parts()));
+    let database = TestDatabase::new(
+        schema_parts()
+            .with_parts(checkpoint_schema_parts())
+            .with_parts(sidekicks_session::agent_tree::schema::schema_parts()),
+    );
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
