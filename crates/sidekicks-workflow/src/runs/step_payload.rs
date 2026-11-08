@@ -1,6 +1,9 @@
 //! One step's input, output or log by the payload reference its row stores: written here as
 //! inline items within the cap, else as one artifact; read here and paged by item when inline, and
-//! answered as its reference when kept as an artifact, which the artifact read follows.
+//! answered as its reference when kept as an artifact, which the artifact read follows. A step's
+//! outputs are joined into one payload in output order and split back by their item counts.
+
+use std::borrow::Cow;
 
 use rusqlite::{Connection, named_params};
 use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
@@ -80,6 +83,84 @@ pub(crate) async fn write_step_payload(
         size_bytes,
         item_count,
     })
+}
+
+/// Every output list's items in output order, as one payload stores them.
+pub(crate) fn join_step_outputs(outputs: &[Vec<WorkflowItem>]) -> Cow<'_, [WorkflowItem]> {
+    match outputs {
+        [only] => Cow::Borrowed(only.as_slice()),
+        many => Cow::Owned(many.concat()),
+    }
+}
+
+/// Why a stored step payload could not be read back into its items or its outputs.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum StepPayloadReadError {
+    /// The payload store did not give back the artifact's bytes.
+    #[error("the step's stored payload could not be read")]
+    Artifact(#[source] PortError),
+    /// The artifact's bytes do not read as items.
+    #[error("the step's stored payload does not read as items")]
+    Json(#[source] serde_json::Error),
+    /// The output item counts do not add up to the items the payload holds.
+    #[error("the step's output counts add up to {counted} items but its payload holds {held}")]
+    CountsMismatch {
+        /// The items the counts add up to.
+        counted: usize,
+        /// The items the payload holds.
+        held: usize,
+    },
+}
+
+/// The items `payload_ref` holds: an inline payload's own, or an artifact's read through
+/// `payloads` as JSON. Fails as [`StepPayloadReadError::Artifact`] or
+/// [`StepPayloadReadError::Json`] says.
+#[expect(
+    dead_code,
+    reason = "the start of a partial run and the restart's loader"
+)]
+pub(crate) async fn read_step_payload(
+    payloads: &dyn StepPayloadArtifacts,
+    payload_ref: &WorkflowPayloadRef,
+) -> Result<Vec<WorkflowItem>, StepPayloadReadError> {
+    match payload_ref {
+        WorkflowPayloadRef::Inline { items } => Ok(items.clone()),
+        WorkflowPayloadRef::Artifact { artifact_id, .. } => {
+            let bytes = payloads
+                .read(artifact_id)
+                .await
+                .map_err(StepPayloadReadError::Artifact)?;
+            serde_json::from_slice(&bytes).map_err(StepPayloadReadError::Json)
+        }
+    }
+}
+
+/// `items`, a payload [`join_step_outputs`] joined, split back into one list per output by
+/// `output_item_counts`, the stored count of each output in order. Counts that do not add up to
+/// the items are refused as [`StepPayloadReadError::CountsMismatch`].
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the start of a partial run and the restart's loader"
+    )
+)]
+pub(crate) fn split_step_outputs(
+    items: Vec<WorkflowItem>,
+    output_item_counts: &[usize],
+) -> Result<Vec<Vec<WorkflowItem>>, StepPayloadReadError> {
+    let counted = output_item_counts
+        .iter()
+        .fold(0, |sum: usize, count| sum.saturating_add(*count));
+    let held = items.len();
+    if counted != held {
+        return Err(StepPayloadReadError::CountsMismatch { counted, held });
+    }
+    let mut items = items.into_iter();
+    Ok(output_item_counts
+        .iter()
+        .map(|count| items.by_ref().take(*count).collect())
+        .collect())
 }
 
 /// Why a step payload read failed.
@@ -220,12 +301,15 @@ mod tests {
     use proptest::prelude::*;
     use rstest::rstest;
     use rusqlite::params;
+    use serde_json::json;
+    use sidekicks_contracts::workflow::definition::item::WorkflowItem;
     use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStepStatus};
     use sidekicks_contracts::workflow::run::step::methods::WorkflowStepReadRequest;
 
     use super::{
-        WorkflowStepPayloadError, WorkflowStepPayloadReader, decode_step_payload_cursor,
-        encode_step_payload_cursor,
+        StepPayloadReadError, WorkflowStepPayloadError, WorkflowStepPayloadReader,
+        decode_step_payload_cursor, encode_step_payload_cursor, join_step_outputs,
+        split_step_outputs,
     };
     use crate::runs::invalid_cursor::{UnresolvableCursorReason, WorkflowCursorUnresolvable};
     use crate::test_rows::{
@@ -236,6 +320,40 @@ mod tests {
     const VERSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e51";
     const RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e52";
     const STARTED_AT: &str = "2026-10-02T00:00:00.000Z";
+
+    /// Items whose `json` values are `values`, in order.
+    fn items(values: &[i64]) -> Vec<WorkflowItem> {
+        values
+            .iter()
+            .map(|value| serde_json::from_value(json!({ "json": value })).expect("the item reads"))
+            .collect()
+    }
+
+    /// Mutation: in `split_step_outputs`, collect every item into the first output in place of
+    /// `take(*count)`, so a later output's items are read back as the first output's.
+    #[test]
+    fn joined_outputs_split_back_by_their_counts() {
+        let outputs = vec![items(&[1, 2]), items(&[]), items(&[3])];
+        let joined = join_step_outputs(&outputs).into_owned();
+        let split = split_step_outputs(joined, &[2, 0, 1]).expect("the counts add up");
+        assert_eq!(split, outputs);
+    }
+
+    /// Mutation: drop `split_step_outputs`' `counted != held` check, so a stored count that
+    /// disagrees with its payload splits short or drops items instead of being refused.
+    #[rstest]
+    #[case::counts_past_the_items(&[2, 2], 4)]
+    #[case::counts_short_of_the_items(&[1], 1)]
+    fn counts_that_do_not_add_up_to_the_items_are_refused(
+        #[case] counts: &[usize],
+        #[case] counted: usize,
+    ) {
+        let refusal = split_step_outputs(items(&[1, 2, 3]), counts).expect_err("the counts differ");
+        assert!(matches!(
+            refusal,
+            StepPayloadReadError::CountsMismatch { counted: refused, held: 3 } if refused == counted
+        ));
+    }
 
     proptest! {
         /// Mutation: write the index in another form than the one the read takes back, so a page's

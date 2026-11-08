@@ -2,7 +2,6 @@
 //! step's row and events, then what its node's failure route decides; a wait on a person stored
 //! before anyone is asked; a wait on a spent account; and a cancel.
 
-use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use serde_json::{Value, json};
@@ -38,7 +37,7 @@ use crate::engine::tick::step_failure::{StepFailureRoute, route_step_failure, st
 use crate::engine::waits::{open_person_wait, suspended_payload};
 use crate::kinds::step_context::StepRunVariable;
 use crate::kinds::{PersonAsk, PersonWait, StepFailure};
-use crate::runs::step_payload::{StepPayloadWriteError, write_step_payload};
+use crate::runs::step_payload::{StepPayloadWriteError, join_step_outputs, write_step_payload};
 use crate::runs::step_rows::{
     FailedStepRow, cancel_step, fail_step, succeed_step, wait_step_on_account, wait_step_on_person,
 };
@@ -301,7 +300,7 @@ impl RunTurnCommit {
         written: &mut Vec<ArtifactId>,
     ) -> Result<CompletedPayloads<'variables>, StepPayloadWriteError> {
         let output_ref = self
-            .write_payload(step, &joined_outputs(outputs), written)
+            .write_payload(step, &join_step_outputs(outputs), written)
             .await?;
         let log_ref = self.write_log(step, log_lines, written).await?;
         let mut kept = Vec::new();
@@ -355,7 +354,7 @@ impl RunTurnCommit {
         let output = match &route {
             StepFailureRoute::PassOn { outputs } => {
                 match self
-                    .write_payload(&step, &joined_outputs(outputs), &mut written)
+                    .write_payload(&step, &join_step_outputs(outputs), &mut written)
                     .await
                 {
                     Ok(output_ref) => Some((output_ref, outputs.iter().map(Vec::len).collect())),
@@ -500,14 +499,6 @@ fn account_suspended(
         wait_id: None,
         log_ref: None,
     })
-}
-
-/// Every output list's items in output order, as one payload stores them.
-fn joined_outputs(outputs: &[Vec<WorkflowItem>]) -> Cow<'_, [WorkflowItem]> {
-    match outputs {
-        [only] => Cow::Borrowed(only.as_slice()),
-        many => Cow::Owned(many.concat()),
-    }
 }
 
 /// The whole milliseconds since a hold's last report at `last_hold_report_at` to `at`, which a

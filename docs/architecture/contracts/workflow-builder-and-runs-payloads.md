@@ -247,6 +247,7 @@ interface WorkflowRunRerunRequest {
 // runs a SAVED version and never unsaved bytes: a dirty draft is saved first and the version saved
 // is the version run. Pinned data is honored here and IGNORED by every trigger-started run.
 interface WorkflowNodeExecuteRequest {
+  clientIdempotencyKey: string; // a UUID: a resend under the same key after a reconnect answers the first node run's run, never a second (return-or-conflict on the call's own record)
   workflowVersionId: string;
   // Omitted from the builder, where the run lives in the one session the workflow owns and works in the
   // repository the trigger's `Repository` names; a chat that asks for a node run names its own session,
@@ -263,7 +264,13 @@ interface WorkflowNodeExecuteRequest {
   // The nodes the builder believes are dirty. The daemon intersects this with what it can reuse and
   // answers with the set it actually ran, so a stale hint costs a re-execution and never a wrong result.
   dirtyNodeIds?: WorkflowNodeId[];
+  // The items the trigger starts on, as the node run's panel gave them; absent, the trigger's earlier
+  // data is reused. Items that differ from the trigger's earlier input run the trigger again.
+  input?: WorkflowItem[];
 }
+// Refused as a start of the version is (workflow.version.notFound, workflow.run.repositoryRequired,
+// workflow.run.inputRequired, workflow.run.idempotencyConflict and the rest), and with
+// workflow.node.notFound for a nodeId the version does not hold.
 interface WorkflowNodeExecuteResponse {
   workflowRunId: WorkflowRunId;
   // The nodes the daemon actually executed, in execution order — the authoritative answer to what the
