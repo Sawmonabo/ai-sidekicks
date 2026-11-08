@@ -581,12 +581,12 @@ mod tests {
         );
     }
 
-    // The run starts turns 1 to 3, rolls back to turn 1, then starts two more turns, which stand
-    // at turns 2 and 3 of the next epoch. Every stretch of the log, read by a fresh attribution, stamps each event as the whole
-    // log does. Killed by a seed that stands the run at its start rather than reading the log, by
-    // the seed counting the turns started before the last rollback, and by the seed leaving out
-    // the turns the log's rollbacks superseded, which leaves turns 2 and 3 of the first epoch
-    // unmarked in a stretch that ends before the rollback.
+    // The run starts turns 1 to 3, rolls back to turn 1, then starts two more turns, which stand at
+    // turns 2 and 3 of the next epoch. Every stretch of the log, read by a fresh attribution,
+    // stamps each event as the whole log does. Killed by a seed that stands the run at its start
+    // rather than reading the log, by the seed counting the turns started before the last rollback,
+    // and by the seed leaving out the turns the log's rollbacks superseded, which leaves turns 2
+    // and 3 of the first epoch unmarked in a stretch that ends before the rollback.
     #[test]
     fn a_run_first_met_partway_is_stamped_as_the_whole_log_stamps_it() {
         let log = SessionTestLog::new(schema_parts());

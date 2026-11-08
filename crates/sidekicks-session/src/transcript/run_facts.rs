@@ -270,7 +270,11 @@ mod tests {
             0,
             "agent.run.queued",
             None,
-            json!({ "runVersion": 0, "newState": "queued", "admittedProviderAccountId": "account-1" }),
+            json!({
+                "runVersion": 0,
+                "newState": "queued",
+                "admittedProviderAccountId": "account-1"
+            }),
         );
         write_row(&log, 1, "user.message.sent", Some("person-1"), json!({}));
         write_row(&log, 2, "agent.message.sent", Some("agent-1"), json!({}));
