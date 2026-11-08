@@ -1,18 +1,18 @@
 //! The sign-in to one MCP server through Claude Code's own client. The server's entry is copied
 //! into a folder of the daemon's own, made for this sign-in alone, which one process that keeps
 //! nothing runs on as its config and credential folder, loading that server: a person's entry
-//! re-read from their config or a plugin's file, an organization's as the account's managed
-//! settings declare it, or, for a server of an administrator's MCP file, none, the process then
-//! loading that file itself. `mcp_authenticate` answers the authorization address the caller
-//! opens; where the authorization server took the daemon's redirect address, the browser's return
-//! is handed back with `mcp_oauth_callback_url`, whose answer comes once the sign-in is saved, and
-//! where it refused that address Claude Code's own loopback listener takes the return, the saved
-//! sign-in then waited for. What the process writes is read for its whole life: a frame reporting
-//! an error ends the sign-in with that error, a request it waits on is answered as one no one
-//! watches, and its end ends the sign-in. The sign-in is read back from the folder's credentials
-//! file, else the keychain item Claude Code files for the folder, which is removed once read; the
-//! process is closed and the folder removed whatever the outcome, a dropped sign-in's included.
-//! The person's own folders are only read, for the entry.
+//! re-read from their config or a plugin's file, and an organization's as the administrator's MCP
+//! file declares it, else as the account's managed settings do. `mcp_authenticate` answers the
+//! authorization address the caller opens; where the authorization server took the daemon's
+//! redirect address, the browser's return is handed back with `mcp_oauth_callback_url`, whose
+//! answer comes once the sign-in is saved, and where it refused that address Claude Code's own
+//! loopback listener takes the return, the saved sign-in then waited for. What the process writes
+//! is read for its whole life: a frame reporting an error ends the sign-in with that error, a
+//! request it waits on is answered as one no one watches, and its end ends the sign-in. The sign-in
+//! is read back from the folder's credentials file, else the keychain item Claude Code files for
+//! the folder, which is removed once read; the process is closed and the folder removed whatever
+//! the outcome, a dropped sign-in's included. The person's own folders are only read, for the
+//! entry.
 
 pub(crate) mod address;
 pub(crate) mod saved_credentials;
@@ -201,8 +201,9 @@ pub(crate) struct ClaudeMcpSignInSources<'sources> {
     pub(crate) person: ClaudePersonConfigFiles,
     /// The daemon's plugin home for Claude Code.
     pub(crate) plugin_home: PathBuf,
-    /// Whether Claude Code reads an administrator's MCP file in its managed settings folder.
-    pub(crate) has_managed_mcp_file: bool,
+    /// The servers of the administrator's MCP file Claude Code reads, `None` where none is
+    /// deployed.
+    pub(crate) managed_mcp_servers: Option<Map<String, Value>>,
     /// The daemon's data folder.
     pub(crate) data_folder: &'sources Path,
     /// Each account's read of its organization's servers.
@@ -239,30 +240,25 @@ pub(crate) async fn sign_in_with_claude_client(
     )
     .await?;
     let configured_client_id = entry
-        .as_ref()
-        .and_then(|entry| entry.get(OAUTH_MEMBER))
+        .get(OAUTH_MEMBER)
         .and_then(|oauth| oauth.get(OAUTH_CLIENT_ID_MEMBER))
         .and_then(Value::as_str)
         .map(str::to_owned);
     // A `url` naming no variable reads the same in any environment, so an entry at another server
     // is turned away here, before a folder is made or an environment composed for it.
-    if let Some(entry) = &entry
-        && !entry
-            .get(URL_MEMBER)
-            .and_then(Value::as_str)
-            .is_some_and(|url| url.contains("${"))
-        && !declares_server_at(entry, &request.server_address, &[])
+    if !entry
+        .get(URL_MEMBER)
+        .and_then(Value::as_str)
+        .is_some_and(|url| url.contains("${"))
+        && !declares_server_at(&entry, &request.server_address, &[])
     {
         return Err(DriverError::from(NoPersonServerEntry {
             binding: request.binding,
         }));
     }
     // The entry goes to the folder as declared, since Claude Code fills its variables itself.
-    let servers: Map<String, Value> = entry
-        .clone()
-        .map(|entry| (name.as_str().to_owned(), Value::Object(entry)))
-        .into_iter()
-        .collect();
+    let servers: Map<String, Value> =
+        std::iter::once((name.as_str().to_owned(), Value::Object(entry.clone()))).collect();
     let folder = SignInFolder::make(
         &sign_in_parent(sources.data_folder),
         SIGN_IN_FOLDER_NAME_BYTES,
@@ -273,9 +269,7 @@ pub(crate) async fn sign_in_with_claude_client(
     .map_err(ClaudeSignInError::FolderUnmade)?;
     let signed_in = async {
         let environment = environment_on(folder.path())?;
-        if let Some(entry) = &entry
-            && !declares_server_at(entry, &request.server_address, &environment)
-        {
+        if !declares_server_at(&entry, &request.server_address, &environment) {
             return Err(DriverError::from(NoPersonServerEntry {
                 binding: request.binding.clone(),
             }));
@@ -294,7 +288,7 @@ pub(crate) async fn sign_in_with_claude_client(
                 provider_account_id: request.provider_account_id.clone(),
                 folder: folder.path().to_owned(),
                 servers_file: folder.path().join(SIGN_IN_SERVERS_FILE),
-                loads_only_its_servers: !sources.has_managed_mcp_file,
+                loads_only_its_servers: sources.managed_mcp_servers.is_none(),
             })
             .await?;
         let exchanged = tokio::select! {
@@ -411,18 +405,19 @@ fn sign_in_parent(data_folder: &Path) -> PathBuf {
         .fold(data_folder.to_path_buf(), |folder, part| folder.join(part))
 }
 
-// The entry the sign-in's servers file declares for `binding`'s server: the person's own, re-read
-// with its values, for a user, local, project or plugin server, a plugin's placeholders filled,
-// since Claude Code fills them only in the plugin's own files; an organization's as `account`'s
-// managed settings declare it; and none for a server of an administrator's MCP file, which the
-// process then loads itself. Fails with `NoPersonServerEntry` for a connector, whose sign-in is
-// the account's own, for an organization's server with no `account` to read it for, and where no
-// entry declares the server, so another provider's flow is asked.
+// The entry `binding`'s server declares: the person's own, re-read with its values, for a user,
+// local, project or plugin server, a plugin's placeholders filled, since Claude Code fills them
+// only in the plugin's own files; and for an organization's server the administrator's MCP file's
+// entry of its name, else the one `account`'s managed settings declare, since Claude Code takes
+// the file's entry where both define a name. Fails with `NoPersonServerEntry` for a connector,
+// whose sign-in is the account's own, for an organization's server the file does not declare and
+// no `account` is read for, and where no entry declares the server, so another provider's flow is
+// asked.
 async fn read_sign_in_entry(
     sources: &ClaudeMcpSignInSources<'_>,
     binding: &McpServerBindingRef,
     account: Option<&ProviderAccountId>,
-) -> Result<Option<Map<String, Value>>, DriverError> {
+) -> Result<Map<String, Value>, DriverError> {
     let internal = |error: Box<dyn Error + Send + Sync>| DriverError::Internal(error);
     let no_entry = || {
         DriverError::from(NoPersonServerEntry {
@@ -432,20 +427,23 @@ async fn read_sign_in_entry(
     let entry = match binding {
         McpServerBindingRef::Connector { .. } => return Err(no_entry()),
         McpServerBindingRef::Managed { server_name, .. } => {
-            let Some(account) = account else {
-                return Err(no_entry());
-            };
-            let servers = sources
-                .account_servers
-                .read(account, ClaudeAccountReadAsk::List)
-                .await
-                .map_err(|error| internal(Box::new(error)))?;
-            match servers.organization_entries.get(server_name) {
-                Some(entry) => {
-                    Some(serde_json::to_value(entry).map_err(|error| internal(Box::new(error)))?)
-                }
-                None if sources.has_managed_mcp_file => return Ok(None),
-                None => None,
+            let file_entry = sources
+                .managed_mcp_servers
+                .as_ref()
+                .and_then(|servers| servers.get(server_name.as_str()));
+            match (file_entry, account) {
+                (Some(entry), _) => Some(entry.clone()),
+                (None, None) => return Err(no_entry()),
+                (None, Some(account)) => sources
+                    .account_servers
+                    .read(account, ClaudeAccountReadAsk::List)
+                    .await
+                    .map_err(|error| internal(Box::new(error)))?
+                    .organization_entries
+                    .get(server_name)
+                    .map(serde_json::to_value)
+                    .transpose()
+                    .map_err(|error| internal(Box::new(error)))?,
             }
         }
         McpServerBindingRef::User { .. }
@@ -471,7 +469,7 @@ async fn read_sign_in_entry(
         }
     };
     match entry {
-        Some(Value::Object(entry)) => Ok(Some(entry)),
+        Some(Value::Object(entry)) => Ok(entry),
         Some(
             Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_),
         )

@@ -474,9 +474,9 @@ fn value_at<'value>(value: &'value Value, keys: &[impl AsRef<str>]) -> Option<&'
         .try_fold(value, |value, key| value.get(key.as_ref()))
 }
 
-// A JSON file read into `File`: `None` where the daemon cannot read it or it does not parse as
-// `File`, the error on any other read failure.
-async fn read_json_file<File: DeserializeOwned>(
+/// A JSON file read into `File`: `None` where the daemon cannot read it or it does not parse as
+/// `File`. Fails on any other read failure.
+pub(super) async fn read_json_file<File: DeserializeOwned>(
     path: &Path,
 ) -> Result<Option<File>, ClaudeSettingsReadError> {
     let bytes = match tokio::fs::read(path).await {
