@@ -370,6 +370,7 @@ impl RunTurnCommit {
         self.artifact_ids.extend(written);
         let mut error = step_failure_error(&reported.node.id, &failure);
         let failed_item_index = *error_members(&mut error).2;
+        let run_error = matches!(route, StepFailureRoute::End).then(|| error.clone());
         let decline_reason = match &failure {
             StepFailure::Declined { words, .. } => words.clone(),
             StepFailure::Failed(_) | StepFailure::EndsRun(_) => None,
@@ -436,7 +437,9 @@ impl RunTurnCommit {
                 outputs,
             },
             StepFailureRoute::Park => SettlementAnswer::Park,
-            StepFailureRoute::End => SettlementAnswer::End,
+            StepFailureRoute::End => SettlementAnswer::End {
+                error: run_error.expect("an end keeps its step's error for the run"),
+            },
         })
     }
 

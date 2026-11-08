@@ -469,6 +469,7 @@ async fn a_turn_is_one_write_in_report_order() {
             },
             person_wait: RunPersonWait::default(),
             dropped_kept_artifact_ids: Vec::new(),
+            ending_sequence: None,
         }
     );
     let events = harness.events();

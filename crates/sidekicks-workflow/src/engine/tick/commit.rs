@@ -12,7 +12,7 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::{WorkflowNode, WorkflowNodeId};
-use sidekicks_contracts::workflow::definition::item::WorkflowItem;
+use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowStepError};
 use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
@@ -109,6 +109,20 @@ pub(crate) struct RunTurnCommit {
     /// Each gate answer the turn writes, its outcome beside its approval step, recorded once the
     /// write commits.
     gates: Vec<(ApprovalDecision, Option<WorkflowNodeId>)>,
+    /// The run's ending, which the turn's write stores in place of its status move.
+    ending: Option<RunEnding>,
+}
+
+/// How a run ends, which the turn that decides it writes as its last row change and run event.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+pub(crate) enum RunEnding {
+    /// Every step settled and none stopped the run: `succeeded`.
+    Completed,
+    /// A step's failure ended the run: `failed`, with the run's error.
+    Failed {
+        /// The run's error, the ending step's own.
+        error: WorkflowStepError,
+    },
 }
 
 /// An event of the turn, at the instant it records.
@@ -208,7 +222,10 @@ pub(crate) enum SettlementAnswer {
     /// The step failed and parks its run; the tick stops its siblings as a park.
     Park,
     /// The step failed and ends its run; the tick stops its siblings as an end.
-    End,
+    End {
+        /// The step's error, which the run's ending carries.
+        error: WorkflowStepError,
+    },
     /// The step waits on a person, its wait stored by this turn's write; the tick asks the person
     /// once the write commits and arms the deadline clock again where `opened.deadline_at` is set.
     PersonWait {
@@ -246,8 +263,9 @@ pub(crate) struct SettlementWriteFailure {
 
 /// What a committed turn answers: each event's sequence, in write order, the readying sequence of
 /// each step whose `pending` row the write stored, the run's step counts and person-wait columns
-/// after the turn, which the tick keeps for the run's next turn, and the artifacts of the kept
-/// values the write replaced, which the tick deletes.
+/// after the turn, which the tick keeps for the run's next turn, the artifacts of the kept values
+/// the write replaced, which the tick deletes, and the run's ending event, where the write ended
+/// the run.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct RunTurnCommitted {
@@ -263,6 +281,8 @@ pub(crate) struct RunTurnCommitted {
     /// Each artifact a kept value the write replaced named, which no record names now, for the
     /// tick to delete through the payload store.
     pub(crate) dropped_kept_artifact_ids: Vec<ArtifactId>,
+    /// The sequence of the run's ending event, where the write ended the run.
+    pub(crate) ending_sequence: Option<SafeInt<0>>,
 }
 
 /// Why a turn's write was not kept; none of it is stored.
@@ -302,12 +322,19 @@ impl RunTurnCommit {
             dropped_reads: Vec::new(),
             moves: Vec::new(),
             gates: Vec::new(),
+            ending: None,
         }
     }
 
     /// The run this turn writes.
     pub(crate) fn run_id(&self) -> WorkflowRunId {
         self.run_id
+    }
+
+    /// Ends the run as `ending` says in this turn's write, its row and its run event after every
+    /// other, at the instant of the turn's last event.
+    pub(crate) fn end(&mut self, ending: RunEnding) {
+        self.ending = Some(ending);
     }
 
     /// Applies `report` of `reported`, its events at its instant and its row changes after the

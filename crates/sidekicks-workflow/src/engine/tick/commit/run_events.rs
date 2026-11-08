@@ -1,7 +1,7 @@
 //! The run's own share of a turn's write: the status its steps leave it in, stored with its
-//! person-wait columns and recorded by the run event the move implies, the write's last; and the
-//! two moves that take a step out of a wait, a gate's answer and the step's resume, which a
-//! person's answer and Keep going share.
+//! person-wait columns and recorded by the run event the move implies, the write's last, or the
+//! run's ending in its place; and the two moves that take a step out of a wait, a gate's answer
+//! and the step's resume, which a person's answer and Keep going share.
 
 use std::borrow::Cow;
 
@@ -10,8 +10,9 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::run::events::{
-    WorkflowResumedStep, WorkflowResumptionPoint, WorkflowRunFailedOutcome,
-    WorkflowRunFailedPayload, WorkflowRunResumedPayload, WorkflowRunWaitingPayload,
+    WorkflowResumedStep, WorkflowResumptionPoint, WorkflowRunCompletedPayload,
+    WorkflowRunFailedOutcome, WorkflowRunFailedPayload, WorkflowRunResumedPayload,
+    WorkflowRunWaitingPayload,
 };
 use sidekicks_contracts::workflow::run::status::{
     WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
@@ -22,11 +23,12 @@ use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
 
-use super::RunTurnCommit;
+use super::{RunEnding, RunTurnCommit};
 use crate::engine::tick::run_status::{
     GoingRunStatus, RunStatusChange, going_run_status, person_wait_after, run_status_change,
 };
 use crate::runs::gate_resolution::{WorkflowGateAnswer, gate_resolved_payload};
+use crate::runs::record::end_run_row;
 use crate::runs::step_rows;
 
 // Only a going or parked run's status moves here; an ended run's row is never written again.
@@ -131,6 +133,50 @@ impl RunTurnCommit {
         }
         self.statements.push(self.run_status_statement(stored));
         is_status_moved.then_some(stored)
+    }
+
+    /// Adds the run's `ending` to the turn, at the instant of its last event, or now where the
+    /// turn has none: its run event as the turn's last, the open wait on people closed, and the
+    /// statement that ends the row after every other. Answers the status stored and the index of
+    /// the ending's event.
+    pub(super) fn add_run_ending(&mut self, ending: RunEnding) -> (WorkflowRunStatus, usize) {
+        let at = self
+            .events
+            .last()
+            .map_or_else(WireInstant::now, |turn_event| turn_event.at.clone());
+        self.person_wait = person_wait_after(
+            std::mem::take(&mut self.person_wait),
+            None,
+            true,
+            self.counts.account_waits,
+            &at,
+        );
+        let (status, error, event) = match ending {
+            RunEnding::Completed => (
+                WorkflowRunStatus::Succeeded,
+                None,
+                SessionEvent::WorkflowRunCompleted(run_payload!(
+                    WorkflowRunCompletedPayload,
+                    self.keys,
+                    self.run_id,
+                )),
+            ),
+            RunEnding::Failed { error } => (
+                WorkflowRunStatus::Failed,
+                Some(error),
+                SessionEvent::WorkflowRunFailed(run_payload!(
+                    WorkflowRunFailedPayload,
+                    self.keys,
+                    self.run_id,
+                    outcome: WorkflowRunFailedOutcome::Ended,
+                )),
+            ),
+        };
+        self.push(&at, event);
+        let ending_event = self.events.len() - 1;
+        self.statements
+            .push(end_run_row(self.run_id, status, &at, error.as_ref()));
+        (status, ending_event)
     }
 
     /// The run event of `change`; a resume names where the run picks up from `live_steps` and the

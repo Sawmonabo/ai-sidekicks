@@ -18,7 +18,9 @@ use crate::definitions::kept_values::remove_dropped;
 use crate::engine::event_record::{EngineFault, EngineIntent, EngineOutcome};
 use crate::engine::ports::{AgentStepRun, WorkflowRunSnapshotPointRequest};
 use crate::engine::tick::branch_cancellation::WaveSettle;
-use crate::engine::tick::commit::{RunTurnCommit, SettlementAnswer, SettlementWriteFailure};
+use crate::engine::tick::commit::{
+    RunEnding, RunTurnCommit, SettlementAnswer, SettlementWriteFailure,
+};
 use crate::engine::tick::live_runs::{LiveRun, LiveStep, TurnAsk};
 use crate::engine::tick::step_failure::{
     RunSibling, RunStop, SiblingState, SiblingStop, stop_siblings,
@@ -156,7 +158,7 @@ impl EngineTick {
     /// Follows the settlement of `step` at `at`: a completion or a pass-on settles the walk and
     /// records the outputs; a retry readies the next attempt, canceled unrun in a stopped run; a
     /// cancel drops the step. A park or an end keeps the step live and failed and stops the run's
-    /// other steps; a person wait or a spent account keeps it waiting, a spent account's agent run
+    /// other steps, an end deciding the run's ending with the step's error; a person wait or a spent account keeps it waiting, a spent account's agent run
     /// kept on it.
     async fn follow_settlement(
         &self,
@@ -215,7 +217,10 @@ impl EngineTick {
                 turn.last_readying_event = Some((readying_event, at));
             }
             SettlementAnswer::Park => self.stop_run(live, turn, step, &at, RunStop::Park).await,
-            SettlementAnswer::End => self.stop_run(live, turn, step, &at, RunStop::End).await,
+            SettlementAnswer::End { error } => {
+                live.ending.get_or_insert(RunEnding::Failed { error });
+                self.stop_run(live, turn, step, &at, RunStop::End).await;
+            }
             SettlementAnswer::PersonWait {
                 opened,
                 ask,

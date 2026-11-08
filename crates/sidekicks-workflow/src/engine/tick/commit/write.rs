@@ -21,8 +21,8 @@ use crate::engine::tick::run_status::{RunPersonWait, RunStepCounts};
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 impl RunTurnCommit {
     /// Commits the turn through `appender` in one write: its events, then the run event its
-    /// status move implies as the last, and every statement ahead of the rows, the run's own after
-    /// the steps'. `live_steps` are the run's steps the tick keeps live after the turn, which a
+    /// status move or its ending implies as the last, and every statement ahead of the rows, the
+    /// run's own after the steps'. `live_steps` are the run's steps the tick keeps live after the turn, which a
     /// resumption point names beside the steps this turn readied. Once it commits, each report
     /// that moved its step, each gate answer and the run's status go to `record`, and it answers
     /// the artifacts its write's own reads found the replaced kept values naming. A turn with
@@ -173,13 +173,20 @@ impl RunTurnCommit {
         Ok(committed)
     }
 
-    /// The turn drafted for its write: the run's status move added, then each event drafted at its
-    /// instant. Fails with [`RunTurnCommitFailure`] when an event does not draft.
+    /// The turn drafted for its write: the run's ending added where the turn ends it, else its
+    /// status move, then each event drafted at its instant. Fails with [`RunTurnCommitFailure`]
+    /// when an event does not draft.
     fn drafted<'tick>(
         mut self,
         live_steps: impl IntoIterator<Item = RunLiveStep<'tick>>,
     ) -> Result<DraftedTurn, RunTurnCommitFailure> {
-        let run_status = self.add_run_status_move(live_steps);
+        let (run_status, ending_event) = match self.ending.take() {
+            Some(ending) => {
+                let (status, ending_event) = self.add_run_ending(ending);
+                (Some(status), Some(ending_event))
+            }
+            None => (self.add_run_status_move(live_steps), None),
+        };
         let Self {
             keys,
             run_id: _,
@@ -194,6 +201,7 @@ impl RunTurnCommit {
             dropped_reads,
             moves,
             gates,
+            ending: _,
         } = self;
         let drafted = events
             .into_iter()
@@ -216,6 +224,7 @@ impl RunTurnCommit {
                     moves,
                     gates,
                     run_status,
+                    ending_event,
                     counts,
                     person_wait,
                 },
@@ -248,6 +257,8 @@ struct TurnAnswer {
     gates: Vec<(ApprovalDecision, Option<WorkflowNodeId>)>,
     /// The status the turn stored on the run, where it moved it.
     run_status: Option<WorkflowRunStatus>,
+    /// The index of the run's ending event, where the turn ended the run.
+    ending_event: Option<usize>,
     counts: RunStepCounts,
     person_wait: RunPersonWait,
 }
@@ -261,6 +272,7 @@ impl TurnAnswer {
             counts: self.counts,
             person_wait: self.person_wait,
             dropped_kept_artifact_ids: Vec::new(),
+            ending_sequence: None,
         }
     }
 
@@ -294,6 +306,9 @@ impl TurnAnswer {
             }
         }
         RunTurnCommitted {
+            ending_sequence: self
+                .ending_event
+                .map(|ending_event| event_sequences[ending_event]),
             event_sequences,
             readied,
             counts: self.counts,

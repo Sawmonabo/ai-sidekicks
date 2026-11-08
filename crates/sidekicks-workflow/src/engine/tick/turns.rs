@@ -3,6 +3,7 @@
 //! commits each run's share in one write, walks what committed and dispatches what the walk
 //! readied.
 
+mod ending;
 mod inbox;
 mod readying;
 mod reports;
@@ -446,8 +447,8 @@ impl EngineTick {
     /// settled answer is replied to once the write commits, and each approval whose point is
     /// `taken` is asked after it. Answers the steps to dispatch, the retry attempts come `due`
     /// among them while they are still live, `pending` and undispatched, or `None` when the run
-    /// is not live. A run left with no live step is over and leaves the live set; a run whose
-    /// write fails leaves it with its steps canceled.
+    /// is not live. A run whose write ends it leaves the live set; a run whose write fails leaves
+    /// it with its steps canceled.
     ///
     /// While a point of the run's pause is pending, the run is held: its answers, reports and
     /// due retries are kept unwritten and unreplied, and it is never batched. The turn in which
@@ -513,6 +514,7 @@ impl EngineTick {
         if live.steps.is_empty() {
             self.flush(&mut live, &mut turn).await;
         }
+        ending::end_when_over(&mut live, &mut turn);
         let RunTurn {
             commit,
             readied,
@@ -534,6 +536,7 @@ impl EngineTick {
                         .fault(None, EngineFault::TurnPayloadLeftBehind, &*removal)
                         .await;
                 }
+                let is_ended = committed.ending_sequence.is_some();
                 live.counts = committed.counts;
                 live.person_wait = committed.person_wait;
                 let mut dispatched: Vec<ReadyStep> = held_dispatches
@@ -599,7 +602,7 @@ impl EngineTick {
                 }
                 self.ask_people(&mut live, asks).await;
                 self.needs_deadline_read |= std::mem::take(&mut live.needs_deadline_read);
-                if live.steps.is_empty() {
+                if is_ended {
                     self.recorder.end_run(run_id);
                     return Some(Vec::new());
                 }

@@ -20,7 +20,7 @@ use sidekicks_contracts::workflow::run::step::record::{
 use tokio_util::sync::CancellationToken;
 
 use super::branch_cancellation::BranchWave;
-use super::commit::RunLiveStep;
+use super::commit::{RunEnding, RunLiveStep};
 use super::run_status::{RunPersonWait, RunStepCounts};
 use super::step_failure::RunStop;
 use super::walk::{RunGraph, RunWalk};
@@ -36,8 +36,8 @@ use crate::runs::gate_resolution::RunEventKeys;
 /// A run the tick drives: its scope, its record, its walk, each node's executions so far, the
 /// values it set with `Set variables`, its steps still to settle, the reports its last dispatch
 /// answered, which open its next turn, its step counts and person-wait columns as its last write
-/// left them, the waves of its steps winding down, how a failure stopped it, and its approval
-/// pauses.
+/// left them, the waves of its steps winding down, how a failure stopped it and the ending it
+/// decided, and its approval pauses.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct LiveRun {
     /// What the run's steps share.
@@ -65,6 +65,9 @@ pub(crate) struct LiveRun {
     pub(crate) waves: Vec<BranchWave>,
     /// How a failure stopped the run, where one did: a stopped run starts nothing new.
     pub(crate) stop: Option<RunStop>,
+    /// The ending a stop decided, written once none of the run's steps runs, is held, pending or
+    /// waiting.
+    pub(crate) ending: Option<RunEnding>,
     /// Whether the run's turn armed or cleared a wait's deadline, or took a late answer, so the
     /// deadline clock is read again once the turn's write commits.
     pub(crate) needs_deadline_read: bool,
@@ -168,6 +171,7 @@ impl LiveRun {
             person_wait: RunPersonWait::default(),
             waves: Vec::new(),
             stop: None,
+            ending: None,
             needs_deadline_read: false,
             deadline_lines: Vec::new(),
             epoch: WorkflowRunEpoch(SafeInt::ZERO),

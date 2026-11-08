@@ -89,6 +89,8 @@ enum Script {
     Gated,
     /// Waits for the test's go, then fails uncoded.
     GatedFailure,
+    /// Waits for the test's go, then fails uncoded in a way that ends its run.
+    GatedStop,
     /// Passes its inputs on, readied on its first main input with items.
     First,
     /// Outputs one empty list.
@@ -159,6 +161,12 @@ impl NodeExecutor for ScriptedExecutor {
                     self.signal.go.notified().await;
                     return Err(StepFailure::Failed(Box::new(uncoded_step_error(
                         "the gated step fails".to_owned(),
+                    ))));
+                }
+                Script::GatedStop => {
+                    self.signal.go.notified().await;
+                    return Err(StepFailure::EndsRun(Box::new(uncoded_step_error(
+                        "the gated step stops its run".to_owned(),
                     ))));
                 }
                 Script::Empty => vec![Vec::new()],
@@ -304,6 +312,7 @@ fn kinds(signal: &Arc<Signals>) -> Arc<NodeKindTable> {
             scripted("test.first", 2, Script::First),
             scripted("test.gated", 1, Script::Gated),
             scripted("test.gatedFailure", 1, Script::GatedFailure),
+            scripted("test.gatedStop", 1, Script::GatedStop),
             scripted("test.approve", 1, Script::Approve),
             scripted("test.ask", 1, Script::Ask),
             scripted("test.form", 1, Script::Form),
