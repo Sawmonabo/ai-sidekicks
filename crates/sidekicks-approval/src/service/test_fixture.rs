@@ -43,6 +43,7 @@ pub fn test_approval_service(
         git: test_git_runner(),
         reads: Arc::clone(&watcher_reads),
         occupancy: MountOccupancyReader::new(watcher_reads),
+        writer: Arc::clone(&writer),
         events: Arc::new(WorktreeEventEmitter::new(event_log)),
         scheduler: Arc::new(Scheduler::start(
             Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),

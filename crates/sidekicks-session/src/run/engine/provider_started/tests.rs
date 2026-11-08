@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex, Weak};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -15,6 +15,7 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
+use sidekicks_contracts::repo::mount::WorkspaceId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queued::{
     AgentRunQueuedNewState, AgentRunQueuedPayload, RunQueuedSessionAgentPayload,
@@ -33,12 +34,14 @@ use sidekicks_provider::driver::test_registry::{
 };
 use sidekicks_provider::run::delivery::ChildRunSubagent;
 use sidekicks_provider::run::posture::{compose_execution_posture, resolve_posture};
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::schema::SchemaParts;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use sidekicks_store::events::log_service::EventReadAfterCursorRequest;
 use sidekicks_store::events::log_service::test_fixture::open_log;
 use sidekicks_store::events::projection::SessionProjection as _;
 use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGate, RunSetupGateError};
+use sidekicks_workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
 use crate::agent_tree::projection::AgentTreeProjection;
 use crate::agent_tree::store::{AgentTreeNode, find_node};
@@ -237,6 +240,122 @@ async fn a_subagent_runs_at_the_posture_its_session_moved_to_since_its_parent_st
     assert_eq!(
         running["executionPosture"],
         serde_json::to_value(&resolved).expect("a posture serializes")
+    );
+}
+
+// A gate that records the parent run and its workspace each run it checks was started beneath,
+// and passes it.
+#[derive(Default)]
+struct ParentRunGate {
+    parents: Mutex<Vec<SeenParent>>,
+}
+
+// A checked run's parent run and that run's workspace, as the gate saw them.
+type SeenParent = Option<(RunId, Option<WorkspaceId>)>;
+
+impl RunSetupGate for ParentRunGate {
+    fn assert_run_ready<'a>(
+        &'a self,
+        context: &'a RunSetupContext,
+    ) -> BoxFuture<'a, Result<(), RunSetupGateError>> {
+        lock(&self.parents).push(
+            context
+                .parent_run
+                .map(|parent| (parent.run_id, parent.workspace_id)),
+        );
+        Box::pin(std::future::ready(Ok(())))
+    }
+}
+
+// Writes `run_id`'s execution context, bound in a workspace of its own on a mount of its own, and
+// answers that workspace.
+fn bind_run_in_new_workspace(database: &TestDatabase, run_id: RunId) -> WorkspaceId {
+    let workspace_id = WorkspaceId::try_from(mint_uuid_v7()).expect("a minted UUID is an id");
+    let mount_id = mint_uuid_v7().to_string();
+    let connection = database.reader();
+    for row in project_and_mount_rows(&mount_id, None) {
+        connection
+            .execute_batch(&row)
+            .expect("the project and its mount are stored");
+    }
+    // Each mount is of a folder of its own, as two live mounts never share one.
+    connection
+        .execute(
+            "UPDATE repo_mounts SET local_path = ?1, canonical_root = ?1 WHERE id = ?2",
+            params![format!("/repos/{mount_id}"), mount_id],
+        )
+        .expect("the mount points at its own folder");
+    connection
+        .execute_batch(&format!(
+            "INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, created_at, \
+             updated_at) VALUES ('{workspace_id}', '{session_id}', '{mount_id}', 'boundRoot', \
+             '{PARENT_ROWS_AT}', '{PARENT_ROWS_AT}');
+             INSERT INTO branch_contexts (id, workspace_id, base_branch, head_branch, created_at, \
+             updated_at) VALUES ('{workspace_id}', '{workspace_id}', 'main', 'main', \
+             '{PARENT_ROWS_AT}', '{PARENT_ROWS_AT}')",
+            session_id = test_session_id().text().as_str(),
+        ))
+        .expect("the run's workspace is stored");
+    connection
+        .execute(
+            "INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, \
+             execution_mode, execution_root, checkout_root, git_common_dir, branch_context_id, \
+             created_at) VALUES (?1, ?2, ?3, 'boundRoot', '/checkout', '/checkout', \
+             '/checkout/.git', ?3, ?4)",
+            params![
+                run_id.text().as_str(),
+                test_session_id().text().as_str(),
+                workspace_id.text().as_str(),
+                PARENT_ROWS_AT
+            ],
+        )
+        .expect("the run's context is written");
+    workspace_id
+}
+
+// A helper is gated beside its own parent run in that run's workspace, never left for the
+// execution-root gate to place in the session's newest, and a continue on its provider's turn in
+// the session's current one. Killed by the helper's start handing its gates no parent or no
+// workspace, and by the continue handing a parent of its own.
+#[tokio::test]
+async fn a_helper_is_gated_in_its_parents_workspace_and_a_continue_in_the_sessions() {
+    let database = TestDatabase::new(subagent_schema_parts());
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let git_folder = home.path().join("repo.git");
+    std::fs::create_dir(&git_folder).expect("the git folder is made");
+    let gate = Arc::new(ParentRunGate::default());
+    let engine = test_engine_with(
+        &database,
+        log.service,
+        home.path(),
+        Arc::new(NoPlanHolds),
+        vec![Arc::clone(&gate) as _],
+    );
+    let session_postures = Arc::new(TestSessionPostures::default());
+    engine
+        .set_session_postures(Arc::downgrade(&session_postures) as Weak<_>)
+        .expect("a new engine holds no posture source yet");
+    let parent = start_ask_parent(&database, &engine, &session_postures, &git_folder).await;
+    let parent_workspace = bind_run_in_new_workspace(&database, parent);
+    let interrupted = insert_interrupted_run(&database);
+    bind_run_in_new_workspace(&database, interrupted);
+
+    running(
+        engine
+            .start_provider_subagent_run(parent, helper("helper-1", None, "call-1"))
+            .await
+            .expect("the subagent's start is answered"),
+    );
+    engine
+        .continue_run_with_kept_messages(interrupted)
+        .await
+        .expect("the continue is written");
+
+    assert_eq!(
+        *lock(&gate.parents),
+        [None, Some((parent, Some(parent_workspace))), None],
+        "the parent's send has no parent, the helper its own with its workspace, a continue none"
     );
 }
 

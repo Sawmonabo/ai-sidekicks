@@ -6,6 +6,12 @@
 //! two sessions' runs may work in one folder. The run's end stamps the context released, sweeps the
 //! session out of a removed tree and applies a move held during the run.
 //!
+//! - The run's workspace is the one its send named, else its parent's for a helper the provider
+//!   started, else the session's newest; a named one the session no longer holds live refuses the
+//!   run `workspace.notFound` rather than placing it elsewhere.
+//! - A helper is no run boundary: it applies no held move and sweeps nothing, and binds at the
+//!   root its own parent run's live context holds, since it works in its parent's folder; a helper
+//!   whose parent is bound in no workspace binds nothing.
 //! - A workspace a re-attach moved waits `preparing` with its root kept; the gate admits it again
 //!   first, so a run never binds the old repository's root.
 //! - Only the binding holds the workspace's preparation hold, and everything it calls takes that
@@ -34,6 +40,7 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::mount::{
     ExecutionMode, RepoMountId, RepoMountState, WorkspaceId, WorkspaceState,
 };
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -63,6 +70,7 @@ use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::{GitRunner, read_git_common_folder};
 use crate::git::worktree::errors::WorktreeRefusal;
 use crate::git::worktree::naming::{derive_run_tail, suggest_tail_for};
+use crate::git::worktree::rows::standing_worktree_state_predicate;
 use crate::project::list_feed::ProjectListFeed;
 use crate::repo::mount::reattach::RepoMountReattachService;
 use crate::row_guards::{CHECKOUT_ROOT_METADATA_PATH, COMMON_DIR_METADATA_PATH};
@@ -70,10 +78,10 @@ use crate::service::{WorkspaceService, root_mismatch};
 use crate::trust_envelope::components_equal;
 
 /// The statements the gate's reads keep prepared on each read connection: the run's workspace,
-/// the session's title and the root's ids.
-pub const EXECUTION_ROOT_SETUP_GATE_STATEMENT_CAPACITY: usize = 3;
+/// the session's title, the root's ids and a helper's parent's context.
+pub const EXECUTION_ROOT_SETUP_GATE_STATEMENT_CAPACITY: usize = 4;
 
-// The session's live workspace the send named, else its newest, when a detach left an older one
+// The session's live workspace the run names, else its newest, when a detach left an older one
 // archived; with its mount's anchor, place and whether the mount is a chat's own.
 static SELECT_RUN_WORKSPACE_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -106,13 +114,18 @@ static SELECT_RUN_ROOT_IDS_SQL: LazyLock<String> = LazyLock::new(|| {
    FROM (SELECT 1) AS anchor
    LEFT JOIN worktrees AS tree
      ON @execution_mode = '{provisioned}' AND tree.fs_root = @execution_root
-    AND tree.state IN ('{ready}', '{dirty}', '{merged}')",
+    AND {standing}",
         provisioned = <&'static str>::from(ExecutionMode::ProvisionedWorktree),
-        ready = <&'static str>::from(WorktreeState::Ready),
-        dirty = <&'static str>::from(WorktreeState::Dirty),
-        merged = <&'static str>::from(WorktreeState::Merged),
+        standing = standing_worktree_state_predicate("tree"),
     )
 });
+
+// A helper's parent run's live context in the workspace, whose root the helper binds at.
+const SELECT_PARENT_CONTEXT_SQL: &str = "SELECT execution_mode, execution_root, checkout_root,
+        git_common_dir, worktree_id, branch_context_id
+   FROM run_execution_contexts
+  WHERE run_id = @parent_run_id AND session_id = @session_id AND workspace_id = @workspace_id
+    AND released_at IS NULL";
 
 // Writes only while the workspace is `ready` on the attached mount the binding read and its
 // checkout is no retired tree still to be cleaned; zero rows refuses the write. A run version that
@@ -243,12 +256,22 @@ struct RunWorkspace {
 /// Why the run's workspace could not be found where the binding looked.
 #[derive(Debug, thiserror::Error)]
 enum RunWorkspaceAbsence {
-    /// The send named a workspace the session does not hold live.
-    #[error("workspace {0} is no live workspace of the session")]
-    NotLive(WorkspaceId),
     /// The session's workspace went while its run was set up.
     #[error("session {0} lost its workspace while its run was set up")]
     Lost(SessionId),
+    /// A helper's parent run no longer holds a root in its workspace.
+    #[error("parent run {0} holds no live root in workspace {1}")]
+    ParentReleased(RunId, WorkspaceId),
+}
+
+/// A helper's parent's live context, which the helper's own copies.
+struct ParentContext {
+    execution_mode: ExecutionMode,
+    execution_root: PathBuf,
+    checkout_root: PathBuf,
+    common_folder: PathBuf,
+    worktree_id: Option<WorktreeId>,
+    branch_context_id: BranchContextId,
 }
 
 /// Why a read of the binding failed.
@@ -424,33 +447,112 @@ impl<W: Watcher + Send + 'static> ExecutionRootSetupGate<W> {
                 source: None,
             }));
         };
-        let checkout_key = canonical_folder_path(checkout_root).await.map_err(failed)?;
-        #[cfg(test)]
-        self.write_pause.pass().await;
-        let _checkout_hold = self.checkout_lock.acquire(checkout_key).await;
-        let upsert = run_context_statement(&RunContextRow {
+        self.write_context_row(&RunContextRow {
             context,
             workspace,
+            execution_mode: workspace.execution_mode,
             execution_root,
             checkout_root,
             common_folder: &common_folder,
             worktree_id,
             branch_context_id,
-        });
-        match self.writer.write(vec![upsert]).await {
+        })
+        .await
+    }
+
+    // Binds a helper at its parent's root: no sweep, no held move and no preparation, since the
+    // helper starts mid-run in its parent's folder.
+    async fn bind_beside_parent(
+        &self,
+        context: &RunSetupContext,
+        parent_run_id: RunId,
+        workspace: &RunWorkspace,
+    ) -> Result<(), RunSetupGateError> {
+        let parent = self
+            .read_parent_context(context, parent_run_id, workspace.id)
+            .await?;
+        self.write_context_row(&RunContextRow {
+            context,
+            workspace,
+            execution_mode: parent.execution_mode,
+            execution_root: &parent.execution_root,
+            checkout_root: &parent.checkout_root,
+            common_folder: &parent.common_folder,
+            worktree_id: parent.worktree_id,
+            branch_context_id: parent.branch_context_id,
+        })
+        .await
+    }
+
+    // The upsert under the checkout's lock with its in-write guards.
+    async fn write_context_row(&self, row: &RunContextRow<'_>) -> Result<(), RunSetupGateError> {
+        let checkout_key = canonical_folder_path(row.checkout_root)
+            .await
+            .map_err(failed)?;
+        #[cfg(test)]
+        self.write_pause.pass().await;
+        let _checkout_hold = self.checkout_lock.acquire(checkout_key).await;
+        match self.writer.write(vec![run_context_statement(row)]).await {
             Ok(_) => Ok(()),
             // The workspace left `ready`, its mount was detached or its checkout's removal
             // committed since the binding read them.
             Err(error) if error.refused_statement_index() == Some(0) => {
                 Err(RunSetupGateError::Refused(
                     DomainError::from(WorkspaceRefusal::RootUnavailable {
-                        workspace_id: Some(workspace.id),
+                        workspace_id: Some(row.workspace.id),
                     })
                     .with_source(error),
                 ))
             }
             Err(error) => Err(failed(error)),
         }
+    }
+
+    // The live context the helper's parent run `parent_run_id` holds in `workspace_id`.
+    async fn read_parent_context(
+        &self,
+        context: &RunSetupContext,
+        parent_run_id: RunId,
+        workspace_id: WorkspaceId,
+    ) -> Result<ParentContext, RunSetupGateError> {
+        let session_id = context.session_id;
+        self.reads
+            .read(ReadLength::Short, move |connection| {
+                Ok::<_, RunBindingReadError>(
+                    connection
+                        .prepare_cached(SELECT_PARENT_CONTEXT_SQL)?
+                        .query_row(
+                            named_params! {
+                                "@parent_run_id": parent_run_id.text().as_str(),
+                                "@session_id": session_id.text().as_str(),
+                                "@workspace_id": workspace_id.text().as_str(),
+                            },
+                            |row| {
+                                Ok(ParentContext {
+                                    execution_mode: text_column(row, 0, closed_word)?,
+                                    execution_root: PathBuf::from(row.get::<_, String>(1)?),
+                                    checkout_root: PathBuf::from(row.get::<_, String>(2)?),
+                                    common_folder: PathBuf::from(row.get::<_, String>(3)?),
+                                    worktree_id: optional_text_column(row, 4, |text| {
+                                        WorktreeId::new(&text)
+                                    })?,
+                                    branch_context_id: text_column(row, 5, |text| {
+                                        BranchContextId::new(&text)
+                                    })?,
+                                })
+                            },
+                        )
+                        .optional()?,
+                )
+            })
+            .await
+            .map_err(failed)?
+            .ok_or_else(|| {
+                failed(RunWorkspaceAbsence::ParentReleased(
+                    parent_run_id,
+                    workspace_id,
+                ))
+            })
     }
 
     // The daemon's standing tree at the root and the context to bind, each `None` when absent.
@@ -493,7 +595,7 @@ impl<W: Watcher + Send + 'static> ExecutionRootSetupGate<W> {
         context: &RunSetupContext,
     ) -> Result<Option<RunWorkspace>, RunSetupGateError> {
         let session_id = context.session_id;
-        let named = context.workspace_id;
+        let named = named_workspace(context);
         self.reads
             .read(ReadLength::Short, move |connection| {
                 read_run_workspace(connection, session_id, named)
@@ -514,25 +616,40 @@ impl<W: Watcher + Send + 'static> ExecutionRootSetupGate<W> {
 
 impl<W: Watcher + Send + Sync + 'static> RunSetupGate for ExecutionRootSetupGate<W> {
     /// Binds the run, refusing `workspace.executionRoot.unresolved` wrapping why it could not,
-    /// which ends the run `failed`; a send that named a workspace the session does not hold live is
-    /// refused so. A session bound to no repository has nothing to bind.
+    /// which ends the run `failed`; a send that named, or a helper whose parent is bound in, a
+    /// workspace the session does not hold live is refused so with the cause `workspace.notFound`,
+    /// never placed in the newest. A session bound to no repository, and a helper whose parent is
+    /// bound in no workspace, have nothing to bind.
     fn assert_run_ready<'a>(
         &'a self,
         context: &'a RunSetupContext,
     ) -> BoxFuture<'a, Result<(), RunSetupGateError>> {
         Box::pin(async move {
+            if context
+                .parent_run
+                .is_some_and(|parent| parent.workspace_id.is_none())
+            {
+                return Ok(());
+            }
             let Some(before) = self.read_workspace(context).await? else {
-                return match context.workspace_id {
+                return match named_workspace(context) {
                     Some(workspace_id) => Err(unresolved(
                         workspace_id,
-                        failed(RunWorkspaceAbsence::NotLive(workspace_id)),
+                        RunSetupGateError::Refused(
+                            WorkspaceRefusal::NotFound { workspace_id }.into(),
+                        ),
                     )),
                     None => Ok(()),
                 };
             };
-            self.bind_run(context, &before)
-                .await
-                .map_err(|cause| unresolved(before.id, cause))?;
+            let bound = match context.parent_run {
+                Some(parent) => {
+                    self.bind_beside_parent(context, parent.run_id, &before)
+                        .await
+                }
+                None => self.bind_run(context, &before).await,
+            };
+            bound.map_err(|cause| unresolved(before.id, cause))?;
             // The run's held root changed without an event.
             self.list_feed.refresh_sessions(&[context.session_id]);
             Ok(())
@@ -578,6 +695,7 @@ impl<W: Watcher + Send + Sync + 'static> RunSetupGate for ExecutionRootSetupGate
 struct RunContextRow<'a> {
     context: &'a RunSetupContext,
     workspace: &'a RunWorkspace,
+    execution_mode: ExecutionMode,
     execution_root: &'a Path,
     checkout_root: &'a Path,
     common_folder: &'a Path,
@@ -598,10 +716,7 @@ fn run_context_statement(row: &RunContextRow<'_>) -> WriteStatement {
                 "@repo_mount_id",
                 row.workspace.repo_mount_id.text().as_str(),
             ),
-            text_binding(
-                "@execution_mode",
-                <&'static str>::from(row.workspace.execution_mode),
-            ),
+            text_binding("@execution_mode", <&'static str>::from(row.execution_mode)),
             text_binding("@execution_root", &row.execution_root.to_string_lossy()),
             text_binding("@checkout_root", &row.checkout_root.to_string_lossy()),
             text_binding("@git_common_dir", &row.common_folder.to_string_lossy()),
@@ -611,6 +726,14 @@ fn run_context_statement(row: &RunContextRow<'_>) -> WriteStatement {
         ]),
         expected_row_count: Some(1),
     }
+}
+
+// The workspace the run names: the one its send named, else a helper's parent's; `None` takes the
+// session's newest.
+fn named_workspace(context: &RunSetupContext) -> Option<WorkspaceId> {
+    context
+        .workspace_id
+        .or(context.parent_run.and_then(|parent| parent.workspace_id))
 }
 
 fn read_run_workspace(

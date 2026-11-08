@@ -29,6 +29,7 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 
 use crate::ipc::handlers::artifact::ingest::register_artifact_ingest;
@@ -86,6 +87,9 @@ pub(crate) enum ArtifactMethodsError {
     /// The store's payload folder could not be opened.
     #[error("the artifact store's payload folder could not be opened")]
     PayloadStore(#[source] std::io::Error),
+    /// The blocking task that opened the payload folder ended before it finished.
+    #[error("the artifact store's payload folder opening ended before it finished")]
+    Interrupted(#[source] JoinError),
     /// A call was already registered.
     #[error(transparent)]
     Registration(#[from] RegistrationError),
@@ -169,15 +173,19 @@ async fn run_reaper_pass(
     Ok(Some(workload))
 }
 
-/// Builds the artifact store and registers its calls on `registry`. Fails when the payload folder
-/// cannot be opened or a call is already registered.
-pub(crate) fn register_artifact_methods(
+/// Builds the artifact store and registers its calls on `registry`, the payload folder opened on
+/// the blocking pool before any call is registered. Fails when the payload folder cannot be opened
+/// or a call is already registered.
+pub(crate) async fn register_artifact_methods(
     registry: &mut MethodRegistryBuilder,
     deps: ArtifactMethodsDeps,
 ) -> Result<ArtifactMethods, ArtifactMethodsError> {
     let store_folder = deps.data_folder.join(ARTIFACTS_FOLDER_NAME);
+    let objects_folder = store_folder.join("objects");
     let payloads = Arc::new(
-        PayloadStore::new(store_folder.join("objects"))
+        tokio::task::spawn_blocking(move || PayloadStore::new(objects_folder))
+            .await
+            .map_err(ArtifactMethodsError::Interrupted)?
             .map_err(ArtifactMethodsError::PayloadStore)?,
     );
     let spool_folder = store_folder.join("spool");
@@ -248,6 +256,7 @@ mod tests {
                 clock: Arc::new(WallClockTimer::new().expect("the test arms a wall clock")),
             },
         )
+        .await
         .expect("the artifact store opens");
         let spool_folder = data_folder.path().join(ARTIFACTS_FOLDER_NAME).join("spool");
         std::fs::create_dir_all(&spool_folder).expect("the spool folder is made");

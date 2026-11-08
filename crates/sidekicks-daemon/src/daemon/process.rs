@@ -250,7 +250,7 @@ impl DaemonProcess {
             Err(error) => {
                 let error = DaemonStartError::Spawner(error);
                 // The lock `options` holds goes only once this returns, after the record.
-                record_start_failure(&options.run_folder, &error);
+                record_start_failure(&options.run_folder, &error).await;
                 return Err(DaemonStartFailure {
                     failures: Box::new(CleanupFailures::new(error, Vec::new(), START_OPERATION)),
                     release_started: Instant::now(),
@@ -547,7 +547,8 @@ impl DaemonProcess {
                 data_folder: data_folder.clone(),
                 clock: Arc::clone(&wall_clock),
             },
-        )?;
+        )
+        .await?;
         let providers = build_providers(
             provider_registrations,
             ProviderStart {
@@ -708,10 +709,8 @@ impl DaemonProcess {
             )
             .await?,
         );
-        let status_run_folder = run_folder.clone();
-        tokio::task::spawn_blocking(move || remove_service_status(&status_run_folder))
+        remove_service_status(run_folder)
             .await
-            .map_err(|ended| DaemonStartError::ServiceStatus(std::io::Error::other(ended)))?
             .map_err(DaemonStartError::ServiceStatus)?;
         self.check_stop("binding the socket")?;
         // A stop settles the wait, so the registration never waits on an index that cannot open.
@@ -848,7 +847,7 @@ impl DaemonProcess {
         let reason = DaemonStopReason::of_failed_start(&error);
         let mut failures = stop_work(&mut self, reason, DAEMON_STOP_DRAIN_BOUND).await;
         failures.extend(close_data_folder_contents(&mut self).await);
-        record_start_failure(&self.stop_record.run_folder, &error);
+        record_start_failure(&self.stop_record.run_folder, &error).await;
         drop(self.data_folder_lock.take());
         DaemonStartFailure {
             failures: Box::new(CleanupFailures::new(error, failures, START_OPERATION)),

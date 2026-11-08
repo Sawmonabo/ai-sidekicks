@@ -2,7 +2,8 @@
 //! first one that cannot be read: a row that is not a well-formed event, an event its registered
 //! shape refuses, or one the projections' fold cannot take. The session's projections are rebuilt
 //! through that point and it opens there, read-only, until the person continues it from there or
-//! deletes it. The damaged rows are never moved, rewritten or deleted; a continue skips them.
+//! deletes it. The damaged rows are never moved, rewritten or deleted; a continue skips them. The
+//! same `Delete session` also deletes a session whose create never finished.
 
 use std::collections::BTreeSet;
 use std::error::Error;
@@ -23,7 +24,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_session::directory::lookups::session_exists;
+use sidekicks_session::directory::lookups::{is_unfinished_create, session_exists};
 use sidekicks_session::service::{
     EventsReadAfterSequenceRequest, SessionService, SessionServiceError,
 };
@@ -54,9 +55,9 @@ use crate::restart_settle::{
 use crate::status::{LastGoodPoint, RecoveryStatusTracker};
 use crate::stop_intent::{StopIntentError, StopIntentFile};
 
-/// The statements damaged history's own reads run: the last event before a damaged one, and
-/// whether a session has a row.
-pub const DAMAGED_HISTORY_STATEMENT_CAPACITY: usize = 2;
+/// The statements damaged history's own reads run: the last event before a damaged one, whether a
+/// session has a row, and whether its create never finished.
+pub const DAMAGED_HISTORY_STATEMENT_CAPACITY: usize = 3;
 
 // The last event the session opens at: the newest one before the first damaged event that no
 // skipped range holds.
@@ -71,15 +72,40 @@ static SELECT_LAST_EVENT_BEFORE_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// Deletes every row of one damaged session for `Delete session`, from any state but
-/// `provisioning`; the copy set aside stays.
-pub trait DamagedSessionPurge: Send + Sync {
-    /// Purges `session_id`, answering once its rows are gone; fails with why the session was
-    /// refused or its purge stopped, which leaves its rows for a later purge to finish.
-    fn purge_damaged_session(
+/// Why `Delete session` deletes a session.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionDeletion {
+    /// Its history is damaged; any state but `provisioning`.
+    DamagedHistory,
+    /// Its create never finished: `provisioning`, `archived`, `closed` or left marked by a failed
+    /// purge, never activated.
+    UnfinishedCreate,
+}
+
+/// Why a [`SessionDeletePurge`] did not delete the session.
+#[derive(Debug, thiserror::Error)]
+pub enum SessionDeletePurgeError {
+    /// The session had left the states its deletion takes by the purge's mark, as a create that
+    /// finished meanwhile leaves them.
+    #[error("the session is no longer in a state its deletion takes")]
+    NotDeletable,
+    /// The purge refused the session for another reason or stopped, leaving its rows for a later
+    /// purge to finish.
+    #[error(transparent)]
+    Failed(Box<dyn Error + Send + Sync>),
+}
+
+/// Deletes every row of one session for `Delete session`; a damaged session's copy set aside
+/// stays.
+pub trait SessionDeletePurge: Send + Sync {
+    /// Purges `session_id` from the states `deletion` takes, answering once its rows are gone;
+    /// fails with [`SessionDeletePurgeError::NotDeletable`] when the session left those states,
+    /// and [`SessionDeletePurgeError::Failed`] when it was otherwise refused or its purge stopped.
+    fn purge_deleted_session(
         &self,
         session_id: SessionId,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+        deletion: SessionDeletion,
+    ) -> BoxFuture<'_, Result<(), SessionDeletePurgeError>>;
 }
 
 /// What damaged history reads, writes and rebuilds through.
@@ -97,7 +123,7 @@ pub struct DamagedHistoryDeps {
     /// What the restart left in a continued session, settled.
     pub restart_settle: Arc<RestartSettle>,
     /// The purge `Delete session` runs.
-    pub purge: Arc<dyn DamagedSessionPurge>,
+    pub purge: Arc<dyn SessionDeletePurge>,
     /// The recovery state that says which sessions are damaged.
     pub status: Arc<RecoveryStatusTracker>,
     /// The intent the person's Stop left, under which a continue ends runs as the Stop does.
@@ -154,7 +180,7 @@ pub enum RecoveryActionError {
     /// stale so the next start rebuilds it past the skip, the mark's own failure beside it.
     #[error(transparent)]
     Unfinished(Box<CleanupFailures<RecoveryActionError, WriteError>>),
-    /// The purge refused the session or failed.
+    /// The purge refused the session for a reason other than its state, or failed.
     #[error("the session was not deleted")]
     Purge(#[source] Box<dyn Error + Send + Sync>),
 }
@@ -285,27 +311,47 @@ impl DamagedHistory {
         }
     }
 
-    /// `Delete session` on a damaged session: every row of it goes, the copy set aside stays.
-    /// Refuses a session whose history is not damaged as
-    /// [`DamagedHistory::continue_from_last_good_point`] does, and fails with the purge's refusal.
-    pub async fn delete_damaged_session(
-        &self,
-        session_id: SessionId,
-    ) -> Result<(), RecoveryActionError> {
+    /// `Delete session`: every row of the session goes at once, on a session whose create never
+    /// finished, its managed workspace and its create's record among them, and on a damaged
+    /// session, whose copy set aside stays. Refuses any other session, and one that leaves the
+    /// states its deletion takes before the purge marks it, as
+    /// [`DamagedHistory::continue_from_last_good_point`] refuses an undamaged one, and fails with
+    /// the purge's other refusals.
+    pub async fn delete_session(&self, session_id: SessionId) -> Result<(), RecoveryActionError> {
         let _action = self.recovery_actions.acquire(session_id).await;
-        if self
+        let is_create_unfinished = self
+            .deps
+            .reads
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, RecoveryActionError>(is_unfinished_create(reader, &session_id)?)
+            })
+            .await?;
+        let deletion = if is_create_unfinished {
+            SessionDeletion::UnfinishedCreate
+        } else if self
             .deps
             .status
             .read_session_write_refusal(&session_id)
-            .is_none()
+            .is_some()
         {
+            SessionDeletion::DamagedHistory
+        } else {
             return Err(self.refusal_of_undamaged(session_id).await);
-        }
-        self.deps
+        };
+        match self
+            .deps
             .purge
-            .purge_damaged_session(session_id)
+            .purge_deleted_session(session_id, deletion)
             .await
-            .map_err(RecoveryActionError::Purge)
+        {
+            Ok(()) => Ok(()),
+            Err(SessionDeletePurgeError::NotDeletable) => {
+                Err(self.refusal_of_undamaged(session_id).await)
+            }
+            Err(SessionDeletePurgeError::Failed(failure)) => {
+                Err(RecoveryActionError::Purge(failure))
+            }
+        }
     }
 
     // The rebuild past the skip and the settle of the live runs, under the continue's hold. Where

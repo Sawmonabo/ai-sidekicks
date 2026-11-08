@@ -144,6 +144,7 @@ impl Fixture {
                 session_id: session_id(),
                 opening_words: None,
                 workspace_id: None,
+                parent_run: None,
                 execution_posture: serde_json::from_value(json!({
                     "mode": "yolo",
                     "credentialPolicyRef": "curated-credentials",

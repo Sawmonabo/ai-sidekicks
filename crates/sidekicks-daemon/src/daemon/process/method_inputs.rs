@@ -54,6 +54,7 @@ use sidekicks_session::attention::delivery::web_address::sender::{
     WebAddressSender, WebAddressSenderDependencies,
 };
 use sidekicks_session::attention::service::{AttentionService, AttentionServiceDependencies};
+use sidekicks_session::changes::UnarchivedCreateListener;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::groups::service::SessionGroupService;
 use sidekicks_session::interventions::service::InterventionService;
@@ -560,9 +561,14 @@ pub(crate) async fn register_method_inputs(
         project_list_feed: Arc::clone(&project_list_feed),
         scheduler: Arc::clone(&scheduler),
     });
-    // The create finishes the sessions a clone holds once it attaches.
+    // The create finishes the sessions a clone holds once it attaches, and a session unarchived
+    // before its create finished.
     let clone_attached = Arc::new(PortRegistration::new("clone attached"));
     clone_attached.register(Arc::clone(&workspace.creation) as Arc<dyn CloneAttachedListener>)?;
+    session
+        .changes
+        .unarchived_creates()
+        .register(Arc::clone(&workspace.creation) as Arc<dyn UnarchivedCreateListener>)?;
     let clones = match repo
         .askpass
         .take()

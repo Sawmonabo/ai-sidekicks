@@ -276,7 +276,7 @@ async fn each_stop_of_a_running_service_records_its_steps_and_ends_with_one_fact
             let after_close = read_status(&home);
             // What a start that took the freed lock would leave; the stop that follows, whose git
             // trees' step is still there to run, must not replace or remove it.
-            record_start_failure(&home.run_folder, &another_version());
+            record_start_failure(&home.run_folder, &another_version()).await;
             drop(process.stop(DaemonStopReason::Erase).await);
 
             assert_eq!(at_hold, None, "the erase's step writes no record");

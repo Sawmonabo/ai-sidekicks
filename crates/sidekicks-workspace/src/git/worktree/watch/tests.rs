@@ -35,6 +35,8 @@ use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::schema::schema_parts;
 use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
+mod tree_state;
+
 /// How long a wait runs before it fails naming what never came: short of nextest's two-minute
 /// kill, so a hang names itself, and no passing test comes near it.
 const WAIT: Duration = Duration::from_secs(110);
@@ -81,6 +83,7 @@ impl Fixture {
             git: git.clone(),
             reads: Arc::clone(&reads),
             occupancy: MountOccupancyReader::new(reads),
+            writer: Arc::clone(&log.writer),
             events: Arc::new(WorktreeEventEmitter::new(Arc::clone(&log.service))),
             scheduler: Arc::new(Scheduler::start(
                 Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),
