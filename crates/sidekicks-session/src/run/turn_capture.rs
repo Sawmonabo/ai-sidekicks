@@ -39,8 +39,8 @@ use crate::run::checkout::{RunCheckout, read_run_checkout};
 use crate::transcript::turn_attribution::{RunTurnReads, TurnAttributionError};
 
 /// The statements a turn end's capture prepares on a pooled connection: the run's checkout and
-/// place, the sequence of the turn's own start, and the run's rollbacks and turn starts its
-/// standing is read from.
+/// place, the sequence of the turn's own start, and the run's rollbacks and its turn starts and
+/// steers its standing is read from.
 pub const TURN_CAPTURE_STATEMENT_CAPACITY: usize = 4;
 
 // The sequence of the run's start of the turn, spelled as the unique index on turn starts spells

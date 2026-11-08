@@ -3,6 +3,7 @@
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_session::questions::schema::schema_parts;
+use sidekicks_store::database::schema::SESSION_EVENTS_RUN_INDEX;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use sidekicks_store::events::log_service::test_fixture::open_log;
 
@@ -35,9 +36,9 @@ async fn the_trigger_read_searches_the_run_index() {
         .expect("each step reads");
 
     assert!(
-        plan.iter()
-            .any(|step| step
-                .starts_with("SEARCH session_events USING INDEX idx_session_events_run ")),
+        plan.iter().any(|step| step.starts_with(&format!(
+            "SEARCH session_events USING INDEX {SESSION_EVENTS_RUN_INDEX} "
+        ))),
         "{plan:?}"
     );
     assert!(

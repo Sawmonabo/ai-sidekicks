@@ -24,7 +24,8 @@ use crate::transcript::run_attribution::{
     TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS, transcript_run_id_of,
 };
 use crate::transcript::turn_attribution::{
-    RUN_START_POSITION, TOOL_CALL_OPENING_EVENT_TYPE, TURN_STARTED_EVENT_TYPE,
+    RUN_POSITION_EVENT_TYPES, RUN_START_POSITION, TOOL_CALL_OPENING_EVENT_TYPE,
+    TURN_STARTED_EVENT_TYPE,
 };
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
@@ -43,8 +44,12 @@ ts_constants! {
     pub const TRANSCRIPT_RUN_LIFECYCLE_CATEGORY: EventCategory = EventCategory::RunLifecycle;
     /// The payload keys that name a run: `runId` everywhere, and `targetRunId` on interventions.
     TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS = TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS;
-    /// The event type of a turn boundary, which moves its run to its next position.
+    /// The event type of a turn boundary, which moves its run to the position its opening message
+    /// takes.
     TURN_STARTED_EVENT_TYPE = TURN_STARTED_EVENT_TYPE;
+    /// The event types that move a run to a position of its own, one per message of the person's
+    /// the run took: a turn boundary and a steer.
+    RUN_POSITION_EVENT_TYPES = RUN_POSITION_EVENT_TYPES;
     /// The event type that opens a tool call; the call's later rows take the run position it
     /// opened at.
     TOOL_CALL_OPENING_EVENT_TYPE = TOOL_CALL_OPENING_EVENT_TYPE;

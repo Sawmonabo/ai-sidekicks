@@ -11,7 +11,9 @@ use sidekicks_contracts::transcript::turn_attribution::{
 };
 use strum::VariantArray as _;
 
-use crate::database::schema::{SESSION_EVENTS_TABLE, SESSION_EVENTS_TYPE_INDEX};
+use crate::database::schema::{
+    SESSION_EVENTS_RUN_INDEX, SESSION_EVENTS_TABLE, SESSION_EVENTS_TYPE_INDEX,
+};
 use crate::database::sql_list::sql_list_of;
 use crate::events::session::skipped_ranges::DAMAGED_EVENTS_SKIPPED_TYPE;
 
@@ -60,8 +62,8 @@ CREATE TABLE {SESSION_EVENTS_TABLE} (
   -- the append for every type that carries a run; NULL otherwise.
   run_id            TEXT,
   run_version       INTEGER,
-  -- The turn's number within its run, from 1, written beside run_id for the turn start and the
-  -- three turn ends; NULL otherwise.
+  -- The turn's number within its run, from 1, written beside run_id for the turn start, a steer
+  -- into the turn and the three turn ends; NULL otherwise.
   turn_number       INTEGER,
   -- The provider message and block a run's reply or reasoning piece belongs to; on a tool
   -- completion that names patched files and on each stored part of them, the completion's id;
@@ -97,8 +99,10 @@ CREATE INDEX idx_session_events_skipped ON {SESSION_EVENTS_TABLE}(session_id)
 CREATE INDEX idx_session_events_backgrounded ON {SESSION_EVENTS_TABLE}(session_id, sequence)
   WHERE type = '{backgrounded_type}';
 -- One run's events of one type in log order, for the reads that seed a run's turns and that find
--- a live run's agent and newest touch.
-CREATE INDEX idx_session_events_run ON {SESSION_EVENTS_TABLE}(session_id, type, run_id, sequence)
+-- a live run's agent and newest touch. The read of where a run stands names it, since across its
+-- two types, turn starts and steers, the planner would leave it for an index that walks every
+-- row in range.
+CREATE INDEX {SESSION_EVENTS_RUN_INDEX} ON {SESSION_EVENTS_TABLE}(session_id, type, run_id, sequence)
   WHERE run_id IS NOT NULL;
 -- One run's events in log order, read beside the events filed under it.
 CREATE INDEX idx_session_events_run_sequence ON {SESSION_EVENTS_TABLE}(session_id, run_id, sequence)

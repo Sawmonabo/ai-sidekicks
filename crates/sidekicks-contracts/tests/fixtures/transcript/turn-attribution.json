@@ -76,35 +76,35 @@
     "expected": { "position": 9, "epoch": 1 }
   },
   {
-    "step": "standingAfterTurnStarted",
+    "step": "standingAfterMessageTaken",
     "note": "the provider's position wins",
     "standing": { "epoch": 1, "position": 2 },
     "payload": { "position": 7 },
     "expected": { "epoch": 1, "position": 7 }
   },
   {
-    "step": "standingAfterTurnStarted",
+    "step": "standingAfterMessageTaken",
     "note": "no position moves to the next",
     "standing": { "epoch": 1, "position": 2 },
     "payload": {},
     "expected": { "epoch": 1, "position": 3 }
   },
   {
-    "step": "standingAfterTurnStarted",
+    "step": "standingAfterMessageTaken",
     "note": "a negative position moves to the next",
     "standing": { "epoch": 0, "position": 2 },
     "payload": { "position": -1 },
     "expected": { "epoch": 0, "position": 3 }
   },
   {
-    "step": "standingAfterTurnStarted",
+    "step": "standingAfterMessageTaken",
     "note": "a fractional position moves to the next",
     "standing": { "epoch": 0, "position": 2 },
     "payload": { "position": 1.5 },
     "expected": { "epoch": 0, "position": 3 }
   },
   {
-    "step": "standingAfterTurnStarted",
+    "step": "standingAfterMessageTaken",
     "note": "a text position moves to the next",
     "standing": { "epoch": 0, "position": 2 },
     "payload": { "position": "4" },
