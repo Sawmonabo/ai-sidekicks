@@ -93,7 +93,7 @@ async fn a_refusal_claude_code_marks_sendable_is_sent_once_more_after_the_turn_s
     assert_eq!(
         result,
         RewindConversationResult::Applied {
-            binding_id: None,
+            fork: None,
             cut_message_text: None,
         }
     );

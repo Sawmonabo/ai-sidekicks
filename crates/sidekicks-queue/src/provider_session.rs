@@ -170,10 +170,10 @@ pub struct ProviderSessionsDeps {
     pub orphaned_questions: Arc<dyn OrphanedAnswerSource<QuestionId>>,
 }
 
-// Closes the process `driver` opened for `session_id` whose binding was not recorded, so none runs
-// under a binding with no row; the error to answer is `recorded`, why it was not recorded, or both
-// when the close failed.
-async fn close_unrecorded(
+/// Closes the process `driver` opened for `session_id` whose binding was not recorded, so none runs
+/// under a binding with no row, and answers `recorded`, or `UnrecordedNotClosed` carrying both when
+/// the close fails. The caller holds no lock the driver's close appends under.
+pub(crate) async fn close_unrecorded(
     driver: &dyn ProviderDriver,
     session_id: SessionId,
     recorded: ProviderSessionError,

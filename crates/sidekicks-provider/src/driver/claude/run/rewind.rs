@@ -246,7 +246,7 @@ impl ClaudeConversationCuts {
         // Every run the process served is retired, so none still needs its presses.
         live.release_served_presses(reviewer_denials);
         Ok(RewindConversationResult::Applied {
-            binding_id: None,
+            fork: None,
             cut_message_text,
         })
     }
