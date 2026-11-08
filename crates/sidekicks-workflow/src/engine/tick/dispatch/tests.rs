@@ -21,6 +21,7 @@ use tokio::time::timeout;
 
 use super::{test_dispatch, test_ready_step, test_run_snapshot};
 use crate::engine::ports::{AgentStepRequest, ScriptedGate, StepAdmission};
+use crate::engine::start::hash_run_pins;
 use crate::engine::tick::{RunScope, StepReport, StepReportKind, StepSettlement, test_run_scope};
 use crate::kinds::step_context::StepContext;
 use crate::kinds::{
@@ -437,7 +438,7 @@ async fn a_step_reports_its_start_progress_and_outputs_in_order(
     let node = test_node(&settings);
     let mut scope = test_run_scope(mode, vec![node.clone()]);
     if is_pinned {
-        scope.pin_data = Some(pin_data());
+        scope.pins = hash_run_pins(Some(pin_data()), mode).expect("the test's pins hash");
     }
     let names = ["Ada", "Bob", "Cy"];
     let inputs = names[..input_count]

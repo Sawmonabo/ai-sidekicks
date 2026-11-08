@@ -19,6 +19,7 @@ use crate::engine::ports::{
     ScriptedGate, StepAdmission, StepAdmissionOutcome, StepAdmissionWork, StepScriptRuntime,
     WorkflowNodeKey,
 };
+use crate::engine::start::hash_run_pins;
 use crate::engine::tick::dispatch::{test_dispatch, test_ready_step, test_run_snapshot};
 use crate::engine::tick::test_run_scope;
 use crate::kinds::{StepAdmissionNeed, StepAdmissionShape};
@@ -63,7 +64,8 @@ async fn a_gate_step_waits_for_its_admission_before_it_launches(
     });
     let mut scope = test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]);
     if is_pinned {
-        scope.pin_data = Some(pin_data());
+        scope.pins =
+            hash_run_pins(Some(pin_data()), WorkflowRunMode::Manual).expect("the test's pins hash");
     }
     let inputs: Vec<Value> = ["Ada", "Bob"]
         .iter()

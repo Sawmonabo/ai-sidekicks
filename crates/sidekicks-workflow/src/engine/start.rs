@@ -42,6 +42,7 @@ use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_store::data_folder::workflow_run_folder;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use sidekicks_store::database::stored_column::optional_text_column;
+use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
 use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_store::events::session::appender::{
     SessionEventAppender, SessionEventDraft, SessionEventLinkage,
@@ -52,11 +53,12 @@ use sidekicks_workspace::project::records::session_project_sql;
 use sidekicks_workspace::working_folder::{SessionWorkingFolder, read_project_environment_rows};
 use tokio_util::sync::CancellationToken;
 
+use crate::definitions::content_hash::hash_canonical_json;
 use crate::definitions::kept_values::{WorkflowKeptValue, WorkflowKeptValueStore};
 use crate::definitions::stored_document::parse_stored_pin_data;
 use crate::engine::event_record::{EngineFault, EngineRecorder};
 use crate::engine::ports::{ChainAskAfterReader, StepPayloadArtifacts};
-use crate::engine::tick::{RunGraph, RunScope};
+use crate::engine::tick::{RunGraph, RunPin, RunScope};
 use crate::kinds::NodeKindTable;
 use crate::runs::creation::{
     CHAIN_COUNT_STATEMENT_INDEX, CHAIN_ROOT_CHECK_STATEMENT_INDEX, WorkflowRunCreation,
@@ -197,14 +199,14 @@ struct CheckedStart {
 }
 
 /// What a run's scope reads beside its version and its workflow's row: for a manual run the
-/// workflow's pins, the session's project and that project's environment rows, and the workflow's
-/// kept values.
+/// workflow's pins with their hashes, the session's project and that project's environment rows,
+/// and the workflow's kept values.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the engine's run start handlers")
 )]
 struct ScopeReads {
-    pin_data: Option<Record<String, Vec<WorkflowPinnedItem>>>,
+    pins: HashMap<WorkflowNodeId, RunPin>,
     environment_rows: Vec<EnvironmentRow>,
     project: Option<ProjectId>,
     kept_values: Vec<WorkflowKeptValue>,
@@ -437,7 +439,7 @@ impl WorkflowRunStarter {
     }
 
     // What the run's scope reads beside its version and its workflow's row: the stored pins parsed
-    // for a manual run only, one pooled read of the project's environment rows and the session's
+    // and hashed for a manual run only, one pooled read of the project's environment rows and the session's
     // project, then the workflow's kept values.
     #[cfg_attr(
         not(test),
@@ -455,6 +457,7 @@ impl WorkflowRunStarter {
             .filter(|_| mode == WorkflowRunMode::Manual)
             .map(parse_stored_pin_data)
             .transpose()?;
+        let pins = hash_run_pins(pin_data, mode)?;
         let session = checked.session.clone();
         let (environment_rows, project) = self
             .pool
@@ -466,7 +469,7 @@ impl WorkflowRunStarter {
             .await?;
         let kept_values = self.kept_values.read(checked.definition_id).await?;
         Ok(ScopeReads {
-            pin_data,
+            pins,
             environment_rows,
             project,
             kept_values,
@@ -589,7 +592,7 @@ impl WorkflowRunStarter {
                     trigger: checked.trigger_node,
                     nodes: checked.nodes,
                     node_params: Arc::new(node_params),
-                    pin_data: scope_reads.pin_data,
+                    pins: scope_reads.pins,
                     run_started_at: prepared
                         .started_at
                         .timestamp()
@@ -646,6 +649,34 @@ fn read_session_project(
         .query_row([session_id.text().as_str()], |row| {
             optional_text_column(row, 0, |text| ProjectId::new(&text))
         })
+}
+
+/// The pins a run of `mode` honors, each node's items with their content hash taken once here:
+/// `pin_data` for a manual run and none for any other. Refuses a pin whose items do not
+/// canonicalize.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
+pub(crate) fn hash_run_pins(
+    pin_data: Option<Record<String, Vec<WorkflowPinnedItem>>>,
+    mode: WorkflowRunMode,
+) -> Result<HashMap<WorkflowNodeId, RunPin>, CanonicalizationRefusal> {
+    if mode != WorkflowRunMode::Manual {
+        return Ok(HashMap::new());
+    }
+    pin_data
+        .map(Record::into_map)
+        .unwrap_or_default()
+        .into_iter()
+        // An empty key names no node, so no step gives its pin, as with a key naming a node the
+        // version lacks.
+        .filter_map(|(node_id, items)| Some((WorkflowNodeId::new(node_id)?, items)))
+        .map(|(node_id, items)| {
+            let hash = hash_canonical_json(&serde_json::to_value(&items)?)?.content_hash;
+            Ok((node_id, RunPin { items, hash }))
+        })
+        .collect()
 }
 
 // Makes `folder` new and empty: its parents as needed, then the folder itself, which must not be
