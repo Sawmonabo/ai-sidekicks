@@ -20,7 +20,7 @@ use crate::engine::chain::KeepGoingAnswer;
 use crate::engine::ports::WorkflowRunSnapshotPointRequest;
 use crate::engine::tick::turns::tests::harness::ports::OrderedCall;
 use crate::engine::tick::turns::tests::harness::{
-    Harness, QUIET, WAIT, edge, item, node, step_column,
+    Harness, QUIET, WAIT, attempt_column, edge, item, node, retried, step_column,
 };
 use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
 use crate::engine::waits::{PersonWaitAnswer, PersonWaitRefusal};
@@ -470,6 +470,102 @@ async fn a_form_or_reply_wait_takes_no_point() {
             "{node_id}"
         );
     }
+}
+
+/// A pausing run writes nothing while its point is pending: an answer, a step's report and a
+/// retry come due wait on the run, and the turn the point's end opens takes the answer, writes
+/// the report, dispatches the retry and raises the card after its write. Kills: answers, reports
+/// or due retries not held (the window's asserts); a held answer refused or dropped (the
+/// answer's value); held reports dropped (`N` never runs); held due retries dropped (`F`'s
+/// attempt 2 stays `pending`); a held answer replied before its write (`Q` not yet
+/// `succeeded`); the card raised before the opening turn's write (the order log); the hold
+/// putting the run in its batch on every held turn (the loop never yields on the test's
+/// single-thread runtime, so the test never ends).
+#[tokio::test]
+async fn a_pausing_run_takes_what_reached_it_once_its_point_ends() {
+    // F's retry timer starts at its first failure, before `go`, so it outlasts the waits up to
+    // P's point on a loaded machine.
+    const RETRY_WAIT_MS: u64 = 3_000;
+    let mut harness = Harness::new(None).await;
+    harness.points.set_gate(false);
+    harness
+        .start(
+            vec![
+                node("trigger", "test.trigger", 0, None),
+                node("Q", "test.ask", 1, None),
+                retried(node("F", "test.flaky", 2, None), 2, RETRY_WAIT_MS),
+                node("L", "test.large", 3, None),
+                node("N", "test.step", 4, None),
+                node("G", "test.gated", 5, None),
+                node("P", "test.approve", 6, None),
+            ],
+            &[
+                edge("trigger", "Q", 0),
+                edge("trigger", "F", 0),
+                edge("trigger", "L", 0),
+                edge("L", "N", 0),
+                edge("trigger", "G", 0),
+                edge("G", "P", 0),
+            ],
+            vec![item(json!({}))],
+            |_| {},
+        )
+        .await;
+    harness
+        .wait_until(|rows| {
+            step_column(rows, "Q", "status").as_deref() == Some("waiting")
+                && ["L", "G"].iter().all(|node_id| {
+                    step_column(rows, node_id, "status").as_deref() == Some("running")
+                })
+                && attempt_column(rows, "F", 2, "status").as_deref() == Some("pending")
+        })
+        .await;
+    harness.wait_for_earlier_turns().await;
+    let q_wait = harness.wait_id("Q");
+
+    harness.signal.go.notify_one();
+    assert_eq!(
+        harness.ordered_calls(2).await,
+        [
+            OrderedCall::Ask {
+                kind: "reply",
+                wait_id: q_wait,
+            },
+            pause_point(&harness, 1),
+        ]
+    );
+    assert_eq!(
+        attempt_column(&harness.rows, "F", 2, "status").as_deref(),
+        Some("pending"),
+        "F's retry came due before the pause began"
+    );
+    harness.signal.release.notify_one();
+
+    let reply = PersonWaitAnswer::Reply(NonEmptyText::new("Ship it".to_owned()).expect("a reply"));
+    let (answered, ()) = tokio::join!(harness.answer(q_wait, reply, None), async {
+        tokio::time::sleep(Duration::from_millis(RETRY_WAIT_MS) + QUIET).await;
+        assert_eq!(harness.status("Q").as_deref(), Some("waiting"));
+        assert_eq!(harness.status("L").as_deref(), Some("running"));
+        assert_eq!(harness.status("N"), None);
+        assert_eq!(
+            attempt_column(&harness.rows, "F", 2, "status").as_deref(),
+            Some("pending")
+        );
+        harness.points.set_gate(true);
+    });
+
+    assert_eq!(answered, Ok(Ok(())));
+    assert_eq!(harness.status("Q").as_deref(), Some("succeeded"));
+    assert_eq!(
+        harness.ordered_calls(3).await[2],
+        card(harness.wait_id("P"))
+    );
+    harness
+        .wait_until(|rows| {
+            step_column(rows, "N", "status").as_deref() == Some("succeeded")
+                && attempt_column(rows, "F", 2, "status").as_deref() == Some("succeeded")
+        })
+        .await;
 }
 
 /// A park keeps its run's waits, so an answer still settles one, and the parked run starts

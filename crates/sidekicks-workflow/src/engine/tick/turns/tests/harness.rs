@@ -745,3 +745,18 @@ pub(in crate::engine::tick::turns) fn step_column(
     )
     .ok()
 }
+
+/// `column` of attempt `attempt` of the step of `node_id`, `None` before its row is written.
+pub(in crate::engine::tick::turns) fn attempt_column(
+    rows: &Connection,
+    node_id: &str,
+    attempt: i64,
+    column: &str,
+) -> Option<String> {
+    rows.query_row(
+        &format!("SELECT {column} FROM workflow_steps WHERE node_id = ?1 AND attempt = ?2"),
+        params![node_id, attempt],
+        |row| row.get(0),
+    )
+    .ok()
+}

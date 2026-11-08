@@ -1,23 +1,13 @@
 use std::time::Duration;
 
 use rstest::rstest;
-use rusqlite::{Connection, params};
+use rusqlite::params;
 use serde_json::{Value, json};
 use tokio::time::timeout;
 
 use crate::engine::tick::turns::tests::harness::{
-    Harness, QUIET, WAIT, edge, item, node, retried, step_column,
+    Harness, QUIET, WAIT, attempt_column, edge, item, node, retried, step_column,
 };
-
-/// `column` of attempt `attempt` of the step of `node_id`, `None` before its row is written.
-fn attempt_column(rows: &Connection, node_id: &str, attempt: i64, column: &str) -> Option<String> {
-    rows.query_row(
-        &format!("SELECT {column} FROM workflow_steps WHERE node_id = ?1 AND attempt = ?2"),
-        params![node_id, attempt],
-        |row| row.get(0),
-    )
-    .ok()
-}
 
 /// The sequence and instant of the event of `event_type` on attempt `attempt` of `node_id`.
 fn attempt_event(
