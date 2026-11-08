@@ -1,9 +1,10 @@
-//! Converting a chat to a project in place. The typed folder is attached as a project, or the
-//! project already holding it found, and the conversion recorded under the request's idempotency
-//! key; the chat's files are copied into the working tree the folder sits in without replacing
-//! anything the repository holds, each outcome recorded as it lands; the session binds to that
-//! working tree; and `session.converted` makes it a project. A conversion that stopped part way
-//! resumes from its records, and the files not copied are read back page by page. The session
+//! Converting a chat to a project in place. The typed folder, read in the chat's place, is attached
+//! as a project (a `/mnt/<drive>` path on a chat on Windows attaches the drive path it names), or
+//! the project already holding it found, and the conversion recorded under the request's
+//! idempotency key; the chat's files are copied into the working tree the folder sits in without
+//! replacing anything the repository holds, each outcome recorded as it lands; the session binds to
+//! that working tree; and `session.converted` makes it a project. A conversion that stopped part
+//! way resumes from its records, and the files not copied are read back page by page. The session
 //! keeps its id and transcript, and its managed workspace stays with its history.
 //!
 //! - A convert holds its key's lock, then the session's transition lock, for its whole run, so a
@@ -42,7 +43,7 @@ use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_platforms::{PathRules, distribution_of};
+use sidekicks_platforms::{PathRules, distribution_of, drive_path_of};
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
@@ -319,8 +320,9 @@ impl SessionConversion {
         }
     }
 
-    /// `session.convert`: converts the chat into the repository at `request.path` and answers what
-    /// was and was not copied. A key that already converted this session answers that
+    /// `session.convert`: converts the chat into the repository at `request.path`, read in the
+    /// chat's place (a `/mnt/<drive>` path on a chat on Windows is the drive path it names), and
+    /// answers what was and was not copied. A key that already converted this session answers that
     /// conversion's counts and copies nothing; a conversion that stopped part way resumes under
     /// the request's key when the path names the folder it copies into, its counts the whole
     /// conversion's. Refuses, before anything is attached, as [`SessionConversionError::Refused`]
@@ -371,7 +373,7 @@ impl SessionConversion {
             )
             .into());
         };
-        if !is_in_place(request.path.as_str(), facts.place.as_ref()) {
+        let Some(local_path) = path_in_place(&request.path, facts.place.as_ref()) else {
             return Err(conversion_refused(
                 "The chat's project folder must be in the chat's own place.",
                 SessionConversionRefusedDetails {
@@ -380,14 +382,15 @@ impl SessionConversion {
                 },
             )
             .into());
-        }
+        };
         let attach = RepoMountAttachRequest {
-            local_path: request.path.clone(),
+            local_path,
             place: None,
         };
         // Resolved once, before anything is attached, so a path that is no repository attaches
-        // nothing. The files go into the working tree of the path typed, and the session binds
-        // there, never into another checkout of the repository.
+        // nothing. The files go into the working tree of the path attached (on a chat on Windows a
+        // `/mnt/<drive>` path's drive path), and the session binds there, never into another
+        // checkout of the repository.
         let resolved = self.mounts.resolve_folder(&attach).await?;
         let working_tree = resolved.working_tree_root.clone();
         let stopped = self.read_conversion(session_id).await?;
@@ -767,14 +770,26 @@ fn conversion_record_statement(
     }
 }
 
-// Whether `path` is written in `place`'s own form: a chat in Windows reads no distribution's share,
-// and a chat in a distribution reads a Linux path. A chat with no place, every chat on macOS and
-// Linux, reads any path.
-fn is_in_place(path: &str, place: Option<&Place>) -> bool {
+// The folder a convert attaches for `path` read in `place`'s own form, or `None` for a folder in
+// another place. A chat on Windows reads no distribution's share and attaches a `/mnt/<drive>` path
+// as the drive path it names, any other path as typed for the resolver to judge; a chat in a
+// distribution reads a Linux path as typed; a chat with no place, every chat on macOS and Linux,
+// attaches any path as typed.
+fn path_in_place(path: &FilesystemPath, place: Option<&Place>) -> Option<FilesystemPath> {
     match place {
-        None => true,
-        Some(Place::Windows(_)) => distribution_of(Path::new(path)).is_none(),
-        Some(Place::Wsl(_)) => PathRules::Posix.is_absolute(path),
+        None => Some(path.clone()),
+        Some(Place::Windows(_)) if distribution_of(Path::new(path.as_str())).is_some() => None,
+        Some(Place::Windows(_)) => Some(drive_path_of(path.as_str()).map_or_else(
+            || path.clone(),
+            |drive_path| {
+                FilesystemPath::new(drive_path).expect(
+                    "a drive path is never longer than the path it is read from and holds no NUL",
+                )
+            },
+        )),
+        Some(Place::Wsl(_)) => PathRules::Posix
+            .is_absolute(path.as_str())
+            .then(|| path.clone()),
     }
 }
 
