@@ -90,7 +90,7 @@ impl QuestionsService {
         };
         // The run is read before the question: a run's end settles its waiting questions in its
         // own write, so a run read as ended here has a question read after it as settled, unless
-        // the question was recorded after that end.
+        // the question was recorded after that end read its run's questions.
         let run = self.engine.require_run(held.run_id).await;
         match self.read_state(question_id).await {
             Ok(Some(QuestionState::WaitingForRun)) => {}
@@ -120,16 +120,24 @@ impl QuestionsService {
         } else {
             QuestionCanceledReason::RunEnded
         };
-        match self
+        let canceled = self
             .cancel_waiting_question(question_id, held.session_id, reason)
-            .await
-        {
-            Ok(()) => {}
-            // Settled since its state was read, so the caller reads it again.
-            Err(QuestionError::Append(refused)) if refused.refused_statement_index().is_some() => {
-                return Ok(WaitingQuestionOpening::RunNotRunning);
+            .await;
+        // A row gone since its state was read, as a history rebuild that cleared the table leaves
+        // it, is no longer waiting; one still waiting is the cancel's failure.
+        if let Err(failure) = canceled {
+            match self.read_state(question_id).await {
+                Ok(Some(QuestionState::WaitingForRun)) => return Err(failure),
+                Ok(_settled) => {}
+                // The cancel's failure is the one the caller acts on; the read's is logged.
+                Err(read) => {
+                    tracing::warn!(
+                        error = &read as &(dyn std::error::Error + 'static),
+                        "a waiting question's state was not read after its cancel failed"
+                    );
+                    return Err(failure);
+                }
             }
-            Err(error) => return Err(error),
         }
         self.forget_held_request(&question_id);
         Ok(WaitingQuestionOpening::Settled)
