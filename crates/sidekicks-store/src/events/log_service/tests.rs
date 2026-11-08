@@ -18,6 +18,7 @@ use crate::events::session::append_lock::SESSION_APPEND_LOCK;
 use crate::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
+use crate::events::session::read::SessionEventReads;
 use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::events::test_log::SessionTestLog;
 
@@ -292,7 +293,7 @@ async fn a_command_ending_is_stored_with_a_summary_only_when_it_failed() {
 }
 
 // Killed by counting a skipped event, a stored patch part or an event of another type, by leaving
-// the body out of the bytes, and by reading past the bound.
+// the body out of the bytes, and by reading past the limit or the damaged history's start.
 #[tokio::test]
 async fn a_stream_distance_counts_its_readable_events_and_their_stored_bytes() {
     let log = SessionTestLog::new(crate::database::schema::schema_parts());
@@ -353,5 +354,12 @@ async fn a_stream_distance_counts_its_readable_events_and_their_stored_bytes() {
         .expect("the log reads");
     assert_eq!((replies.events, replies.bytes), (1, reply_bytes));
     assert_eq!(read(2, None).await.expect("the log reads").events, 2);
+    // History damaged from the skip on leaves the reply and the completion before it.
+    let reader = log.reader();
+    let damaged_from_head = SessionEventReads::new(&reader, |_: &SessionId| Some(head));
+    let (before_damage, _) = damaged_from_head
+        .read_distance(&log.session_id, START_OF_LOG_POSITION, 10, None)
+        .expect("the log reads");
+    assert_eq!(before_damage, 2);
     assert_eq!(writer.close(None).await.expect("the writer closes"), 0);
 }
