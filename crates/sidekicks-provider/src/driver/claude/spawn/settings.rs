@@ -1,7 +1,11 @@
 //! The `--settings` document every Claude Code process starts with: how long Claude Code keeps a
-//! conversation, its agent view held off, the session's whole permission rules, its advisor and
-//! output style, and the command sandbox at Sandboxed.
+//! conversation, its agent view held off, a session's whole permission rules, its advisor and
+//! output style, the command sandbox at Sandboxed, and the telemetry switches in its `env`.
 
+pub(crate) mod private_file;
+pub(crate) mod telemetry_switches;
+
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Serialize, Serializer};
@@ -20,6 +24,10 @@ use crate::driver::claude::session::rules::{
 use crate::driver::claude::session::transport::control::{
     ClaudePermissionsDocument, ClaudeSandboxFilesystem, ClaudeSandboxSettings,
 };
+use crate::driver::claude::spawn::settings::telemetry_switches::{
+    NoOtelHeadersHelper, compose_claude_telemetry_switches,
+};
+use crate::pricing::receiver::TelemetryTarget;
 use crate::run::posture::{CredentialDenyPath, CredentialDenyPathKind};
 
 /// How many days Claude Code keeps a conversation file before cleaning it up: long enough that a
@@ -46,7 +54,8 @@ impl Serialize for AgentViewOff {
 
 /// The `--settings` document. `advisor_model` is `""` when the session's advisor is off, which
 /// outranks the person's own advisor, and absent where no advisor was picked, so Claude Code's own
-/// settings resolve it; `output_style` is absent where the session chose none.
+/// settings resolve it; `output_style` is absent where the session chose none. A short process's
+/// document carries no rules, advisor, style or sandbox.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ClaudeSpawnSettings {
@@ -54,8 +63,9 @@ pub(crate) struct ClaudeSpawnSettings {
     pub(crate) cleanup_period_days: u32,
     /// The agent view, off.
     pub(crate) disable_agent_view: AgentViewOff,
-    /// The session's whole permission rules.
-    pub(crate) permissions: ClaudePermissionsDocument,
+    /// The session's whole permission rules, absent on a short process.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) permissions: Option<ClaudePermissionsDocument>,
     /// The session's advisor model, `""` for none, absent where none was picked.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) advisor_model: Option<String>,
@@ -65,6 +75,48 @@ pub(crate) struct ClaudeSpawnSettings {
     /// The command sandbox, at Sandboxed alone.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) sandbox: Option<ClaudeSandboxSettings>,
+    /// Every hook of the person's off, written only where `true`.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) disable_all_hooks: bool,
+    /// The variables Claude Code sets inside the process, over its starting environment.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) env: BTreeMap<&'static str, String>,
+    /// No exporter headers helper, written with the telemetry switches.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) otel_headers_helper: Option<NoOtelHeadersHelper>,
+}
+
+impl ClaudeSpawnSettings {
+    /// A short process's document: the cleanup period and the agent view off, with every hook of
+    /// the person's off where `are_hooks_off`, and no rules, advisor, style or sandbox.
+    pub(crate) fn short_process(are_hooks_off: bool) -> Self {
+        Self {
+            cleanup_period_days: CLAUDE_CLEANUP_PERIOD_DAYS,
+            disable_agent_view: AgentViewOff,
+            permissions: None,
+            advisor_model: None,
+            output_style: None,
+            sandbox: None,
+            disable_all_hooks: are_hooks_off,
+            env: BTreeMap::new(),
+            otel_headers_helper: None,
+        }
+    }
+
+    /// Puts the telemetry switches into the document: the export to `target`'s receiver where it
+    /// is registered, every exporter off where it is not, and no exporter headers helper.
+    pub(crate) fn set_telemetry_switches(&mut self, target: Option<&TelemetryTarget>) {
+        self.env.extend(compose_claude_telemetry_switches(target));
+        self.otel_headers_helper = Some(NoOtelHeadersHelper);
+    }
+}
+
+/// The document a Claude Code subcommand run outside the launcher carries inline, every exporter
+/// off: it holds no token, so it needs no file of its own.
+pub(crate) fn compose_claude_export_off_settings() -> String {
+    let mut settings = ClaudeSpawnSettings::short_process(false);
+    settings.set_telemetry_switches(None);
+    serde_json::to_string(&settings).expect("the settings document always serializes")
 }
 
 /// What a session's permission rules are composed from.
@@ -224,11 +276,14 @@ pub(crate) fn compose_claude_spawn_settings(
     Ok(ClaudeSpawnSettings {
         cleanup_period_days: CLAUDE_CLEANUP_PERIOD_DAYS,
         disable_agent_view: AgentViewOff,
-        permissions: compose_claude_permissions(request, writable_roots, level)?,
+        permissions: Some(compose_claude_permissions(request, writable_roots, level)?),
         advisor_model: advisor.setting(),
         output_style: output_style.map(str::to_owned),
         sandbox: (level == Some(PermissionLevel::Sandboxed))
             .then(|| compose_claude_sandbox_settings(writable_roots, command_channel)),
+        disable_all_hooks: false,
+        env: BTreeMap::new(),
+        otel_headers_helper: None,
     })
 }
 
