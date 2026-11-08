@@ -107,7 +107,7 @@ struct ScriptedStartTables {
     session_command_holds: VecDeque<oneshot::Receiver<()>>,
     session_command_reads: usize,
     // Each scripted one turn's outcome, and what it waits for before answering it.
-    one_turn_outcomes: VecDeque<(ClaudeOneTurnOutcome, OneTurnEnd)>,
+    one_turn_outcomes: VecDeque<(ClaudeOneTurnOutcome, OneTurnWait)>,
     one_turns: Vec<ScriptedOneTurnRecord>,
     one_turn_environments: Vec<Vec<(String, String)>>,
     account_server_channels: VecDeque<Arc<ScriptedChannel>>,
@@ -125,13 +125,13 @@ struct ScriptedStartTables {
 }
 
 // What a scripted one turn waits for before it answers.
-enum OneTurnEnd {
-    // Nothing.
-    AtOnce,
+enum OneTurnWait {
+    // Nothing: it answers at once.
+    Nothing,
     // Its stop.
-    AtStop,
+    Stop,
     // The test's release.
-    AtRelease(oneshot::Receiver<()>),
+    Release(oneshot::Receiver<()>),
 }
 
 // One scripted MCP sign-in's process: its channel, the stored credentials it keeps and where, and
@@ -261,14 +261,14 @@ impl ScriptedStarts {
 
     /// Scripts the next one-turn process to end as `outcome`.
     pub(crate) fn script_one_turn(&self, outcome: ClaudeOneTurnOutcome) {
-        let end = OneTurnEnd::AtOnce;
-        self.lock().one_turn_outcomes.push_back((outcome, end));
+        let wait = OneTurnWait::Nothing;
+        self.lock().one_turn_outcomes.push_back((outcome, wait));
     }
 
     /// Scripts the next one-turn process to run until its stop fires, then end as `outcome`.
     pub(crate) fn script_one_turn_until_stopped(&self, outcome: ClaudeOneTurnOutcome) {
-        let end = OneTurnEnd::AtStop;
-        self.lock().one_turn_outcomes.push_back((outcome, end));
+        let wait = OneTurnWait::Stop;
+        self.lock().one_turn_outcomes.push_back((outcome, wait));
     }
 
     /// Scripts the next one-turn process to run until the answered sender sends or drops, then
@@ -278,8 +278,8 @@ impl ScriptedStarts {
         outcome: ClaudeOneTurnOutcome,
     ) -> oneshot::Sender<()> {
         let (release, released) = oneshot::channel();
-        let end = OneTurnEnd::AtRelease(released);
-        self.lock().one_turn_outcomes.push_back((outcome, end));
+        let wait = OneTurnWait::Release(released);
+        self.lock().one_turn_outcomes.push_back((outcome, wait));
         release
     }
 
@@ -482,20 +482,20 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 .push(request.spawn.legs.spawn_environment.clone());
             tables.one_turn_outcomes.pop_front()
         };
-        let (outcome, end) = outcome.unwrap_or_else(|| {
+        let (outcome, wait) = outcome.unwrap_or_else(|| {
             let outcome = ClaudeOneTurnOutcome {
                 reply: Err(spawn_failure("no one-turn reply scripted")),
                 spend: None,
             };
-            (outcome, OneTurnEnd::AtOnce)
+            (outcome, OneTurnWait::Nothing)
         });
         let stop = request.stop;
         async move {
-            match end {
-                OneTurnEnd::AtOnce => {}
-                OneTurnEnd::AtStop => stop.cancelled().await,
+            match wait {
+                OneTurnWait::Nothing => {}
+                OneTurnWait::Stop => stop.cancelled().await,
                 // A dropped sender releases the turn as a send does.
-                OneTurnEnd::AtRelease(released) => {
+                OneTurnWait::Release(released) => {
                     let _is_sent = released.await.is_ok();
                 }
             }
