@@ -678,6 +678,7 @@ mod tests {
     use crate::driver::claude::run::routes::ClaudeBoundRun;
     use crate::driver::streamed_text::STREAMED_TEXT_PIECE_INTERVAL;
     use crate::run::delivery::LateAppendableRow;
+    use crate::tool_call_arguments::ToolCallArgumentStore;
 
     fn stream_event(event: &Value) -> String {
         json!({"type": "stream_event", "api_message_id": "m1", "event": event}).to_string()
@@ -716,8 +717,9 @@ mod tests {
     // A frame after its block's stop finishes that block, a second response under one id is a
     // new attempt, a frame of no streamed block names the response streaming now or the next one
     // once its id closed, and frames of no streamed block follow the blocks before them.
-    #[test]
-    fn each_piece_names_its_own_block_and_response() {
+    // A Tokio test, since the argument store a frame's read takes is made inside a runtime.
+    #[tokio::test]
+    async fn each_piece_names_its_own_block_and_response() {
         let session_id =
             SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
         let run = ClaudeBoundRun {
@@ -729,6 +731,8 @@ mod tests {
             run_id: run.run_id,
         };
         let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
+        let data_folder = tempfile::tempdir().expect("the test's data folder is made");
+        let arguments = ToolCallArgumentStore::new(data_folder.path(), session_id);
         let mut blocks = ClaudeStreamedBlocks::new();
         let started = Instant::now();
         let observe = |blocks: &mut ClaudeStreamedBlocks, frame: String| {
@@ -758,13 +762,14 @@ mod tests {
                     "uuid": uuid,
                     "message": {"id": message_id, "content": [{"type": "text", "text": text}]},
                 });
-                let frame: ClaudeMessageFrame =
+                let mut frame: ClaudeMessageFrame =
                     serde_json::from_str(&frame.to_string()).expect("the assistant frame reads");
                 let rows = read_claude_assistant_rows(
-                    &frame,
+                    &mut frame,
                     session_id,
                     &run,
                     &mut HashMap::new(),
+                    &arguments,
                     Timestamp::now(),
                 );
                 blocks.finish(&frame, rows, &account)

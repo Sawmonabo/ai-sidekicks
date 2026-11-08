@@ -1,20 +1,18 @@
-//! The account's login shell and name on macOS and Linux, read from the user database; how a shell
-//! is started as a login shell; and on macOS the account's own temporary folder a login session
-//! gets.
+//! The account's login shell on macOS and Linux, read from the user database; how a shell is
+//! started as a login shell; and on macOS the account's own temporary folder a login session gets.
 
 use std::ffi::OsString;
-use std::io::{self, ErrorKind};
+use std::io;
 use std::path::{Path, PathBuf};
 
-use nix::unistd::{User, getuid};
-
+use crate::posix::current_user::read_current_user;
 use crate::session_child::SessionCommand;
 
 /// The login shell the user database names for the account this process runs as, read at each
 /// call; `None` when the entry names none. Fails with the system's error from the read, and with
 /// `NotFound` when the account has no entry.
 pub fn login_shell() -> io::Result<Option<PathBuf>> {
-    Ok(read_account()?.1)
+    Ok(read_current_user()?.login_shell)
 }
 
 /// Names `command`'s program `shell` as `login` names a login shell: its name, the first word it
@@ -24,19 +22,6 @@ pub fn name_as_login_shell(command: &mut SessionCommand, shell: &Path) {
     let mut name = OsString::from("-");
     name.push(shell.file_name().unwrap_or(shell.as_os_str()));
     command.argument_zero = name;
-}
-
-/// The account this process runs as: its name and the login shell its entry names, `None` when it
-/// names none. Fails as [`login_shell`] fails.
-pub(crate) fn read_account() -> io::Result<(String, Option<PathBuf>)> {
-    let user = User::from_uid(getuid())?.ok_or_else(|| {
-        io::Error::new(
-            ErrorKind::NotFound,
-            "the account has no entry in the user database",
-        )
-    })?;
-    let shell = (!user.shell.as_os_str().is_empty()).then_some(user.shell);
-    Ok((user.name, shell))
 }
 
 /// The account's own temporary folder, the `TMPDIR` a login session gets: on macOS the folder the

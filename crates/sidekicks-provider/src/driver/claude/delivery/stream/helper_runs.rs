@@ -97,6 +97,10 @@ impl ClaudeDeliveryStream {
             }
             SubagentLifecycleEventType::Completed => {
                 session.forget_helper_calls_of(&emission.subagent_id);
+                session
+                    .lock()
+                    .helper_tool_calls
+                    .end_helper(&emission.subagent_id);
                 // An end goes on the run its start went beneath.
                 let carrier = self
                     .helper_parent_run(session, &emission.subagent_id)

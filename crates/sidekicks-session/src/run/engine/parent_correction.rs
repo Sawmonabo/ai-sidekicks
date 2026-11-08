@@ -339,6 +339,7 @@ mod tests {
         let filter = SessionEventFilter {
             event_types: Some(&event_types),
             before_sequence: None,
+            is_sparse: false,
         };
         let reader = fixture.database.reader();
         let stored = SessionEventReads::new(&reader, |_: &SessionId| None)

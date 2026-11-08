@@ -6,6 +6,7 @@
 //! dropped. A session the daemon does not hold or a cursor it cannot read is refused before
 //! anything opens, and a read that fails later ends the subscription with the failure.
 
+use std::convert::Infallible;
 use std::sync::Arc;
 
 use futures::FutureExt as _;
@@ -22,8 +23,8 @@ use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use sidekicks_ipc::stream::feed::{ChangeRecord, Feed, RecordPage};
-use sidekicks_ipc::stream::frame_batcher::{ChangeFeed, FrameChanges};
+use sidekicks_ipc::stream::feed::{ChangeRecord, DistanceRead, Feed, RecordPage};
+use sidekicks_ipc::stream::frame_batcher::{ChangeFeed, FrameRead};
 use sidekicks_queue::changes::{
     QueueChange, QueueChangeCursor, QueueChangeReadError, QueueChangeSignals, QueueKey,
     read_current_queue_cursor, read_queue_changes_after,
@@ -173,6 +174,8 @@ impl ChangeRecord for QueueRecord {
     type Cursor = QueueChangeCursor;
     type Change = QueueChange;
     type Error = QueueStreamError;
+    // A queue is a list as it now stands, so its stream sends every change and is never moved.
+    type Head = Infallible;
 
     fn read_after(
         &self,
@@ -207,6 +210,18 @@ impl ChangeRecord for QueueRecord {
         .boxed()
     }
 
+    fn read_distance(
+        &self,
+        _cursor: &QueueChangeCursor,
+        _max_events: usize,
+    ) -> DistanceRead<'_, Infallible, QueueStreamError> {
+        Box::pin(std::future::ready(Ok(None)))
+    }
+
+    fn cursor_at(head: &Infallible) -> QueueChangeCursor {
+        match *head {}
+    }
+
     fn change_count(&self) -> watch::Receiver<u64> {
         self.change_count.clone()
     }
@@ -222,7 +237,11 @@ impl ChangeRecord for QueueRecord {
 }
 
 // A frame of the changes as the stream sends them, each without its resume cursor.
-fn frame_of(changes: FrameChanges<QueueChange>) -> RunQueueStreamFrame {
+fn frame_of(read: FrameRead<QueueChange, Infallible>) -> RunQueueStreamFrame {
+    let changes = match read {
+        FrameRead::Changes(changes) => changes,
+        FrameRead::Behind(head) => match head {},
+    };
     let changes = changes
         .into_vec()
         .into_iter()

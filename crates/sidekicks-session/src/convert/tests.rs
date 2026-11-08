@@ -3,10 +3,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use rstest::rstest;
 use rusqlite::params;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::id::MachineId;
+use sidekicks_contracts::place::{Place, WindowsPlace};
 use sidekicks_contracts::session::convert::{
     SessionConversionSkippedFileListRequest, SessionConversionSkippedFileListResponse,
     SessionConvertRequest, SessionConvertResponse, SessionConvertSkipReason,
@@ -15,7 +17,7 @@ use sidekicks_contracts::session::convert::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_platforms::{os_text_stable_bytes, real_path};
+use sidekicks_platforms::{os_text_stable_bytes, real_path, ubuntu_place};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::test_registry::test_driver_services;
 use sidekicks_store::events::session::appender::SessionEventAppender;
@@ -34,7 +36,7 @@ use sidekicks_workspace::project::test_doubles::Unreached;
 use sidekicks_workspace::repo::mount::service::RepoMountService;
 use sidekicks_workspace::repo::root_resolver::RepoRootResolver;
 
-use super::{SessionConversion, SessionConversionDeps, SessionConversionError};
+use super::{SessionConversion, SessionConversionDeps, SessionConversionError, path_in_place};
 use crate::changes::SessionChanges;
 use crate::directory::run_activity::ProjectSessionActivityReader;
 use crate::plan_holds::NoPlanHolds;
@@ -519,4 +521,36 @@ async fn a_converted_chat_s_create_record_names_its_project() {
         .expect("the conversion and its record read");
     assert!(attached.is_some());
     assert_eq!(recorded, attached);
+}
+
+fn windows() -> Place {
+    Place::Windows(WindowsPlace::Value)
+}
+
+// The folder a convert attaches for a path typed in the chat's place, `None` for one in another
+// place. Killed by the rewrite left out of the Windows arm (the third case), applied with no place
+// or in a distribution (the first or the eighth), the share check dropped (the fifth), or the POSIX
+// check dropped (the last).
+#[rstest]
+#[case::no_place(None, "/mnt/c/repos/app", Some("/mnt/c/repos/app"))]
+#[case::windows_drive_path(Some(windows()), r"C:\repos\app", Some(r"C:\repos\app"))]
+#[case::windows_drive_mount(Some(windows()), "/mnt/c/repos/app", Some(r"C:\repos\app"))]
+#[case::windows_share(Some(windows()), r"\\server\share\app", Some(r"\\server\share\app"))]
+#[case::windows_distribution_share(Some(windows()), r"\\wsl.localhost\Ubuntu\home\me\app", None)]
+#[case::windows_no_drive(Some(windows()), r"\repos\app", Some(r"\repos\app"))]
+#[case::distribution_linux_path(Some(ubuntu_place()), "/home/me/app", Some("/home/me/app"))]
+#[case::distribution_drive_mount(
+    Some(ubuntu_place()),
+    "/mnt/c/repos/app",
+    Some("/mnt/c/repos/app")
+)]
+#[case::distribution_drive_path(Some(ubuntu_place()), r"C:\repos\app", None)]
+fn a_typed_folder_attaches_as_its_chats_place_reads_it(
+    #[case] place: Option<Place>,
+    #[case] typed: &str,
+    #[case] expected: Option<&str>,
+) {
+    let typed = FilesystemPath::new(typed.to_owned()).expect("a test path is a path");
+    let attached = path_in_place(&typed, place.as_ref());
+    assert_eq!(attached.as_ref().map(FilesystemPath::as_str), expected);
 }

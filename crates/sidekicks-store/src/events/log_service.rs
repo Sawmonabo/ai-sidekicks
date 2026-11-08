@@ -29,7 +29,7 @@ use sidekicks_contracts::event::session::{SessionEvent, SessionEventReadError};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::session::event_cursor::{
     EventCursor, EventCursorPositionOutOfRange, START_OF_LOG_POSITION,
-    SessionEventCursorUnresolvable, encode_event_cursor,
+    SessionEventCursorUnresolvable, decode_event_cursor, encode_event_cursor,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::recovery::{
@@ -254,6 +254,19 @@ pub struct EventStreamPage {
     pub head: Option<i64>,
     /// The events after the position, of the page's types, in sequence order.
     pub events: Vec<EventEnvelope>,
+}
+
+/// How far a session's head stands past a change stream's cursor, counted over a bounded read.
+#[derive(Debug)]
+pub struct EventStreamDistance {
+    /// The session's newest readable event, or the stream's cursor when none lies past it.
+    pub head: EventCursor,
+    /// The events after the cursor through the head, of the stream's types, at most the read's
+    /// bound.
+    pub events: usize,
+    /// Those events' stored bytes, payload and body; a compressed body counts as stored, so this
+    /// is a lower bound of their text.
+    pub bytes: usize,
 }
 
 /// What [`EventLogService::read_after_cursor`] reads.
@@ -508,6 +521,7 @@ impl EventLogService {
                         SessionEventFilter {
                             event_types,
                             before_sequence: None,
+                            is_sparse: true,
                         },
                     )
                     .map_err(EventLogReadError::from)?;
@@ -518,6 +532,37 @@ impl EventLogService {
                 )
             },
         )
+        .await
+    }
+
+    /// How far `session_id`'s head stands past `cursor` for a change stream reading only
+    /// `event_types` when given, counted over at most `max_events` of its events. Fails with
+    /// [`EventLogReadError::CursorUnresolvable`] for a cursor that names no position, and as the
+    /// read fails.
+    pub async fn read_stream_distance(
+        &self,
+        session_id: SessionId,
+        cursor: &EventCursor,
+        max_events: usize,
+        event_types: Option<&'static [&'static str]>,
+    ) -> Result<EventStreamDistance, EventLogReadError> {
+        let after_position = decode_event_cursor(cursor)?;
+        self.read(ReadLength::Short, move |reads, _, _| {
+            let head = reads
+                .read_head(&session_id)?
+                .map_or(after_position, |head| head.max(after_position));
+            let (events, bytes) = reads.read_distance(
+                &session_id,
+                after_position,
+                i64::try_from(max_events).unwrap_or(i64::MAX),
+                event_types,
+            )?;
+            Ok(EventStreamDistance {
+                head: encode_event_cursor(head)?,
+                events,
+                bytes,
+            })
+        })
         .await
     }
 

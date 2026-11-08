@@ -10,7 +10,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::session::id::SessionId;
 
-use super::{LiveCodexSession, TEST_TURN};
+use super::{LiveCodexSession, TEST_TURN, wait_until};
 use crate::command::running_set::{RunningCommandSets, unbound_running_command_sets};
 use crate::driver::codex::session::test_fixture::{TEST_THREAD, turn_completed};
 use crate::driver::contract::error::DriverError;
@@ -26,17 +26,6 @@ fn command_frame(method: &str, item: &Value) -> Value {
         "method": method,
         "params": { "threadId": TEST_THREAD, "turnId": TEST_TURN, "item": item },
     })
-}
-
-// Yields until `holds` reads true, failing after a bound.
-async fn wait_until(mut holds: impl FnMut() -> bool) {
-    for _turn in 0..2_000 {
-        if holds() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
-    panic!("the condition never held");
 }
 
 // A command's row survives its turn's end and its service's exit, a stop of it reaches Codex's

@@ -7,7 +7,6 @@
 mod cancel;
 mod helper_continue;
 mod interrupt;
-mod return_to_draft;
 mod run_ends;
 mod sends;
 mod starts;
@@ -57,6 +56,7 @@ use sidekicks_provider::process_identity::{ProcessStandIn, ProviderProcessIds};
 use sidekicks_provider::runtime_binding::test_store::{
     resumable_binding_input, spawned_build, test_provider_account_id,
 };
+use sidekicks_session::agent_tree::schema::schema_parts as agent_tree_schema_parts;
 use sidekicks_session::checkpoints::schema::schema_parts as checkpoint_schema_parts;
 use sidekicks_session::questions::schema::schema_parts;
 use sidekicks_session::queue_store::test_items::{insert_item, words};
@@ -280,7 +280,11 @@ impl HaltedRunRecord for HaltedRunsStandIn {
 }
 
 async fn fixture(driver: MockProviderDriver) -> Fixture {
-    let database = TestDatabase::new(schema_parts().with_parts(checkpoint_schema_parts()));
+    let database = TestDatabase::new(
+        schema_parts()
+            .with_parts(checkpoint_schema_parts())
+            .with_parts(agent_tree_schema_parts()),
+    );
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();

@@ -8,6 +8,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::event_cursor::encode_event_cursor;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::transcript::limits::TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES;
 use sidekicks_contracts::transcript::operations::{TranscriptReadRequest, TranscriptReadResponse};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
@@ -731,4 +732,114 @@ fn a_read_past_its_cap_of_task_list_stretches_continues_empty_after_them() {
         .map(|row| i64::from(row.sequence()))
         .collect();
     assert_eq!(sequences, [read_opening]);
+}
+
+// Writes one reply per size in `sizes`, each its own message, whose body is its index in two
+// digits then filler to that size; answers each reply's sequence.
+fn write_replies(log: &TranscriptTestLog, sizes: impl IntoIterator<Item = usize>) -> Vec<i64> {
+    sizes
+        .into_iter()
+        .enumerate()
+        .map(|(index, size)| {
+            assert!(size <= TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES);
+            let body = format!("{index:02}{}", "x".repeat(size - 2));
+            log.session_log
+                .reply(&format!("m{index}"), Some((0, 1)), &body)
+                .0
+        })
+        .collect()
+}
+
+// The index each row of `page` was written at.
+fn row_indices(page: &Value) -> Vec<usize> {
+    row_bodies(page)
+        .iter()
+        .map(|body| body[..2].parse().expect("each body starts with its index"))
+        .collect()
+}
+
+// Forty replies, each larger than the one before, that together pass the budget well before the
+// limit.
+fn growing_replies(log: &TranscriptTestLog) -> Vec<i64> {
+    write_replies(log, (0..40).map(|index| 30_000 + 60 * index))
+}
+
+// Killed by the forward count taken from the newest, largest rows, which keeps fewer rows, and by
+// the cut continuing after the whole stretch, which skips the rows it cut.
+#[test]
+fn a_forward_page_the_budget_cuts_keeps_the_oldest_rows_and_continues_after_them() {
+    let log = TranscriptTestLog::new(schema_parts());
+    growing_replies(&log);
+
+    let first = read(&log, json!({ "limit": 64 }));
+    assert_eq!(first["hasMore"], true);
+    assert_eq!(row_indices(&first), (0..31).collect::<Vec<_>>());
+
+    let mut read_back = row_indices(&first);
+    let mut page = first;
+    while page["hasMore"] == true {
+        page = read(
+            &log,
+            json!({ "afterCursor": page["nextCursor"], "limit": 64 }),
+        );
+        read_back.extend(row_indices(&page));
+    }
+    assert_eq!(read_back, (0..40).collect::<Vec<_>>());
+}
+
+// Killed by the backward count taken from the oldest, smallest rows, which keeps more rows than
+// fit, and by the cut continuing before the whole stretch, which skips the rows it cut.
+#[test]
+fn a_backward_page_the_budget_cuts_keeps_the_newest_rows_and_continues_before_them() {
+    let log = TranscriptTestLog::new(schema_parts());
+    let sequences = growing_replies(&log);
+    let head = *sequences.last().expect("the case writes replies");
+
+    let first = read(&log, json!({ "beforeCursor": cursor(head), "limit": 64 }));
+    assert_eq!(first["hasMore"], true);
+    assert_eq!(row_indices(&first), (10..40).collect::<Vec<_>>());
+
+    let mut pages = vec![row_indices(&first)];
+    let mut page = first;
+    while page["hasMore"] == true {
+        page = read(
+            &log,
+            json!({ "beforeCursor": page["nextCursor"], "limit": 64 }),
+        );
+        pages.push(row_indices(&page));
+    }
+    let read_back: Vec<usize> = pages.into_iter().rev().flatten().collect();
+    assert_eq!(read_back, (0..40).collect::<Vec<_>>());
+}
+
+// Forty-one replies of one size near the inline maximum, read around the 21st with room for 20
+// rows on each side, so only the cut leaves rows before the page. Killed by the budget counted in
+// log order, which keeps the oldest rows and answers `Terminal`; by the cut continuing before the
+// whole stretch, which skips the rows it cut; and by the page continuing only when the read found
+// more rows than it keeps, which answers `Terminal` with rows left before it.
+#[test]
+fn an_anchored_page_the_budget_cuts_keeps_the_rows_nearest_its_anchor_and_continues_before_them() {
+    let log = TranscriptTestLog::new(schema_parts());
+    let sequences = write_replies(&log, [32_000; 41]);
+
+    let first = read(
+        &log,
+        json!({ "aroundCursor": cursor(sequences[20]), "limit": 41 }),
+    );
+    assert_eq!(first["hasMore"], true);
+    let kept = row_indices(&first);
+    assert_eq!(kept, (6..36).collect::<Vec<_>>());
+    assert_eq!(first["nextCursor"], cursor(sequences[6] - 1));
+
+    let mut pages = Vec::new();
+    let mut page = first;
+    while page["hasMore"] == true {
+        page = read(
+            &log,
+            json!({ "beforeCursor": page["nextCursor"], "limit": 41 }),
+        );
+        pages.push(row_indices(&page));
+    }
+    let earlier: Vec<usize> = pages.into_iter().rev().flatten().collect();
+    assert_eq!(earlier, (0..6).collect::<Vec<_>>());
 }

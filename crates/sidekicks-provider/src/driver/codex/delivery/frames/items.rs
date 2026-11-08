@@ -23,7 +23,7 @@ use crate::driver::codex::delivery::rows::{
     CODEX_SPAWNED_ACTIVITY_KIND, CODEX_SUB_AGENT_ACTIVITY_ITEM_TYPE, CodexItemRow,
     CodexProseRowType, CodexRowRun, compose_codex_prose_piece, is_codex_tool_item, item_type,
     read_codex_frame_item, read_codex_item_completed_row, read_codex_item_prose,
-    read_codex_tool_start_row,
+    read_codex_tool_start_row, read_codex_tool_trace,
 };
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
@@ -32,6 +32,7 @@ use crate::driver::diagnostics::{
 };
 use crate::driver::run_control::RunToolBoundary;
 use crate::driver::streamed_text::StreamedTextCompletion;
+use crate::port::tool_traces::{is_recording_tool_traces, record_tool_traces};
 use crate::record_readers::{read_count, read_non_empty_string};
 use crate::run::delivery::InboundDelivery;
 
@@ -278,6 +279,10 @@ impl CodexFrameDelivery {
             Some(completed_at_ms),
         );
         self.admit_row(record, row).await;
+        let tool_traces = &self.dependencies.tool_traces;
+        if is_recording_tool_traces(tool_traces) {
+            record_tool_traces(tool_traces, read_codex_tool_trace(item, run.session_id)).await;
+        }
         if item_type(item) == Some("exitedReviewMode") {
             let notice = InboundDelivery::SessionNotice {
                 session_id: record.session_id,

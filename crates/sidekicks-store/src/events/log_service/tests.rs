@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::json;
+use sidekicks_contracts::session::event_cursor::{START_OF_LOG_POSITION, encode_event_cursor};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use tokio::sync::oneshot;
@@ -17,7 +18,9 @@ use crate::events::session::append_lock::SESSION_APPEND_LOCK;
 use crate::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
+use crate::events::session::read::SessionEventReads;
 use crate::events::session::version::SESSION_EVENT_VERSION;
+use crate::events::test_log::SessionTestLog;
 
 /// Bounds an append the test expects to answer, so one that waits on a lock fails the test.
 const APPEND_WAIT: Duration = Duration::from_secs(5);
@@ -286,5 +289,77 @@ async fn a_command_ending_is_stored_with_a_summary_only_when_it_failed() {
         .query_row("SELECT count(*) FROM session_events", [], |row| row.get(0))
         .expect("the test counts the stored rows");
     assert_eq!(rows, 1);
+    assert_eq!(writer.close(None).await.expect("the writer closes"), 0);
+}
+
+// Killed by counting a skipped event, a stored patch part or an event of another type, by leaving
+// the body out of the bytes, and by reading past the limit or the damaged history's start.
+#[tokio::test]
+async fn a_stream_distance_counts_its_readable_events_and_their_stored_bytes() {
+    let log = SessionTestLog::new(crate::database::schema::schema_parts());
+    let reply_body = "r".repeat(600);
+    let (reply, _) = log.reply("message-1", None, &reply_body);
+    let (skipped, _) = log.reply("message-2", None, "skipped");
+    let files = json!({ "files": [
+        { "path": "/repo/a.rs", "patch": "@@", "additions": 0, "deletions": 0 },
+        { "path": "/repo/b.rs", "unavailable": "absent" },
+    ] });
+    log.tool_completion(
+        log.run_id,
+        "call-1",
+        Some(json!([
+            { "path": "/repo/a.rs", "size": 2 },
+            { "path": "/repo/b.rs", "size": 0 },
+        ])),
+        Some(&files.to_string()),
+    );
+    let (head, _) = log.write(
+        json!({
+            "type": "session.damagedEvents.skipped",
+            "payload": {
+                "sessionId": log.session_id,
+                "fromSequence": skipped,
+                "toSequence": skipped,
+            },
+        }),
+        None,
+    );
+    let reply_payload_bytes: i64 = log
+        .reader()
+        .query_row(
+            "SELECT LENGTH(CAST(payload AS BLOB)) FROM session_events WHERE sequence = ?1",
+            [reply],
+            |row| row.get(0),
+        )
+        .expect("the test reads the reply's payload length");
+    let reply_bytes = usize::try_from(reply_payload_bytes).expect("a length is never negative")
+        + reply_body.len();
+    let TestLog {
+        writer, service, ..
+    } = open_log(&log.database, None).await;
+    let start = encode_event_cursor(START_OF_LOG_POSITION).expect("the start has a cursor");
+    let read = |max_events: usize, event_types: Option<&'static [&'static str]>| {
+        service.read_stream_distance(log.session_id, &start, max_events, event_types)
+    };
+
+    let every = read(10, None).await.expect("the log reads");
+    assert_eq!(
+        every.head,
+        encode_event_cursor(head).expect("the head has a cursor")
+    );
+    // The reply, the completion and the skip: the skipped reply and the patch parts are left out.
+    assert_eq!(every.events, 3);
+    let replies = read(10, Some(&["agent.message.sent"]))
+        .await
+        .expect("the log reads");
+    assert_eq!((replies.events, replies.bytes), (1, reply_bytes));
+    assert_eq!(read(2, None).await.expect("the log reads").events, 2);
+    // History damaged from the skip on leaves the reply and the completion before it.
+    let reader = log.reader();
+    let damaged_from_head = SessionEventReads::new(&reader, |_: &SessionId| Some(head));
+    let (before_damage, _) = damaged_from_head
+        .read_distance(&log.session_id, START_OF_LOG_POSITION, 10, None)
+        .expect("the log reads");
+    assert_eq!(before_damage, 2);
     assert_eq!(writer.close(None).await.expect("the writer closes"), 0);
 }
