@@ -372,7 +372,8 @@ pub(crate) mod tests {
         )
     }
 
-    fn program_declaration(binding: &McpServerBindingRef) -> McpServerDeclaration {
+    /// A declaration of `binding` as a program the provider starts.
+    pub(crate) fn program_declaration(binding: &McpServerBindingRef) -> McpServerDeclaration {
         declaration(
             binding,
             McpServerConfigView::Stdio {

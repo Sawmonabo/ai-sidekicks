@@ -62,7 +62,10 @@ enum RevocationError {
 
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "the mcp.server.signOut handler calls it")
+    expect(
+        dead_code,
+        reason = "the daemon's start builds them and its handlers call them"
+    )
 )]
 impl SignInService {
     /// Signs out of `target`'s server at once, a renewal under way or not: forgets its sign-in,
@@ -206,7 +209,7 @@ async fn revoke(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use axum::http::StatusCode;
@@ -216,13 +219,10 @@ mod tests {
     use rstest::rstest;
     use secrecy::SecretString;
     use serde_json::json;
-    use sidekicks_contracts::keychain::KeychainRefusalCause;
     use sidekicks_contracts::mcp::server::config::McpServerAddress;
     use sidekicks_std::mutex_lock::lock;
-    use sidekicks_store::credential_store::service::KeychainService;
 
     use crate::client::http::McpRequestAuthorizer as _;
-    use crate::errors::McpRefusal;
     use crate::sign_in::authorizer::SignInAuthorizer;
     use crate::sign_in::canonical_server_address;
     use crate::sign_in::test_service::{
@@ -237,7 +237,7 @@ mod tests {
     /// `revocation_status`, `test-access-token-1` with `test-refresh-token-1`, received now so no
     /// request renews it, issued to a client holding `client_secret` where one is given, with the
     /// authorizer a connection to the server presents its token through; every token is made up.
-    async fn signed_in(
+    pub(crate) async fn signed_in(
         revocation_status: StatusCode,
         client_secret: Option<&str>,
     ) -> (FakeAuthorizationServer, Harness, SignInAuthorizer) {
@@ -278,12 +278,16 @@ mod tests {
         (server, harness, authorizer)
     }
 
-    fn address(server: &FakeAuthorizationServer) -> McpServerAddress {
+    /// The address of `server`, as a sign-in to it is kept.
+    pub(crate) fn address(server: &FakeAuthorizationServer) -> McpServerAddress {
         McpServerAddress::new(&server.base).expect("a server address")
     }
 
-    // Whether the authorizer sets an `Authorization` on a request to `base`'s server, and which.
-    async fn presented_authorization(authorizer: &SignInAuthorizer, base: &str) -> Option<String> {
+    /// Whether the authorizer sets an `Authorization` on a request to `base`'s server, and which.
+    pub(crate) async fn presented_authorization(
+        authorizer: &SignInAuthorizer,
+        base: &str,
+    ) -> Option<String> {
         let headers = authorizer.authorize(&Method::POST, base, None).await.ok()?;
         headers
             .into_iter()
@@ -291,8 +295,8 @@ mod tests {
             .map(|(_, value)| value.to_str().expect("a text header").to_owned())
     }
 
-    // The forms the revocation endpoint received, once one has arrived or five seconds pass.
-    async fn received_revocations(server: &FakeAuthorizationServer) -> Vec<TokenForm> {
+    /// The forms the revocation endpoint received, once one has arrived or five seconds pass.
+    pub(crate) async fn received_revocations(server: &FakeAuthorizationServer) -> Vec<TokenForm> {
         for _ in 0..200 {
             if !lock(&server.revocation_forms).is_empty() {
                 break;
@@ -377,41 +381,5 @@ mod tests {
                 .borrow()
                 .contains(&canonical_address)
         );
-    }
-
-    // Mutation: report a sign-out the keychain refused, or forget the sign-in in memory first.
-    #[tokio::test]
-    async fn a_sign_out_the_keychain_refuses_keeps_the_sign_in_in_use() {
-        let (server, harness, authorizer) = signed_in(StatusCode::OK, None).await;
-        harness.platform_store.refuse_next_call(
-            KeychainService::McpSignIns.as_str(),
-            &canonical_server_address(&address(&server)),
-        );
-
-        let signed_out = harness
-            .service
-            .sign_out(&addressed_target(&server.base))
-            .await;
-
-        let Err(McpRefusal::ServerSignOutFailed { source, .. }) = signed_out else {
-            unreachable!("the refused removal refuses the sign-out");
-        };
-        assert_eq!(source.cause(), KeychainRefusalCause::Unavailable);
-        assert_eq!(
-            presented_authorization(&authorizer, &server.base)
-                .await
-                .as_deref(),
-            Some("Bearer test-access-token-1")
-        );
-        assert!(
-            harness
-                .keychain
-                .read(&canonical_server_address(&address(&server)))
-                .await
-                .expect("the keychain answers")
-                .is_some(),
-            "the item is still kept"
-        );
-        assert!(lock(&server.revocation_forms).is_empty());
     }
 }
