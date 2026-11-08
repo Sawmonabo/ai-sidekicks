@@ -20,10 +20,11 @@ pub const NO_PROMPT_ENVIRONMENT: [(&str, &str); 4] = [
     GIT_TERMINAL_PROMPT_OFF,
 ];
 
-/// The variables git reads as this repository's own (`git rev-parse --local-env-vars`), and three
-/// more that move where it looks for one; an inherited one would point a call at another
-/// repository, index, object store or history. The person's own config files stay theirs.
-const STRIPPED_GIT_ENVIRONMENT_NAMES: [&str; 18] = [
+/// The variables git reads as this repository's own (`git rev-parse --local-env-vars`), and four
+/// more that move where it looks for one or its refs; an inherited one would point a call at
+/// another repository, index, object store, ref store or history. The person's own config files
+/// stay theirs.
+const STRIPPED_GIT_ENVIRONMENT_NAMES: [&str; 19] = [
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
     "GIT_CONFIG",
     "GIT_CONFIG_PARAMETERS",
@@ -42,6 +43,7 @@ const STRIPPED_GIT_ENVIRONMENT_NAMES: [&str; 18] = [
     "GIT_CEILING_DIRECTORIES",
     "GIT_DISCOVERY_ACROSS_FILESYSTEM",
     "GIT_NAMESPACE",
+    "GIT_REFERENCE_BACKEND",
 ];
 
 /// Set on every call after the strip: git's messages in English, which callers read refusals
