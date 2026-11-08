@@ -329,6 +329,11 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
                 "a working folder on the slow tick could not be read; the next tick reads it again"
             ),
         }
+        #[cfg(test)]
+        self.shared
+            .lock_state()
+            .slow_ticks_ended
+            .send_modify(|ended| *ended += 1);
     }
 
     // A changed set restarts a running tree watch, which on a machine that watches one folder at a

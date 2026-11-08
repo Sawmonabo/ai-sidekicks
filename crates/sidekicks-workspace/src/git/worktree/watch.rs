@@ -229,6 +229,9 @@ struct WatcherState {
     is_stopped: bool,
     #[cfg(test)]
     tree_watch_starts: u64,
+    // Raised as each slow tick's pass ends, so a test reads ticks passing instead of sleeping.
+    #[cfg(test)]
+    slow_ticks_ended: watch::Sender<u64>,
 }
 
 // One watched folder.
