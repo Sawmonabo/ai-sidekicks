@@ -462,6 +462,24 @@ impl CodexService {
         }
     }
 
+    /// Queues `item` for a session and records a conversation as that session's in a single step
+    /// against the reader's routing, the frames held for the conversation queued after `item`, so
+    /// no frame of it the reader routes meanwhile comes before `item`; answers whether an attached
+    /// session's queue took it.
+    pub(crate) fn register_thread_and_queue(
+        &self,
+        thread_id: String,
+        session_id: SessionId,
+        item: CodexSessionInbound,
+    ) -> bool {
+        let routing = self.lock_routing();
+        let is_queued = routing
+            .session(&session_id)
+            .is_some_and(|session| session.push(item));
+        self.register_routed_thread(&routing, thread_id, session_id);
+        is_queued
+    }
+
     /// Forgets one conversation and queues `item` for one session in a single step against the
     /// reader's routing, so no frame of the conversation the reader looked up before the forget is
     /// queued after `item`; answers whether an attached session's queue took it.

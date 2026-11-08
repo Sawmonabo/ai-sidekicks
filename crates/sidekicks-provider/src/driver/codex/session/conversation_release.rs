@@ -131,10 +131,10 @@ impl CodexConversationRelease {
             state.publish_count(service.id());
             generation
         };
-        service.register_thread(thread_id.clone(), session_id);
         // A session whose task ended has no frames left to admit.
-        let _unheard = service.push_session_item(
-            &session_id,
+        let _unheard = service.register_thread_and_queue(
+            thread_id.clone(),
+            session_id,
             CodexSessionInbound::HeldThread {
                 thread_id: thread_id.clone(),
                 is_held: true,
