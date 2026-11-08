@@ -610,3 +610,48 @@ async fn the_logs_truncation_is_tried_until_no_reader_keeps_it_busy() {
         0
     );
 }
+
+// Kills: no hold in the purge (it ends under the test's hold), and the hold taken after the
+// storage folder's removal (it finds no capture folder, holds nothing, and the purge ends first).
+#[tokio::test]
+async fn a_purge_waits_for_a_hold_on_its_capture_folders() {
+    let fixture = purge_fixture().await;
+    let reader = fixture.database.reader();
+    let session_id = SessionId::try_from(mint_uuid_v7()).expect("a session id");
+    store_session(&reader, session_id, SessionState::Archived);
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    let capture_folder =
+        store_capture_folder(&test_git_runner(), fixture.home.path(), session_id, run_id).await;
+    let packing = &fixture.purge.deps.packing;
+    let hold = packing
+        .hold_owner_folders(&session_storage_folder(fixture.home.path(), &session_id))
+        .await
+        .expect("the session's capture folders are held");
+    let handles = packing
+        .folder_lock()
+        .queue_handle_count(capture_folder.clone());
+    let meter = ProcessorMeter::default();
+    let sessions = [session_id];
+    let mut purge = std::pin::pin!(
+        fixture
+            .purge
+            .purge(&sessions, PurgeCaller::Retention, &meter)
+    );
+
+    tokio::select! {
+        report = &mut purge => panic!("the purge waits for the hold, got {report:?}"),
+        () = packing.folder_lock().wait_for_queue_past(capture_folder.clone(), handles) => {}
+    }
+    assert!(
+        capture_folder.exists(),
+        "the capture folder stays while it is held"
+    );
+    drop(hold);
+    let outcome = only_outcome(purge.await);
+
+    assert!(
+        matches!(outcome, SessionPurgeOutcome::Removed { .. }),
+        "the session is removed, got {outcome:?}"
+    );
+    assert!(!capture_folder.exists(), "the capture folder goes");
+}

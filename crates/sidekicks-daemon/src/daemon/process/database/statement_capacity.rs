@@ -29,6 +29,7 @@ use sidekicks_session::auto_title::SESSION_AUTO_TITLE_STATEMENT_CAPACITY;
 use sidekicks_session::changes::SESSION_CHANGES_STATEMENT_CAPACITY;
 use sidekicks_session::checkpoints::command_windows::COMMAND_WINDOWS_STATEMENT_CAPACITY;
 use sidekicks_session::checkpoints::edits::EDIT_CHECKPOINTS_STATEMENT_CAPACITY;
+use sidekicks_session::checkpoints::sweep::CHECKPOINT_SWEEP_STATEMENT_CAPACITY;
 use sidekicks_session::conversations::SESSION_CONVERSATIONS_STATEMENT_CAPACITY;
 use sidekicks_session::convert::SESSION_CONVERSION_STATEMENT_CAPACITY;
 use sidekicks_session::create::SESSION_CREATION_STATEMENT_CAPACITY;
@@ -111,6 +112,7 @@ pub(super) const READ_POOL_STATEMENT_CAPACITY: usize = AGENT_TREE_LOOKUP_STATEME
     // The attention service's set holds the attention read's.
     + ATTENTION_SERVICE_STATEMENT_CAPACITY
     + BACKUP_STATEMENT_CAPACITY
+    + CHECKPOINT_SWEEP_STATEMENT_CAPACITY
     + CLONE_REQUESTS_STATEMENT_CAPACITY
     + COMMAND_WINDOWS_STATEMENT_CAPACITY
     + SESSION_CONVERSATIONS_STATEMENT_CAPACITY

@@ -795,6 +795,7 @@ impl DaemonProcess {
                 backups,
                 bun,
                 version,
+                checkpoint_sweep: Arc::clone(&session.checkpoint_sweep),
             },
         )
         .await?;
