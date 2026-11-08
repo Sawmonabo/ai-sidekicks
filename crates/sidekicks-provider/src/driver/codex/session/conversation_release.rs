@@ -307,6 +307,8 @@ impl CodexConversationRelease {
             return;
         };
         if let Some(service) = &service {
+            // Forgotten before the marker is queued, so no frame of it reaches the session after.
+            service.release_thread(&thread_id);
             // A session whose task ended has no frames left to admit.
             let _unheard = service.push_session_item(
                 &held.session_id,
