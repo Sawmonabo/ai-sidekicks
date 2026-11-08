@@ -1,7 +1,7 @@
 //! The target of an MCP sign-in, read from its binding: the provider's declaration, the whole
 //! address the binding's entry declares as its driver reads it, never the stripped one the
-//! inventory serves, the client the server's owner issued, the scopes the entry asks for, the
-//! binding's project root on this computer and each provider's current account.
+//! inventory serves, the client the server's owner issued, the scopes and the resource the entry
+//! asks for, the binding's project root on this computer and each provider's current account.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -126,8 +126,16 @@ impl SignInTargetReads {
             McpServerConfigView::Ws { .. } => {
                 return Err(unsupported(SignInUnsupportedReason::AddressUnreadable));
             }
-            McpServerConfigView::Http { oauth_scopes, .. }
-            | McpServerConfigView::Sse { oauth_scopes, .. } => {
+            McpServerConfigView::Http {
+                oauth_scopes,
+                oauth_resource,
+                ..
+            }
+            | McpServerConfigView::Sse {
+                oauth_scopes,
+                oauth_resource,
+                ..
+            } => {
                 let Ok(driver) = self.providers.lookup(provider) else {
                     return Err(not_found());
                 };
@@ -153,7 +161,11 @@ impl SignInTargetReads {
                     }
                 };
                 (
-                    SignInServer::Address(AddressedServer::new(address, owner_client)),
+                    SignInServer::Address(AddressedServer::new(
+                        address,
+                        owner_client,
+                        oauth_resource,
+                    )),
                     oauth_scopes.unwrap_or_default(),
                 )
             }

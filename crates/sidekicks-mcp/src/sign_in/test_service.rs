@@ -379,6 +379,7 @@ pub(crate) fn addressed_target(base: &str) -> SignInTarget {
         server: SignInServer::Address(AddressedServer::new(
             McpServerAddress::new(base).expect("a server address"),
             None,
+            None,
         )),
         root_folder: None,
     }

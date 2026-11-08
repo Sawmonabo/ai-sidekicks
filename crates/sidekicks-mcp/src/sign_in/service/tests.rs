@@ -29,12 +29,17 @@ fn parameters(browser_url: &Url, name: &str) -> Vec<String> {
         .collect()
 }
 
-// A user binding of the server at `base` whose entry gives `owner` as its owner's client.
-fn owner_target(base: &str, owner: OwnerIssuedClient) -> SignInTarget {
+// A user binding of the server at `base` whose entry gives `owner_client` and `oauth_resource`.
+fn entry_target(
+    base: &str,
+    owner_client: Option<OwnerIssuedClient>,
+    oauth_resource: Option<&str>,
+) -> SignInTarget {
     SignInTarget {
         server: SignInServer::Address(AddressedServer::new(
             McpServerAddress::new(base).expect("a server address"),
-            Some(owner),
+            owner_client,
+            oauth_resource.map(str::to_owned),
         )),
         ..addressed_target(base)
     }
@@ -210,12 +215,13 @@ async fn a_client_id_alone_signs_in_as_that_client_with_no_registration() {
     })
     .await;
     let harness = harness().await;
-    let target = owner_target(
+    let target = entry_target(
         &server.base,
-        OwnerIssuedClient {
+        Some(OwnerIssuedClient {
             client_id: Some(OWNER_CLIENT_ID.to_owned()),
             callback_url: None,
-        },
+        }),
+        None,
     );
 
     let browser_url = launch_to_browser(&harness, &target).await;
@@ -242,12 +248,13 @@ async fn a_callback_alone_is_listened_on_and_registered() {
     let port = free_port().await;
     let callback_url =
         Url::parse(&format!("http://127.0.0.1:{port}/owner/return")).expect("a callback address");
-    let target = owner_target(
+    let target = entry_target(
         &server.base,
-        OwnerIssuedClient {
+        Some(OwnerIssuedClient {
             client_id: None,
             callback_url: Some(callback_url.clone()),
-        },
+        }),
+        None,
     );
 
     let browser_url = launch_to_browser(&harness, &target).await;
@@ -258,4 +265,38 @@ async fn a_callback_alone_is_listened_on_and_registered() {
     );
     assert_eq!(parameters(&browser_url, "client_id"), ["registered-client"]);
     assert!(is_listening(port).await);
+}
+
+/// The resource the entry names reaches the authorization request beside the one rmcp names, and
+/// an entry naming rmcp's own sends it once. Killed by the entry's resource dropped, and by the
+/// same value appended twice.
+#[tokio::test]
+async fn the_entrys_resource_reaches_the_authorization_request_once() {
+    let server = serve_authorization_server(FakeServerAnswers::default()).await;
+    let harness = harness().await;
+    let rmcp_resources = parameters(
+        &launch_to_browser(&harness, &addressed_target(&server.base)).await,
+        "resource",
+    );
+    let [rmcp_resource] = rmcp_resources.as_slice() else {
+        panic!("rmcp names one resource, not {rmcp_resources:?}");
+    };
+    let entry_resource = "https://api.example.test/";
+
+    let beside = launch_to_browser(
+        &harness,
+        &entry_target(&server.base, None, Some(entry_resource)),
+    )
+    .await;
+    let same = launch_to_browser(
+        &harness,
+        &entry_target(&server.base, None, Some(rmcp_resource)),
+    )
+    .await;
+
+    assert_eq!(
+        parameters(&beside, "resource"),
+        [rmcp_resource.as_str(), entry_resource]
+    );
+    assert_eq!(parameters(&same, "resource"), [rmcp_resource.as_str()]);
 }

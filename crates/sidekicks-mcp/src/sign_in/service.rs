@@ -4,8 +4,8 @@
 //!   connector of a provider account is refused before anything is sent or bound. Then, in order:
 //!   the server's metadata is discovered, the redirect receiver is bound so the redirect carries
 //!   its port, the client is chosen, a `DPoP` key is made for this attempt when the server takes
-//!   `DPoP` proofs, and the authorization address is built, pushed where the server takes pushed
-//!   requests.
+//!   `DPoP` proofs, and the authorization address is built, naming the resource the entry names
+//!   beside the server's own, and pushed where the server takes pushed requests.
 //!   The address goes back to the caller and nothing here keeps it.
 //! - **One attempt per server.** Attempts are kept by the server's canonical address. A new launch
 //!   ends the attempt before it, an attempt ends 15 minutes after it opened, and `close` ends
@@ -64,6 +64,9 @@ const DPOP_SIGNING_ALGORITHMS: &str = "dpop_signing_alg_values_supported";
 /// The metadata field (RFC 9207 §3) saying the server returns `iss` with every response.
 const ISSUER_IN_RESPONSE: &str = "authorization_response_iss_parameter_supported";
 
+/// The authorization request's parameter (RFC 8707 §2) naming a resource the token is for.
+const RESOURCE_PARAMETER: &str = "resource";
+
 /// The binding a sign-in is asked for and how its server is reached.
 #[derive(Clone)]
 #[cfg_attr(
@@ -101,7 +104,7 @@ pub(crate) enum SignInServer {
 }
 
 /// A server reached at an address, with the client its owner issued when the entry names either
-/// half of one.
+/// half of one and the resource the entry names.
 #[derive(Clone)]
 pub(crate) struct AddressedServer {
     /// The server's address as the binding declares it.
@@ -109,12 +112,14 @@ pub(crate) struct AddressedServer {
     /// The address its sign-in is kept under.
     pub(super) canonical_address: String,
     owner_client: Option<OwnerIssuedClient>,
+    oauth_resource: Option<String>,
 }
 
 impl AddressedServer {
-    /// The server at `address`, signed in to as `owner_client` where the entry gives either half.
-    /// `address` is the whole one the server's entry declares, its user name and query kept, held
-    /// only in memory and never the stripped address the inventory serves.
+    /// The server at `address`, signed in to as `owner_client` where the entry gives either half,
+    /// its authorization request also naming `oauth_resource` where the entry names one. `address`
+    /// is the whole one the server's entry declares, its user name and query kept, held only in
+    /// memory and never the stripped address the inventory serves.
     #[cfg_attr(
         not(test),
         expect(
@@ -122,11 +127,16 @@ impl AddressedServer {
             reason = "the mcp.server.signIn handler builds it from the binding"
         )
     )]
-    pub(crate) fn new(address: McpServerAddress, owner_client: Option<OwnerIssuedClient>) -> Self {
+    pub(crate) fn new(
+        address: McpServerAddress,
+        owner_client: Option<OwnerIssuedClient>,
+        oauth_resource: Option<String>,
+    ) -> Self {
         Self {
             canonical_address: canonical_server_address(&address),
             address,
             owner_client,
+            oauth_resource,
         }
     }
 }
@@ -445,8 +455,18 @@ impl SignInService {
             .get_authorization_url(&scope_names)
             .await
             .map_err(|error| failed(Box::new(error)))?;
-        let authorization_url =
+        let mut authorization_url =
             Url::parse(&authorization_url).map_err(|error| failed(Box::new(error)))?;
+        // The entry's resource is one more beside rmcp's, sent once where it names the same one.
+        if let Some(resource) = &server.oauth_resource
+            && !authorization_url
+                .query_pairs()
+                .any(|(name, value)| name == RESOURCE_PARAMETER && value == resource.as_str())
+        {
+            authorization_url
+                .query_pairs_mut()
+                .append_pair(RESOURCE_PARAMETER, resource);
+        }
         let expected_state = authorization_url
             .query_pairs()
             .find_map(|(name, value)| (name == "state").then(|| value.into_owned()))
