@@ -845,15 +845,17 @@ fn optional_path(field: &[u8]) -> Result<Option<PathBuf>, GitError> {
         .map_err(GitError::PathText)
 }
 
-// A number git printed in decimal; bytes that are not UTF-8 fail the parse.
-fn parse_number<Number: FromStr<Err = ParseIntError>>(digits: &[u8]) -> Result<Number, GitError> {
+/// A number git printed in decimal; bytes that are not UTF-8 fail the parse.
+pub(crate) fn parse_number<Number: FromStr<Err = ParseIntError>>(
+    digits: &[u8],
+) -> Result<Number, GitError> {
     String::from_utf8_lossy(digits)
         .parse()
         .map_err(|error| GitError::Read(io::Error::new(io::ErrorKind::InvalidData, error)))
 }
 
-// git printed something these reads cannot parse.
-fn malformed(what: &'static str) -> GitError {
+/// git printed something a read cannot parse, as a read failure.
+pub(crate) fn malformed(what: &'static str) -> GitError {
     GitError::Read(io::Error::new(io::ErrorKind::InvalidData, what))
 }
 
