@@ -344,21 +344,29 @@ interface LocalSubscriptionParams {
 // The batched subscription frame (Plan-005 Phase 2D), framed by the rule of Spec-006 §Required
 // Behavior: the first event of a quiet stream goes at once, and what follows is coalesced into
 // frames, so a lone event is never held while a burst still collapses into one delivery. A feed
-// over a stored record (session events, the transcript, run history) sends this tagged union; a
-// feed over a current state sends the changes member alone.
-type LocalSubscriptionFrame =
+// over a stored record (session events, the transcript, run history) sends this tagged union,
+// `Change` being its stream's own change (the session stream's in `SessionStreamFrame`,
+// session-payloads.md; `RunStateStreamChange`, run-control-payloads.md); a feed over a current
+// state sends `{ changes }` with no `kind`.
+type LocalSubscriptionFrame<Change> =
   // Changes only, never the whole record, one to STREAM_FRAME_MAX_CHANGES (50), and every change
   // carries its own cursor — which is what lets a consumer say where it got to without the
   // producer keeping a position per consumer. The producer never waits for a consumer and drops
   // nothing for it: it holds only the consumer's cursor and reads the next frame from the daemon's
   // record once the consumer's lane has credit, so a consumer that falls behind receives every
   // change late, in order, and never a hole.
-  | { kind: "changes"; changes: Array<{ cursor: EventCursor; value: EventEnvelope }> }
+  | { kind: "changes"; changes: Change[] }
   // A consumer more than STREAM_BEHIND_MAX_EVENTS (1,024) events or STREAM_BEHIND_MAX_BYTES
   // (1,000,000) bytes of stored events behind the record's head when its next frame is read is
   // sent this frame, with no changes and the head cursor; it takes one snapshot read in place of
-  // every change, and the stream carries on from the head. The record rather than the screen is
-  // the truth.
+  // every change, and the stream carries on from the head. The events counted are those the
+  // stream carries past its cursor through the log's head (every session event on the session
+  // stream, the run's state events on run history), none in a range the session skipped as
+  // damaged; their bytes are the stored payload and body together, a compressed body at its stored
+  // size, so a lower bound of the text. A session stream moved to the head starts its turn and row
+  // tracking afresh, as one opened there does. The queue stream, a list as it now stands, and the
+  // MCP governance stream, one event per emission, are never moved. The record rather than the
+  // screen is the truth.
   | { kind: "behind"; headCursor: EventCursor };
 ```
 

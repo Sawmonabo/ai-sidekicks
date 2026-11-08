@@ -561,18 +561,21 @@ interface AgentQueueItemSubscribeRequest {
   afterCursor?: EventCursor;
 }
 
-// Each notify's value on both run streams, the frame the session stream sends too
-// (`SessionStreamFrame`, session-payloads.md §Plan-001 — Session Core), framed by the rule of
-// Spec-006 §Required Behavior: the changes since the previous frame, oldest first, each with its
+// Each notify's value on both run streams, framed by the rule of Spec-006 §Required Behavior: the
+// changes since the previous frame, oldest first, one to `STREAM_FRAME_MAX_CHANGES`, each with its
 // own cursor. The daemon never waits for a subscriber and drops nothing for it: the subscription
 // holds only the subscriber's cursor and reads its next frame from the daemon's record when the
-// subscriber can take it. A subscriber further behind the stream's newest than that rule's
-// threshold is sent one frame with no changes carrying the stream's newest cursor, which says it is
-// behind, and takes a snapshot read in place of every change. A frame with changes carries no frame
-// cursor.
-interface StreamFrame<Change, Cursor> {
-  changes: Change[]; // at most `STREAM_FRAME_MAX_CHANGES`
-  cursor?: Cursor; // only on the frame with no changes, the one that says the subscriber is behind
+// subscriber can take it. Run history is a stored record, so its frame is tagged on `kind`, as the
+// session stream's (`SessionStreamFrame`, session-payloads.md §Plan-001 — Session Core) is: a
+// subscriber further behind the log's head than that rule's threshold is sent one frame with no
+// changes, `kind: "behind"`, carrying the head cursor, and takes a snapshot read in place of every
+// change. The queue is a list as it now stands, so its frame is the changes alone and never says
+// it is behind.
+type RecordStreamFrame<Change, Cursor> =
+  | { kind: "changes"; changes: Change[] }
+  | { kind: "behind"; headCursor: Cursor };
+interface StateStreamFrame<Change> {
+  changes: Change[];
 }
 // One change on agent.run.subscribe: the delivery and the cursor of the event it came from, or, for
 // Codex's safety hold, which the session's history never records, the session's newest cursor when
@@ -586,7 +589,7 @@ interface RunStateStreamChange {
     | AgentRunRecoveryRequestedPayload
     | AgentRunRecoveryResolvedPayload;
 }
-type RunStateStreamFrame = StreamFrame<RunStateStreamChange, EventCursor>;
+type RunStateStreamFrame = RecordStreamFrame<RunStateStreamChange, EventCursor>;
 // One change on agent.queueItem.subscribe: the item as it now stands, and the cursor of the
 // `agent.queueItem.*` event that changed it, or, for a reorder, which no event records, the
 // session's newest cursor when the change went out.
@@ -594,7 +597,7 @@ interface RunQueueStreamChange {
   cursor: EventCursor;
   item: QueueItemSummary;
 }
-type RunQueueStreamFrame = StreamFrame<RunQueueStreamChange, EventCursor>;
+type RunQueueStreamFrame = StateStreamFrame<RunQueueStreamChange>;
 
 // A child's three controls: the session's own steer, interrupt and pause addressed at one child
 // (Spec-003 §Required Behavior). A steer names the helper itself, its session and `childHandle`, so
