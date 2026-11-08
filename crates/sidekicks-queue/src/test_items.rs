@@ -7,6 +7,7 @@ use sidekicks_contracts::artifacts::attachment_reference::AttachmentReferenceLis
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::plan::PlanId;
+use sidekicks_contracts::repo::mount::WorkspaceId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{PlanMessage, PlanMessageKind, QueueItemId, QueuedSkillPick};
 use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
@@ -18,17 +19,19 @@ use sidekicks_session::queue_store::{QueueItemBody, QueueMessageBody};
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::events::log_service::test_fixture::TestLog;
 
-/// The artifact id of the file a [`Form::WithExtras`] message carries.
-pub(crate) const WITH_EXTRAS_FILE: &str = "01900000-0000-7000-8000-000000000002";
-
 /// A waiting item's form, with the words it carries.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Form {
     /// A lead message carrying only words.
     Words(&'static str),
-    /// A lead message carrying a file ([`WITH_EXTRAS_FILE`]), a skill pick and the given turn speed
-    /// beside its words.
-    WithExtras(&'static str, &'static str),
+    /// A lead message carrying the artifact `file`, a skill pick, the turn speed `speed` and, where
+    /// given, the repository `workspace` beside its words `text`.
+    WithExtras {
+        text: &'static str,
+        file: &'static str,
+        speed: &'static str,
+        workspace: Option<&'static str>,
+    },
     /// A helper's message carrying only words.
     Helper(&'static str),
     /// A review of the staged changes.
@@ -42,9 +45,14 @@ impl Form {
     pub(crate) fn body(self) -> QueueItemBody {
         match self {
             Self::Words(text) | Self::Helper(text) => QueueItemBody::Message(words(text)),
-            Self::WithExtras(text, speed) => QueueItemBody::Message(QueueMessageBody {
+            Self::WithExtras {
+                text,
+                file,
+                speed,
+                workspace,
+            } => QueueItemBody::Message(QueueMessageBody {
                 attachments: Some(AttachmentReferenceList(vec![
-                    ArtifactId::new(WITH_EXTRAS_FILE).expect("a fixed artifact id"),
+                    ArtifactId::new(file).expect("a fixed artifact id"),
                 ])),
                 skills: Some(vec![
                     serde_json::from_value(json!({ "name": "review", "path": "/skills/review" }))
@@ -56,6 +64,8 @@ impl Form {
                         .expect("a skill folder"),
                 }]),
                 output_speed_for_turn: Some(FreeFormText::new(speed.to_owned()).expect("a speed")),
+                workspace_id: workspace
+                    .map(|workspace| WorkspaceId::new(workspace).expect("a fixed repository id")),
                 ..words(text)
             }),
             Self::Review => QueueItemBody::Review {
