@@ -19,7 +19,7 @@ use crate::driver::codex::event_normalizer::{
 };
 use crate::driver::codex::service::supervisor::CodexServiceId;
 use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
-use crate::driver::codex::session::thread_turns::CodexThreadTurns;
+use crate::driver::codex::session::thread_turns::{CodexEndedTurn, CodexThreadTurns};
 use crate::pricing::receiver::{TelemetryExport, TelemetryExportReader as _};
 
 const THREAD: &str = "thread-1";
@@ -52,9 +52,11 @@ fn settle_turn(
     if makes_request {
         turns.request_made(THREAD);
     }
-    let settled = turns
-        .observe(CODEX_TURN_COMPLETED_METHOD, &params, Instant::now())
-        .expect("the live turn settles");
+    let Some(CodexEndedTurn::Settled(settled)) =
+        turns.observe(CODEX_TURN_COMPLETED_METHOD, &params, Instant::now())
+    else {
+        panic!("the live turn settles");
+    };
     exports.turn_settled(service_id, settled.made_request, settled.started_at);
 }
 

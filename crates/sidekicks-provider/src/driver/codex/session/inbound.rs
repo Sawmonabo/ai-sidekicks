@@ -1,5 +1,6 @@
 //! One Codex session's inbound queue: the frames and asks a service's reader routed to the
-//! session, in arrival order, handed off the reader so it never waits on a session. The reader
+//! session, and the completed responses the driver's export drain handed it, in arrival order,
+//! handed off the reader so it never waits on a session. The reader
 //! serves every session on the service and Codex drops a client that falls 32,768 messages behind,
 //! so the queue is unbounded, as Codex's own client keeps its event queue, and its depth is logged
 //! once it passes a mark and again at each doubling. One task per session drains it, awaiting each
@@ -39,6 +40,7 @@ use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::driver::codex::session::recovery::CodexDroppedTurns;
 use crate::driver::codex::session::recovery::in_place_resume::CodexInPlaceResumeCall;
 use crate::driver::codex::session::rewind::CodexMessageTurn;
+use crate::driver::codex::telemetry::held_responses::CodexExportedResponse;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::contract::account::FirstRequestAfterMove;
 use crate::driver::contract::error::DriverError;
@@ -49,7 +51,7 @@ use crate::usage_delta_accountant::UsageAxisCounts;
 /// The depth past which a session's queue is logged, then again at each doubling.
 const CODEX_SESSION_INBOUND_DEPTH_MARK: usize = 512;
 
-/// One item a service's reader routed to a session.
+/// One item routed to a session: by a service's reader, or by the driver's export drain.
 pub(crate) enum CodexSessionInbound {
     /// A notification, with its params as sent.
     Frame {
@@ -88,6 +90,15 @@ pub(crate) enum CodexSessionInbound {
     /// The session moved onto another account where the switching service acknowledged it among
     /// the frames, so the spend metered before it stays on the account it left.
     AccountMoved(CodexAccountMove),
+    /// A completed response Codex's log export stated on one of the session's threads.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the driver's export drain hands each completed response to its session"
+        )
+    )]
+    ExportedResponse(CodexExportedResponse),
 }
 
 /// A session's move onto another account, queued at the place among its frames where the service
@@ -378,6 +389,10 @@ pub(crate) trait CodexSessionInboundHandler: Send {
     /// Moves the session onto another account at its place among the frames.
     fn account_moved(&mut self, account_move: CodexAccountMove) -> BoxFuture<'_, ()>;
 
+    /// Takes a completed response the export stated: passed over where the stream stated it,
+    /// else held until it can be told apart, then priced.
+    fn exported_response(&mut self, response: CodexExportedResponse) -> BoxFuture<'_, ()>;
+
     /// When timed work next comes due, `None` when none waits.
     fn next_deadline(&self) -> Option<Instant>;
 
@@ -421,6 +436,9 @@ pub(crate) async fn drain_codex_session_inbound(
             CodexSessionInbound::Lifecycle(call) => handler.lifecycle(call).await,
             CodexSessionInbound::AccountMoved(account_move) => {
                 handler.account_moved(account_move).await;
+            }
+            CodexSessionInbound::ExportedResponse(response) => {
+                handler.exported_response(response).await;
             }
         }
     }

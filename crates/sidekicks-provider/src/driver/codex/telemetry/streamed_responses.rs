@@ -34,10 +34,6 @@ impl CodexStreamedResponses {
 
     /// Takes the oldest response stated on `thread_id` whose six counts equal `counts`, an absent
     /// count reading as zero; answers whether one was there. Two equal responses are two entries.
-    #[expect(
-        dead_code,
-        reason = "the session's intake passes over each exported response it claims"
-    )]
     pub(crate) fn claim(&mut self, thread_id: &str, counts: &UsageAxisCounts) -> bool {
         let Some(index) = self.stated.iter().position(|(stated_thread, stated)| {
             stated_thread == thread_id && is_same_counts(stated, counts)
@@ -50,7 +46,6 @@ impl CodexStreamedResponses {
 }
 
 // Whether `left` and `right` carry the same count on every axis, an absent count reading as zero.
-#[expect(dead_code, reason = "the ledger's claim compares counts through it")]
 fn is_same_counts(left: &UsageAxisCounts, right: &UsageAxisCounts) -> bool {
     UsageTokenAxis::VARIANTS
         .iter()

@@ -44,24 +44,41 @@ struct CodexLiveTurn {
     made_request: bool,
 }
 
-/// A turn that settled: when it began, and whether it made a model request.
+/// A turn that settled: its thread and id, when it began, and whether it made a model request.
 pub(crate) struct CodexSettledTurn {
+    /// The thread it ran on.
+    pub(crate) thread_id: String,
+    /// Its id.
+    pub(crate) turn_id: String,
     /// When its `turn/started` arrived.
     pub(crate) started_at: Instant,
     /// Whether a usage reading metered a request during it.
     pub(crate) made_request: bool,
 }
 
+/// A live turn a frame ended.
+pub(crate) enum CodexEndedTurn {
+    /// Its `turn/completed` arrived.
+    Settled(CodexSettledTurn),
+    /// A `turn/started` on its thread replaced it before it settled.
+    Replaced {
+        /// The thread it ran on.
+        thread_id: String,
+        /// Its id.
+        turn_id: String,
+    },
+}
+
 impl CodexThreadTurns {
     /// Reads a frame arriving at `now`: a `turn/started` naming a thread and a turn opens that
-    /// thread's live turn, replacing one that never settled; a `turn/completed` naming the
-    /// thread's live turn answers it settled. Any other frame answers `None`.
+    /// thread's live turn, answering the one it replaced that never settled; a `turn/completed`
+    /// naming the thread's live turn answers it settled. Any other frame answers `None`.
     pub(crate) fn observe(
         &mut self,
         method: &str,
         params: &RawValue,
         now: Instant,
-    ) -> Option<CodexSettledTurn> {
+    ) -> Option<CodexEndedTurn> {
         let is_start = match method {
             CODEX_TURN_STARTED_METHOD => true,
             CODEX_TURN_COMPLETED_METHOD => false,
@@ -71,15 +88,21 @@ impl CodexThreadTurns {
         let thread_id = frame.thread_id?;
         let turn_id = frame.turn?.id.filter(|turn_id| !turn_id.is_empty())?;
         if is_start {
-            self.live.insert(
-                thread_id,
+            let replaced = self.live.insert(
+                thread_id.clone(),
                 CodexLiveTurn {
-                    turn_id,
+                    turn_id: turn_id.clone(),
                     started_at: now,
                     made_request: false,
                 },
             );
-            return None;
+            // A start repeated for the live turn ends nothing.
+            return replaced
+                .filter(|replaced| replaced.turn_id != turn_id)
+                .map(|replaced| CodexEndedTurn::Replaced {
+                    thread_id,
+                    turn_id: replaced.turn_id,
+                });
         }
         if self
             .live
@@ -89,10 +112,24 @@ impl CodexThreadTurns {
             return None;
         }
         let settled = self.live.remove(&thread_id)?;
-        Some(CodexSettledTurn {
+        Some(CodexEndedTurn::Settled(CodexSettledTurn {
+            thread_id,
+            turn_id,
             started_at: settled.started_at,
             made_request: settled.made_request,
-        })
+        }))
+    }
+
+    /// The turn live on `thread_id`, `None` where none is.
+    pub(crate) fn live_turn(&self, thread_id: &str) -> Option<&str> {
+        self.live.get(thread_id).map(|live| live.turn_id.as_str())
+    }
+
+    /// Takes every live turn, each as its thread and turn id, for a process that ended with them.
+    pub(crate) fn take_live_turns(&mut self) -> impl Iterator<Item = (String, String)> + '_ {
+        self.live
+            .drain()
+            .map(|(thread_id, live)| (thread_id, live.turn_id))
     }
 
     /// A request was metered on `thread_id`: its live turn made a model request.

@@ -87,6 +87,7 @@ use crate::driver::codex::session::inbound::{
 use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::session::state::{CodexEstablishedConversation, CodexSessionRecord};
+use crate::driver::codex::telemetry::held_responses::CodexExportedResponse;
 use crate::driver::codex::thread::settings::CodexThreadSettings;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
@@ -405,7 +406,7 @@ impl TestCodexTask {
     /// what each delivered applied through the session's intake; the waits settled after each.
     /// Unlike the session's task it keeps no side question's frames apart, records no settled
     /// output speed, acts on no step's end (so no pause is taken), refreshes no skills, delivers no
-    /// streamed text when it falls due and shows no view.
+    /// streamed text when it falls due, prices no exported response and shows no view.
     pub(crate) async fn handle(&mut self, item: CodexSessionInbound) {
         match item {
             CodexSessionInbound::Frame { method, params } => {
@@ -444,7 +445,7 @@ impl TestCodexTask {
                 .await;
                 self.apply(routed).await;
             }
-            CodexSessionInbound::HeldThread { .. } => {}
+            CodexSessionInbound::HeldThread { .. } | CodexSessionInbound::ExportedResponse(_) => {}
             // A let-go is kept and answered; the record stays for the test to read.
             CodexSessionInbound::Lifecycle(CodexLifecycleCall::LetGo { exit, reply }) => {
                 self.let_go_exits.push(exit);
@@ -741,6 +742,11 @@ impl CodexSessionInboundHandler for ItemsToTest {
 
     fn account_moved(&mut self, account_move: CodexAccountMove) -> BoxFuture<'_, ()> {
         self.hand(CodexSessionInbound::AccountMoved(account_move));
+        async {}.boxed()
+    }
+
+    fn exported_response(&mut self, response: CodexExportedResponse) -> BoxFuture<'_, ()> {
+        self.hand(CodexSessionInbound::ExportedResponse(response));
         async {}.boxed()
     }
 

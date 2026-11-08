@@ -64,7 +64,8 @@ pub(crate) async fn apply_codex_routed_frames(
     let mut metered_usage = Vec::with_capacity(routed.metered_usage.len());
     for delta in routed.metered_usage {
         publish_turn_usage(intake, record, &delta);
-        metered_usage.extend(attribute_codex_usage(intake, record, delta));
+        let owner_thread = delta.thread_id.clone();
+        metered_usage.extend(attribute_codex_usage(intake, record, &owner_thread, delta));
     }
     for dispatch in routed.dispatches {
         if let Some(publisher) = intake.ports.turn_readings.port() {
@@ -173,15 +174,16 @@ fn publish_turn_usage(
     );
 }
 
-// The usage record's entry for a metered delta: a helper's conversation's on its child run's
-// binding as that helper's own, any other on the binding of the run its turn belongs to, else the
-// session's. One with no binding to file on is logged and left unrecorded.
-fn attribute_codex_usage(
+/// The usage record's entry for a metered delta spent on `owner_thread`: a helper's conversation's
+/// on its child run's binding as that helper's own, any other on the binding of the run its turn
+/// belongs to, else the session's. One with no binding to file on is logged and left unrecorded.
+pub(super) fn attribute_codex_usage(
     intake: &CodexRoutedFramesIntake<'_>,
     record: &CodexSessionRecord,
+    owner_thread: &str,
     delta: MeteredUsageDelta,
 ) -> Option<MeteredUsage> {
-    if let Some(child) = record.delivery.child_run_by_thread_id.get(&delta.thread_id) {
+    if let Some(child) = record.delivery.child_run_by_thread_id.get(owner_thread) {
         return Some(MeteredUsage {
             session_id: record.session_id,
             binding_id: child.binding_id.clone(),

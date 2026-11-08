@@ -7,7 +7,9 @@
 //! its owed fork let go, each turn's readings and the session's context reading published, and the
 //! spend it metered recorded in metering order. Each settled step publishes the session's
 //! context reading again with no usage when its model or window changed. The driver's own calls on
-//! the record take their place among the frames too.
+//! the record take their place among the frames too. Each completed response the export states is
+//! passed over where the stream stated it, else held until its turn settles and two export
+//! intervals pass, then passed over or priced; a session let go decides every one it holds.
 //!
 //! A full usage queue holds the task until the sink takes a batch, so no spend is lost: while the
 //! database writer stalls, this session's frames, asks and calls wait behind it, as every other
@@ -33,7 +35,7 @@ use crate::driver::codex::event_normalizer::{
 use crate::driver::codex::lifecycle::CodexDriverParts;
 use crate::driver::codex::lifecycle::account_move::CodexBindingMove;
 use crate::driver::codex::lifecycle::intake::routed_frames::{
-    CodexRoutedFramesIntake, apply_codex_routed_frames,
+    CodexRoutedFramesIntake, apply_codex_routed_frames, attribute_codex_usage,
 };
 use crate::driver::codex::mcp::live_switch::switch_codex_session_servers;
 use crate::driver::codex::notification_routing::{CodexRoutedFrames, CodexSessionRouting};
@@ -61,7 +63,10 @@ use crate::driver::codex::session::lifecycle_call::{
 };
 use crate::driver::codex::session::slots::{CodexSessionLetGo, let_go_codex_session};
 use crate::driver::codex::session::state::CodexSessionRecord;
-use crate::driver::codex::session::thread_turns::{CodexThreadTurns, TurnFrame};
+use crate::driver::codex::session::thread_turns::{CodexEndedTurn, CodexThreadTurns, TurnFrame};
+use crate::driver::codex::telemetry::held_responses::{
+    CodexExportedResponse, CodexHeldResponse, CodexHeldResponses,
+};
 use crate::driver::codex::thread::permission_profiles;
 use crate::driver::codex::transport::connection::{CodexForgottenRequest, read_codex_object};
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
@@ -93,8 +98,10 @@ pub(crate) struct CodexSessionIntake {
     parts: Arc<CodexDriverParts>,
     context_readings: CodexSessionContextReadings,
     // The live turn of each thread the session's stream carries, whose settle feeds its launch's
-    // export status.
+    // export status and decides the exported responses held on it.
     thread_turns: CodexThreadTurns,
+    // The exported responses the stream may yet state, held until each can be told apart.
+    held: CodexHeldResponses,
     // The session's one usage recorder, fed in metering order with the account moves between the
     // spends; opened at the first spend metered once the usage service registered, and ended when
     // the session's task ends.
@@ -129,6 +136,7 @@ impl CodexSessionIntake {
             parts,
             context_readings: CodexSessionContextReadings::new(session_id, fixed_start),
             thread_turns: CodexThreadTurns::default(),
+            held: CodexHeldResponses::default(),
             usage_recorder: None,
         }
     }
@@ -143,6 +151,21 @@ impl CodexSessionIntake {
         self.apply(routed).await;
         self.settle();
         drain_codex_session_inbound(receiver, &mut self).await;
+        // Every sender is gone with the record still held, so nothing settles a held turn now.
+        let held = self.held.take_all();
+        self.decide_held_responses(held).await;
+    }
+
+    // What applying a delivery's report acts through, borrowed from the driver's parts.
+    fn routed_frames_intake(parts: &CodexDriverParts) -> CodexRoutedFramesIntake<'_> {
+        CodexRoutedFramesIntake {
+            ports: &parts.ports,
+            engine: &parts.engine,
+            run_routes: &parts.run_routes,
+            run_control: &parts.run_control,
+            config_forks: &parts.config_forks,
+            delivery: &parts.delivery,
+        }
     }
 
     // What a delivery reported, applied in delivery order; the session's context reading
@@ -160,19 +183,8 @@ impl CodexSessionIntake {
         for delta in &routed.metered_usage {
             self.thread_turns.request_made(&delta.thread_id);
         }
-        let usage = apply_codex_routed_frames(
-            &CodexRoutedFramesIntake {
-                ports: &parts.ports,
-                engine: &parts.engine,
-                run_routes: &parts.run_routes,
-                run_control: &parts.run_control,
-                config_forks: &parts.config_forks,
-                delivery: &parts.delivery,
-            },
-            record,
-            routed,
-        )
-        .await;
+        let usage =
+            apply_codex_routed_frames(&Self::routed_frames_intake(parts), record, routed).await;
         self.record_usage(usage).await;
     }
 
@@ -238,6 +250,50 @@ impl CodexSessionIntake {
         }
     }
 
+    // Passes over each of `decided` the stream stated by now, and prices the rest on their session.
+    async fn decide_held_responses(&mut self, decided: Vec<CodexHeldResponse>) {
+        let mut usage = Vec::new();
+        for held in decided {
+            usage.extend(self.price_held_response(held));
+        }
+        self.record_usage(usage).await;
+    }
+
+    // `held`'s spend, filed as its thread's owner on the turn held with it; `None` where the
+    // stream stated it, so it is passed over, or where it has no binding to file on.
+    fn price_held_response(&mut self, held: CodexHeldResponse) -> Option<MeteredUsage> {
+        let CodexHeldResponse {
+            exported,
+            live_turn,
+            ..
+        } = held;
+        let response = exported.response;
+        if self
+            .routing
+            .streamed_responses()
+            .claim(&response.conversation_id, &response.counts)
+        {
+            return None;
+        }
+        let Some(record) = &self.record else {
+            tracing::info!(
+                conversation_id = response.conversation_id.as_str(),
+                "a held codex response outlived its session's record; it is dropped"
+            );
+            return None;
+        };
+        let mut delta = response.meter();
+        delta.attributed_turn_id = live_turn;
+        let usage = attribute_codex_usage(
+            &Self::routed_frames_intake(&self.parts),
+            record,
+            &response.conversation_id,
+            delta,
+        );
+        response.log_read_for_price();
+        usage
+    }
+
     // Moves the session onto `account_move`'s account at this place among its frames: its record
     // at once, and its bindings, the lead's and the record's own, once every spend metered before
     // is recorded, so that spend stays on the account it left.
@@ -278,6 +334,17 @@ impl CodexSessionIntake {
 
     async fn handle_frame(&mut self, method: String, params: Box<RawValue>) {
         let parts = Arc::clone(&self.parts);
+        // Before a side question's divert, so the hold knows its copy's turns too.
+        let ended = self.thread_turns.observe(&method, &params, Instant::now());
+        match &ended {
+            Some(CodexEndedTurn::Settled(settled)) => {
+                self.held.turn_settled(&settled.thread_id, &settled.turn_id);
+            }
+            Some(CodexEndedTurn::Replaced { thread_id, turn_id }) => {
+                self.held.turn_settled(thread_id, turn_id);
+            }
+            None => {}
+        }
         if let Some(diverted) = parts.side_questions.divert(&method, &params) {
             if let Some(usage) = diverted.usage {
                 self.routing
@@ -307,12 +374,16 @@ impl CodexSessionIntake {
             parts.provider_commands.refresh(self.session_id);
         }
         observe_codex_session_frame(record, &method, &params);
-        if let Some(settled) = self.thread_turns.observe(&method, &params, Instant::now()) {
-            record.service.dependencies().exports.turn_settled(
-                record.service.id(),
-                settled.made_request,
-                settled.started_at,
-            );
+        // Only a settled turn feeds the export status; a replaced one never reported its end.
+        match ended {
+            Some(CodexEndedTurn::Settled(settled)) => {
+                record.service.dependencies().exports.turn_settled(
+                    record.service.id(),
+                    settled.made_request,
+                    settled.started_at,
+                );
+            }
+            Some(CodexEndedTurn::Replaced { .. }) | None => {}
         }
         for settled in observe_codex_output_speed_frame(record, &method, &params) {
             parts.run_start.record_settled_output_speed(settled).await;
@@ -416,6 +487,9 @@ impl CodexSessionIntake {
     // Lets the record go on the task: its routes, waits and conversation, then its place on every
     // service it was attached to and its view.
     async fn let_go(&mut self, exit: CodexRecordExit) {
+        // Decided while the record still files them, since no held turn settles past here.
+        let held = self.held.take_all();
+        self.decide_held_responses(held).await;
         let Some(record) = self.record.take() else {
             return;
         };
@@ -488,6 +562,12 @@ impl CodexSessionInboundHandler for CodexSessionIntake {
 
     fn call(&mut self, call: CodexSessionCall) -> BoxFuture<'_, ()> {
         async move {
+            if matches!(call, CodexSessionCall::DropTurns { .. }) {
+                // The process that ran the session's turns ended, so none of them settles.
+                for (thread_id, turn_id) in self.thread_turns.take_live_turns() {
+                    self.held.turn_settled(&thread_id, &turn_id);
+                }
+            }
             // A dropped reply tells the caller the record is gone.
             let Some(record) = self.record.as_mut() else {
                 return;
@@ -522,10 +602,44 @@ impl CodexSessionInboundHandler for CodexSessionIntake {
         self.move_account(account_move).boxed()
     }
 
+    fn exported_response(&mut self, exported: CodexExportedResponse) -> BoxFuture<'_, ()> {
+        async move {
+            let response = &exported.response;
+            if self.record.is_none() {
+                tracing::info!(
+                    conversation_id = response.conversation_id.as_str(),
+                    "a codex completed response reached a session already let go; it is dropped"
+                );
+                return;
+            }
+            if self
+                .routing
+                .streamed_responses()
+                .claim(&response.conversation_id, &response.counts)
+            {
+                return;
+            }
+            let live_turn = self
+                .thread_turns
+                .live_turn(&response.conversation_id)
+                .map(str::to_owned);
+            if let Some(pushed_out) = self.held.hold(exported, live_turn) {
+                tracing::info!(
+                    conversation_id = pushed_out.exported.response.conversation_id.as_str(),
+                    "a codex session's held responses are full; the oldest is decided now"
+                );
+                self.decide_held_responses(vec![pushed_out]).await;
+            }
+        }
+        .boxed()
+    }
+
     fn next_deadline(&self) -> Option<Instant> {
-        self.record
+        let delivery = self
+            .record
             .as_ref()
-            .and_then(|record| record.delivery.next_deadline())
+            .and_then(|record| record.delivery.next_deadline());
+        delivery.into_iter().chain(self.held.next_decision()).min()
     }
 
     fn deadline_reached(&mut self, now: Instant) -> BoxFuture<'_, ()> {
@@ -533,6 +647,8 @@ impl CodexSessionInboundHandler for CodexSessionIntake {
             if let Some(record) = self.record.as_mut() {
                 self.parts.delivery.deliver_due(record, now).await;
             }
+            let due = self.held.take_due(now);
+            self.decide_held_responses(due).await;
         }
         .boxed()
     }
