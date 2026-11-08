@@ -122,7 +122,7 @@ impl DaemonStopStep {
             Self::FolderWatch => "stopping the watch on the repositories' folders",
             Self::SearchIndex => "closing the search index",
             Self::McpSettle => "finishing the MCP server changes",
-            Self::McpSignIns => "ending the MCP server sign-ins",
+            Self::McpSignIns => "ending the MCP server sign-ins under way",
             Self::Providers => "stopping the sidekicks",
             Self::LiveRunsDrain => "ending the turns still running",
             Self::TurnCaptures => "saving the file changes of the last turns",
