@@ -1,8 +1,9 @@
 //! The cancels of pending asks: a run's end, a session's close and a provider's take-back each settle
-//! the asks they leave open with one `approval.canceled` apiece, and every wait on a canceled card
-//! hears it.
+//! the asks they leave open with one `approval.canceled` apiece, and every wait on a canceled run's
+//! card hears it; a workflow wait's card is canceled only with its wait.
 
 use sidekicks_contracts::approval::events::ApprovalCanceledPayload;
+use sidekicks_contracts::approval::holder::ApprovalHolder;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -42,9 +43,10 @@ impl ApprovalService {
         canceled
     }
 
-    /// Cancels every ask the session still holds pending, across all its runs, as
+    /// Cancels every ask the session's runs still hold pending, as
     /// [`ApprovalService::cancel_pending_for_run`] does for one run; its runs are not moved, since
-    /// every provider leg of a closed session ended before its close.
+    /// every provider leg of a closed session ended before its close. A workflow wait's card is
+    /// left to its wait, which closes it with its answer, its withdraw or the restart settle.
     pub(crate) async fn cancel_pending_for_session(
         &self,
         session_id: SessionId,
@@ -68,8 +70,10 @@ impl ApprovalService {
         settle_all(outcomes, "canceling pending approval requests").map(drop)
     }
 
-    // Answers whether this cancel settled the ask; an answer that landed first keeps it.
-    pub(super) async fn cancel(
+    /// Cancels one pending ask with one `approval.canceled`, under `hold` where the caller holds
+    /// the session's appends, and answers whether this cancel settled it; an answer that landed
+    /// first keeps it. Fails when the cancel was not kept.
+    pub(crate) async fn cancel(
         &self,
         request: &StoredApprovalRequest,
         hold: Option<&SessionAppendHold>,
@@ -77,7 +81,7 @@ impl ApprovalService {
         let canceled_at = WireInstant::now();
         let payload = ApprovalCanceledPayload {
             session_id: request.session_id,
-            run_id: request.run_id,
+            holder: request.holder.clone(),
             approval_request_id: request.approval_request_id,
             category: request.category,
             scope: request.scope.clone(),
@@ -98,13 +102,16 @@ impl ApprovalService {
         };
         match appended {
             Ok(_receipt) => {
-                self.raised_cards.settle_all(
-                    &RaisedCardKey {
-                        run_id: request.run_id,
-                        approval_request_id: request.approval_request_id,
-                    },
-                    RaisedRequestSettlement::Canceled,
-                );
+                // Only a run's card is waited on in process; a wait's card closes with its wait.
+                if let ApprovalHolder::Run { run_id } = request.holder {
+                    self.raised_cards.settle_all(
+                        &RaisedCardKey {
+                            run_id,
+                            approval_request_id: request.approval_request_id,
+                        },
+                        RaisedRequestSettlement::Canceled,
+                    );
+                }
                 Ok(true)
             }
             Err(failure) if failure.refused_statement_index() == Some(PENDING_GUARD_INDEX) => {

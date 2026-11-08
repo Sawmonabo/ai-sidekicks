@@ -57,7 +57,7 @@ fn projection_row_of(
 ) -> Result<ApprovalProjectionRow, ApprovalProjectionReadError> {
     let StoredApprovalRequest {
         approval_request_id: id,
-        run_id,
+        holder,
         requested_by,
         category,
         scope,
@@ -83,7 +83,7 @@ fn projection_row_of(
     let row = match (state, resolution) {
         (ApprovalState::Pending, None) => ApprovalProjectionRow::Pending {
             id,
-            run_id,
+            holder,
             requested_by,
             category,
             scope,
@@ -102,7 +102,7 @@ fn projection_row_of(
         },
         (ApprovalState::Canceled, None) => ApprovalProjectionRow::Canceled {
             id,
-            run_id,
+            holder,
             requested_by,
             category,
             scope,
@@ -134,7 +134,7 @@ fn projection_row_of(
             }),
         ) => ApprovalProjectionRow::Approved {
             id,
-            run_id,
+            holder,
             requested_by,
             category,
             scope,
@@ -166,7 +166,7 @@ fn projection_row_of(
             }),
         ) => ApprovalProjectionRow::Rejected {
             id,
-            run_id,
+            holder,
             requested_by,
             category,
             scope,

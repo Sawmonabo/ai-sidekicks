@@ -183,7 +183,10 @@ impl ApprovalRunHolds {
                 )
             })
             .await?;
-        let runs: HashSet<RunId> = open_asks.iter().map(|request| request.run_id).collect();
+        let runs: HashSet<RunId> = open_asks
+            .iter()
+            .filter_map(|request| request.holder.run_id())
+            .collect();
         for run_id in runs {
             self.spawn_reconcile(run_id);
         }

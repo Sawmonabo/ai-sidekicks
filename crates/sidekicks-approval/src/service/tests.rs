@@ -10,6 +10,7 @@ use rstest::rstest;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
+use sidekicks_contracts::approval::holder::ApprovalHolder;
 use sidekicks_contracts::approval::{
     ApprovalCategory, ApprovalDecision, ApprovalResolutionInvalidReason, ApprovalResolveRequest,
     ApprovalScope, ApprovalState, RememberedRuleSense, RememberedScope, RememberedScopeKind,
@@ -285,13 +286,16 @@ fn client_id() -> String {
     mint_uuid_v7().to_string()
 }
 
-fn refusal(error: ApprovalServiceError) -> DomainError {
+/// The refusal `error` carries; a test that expects a refusal fails on any fault.
+pub(crate) fn refusal(error: ApprovalServiceError) -> DomainError {
     match error {
         ApprovalServiceError::Refused(refusal) => refusal,
         other @ (ApprovalServiceError::Read(_)
         | ApprovalServiceError::Pool(_)
         | ApprovalServiceError::Draft(_)
-        | ApprovalServiceError::Cancel(_)) => {
+        | ApprovalServiceError::Cancel(_)
+        | ApprovalServiceError::WaitsUnregistered(_)
+        | ApprovalServiceError::Wait(_)) => {
             panic!("the call failed rather than refused: {other}")
         }
     }
@@ -548,7 +552,9 @@ fn an_answer_that_does_not_fit_names_the_first_check_it_breaks(
     let stored = StoredApprovalRequest {
         approval_request_id: from_json(json!(mint_uuid_v7())),
         session_id: test_session_id(),
-        run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
+        holder: ApprovalHolder::Run {
+            run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
+        },
         requested_by: from_json(json!("agent")),
         category: fit.category,
         scope: scope.clone(),

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::approval::ApprovalCategory;
+use sidekicks_contracts::approval::holder::ApprovalHolder;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 
@@ -20,7 +21,9 @@ impl ApprovalFixture {
         let ask = InsertedApprovalRequest {
             approval_request_id: from_json(json!(mint_uuid_v7())),
             session_id: self.session_id,
-            run_id: self.run_id,
+            holder: ApprovalHolder::Run {
+                run_id: self.run_id,
+            },
             requested_by: from_json(json!("agent")),
             category: ApprovalCategory::ToolExecution,
             scope: from_json(json!("Bash")),

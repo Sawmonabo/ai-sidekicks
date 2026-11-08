@@ -567,7 +567,7 @@ impl PermissionCheck {
             .await?;
         let unawaited = pending.into_iter().filter(is_same_call).find_map(|card| {
             approvals
-                .arm_unawaited_card(card.run_id, card.approval_request_id)
+                .arm_unawaited_card(ask.run_id, card.approval_request_id)
                 .map(|settled| (card.approval_request_id, settled))
         });
         if let Some((approval_request_id, settled)) = unawaited {

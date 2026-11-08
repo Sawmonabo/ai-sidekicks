@@ -189,10 +189,11 @@ impl OrphanedAnswers {
     }
 }
 
-/// The statement that keeps the answer to `request`, given at `recorded_at`, in the answer's own
-/// write.
+/// The statement that keeps the answer to `request`, which its run `run_id` holds, given at
+/// `recorded_at`, in the answer's own write.
 pub(crate) fn insert_orphaned_answer_statement(
     request: &StoredApprovalRequest,
+    run_id: RunId,
     recorded_at: &WireInstant,
 ) -> WriteStatement {
     WriteStatement {
@@ -200,7 +201,7 @@ pub(crate) fn insert_orphaned_answer_statement(
         bindings: StatementBindings::Named(vec![
             text_binding("@id", request.approval_request_id.text().as_str()),
             text_binding("@session_id", request.session_id.text().as_str()),
-            text_binding("@run_id", request.run_id.text().as_str()),
+            text_binding("@run_id", run_id.text().as_str()),
             text_binding("@recorded_at", recorded_at.as_str()),
         ]),
         expected_row_count: Some(1),
@@ -213,7 +214,10 @@ fn owed_continue_of(card: StoredApprovalRequest) -> OwedContinue {
         .expect("the read takes only a card that holds its answer");
     OwedContinue {
         approval_request_id: card.approval_request_id,
-        run_id: card.run_id,
+        run_id: card
+            .holder
+            .run_id()
+            .expect("an orphaned answer is kept only for a run's card"),
         subject: card.resource_descriptor.subject,
         tool_name: card.resource_descriptor.tool_name,
         decision: resolution.decision,

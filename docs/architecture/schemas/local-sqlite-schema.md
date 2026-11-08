@@ -625,7 +625,14 @@ CREATE TABLE approval_requests (
   id                    TEXT PRIMARY KEY,
   session_id            TEXT NOT NULL,        -- owning session (Spec-010 §Required Behavior; Spec-005 §Approval Flow payload; projection key);
                                               -- event-sourced session id (no FK, matching session_id columns elsewhere)
-  run_id                TEXT NOT NULL,        -- no REFERENCES: run state is event-sourced (ADR-016; interventions precedent)
+  -- What holds the ask open (approval.requested.holder): the agent run whose action it gates, or a
+  -- workflow wait, named by its workflow run, its wait id and, for an approval step, the step's node;
+  -- a chain's question names no node. No REFERENCES: run state and the workflow's records are
+  -- event-sourced (ADR-016; interventions precedent)
+  run_id                TEXT,
+  workflow_run_id       TEXT,
+  wait_id               TEXT,
+  node_id               TEXT,
   requested_by          TEXT NOT NULL,        -- requester actor (the agent's actor id, or the device a person's request came from; Spec-010 §Required Behavior)
   category              TEXT NOT NULL
                         CHECK(category IN (
@@ -655,10 +662,17 @@ CREATE TABLE approval_requests (
                                               -- this table is left for a sweep to settle and silence is never read
                                               -- as either a grant or a denial (Spec-010 §Required Behavior)
   created_at            TEXT NOT NULL,
-  updated_at            TEXT NOT NULL         -- last state-transition instant (a cancel carries no resolution row)
+  updated_at            TEXT NOT NULL,        -- last state-transition instant (a cancel carries no resolution row)
+  CHECK((run_id IS NOT NULL AND workflow_run_id IS NULL AND wait_id IS NULL AND node_id IS NULL)
+     OR (run_id IS NULL AND workflow_run_id IS NOT NULL AND wait_id IS NOT NULL))
+                                              -- exactly one holder
 ) STRICT;
 
 CREATE INDEX idx_approval_requests_run ON approval_requests(run_id);
+-- One pending card per workflow wait: a second raise for the wait (a restart's reattach, a replayed
+-- turn) reads the open card back and raises none.
+CREATE UNIQUE INDEX idx_approval_requests_open_wait ON approval_requests(session_id, wait_id)
+  WHERE wait_id IS NOT NULL AND state = 'pending';
 CREATE INDEX idx_approval_requests_session ON approval_requests(session_id);
 CREATE INDEX idx_approval_requests_state ON approval_requests(state) WHERE state = 'pending';
 CREATE UNIQUE INDEX idx_approval_requests_ask ON approval_requests(run_id, ask_id) WHERE ask_id IS NOT NULL;

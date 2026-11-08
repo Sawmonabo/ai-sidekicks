@@ -135,7 +135,7 @@ impl SessionProjectionFold for ApprovalsFold {
             statements.push(rewrite_request_statement(&InsertedApprovalRequest {
                 approval_request_id: requested.approval_request_id,
                 session_id: requested.session_id,
-                run_id: requested.run_id,
+                holder: requested.holder.clone(),
                 requested_by: requested.requested_by.clone(),
                 category: requested.category,
                 scope: requested.scope.clone(),
