@@ -166,7 +166,7 @@ type McpServerConfigView =
       headerNames?: string[]; // the header map's KEYS; values never round-trip
       bearerTokenEnvVar?: string; // an env-var NAME (Codex's), safe to serve
       envHttpHeaders?: Record<string, string>; // Codex's — header NAME → env-var NAME: a name→name reference map, round-trips verbatim
-      oauthScopes?: string[]; // Codex's — non-secret auth references, round-trip verbatim
+      oauthScopes?: string[]; // Codex's `scopes` and Claude Code's `oauth.scopes` — non-secret auth references, round-trip verbatim
       oauthResource?: string; // Codex's — non-secret auth reference, round-trips verbatim
       enabled?: boolean;
       required?: boolean;
