@@ -2,7 +2,9 @@
 //! of the sessions on it, a service back resumes their conversations, a crash loop tells them it
 //! stays down, a failed start tells the queue their processes are gone, a rate-limit push is filed
 //! and a terminal service's planned restart moves them, as an account service's restart after its
-//! executor ended resumes them. Each event runs off the service's runner, on the driver's tasks.
+//! executor ended resumes them. Each event runs off the service's runner, on the driver's tasks,
+//! but a planned restart and an executor's end, which the service's command relay reports: both
+//! hand their restart to the recovery, which runs it on those tasks.
 
 use std::sync::Arc;
 
