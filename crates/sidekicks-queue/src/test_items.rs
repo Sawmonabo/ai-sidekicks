@@ -26,9 +26,9 @@ pub(crate) const WITH_EXTRAS_FILE: &str = "01900000-0000-7000-8000-000000000002"
 pub(crate) enum Form {
     /// A lead message carrying only words.
     Words(&'static str),
-    /// A lead message carrying a file ([`WITH_EXTRAS_FILE`]), a skill pick and a turn speed beside
-    /// its words.
-    WithExtras(&'static str),
+    /// A lead message carrying a file ([`WITH_EXTRAS_FILE`]), a skill pick and the given turn speed
+    /// beside its words.
+    WithExtras(&'static str, &'static str),
     /// A helper's message carrying only words.
     Helper(&'static str),
     /// A review of the staged changes.
@@ -42,7 +42,7 @@ impl Form {
     pub(crate) fn body(self) -> QueueItemBody {
         match self {
             Self::Words(text) | Self::Helper(text) => QueueItemBody::Message(words(text)),
-            Self::WithExtras(text) => QueueItemBody::Message(QueueMessageBody {
+            Self::WithExtras(text, speed) => QueueItemBody::Message(QueueMessageBody {
                 attachments: Some(AttachmentReferenceList(vec![
                     ArtifactId::new(WITH_EXTRAS_FILE).expect("a fixed artifact id"),
                 ])),
@@ -55,7 +55,7 @@ impl Form {
                     folder_path: FilesystemPath::new("/skills/review".to_owned())
                         .expect("a skill folder"),
                 }]),
-                output_speed_for_turn: Some(FreeFormText::new("fast".to_owned()).expect("a speed")),
+                output_speed_for_turn: Some(FreeFormText::new(speed.to_owned()).expect("a speed")),
                 ..words(text)
             }),
             Self::Review => QueueItemBody::Review {

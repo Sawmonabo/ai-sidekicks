@@ -98,8 +98,11 @@ fn hold_draft(fixture: &Fixture, text: &str, extras: Option<Value>) {
         .expect("the test holds a draft");
 }
 
-/// The file the held draft of the case with extras carries.
+/// The file the held draft of the cases with extras carries.
 const HELD_FILE: &str = "01900000-0000-7000-8000-000000000001";
+
+/// The repository the held draft of the case with skills binds to.
+const HELD_WORKSPACE: &str = "01900000-0000-7000-8000-000000000003";
 
 // Each form of a waiting message ends as the Stop's table says, committed as the run's end commits
 // its companions: every lead message is canceled into the draft whole, its words one line each, in
@@ -108,7 +111,10 @@ const HELD_FILE: &str = "01900000-0000-7000-8000-000000000001";
 // held draft replaced or put first, the order reversed, a lead message with a file and a skill pick
 // ended not delivered or returned without them, the held file dropped or put last, the held speed
 // overwritten, a helper's message, a review or a plan message canceled, the revision left where it
-// was, or a draft written when no message returned.
+// was, or a draft written when no message returned. Two messages with extras also kill the last
+// message's speed taken over the first's, held skill picks or the second message's file and pick
+// dropped, and the held repository overwritten; words alone over a held draft of only extras kill
+// the held extras replaced by none and the returned words followed by an empty held line.
 #[rstest]
 #[case::two_messages_ahead_of_the_held_draft(
     &[Form::Words("First"), Form::Words("Second")],
@@ -125,7 +131,7 @@ const HELD_FILE: &str = "01900000-0000-7000-8000-000000000001";
     None,
 )]
 #[case::a_message_with_a_file_and_a_skill_between_two_with_words(
-    &[Form::Words("Before"), Form::WithExtras("With a file"), Form::Words("After")],
+    &[Form::Words("Before"), Form::WithExtras("With a file", "fast"), Form::Words("After")],
     Some(("Held", Some(json!({ "attachments": [HELD_FILE], "outputSpeedForTurn": "standard" })))),
     &[Ended::Canceled, Ended::Canceled, Ended::Canceled],
     Some("Before\nWith a file\nAfter\nHeld"),
@@ -134,6 +140,32 @@ const HELD_FILE: &str = "01900000-0000-7000-8000-000000000001";
         "skills": [{ "name": "review", "folderPath": "/skills/review" }],
         "outputSpeedForTurn": "standard",
     })),
+)]
+#[case::two_messages_with_extras_over_a_held_draft_with_skills_and_no_speed(
+    &[Form::WithExtras("First file", "fast"), Form::WithExtras("Second file", "slow")],
+    Some(("Held", Some(json!({
+        "skills": [{ "name": "plan", "folderPath": "/skills/plan" }],
+        "workspaceId": HELD_WORKSPACE,
+    })))),
+    &[Ended::Canceled, Ended::Canceled],
+    Some("First file\nSecond file\nHeld"),
+    Some(json!({
+        "attachments": [WITH_EXTRAS_FILE, WITH_EXTRAS_FILE],
+        "skills": [
+            { "name": "plan", "folderPath": "/skills/plan" },
+            { "name": "review", "folderPath": "/skills/review" },
+            { "name": "review", "folderPath": "/skills/review" },
+        ],
+        "outputSpeedForTurn": "fast",
+        "workspaceId": HELD_WORKSPACE,
+    })),
+)]
+#[case::words_over_a_held_draft_of_only_extras(
+    &[Form::Words("Only words")],
+    Some(("", Some(json!({ "attachments": [HELD_FILE], "outputSpeedForTurn": "standard" })))),
+    &[Ended::Canceled],
+    Some("Only words"),
+    Some(json!({ "attachments": [HELD_FILE], "outputSpeedForTurn": "standard" })),
 )]
 #[case::a_review_a_plan_message_and_a_helpers_message(
     &[Form::Review, Form::PlanMessage, Form::Helper("To the helper")],
