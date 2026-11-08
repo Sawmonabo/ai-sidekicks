@@ -1,5 +1,6 @@
 //! The responses a session's stream stated, by thread, kept until the export's twin claims one,
-//! so no request is counted twice.
+//! and the exported ones it priced before its stream stated them, kept until the stream's late
+//! twin is matched to one, so no request is counted twice.
 
 use std::collections::VecDeque;
 
@@ -7,42 +8,84 @@ use strum::VariantArray as _;
 
 use crate::usage_delta_accountant::{UsageAxisCounts, UsageTokenAxis};
 
-/// How many stated responses one session keeps unclaimed; past it the oldest is pushed out.
+/// How many stated responses one session keeps unclaimed, and how many priced exported ones it
+/// keeps unmatched; past either the oldest is pushed out.
 pub(crate) const STREAMED_RESPONSES_KEPT: usize = 256;
 
-/// The responses one session's stream stated, oldest first, each by its thread and counts. A
-/// cache: an entry pushed out only prices its export's twin again.
+/// The responses one session's stream stated and the exported ones it priced first, oldest first,
+/// each by its thread and counts. A cache: an entry pushed out only counts its twin again.
 #[derive(Default)]
 pub(crate) struct CodexStreamedResponses {
     stated: VecDeque<(String, UsageAxisCounts)>,
+    priced: VecDeque<(String, UsageAxisCounts)>,
 }
 
 impl CodexStreamedResponses {
-    /// Keeps a response the stream stated on `thread_id` with `counts`, the oldest pushed out and
-    /// logged once the ledger is full.
-    pub(crate) fn record(&mut self, thread_id: &str, counts: UsageAxisCounts) {
-        if self.stated.len() >= STREAMED_RESPONSES_KEPT
-            && let Some((pushed_out, _counts)) = self.stated.pop_front()
-        {
-            tracing::info!(
-                thread_id = pushed_out.as_str(),
-                "a codex session's stated responses are full; the oldest is let go unclaimed"
-            );
+    /// Takes a response the stream stated on `thread_id` with `counts`: answers `false`, keeping
+    /// nothing, where it is the late twin of an exported response already priced, which it is
+    /// matched to; else keeps it for its export's twin and answers `true`. The oldest is pushed
+    /// out and logged once the ledger is full.
+    pub(crate) fn record(&mut self, thread_id: &str, counts: UsageAxisCounts) -> bool {
+        if take_matching(&mut self.priced, thread_id, &counts) {
+            return false;
         }
-        self.stated.push_back((thread_id.to_owned(), counts));
+        push_bounded(
+            &mut self.stated,
+            thread_id,
+            counts,
+            "a codex session's stated responses are full; the oldest is let go unclaimed",
+        );
+        true
+    }
+
+    /// Keeps an exported response on `thread_id` with `counts` that was priced before the stream
+    /// stated it, so the stream's late twin is matched to it and never counted again.
+    pub(crate) fn record_priced(&mut self, thread_id: &str, counts: UsageAxisCounts) {
+        push_bounded(
+            &mut self.priced,
+            thread_id,
+            counts,
+            "a codex session's priced responses are full; the oldest is let go unmatched",
+        );
     }
 
     /// Takes the oldest response stated on `thread_id` whose six counts equal `counts`, an absent
     /// count reading as zero; answers whether one was there. Two equal responses are two entries.
     pub(crate) fn claim(&mut self, thread_id: &str, counts: &UsageAxisCounts) -> bool {
-        let Some(index) = self.stated.iter().position(|(stated_thread, stated)| {
-            stated_thread == thread_id && is_same_counts(stated, counts)
-        }) else {
-            return false;
-        };
-        self.stated.remove(index);
-        true
+        take_matching(&mut self.stated, thread_id, counts)
     }
+}
+
+// Pushes `thread_id`'s `counts` onto `kept`, the oldest pushed out and logged as `pushed_out`
+// once `kept` is full.
+fn push_bounded(
+    kept: &mut VecDeque<(String, UsageAxisCounts)>,
+    thread_id: &str,
+    counts: UsageAxisCounts,
+    pushed_out: &'static str,
+) {
+    if kept.len() >= STREAMED_RESPONSES_KEPT
+        && let Some((pushed_out_thread, _counts)) = kept.pop_front()
+    {
+        tracing::info!(thread_id = pushed_out_thread.as_str(), "{pushed_out}");
+    }
+    kept.push_back((thread_id.to_owned(), counts));
+}
+
+// Takes the oldest entry of `kept` on `thread_id` whose counts equal `counts`; answers whether one
+// was there.
+fn take_matching(
+    kept: &mut VecDeque<(String, UsageAxisCounts)>,
+    thread_id: &str,
+    counts: &UsageAxisCounts,
+) -> bool {
+    let Some(index) = kept.iter().position(|(kept_thread, kept_counts)| {
+        kept_thread == thread_id && is_same_counts(kept_counts, counts)
+    }) else {
+        return false;
+    };
+    kept.remove(index);
+    true
 }
 
 // Whether `left` and `right` carry the same count on every axis, an absent count reading as zero.

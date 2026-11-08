@@ -65,7 +65,9 @@ use crate::driver::codex::session::lifecycle_call::{
 };
 use crate::driver::codex::session::slots::{CodexSessionLetGo, let_go_codex_session};
 use crate::driver::codex::session::state::CodexSessionRecord;
-use crate::driver::codex::session::thread_turns::{CodexEndedTurn, CodexThreadTurns, TurnFrame};
+use crate::driver::codex::session::thread_turns::{
+    CodexEndedTurn, CodexSettledTurn, CodexThreadTurns, TurnFrame,
+};
 use crate::driver::codex::telemetry::held_responses::{
     CodexExportedResponse, CodexHeldResponse, CodexHeldResponses, CodexOffStreamPlacement,
 };
@@ -290,6 +292,13 @@ impl CodexSessionIntake {
             exported.owner_thread(),
             delta,
         );
+        // A response on a thread the session streams may still have its reading released late,
+        // which is matched to it rather than counted again.
+        if usage.is_some() && exported.placed.is_none() {
+            self.routing
+                .streamed_responses()
+                .record_priced(&response.conversation_id, response.counts);
+        }
         response.log_read_for_price();
         usage
     }
@@ -336,9 +345,13 @@ impl CodexSessionIntake {
         let parts = Arc::clone(&self.parts);
         // Before a side question's divert, so the hold knows its copy's turns too.
         let ended = self.thread_turns.observe(&method, &params, Instant::now());
-        // The session's own live turn, which an unplaced reviewer request may be given to.
+        // The session's own live turn, which an unplaced reviewer request may be given to; a
+        // copy's or a helper's start leaves it as it is.
         if method == CODEX_TURN_STARTED_METHOD
             && let Some(record) = &self.record
+            && read_codex_object::<TurnFrame>(params.get())
+                .and_then(|frame| frame.thread_id)
+                .is_some_and(|thread_id| thread_id == record.thread_id)
             && let Some(turn_id) = self.thread_turns.live_turn(&record.thread_id)
         {
             record.service.dependencies().exports.turn_started(
@@ -358,11 +371,18 @@ impl CodexSessionIntake {
             None => {}
         }
         if let Some(diverted) = parts.side_questions.divert(&method, &params) {
-            if let Some(usage) = diverted.usage {
-                self.routing
+            if let Some(usage) = diverted.usage
+                && self
+                    .routing
                     .streamed_responses()
-                    .record(&usage.delta.thread_id, usage.delta.axis_deltas);
+                    .record(&usage.delta.thread_id, usage.delta.axis_deltas)
+            {
+                // The copy's turn made the request, so its settle below arms an export check.
+                self.thread_turns.request_made(&usage.delta.thread_id);
                 self.record_usage(vec![usage]).await;
+            }
+            if let (Some(CodexEndedTurn::Settled(settled)), Some(record)) = (&ended, &self.record) {
+                arm_export_check(record, settled);
             }
             return;
         }
@@ -389,13 +409,12 @@ impl CodexSessionIntake {
         // Only a settled turn feeds the export status; a replaced one never reported its end.
         match ended {
             Some(CodexEndedTurn::Settled(settled)) => {
-                let exports = &record.service.dependencies().exports;
-                exports.turn_settled(
+                arm_export_check(record, &settled);
+                record.service.dependencies().exports.turn_ended(
                     record.service.id(),
-                    settled.made_request,
-                    settled.started_at,
+                    record.session_id,
+                    &settled.turn_id,
                 );
-                exports.turn_ended(record.service.id(), record.session_id, &settled.turn_id);
             }
             Some(CodexEndedTurn::Replaced { .. }) | None => {}
         }
@@ -763,6 +782,15 @@ fn read_ended_turn_id(record: &CodexSessionRecord, params: &RawValue) -> Option<
         return None;
     }
     frame.turn?.id.filter(|turn_id| !turn_id.is_empty())
+}
+
+// Hands `settled` to its launch's export status, which arms a check where the turn made a request.
+fn arm_export_check(record: &CodexSessionRecord, settled: &CodexSettledTurn) {
+    record.service.dependencies().exports.turn_settled(
+        record.service.id(),
+        settled.made_request,
+        settled.started_at,
+    );
 }
 
 // Now in Unix milliseconds by the wall clock, the clock Codex's records and reviews are stamped

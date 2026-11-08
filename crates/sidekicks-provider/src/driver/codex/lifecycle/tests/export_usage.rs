@@ -2,6 +2,7 @@
 //! stream's twin passed over by its counts, a reviewer fork's joined to its review window or live
 //! turn, and a request turn's settle arming one export check.
 
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -16,7 +17,12 @@ use super::{LiveCodexSession, TEST_TURN, answer_stopping_request};
 use crate::bounded_poll::poll_until;
 use crate::driver::codex::run::turn_end_waiters::CodexRecordExit;
 use crate::driver::codex::session::lifecycle_call::let_go_codex_session_record;
-use crate::driver::codex::session::test_fixture::{TEST_THREAD, turn_completed, turn_started};
+use crate::driver::codex::session::side_questions::test_copies::{
+    COPY_THREAD, COPY_TURN, resting_question,
+};
+use crate::driver::codex::session::test_fixture::{
+    TEST_THREAD, turn_completed, turn_reply, turn_started,
+};
 use crate::driver::codex::telemetry::completed_response::tests::{
     codex_record, completed_response_attributes,
 };
@@ -25,6 +31,7 @@ use crate::driver::codex::telemetry::exports::{
     CODEX_EXPORT_INTERVAL, CodexExportTag, CodexExports,
 };
 use crate::driver::diagnostics::RecordedEvents;
+use crate::driver::session_control::AskSideQuestionParams;
 use crate::port::usage_sink::MeteredUsageOwner;
 use crate::pricing::receiver::TelemetryExportReader as _;
 use crate::usage_delta_accountant::UsageAxisCounts;
@@ -42,6 +49,8 @@ enum Arrival {
     ExportOnlyOnAStreamedThread,
     /// The export twin with no reading, then the session let go before its turn completes.
     HeldWhenTheSessionCloses,
+    /// The export twin and the completion, the twin decided, then the reading released late.
+    StatedAfterItsDecision,
 }
 
 /// A live session on a paused clock, its spend recorded through an open gate, its turn started
@@ -188,12 +197,14 @@ fn wire_counts(counts: &UsageAxisCounts) -> Value {
 // `exported_first` by deciding a held response two intervals after its arrival while its turn is
 // live (two rows); `export_only_on_a_streamed_thread` by passing over an export whose thread the
 // stream metered on, whatever its counts (one row); `held_when_the_session_closes` by dropping
-// the held responses with the session's record (no row).
+// the held responses with the session's record (no row); `stated_after_its_decision` by a priced
+// response that keeps no claim on its stream's late twin (two rows).
 #[rstest]
 #[case::stated_first(Arrival::StatedFirst)]
 #[case::exported_first(Arrival::ExportedFirst)]
 #[case::export_only_on_a_streamed_thread(Arrival::ExportOnlyOnAStreamedThread)]
 #[case::held_when_the_session_closes(Arrival::HeldWhenTheSessionCloses)]
+#[case::stated_after_its_decision(Arrival::StatedAfterItsDecision)]
 #[tokio::test]
 async fn an_exported_response_is_counted_once_on_its_session(#[case] arrival: Arrival) {
     let mut session = ExportingSession::start().await;
@@ -226,6 +237,14 @@ async fn an_exported_response_is_counted_once_on_its_session(#[case] arrival: Ar
             // The export reaches the session's queue before its let-go does.
             tokio::time::sleep(Duration::from_millis(10)).await;
             session.let_go().await;
+            vec![(Some(1_000), Some(500))]
+        }
+        Arrival::StatedAfterItsDecision => {
+            session.export(&stated).await;
+            session.complete_turn();
+            // The region read comes once the twin is decided and priced, two intervals on.
+            answer_region_read(&mut session.live.scripted).await;
+            session.state(&stated);
             vec![(Some(1_000), Some(500))]
         }
     };
@@ -373,20 +392,73 @@ async fn a_reviewer_fork_s_requests_cost_once_on_the_session_under_its_account(
     );
 }
 
+/// The turn whose request a case's settle arms an export check for.
+enum RequestTurn {
+    /// The session's own turn.
+    SessionOwn,
+    /// A live side question's copy's turn, its spend diverted off the session's.
+    LiveSideQuestion,
+}
+
 // A request turn's settle arms one export check on its launch while no export arrives. Killed by
-// the settle never handed to the register and by the request never marked from the metered delta
-// (no check either way).
+// the settle never handed to the register, by the request never marked from the metered delta,
+// and, for a live side question, by its diverted spend left unmarked or its settle never handed
+// to the register (no check in each).
+#[rstest]
+#[case::the_session_s_own(RequestTurn::SessionOwn)]
+#[case::a_live_side_question_s(RequestTurn::LiveSideQuestion)]
 #[tokio::test]
-async fn a_request_turn_waits_for_its_export_once() {
-    let live = LiveCodexSession::start(&[]).await;
+async fn a_request_turn_waits_for_its_export_once(#[case] turn: RequestTurn) {
+    let mut live = LiveCodexSession::start(&[]).await;
     tokio::time::pause();
     let exports = Arc::clone(&live.scripted.service.dependencies().exports);
     exports.launched(&live.scripted.service);
     let reading = wire_counts(&counts(1_000, 500));
-    let script = &live.scripted.script;
-    script.send(&turn_started(TEST_TURN));
-    script.send(&token_usage_frame(TEST_THREAD, &reading, &reading));
-    script.send(&turn_completed(TEST_THREAD, TEST_TURN, "completed"));
+    match turn {
+        RequestTurn::SessionOwn => {
+            let script = &live.scripted.script;
+            script.send(&turn_started(TEST_TURN));
+            script.send(&token_usage_frame(TEST_THREAD, &reading, &reading));
+            script.send(&turn_completed(TEST_THREAD, TEST_TURN, "completed"));
+        }
+        RequestTurn::LiveSideQuestion => {
+            let params = AskSideQuestionParams {
+                resume: None,
+                ..resting_question(live.session_id, Path::new("/"))
+            };
+            let asked = live.driver.ask_side_question(params);
+            tokio::pin!(asked);
+            let scripted = &mut live.scripted;
+            let copy_turn = async {
+                let fork = scripted.next_request("thread/fork").await;
+                scripted.script.answer(
+                    &fork,
+                    &json!({
+                        "thread": {"id": COPY_THREAD, "sessionId": "codex-session"},
+                        "activePermissionProfile": {"id": fork["params"]["permissions"]},
+                    }),
+                );
+                let start = scripted.next_request("turn/start").await;
+                scripted.script.answer(&start, &turn_reply(COPY_TURN));
+                let started = json!({"jsonrpc": "2.0", "method": "turn/started", "params": {
+                    "threadId": COPY_THREAD,
+                    "turn": {"id": COPY_TURN, "items": [], "status": "inProgress"},
+                }});
+                scripted.script.send(&started);
+                let mut usage = token_usage_frame(COPY_THREAD, &reading, &reading);
+                usage["params"]["turnId"] = json!(COPY_TURN);
+                scripted.script.send(&usage);
+                scripted
+                    .script
+                    .send(&turn_completed(COPY_THREAD, COPY_TURN, "completed"));
+            };
+            // The ask waits on its copy's answer, which the session's task delivers on its own.
+            tokio::select! {
+                () = copy_turn => {}
+                _answered = &mut asked => {}
+            }
+        }
+    }
 
     poll_until(|| export_checks(exports.scheduler()), |checks| *checks >= 1).await;
     tokio::time::sleep(Duration::from_millis(10)).await;

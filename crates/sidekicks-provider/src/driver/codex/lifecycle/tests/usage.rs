@@ -328,9 +328,10 @@ enum RestingCopy {
 }
 
 // Real time, since the list's fetch carries a client timeout a paused clock fires. With no sign-in
-// kind read, the copy's one row is held under its model and its fork's tier. Killed by a copy's
-// reading recorded and never priced (none held), by the tier its fork declared left unread (speed
-// `None`), and by either path's facts not composed (none held).
+// kind read, the copy's one row is held under its model and its fork's tier, and counts only its
+// request, not the figures its fork restored. Killed by a copy's reading recorded and never priced
+// (none held), by the tier its fork declared left unread (speed `None`), by either path's facts
+// not composed (none held), and by a copy based fresh (input 51,000).
 #[rstest]
 #[case::a_side_question_at_rest(RestingCopy::SideQuestion)]
 #[case::the_hand_over(RestingCopy::HandOver)]
@@ -408,4 +409,5 @@ async fn a_resting_copy_s_rows_are_priced_at_its_model_and_declared_tier(
         .collect();
     assert_eq!(keys, [(Some("gpt-5"), Some("priority"), None)]);
     assert!(lock(&usage.costs).is_empty());
+    assert_eq!(usage.input_deltas(), [Some(1_000)]);
 }
