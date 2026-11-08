@@ -316,7 +316,8 @@ interface ApprovalListResponse {
     // What the card shows, derived by the daemon from the request row, so the card's hook reads
     // them here and never from the event stream.
     subject: string; // the derived subject the card names and the remembering answer would cover
-    // the provider's own reason for asking, shown as given; absent when it sent none
+    // the provider's own reason for asking, control characters and terminal escape sequences
+    // stripped; absent when it sent none
     reason?: string;
     // whether the remembering answer (`Always allow <subject> this session`) is offered
     standingAllowOffered: boolean;
@@ -355,7 +356,9 @@ interface ApprovalRuleListResponse {
 // `approval.rule.revoke`: the explicit revocation path (Spec-010 §State And Data Implications):
 // removes the rule where the provider keeps it — a Claude Code session rule from the session's flag
 // settings, a Codex session allow by the daemon's hook holding the next call on its subject, a
-// project rule from the provider's project file — and emits `approval.rule.revoked`
+// project rule out of every user and project file of the provider's that holds it — and emits
+// `approval.rule.revoked`. A rule a managed or system file holds, which the daemon never edits, is
+// refused `approval.rule.notKept`, nothing changed, since the rule would still apply
 interface ApprovalRuleRevokeRequest {
   ruleId: RememberedRuleId;
 }
@@ -395,7 +398,7 @@ interface ApprovalDenialOverrideResponse {
 
 **The providers keep the card's rules.** The session's permission level decides whether anything asks at all: only the careful levels raise a card, and at `sandboxed` and `yolo` no card exists and no rule can be made, but for a removal a provider's own check flags, which that provider asks for at `yolo` too and refuses itself at `sandboxed`, and, at `yolo`, a call one of the person's own ask rules names or a tool the person set to `prompt`; a removal's card carries a standing allow only where the provider offers one, Codex's command rule for a forced `rm`, and none on Claude Code, which withholds it for the removals its check flags. A level move never answers an open card: the card stays for the person and the new level applies from the next ask, on every provider ([Spec-010 §Required Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior)). A rule the card makes is handed to the provider, which answers by it at every level that asks; the daemon keeps no rule store, and each rule is one provider's. On Claude Code a session rule is the session's flag settings, set by `apply_flag_settings {permissions}` with the whole allow and deny lists on each call, and at Reviewed the ask list `["Bash(rm *)"]` beside them, since the call replaces the whole `permissions` object, all carried at launch by `--settings`, and a project allow rides the answer's `destination: "localSettings"` into `.claude/settings.local.json`, where the daemon writes a project block itself, since a decline drops any rule it carries. On Codex a session allow is `acceptForSession`; the daemon writes a project rule as a `prefix_rule` or `network_rule` into the project's `.codex/rules/sidekicks.rules`, adds that one path to the repository's `.git/info/exclude`, and answers the ask `acceptForSession`; where Codex has no verb — a session allow taken back, a session block, a session allow after a restart — the daemon's own tool hook and its answers to Codex's asks carry it from the session's own answers. The inspector's `Rules` lists and revokes the rules in force on one session through `approval.rule.list` and `approval.rule.revoke`; Settings › Providers lists and revokes every standing rule on the machine through `provider.standingRule.list` and `provider.standingRule.revoke`, from the same files.
 
-**The plan verdict.** A plan turn ends with a held provider request on Claude Code and a plan item on Codex; the daemon turns either into ONE plan record the screen renders and ONE call answers. The record is `plan.proposed`; the call is `plan.resolve`; the verdict is recorded by `plan.accepted`, `plan.handedOff` and `plan.kept`, so the system messages that tell it and a kept plan's `open` survive a reload, and `plan.hold.ended` records a Claude Code plan whose held request ended with no verdict, which settles it `open`. A plan is not an approval: it raises no approval card and appends no `approval.*` event. Each rides the `approvalFlow` category ([Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md), which owns the names and the census), because a plan card is an attention entry on exactly the terms an approval is, which is why the verdict lives beside the approval surface rather than in a namespace of its own.
+**The plan verdict.** A plan turn ends with a held provider request on Claude Code and a plan item on Codex; the daemon turns either into ONE plan record the screen renders and ONE call answers. The record is `plan.proposed`; the call is `plan.resolve`; the verdict is recorded by `plan.accepted`, `plan.handedOff` and `plan.kept`, and a hand-off step that did not finish by `plan.handOff.failed`, so the system messages that tell it and a kept plan's `open` survive a reload, and `plan.hold.ended` records a Claude Code plan whose held request ended with no verdict, which settles it `open`. A plan is not an approval: it raises no approval card and appends no `approval.*` event. Each rides the `approvalFlow` category ([Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md), which owns the names and the census), because a plan card is an attention entry on exactly the terms an approval is, which is why the verdict lives beside the approval surface rather than in a namespace of its own.
 
 ```ts
 // A daemon-minted identifier for one plan record. The record is minted when a plan turn ends and is
@@ -443,11 +446,31 @@ interface PlanKeptPayload {
   sessionId: SessionId;
   deviceId: DeviceId;
 }
-// A Claude Code plan whose held request ended with no verdict settles `open`; draws no row.
+// A Claude Code plan whose held request ended with no verdict settles `open`, its card closing on
+// every device; draws no row. `superseded`: a newer plan of the same session took its place.
+// `freshSessionGone`: the fresh session it was handed to was archived, closed or purged before its
+// first turn was admitted, so the plan waits again with its card up, holding no request.
 interface PlanHoldEndedPayload {
   planId: PlanId;
   sessionId: SessionId;
-  reason: "interrupted" | "withdrawn" | "runEnded";
+  reason: "interrupted" | "withdrawn" | "runEnded" | "superseded" | "freshSessionGone";
+}
+// The steps a `fresh` hand-off runs, in order.
+type PlanHandOffStep =
+  | "birth"
+  | "bind"
+  | "transcriptFile"
+  | "seedPlan"
+  | "activation"
+  | "seedMessage";
+// plan.handOff.failed — a hand-off step did not finish, and the `fresh` verdict's call is refused
+// `plan.handOffUnfinished` (`data.fields`: `freshSessionId`, `step`). The plan stays handed off,
+// and the next `fresh` verdict runs the unfinished steps again.
+interface PlanHandOffFailedPayload {
+  planId: PlanId;
+  freshSessionId: SessionId;
+  step: PlanHandOffStep;
+  cause: string; // why the step did not finish, in the words of its failure
 }
 
 // plan.resolve — the one call that answers a plan record. Three verdicts:
@@ -500,14 +523,14 @@ interface PlanResolveResponse {
 
 Plan-009's approval surface is exposed as the `approval.*` methods below (D-009-5); the daemon's in-process call that creates an approval request is not one of them: the daemon makes it from a provider's callback, so it has no method string and no SDK method. Names register under the Plan-005-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out (`repoMount.*` precedent). These methods ride the **daemon JSON-RPC transport only** — approval state is daemon-local SQLite per ADR-016 (coordination records only, in the hosted account's storage; no control-plane approval storage or route sibling exists in V1; the person's other devices reach these methods through Remote Control, over their own channel to the machine that runs the session, ADR-016 Option B). Method strings are imperative and disjoint-by-form from the past-participle Spec-005 `approvalFlow` durable event names (`approval.resolve` method vs `approval.approved` event; `approval.rule.revoke` vs `approval.rule.revoked`). `PermissionCheck` is deliberately **not** registered: it is the daemon-internal pre-execution gate (Spec-010: "inside the local daemon"), no V1 client consumes a wire preflight, and exposing one would invite stale-verdict (time-of-check/time-of-use) authorization against the security gate (D-009-5/D-009-18). `approval.list` reads a session's approval requests, waiting and resolved, filtered by state or category; the one waiting request is drawn as a card on the composer.
 
-| Method | Procedure type | Request schema | Response schema |
-| --- | --- | --- | --- |
-| `approval.resolve` | `mutation` | `ApprovalResolveRequest` | `ApprovalResolveResponse` |
-| `approval.list` | `query` | `ApprovalListRequest` | `ApprovalListResponse` |
-| `approval.rule.list` | `query` | `ApprovalRuleListRequest` | `ApprovalRuleListResponse` |
-| `approval.rule.revoke` | `mutation` | `ApprovalRuleRevokeRequest` | `ApprovalRuleRevokeResponse` |
-| `approval.denial.override` | `mutation` | `ApprovalDenialOverrideRequest` | `ApprovalDenialOverrideResponse` |
-| `plan.resolve` | `mutation` | `PlanResolveRequest` | `PlanResolveResponse` |
+| Method | Procedure type | Request schema | Response schema | Refusals |
+| --- | --- | --- | --- | --- |
+| `approval.resolve` | `mutation` | `ApprovalResolveRequest` | `ApprovalResolveResponse` | `approval.notFound`, `approval.alreadyResolved`, `approval.requestCanceled`, `approval.resolutionInvalid`, `approval.persistenceUnavailable`, `approval.rule.notKept` |
+| `approval.list` | `query` | `ApprovalListRequest` | `ApprovalListResponse` | `session.notFound` |
+| `approval.rule.list` | `query` | `ApprovalRuleListRequest` | `ApprovalRuleListResponse` | `session.notFound` |
+| `approval.rule.revoke` | `mutation` | `ApprovalRuleRevokeRequest` | `ApprovalRuleRevokeResponse` | `approval.rule.notFound`, `approval.rule.alreadyRevoked`, `approval.rule.notKept` |
+| `approval.denial.override` | `mutation` | `ApprovalDenialOverrideRequest` | `ApprovalDenialOverrideResponse` | `session.notFound`, `approval.denial.notFound`, `approval.denial.notOverridable`, `session.alreadyClosed`, `session.changeRefused`, `provider.notFound`, `provider.unavailable`, `provider.timeout` |
+| `plan.resolve` | `mutation` | `PlanResolveRequest` | `PlanResolveResponse` | `plan.notFound`, `plan.handOffUnfinished`, `session.permissionLevel.notOffered`, `session.alreadyClosed`, `session.changeRefused`, `provider.account.current.notSet`, `provider.account.notRegistered`, `agent.providerAxisInvalid`, `agent.queueItem.persistenceUnavailable`, `agent.queueItem.runChanged` |
 
 `plan` is a registered namespace root of its own, and this is the only verb in it: the plan verdict is one call, and a plan record is READ from the session's artifact list rather than through a namespace of its own, so no `plan.list` or `plan.read` exists to register. It rides the **daemon JSON-RPC transport only**, for the reason its siblings do — the held provider request the verdict answers is held by this daemon and by nothing else, so a control-plane sibling would place the mutation on a party that cannot answer it. A verdict against a record that is no longer waiting applies nothing and reads back the record's state, as `question.resolve` does, because the first answer settles the plan everywhere and the record is the receipt.
 

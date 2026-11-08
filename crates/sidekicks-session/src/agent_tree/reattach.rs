@@ -93,6 +93,7 @@ pub fn read_helpers_to_reattach(
                     parent_subagent_id: node.parent_subagent_id.clone(),
                     start_call_id: node.start_call_id.clone(),
                     provider_path: node.provider_path.clone(),
+                    model_id: node.model_id.clone(),
                     was_live: was_live[place] == Some(true),
                 })
             },

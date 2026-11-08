@@ -121,23 +121,23 @@ interface SessionCallbackTool {
 
 // Callback-tool dispatch seam (Plan-003 T1.7 / T3.15 leg 3). The daemon injects
 // `onCallbackToolCall` at spawn (CreateSessionParams in provider-driver-payloads.md); when the
-// provider issues a callback-tool request (a tool call on the daemon's MCP `url` entry, from any
-// provider), the driver translates the wire request into a `CallbackToolInvocation`, invokes the
-// injected dispatcher, and answers the provider with the
-// `CallbackToolResult` — no invocation is left unanswered, no approval bypass invented. The
-//                        daemon-side
-// dispatcher is Plan-003's callback-tool host
+// provider calls a callback tool (a tool call on the daemon's shared MCP tool server `sidekicks`,
+// from any provider), the `sidekicks` tool route — the one producer of a `CallbackToolInvocation` —
+// checks the call's arguments against the tool's input schema, builds the invocation, invokes the
+// injected dispatcher, and answers the provider with the `CallbackToolResult`; a driver only says
+// whether the registry is served. No invocation is left unanswered, no approval bypass invented.
+// The daemon-side dispatcher is Plan-003's callback-tool host
 // (`crates/sidekicks-provider/src/callback_tools/host.rs`), routing every invocation through
 // Plan-009's approval pipeline by the daemon's own approval service — the daemon's in-process call
 // that creates an approval request, which it raises from a provider callback and no client calls
 // (CP-003-5 covers driver-host permission callbacks) — Plan-003 authors no Plan-009 symbols — and
-// landing the outcome as an ordinary `toolActivity` row. `CallbackToolInvocation` is normalized at
-// the driver boundary from untrusted provider output; `CallbackToolResult` is daemon-constructed
-// and trusted. Fail-closed availability: exposure is keyed on the daemon's approval service, not on
-// any wire registration. While that service is not running, spawn WITHHOLDS the callbackTools
-// registry (tools not exposed) and the host's runtime backstop answers any stray invocation
-// `denied` + a DriverDiagnosticRecord — never `completed` without the approval service, never
-// unanswered; the allow path opens once Plan-009's approval service runs (CP-003-5).
+// landing the outcome as an ordinary `toolActivity` row. `CallbackToolInvocation` is built by the
+// route from untrusted provider output; `CallbackToolResult` is daemon-constructed and trusted.
+// Fail-closed availability: exposure is keyed on the daemon's approval service, not on any wire
+// registration. While that service is not running, spawn WITHHOLDS the callbackTools registry
+// (tools not exposed) and the host's runtime backstop answers any stray invocation `denied` + a
+// DriverDiagnosticRecord — never `completed` without the approval service, never unanswered; the
+// allow path opens once Plan-009's approval service runs (CP-003-5).
 interface CallbackToolInvocation {
   // untrusted provider output — `FreeFormText<MAX>`-bounded (the trust-boundary header's string
   // enumeration); resolved against the session's registered SessionCallbackTool set, and an UNKNOWN
@@ -195,49 +195,49 @@ type McpServerStatusProducer = (emission: McpServerStatusEmission) => void;
 // Provider-native in-session subagent policy (orchestration semantics Spec-014). Single-supervisor
 // invariant: the daemon is the only cross-session supervisor — provider subagents run in-session
 // only, their usage aggregates into the run's own budgets, and their tool calls flow through the
-// same approval pipeline. `maxConcurrent` is the person's `Helpers at once` for that provider:
+// same approval pipeline. `helpersAtOnce` is the person's `Helpers at once` for that provider:
 // absent, the default, is no limit, and the daemon lifts the provider's own built-in limit; `0`
-// runs none, and the daemon withholds the provider's helper tool; any other number N is passed as
-// Codex's own limit, `features.multi_agent_v2.max_concurrent_threads_per_session` set to N + 1,
-// because Codex counts the lead among those threads (its helper limit is that setting minus one),
-// and on Claude Code, which has no such setting, the daemon's pre-tool hook on the Agent tool holds
-// a new helper's start until one of that session's running helpers finishes. There is no ceiling of
-// the app's own (Spec-004 §Parity Capability Mechanism Grades; Spec-014 §Provider-Native
-// Subagents).
+// is the `disabled` arm, and the daemon withholds the provider's helper tool; any other number N is
+// passed as Codex's own limit, `features.multi_agent_v2.max_concurrent_threads_per_session` set to
+// N + 1, because Codex counts the lead among those threads (its helper limit is that setting minus
+// one). On Claude Code the daemon lifts Claude Code's own helper caps
+// (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` and `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` at their
+// largest value) and applies the limit itself: its pre-tool hook on the Agent and `SendMessage`
+// tools holds a new helper's start, or a message that would wake a finished helper, while N of
+// that session's helpers run, and lets it go when one finishes. There is no ceiling of the app's
+// own, and nothing bounds how deep helpers nest (Spec-004 §Parity Capability Mechanism Grades;
+// Spec-014 §Provider-Native Subagents).
 type SubagentPolicy =
-  // Discriminated on `enabled`: a disabled policy carries no limits or definitions —
+  // Discriminated on `policy`: a disabled policy carries no limit or definitions —
   // "off but configured" is unrepresentable; the daemon sends the full arm on enable.
-  | { enabled: false }
-  // Both limit members are OPTIONAL and neither is the daemon's own. The daemon sets no depth and
-  // no concurrency ceiling of its own: `maxDepth` carries the person's own provider setting where
-  // they have set one and is absent where they have not, and `maxConcurrent` reads as above. The
-  // provider's own nesting limit is what bounds
-  // the tree, and where the provider refuses a level its refusal is shown in the provider's words.
-  // A driver passes each member through as it stands and clamps nothing — a driver-side ceiling
-  // would refuse what neither the person nor the provider bounded
+  | { policy: "disabled" }
+  // The limit is OPTIONAL and is the person's own; the daemon sets no concurrency ceiling of its
+  // own and no depth. Where the provider refuses a level its refusal is shown in the provider's
+  // words. A driver passes the limit through as it stands and clamps nothing — a driver-side
+  // ceiling would refuse what neither the person nor the provider bounded
   // (Spec-014 §Provider-Native Subagents).
   | {
-      enabled: true;
-      maxDepth?: number;
-      maxConcurrent?: number;
+      policy: "enabled";
+      helpersAtOnce?: number;
       definitions: SubagentDefinition[];
     };
 
-// Unified per-subagent definition the driver maps onto its provider form (Claude Code's --agents
-// entries; Codex [agents] config). Fields beyond `name` are optional — each leg maps
-// what its provider supports and ignores the rest (tolerant mapping, graded on the matrix).
-// No turn cap rides here, and no driver passes one to its provider (Claude Code gets no
-// `maxTurns`): the daemon counts each helper's turns itself on every provider and, at the
-// definition's turn cap,
+// Unified per-subagent definition the driver maps onto its provider form (Claude Code's `agents`
+// map; Codex role files). Members past `name`, `prompt` and `description` are optional — each leg
+// maps what its provider supports and ignores the rest (tolerant mapping, graded on the matrix).
+// `maxTurns` is the definition's turn cap, and no driver passes it to its provider (Claude Code gets
+// no `maxTurns`): the daemon counts each helper's turns itself on every provider and, at the cap,
 // its pre-tool hook denies the helper's next call, so the helper writes its report and its turn
 // ends `agent.turn.interrupted` with cause `stepLimit`, the report kept and the run resting
 // `interrupted` until a send continues it (Spec-026).
 interface SubagentDefinition {
   name: string;
-  description?: string;
+  prompt: string;
+  description: string;
   model?: string;
   tools?: string[];
   effort?: string;
+  maxTurns?: number;
 }
 
 // The daemon's own gate on what it asks a driver to do. No client reads these flags: a screen draws

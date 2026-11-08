@@ -17,7 +17,7 @@ use crate::driver::codex::session::calls::{CodexSessionCallDependencies, CodexSe
 use crate::driver::codex::session::establishment::answer_steer::CodexAnswerSteers;
 use crate::driver::codex::session::establishment::continuation::CodexHeldLeadContinue;
 use crate::driver::codex::session::establishment::helpers::{
-    order_parents_first, reopen_registered_codex_helper,
+    CodexReopenedHelper, order_parents_first, reopen_registered_codex_helper,
 };
 use crate::driver::codex::session::establishment::{
     CodexInPlaceOutcome, CodexSessionEstablishment,
@@ -166,7 +166,10 @@ async fn reopen_bound_codex_helpers(
         )
         .await
         {
-            Ok(Some(newest)) => routed.extend(
+            Ok(CodexReopenedHelper {
+                newest_turn: Some(newest),
+                ..
+            }) => routed.extend(
                 end_owed_codex_helper_turn(
                     &mut *task.routing,
                     &dependencies.forks.delivery,
@@ -176,7 +179,9 @@ async fn reopen_bound_codex_helpers(
                 )
                 .await,
             ),
-            Ok(None) => {}
+            Ok(CodexReopenedHelper {
+                newest_turn: None, ..
+            }) => {}
             Err(error) => tracing::warn!(
                 session_id = %session_id,
                 run_id = %helper.run_id,

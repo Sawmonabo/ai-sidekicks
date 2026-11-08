@@ -5,7 +5,7 @@
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
-import { webAddressFault } from "./web-address.js";
+import { isSiteOrigin } from "./web-address.js";
 import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /**
@@ -16,16 +16,7 @@ import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 export const BrowserSiteOriginSchema: z.ZodType<string, string> = z
   .string()
   .min(1)
-  .refine(
-    (origin) => {
-      if (!URL.canParse(origin)) {
-        return false;
-      }
-      const address = new URL(origin);
-      return webAddressFault(address) === null && address.origin === origin;
-    },
-    { message: "origin must be an http(s) origin, scheme://host[:port]" },
-  );
+  .refine(isSiteOrigin, { message: "origin must be an http(s) origin, scheme://host[:port]" });
 
 /** Settings › Browser's list read, and its clear-all: machine-wide, so they name nothing. */
 export type BrowserMachineRequest = Record<string, never>;

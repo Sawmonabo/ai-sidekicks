@@ -2,6 +2,7 @@
 //! connection after a reconnect, and each one's child run ended with the service's process.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
@@ -28,29 +29,34 @@ use crate::runtime_binding::store::mint_runtime_binding_id;
 const HELPER_TURN: &str = "turn-helper";
 
 // Starts the helper on its conversation `thread_id` beneath a run of the lead's, by that run's
-// spawn call and Codex's `thread/started`, and answers its child run.
+// spawn call and Codex's completed spawn item, answering the helper's `thread/read`, and answers
+// its child run.
 async fn start_helper(session: &mut TestCodexSession, thread_id: &str) -> RunId {
     let mut lead = test_row_run();
     lead.session_id = session.task.record.session_id;
+    let spawn_call = format!("spawn-{thread_id}");
     session
         .task
         .record
-        .note_spawn_call(TEST_THREAD, &format!("spawn-{thread_id}"), &lead);
-    let started = json!({"thread": {
-        "id": thread_id,
-        "parentThreadId": TEST_THREAD,
-        "source": {"subAgent": {"thread_spawn": {
-            "parent_thread_id": TEST_THREAD,
-            "depth": 1,
-        }}},
+        .note_spawn_call(TEST_THREAD, &spawn_call, &lead);
+    let spawned = json!({"threadId": TEST_THREAD, "item": {
+        "type": "subAgentActivity", "id": spawn_call, "kind": "started",
+        "agentThreadId": thread_id, "agentPath": format!("/root/{thread_id}"),
     }});
-    session
-        .task
-        .handle(CodexSessionInbound::Frame {
-            method: "thread/started".to_owned(),
-            params: RawValue::from_string(started.to_string()).expect("the params are JSON"),
-        })
-        .await;
+    let script = &mut session.scripted.script;
+    let answer_read = async {
+        let read = script
+            .next_sent_within(Duration::from_secs(1))
+            .await
+            .expect("the spawned helper's conversation is read");
+        assert_eq!(read["method"], "thread/read", "{read}");
+        script.answer(&read, &json!({"thread": {"id": thread_id}}));
+    };
+    let handled = session.task.handle(CodexSessionInbound::Frame {
+        method: "item/completed".to_owned(),
+        params: RawValue::from_string(spawned.to_string()).expect("the params are JSON"),
+    });
+    tokio::join!(handled, answer_read);
     session.task.record.delivery.child_run_by_thread_id[thread_id]
         .bound
         .as_ref()

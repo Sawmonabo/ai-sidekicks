@@ -18,7 +18,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::output_tail::OutputTail;
 use sidekicks_std::retry::jitter::draw_jitter_sample;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::codex::DESCRIPTOR;
@@ -39,6 +39,7 @@ use crate::driver::codex::service::supervisor::transition::action::{
     LastingServiceEnd, SupervisorAction,
 };
 use crate::driver::codex::service::supervisor::transition::event::SupervisorEvent;
+use crate::driver::codex::service::threads::CodexServiceThreads;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::diagnostics::{CodexTeardownStep, CodexTransportDiagnostic};
 use crate::driver::codex::transport::socket::CodexSocketWait;
@@ -118,6 +119,8 @@ enum Parked {
 pub(super) struct ServiceRunner {
     service: Weak<CodexService>,
     inputs: mpsc::UnboundedReceiver<RunnerInput>,
+    // When the oldest frame the service's thread index holds falls due.
+    held_frame_expiry: watch::Receiver<Option<tokio::time::Instant>>,
     parked: HashMap<u64, Parked>,
     process: Option<CodexServiceProcess>,
     // Stands down the start, redial or wait under way.
@@ -134,14 +137,17 @@ pub(super) struct ServiceRunner {
 }
 
 impl ServiceRunner {
-    /// A runner for `service`, reading `inputs`.
+    /// A runner for `service`, reading `inputs`, which reports the frames its thread index held
+    /// past their timeout when `held_frame_expiry` falls due.
     pub(super) fn new(
         service: Weak<CodexService>,
         inputs: mpsc::UnboundedReceiver<RunnerInput>,
+        held_frame_expiry: watch::Receiver<Option<tokio::time::Instant>>,
     ) -> Self {
         Self {
             service,
             inputs,
+            held_frame_expiry,
             parked: HashMap::new(),
             process: None,
             pending: CancellationToken::new(),
@@ -152,9 +158,33 @@ impl ServiceRunner {
         }
     }
 
-    /// Runs until the service is let go of.
+    /// Runs until the service is let go of: each event in turn, and between them the report of
+    /// the held frames that fell due, re-armed whenever the oldest held frame changes.
     pub(super) async fn run(mut self) {
-        while let Some(input) = self.inputs.recv().await {
+        loop {
+            let held_frame_due = *self.held_frame_expiry.borrow_and_update();
+            let input = tokio::select! {
+                input = self.inputs.recv() => input,
+                changed = self.held_frame_expiry.changed() => {
+                    if changed.is_err() {
+                        return;
+                    }
+                    continue;
+                }
+                () = tokio::time::sleep_until(
+                    held_frame_due.unwrap_or_else(tokio::time::Instant::now),
+                ), if held_frame_due.is_some() => {
+                    let Some(service) = self.service.upgrade() else {
+                        return;
+                    };
+                    let now = tokio::time::Instant::now();
+                    CodexServiceThreads::report_expired(&service.threads, now);
+                    continue;
+                }
+            };
+            let Some(input) = input else {
+                return;
+            };
             let Some(service) = self.service.upgrade() else {
                 return;
             };

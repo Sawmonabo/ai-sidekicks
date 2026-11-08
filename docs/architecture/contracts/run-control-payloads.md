@@ -16,6 +16,9 @@ interface AgentQueueItemCreateRequest {
   sessionId: SessionId;
   // addresses another session instead: the message arrives there as that session's own row
   to?: SessionId;
+  // The sessions the message names with `@name`: each writes a `mentioned` link, as `to` writes
+  // `messaged`; an id the daemon does not hold refuses the send with `session.notFound`.
+  mentions?: SessionId[];
   // Binds the run a send starts to its repository; it never reorders what the person sees, which is
   // the daemon's order (`agent.queueItem.reorder`).
   workspaceId?: WorkspaceId;
@@ -48,6 +51,9 @@ interface AgentQueueItemCreateRequest {
   // The daemon copies it onto the `user.message.sent` row it writes, the mark that settles the
   // question on every device. Absent on a send that answers no question.
   answersQuestionId?: QuestionId;
+  // A message sent to the provider's cloud is no send here: `cloud.task.start` writes its
+  // `user.message.sent` row carrying `cloudTaskId`, the one link between the message and its task,
+  // and the agent never receives that message.
   // The output-speed level this send's turn alone runs at, the agent's own level unchanged: `Use
   // standard` on a turn that failed for want of flex capacity resends the same words with the
   // provider's standard level here, which Codex takes as `turn/start.serviceTierForTurn`, and the
@@ -448,8 +454,10 @@ interface RunStateChangeEvent {
 // Forward, NON-STATE conversation-cut event (Spec-005 §Run Lifecycle, its per-type row). Emitted
 // when an undo's conversation cut lands — `session.restore` with a scope that includes the
 // conversation; a files-only undo emits none. `targetPosition` is the daemon's own normalized
-// position of the turn boundary the run landed at: the daemon and the provider adapter keep that
-// position, and it never appears in the undo request, which names a message or a snapshot.
+// position the run landed at, counting the person's messages the run took (a turn's opening or a
+// steer, whose landing is `agent.turn.steered`), not turns: the daemon and the provider adapter
+// keep that position, and it never appears in the undo request, which names a message or a
+// snapshot.
 // Non-terminal — zero interaction with the at-most-once terminal backstop — and deliberately NO
 // previousState/newState: a cut is not a state transition, and fabricating one would corrupt the
 // transition stream consumers rebuild from. Rides `agent.run.subscribe` alongside
@@ -458,7 +466,7 @@ interface AgentRunRolledBackEvent {
   sessionId: SessionId;
   runId: RunId;
   runVersion: number; // the progression value after the cut, which advanced it
-  // the turn-boundary anchor the run landed at (normalized session position)
+  // the anchor the run landed at (normalized position: the person's messages the run took)
   targetPosition: number;
 }
 
@@ -692,8 +700,8 @@ Plan-002's queue / intervention / pause-resume operations and a child's controls
 | `agent.childRun.interrupt` | `mutation` | `AgentChildRunInterruptRequest` | `AgentChildRunInterruptResponse` |
 | `agent.childRun.paused.update` | `mutation` | `AgentChildRunPausedUpdateRequest` | `AgentChildRunPausedUpdateResponse` |
 | `agent.childRun.stopAll` | `mutation` | `AgentChildRunStopAllRequest` | `AgentChildRunStopAllResponse` |
-| `agent.run.subscribe` | `subscription` | `AgentRunSubscribeRequest` | `SubscribeAckResponse`, then `RunStateStreamFrame` frames |
-| `agent.queueItem.subscribe` | `subscription` | `AgentQueueItemSubscribeRequest` | `SubscribeAckResponse`, then `RunQueueStreamFrame` frames |
+| `agent.run.subscribe` | `subscription` | `AgentRunSubscribeRequest` | `SubscribeAcknowledgmentResponse`, then `RunStateStreamFrame` frames |
+| `agent.queueItem.subscribe` | `subscription` | `AgentQueueItemSubscribeRequest` | `SubscribeAcknowledgmentResponse`, then `RunQueueStreamFrame` frames |
 
 **What `agent.run.pause` and `agent.run.resume` realize, per provider.** Pause is a daemon feature, not a provider verb, and it writes no file. On a Claude Code lead it is two hooks registered in the session's `initialize` request and answered over the wire; on a child, on any provider, it is the daemon's pre-tool hook holding that child's next tool call, taken through the approval pipeline the daemon already owns; on a Codex lead it is the boundary interrupt. A hold ends only by an answer — allow from the resume, or deny carrying the person's typed words, which the child reads as its instruction — never by ending the hook, because any exit but a deny lets the held call run. The daemon sets each hook's timeout far past any wait a person would sit through — on Codex 10^12 seconds on the hook row and its entry's tool timeout together, because Codex cuts the call at the smaller of the two and a Codex hook that times out lets the call run — so a hold is lossless: the held call simply goes unanswered, the leg burns no tokens and loses nothing. A cancellation of a held callback is treated as a LOST pause and never as a release. There is no separate "pause now" operation: `agent.run.pause` and `agent.run.resume` are the whole control, and a continue after a pause is a send rather than an operation of its own.
 

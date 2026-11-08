@@ -294,10 +294,10 @@ pub enum SessionNotice {
     /// nothing before the daemon ended it, or, where the daemon read no ending, the failure its
     /// last restart gave, exactly one of them; drawn as a banner.
     #[schemars(extend("oneOf" = [
-        { "required": ["exitCode"] },
-        { "required": ["signal"] },
-        { "required": ["silentSeconds"] },
-        { "required": ["startFailure"] },
+        { "required": ["exitCode"], "properties": { "exitCode": true } },
+        { "required": ["signal"], "properties": { "signal": true } },
+        { "required": ["silentSeconds"], "properties": { "silentSeconds": true } },
+        { "required": ["startFailure"], "properties": { "startFailure": true } },
     ]))]
     ProviderCrashLoop {
         /// The session.

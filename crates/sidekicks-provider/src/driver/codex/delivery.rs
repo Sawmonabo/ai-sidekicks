@@ -4,7 +4,7 @@
 
 mod ask_action;
 pub(super) mod asks;
-mod children;
+pub(super) mod children;
 pub(super) mod commands;
 mod failure_cause;
 pub(super) mod frames;

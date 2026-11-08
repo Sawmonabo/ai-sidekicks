@@ -29,13 +29,26 @@ use crate::run::delivery::{DeliveryBinding, InboundDelivery};
 /// The item type of a command a conversation runs, which can outlive the turn that started it.
 pub(crate) const CODEX_COMMAND_ITEM_TYPE: &str = "commandExecution";
 
+/// The item Codex's v2 helper tools put on the parent's turn at each step of a helper's life.
+pub(crate) const CODEX_SUB_AGENT_ACTIVITY_ITEM_TYPE: &str = "subAgentActivity";
+
+/// The `subAgentActivity` kind that announces a spawned helper; `interacted`, `interrupted` and
+/// `completed` follow it.
+pub(crate) const CODEX_SPAWNED_ACTIVITY_KIND: &str = "started";
+
+/// The item of a call to one of Codex's v1 helper tools.
+pub(crate) const CODEX_COLLAB_AGENT_TOOL_CALL_ITEM_TYPE: &str = "collabAgentToolCall";
+
+/// The v1 helper tool that spawns a helper.
+pub(crate) const CODEX_SPAWN_AGENT_TOOL: &str = "spawnAgent";
+
 /// The item types that are a tool call, each with what its start and its end carry.
 const CODEX_TOOL_ITEM_TYPES: [&str; 7] = [
     "commandExecution",
     "fileChange",
     "mcpToolCall",
     "dynamicToolCall",
-    "collabAgentToolCall",
+    CODEX_COLLAB_AGENT_TOOL_CALL_ITEM_TYPE,
     "webSearch",
     "imageView",
 ];
@@ -340,7 +353,7 @@ fn tool_activity(
 fn read_tool_name(item: &Map<String, Value>) -> &str {
     let item_type = item_type(item).unwrap_or_default();
     match item_type {
-        "mcpToolCall" | "dynamicToolCall" | "collabAgentToolCall" => {
+        "mcpToolCall" | "dynamicToolCall" | CODEX_COLLAB_AGENT_TOOL_CALL_ITEM_TYPE => {
             read_non_empty_string(item, "tool").unwrap_or(item_type)
         }
         _ => item_type,
@@ -371,7 +384,7 @@ fn read_invocation_body(item: &Map<String, Value>) -> Option<String> {
         }
         "webSearch" => stringify(item.get("query")),
         "imageView" => stringify(item.get("path")),
-        "collabAgentToolCall" => stringify(item.get("prompt")),
+        CODEX_COLLAB_AGENT_TOOL_CALL_ITEM_TYPE => stringify(item.get("prompt")),
         _ => stringify(item.get("arguments")),
     }
 }

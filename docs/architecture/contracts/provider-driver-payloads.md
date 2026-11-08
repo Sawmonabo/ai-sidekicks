@@ -17,20 +17,20 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 // `DriverCliVersionReport.rawVersion` — the CLI-version string as the provider printed it, riding
 // the nominal `GetCapabilitiesResult` return exactly like `contractVersion`) are bounded at the
 // Plan-003 Phase-2 write seam (semver / non-empty + length + NUL), not here. The contract checks
-// (serde shapes and garde checks) run ONLY on the surfaces that parse UNTRUSTED provider output
-// (the trust boundary): the result envelopes `DriverResumeResult`, `MoveSessionToForkResult`,
-// `DriverGoalResult`, and `DriverAuthProbeResult`, provider-declared
-// `ProviderToolMetadata`, and the driver-normalized `CallbackToolInvocation` /
-// `McpServerStatusEmission` (each built from provider wire output before the daemon-injected seam
-// sees it). `resumeSession` returns the `DriverResumeResult` discriminated union (defined below) to
-// make silent-replacement structurally inexpressible per Spec-004 §Fallback Behavior.
+// (serde shapes and garde checks) run ONLY on provider-declared `ProviderToolMetadata`, the one
+// surface here parsed from UNTRUSTED provider output (the trust boundary). The results
+// `DriverResumeResult`, `MoveSessionToForkResult`, `DriverGoalResult` and `DriverAuthProbeResult`,
+// the `CallbackToolInvocation` the `sidekicks` tool route builds, and the driver-normalized
+// `McpServerStatusEmission`, are plain Rust values built from provider output already read: they
+// have no serde shape, and their free-form text is bounded by its type. `resumeSession` returns
+// the `DriverResumeResult` discriminated union (defined below) to make silent-replacement
+// structurally inexpressible per Spec-004 §Fallback Behavior.
 // `getCapabilities` returns the `GetCapabilitiesResult` wrapper (defined in
 // provider-driver-capability-payloads.md) so the per-tool `ProviderToolMetadata[]` rides alongside
-// the flag matrix in a single round-trip per Plan-003 Phase 4. Within the checked surfaces,
+// the flag matrix in a single round-trip per Plan-003 Phase 4. Within the checked surface,
 // `ProviderToolMetadata` is tolerant and drops unknown keys (Spec-004 §Default Behavior
 // forward-compat: "Unknown capability fields are ignored (tolerant reader)" — contractVersion is
-// change-detection, not negotiation), while the result envelopes refuse unknown keys
-// (`deny_unknown_fields`); and every untrusted provider-output free-form string
+// change-detection, not negotiation); and every untrusted provider-output free-form string
 // (`ProviderToolMetadata.name`/`.description`, `ApplyInterventionResponse.fallbackAction`,
 // `DriverResumeResult.bindingId`/`.providerFailureDetail`,
 // `MoveSessionToForkResult.fallbackAction`, `DriverGoalResult.fallbackAction`,
@@ -40,8 +40,8 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 // `ProviderOutputSpeedState.declared`/`.reason`, the ones that reach a client: both shapes are
 // built from provider-, skill- or tool-server-authored metadata at the driver's own normalize
 // boundary and both travel to a client, so an unbounded one is an arbitrarily large IPC response
-// and renderer workload) — each on a checked result envelope, `ProviderToolMetadata`, or a
-// driver-normalized seam shape (`CallbackToolInvocation` / `McpServerStatusEmission` /
+// and renderer workload) — each on a driver result, `ProviderToolMetadata`, or a
+// seam shape (`CallbackToolInvocation` / `McpServerStatusEmission` /
 // `ProviderCommandEntry` / `ProviderOutputSpeedState`) below and in
 // provider-driver-capability-payloads.md — are bounded (length + non-whitespace + NUL-rejection) by
 // the `FreeFormText<MAX>` text newtype — rules not expressible in these TS interface shapes. The
@@ -387,7 +387,8 @@ interface CanonicalTranscriptProjection {
   sessionId: SessionId;
   runId: RunId;
   // The log position this fold was taken at. Two folds at the same position render identically and
-  // one taken after an appended event does not — the projection-not-a-store property, asserted.
+  // one taken after an appended event does not — the projection-not-a-store property, which holds
+  // by construction.
   builtAtPosition: number;
   turns: readonly CanonicalTranscriptTurn[]; // element shape owned by Plan-003 T3.16, above
 }
@@ -758,8 +759,14 @@ type DriverResumeResult =
       bindingId: string;
       // The conversation the session runs on now, which the daemon records on the binding: the
       // handle it was given, or a new one where the provider continues the conversation in a new
-      // thread, as Codex does, reopening a conversation by forking it with the session's whole
-      // config, since a resume of one another client holds applies none of it.
+      // thread. Codex resumes in place by the handle: it joins the conversation as it runs where
+      // its service still holds it loaded, else loads it again with every setting the session
+      // holds. A lead run whose turn the end of its Codex service cut continues through one
+      // `turn/start` with Codex's own continuation words and `turnTrigger: "daemon_recovery"`. On a
+      // joined Codex service, Codex's own continuation turn is adopted as the run's next turn: the
+      // turn newer than the cut one whose `rootTurnId` equals the cut turn's root, read from the
+      // reply of `thread/resume` with `initialTurnsPage`; the cut turn ends in the log
+      // `interrupted` by `daemonRestart`.
       resumeHandle: string;
     }
   | {
@@ -827,14 +834,24 @@ interface ProviderUsageLimitSignal {
   resetBoundary?: ProviderUsageLimitResetBoundary;
 }
 
+// The daemon's answer to one request a driver raised on a run, which the driver composes into its
+// provider's own answer shape: the person's answers to a question, one per question in the
+// request's own order (`QuestionAnswer` in transcript-payloads.md), or the approval pipeline's
+// answer to a permission ask (`ProviderPermissionAnswer`, allow or refuse with the rule it made or
+// was answered by, in `crates/sidekicks-provider/src/port/permission_ask.rs`).
 interface RespondToRequestParams {
   runId: RunId;
   requestId: string;
-  response: unknown;
+  // `ProviderRequestAnswer`, an in-process Rust enum with no serde form and so no tag: its
+  // `Question` arm carries `answers: QuestionAnswer[]`, its `Permission` arm one
+  // `ProviderPermissionAnswer`.
+  response: ProviderRequestAnswer;
 }
 
 interface OverrideDenialParams {
   sessionId: SessionId;
+  // The run the block was made in, which may have ended.
+  runId: RunId;
   // The provider's own denial the daemon kept with the block: Claude Code's action as its
   // `PermissionDenied` hook received it, or Codex's review as Codex sent it.
   providerDenial: unknown;

@@ -239,7 +239,8 @@ impl PassFixture {
         let database = TestDatabase::new(
             sidekicks_approval::schema::schema_parts()
                 .with_parts(sidekicks_artifact::plans::schema::schema_parts())
-                .with_parts(sidekicks_workflow::schema::schema_parts()),
+                .with_parts(sidekicks_workflow::schema::schema_parts())
+                .with_parts(sidekicks_session::agent_tree::schema::schema_parts()),
         );
         let status = Arc::new(RecoveryStatusTracker::new());
         let (after_commit, live_runs) = count_live_runs_after_commits();

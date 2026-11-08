@@ -3,6 +3,9 @@
 
 use futures::future::BoxFuture;
 #[cfg(test)]
+use std::time::Duration;
+
+#[cfg(test)]
 use serde_json::Value;
 use tokio::sync::mpsc;
 #[cfg(test)]
@@ -47,6 +50,11 @@ impl ScriptedService {
             .await
             .expect("the connection sent a message");
         serde_json::from_str(&text).expect("the connection sends JSON")
+    }
+
+    /// The next message the connection sent within `wait`, as JSON; `None` when it sent none.
+    pub(crate) async fn next_sent_within(&mut self, wait: Duration) -> Option<Value> {
+        tokio::time::timeout(wait, self.next_sent()).await.ok()
     }
 
     /// Sends the connection `message`.

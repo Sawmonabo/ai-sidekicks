@@ -203,6 +203,9 @@ pub struct LiveRunResume {
     /// The provider's own id of the helper the run is, as its `agent.subagent.started` recorded
     /// it; `None` for a lead or any run no helper's start names.
     pub subagent_id: Option<SubagentId>,
+    /// The model the helper's start named, as its node keeps it; `None` for a lead or a start
+    /// that named none.
+    pub model_id: Option<ProviderToken>,
     /// Whether a stop the run waits on, its own or that of the run whose helper it is, wins over
     /// the resume, so no turn of it is continued.
     pub is_stopping: bool,

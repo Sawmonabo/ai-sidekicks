@@ -4,6 +4,7 @@ use std::time::Duration;
 use futures::{SinkExt as _, StreamExt as _};
 use interprocess::local_socket::tokio::Listener;
 use interprocess::local_socket::traits::tokio::Listener as _;
+use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::id::SessionId;
@@ -19,7 +20,9 @@ use super::test_service::{
 use super::{CodexService, CodexServiceSocket};
 use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
-use crate::driver::codex::session::inbound::codex_session_inbound;
+use crate::driver::codex::session::inbound::{CodexSessionInbound, codex_session_inbound};
+use crate::driver::codex::session::state::CODEX_THREAD_FRAME_ROUTER_CONFIG;
+use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestCodexSession};
 use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::driver::test_registry::new_session_id;
 
@@ -197,4 +200,140 @@ async fn a_service_silent_since_a_request_is_ended_at_the_limit_after_its_send()
         panic!("the service ended as {exit:?}");
     };
     assert_eq!(silent.silent_seconds.get(), 120);
+}
+
+/// A helper a spawn item on the session's conversation names.
+const SPAWNED_HELPER: &str = "helper-thread";
+
+// The spawn item naming `SPAWNED_HELPER`: v1's completed `spawnAgent` call, or v2's activity.
+fn spawn_item(is_v1: bool) -> Value {
+    if is_v1 {
+        json!({"type": "collabAgentToolCall", "id": "call-1", "tool": "spawnAgent",
+            "status": "completed", "senderThreadId": TEST_THREAD,
+            "receiverThreadIds": [SPAWNED_HELPER], "agentsStates": {}})
+    } else {
+        json!({"type": "subAgentActivity", "id": "call-1", "kind": "started",
+            "agentThreadId": SPAWNED_HELPER, "agentPath": "/root/scout"})
+    }
+}
+
+// A helper a spawn item on a session's conversation names is that session's on the service, so the
+// helper's own frames reach the session's queue, one sent ahead of the item too; a frame on the
+// session's conversation sent last marks where the reader has routed to. Killed by the service
+// registering a helper only on `thread/started` and, for the frame ahead of the item, by the reader
+// not holding it: the helper's `turn/started` is reported unrouted and dropped.
+#[rstest]
+#[case::v1(true, false)]
+#[case::v2(false, false)]
+#[case::child_frame_before_the_item(false, true)]
+#[tokio::test]
+async fn a_spawned_helpers_frames_reach_its_parents_session(
+    #[case] is_v1: bool,
+    #[case] is_child_frame_first: bool,
+) {
+    let mut session = TestCodexSession::start().await;
+    let script = &session.scripted.script;
+    let send = |method: &str, params: Value| {
+        script.send(&json!({"jsonrpc": "2.0", "method": method, "params": params}));
+    };
+    let send_spawn_item = || {
+        send(
+            "item/completed",
+            json!({"threadId": TEST_THREAD, "turnId": "turn-1", "item": spawn_item(is_v1)}),
+        );
+    };
+
+    if !is_child_frame_first {
+        send_spawn_item();
+    }
+    send(
+        "turn/started",
+        json!({"threadId": SPAWNED_HELPER,
+            "turn": {"id": "turn-helper", "items": [], "status": "inProgress"}}),
+    );
+    if is_child_frame_first {
+        send_spawn_item();
+    }
+    send(
+        "thread/status/changed",
+        json!({"threadId": TEST_THREAD, "status": {"type": "idle"}}),
+    );
+    let mut reached = Vec::new();
+    loop {
+        let item = tokio::time::timeout(CHECK_WAIT, session.task.next_item())
+            .await
+            .expect("the marker frame reaches the session");
+        let CodexSessionInbound::Frame { method, params } = item else {
+            continue;
+        };
+        if method == "thread/status/changed" {
+            break;
+        }
+        let params: Value = serde_json::from_str(params.get()).expect("the params are JSON");
+        reached.push((method, params["threadId"].clone()));
+    }
+
+    assert!(
+        reached.contains(&("turn/started".to_owned(), json!(SPAWNED_HELPER))),
+        "{reached:?}"
+    );
+}
+
+// The frames that reach the session up to the marker `status`, each by its method and thread.
+async fn reached_until(session: &mut TestCodexSession, status: &str) -> Vec<(String, Value)> {
+    let mut reached = Vec::new();
+    loop {
+        let item = tokio::time::timeout(CHECK_WAIT, session.task.next_item())
+            .await
+            .expect("the marker reaches the session");
+        let CodexSessionInbound::Frame { method, params } = item else {
+            continue;
+        };
+        let params: Value = serde_json::from_str(params.get()).expect("the params are JSON");
+        if method == "thread/status/changed" && params["status"]["type"] == status {
+            return reached;
+        }
+        reached.push((method, params["threadId"].clone()));
+    }
+}
+
+// A frame of a conversation no session registers is reported at its deadline, though no later
+// frame is routed, so a registration after the deadline releases nothing. Killed by an expiry run
+// only as the next frame is routed (the late registration hands the frame to the session).
+#[tokio::test(start_paused = true)]
+async fn a_held_frame_expires_at_its_deadline_with_no_later_frame() {
+    let mut session = TestCodexSession::start().await;
+    let send = |session: &TestCodexSession, method: &str, params: Value| {
+        session
+            .scripted
+            .script
+            .send(&json!({"jsonrpc": "2.0", "method": method, "params": params}));
+    };
+    let marker = |session: &TestCodexSession, status: &str| {
+        send(
+            session,
+            "thread/status/changed",
+            json!({"threadId": TEST_THREAD, "status": {"type": status}}),
+        );
+    };
+    send(
+        &session,
+        "turn/started",
+        json!({"threadId": "late-helper",
+            "turn": {"id": "turn-late", "items": [], "status": "inProgress"}}),
+    );
+    marker(&session, "active");
+    reached_until(&mut session, "active").await;
+    tokio::time::sleep(
+        CODEX_THREAD_FRAME_ROUTER_CONFIG.pending_registration_timeout + Duration::from_secs(1),
+    )
+    .await;
+    session
+        .task
+        .record
+        .service
+        .register_thread("late-helper".to_owned(), session.task.record.session_id);
+    marker(&session, "idle");
+
+    assert_eq!(reached_until(&mut session, "idle").await, Vec::new());
 }

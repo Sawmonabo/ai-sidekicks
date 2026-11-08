@@ -304,14 +304,14 @@ struct HelperName(Option<String>);
 impl RunHeader {
     // The header of `queued`'s run, numbered `number`.
     fn of(number: u64, queued: &AgentRunQueuedPayload) -> Self {
-        let helper = match queued {
-            AgentRunQueuedPayload::SessionAgent(payload) => {
-                payload.parent_run_id.map(|_| HelperName(None))
-            }
-            AgentRunQueuedPayload::ResolvedAgent(payload) => payload
-                .parent_run_id
-                .map(|_| HelperName(Some(payload.resolved_agent.name.as_str().to_owned()))),
-        };
+        let helper = queued.parent_run_id().map(|_| {
+            HelperName(match queued {
+                AgentRunQueuedPayload::SessionAgent(_) => None,
+                AgentRunQueuedPayload::ResolvedAgent(payload) => {
+                    Some(payload.resolved_agent.name.as_str().to_owned())
+                }
+            })
+        });
         Self { number, helper }
     }
 

@@ -172,6 +172,7 @@ async fn a_resume_names_each_live_run_with_its_open_turns_and_helper_id() {
                 started_event_id: FreeFormText::new(started_event_id).expect("an event id"),
             }],
             subagent_id: None,
+            model_id: None,
             is_stopping: false,
             run_state: RunState::Running,
         }
@@ -183,6 +184,7 @@ async fn a_resume_names_each_live_run_with_its_open_turns_and_helper_id() {
             parent_run_id: Some(lead),
             open_turns: Vec::new(),
             subagent_id: Some(SubagentId::new(SUBAGENT_ID.to_owned()).expect("a helper id")),
+            model_id: None,
             is_stopping: false,
             run_state: RunState::Running,
         }

@@ -2,12 +2,11 @@
 // refusal codes, types, checks and method tables, formatted by the repository's Prettier.
 import { fileURLToPath } from "node:url";
 
-import type { SchemaObject } from "ajv/dist/2020.js";
 import { format, resolveConfig } from "prettier";
 
 import type { ContractModule, MethodTable, RefusalCodes } from "./emit-folder.ts";
 import { ModuleImports, parseTypeReference, type TypeReference } from "./module-imports.ts";
-import { checkName, generateChecks } from "./schema-checks.ts";
+import { SCHEMA_CHECK_MODULE, checkName, generateChecks } from "./schema-checks.ts";
 import { generateTypes } from "./type-declarations.ts";
 
 // File-scoped: generated code is held to its generator, not to the hand-written code's lint rules.
@@ -52,12 +51,20 @@ function methodTypeReferences(module: ContractModule): TypeReference[] {
   );
 }
 
-/** The names of this module's definitions that get a check: listed ones and every method type. */
-function checkedDefinitions(module: ContractModule): string[] {
-  const local = methodTypeReferences(module)
-    .filter((reference) => reference.module === undefined)
-    .map((reference) => reference.name);
-  return [...new Set([...module.checks, ...local])].sort();
+/**
+ * The names of this module's definitions that get a check: listed ones and every one a method
+ * table names, in this module or another, since a table imports its checks from their owner.
+ */
+function checkedDefinitions(
+  module: ContractModule,
+  allModules: readonly ContractModule[],
+): string[] {
+  const tableTypes = allModules.flatMap((owner) =>
+    methodTypeReferences(owner)
+      .filter((reference) => (reference.module ?? owner.path) === module.path)
+      .map((reference) => reference.name),
+  );
+  return [...new Set([...module.checks, ...tableTypes])].sort();
 }
 
 function writeMethodTable(
@@ -66,6 +73,7 @@ function writeMethodTable(
   imports: ModuleImports,
 ): string {
   const typeName = tableTypeName(table);
+  imports.addFromHandWrittenModule(SCHEMA_CHECK_MODULE, "SchemaCheck", "type");
   const resolve = (reference: string): string => {
     const target = parseTypeReference(reference, module.path);
     if (target.module !== undefined) {
@@ -108,16 +116,16 @@ function writeMethodTable(
 }
 
 /**
- * The complete, formatted file for `module`. `allSchemas` holds every module's schema, for
- * references across modules; `refusalCodes` is written here when this module owns them.
+ * The complete, formatted file for `module`. `allModules` holds every module, for references and
+ * method tables across modules; `refusalCodes` is written here when this module owns them.
  */
 export async function writeModuleFile(
   module: ContractModule,
-  allSchemas: readonly SchemaObject[],
+  allModules: readonly ContractModule[],
   refusalCodes: RefusalCodes,
 ): Promise<string> {
   const definitions = Object.keys((module.schema["$defs"] ?? {}) as Record<string, unknown>);
-  const checked = checkedDefinitions(module);
+  const checked = checkedDefinitions(module, allModules);
   for (const name of checked) {
     if (!definitions.includes(name)) {
       throw new Error(`${module.path}: ${name} is checked but is not one of its definitions`);
@@ -145,6 +153,7 @@ export async function writeModuleFile(
         ]
       : [];
   const types = await generateTypes(module.schema, imports);
+  const allSchemas = allModules.map((other) => other.schema);
   const checks = generateChecks(module, checked, allSchemas, imports);
   const tables = module.methodTables.map((table) => writeMethodTable(table, module, imports));
 

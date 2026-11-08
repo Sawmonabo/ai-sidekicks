@@ -68,7 +68,7 @@ The following three invariants hold on every platform.
 
 #### Write-Probe-Read-Delete Invariant
 
-Before accepting the credential store on any platform, the service performs the cycle below; on Linux the probe is sealed into the file, opened from it, compared and deleted the same way, and one existing item per key id in the file is opened beside it:
+Before accepting the credential store on any platform, the service performs the cycle below; on Linux the probe is sealed through the credential service, its blob's header read for the key it names, opened and compared, and nothing is written to the file, while one existing item per key id in the file is opened beside it:
 
 1. Generate `probe_value` with `getrandom::fill` into 32 bytes (a 256-bit random value).
 2. `keyring.set(service="ai-sidekicks-probe", account="store-verify-<hex>", value=probe_value)`, the account fresh at each start, `<hex>` random.
@@ -87,7 +87,8 @@ On Windows the cycle runs through `sidekicks-platforms`' credential code, the sa
 The machine's Ed25519 identity key and its X25519 channel key MUST NOT be silently regenerated. Specifically:
 
 - Key generation happens at the service's first start; when a removed machine is linked again; and at a sign-in that finds the key lost or changed while the machine has no registration (no `machine_trust_state` row), since nothing pins a key that was never registered. Each of these mints both keys, so the relink rotates the channel key with the identity key.
-- Any other path that would find no identity key, or a key other than the one `local_machine` pins, MUST refuse rather than generate a replacement. A removed machine linked again mints new keys under its same machine id and publishes a new `machine.added` for them; a statement the old key signs afterward is refused, what it signed before stands, and the old key is never trusted again.
+- A key whose pin is still empty while its item holds a valid key is adopted: a mint or relink stopped between its writes left it, and the pin is set to that key's public half.
+- Any other path that would find no identity key, or a key other than the one `local_machine` pins, MUST refuse rather than generate a replacement; a stored pin that is not 32 bytes refuses with its own stored-pin cause. A removed machine linked again mints new keys under its same machine id and publishes a new `machine.added` for them; a statement the old key signs afterward is refused, what it signed before stands, and the old key is never trusted again.
 - The control plane is the authority on whether a key was registered: `machine.register` naming a machine id the account holds under another identity key is refused with `machine.keyChanged` ([Spec-002](../specs/002-machine-registration.md)), so a machine whose database was restored from before its registration is linked again.
 - This is load-bearing because every linked device pins the key: a silently rotated key would be refused by each of them ([Spec-027](../specs/027-remote-control.md)), and the machine would drop out of the person's devices until it is linked again.
 
@@ -102,9 +103,10 @@ The machine's Ed25519 identity key and its X25519 channel key MUST NOT be silent
 #### Linux
 
 - **The credential service:** the first call connects to `/run/systemd/io.systemd.Credentials`, which systemd 256 and newer enables wherever it is built; no socket or no listener there means no service, found by the call itself with no separate probe. Every call runs within its caller's time, the start's check within 2 seconds.
+- **One connection per call:** each call opens its own connection to the credential service. Whether the start's batch of calls shares one connection is decided from the measured systemd credential figures.
 - **Which errors decide a place:** at the first start only, a definite refusal (`io.systemd.Credentials.NoSuchUser`, or `io.systemd.System` with `ENOTRECOVERABLE` or `EOPNOTSUPP`) picks the plain file; nowhere else does the service branch on an error name, which goes to the log.
 - **The Secure Boot binding:** the probe blob's header names its key and, for a chip, the PCRs it is bound to; a seal bound to PCR 7 (systemd 256 and 257 with a chip) keeps the plain file.
-- **Backend disclosure:** log the place, the probe's key kind and PCR mask, the socket path, and logind's state for this user (`lingering`, `online` or `active`), so the person knows how the items are held and whether the service started before login.
+- **Backend disclosure:** log the place, the probe's key kind and PCR mask, and the socket path, so the person knows how the items are held.
 - **Write-probe-read-delete** (see above), with the open check beside it.
 - Common contexts on Linux where the file is plain: systemd older than 256 (Ubuntu 24.04 carries 255), containers with no systemd or a temporary `/var/lib/systemd`, and systemd 256 or 257 with a chip.
 - **Lingering:** a service that starts before login opens its file as at any start, as [§The Credential Store](#the-credential-store) says.
@@ -177,6 +179,10 @@ The machine's Ed25519 identity key and its X25519 channel key MUST NOT be silent
 | The plain `0600` file is read by another program running as the person, or copied off the machine | Low | High | Out of scope for at-rest storage | The file is plain only where systemd cannot seal and on a Mac running while logged out, and the person can see that it is; a stolen identity key is answered by removing the machine and linking it again |
 | The machine's identity key is stolen and used from elsewhere | Low | High | A second live relay connection under one key is flagged; a reused refresh token revokes its whole family, and `sidekicks daemon status` prints that its sign-in was used in two places | Removing the machine and linking it again mints a new identity key under its same id, after which a statement the old key signs is refused and the old key is never trusted again |
 | A move into the files at install or back into the login keychain at uninstall stops partway, or a Linux re-seal stops before its record moves (a crash, a power cut) | Low | Critical if an item were lost (the identity key) | The place record names the move's direction; the file's form tag says whether it is sealed or plain | Each moved item is written, read back and only then deleted from its source, and the next start finishes the move in the same direction; a re-seal replaces the file in one atomic write, so the next start finds the old file or the new one and records it, and no item is ever in neither place |
+| `Erase all data` deletes a probe item another build of the app left in the login keychain | Low | Low (one prompt) | Not checked: whether macOS prompts for an item another signature wrote is unverified | Accepted: macOS may ask the person to allow the delete; declining leaves only a discardable probe value, at most one per start between erases |
+| A first seal's write lands late | Low | Low | None at the time | Accepted: the store holds an item no row names; its id is never used again, and `Erase all data` deletes it |
+| A Mac's service running while the person is logged out erases its data | Low | Med | The service cannot reach the login keychain ([TN3137: On Mac keychains](https://developer.apple.com/documentation/technotes/tn3137-on-mac-keychains)) | Accepted: the erase cannot delete items left in the login keychain, which stay there |
+| An item sealed with the chip and a signed PCR policy whose signature systemd can no longer find | Low | High (every secret on the machine is lost) | The item refuses to open while the probe opens | It reads as a changed key: every call refuses with `unavailable`, and removing the computer and linking it again empties the file |
 | `sidekicks daemon uninstall` runs while the login keychain is locked, as over SSH while the person is logged out | Med | Low | The keychain write refuses with `cause: locked` before anything moves | The command changes nothing and asks the person to log in at the Mac and run it again |
 | The identity key goes missing from the store | Low | Critical (every linked device refuses the machine) | §Refuse-On-Rotation Invariant: a path that finds no identity key refuses rather than regenerating | The machine is removed and linked again, or, while it has no registration, its next sign-in mints both keys again; a backup holds no credential, so a restore does not bring the key back ([Spec-013 §Backup Policy](../specs/013-persistence-and-recovery.md#backup-policy)) |
 
@@ -228,6 +234,8 @@ This ADR makes the following explicit disclaimers to prevent misreading of the c
 | An item written to the kernel keyring on Linux | None | The key-custody tests on a Linux host with no credential service | When the key-custody code lands |
 | A sealed Linux file served plain, or rewritten, while it cannot be opened | None | The key-custody tests with the service missing, failing and the key changed | When the key-custody code lands |
 | An identity key regenerated outside a removed machine's relink | None | A start with the identity item removed refuses rather than minting a key | When the key-custody code lands |
+| One item read or written | Within 1 s at the 95th percentile | The key-custody timing run on each platform | At the endurance reference run |
+| The one-time re-seal of ten Linux items | Within 10 s | The key-custody timing run on Linux with a chip | At the endurance reference run |
 | Local-machine persistence on Windows | `Local machine` for every item, written by the daemon and by the Windows CLI | `cmdkey /list` on a Windows machine | Before the Windows custody code is built |
 
 ## References

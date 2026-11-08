@@ -201,9 +201,7 @@ fn hold_resume(driver: &mut MockProviderDriver) -> HeldCall {
             answered
                 .await
                 .expect("the test answers the call")
-                .map(|()| ResumeRunOutcome {
-                    is_hold_lost: false,
-                })
+                .map(|()| ResumeRunOutcome::default())
         }
         .boxed()
     });
@@ -340,9 +338,7 @@ async fn a_failed_resume_moves_nothing_and_sends_each_message_once(#[case] failu
                         "the provider would not resume".into(),
                     )),
                     (true, ResumeFailure::Unanswered) => Err(unanswered()),
-                    (false, _) => Ok(ResumeRunOutcome {
-                        is_hold_lost: false,
-                    }),
+                    (false, _) => Ok(ResumeRunOutcome::default()),
                 }
             }
             .boxed()
@@ -405,12 +401,7 @@ async fn a_run_ended_under_the_resume_is_not_moved(
                 )
             })
             .expect("the process exit ends the run");
-        async {
-            Ok(ResumeRunOutcome {
-                is_hold_lost: false,
-            })
-        }
-        .boxed()
+        async { Ok(ResumeRunOutcome::default()) }.boxed()
     });
     driver.expect_find_taken_messages().returning(|params| {
         let taken = params.message_ids;
@@ -534,14 +525,10 @@ async fn a_pause_whose_answer_never_came_stays_pausing_for_the_providers_report(
 #[tokio::test]
 async fn a_report_during_the_resumes_run_read_waits_and_the_resume_takes_the_run() {
     let mut driver = MockProviderDriver::new();
-    driver.expect_resume_run().times(1).returning(|_| {
-        async {
-            Ok(ResumeRunOutcome {
-                is_hold_lost: false,
-            })
-        }
-        .boxed()
-    });
+    driver
+        .expect_resume_run()
+        .times(1)
+        .returning(|_| async { Ok(ResumeRunOutcome::default()) }.boxed());
     let fixture = Arc::new(fixture(driver, "pausing").await);
     let held_read = fixture.engine.resume_read_pause().arm();
     let messages = Arc::new(WaitingMessages::holding(waiting_message()));

@@ -209,6 +209,14 @@ impl ClaudeRunControls {
             };
             let resumed =
                 lock(&self.pauses).resume_helper(&session_id, &route.agent_id, steer.as_deref());
+            // A held call denied with the person's words starts no helper.
+            if steer.is_some()
+                && let Some(stream) = self.start.streams.get(session_id)
+            {
+                for callback in &resumed.released {
+                    stream.forget_helper_call_of_request(&callback.request_id);
+                }
+            }
             for callback in resumed.released {
                 answer_claude_request(
                     &*live.channel,

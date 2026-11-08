@@ -13,6 +13,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::{JobCondition, ScheduleError, Scheduler};
 
+use crate::driver::claude::delivery::stream::ClaudeSessionStream;
 use crate::driver::claude::hooks::callbacks::answer_claude_request;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::driver::claude::hooks::registration::CLAUDE_HOOK_HOLD_RENEWAL_AFTER;
@@ -22,13 +23,15 @@ use crate::driver::claude::session::slots::ClaudeSessionSlots;
 const HOLD_RENEWAL_JOB: &str = "claude-hold-renewal";
 
 /// Arms the renewal of the helper `agent_id`'s held calls on `session_id`, unless one stands: when
-/// it falls due, each call the helper's pause holds then is denied for the helper to make again.
-/// A renewal the scheduler refuses, at once or when it arms the timer, is written to the log and
-/// dropped, so the next hold arms another; the hold then ends at Claude Code's own bound.
+/// it falls due, each call the helper's pause holds then is denied for the helper to make again,
+/// and `stream` forgets what a denied helper call asked for. A renewal the scheduler refuses, at
+/// once or when it arms the timer, is written to the log and dropped, so the next hold arms
+/// another; the hold then ends at Claude Code's own bound.
 pub(crate) fn arm_hold_renewal(
     scheduler: &Scheduler,
     pauses: &Arc<Mutex<ClaudeRunPauses>>,
     slots: &ClaudeSessionSlots,
+    stream: &Arc<ClaudeSessionStream>,
     session_id: SessionId,
     agent_id: String,
 ) {
@@ -40,6 +43,7 @@ pub(crate) fn arm_hold_renewal(
     let job_pauses = Arc::clone(pauses);
     let slots = slots.clone();
     let job_agent_id = agent_id.clone();
+    let job_stream = Arc::clone(stream);
     let scheduled = scheduler.schedule_at(
         HOLD_RENEWAL_JOB,
         JobCondition::Always,
@@ -47,6 +51,9 @@ pub(crate) fn arm_hold_renewal(
         move |_| {
             let calls =
                 lock(&job_pauses).take_renewed_calls(&session_id, &job_agent_id, renewal_id);
+            for call in &calls {
+                job_stream.forget_helper_call_of_request(&call.request_id);
+            }
             // The answers are written off the scheduler's one task, which never waits on a
             // process's write.
             if !calls.is_empty()

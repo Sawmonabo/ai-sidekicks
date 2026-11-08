@@ -1,46 +1,44 @@
 //! Where each notification a service's connection reads goes, decided on the reader in arrival
-//! order: a frame naming a conversation to the session that holds it, a helper's conversation
-//! registered under its parent's session first, a frame naming none to every session on the
+//! order: a frame naming a conversation to the session that holds it, the helpers a spawn item
+//! names registered under its parent's session first, a frame naming none to every session on the
 //! service, and the frames of a conversation a session moved off only while its commands still
-//! run. A frame whose conversation a start or fork in flight is about to claim is held until the
-//! claim lands, within a bound.
+//! run. A frame naming a conversation not registered yet, a start's or a fork's in flight or a
+//! spawned helper's ahead of its spawn item, is held until it is, within a frame count, a byte
+//! bound and a timeout.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde::Deserialize;
-use serde::de::IgnoredAny;
 use serde_json::Value;
 use serde_json::value::RawValue;
-use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::sync::oneshot;
+use tokio::time::Instant;
 
+use crate::driver::codex::delivery::rows::{
+    CODEX_COLLAB_AGENT_TOOL_CALL_ITEM_TYPE, CODEX_SPAWN_AGENT_TOOL, CODEX_SPAWNED_ACTIVITY_KIND,
+    CODEX_SUB_AGENT_ACTIVITY_ITEM_TYPE,
+};
 use crate::driver::codex::event_normalizer::{
-    CODEX_ITEM_METHOD_PREFIX, CODEX_THREAD_STARTED_METHOD, derive_codex_child_thread_announcement,
-    resolve_codex_frame_emission_route,
+    CODEX_ITEM_COMPLETED_METHOD, CODEX_ITEM_METHOD_PREFIX, CODEX_ITEM_STARTED_METHOD,
+    CODEX_THREAD_STARTED_METHOD, resolve_codex_frame_emission_route,
 };
 use crate::driver::codex::service::config_warnings::CodexConfigWarnings;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::rate_limit_readings::CodexRateLimitReadings;
-use crate::driver::codex::service::threads::{CodexHeldThreadFrame, CodexThreadFrameHold};
+use crate::driver::codex::service::threads::{CodexHeldThreadFrame, CodexThreadFrameRoute};
 use crate::driver::codex::session::inbound::{CodexSessionInbound, CodexSessionInboundSender};
+use crate::driver::codex::transport::connection::read_codex_given_text;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::codex::usage_limit_signal::CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD;
 use crate::driver::diagnostics::OnceReportedDiagnostics;
-use crate::thread_frame_router::ChildThreadAnnouncement;
 
 /// Sent once a conversation is unloaded, so another service may take it.
 pub(crate) const CODEX_THREAD_CLOSED_METHOD: &str = "thread/closed";
 
 /// The service-wide config warning, which names no conversation and goes to every session.
 pub(crate) const CODEX_CONFIG_WARNING_METHOD: &str = "configWarning";
-
-/// Lifecycle broadcasts every connection sees for every conversation on the service, the person's
-/// own and a throwaway title conversation among them; never a fault when no session holds it.
-const CODEX_UNHELD_THREAD_BROADCASTS: [&str; 2] =
-    [CODEX_THREAD_STARTED_METHOD, CODEX_THREAD_CLOSED_METHOD];
 
 /// What one service's routing keeps beside its thread index: each session's queue, the waits on a
 /// conversation's unload, the config warnings and the account's rate-limit readings.
@@ -115,146 +113,197 @@ impl CodexServiceRouting {
     }
 }
 
-// The members of a frame's params that name its conversation: `threadId`, and `thread.id` on
-// `thread/started`, each kept raw so one of another type reads as none.
+// The members of a frame's params the routing reads: those naming its conversation, `threadId`,
+// and `thread.id` on `thread/started`, and an item frame's `item`, each kept raw so one of another
+// type reads as none.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct FrameConversation {
     thread_id: Option<Box<RawValue>>,
     conversation_id: Option<Box<RawValue>>,
     thread: Option<StartedThread>,
+    item: Option<Box<RawValue>>,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct StartedThread {
     id: Option<Box<RawValue>>,
-    parent_thread_id: Option<Box<RawValue>>,
-    source: Option<Box<RawValue>>,
-    agent_nickname: Option<Box<RawValue>>,
-    agent_role: Option<Box<RawValue>>,
 }
 
-// A thread's `source` as far as helpers go: its `subAgent` arm, where it has one.
+// The members of an item that say whether it spawned a helper, and which: v2's `subAgentActivity`
+// of kind `started` names one by `agentThreadId`, v1's `collabAgentToolCall` `spawnAgent` names
+// each by `receiverThreadIds` once it completes.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ThreadSource {
-    sub_agent: Option<SubAgentSource>,
+struct SpawnItem {
+    #[serde(rename = "type")]
+    item_type: Option<Box<RawValue>>,
+    id: Option<Box<RawValue>>,
+    kind: Option<Box<RawValue>>,
+    tool: Option<Box<RawValue>>,
+    agent_thread_id: Option<Box<RawValue>>,
+    agent_path: Option<Box<RawValue>>,
+    receiver_thread_ids: Option<Box<RawValue>>,
+    model: Option<Box<RawValue>>,
+    reasoning_effort: Option<Box<RawValue>>,
 }
 
-// The arms of `source.subAgent` this release names; an arm a newer Codex adds reads as no source.
-#[derive(Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum SubAgentSource {
-    Review,
-    Compact,
-    ThreadSpawn { agent_path: Option<Value> },
-    MemoryConsolidation,
-    Other(IgnoredAny),
+/// A helper Codex spawned, as the spawn item on its parent's turn names it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CodexSpawnedHelper {
+    /// The helper's own conversation.
+    pub(crate) thread_id: String,
+    /// The spawn call that started it, the item's `id`.
+    pub(crate) call_id: Option<String>,
+    /// Its path in Codex's tree of helpers, v2's `agentPath`.
+    pub(crate) provider_path: Option<String>,
+    /// The model it runs on, the item's `model`.
+    pub(crate) model: Option<String>,
+    /// The effort it runs at, the item's `reasoningEffort`.
+    pub(crate) reasoning_effort: Option<String>,
 }
 
-// A helper thread's source: the path in Codex's tree of helpers, which only a spawned one has.
-struct HelperSource {
-    agent_path: Option<String>,
-}
-
-// The helper a thread's `source` makes it, whose spend is its own: a review, a spawned helper,
-// with its path, or another Codex names. A compaction or a memory consolidation is Codex's
-// housekeeping for the parent, whose spend stays the parent run's, as is an arm a newer Codex adds
-// or a thread with no source.
-fn read_helper_source(source: Option<&RawValue>) -> Option<HelperSource> {
-    let sub_agent = crate::driver::codex::transport::connection::read_codex_object::<ThreadSource>(
-        source?.get(),
-    )?
-    .sub_agent?;
-    match sub_agent {
-        SubAgentSource::Review | SubAgentSource::Other(_) => {
-            Some(HelperSource { agent_path: None })
-        }
-        SubAgentSource::ThreadSpawn { agent_path } => Some(HelperSource {
-            agent_path: agent_path
-                .as_ref()
-                .and_then(Value::as_str)
-                .filter(|path| !path.is_empty())
-                .map(str::to_owned),
-        }),
-        SubAgentSource::Compact | SubAgentSource::MemoryConsolidation => None,
-    }
-}
-
-// A raw member read as non-empty text.
-fn read_text(raw: Option<&RawValue>) -> Option<String> {
-    raw.and_then(|raw| serde_json::from_str::<String>(raw.get()).ok())
-        .filter(|text| !text.is_empty())
+/// The conversation a frame names and the helpers its spawn item names, read in one parse.
+pub(crate) struct CodexFrameThreads {
+    /// The conversation the frame names, `None` when it names none as non-blank text.
+    pub(crate) thread_id: Option<String>,
+    /// The helpers a spawn item names: one for v2's `subAgentActivity` of kind `started` on
+    /// `item/started` or `item/completed`, one per receiver for v1's completed `spawnAgent`.
+    pub(crate) spawned_helpers: Vec<CodexSpawnedHelper>,
 }
 
 fn read_frame_conversation(params: &RawValue) -> Option<FrameConversation> {
     crate::driver::codex::transport::connection::read_codex_object(params.get())
 }
 
+// The conversation a read frame names.
+fn frame_thread_id(method: &str, conversation: FrameConversation) -> Option<String> {
+    if method == CODEX_THREAD_STARTED_METHOD {
+        return conversation
+            .thread?
+            .id
+            .as_deref()
+            .and_then(read_codex_given_text);
+    }
+    conversation
+        .thread_id
+        .as_deref()
+        .and_then(read_codex_given_text)
+}
+
 /// The conversation a frame names: `thread.id` on `thread/started`, `threadId` otherwise; `None`
 /// when it names none as non-empty text.
 pub(crate) fn read_codex_frame_thread_id(method: &str, params: &RawValue) -> Option<String> {
-    let conversation = read_frame_conversation(params)?;
-    if method == CODEX_THREAD_STARTED_METHOD {
-        return read_text(conversation.thread?.id.as_deref());
-    }
-    read_text(conversation.thread_id.as_deref())
+    frame_thread_id(method, read_frame_conversation(params)?)
 }
 
 /// The conversation an ask names: its `threadId`, or an older approval's `conversationId`.
 pub(crate) fn read_codex_ask_thread_id(params: &RawValue) -> Option<String> {
     let conversation = read_frame_conversation(params)?;
-    read_text(conversation.thread_id.as_deref())
-        .or_else(|| read_text(conversation.conversation_id.as_deref()))
+    conversation
+        .thread_id
+        .as_deref()
+        .and_then(read_codex_given_text)
+        .or_else(|| {
+            conversation
+                .conversation_id
+                .as_deref()
+                .and_then(read_codex_given_text)
+        })
 }
 
-/// The helper conversation a `thread/started` announces, with the parent it declares; `None` when
-/// it names no parent, as the session's own conversation starting does.
-pub(crate) fn read_codex_child_thread_announcement(
-    params: &RawValue,
-) -> Option<ChildThreadAnnouncement> {
-    let thread = read_frame_conversation(params)?.thread?;
-    let thread_id = read_text(thread.id.as_deref())?;
-    let parent_thread_id = read_text(thread.parent_thread_id.as_deref())?;
-    let is_subagent = read_helper_source(thread.source.as_deref()).is_some();
-    Some(derive_codex_child_thread_announcement(
-        thread_id,
-        Some(parent_thread_id),
-        is_subagent,
-    ))
-}
-
-/// The names Codex gives a helper on its `thread/started`, each `None` where Codex gives none or
-/// one the contract refuses.
-pub(crate) struct CodexHelperNames {
-    /// Its nickname, `agentNickname`.
-    pub(crate) name: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
-    /// The role it was started in, `agentRole`.
-    pub(crate) role: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
-    /// Its path in Codex's tree of helpers, a spawned helper's `agent_path`.
-    pub(crate) provider_path: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
-}
-
-/// The names a `thread/started`'s params give the helper it announces: its nickname, its role
-/// and, for a spawned helper, its path. A blank value, one holding NUL or one over the cap reads as
-/// none.
-pub(crate) fn read_codex_helper_names(params: &RawValue) -> CodexHelperNames {
-    let thread = read_frame_conversation(params).and_then(|conversation| conversation.thread);
-    let thread = thread.as_ref();
-    let provider_path = thread
-        .and_then(|thread| read_helper_source(thread.source.as_deref()))
-        .and_then(|source| source.agent_path);
-    CodexHelperNames {
-        name: read_handle(thread.and_then(|thread| read_text(thread.agent_nickname.as_deref()))),
-        role: read_handle(thread.and_then(|thread| read_text(thread.agent_role.as_deref()))),
-        provider_path: read_handle(provider_path),
+/// The conversation a frame names and the helpers its spawn item names; the item is read only on
+/// `item/started` and `item/completed`.
+pub(crate) fn read_codex_frame_threads(method: &str, params: &RawValue) -> CodexFrameThreads {
+    let Some(mut conversation) = read_frame_conversation(params) else {
+        return CodexFrameThreads {
+            thread_id: None,
+            spawned_helpers: Vec::new(),
+        };
+    };
+    let item = conversation.item.take();
+    let spawned_helpers = match item {
+        Some(item)
+            if method == CODEX_ITEM_STARTED_METHOD || method == CODEX_ITEM_COMPLETED_METHOD =>
+        {
+            read_spawned_helpers(method == CODEX_ITEM_COMPLETED_METHOD, &item)
+        }
+        Some(_) | None => Vec::new(),
+    };
+    CodexFrameThreads {
+        thread_id: frame_thread_id(method, conversation),
+        spawned_helpers,
     }
 }
 
-// A name as the contract holds it; one it refuses reads as none, never cut.
-fn read_handle(text: Option<String>) -> Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>> {
-    text.and_then(|text| FreeFormText::new(text).ok())
+// The helpers a spawn item names; `is_completed` when it rides `item/completed`, the only frame
+// v1's names its receivers on. Any other item names none.
+fn read_spawned_helpers(is_completed: bool, item: &RawValue) -> Vec<CodexSpawnedHelper> {
+    let Some(item) =
+        crate::driver::codex::transport::connection::read_codex_object::<SpawnItem>(item.get())
+    else {
+        return Vec::new();
+    };
+    let call_id = item.id.as_deref().and_then(read_codex_given_text);
+    let model = item.model.as_deref().and_then(read_codex_given_text);
+    let reasoning_effort = item
+        .reasoning_effort
+        .as_deref()
+        .and_then(read_codex_given_text);
+    match item
+        .item_type
+        .as_deref()
+        .and_then(read_codex_given_text)
+        .as_deref()
+    {
+        Some(CODEX_SUB_AGENT_ACTIVITY_ITEM_TYPE)
+            if item
+                .kind
+                .as_deref()
+                .and_then(read_codex_given_text)
+                .as_deref()
+                == Some(CODEX_SPAWNED_ACTIVITY_KIND) =>
+        {
+            item.agent_thread_id
+                .as_deref()
+                .and_then(read_codex_given_text)
+                .map(|thread_id| CodexSpawnedHelper {
+                    thread_id,
+                    call_id,
+                    provider_path: item.agent_path.as_deref().and_then(read_codex_given_text),
+                    model,
+                    reasoning_effort,
+                })
+                .into_iter()
+                .collect()
+        }
+        Some(CODEX_COLLAB_AGENT_TOOL_CALL_ITEM_TYPE)
+            if is_completed
+                && item
+                    .tool
+                    .as_deref()
+                    .and_then(read_codex_given_text)
+                    .as_deref()
+                    == Some(CODEX_SPAWN_AGENT_TOOL) =>
+        {
+            let receivers = item
+                .receiver_thread_ids
+                .and_then(|ids| serde_json::from_str::<Vec<Box<RawValue>>>(ids.get()).ok())
+                .unwrap_or_default();
+            receivers
+                .iter()
+                .filter_map(|receiver| read_codex_given_text(receiver))
+                .map(|thread_id| CodexSpawnedHelper {
+                    thread_id,
+                    call_id: call_id.clone(),
+                    provider_path: None,
+                    model: model.clone(),
+                    reasoning_effort: reasoning_effort.clone(),
+                })
+                .collect()
+        }
+        Some(_) | None => Vec::new(),
+    }
 }
 
 /// Whether a frame belongs to one session or every session on the service.
@@ -272,7 +321,10 @@ impl CodexService {
         if !self.is_routed_dial(dial) {
             return;
         }
-        let thread_id = read_codex_frame_thread_id(method, &params);
+        let CodexFrameThreads {
+            thread_id,
+            spawned_helpers,
+        } = read_codex_frame_threads(method, &params);
         let (audience, has_rate_limits_changed) = {
             let mut routing = self.lock_routing();
             // Only reported here, once per connection, when the method is outside the table; the
@@ -309,35 +361,26 @@ impl CodexService {
         let Some(thread_id) = thread_id else {
             return;
         };
-        self.register_announced_child(&thread_id, &params);
-        let session_id = self.lock_threads().session_for(&thread_id).copied();
-        if let Some(session_id) = session_id {
-            self.deliver_thread_frame(&session_id, &thread_id, method, params);
-            return;
-        }
-        let held = self.lock_threads().hold(CodexHeldThreadFrame {
+        let frame = CodexHeldThreadFrame {
             method: method.to_owned(),
             params,
             thread_id,
-        });
-        match held {
-            CodexThreadFrameHold::Held => {}
-            CodexThreadFrameHold::NotHeld(frame) => {
-                if !CODEX_UNHELD_THREAD_BROADCASTS.contains(&frame.method.as_str()) {
-                    CodexTransportDiagnostic::UnroutedThreadFrame {
-                        method: frame.method,
-                        thread_id: frame.thread_id,
-                    }
-                    .report();
-                }
+        };
+        let route = self.lock_threads().route_or_hold(frame, Instant::now());
+        let pushed_out = match route {
+            CodexThreadFrameRoute::Session(session_id, frame) => {
+                self.register_spawned_helpers(session_id, spawned_helpers);
+                self.deliver_thread_frame(&session_id, &frame.thread_id, method, frame.params);
+                return;
             }
-            CodexThreadFrameHold::PushedOut(frame) => {
-                CodexTransportDiagnostic::PendingThreadFrameDropped {
-                    method: frame.method,
-                    thread_id: frame.thread_id,
-                }
-                .report();
+            CodexThreadFrameRoute::Held(pushed_out) => pushed_out,
+        };
+        for frame in pushed_out {
+            CodexTransportDiagnostic::PendingThreadFrameDropped {
+                method: frame.method,
+                thread_id: frame.thread_id,
             }
+            .report();
         }
     }
 
@@ -372,19 +415,19 @@ impl CodexService {
         (FrameAudience::Sessions(sessions), has_rate_limits_changed)
     }
 
-    // A helper's conversation belongs to the session its parent's does.
-    fn register_announced_child(&self, thread_id: &str, params: &RawValue) {
-        if self.lock_threads().session_for(thread_id).is_some() {
-            return;
-        }
-        let Some(parent_thread_id) = read_codex_child_thread_announcement(params)
-            .and_then(|announcement| announcement.declared_parent_thread_id)
-        else {
-            return;
-        };
-        let parent_session_id = self.lock_threads().session_for(&parent_thread_id).copied();
-        if let Some(parent_session_id) = parent_session_id {
-            self.register_thread(thread_id.to_owned(), parent_session_id);
+    // A spawned helper's conversation belongs to the session of the parent whose turn spawned it,
+    // registered before the spawn item itself is delivered; one already registered, as v2's second
+    // item finds it, stays as it is.
+    fn register_spawned_helpers(
+        &self,
+        session_id: SessionId,
+        spawned_helpers: Vec<CodexSpawnedHelper>,
+    ) {
+        for helper in spawned_helpers {
+            let is_registered = self.lock_threads().session_for(&helper.thread_id).is_some();
+            if !is_registered {
+                self.register_thread(helper.thread_id, session_id);
+            }
         }
     }
 
