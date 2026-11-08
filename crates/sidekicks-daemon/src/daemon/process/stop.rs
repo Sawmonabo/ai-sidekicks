@@ -30,6 +30,7 @@ use crate::daemon::process::database::{
 };
 use crate::daemon::process::providers::{ProvidersRegistrationStopFailure, shut_down_drivers};
 use crate::daemon::process::start_error::DaemonStartError;
+use crate::daemon::process::stop::mcp::stop_mcp_settle;
 use crate::daemon::process::{DAEMON_STOP_DRAIN_BOUND, DaemonProcess};
 use crate::daemon::stop_drain::describe_drain;
 use crate::data_acts::erase::EraseStep;
@@ -643,25 +644,6 @@ pub(crate) async fn stop_work(
     failures
 }
 
-// Before the drivers, whose config reads the pass observes through: waits within `bound` for the
-// MCP binding edits' settle pass, which is dropped past it and runs again at the next start.
-async fn stop_mcp_settle(
-    process: &mut DaemonProcess,
-    bound: Duration,
-) -> Option<DaemonStopFailure> {
-    let mutations = process.mcp_mutations.take()?;
-    process
-        .stop_record
-        .write_step(DaemonStopStep::McpSettle)
-        .await;
-    tokio::time::timeout(bound, mutations.stop())
-        .await
-        .is_err()
-        .then_some(DaemonStopFailure::StartTaskRunning(
-            "MCP binding edits' settle pass",
-        ))
-}
-
 /// Closes everything that holds a file in the data folder, as `close_data_folder_contents` does,
 /// then lets the data folder's lock go last. Answers each step's failure, every step having run.
 pub(crate) async fn close_data_folder(process: &mut DaemonProcess) -> Vec<DaemonStopFailure> {
@@ -877,5 +859,6 @@ impl DaemonProcess {
     }
 }
 
+mod mcp;
 #[cfg(test)]
 mod tests;
