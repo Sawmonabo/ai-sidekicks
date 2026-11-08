@@ -21,7 +21,7 @@
 //!   floored at zero, re-based at the observed value, and reported.
 //! - The normalized input is uncached input. The cached count is subtracted only where the
 //!   breakdown's sum identity shows it sits inside the input figure; otherwise input is emitted
-//!   unsubtracted with a diagnostic.
+//!   unsubtracted, with a diagnostic where the reading's declared total disagrees with it.
 //!
 //! Readings arrive typed: a driver reports a usage member that is not a non-negative integer where
 //! it reads the wire, so nothing here meets an unknown axis or a non-finite count.
@@ -412,8 +412,9 @@ impl UsageDeltaAccountant {
     // Input is input neither read from nor written to the cache only where `total == input +
     // output` on the cumulative counters: a total used up by input plus output leaves the cache
     // counts nowhere to live but inside input, so both are subtracted and every provider counts
-    // the same thing. Otherwise input is emitted unsubtracted, an overstatement surfaced rather
-    // than a silent understatement.
+    // the same thing. Otherwise input is emitted unsubtracted: an overstatement, surfaced rather
+    // than left a silent understatement where the reading declares a total its counts disagree
+    // with; a reading with no total has no identity to fail.
     fn normalize_input_tokens(
         &self,
         reading: &CumulativeUsageReading,
@@ -423,19 +424,22 @@ impl UsageDeltaAccountant {
         let cached_input_delta = axis_deltas.cached_input.unwrap_or(0);
         let cache_write_delta = axis_deltas.cache_write_input.unwrap_or(0);
         let cumulative = &reading.cumulative;
+        // `None` where the reading leaves out the total, input or output the identity reads.
         let is_containment_confirmed = if let (Some(total), Some(input), Some(output)) =
             (cumulative.total, cumulative.input, cumulative.output)
         {
-            input.checked_add(output) == Some(total)
-                && cumulative
-                    .cached_input
-                    .unwrap_or(0)
-                    .checked_add(cumulative.cache_write_input.unwrap_or(0))
-                    .is_some_and(|cached| cached <= input)
+            Some(
+                input.checked_add(output) == Some(total)
+                    && cumulative
+                        .cached_input
+                        .unwrap_or(0)
+                        .checked_add(cumulative.cache_write_input.unwrap_or(0))
+                        .is_some_and(|cached| cached <= input),
+            )
         } else {
-            false
+            None
         };
-        if is_containment_confirmed {
+        if is_containment_confirmed == Some(true) {
             return (
                 input_delta
                     .saturating_sub(cached_input_delta)
@@ -443,7 +447,9 @@ impl UsageDeltaAccountant {
                 UsageContainment::ConfirmedSubtracted,
             );
         }
-        if cached_input_delta > 0 || cache_write_delta > 0 {
+        if is_containment_confirmed == Some(false)
+            && (cached_input_delta > 0 || cache_write_delta > 0)
+        {
             emit_usage_diagnostic(
                 self.provider.clone(),
                 DriverDiagnosticKind::UsageContainmentIdentityUnconfirmed,
