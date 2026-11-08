@@ -1,6 +1,9 @@
 // The paged transcript reads: a child run's summary and expansion, and pages that run oldest to
 // newest, fit one frame and never continue empty.
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import { refusesAt } from "../../__tests__/safe-parse.test-support.js";
 import { EVENT_FIELD_MAX_LEN } from "../../event/envelope.js";
@@ -31,6 +34,30 @@ import {
   rolledBackPayload,
   rollbackBoundaryRow,
 } from "./row.test-support.js";
+
+const pageFittingCases = z
+  .array(
+    z
+      .object({
+        note: z.string(),
+        candidates: z.array(z.unknown()),
+        maxCount: z.int().nonnegative(),
+        budgetBytes: z.int().nonnegative(),
+        fitted: z.int().nonnegative(),
+      })
+      .strict(),
+  )
+  .parse(
+    JSON.parse(
+      readFileSync(
+        new URL(
+          "../../../../../crates/sidekicks-contracts/tests/fixtures/jsonrpc/page-fitting.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ),
+  );
 
 const childRunSummary = {
   runId: RUN_ID,
@@ -387,20 +414,20 @@ describe("a reply fits one frame", () => {
     expect(jsonUtf8ByteLength(1n)).toBe(Number.POSITIVE_INFINITY);
   });
 
-  it("the fitting function honors the count cap and pages an oversized first row alone", () => {
-    const smallRow = { ...runScopedRow, sequence: 1 };
-    expect(countEntriesFittingOneFrame([smallRow, smallRow], TRANSCRIPT_READ_LIMIT_MAX)).toBe(2);
-    expect(countEntriesFittingOneFrame([smallRow, smallRow], 1)).toBe(1);
-    expect(countEntriesFittingOneFrame([], TRANSCRIPT_READ_LIMIT_MAX)).toBe(0);
-    expect(countEntriesFittingOneFrame([smallRow], 0)).toBe(0);
-    // Returning zero for a row that alone exceeds the budget would leave an empty page beside an
-    // unconsumed cursor, a continuation that never advances.
+  // The daemon fits a page by the same table, so a page one side builds the other accepts.
+  it.each(pageFittingCases)(
+    "the fitting function: $note",
+    ({ candidates, maxCount, budgetBytes, fitted }) => {
+      expect(countEntriesFittingOneFrame(candidates, maxCount, budgetBytes)).toBe(fitted);
+    },
+  );
+
+  it("refuses at the boundary the oversized row the fitting function pages alone", () => {
     const unfittableRow = {
       ...runScopedRow,
       payload: { blob: "x".repeat(PAGE_MAX_BYTES) },
     };
     expect(countEntriesFittingOneFrame([unfittableRow], TRANSCRIPT_READ_LIMIT_MAX)).toBe(1);
-    // That single-row page is still refused at the boundary, never put on the wire.
     refusesAt(
       TranscriptReadResponseSchema,
       { entries: [unfittableRow], runs: [runFacts], hasMore: false },
