@@ -230,3 +230,69 @@ fn a_kept_root_keeps_its_copy_while_its_source_is_away() {
         b"the clone"
     );
 }
+
+// Runs git from the path with `arguments` in `folder`, under the test's identity and the files ref
+// format, since the store holds no git runner. Answers what git printed.
+fn git_in(folder: &Path, arguments: &[&str]) -> String {
+    let output = std::process::Command::new("git")
+        .args([
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "-c",
+            "commit.gpgSign=false",
+            "-c",
+            "init.defaultBranch=main",
+            "-c",
+            "init.defaultRefFormat=files",
+        ])
+        .arg("-C")
+        .arg(folder)
+        .args(arguments)
+        .output()
+        .expect("git runs");
+    assert!(
+        output.status.success(),
+        "git {arguments:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("git prints text")
+}
+
+// A backup's copy cut short beside a ref is a name git never reads, so the mirror's repository
+// lists only its ref; a restore copies no such leftover into a place and removes the one a restore
+// cut short left there. Killed by the in-progress name without its leading `.` (git lists the
+// leftover as a ref), by the leftover copied (the place holds the copy's), and by the place's
+// leftover kept.
+#[test]
+fn a_restores_leftovers_are_never_read_as_refs_and_its_next_pass_removes_them() {
+    let scratch = tempfile::tempdir().expect("a scratch folder");
+    let copy = scratch.path().join("copy");
+    fs::create_dir_all(&copy).expect("the copy's folder is made");
+    git_in(&copy, &["init", "--quiet"]);
+    fs::write(copy.join("notes.md"), b"notes").expect("written");
+    git_in(&copy, &["add", "notes.md"]);
+    git_in(&copy, &["commit", "--quiet", "-m", "first"]);
+    let copied_main = copy.join(".git/refs/heads/main");
+    let commit = fs::read(&copied_main).expect("main is a loose ref");
+    fs::write(in_progress_path(&copied_main), &commit).expect("the backup's leftover is written");
+    let place = scratch.path().join("place");
+    let topic = place.join(".git/refs/heads/topic");
+    fs::create_dir_all(topic.parent().expect("a ref has a folder")).expect("made");
+    let restore_leftover = in_progress_path(&topic);
+    fs::write(&restore_leftover, &commit).expect("the restore's leftover is written");
+    let refs = ["for-each-ref", "--format=%(refname)"];
+
+    let copied_refs = git_in(&copy, &refs);
+    let precision = probe_time_precision(scratch.path()).expect("the precision is probed");
+    bring_level(&copy, &place, precision, &CancellationToken::new())
+        .expect("the restore writes the place");
+
+    assert_eq!(copied_refs, "refs/heads/main\n");
+    let placed_main = place.join(".git/refs/heads/main");
+    assert_eq!(fs::read(&placed_main).expect("main is restored"), commit);
+    assert!(!in_progress_path(&placed_main).exists());
+    assert!(!restore_leftover.exists());
+    assert_eq!(git_in(&place, &refs), "refs/heads/main\n");
+}

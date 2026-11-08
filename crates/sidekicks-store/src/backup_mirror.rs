@@ -6,8 +6,10 @@
 //! there, since file systems keep a time to a nanosecond (APFS, ext4), 100 ns (NTFS), 10 ms
 //! (exFAT) or two seconds (FAT); it keeps the source's modification time on the copy so the next
 //! run passes it over, and deletes each copy whose source is gone, so a session `Delete old data`
-//! removed leaves the mirror at the next run. A file is copied under a temporary name, flushed and
-//! renamed over its copy, so a copy whose size and time reached the disk holds its bytes too. Links
+//! removed leaves the mirror at the next run. A file is copied under a temporary name starting with
+//! `.`, which git never reads as a ref, flushed and renamed over its copy, so a copy whose size and
+//! time reached the disk holds its bytes too; a leveling never copies such a name and removes every
+//! one it finds on the side it writes. Links
 //! are not followed and not copied. A run may take a root's copy from a folder other than its place,
 //! or keep the copy as the last run left it, while a restore always writes the copy to the place.
 //! Each git folder under a root is copied whole by one routine in both directions: the files that
@@ -17,6 +19,7 @@
 
 mod git_folder;
 
+use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -41,8 +44,12 @@ pub const MIRROR_FOLDER_NAME: &str = "mirror";
 /// The file inside the mirror naming where each root's files came from, which a restore reads.
 pub const MIRROR_ROOTS_FILE_NAME: &str = "roots.json";
 
-// The suffix of a copy on its way to its place.
+// The suffix of a copy on its way to its place, written after a leading `.` and the copy's name,
+// so git, which reads no ref whose name starts with `.`, never reads one a cut-short run left.
 const COPY_IN_PROGRESS_SUFFIX: &str = ".mirror-copy";
+
+// What starts the name of a copy on its way to its place.
+const COPY_IN_PROGRESS_PREFIX: &str = ".";
 
 // The separator of a root's path in the mirror's list, whatever system wrote it.
 const LISTED_PATH_SEPARATOR: char = '/';
@@ -459,6 +466,12 @@ impl Leveling<'_> {
                 .expect("the walk stays under its root");
             let copy = path_under(copy_root, relative);
             let file_type = entry.file_type();
+            if is_in_progress_name(entry.file_name()) {
+                if file_type.is_dir() {
+                    walk.skip_current_dir();
+                }
+                continue;
+            }
             if file_type.is_dir() && is_git_folder(entry.path()) {
                 walk.skip_current_dir();
                 self.copy_git_folder(entry.path(), &copy)?;
@@ -501,8 +514,8 @@ impl Leveling<'_> {
     }
 
     // Deletes each copy under `copy_root` whose source under `source` is gone or is no longer of
-    // its kind, a copy on its way that a cut-short run left among them; a copy whose source is a
-    // git folder was leveled whole by its routine.
+    // its kind, and each copy on its way that a cut-short run left; a copy whose source is a git
+    // folder was leveled whole by its routine.
     fn remove_gone(&mut self, source: &Path, copy_root: &Path) -> Result<(), MirrorError> {
         if fs::symlink_metadata(copy_root)
             .none_if_missing()
@@ -522,6 +535,13 @@ impl Leveling<'_> {
                 .path()
                 .strip_prefix(copy_root)
                 .expect("the walk stays under its root");
+            if is_in_progress_name(entry.file_name()) {
+                if entry.file_type().is_dir() {
+                    walk.skip_current_dir();
+                }
+                self.remove(entry.path(), entry.file_type().is_dir())?;
+                continue;
+            }
             let original = path_under(source, relative);
             // A source whose folder became a file names nothing, as a missing one does.
             let original_metadata = match fs::symlink_metadata(&original) {
@@ -600,11 +620,21 @@ fn copy_when_changed(
     Ok(true)
 }
 
-// Where a copy on its way to `copy` is written.
+// Where a copy on its way to `copy` is written: `.<name>.mirror-copy` beside it.
 fn in_progress_path(copy: &Path) -> PathBuf {
-    let mut in_progress = copy.as_os_str().to_owned();
-    in_progress.push(COPY_IN_PROGRESS_SUFFIX);
-    PathBuf::from(in_progress)
+    let mut name = OsString::from(COPY_IN_PROGRESS_PREFIX);
+    name.push(copy.file_name().expect("a copy is named"));
+    name.push(COPY_IN_PROGRESS_SUFFIX);
+    copy.with_file_name(name)
+}
+
+// Whether `name` is a copy's name on its way to its place, which a leveling never copies and
+// always removes from the side it writes.
+fn is_in_progress_name(name: &OsStr) -> bool {
+    let name = name.as_encoded_bytes();
+    name.len() > COPY_IN_PROGRESS_PREFIX.len() + COPY_IN_PROGRESS_SUFFIX.len()
+        && name.starts_with(COPY_IN_PROGRESS_PREFIX.as_bytes())
+        && name.ends_with(COPY_IN_PROGRESS_SUFFIX.as_bytes())
 }
 
 // Copies `source` beside `copy` through `copy_bytes`, with `modified` as its modification time,

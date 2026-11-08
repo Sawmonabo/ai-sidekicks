@@ -17,7 +17,7 @@ use walkdir::WalkDir;
 
 use super::{
     CopiedIndex, CopiedIndexCheck, Leveling, MirrorError, copy_when_changed, in_progress_path,
-    is_unchanged_copy, write_in_progress,
+    is_in_progress_name, is_unchanged_copy, write_in_progress,
 };
 
 // The names git gives a git folder's parts.
@@ -518,11 +518,14 @@ impl Leveling<'_> {
     }
 }
 
-// Whether git writes an entry named `name` on its way and never reads it as a ref or an object:
-// a temporary (`tmp_…`, `.tmp-…`) or a lock file.
+// Whether an entry named `name` is on its way and is never copied: git's temporary (`tmp_…`,
+// `.tmp-…`) or lock file, or the mirror's own copy on its way.
 fn is_passed_over_name(name: &OsStr) -> bool {
-    let name = name.as_encoded_bytes();
-    name.starts_with(b"tmp_") || name.starts_with(b".tmp-") || name.ends_with(b".lock")
+    let bytes = name.as_encoded_bytes();
+    bytes.starts_with(b"tmp_")
+        || bytes.starts_with(b".tmp-")
+        || bytes.ends_with(b".lock")
+        || is_in_progress_name(name)
 }
 
 // Whether `folder` is a git folder by git's own rule, without its read of `HEAD`'s text: it holds
