@@ -31,11 +31,11 @@ use crate::git::worktree::rows::{
 use crate::git::worktree::service::{WORKTREE_ROW_COLUMNS, worktree_row_of};
 
 // The newest standing tree the daemon made at a folder, with the base its newest branch context
-// names, else its own, and whether its branch has held commits of its own.
+// names, else its own, and the last tip seen holding commits of its own.
 static SELECT_STANDING_TREE_AT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT {WORKTREE_ROW_COLUMNS}, COALESCE(newest.base_branch, wt.base_ref),
-        wt.has_own_commits
+        wt.own_commit_tip
    FROM worktrees AS wt
    {newest}
   WHERE wt.fs_root = @fs_root AND {standing}
@@ -83,8 +83,9 @@ pub(super) struct StandingTree {
     pub(super) row: WorktreeRow,
     /// The base its branch merges back into: its newest branch context's, else its own as given.
     pub(super) base: String,
-    /// Whether a check has seen its branch hold a commit of its own.
-    pub(super) has_own_commits: bool,
+    /// The last tip of its branch a check saw holding commits of its own, merge commits not
+    /// counted; `None` while none was seen.
+    pub(super) own_commit_tip: Option<String>,
 }
 
 // The move a check found due.
@@ -186,7 +187,7 @@ async fn read_standing_tree(
                     Ok(StandingTree {
                         row: worktree_row_of(row)?,
                         base: row.get(7)?,
-                        has_own_commits: row.get(8)?,
+                        own_commit_tip: row.get(8)?,
                     })
                 })
                 .optional()?)

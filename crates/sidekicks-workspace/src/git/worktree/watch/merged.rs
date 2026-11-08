@@ -1,14 +1,18 @@
-//! Whether a watched worktree's branch has merged back into its base.
+//! Whether a watched worktree's branch has merged back into its base or the base's upstream; a
+//! merge into any other branch is not read.
 //!
-//! - A branch can read merged only once it has held commits of its own. The row records that the
-//!   first time a check counts a commit on the branch that neither its base nor the base's
-//!   upstream holds, or, while it records none, finds a `commit:` entry in the branch's reflog. A
-//!   branch that only caught up with its base, or never left it, never reads merged.
-//! - Such a branch has merged when its base or the base's upstream holds its tip, or, where neither
-//!   does, when nothing on it is left unapplied there: each of its commits' patches found on that
-//!   side, or all of its changes as one squashed patch. The patch test runs once per combination of
-//!   the branch's, the base's and the upstream's tips.
-//! - A base that names no local or remote-tracking branch reads as not merged, logged once.
+//! - The row records the last tip seen holding commits of its own: each check that counts a commit
+//!   on the branch, merge commits not counted, that neither the base nor its upstream holds records
+//!   the tip, and while it records none and the tip is contained, the newest `commit:` entry in the
+//!   branch's reflog seeds it. A branch that only caught up with its base, by a fast-forward or a
+//!   merge commit, or never left it, records none and never reads merged.
+//! - The checks run on the recorded tip, never on a later tip that discarded its work: it has
+//!   merged when the base or its upstream holds it, or, where neither does, when nothing on it is
+//!   left unapplied there: each of its commits' patches found on that side, or all of its changes
+//!   as one squashed patch. The patch test runs once per combination of the recorded tip, the
+//!   base's and the upstream's.
+//! - A base that names no local or remote-tracking branch, and a recorded tip the repository no
+//!   longer holds, read as not merged, each logged once.
 
 use std::collections::HashSet;
 use std::io;
@@ -16,6 +20,7 @@ use std::path::Path;
 
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::writer::WriteError;
 
 use super::WorkingFolderWatcherDeps;
@@ -23,11 +28,10 @@ use super::tree_state::StandingTree;
 use crate::git::process::{GitCall, GitError, GitRunner, background_read, strip_line_end};
 use crate::git::turn_snapshot::capture::{SNAPSHOT_IDENTITY_EMAIL, SNAPSHOT_IDENTITY_NAME};
 use crate::git::worktree::reads::{BRANCH_REF_PREFIX, read_ref_heads};
-use crate::git::worktree::rows::transition_statement;
 
-// Records that the tree's branch has held a commit of its own.
-const MARK_OWN_COMMITS_SQL: &str = "UPDATE worktrees SET has_own_commits = 1, updated_at = @now
-  WHERE id = @worktree_id AND has_own_commits = 0";
+// Records the last tip of the tree's branch seen holding commits of its own.
+const RECORD_OWN_COMMIT_TIP_SQL: &str =
+    "UPDATE worktrees SET own_commit_tip = @tip, updated_at = @now WHERE id = @worktree_id";
 
 // The prefix of every remote-tracking branch's full ref name.
 const REMOTE_REF_PREFIX: &str = "refs/remotes/";
@@ -38,16 +42,20 @@ const COMMIT_REFLOG_PREFIX: &[u8] = b"commit:";
 // `merge-base`'s exit when the two commits share no history.
 const NO_MERGE_BASE_EXIT_CODE: i32 = 1;
 
+// `rev-parse --verify --quiet`'s exit when the repository holds no such commit.
+const NOT_HELD_EXIT_CODE: i32 = 1;
+
 /// What a folder's merged checks keep between changes: the last patch test's tips and verdict, and
-/// each base already logged as naming no branch.
+/// each base already logged as naming no branch and each recorded tip as gone.
 #[derive(Default)]
 pub(super) struct MergedCheck {
     last_patch_test: Option<(BranchTips, bool)>,
     unresolved_bases: HashSet<String>,
+    missing_tips: HashSet<String>,
 }
 
 // The commits a check reads: the branch's tip, its base's and the base's upstream's, where it has
-// one.
+// one. The patch test's tip is the recorded one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct BranchTips {
     tip: String,
@@ -75,7 +83,7 @@ pub(super) enum MergedReadError {
 
 impl MergedCheck {
     /// Whether `tree`'s branch, checked out at `folder`, has merged back into its base, recording
-    /// on its row when it is first seen holding commits of its own. Fails as git or the write does.
+    /// on its row the last tip seen holding commits of its own. Fails as git or the write does.
     pub(super) async fn has_merged_back(
         &mut self,
         deps: &WorkingFolderWatcherDeps,
@@ -85,25 +93,49 @@ impl MergedCheck {
     ) -> Result<bool, MergedReadError> {
         let git = &deps.git;
         let branch_ref = format!("{BRANCH_REF_PREFIX}{}", tree.row.branch_name.as_str());
-        let Some(tips) = self
+        let Some(mut tips) = self
             .read_tips(git, place, folder, &branch_ref, &tree.base)
             .await?
         else {
             return Ok(false);
         };
-        let is_contained = count_own_commits(git, place, folder, &tips).await? == 0;
-        if is_contained {
-            if tree.has_own_commits {
-                return Ok(true);
+        if count_past(git, place, folder, &tips.tip, &tips, Commits::OwnOnly).await? > 0 {
+            // The tip holds work the base and its upstream lack, so neither contains it.
+            if tree.own_commit_tip.as_deref() != Some(tips.tip.as_str()) {
+                record_own_commit_tip(deps, tree, &tips.tip).await?;
             }
-            if !has_committed_on(git, place, folder, &branch_ref).await? {
-                return Ok(false);
+        } else {
+            let recorded = match &tree.own_commit_tip {
+                Some(recorded) => recorded.clone(),
+                None => {
+                    if count_past(git, place, folder, &tips.tip, &tips, Commits::All).await? > 0 {
+                        return Ok(false);
+                    }
+                    let Some(seed) = newest_commit_on(git, place, folder, &branch_ref).await?
+                    else {
+                        return Ok(false);
+                    };
+                    record_own_commit_tip(deps, tree, &seed).await?;
+                    seed
+                }
+            };
+            match count_past(git, place, folder, &recorded, &tips, Commits::All).await {
+                Ok(0) => return Ok(true),
+                Ok(_) => {}
+                Err(error) => {
+                    if is_commit_held(git, place, folder, &recorded).await? {
+                        return Err(error.into());
+                    }
+                    if self.missing_tips.insert(recorded) {
+                        tracing::warn!(
+                            "a worktree's recorded branch tip is gone from its repository, so its \
+                             branch is not read as merged back"
+                        );
+                    }
+                    return Ok(false);
+                }
             }
-            mark_own_commits(deps, tree).await?;
-            return Ok(true);
-        }
-        if !tree.has_own_commits {
-            mark_own_commits(deps, tree).await?;
+            tips.tip = recorded;
         }
         if let Some((last_tips, verdict)) = &self.last_patch_test
             && *last_tips == tips
@@ -162,16 +194,30 @@ impl MergedCheck {
     }
 }
 
-// The commits on the branch that neither the base nor its upstream holds; none when either holds
-// the tip.
-async fn count_own_commits(
+// Which commits a count takes.
+#[derive(Clone, Copy)]
+enum Commits {
+    All,
+    // Merge commits left out.
+    OwnOnly,
+}
+
+// The commits `commit` holds that neither the base nor its upstream holds; with `All`, none exactly
+// when either holds `commit`.
+async fn count_past(
     git: &GitRunner,
     place: Option<&Place>,
     folder: &Path,
+    commit: &str,
     tips: &BranchTips,
+    commits: Commits,
 ) -> Result<u64, GitError> {
     let excluded: Vec<String> = tips.targets().map(|target| format!("^{target}")).collect();
-    let mut arguments = vec!["rev-list", "--count", tips.tip.as_str()];
+    let mut arguments = vec!["rev-list", "--count"];
+    if matches!(commits, Commits::OwnOnly) {
+        arguments.push("--no-merges");
+    }
+    arguments.push(commit);
     arguments.extend(excluded.iter().map(String::as_str));
     arguments.push("--");
     let output = read(git, place, folder, &arguments).await?;
@@ -180,23 +226,54 @@ async fn count_own_commits(
         .map_err(|error| GitError::Read(io::Error::new(io::ErrorKind::InvalidData, error)))
 }
 
-// Whether the branch's reflog records a commit made on it.
-async fn has_committed_on(
+// The commit the newest `commit:` entry in the branch's reflog made; `None` when it records none.
+async fn newest_commit_on(
     git: &GitRunner,
     place: Option<&Place>,
     folder: &Path,
     branch_ref: &str,
-) -> Result<bool, GitError> {
+) -> Result<Option<String>, GitError> {
     let reflog = read(
         git,
         place,
         folder,
-        &["log", "--walk-reflogs", "--format=%gs", branch_ref, "--"],
+        &[
+            "log",
+            "--walk-reflogs",
+            "--format=%H%x00%gs",
+            branch_ref,
+            "--",
+        ],
     )
     .await?;
-    Ok(reflog
-        .split(|byte| *byte == b'\n')
-        .any(|subject| subject.starts_with(COMMIT_REFLOG_PREFIX)))
+    Ok(reflog.split(|byte| *byte == b'\n').find_map(|entry| {
+        let (commit, subject) = entry.split_at(entry.iter().position(|byte| *byte == 0)?);
+        subject[1..]
+            .starts_with(COMMIT_REFLOG_PREFIX)
+            .then(|| String::from_utf8_lossy(commit).into_owned())
+    }))
+}
+
+// Whether the repository holds `commit`.
+async fn is_commit_held(
+    git: &GitRunner,
+    place: Option<&Place>,
+    folder: &Path,
+    commit: &str,
+) -> Result<bool, GitError> {
+    let object = format!("{commit}^{{commit}}");
+    match read(
+        git,
+        place,
+        folder,
+        &["rev-parse", "--verify", "--quiet", &object],
+    )
+    .await
+    {
+        Ok(_) => Ok(true),
+        Err(error) if error.exit_code() == Some(NOT_HELD_EXIT_CODE) => Ok(false),
+        Err(error) => Err(error),
+    }
 }
 
 // Whether the base or its upstream holds every change the branch makes: each commit's patch, else
@@ -293,18 +370,22 @@ async fn read(
         .stdout)
 }
 
-async fn mark_own_commits(
+async fn record_own_commit_tip(
     deps: &WorkingFolderWatcherDeps,
     tree: &StandingTree,
+    tip: &str,
 ) -> Result<(), WriteError> {
     let now = WireInstant::now();
     deps.writer
-        .write(vec![transition_statement(
-            MARK_OWN_COMMITS_SQL,
-            &tree.row.id,
-            &now,
-            None,
-        )])
+        .write(vec![WriteStatement {
+            sql: RECORD_OWN_COMMIT_TIP_SQL.into(),
+            bindings: StatementBindings::Named(vec![
+                text_binding("@tip", tip),
+                text_binding("@worktree_id", tree.row.id.text().as_str()),
+                text_binding("@now", now.as_str()),
+            ]),
+            expected_row_count: None,
+        }])
         .await?;
     Ok(())
 }
