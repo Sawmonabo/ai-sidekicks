@@ -1,9 +1,11 @@
 mod provider_accounts;
 mod restart;
+mod status_record;
+mod stop_intent;
 
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -31,10 +33,15 @@ use sidekicks_platforms::{
     askpass_socket_path, check_socket_path, create_missing_private_folders, process_identity,
     replace_file_atomically,
 };
-use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
+use sidekicks_provider::account::credential_home::HomesSignOut;
+use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_provider::driver::test_registry::test_driver_services;
+use sidekicks_provider::driver::test_registry::{
+    registry_of_first_providers, test_driver_services,
+};
+use sidekicks_provider::driver::{PROVIDER_REGISTRATIONS, PROVIDERS};
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
 use sidekicks_store::credential_store::os::TestStoreAccess;
 use sidekicks_store::data_folder::data_folder;
@@ -50,6 +57,7 @@ use tokio_util::sync::CancellationToken;
 use super::DaemonProcess;
 use super::database::DatabaseFileOpenError;
 use super::start_error::{DaemonStartError, DaemonStartFailure};
+use super::stop::DaemonStopReason;
 use crate::daemon::crash::monitor::{
     CRASH_DUMPS_FOLDER_NAME, CRASH_MONITOR_MODE, crash_monitor_socket_path, serve_crash_monitor,
 };
@@ -213,17 +221,26 @@ async fn an_erase_over_a_started_daemon_closes_it_and_the_stop_after_fails_nothi
             &test_driver_services(),
         )),
         stop_work: process.stop_work_step(),
-        sign_out_accounts: Arc::new(|| async { Ok(Vec::new()) }.boxed()),
+        sign_out_accounts: Arc::new(|| {
+            async {
+                Ok(HomesSignOut {
+                    left_signed_in: Vec::new(),
+                    has_unnamed_home: false,
+                })
+            }
+            .boxed()
+        }),
+        end_sign_ins: Arc::new(|| async { true }.boxed()),
         close_data_folder: process.close_data_folder_step(),
-        end_process: Arc::new(move || end_process(DaemonStopIntent::Stop)),
+        end_process: Arc::new(move || end_process(DaemonStopReason::Erase)),
     }));
 
     erase.begin().await.expect("the erase starts");
-    let intent = tokio::time::timeout(ERASE_WAIT, process.wait_for_stop())
+    let reason = tokio::time::timeout(ERASE_WAIT, process.wait_for_stop())
         .await
         .expect("the erase ends the process");
 
-    assert_eq!(intent, DaemonStopIntent::Stop);
+    assert_eq!(reason, DaemonStopReason::Erase);
     assert!(!home.run_folder.socket_path.exists(), "the socket is gone");
     assert!(
         !home.monitor_socket_path().exists(),
@@ -231,7 +248,7 @@ async fn an_erase_over_a_started_daemon_closes_it_and_the_stop_after_fails_nothi
     );
     assert!(!home.data_folder().exists(), "the data folder is deleted");
     process
-        .stop(intent)
+        .stop(reason)
         .await
         .expect("the stop after the erase fails nothing");
 }
@@ -307,7 +324,7 @@ async fn a_run_folder_too_long_for_its_sockets_fails_the_start_before_any_step()
     );
     assert!(started.monitor_socket_path().exists());
     process
-        .stop(DaemonStopIntent::Stop)
+        .stop(DaemonStopReason::Stop)
         .await
         .expect("the stop fails nothing");
     assert!(!started.run_folder.socket_path.exists());
@@ -414,7 +431,7 @@ async fn the_started_client_reads_prompts_and_stops_before_the_database_closes()
     );
     let held = probe.hold();
 
-    let (stopped, ()) = tokio::join!(Box::pin(process.stop(DaemonStopIntent::Stop)), async {
+    let (stopped, ()) = tokio::join!(Box::pin(process.stop(DaemonStopReason::Stop)), async {
         tokio::time::timeout(STOP_WAIT, probe.closed())
             .await
             .expect("the stop closes the tool servers' connections");
@@ -458,7 +475,7 @@ async fn a_call_is_answered_only_past_the_handshake_and_the_stop_lets_the_data_f
         .expect("the status read answers");
     connection.close().await;
     process
-        .stop(DaemonStopIntent::Stop)
+        .stop(DaemonStopReason::Stop)
         .await
         .expect("the stop fails nothing");
 
@@ -481,11 +498,11 @@ async fn a_call_is_answered_only_past_the_handshake_and_the_stop_lets_the_data_f
 // acknowledged is in the file afterwards. Killed by the restart asking for a stop, and by a stop
 // that waits for every client to close.
 #[rstest]
-#[case::stop(DaemonStopIntent::Stop)]
-#[case::restart(DaemonStopIntent::Restart)]
+#[case::stop(DaemonStopReason::Stop)]
+#[case::restart(DaemonStopReason::Restart)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_lifecycle_verb_ends_the_daemon_for_its_reason_with_another_client_connected(
-    #[case] intent: DaemonStopIntent,
+    #[case] reason: DaemonStopReason,
 ) {
     if !CAN_BIND_A_SOCKET_LISTENER {
         return;
@@ -508,14 +525,13 @@ async fn a_lifecycle_verb_ends_the_daemon_for_its_reason_with_another_client_con
         .await
         .expect("the write is acknowledged");
 
-    match intent {
-        DaemonStopIntent::Stop => caller.client().call::<DaemonStop>(&EmptyPayload {}).await,
-        DaemonStopIntent::Restart => {
-            caller
-                .client()
-                .call::<DaemonRestart>(&EmptyPayload {})
-                .await
-        }
+    if reason == DaemonStopReason::Stop {
+        caller.client().call::<DaemonStop>(&EmptyPayload {}).await
+    } else {
+        caller
+            .client()
+            .call::<DaemonRestart>(&EmptyPayload {})
+            .await
     }
     .expect("the verb is accepted");
     let asked = tokio::time::timeout(STOP_WAIT, process.wait_for_stop())
@@ -526,7 +542,7 @@ async fn a_lifecycle_verb_ends_the_daemon_for_its_reason_with_another_client_con
         .expect("the stop does not wait for the other client")
         .expect("the stop fails nothing");
 
-    assert_eq!(asked, intent);
+    assert_eq!(asked, reason);
     let is_recording_traces: bool =
         Connection::open(home.data_folder().join(DAEMON_DATABASE_FILE_NAME))
             .expect("the file opens")
@@ -538,6 +554,55 @@ async fn a_lifecycle_verb_ends_the_daemon_for_its_reason_with_another_client_con
             .expect("the setting reads");
     assert!(is_recording_traces, "the acknowledged write is in the file");
     drop(other);
+}
+
+// The system's stop request restarts: the stop it asks for tells every driver `Restart`, so a
+// service that outlives the daemon keeps running. Killed by the system's stop left a `Stop`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_system_stop_restarts_the_drivers() {
+    if !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
+    let home = TestHome::new();
+    let system_stop = CancellationToken::new();
+    let mut process = home
+        .start(system_stop.clone())
+        .await
+        .expect("the daemon starts");
+    let told: Arc<Mutex<Vec<DaemonStopIntent>>> = Arc::default();
+    let drivers = PROVIDERS
+        .iter()
+        .map(|_| {
+            let told = Arc::clone(&told);
+            let mut driver = MockProviderDriver::new();
+            driver
+                .expect_shutdown()
+                .times(1)
+                .returning(move |intent, _deadline| {
+                    lock(&told).push(intent);
+                    async {}.boxed()
+                });
+            Arc::new(driver) as Arc<dyn ProviderDriver>
+        })
+        .collect();
+    // The stop tells these drivers in place of the ones the start built.
+    process
+        .providers
+        .as_mut()
+        .expect("the start keeps the providers")
+        .registry = Arc::new(registry_of_first_providers(drivers));
+
+    system_stop.cancel();
+    let reason = tokio::time::timeout(STOP_WAIT, process.wait_for_stop())
+        .await
+        .expect("the system's stop reaches the process");
+    process.stop(reason).await.expect("the stop fails nothing");
+
+    assert_eq!(reason, DaemonStopReason::Restart);
+    assert_eq!(
+        *lock(&told),
+        vec![DaemonStopIntent::Restart; PROVIDERS.len()]
+    );
 }
 
 // A store another build made fails the start as another version's saved sessions, and the start

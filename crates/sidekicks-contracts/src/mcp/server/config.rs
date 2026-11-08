@@ -77,53 +77,19 @@ pub type McpTextMap = Record<McpRequestText, McpRequestValue>;
 
 /// Declares a declaration union tagged on `transport`: a program the provider starts (`stdio`)
 /// and a server reached at an address over streamable HTTP (`http`) or server-sent events (`sse`),
-/// each arm ending with the settings every transport carries, the same on a submitted declaration
-/// and its read-back.
+/// each arm ending with the settings every transport carries.
 macro_rules! server_config {
     (
         $(#[doc = $doc:literal])+
         pub enum $name:ident {
             stdio { $($stdio:tt)* }
             remote { $($remote:tt)* }
+            shared { $($shared:tt)* }
             $(ws $ws:tt)?
         }
     ) => {
         server_config! {
-            @union [$(#[doc = $doc])+] $name [$($stdio)*] [$($remote)*] [$($ws)?] [
-                /// Whether the server is on; unset keeps the provider's value.
-                #[serde(
-                    default,
-                    skip_serializing_if = "Option::is_none",
-                    deserialize_with = "crate::wire::present"
-                )]
-                #[schemars(with = "bool")]
-                enabled: Option<bool>,
-                /// Whether a session refuses to start without the server. Unset keeps the
-                /// provider's value.
-                #[serde(
-                    default,
-                    skip_serializing_if = "Option::is_none",
-                    deserialize_with = "crate::wire::present"
-                )]
-                #[schemars(with = "bool")]
-                required: Option<bool>,
-                /// How long the server may take to start, in seconds.
-                #[serde(
-                    default,
-                    skip_serializing_if = "Option::is_none",
-                    deserialize_with = "crate::wire::present"
-                )]
-                #[schemars(with = "PositiveNumber")]
-                startup_timeout_sec: Option<PositiveNumber>,
-                /// How long one tool call may take, in seconds.
-                #[serde(
-                    default,
-                    skip_serializing_if = "Option::is_none",
-                    deserialize_with = "crate::wire::present"
-                )]
-                #[schemars(with = "PositiveNumber")]
-                tool_timeout_sec: Option<PositiveNumber>,
-            ]
+            @union [$(#[doc = $doc])+] $name [$($stdio)*] [$($remote)*] [$($ws)?] [$($shared)*]
         }
     };
     (
@@ -155,83 +121,130 @@ macro_rules! server_config {
 }
 
 server_config! {
-    /// A server's declaration as the person submits it, by transport; unset members keep the
-    /// provider's values. Environment and header values are write-only, handed to the provider's
-    /// write path and never served back. The daemon refuses a transport or member the binding's
-    /// provider does not declare, the declared set `provider.list` sends.
+    /// A server's declaration as the person submits it, by transport. An absent member keeps the
+    /// provider's value and a `null` one removes it; a `null` for a member the provider does not
+    /// read is refused, as a value is. Environment and header values are write-only, handed to the
+    /// provider's write path and never served back. The daemon refuses a transport or member the
+    /// binding's provider does not declare, the declared set `provider.list` sends.
     pub enum McpServerConfigInput {
         stdio {
             /// The program.
             command: McpRequestText,
-            /// Its arguments.
+            /// Its arguments. Absent keeps the provider's value, and `null` removes the member from
+            /// the provider's entry.
             #[serde(
                 default,
                 skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
+                with = "serde_with::rust::double_option"
             )]
-            #[schemars(with = "Vec<McpRequestValue>")]
-            args: Option<Vec<McpRequestValue>>,
-            /// Its environment, values included.
+            #[schemars(with = "crate::wire::NullableSchema<Vec<McpRequestValue>>")]
+            args: Option<Option<Vec<McpRequestValue>>>,
+            /// Its environment, values included. Absent keeps the provider's value, and `null`
+            /// removes the member from the provider's entry.
             #[serde(
                 default,
                 skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
+                with = "serde_with::rust::double_option"
             )]
-            #[schemars(with = "McpTextMap")]
-            env: Option<McpTextMap>,
-            /// The names of the variables it inherits from the environment the provider starts
-            /// in.
+            #[schemars(with = "crate::wire::NullableSchema<McpTextMap>")]
+            env: Option<Option<McpTextMap>>,
+            /// The names of the variables it inherits from the environment the provider starts in.
+            /// Absent keeps the provider's value, and `null` removes the member from the provider's
+            /// entry.
             #[serde(
                 default,
                 skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
+                with = "serde_with::rust::double_option"
             )]
-            #[schemars(with = "Vec<McpRequestText>")]
-            env_vars: Option<Vec<McpRequestText>>,
+            #[schemars(with = "crate::wire::NullableSchema<Vec<McpRequestText>>")]
+            env_vars: Option<Option<Vec<McpRequestText>>>,
         }
         remote {
             /// Its address.
             url: McpServerAddress,
-            /// Headers sent with each request, values included.
+            /// Headers sent with each request, values included. Absent keeps the provider's value,
+            /// and `null` removes the member from the provider's entry.
             #[serde(
                 default,
                 skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
+                with = "serde_with::rust::double_option"
             )]
-            #[schemars(with = "McpTextMap")]
-            headers: Option<McpTextMap>,
-            /// The environment variable holding a bearer token.
+            #[schemars(with = "crate::wire::NullableSchema<McpTextMap>")]
+            headers: Option<Option<McpTextMap>>,
+            /// The environment variable holding a bearer token. Absent keeps the provider's value,
+            /// and `null` removes the member from the provider's entry.
             #[serde(
                 default,
                 skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
+                with = "serde_with::rust::double_option"
             )]
-            #[schemars(with = "McpRequestText")]
-            bearer_token_env_var: Option<McpRequestText>,
+            #[schemars(with = "crate::wire::NullableSchema<McpRequestText>")]
+            bearer_token_env_var: Option<Option<McpRequestText>>,
             /// A header name mapped to the name of the environment variable holding its value.
+            /// Absent keeps the provider's value, and `null` removes the member from the provider's
+            /// entry.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                with = "serde_with::rust::double_option"
+            )]
+            #[schemars(with = "crate::wire::NullableSchema<McpTextMap>")]
+            env_http_headers: Option<Option<McpTextMap>>,
+            /// The scopes a sign-in asks for. Absent keeps the provider's value, and `null` removes
+            /// the member from the provider's entry.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                with = "serde_with::rust::double_option"
+            )]
+            #[schemars(with = "crate::wire::NullableSchema<Vec<McpRequestText>>")]
+            oauth_scopes: Option<Option<Vec<McpRequestText>>>,
+            /// The resource a sign-in names. Absent keeps the provider's value, and `null` removes
+            /// the member from the provider's entry.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                with = "serde_with::rust::double_option"
+            )]
+            #[schemars(with = "crate::wire::NullableSchema<McpRequestText>")]
+            oauth_resource: Option<Option<McpRequestText>>,
+        }
+        shared {
+            /// Whether the server is on; unset keeps the provider's value.
             #[serde(
                 default,
                 skip_serializing_if = "Option::is_none",
                 deserialize_with = "crate::wire::present"
             )]
-            #[schemars(with = "McpTextMap")]
-            env_http_headers: Option<McpTextMap>,
-            /// The scopes a sign-in asks for.
+            #[schemars(with = "bool")]
+            enabled: Option<bool>,
+            /// Whether a session refuses to start without the server. Unset keeps the provider's
+            /// value.
             #[serde(
                 default,
                 skip_serializing_if = "Option::is_none",
                 deserialize_with = "crate::wire::present"
             )]
-            #[schemars(with = "Vec<McpRequestText>")]
-            oauth_scopes: Option<Vec<McpRequestText>>,
-            /// The resource a sign-in names.
+            #[schemars(with = "bool")]
+            required: Option<bool>,
+            /// How long the server may take to start, in seconds. Absent keeps the provider's
+            /// value, and `null` removes the member from the provider's entry.
             #[serde(
                 default,
                 skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
+                with = "serde_with::rust::double_option"
             )]
-            #[schemars(with = "McpRequestText")]
-            oauth_resource: Option<McpRequestText>,
+            #[schemars(with = "crate::wire::NullableSchema<PositiveNumber>")]
+            startup_timeout_sec: Option<Option<PositiveNumber>>,
+            /// How long one tool call may take, in seconds. Absent keeps the provider's value, and
+            /// `null` removes the member from the provider's entry.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                with = "serde_with::rust::double_option"
+            )]
+            #[schemars(with = "crate::wire::NullableSchema<PositiveNumber>")]
+            tool_timeout_sec: Option<Option<PositiveNumber>>,
         }
     }
 }
@@ -314,6 +327,41 @@ server_config! {
             )]
             #[schemars(with = "String")]
             oauth_resource: Option<String>,
+        }
+        shared {
+            /// Whether the server is on; unset keeps the provider's value.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "bool")]
+            enabled: Option<bool>,
+            /// Whether a session refuses to start without the server. Unset keeps the provider's
+            /// value.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "bool")]
+            required: Option<bool>,
+            /// How long the server may take to start, in seconds.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "PositiveNumber")]
+            startup_timeout_sec: Option<PositiveNumber>,
+            /// How long one tool call may take, in seconds.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "PositiveNumber")]
+            tool_timeout_sec: Option<PositiveNumber>,
         }
         ws {
             /// Its address, stripped.
@@ -416,6 +464,15 @@ pub struct ProviderMcpDeclaration {
 }
 
 impl McpServerConfigInput {
+    /// The switch the declaration asks for; `None` keeps the provider's.
+    pub fn enabled(&self) -> Option<bool> {
+        match self {
+            Self::Stdio { enabled, .. }
+            | Self::Http { enabled, .. }
+            | Self::Sse { enabled, .. } => *enabled,
+        }
+    }
+
     /// The declaration's transport.
     pub fn transport(&self) -> McpTransport {
         match self {
@@ -425,7 +482,8 @@ impl McpServerConfigInput {
         }
     }
 
-    /// Whether the declaration sets `member`; a member its transport does not carry is never set.
+    /// Whether the declaration sets or clears `member`; a member its transport does not carry is
+    /// never set.
     pub fn sets_member(&self, member: McpDeclaredConfigMember) -> bool {
         match self {
             Self::Stdio {

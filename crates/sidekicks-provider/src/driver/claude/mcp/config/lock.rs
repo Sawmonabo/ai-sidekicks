@@ -2,10 +2,6 @@
 //! config, made with `mkdir`, taken over once it is more than 10 seconds old, and tried again on
 //! Claude Code's own schedule until the caller's deadline. The lock is never refreshed, so its
 //! holder keeps it well under the stale age.
-#![cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the Claude driver's write of the person's config")
-)]
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -146,8 +142,9 @@ fn is_stale(modified: SystemTime) -> bool {
         .is_ok_and(|age| age > CLAUDE_CONFIG_LOCK_STALE_AGE)
 }
 
-// The folder's path stays out of the log, since it names the person's home.
-fn log_unremoved(removed: io::Result<()>) {
+/// Logs a lock folder's removal that failed; the folder's path stays out of the log, since it names
+/// the person's home.
+pub(super) fn log_unremoved(removed: io::Result<()>) {
     if let Err(error) = removed {
         tracing::warn!(
             error = &error as &(dyn std::error::Error + 'static),

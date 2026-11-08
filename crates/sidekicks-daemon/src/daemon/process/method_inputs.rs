@@ -1,13 +1,16 @@
 //! What the daemon's start builds over its store, its providers and its repository services for the
-//! serving socket: the session directory's port, the session services, the terminals' table, the
-//! project and clone services, the worktree creator and its setup card, the workspace services,
-//! the recovery services and the stored data's methods, then every method table registered over
-//! them; it hands back the parts the start runs next and the stop ends.
+//! serving socket: the MCP services, the session directory's port, the session services, the
+//! terminals' table, the project and clone services, the worktree creator and its setup card, the
+//! workspace services, the recovery services and the stored data's methods, then every method
+//! table registered over them; it hands back the parts the start runs next and the stop ends.
 
+pub(crate) mod error;
+mod mcp;
 mod recovery;
+mod worktree;
 
 use std::error::Error;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
 use futures::FutureExt as _;
@@ -18,26 +21,21 @@ use sidekicks_contracts::process_identity::ProcessIdentity;
 use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::wire::text::{BoundedText, TextError};
+use sidekicks_contracts::wire::text::BoundedText;
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
 use sidekicks_ipc::presence::PresenceRegister;
-use sidekicks_ipc::registry::{HandlerError, MethodRegistryBuilder, RegistrationError};
-use sidekicks_mcp::binding::resolver::McpAttributionTable;
-use sidekicks_mcp::binding::store::{McpBindingStore, open_first_observation_drain};
+use sidekicks_ipc::registry::{HandlerError, MethodRegistryBuilder};
+use sidekicks_mcp::client::McpClient;
 use sidekicks_mcp::client::dispatch::McpToolDispatch;
-use sidekicks_mcp::client::{McpClient, McpClientError};
-use sidekicks_mcp::inventory_service::{McpInventoryService, McpInventorySources};
-use sidekicks_mcp::status::McpServerStatusTracker;
-use sidekicks_mcp::status::machine_probe::McpMachineProbeGate;
-use sidekicks_mcp::status::notices::McpNoticeBoard;
+use sidekicks_mcp::inventory_service::McpInventoryService;
+use sidekicks_mcp::mutation::service::McpMutationService;
 use sidekicks_platforms::{
     DaemonRunFolder, Spawner, TOOL_MEMORY_CAP_ENFORCEABLE, WallClock, available_memory,
     physical_memory, read_process_peak_bytes,
 };
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
-use sidekicks_provider::account::credential_home::sign_out_every_home;
-use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
+use sidekicks_provider::account::credential_home::{ACCOUNT_SIGN_OUT_BOUND, sign_out_every_home};
 use sidekicks_provider::port::run_pause::ContinuedMessages;
 use sidekicks_provider::port::session_wake::SessionWaker;
 use sidekicks_queue::memory_gate::{
@@ -46,7 +44,9 @@ use sidekicks_queue::memory_gate::{
 use sidekicks_queue::run_token_limit::RunTokenLimitReader;
 use sidekicks_queue::service::answer_continue::HaltedRunRecord;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
+use sidekicks_recovery::restart_settle::RestartSettle;
 use sidekicks_recovery::startup::StartupRecovery;
+use sidekicks_recovery::stop_intent::StopIntentFile;
 use sidekicks_session::agent_tree::controls::ChildRunControls;
 use sidekicks_session::agent_tree::lookup::StoredAgentTreeLookup;
 use sidekicks_session::attention::banner_launcher::BannerLauncher;
@@ -58,14 +58,12 @@ use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::groups::service::SessionGroupService;
 use sidekicks_session::interventions::service::InterventionService;
 use sidekicks_session::plan_holds::PlanHolds;
-use sidekicks_session::run::folders::SessionLiveRunFolders;
 use sidekicks_session::run::held_tool_calls::StoredHeldToolCalls;
 use sidekicks_session::search::index::live::LiveIndex;
 use sidekicks_shell::orphan::guard::OrphanGuard;
 use sidekicks_std::error_description::describe_error;
-use sidekicks_std::port_registration::{PortRegistration, PortRegistrationError};
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::scheduler::Scheduler;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::credential_store::items::SecretItems;
 use sidekicks_store::credential_store::service::KeychainService;
 use sidekicks_store::machine::identity_key::MachineIdentity;
@@ -73,9 +71,8 @@ use sidekicks_store::machine::local::LocalMachine;
 use sidekicks_workspace::clone::service::{CloneAttachedListener, CloneService, CloneServiceDeps};
 use sidekicks_workspace::folder::list::FolderListService;
 use sidekicks_workspace::git::process::GitRunner;
-use sidekicks_workspace::git::worktree::creation::{WorktreeCreator, WorktreeCreatorDeps};
-use sidekicks_workspace::git::worktree::naming::WorktreeNaming;
-use sidekicks_workspace::git::worktree::setup::{WorktreeSetupRunner, WorktreeSetupRunnerDeps};
+use sidekicks_workspace::git::worktree::creation::WorktreeCreator;
+use sidekicks_workspace::git::worktree::setup::WorktreeSetupRunner;
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
 use sidekicks_workspace::managed::service::managed_workspaces_folder;
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
@@ -92,8 +89,13 @@ use crate::daemon::machine_settings::methods::{
     FindBranchPatternRefusal, MachineSettingsMethodsDeps,
 };
 use crate::daemon::process::database::DatabaseFile;
+use crate::daemon::process::method_inputs::error::MethodInputsError;
+use crate::daemon::process::method_inputs::mcp::{McpGovernanceStart, open_mcp_status};
 use crate::daemon::process::method_inputs::recovery::{
     RecoveryServiceStart, RecoveryServices, build_recovery_services,
+};
+use crate::daemon::process::method_inputs::worktree::{
+    WorktreeServiceStart, WorktreeServices, build_worktree_services,
 };
 use crate::daemon::process::method_tables::{MethodTableServices, register_method_tables};
 use crate::daemon::process::provider_accounts::{
@@ -107,20 +109,18 @@ use crate::daemon::process::repo_services::{
     ManagedWritesWatermarkFile, RepoServices, managed_writes_watermark_path,
 };
 use crate::daemon::process::session_services::{
-    SessionServiceStart, SessionServiceStartError, SessionServices, build_session_services,
+    SessionServiceStart, SessionServices, build_session_services,
 };
-use crate::daemon::process::shell_table::{
-    ShellTableStart, ShellTableStartError, build_shell_table,
-};
+use crate::daemon::process::shell_table::{ShellTableStart, build_shell_table};
+use crate::daemon::process::stop::DaemonStopReason;
 use crate::daemon::process::supervision::ProcessStateTracker;
 use crate::daemon::process::workspace_services::{
     ExecutionRootStart, WorkspaceServiceStart, WorkspaceWork, build_execution_root_services,
     build_workspace_services,
 };
-use crate::daemon::process::worktree_sources::WorktreeSources;
 use crate::daemon::process_tree_usage::ProcessTreeUsageReader;
 use crate::daemon::status_methods::StatusMethodsDeps;
-use crate::data_acts::erase::{ACCOUNT_SIGN_OUT_BOUND, DataErase, DataEraseDeps, EraseStep};
+use crate::data_acts::erase::{DataErase, DataEraseDeps, EraseStep};
 use crate::data_acts::export::{DataExportDeps, DataExports};
 use crate::ipc::handlers::agent::command::CommandMethodSources;
 use crate::ipc::handlers::approval::ApprovalMethodSources;
@@ -129,6 +129,7 @@ use crate::ipc::handlers::mcp::McpMethodSources;
 use crate::ipc::handlers::run::control::RunControlServices;
 use crate::ipc::handlers::run::queue::RunQueueMethods;
 use crate::ipc::handlers::session::controls::SessionControlMethods;
+use crate::ipc::handlers::session::mcp_servers::McpServerMethods;
 use crate::ipc::handlers::session::search::SessionSearchMethods;
 use crate::ipc::handlers::session::snapshots::SessionSnapshotSources;
 use crate::observability::diagnostic_buckets::recorders::provider_messages_folder;
@@ -201,8 +202,10 @@ pub(crate) struct MethodInputsStart<'start> {
     pub(crate) process_state: Arc<ProcessStateTracker>,
     /// The serving socket's record of mutating calls, set once its gate chain is built.
     pub(crate) in_flight: Arc<OnceLock<Arc<InFlightMutations>>>,
-    /// Starts the daemon's stop for the intent given.
-    pub(crate) accept_stop: Arc<dyn Fn(DaemonStopIntent) + Send + Sync>,
+    /// Starts the daemon's stop for the reason given.
+    pub(crate) accept_stop: Arc<dyn Fn(DaemonStopReason) + Send + Sync>,
+    /// The intent the person's Stop writes, which the recovery pass reads and a purge drops from.
+    pub(crate) stop_intent: Arc<StopIntentFile>,
     /// The erase's step that ends the daemon's work as the stop does.
     pub(crate) stop_work: EraseStep,
     /// The erase's step that closes everything that holds a file in the data folder.
@@ -215,6 +218,8 @@ pub(crate) struct MethodInputs {
     pub(crate) session: SessionServices,
     /// The recovery pass, run once the socket is bound and before any follow of the log begins.
     pub(crate) recovery: StartupRecovery,
+    /// The restart's settle, which the person's Stop drains the live runs through.
+    pub(crate) restart_settle: Arc<RestartSettle>,
     /// The live projects list, closed at the stop.
     pub(crate) project_list_feed: Arc<ProjectListFeed>,
     /// The clone service, which owns the askpass broker and closes it at the stop; `None` when it
@@ -237,52 +242,13 @@ pub(crate) struct MethodInputs {
     pub(crate) workspace_work: WorkspaceWork,
     /// The MCP server inventory, whose fills of the attribution table the start begins.
     pub(crate) mcp_inventory: Arc<McpInventoryService>,
+    /// The MCP binding edits' service, whose pass over the edits a stop left unfinished the start
+    /// requests.
+    pub(crate) mcp_mutations: Arc<McpMutationService>,
     /// The provider accounts' background observer, started once the recovery pass has run.
     pub(crate) provider_accounts: ProviderAccountObservation,
     /// The daemon's one client of the sessions' tool servers, which the stop stops.
     pub(crate) mcp_client: Arc<McpClient>,
-}
-
-/// Why the method tables' services could not be built.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum MethodInputsError {
-    /// A driver port was registered already.
-    #[error(transparent)]
-    PortRegistration(#[from] PortRegistrationError),
-    /// The session services could not be built.
-    #[error(transparent)]
-    SessionServices(#[from] SessionServiceStartError),
-    /// The terminals' table could not be built.
-    #[error(transparent)]
-    ShellTable(#[from] ShellTableStartError),
-    /// The tool servers' client could not be built.
-    #[error(transparent)]
-    McpClient(#[from] McpClientError),
-    /// A method was registered twice.
-    #[error(transparent)]
-    Registration(#[from] RegistrationError),
-    /// This machine's stored id is no device id, so neither the served socket nor a run's hold
-    /// can name it.
-    #[error("this computer's id {} is not a device id", machine_id.as_str())]
-    MachineDeviceId {
-        /// The stored id.
-        machine_id: MachineId,
-    },
-    /// The socket's path is too long for the status read to report.
-    #[error("the socket path {} cannot be reported", path.display())]
-    SocketPathText {
-        /// The socket's path.
-        path: PathBuf,
-    },
-    /// A folder's path cannot be reported on the wire.
-    #[error("the folder path {} cannot be reported", path.display())]
-    FolderPathText {
-        /// The folder's path.
-        path: PathBuf,
-        /// Why its text was refused.
-        #[source]
-        source: TextError,
-    },
 }
 
 /// Builds every service the method tables take from `start` and registers the tables on
@@ -327,10 +293,12 @@ pub(crate) async fn register_method_inputs(
         process_state,
         in_flight,
         accept_stop,
+        stop_intent,
         stop_work,
         close_data_folder,
     } = start;
     let wake_helper_spawner = spawner.clone();
+    let resource_copy_spawner = spawner.clone();
     let presence = Arc::new(PresenceRegister::default());
     let reads = Arc::clone(&database.pool);
     let writer = Arc::clone(&database.writer);
@@ -339,17 +307,7 @@ pub(crate) async fn register_method_inputs(
     let settings_reader: Arc<dyn MachineSettingsReader> = Arc::clone(&settings) as _;
     let epochs = Arc::clone(&providers.epochs);
     let binding_cursors = Arc::clone(&providers.binding_cursors);
-    let mcp_binding_store = McpBindingStore::new(Arc::clone(&writer), Arc::clone(&reads));
-    // The status tracker sends each binding it first observes to the drain, which records it.
-    let (first_observations, mcp_first_observations) =
-        open_first_observation_drain(mcp_binding_store.clone()).await;
-    let mcp_notice_board = Arc::new(McpNoticeBoard::default());
-    // One table, so the inventory's reads refresh what the status producers resolve names by.
-    let mcp_attribution = Arc::new(McpAttributionTable::default());
-    let mcp_status = Arc::new(McpServerStatusTracker::new(
-        Arc::clone(&mcp_notice_board),
-        first_observations,
-    ));
+    let mcp = open_mcp_status(&writer, &reads).await;
     let port = build_provider_port(ProviderPortStart {
         reads: Arc::clone(&reads),
         read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
@@ -358,48 +316,36 @@ pub(crate) async fn register_method_inputs(
         settings: Arc::clone(&settings_reader),
         plan_holds: plan_holds.as_ref(),
         ports: &providers.ports,
-        mcp_status: Arc::clone(&mcp_status),
-        mcp_attribution: Arc::clone(&mcp_attribution),
+        mcp_status: Arc::clone(&mcp.status),
+        mcp_attribution: Arc::clone(&mcp.attribution),
+        mcp_tool_servers: Arc::clone(&mcp.session_tool_servers),
     })?;
-    let mcp_inventory = Arc::new(McpInventoryService::new(McpInventorySources {
-        providers: Arc::clone(&registry),
-        reads: Arc::clone(&reads),
-        // The accounts read's time on the pool, over the daemon's life.
-        meter: ProcessorMeter::default(),
-        projects: Arc::clone(&port.project_records),
-        store: mcp_binding_store,
-        tracker: Arc::clone(&mcp_status),
-        attribution: mcp_attribution,
-        probe_gate: Arc::new(McpMachineProbeGate::default()),
-    }));
-    let worktree_sources = Arc::new(WorktreeSources {
-        reads: Arc::clone(&reads),
-        records: Arc::clone(&port.project_records),
-        worktrees: Arc::clone(&repo.worktrees),
-        settings: Arc::clone(&settings_reader),
-        base_environment: Arc::clone(&base_environment),
-        reserved_names: Arc::clone(&providers.reserved_names),
+    let (mcp_inventory, mcp_mutations) = mcp.build_governance(&McpGovernanceStart {
+        providers: &registry,
+        projects: &port.project_records,
+        secret_items: &secret_items,
+        writer: &writer,
+        reads: &reads,
     });
-    let worktree_setup = Arc::new(WorktreeSetupRunner::new(WorktreeSetupRunnerDeps {
+    mcp.session_tool_servers
+        .register_inventory(Arc::clone(&mcp_inventory))?;
+    let WorktreeServices {
+        setup: worktree_setup,
+        live_run_folders,
+        creator: worktree_creator,
+    } = build_worktree_services(WorktreeServiceStart {
+        reads: &reads,
+        writer: &writer,
+        repo,
+        records: &port.project_records,
+        settings: &settings_reader,
+        base_environment: &base_environment,
+        reserved_names: &providers.reserved_names,
         git: git.clone(),
         spawner: spawner.clone(),
-        watcher: Arc::clone(&repo.folder_watch),
-        sources: Arc::clone(&worktree_sources) as _,
-    }));
-    let live_run_folders = Arc::new(SessionLiveRunFolders::new(Arc::clone(&reads)));
+    });
     // The creator's, the run setup gate's around a run's context write, and the turn snapshots'.
     let checkout_lock = Arc::clone(&repo.checkout_lock);
-    let worktree_creator = Arc::new(WorktreeCreator::new(WorktreeCreatorDeps {
-        git: git.clone(),
-        reads: Arc::clone(&reads),
-        writer: Arc::clone(&writer),
-        events: Arc::clone(&repo.worktree_events),
-        naming: WorktreeNaming::new(repo.worktrees_folder.clone(), worktree_sources),
-        worktrees: Arc::clone(&repo.worktrees),
-        setup: Arc::clone(&worktree_setup),
-        live_run_folders: Arc::clone(&live_run_folders) as _,
-        checkout_lock: Arc::clone(&checkout_lock),
-    }));
     let attention = Arc::new(AttentionService::new(AttentionServiceDependencies {
         writer: Arc::clone(&writer),
         pool: Arc::clone(&reads),
@@ -472,6 +418,7 @@ pub(crate) async fn register_method_inputs(
         plan_holds,
         payloads: Arc::clone(&artifacts.payloads),
         publisher: Arc::clone(&artifacts.publisher),
+        attachments: Arc::clone(&artifacts.attachments),
         spool_folder: artifacts.spool_folder.clone(),
         workspaces_folder: managed_workspaces_folder(home_folder),
         workspace_writes: repo
@@ -489,8 +436,8 @@ pub(crate) async fn register_method_inputs(
         token_limits: Arc::new(token_limits),
         halted_runs: Arc::clone(&database.status) as Arc<dyn HaltedRunRecord>,
         scheduler: Arc::clone(&scheduler),
-        mcp_status,
-        mcp_first_observations: mcp_first_observations.boxed(),
+        mcp_status: Arc::clone(&mcp.status),
+        mcp_first_observations: mcp.first_observations,
     })?;
     let accounts = build_provider_account_plane(ProviderAccountPlaneStart {
         reads: Arc::clone(&reads),
@@ -637,7 +584,11 @@ pub(crate) async fn register_method_inputs(
         }),
         Err(unavailable) => Err(unavailable),
     };
-    let RecoveryServices { stored, recovery } = build_recovery_services(RecoveryServiceStart {
+    let RecoveryServices {
+        stored,
+        recovery,
+        restart_settle,
+    } = build_recovery_services(RecoveryServiceStart {
         database,
         reads: &reads,
         writer,
@@ -657,6 +608,7 @@ pub(crate) async fn register_method_inputs(
         accept_stop: &accept_stop,
         data_folder,
         copier,
+        stop_intent,
         mcp_dispatch,
     })?;
     let driver_methods = Arc::new(DriverMethodSources {
@@ -666,9 +618,11 @@ pub(crate) async fn register_method_inputs(
     });
     // The messages waiting for a paused run, which a run's and a child's continue deliver.
     let continued: Arc<dyn ContinuedMessages> = Arc::new(session.queue.delivery());
-    let (erase_accounts, erase_legs) = (
-        Arc::clone(&accounts.methods.accounts),
+    let (erase_reads, erase_data_folder, erase_legs, erase_sign_ins) = (
+        Arc::clone(&reads),
+        data_folder.to_path_buf(),
         accounts.methods.account_legs.clone(),
+        Arc::clone(&accounts.methods.sign_in),
     );
     register_method_tables(
         builder,
@@ -718,14 +672,19 @@ pub(crate) async fn register_method_inputs(
                     providers: Arc::clone(&registry),
                     stop_work,
                     sign_out_accounts: Arc::new(move || {
-                        let (registry, legs) = (Arc::clone(&erase_accounts), erase_legs.clone());
+                        let (pool, legs) = (Arc::clone(&erase_reads), erase_legs.clone());
+                        let folder = erase_data_folder.clone();
                         async move {
-                            sign_out_every_home(&registry, &legs, ACCOUNT_SIGN_OUT_BOUND).await
+                            sign_out_every_home(&pool, &folder, &legs, ACCOUNT_SIGN_OUT_BOUND).await
                         }
                         .boxed()
                     }),
+                    end_sign_ins: Arc::new(move || {
+                        let sign_ins = Arc::clone(&erase_sign_ins);
+                        async move { sign_ins.stop(ACCOUNT_SIGN_OUT_BOUND).await }.boxed()
+                    }),
                     close_data_folder,
-                    end_process: Arc::new(move || accept_stop(DaemonStopIntent::Stop)),
+                    end_process: Arc::new(move || accept_stop(DaemonStopReason::Erase)),
                 })),
             },
             data_folder: data_folder.to_path_buf(),
@@ -772,8 +731,9 @@ pub(crate) async fn register_method_inputs(
             event_log: Arc::clone(&database.event_log),
             mcp_methods: McpMethodSources {
                 log: Arc::clone(&database.event_log),
-                board: mcp_notice_board,
+                board: mcp.board,
                 inventory: Arc::clone(&mcp_inventory),
+                mutations: Arc::clone(&mcp_mutations),
             },
             run_safety_holds: Arc::clone(&session.run_safety_holds),
             sessions: Arc::clone(&session.sessions),
@@ -801,6 +761,14 @@ pub(crate) async fn register_method_inputs(
                 index: search_index,
                 files: Arc::clone(&session.file_search),
                 read_damaged_from_sequence,
+            },
+            mcp_servers: McpServerMethods {
+                sources: Arc::clone(&driver_methods),
+                statuses: mcp.status,
+                client: Arc::clone(&mcp_client),
+                spawner: resource_copy_spawner,
+                reserved_names: Arc::clone(&providers.reserved_names),
+                followers: Arc::clone(&database.followers),
             },
             session_goals: Arc::new(SessionGoals {
                 pool: Arc::clone(&reads),
@@ -835,6 +803,7 @@ pub(crate) async fn register_method_inputs(
     Ok(MethodInputs {
         session,
         recovery,
+        restart_settle,
         project_list_feed,
         clones: clones.ok(),
         worktree_setup,
@@ -845,6 +814,7 @@ pub(crate) async fn register_method_inputs(
         web_address_sender,
         workspace_work: workspace.work,
         mcp_inventory,
+        mcp_mutations,
         provider_accounts: accounts.observation,
         mcp_client,
     })

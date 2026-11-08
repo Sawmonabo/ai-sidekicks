@@ -3,14 +3,6 @@
 //! that writes each receipt `pending` before the provider is touched and commits it in the same
 //! write as the mutation's own rows.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the mutation service writes, checks and settles the receipts"
-    )
-)]
-
 use std::borrow::Cow;
 use std::sync::{Arc, LazyLock};
 
@@ -18,6 +10,8 @@ use rusqlite::named_params;
 use rusqlite::types::Value as SqliteValue;
 use secrecy::{ExposeSecret as _, SecretBox};
 use serde_json::{Map, Value, json};
+use sidekicks_contracts::mcp::governance::McpServerEnabledUpdate;
+use sidekicks_contracts::method::Method as _;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_store::database::connection::read_pool::{
@@ -125,8 +119,16 @@ pub(crate) struct McpIntentReceipt {
     pub(crate) before_digest: Option<McpReceiptDigest>,
     /// The digest of the declaration the write leaves; `None` for a remove.
     pub(crate) after_digest: Option<McpReceiptDigest>,
-    /// A switch's wanted state; `None` for every other mutation.
+    /// A switch's wanted state, or the daemon's switch an upsert of an emulated `local` server
+    /// sets; `None` for every other mutation.
     pub(crate) wanted_enabled: Option<bool>,
+}
+
+impl McpIntentReceipt {
+    /// Whether the receipt is a switch's, which settles by its wanted state.
+    pub(crate) fn is_switch(&self) -> bool {
+        self.operation == McpServerEnabledUpdate::DESCRIPTOR.method
+    }
 }
 
 /// What an idempotency key's receipt says about a request made under it.
@@ -463,6 +465,7 @@ pub(super) mod tests {
         McpReceiptDigest, McpReceiptKey, McpSavedCheck,
     };
     use crate::binding::store::McpBindingKey;
+    use crate::mutation::receipt_key::MCP_RECEIPT_KEY_STATEMENT_CAPACITY;
     use crate::schema::schema_parts;
 
     /// A receipt key whose 32 bytes are all `fill`.
@@ -507,7 +510,14 @@ pub(super) mod tests {
         }
     }
 
-    async fn receipts_over_a_database() -> (TestDatabase, McpMutationReceipts) {
+    /// A receipt store over a fresh database of the crate's schema, with the writer and the read
+    /// pool it goes through, each prepared for the receipt key's statements too.
+    pub(in crate::mutation) async fn receipts_over_a_database() -> (
+        TestDatabase,
+        McpMutationReceipts,
+        Arc<DatabaseWriter>,
+        Arc<DatabaseReadPool>,
+    ) {
         let database = TestDatabase::new(schema_parts());
         let writer = Arc::new(
             DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
@@ -516,9 +526,10 @@ pub(super) mod tests {
         );
         let reads = Arc::new(DatabaseReadPool::new(
             database.path(),
-            MCP_MUTATION_RECEIPTS_STATEMENT_CAPACITY,
+            MCP_MUTATION_RECEIPTS_STATEMENT_CAPACITY + MCP_RECEIPT_KEY_STATEMENT_CAPACITY,
         ));
-        (database, McpMutationReceipts::new(writer, reads))
+        let receipts = McpMutationReceipts::new(Arc::clone(&writer), Arc::clone(&reads));
+        (database, receipts, writer, reads)
     }
 
     async fn check(
@@ -608,7 +619,7 @@ pub(super) mod tests {
     /// dropped, by a pending row answered as saved, and by a field left unread.
     #[tokio::test]
     async fn the_saved_check_answers_by_status_and_digest() {
-        let (_database, receipts) = receipts_over_a_database().await;
+        let (_database, receipts, _writer, _reads) = receipts_over_a_database().await;
         let (committed_key, pending_key) = (idempotency_key(), idempotency_key());
         let response = json!({ "applied": true });
 
@@ -652,50 +663,13 @@ pub(super) mod tests {
         );
     }
 
-    /// A receipt committed when the receipt key was lost keeps no digest and answers its saved
-    /// failure under any request. Killed by the digests kept, and by the compare made before the
-    /// missing digest is read.
-    #[tokio::test]
-    async fn a_receipt_committed_on_a_lost_key_answers_its_failure_under_any_request() {
-        let (database, receipts) = receipts_over_a_database().await;
-        let key = idempotency_key();
-        let failure = json!({ "type": "mcp.bindingStoreUnavailable" });
-        receipts
-            .begin(&intent(&key, digest_of(1)))
-            .await
-            .expect("the intent begins");
-
-        receipts
-            .writer
-            .write(vec![McpMutationReceipts::commit_key_lost_statement(
-                &key, &failure,
-            )])
-            .await
-            .expect("the lost key's commit is written");
-
-        assert_eq!(
-            check(&receipts, &key, digest_of(9)).await,
-            McpSavedCheck::Saved(failure)
-        );
-        let digests_left: i64 = database
-            .reader()
-            .query_row(
-                "SELECT count(request_digest) + count(before_digest) + count(after_digest)
-                   FROM mcp_mutation_receipts",
-                [],
-                |row| row.get(0),
-            )
-            .expect("the test reads the digests");
-        assert_eq!(digests_left, 0);
-    }
-
     /// The commit's flip and the caller's rows are one write: a refused row keeps the receipt
     /// pending and writes none of the rows, and a receipt already committed is not committed
     /// again. Killed by the flip and the rows written apart, and by the flip without its row
     /// count.
     #[tokio::test]
     async fn a_commit_is_one_write_of_a_pending_receipt() {
-        let (database, receipts) = receipts_over_a_database().await;
+        let (database, receipts, _writer, _reads) = receipts_over_a_database().await;
         let key = idempotency_key();
         receipts
             .begin(&intent(&key, digest_of(1)))
@@ -743,7 +717,7 @@ pub(super) mod tests {
     /// reversed, and by an expiry of a committed receipt.
     #[tokio::test]
     async fn a_begin_prunes_old_committed_receipts_and_an_expiry_only_pending_ones() {
-        let (database, receipts) = receipts_over_a_database().await;
+        let (database, receipts, _writer, _reads) = receipts_over_a_database().await;
         let (old_committed, old_pending, recent_committed) =
             (idempotency_key(), idempotency_key(), idempotency_key());
         let reader = database.reader();

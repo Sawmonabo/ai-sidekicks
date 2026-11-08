@@ -16,8 +16,9 @@ use sidekicks_ipc::in_flight_mutations::{InFlightMutations, RecordedCallId};
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_store::database::writer::DatabaseWriter;
+
+use crate::daemon::process::stop::DaemonStopReason;
 
 /// Resolves once every write pending at the call is durable; stops nothing. It takes the call's
 /// own in-flight record, so a wait on the pending mutations excludes the flush itself.
@@ -53,10 +54,10 @@ pub(crate) fn flush_writes(
 pub(crate) struct LifecycleMethodsDeps {
     /// The flush of the pending writes.
     pub(crate) flush: FlushWrites,
-    /// Starts the daemon's stop for the intent given; it runs once the call's reply is queued, so
+    /// Starts the daemon's stop for the reason given; it runs once the call's reply is queued, so
     /// the reply is written before the stop closes the connection. The stop waits for the writes
     /// already under way within its drain bound.
-    pub(crate) accept_stop: Arc<dyn Fn(DaemonStopIntent) + Send + Sync>,
+    pub(crate) accept_stop: Arc<dyn Fn(DaemonStopReason) + Send + Sync>,
 }
 
 /// Registers `daemon.flush`, `daemon.stop`, `daemon.restart` and `daemon.ping`. A stop goes ahead
@@ -77,19 +78,19 @@ pub(crate) fn register_lifecycle_methods(
         }
         .boxed()
     })?;
-    register_stop::<DaemonStop>(registry, deps, DaemonStopIntent::Stop)?;
-    register_stop::<DaemonRestart>(registry, deps, DaemonStopIntent::Restart)?;
+    register_stop::<DaemonStop>(registry, deps, DaemonStopReason::Stop)?;
+    register_stop::<DaemonRestart>(registry, deps, DaemonStopReason::Restart)?;
     // The answer arriving is the whole of it.
     registry.register::<DaemonPing, _>(|_: EmptyPayload, _context: HandlerContext| {
         async { Ok(EmptyPayload {}) }.boxed()
     })
 }
 
-// Registers a verb that accepts the daemon's stop for `intent`.
+// Registers a verb that accepts the daemon's stop for `reason`.
 fn register_stop<M>(
     registry: &mut MethodRegistryBuilder,
     deps: &LifecycleMethodsDeps,
-    intent: DaemonStopIntent,
+    reason: DaemonStopReason,
 ) -> Result<(), RegistrationError>
 where
     M: Method<Params = EmptyPayload, Result = DaemonLifecycleAccepted> + 'static,
@@ -97,7 +98,7 @@ where
     let accept_stop = Arc::clone(&deps.accept_stop);
     registry.register::<M, _>(move |_: EmptyPayload, context: HandlerContext| {
         let accept_stop = Arc::clone(&accept_stop);
-        context.after_reply.set(move || accept_stop(intent));
+        context.after_reply.set(move || accept_stop(reason));
         async {
             Ok(DaemonLifecycleAccepted {
                 accepted: BoolLiteral,
@@ -124,13 +125,13 @@ mod tests {
     use sidekicks_ipc::registry::{
         Dispatch, DispatchError, HandlerContext, MethodRegistry, MethodRegistryBuilder, Reply,
     };
-    use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
     use sidekicks_std::mutex_lock::lock;
     use sidekicks_store::database::writer::test_file::TestDatabase;
     use sidekicks_store::events::log_service::test_fixture::open_log;
     use tokio::sync::oneshot;
 
     use super::{LifecycleMethodsDeps, flush_writes, register_lifecycle_methods};
+    use crate::daemon::process::stop::DaemonStopReason;
     use crate::daemon::schema::schema_parts;
 
     /// A method of another namespace sharing the flush's last segment.
@@ -159,7 +160,7 @@ mod tests {
     struct Lifecycle {
         registry: MethodRegistry,
         flushes: Arc<Mutex<Vec<oneshot::Sender<()>>>>,
-        stops: Arc<Mutex<Vec<DaemonStopIntent>>>,
+        stops: Arc<Mutex<Vec<DaemonStopReason>>>,
     }
 
     fn lifecycle() -> Lifecycle {
@@ -180,8 +181,8 @@ mod tests {
                     }
                     .boxed()
                 }),
-                accept_stop: Arc::new(move |intent| {
-                    lock(&counted).push(intent);
+                accept_stop: Arc::new(move |reason| {
+                    lock(&counted).push(reason);
                 }),
             },
         )
@@ -211,19 +212,19 @@ mod tests {
     }
 
     // `daemon.stop` and `daemon.restart` are mutations that each accept one stop once their reply
-    // is queued, the restart's carrying its intent so a lasting provider service outlives it;
+    // is queued, the restart's carrying its reason so a lasting provider service outlives it;
     // `daemon.start` is no method, since a cold start is the command line's spawn. Killed by a
     // lifecycle verb registered as a query, by a stop that is not accepted, by a stop accepted
     // before its reply is queued, and by `lifecycle_methods.rs`'s restart registered with
-    // `DaemonStopIntent::Stop`.
+    // `DaemonStopReason::Stop`.
     #[tokio::test]
     async fn stop_and_restart_accept_a_stop_after_their_reply_and_start_is_no_method() {
         let lifecycle = lifecycle();
         let stops = || lock(&lifecycle.stops).clone();
         let mut accepted = Vec::new();
-        for (method, intent) in [
-            (DaemonStop::DESCRIPTOR.method, DaemonStopIntent::Stop),
-            (DaemonRestart::DESCRIPTOR.method, DaemonStopIntent::Restart),
+        for (method, reason) in [
+            (DaemonStop::DESCRIPTOR.method, DaemonStopReason::Stop),
+            (DaemonRestart::DESCRIPTOR.method, DaemonStopReason::Restart),
         ] {
             let descriptor = lifecycle
                 .registry
@@ -240,7 +241,7 @@ mod tests {
             assert_eq!(answer(reply), json!({ "accepted": true }));
             assert_eq!(stops(), accepted, "{method} waits for its reply");
             after_reply.run();
-            accepted.push(intent);
+            accepted.push(reason);
             assert_eq!(stops(), accepted);
         }
         assert!(matches!(
@@ -294,7 +295,7 @@ mod tests {
             &mut builder,
             &LifecycleMethodsDeps {
                 flush: flush_writes(Arc::clone(&gate), log.writer),
-                accept_stop: Arc::new(|_intent| {}),
+                accept_stop: Arc::new(|_reason| {}),
             },
         )
         .expect("the lifecycle verbs register");

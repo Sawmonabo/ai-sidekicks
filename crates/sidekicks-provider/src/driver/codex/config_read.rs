@@ -1,7 +1,7 @@
 //! Codex's settings as the daemon reads them. A reader with a service running on the Codex home it
 //! reads asks Codex itself through `config/read`: the effective config Codex merged from its layers
-//! for a folder, the layer that set each key, and on request each layer as it stands. A reader
-//! with no service to ask, the person's own Codex folder among the homes it reads, reads a layer's
+//! for a folder or for none, the layer that set each key, and on request each layer as it stands.
+//! A reader with no service to ask, the privacy read before each start among them, reads a layer's
 //! `config.toml` itself through [`read_codex_config_file`]. The service's processing region is read
 //! here too, from the host of the base URL its model provider sends requests to.
 
@@ -114,6 +114,8 @@ pub(crate) struct CodexConfigLayer {
     pub(crate) name: CodexConfigLayerSource,
     /// The layer's own config, before any merge.
     pub(crate) config: Value,
+    /// The layer's version, which a write to it expects.
+    pub(crate) version: String,
     /// Why Codex ignores the layer when it merges; `None` for a layer it merges.
     #[serde(default)]
     pub(crate) disabled_reason: Option<String>,
@@ -144,19 +146,28 @@ pub(crate) struct CodexConfigLayerSource {
     pub(crate) dot_codex_folder: Option<String>,
 }
 
+impl CodexConfigLayerSource {
+    /// The kind of the layer that holds the person's own Codex config.
+    pub(crate) const USER_KIND: &'static str = "user";
+
+    /// The kind of a layer that holds a project's own Codex config.
+    pub(crate) const PROJECT_KIND: &'static str = "project";
+}
+
 /// Codex's settings for `cwd` as `connection`'s service resolves them, each layer listed in the
-/// reply when `include_layers` asks. Fails as the request fails, and with `CodexError::Transport`
-/// for a reply `Config` cannot read.
+/// reply when `include_layers` asks; with no `cwd`, the config Codex loads for no folder, which no
+/// project layer joins. Fails as the request fails, and with `CodexError::Transport` for a reply
+/// `Config` cannot read.
 pub(crate) async fn read_codex_config<Config: DeserializeOwned>(
     connection: &CodexAppServerConnection,
-    cwd: &Path,
+    cwd: Option<&Path>,
     include_layers: bool,
 ) -> Result<CodexConfigRead<Config>, CodexError> {
     let reply = connection
         .request(
             CONFIG_READ_METHOD,
             &ConfigReadParams {
-                cwd: Some(cwd.to_string_lossy().into_owned()),
+                cwd: cwd.map(|cwd| cwd.to_string_lossy().into_owned()),
                 include_layers: Some(include_layers),
             },
         )
@@ -259,7 +270,7 @@ pub(crate) async fn read_codex_processing_region(
     connection: &CodexAppServerConnection,
     cwd: &Path,
 ) -> Result<CodexProcessingRegion, CodexError> {
-    let read = read_codex_config::<CodexEndpointConfig>(connection, cwd, false).await?;
+    let read = read_codex_config::<CodexEndpointConfig>(connection, Some(cwd), false).await?;
     Ok(processing_region_of(&read.config))
 }
 

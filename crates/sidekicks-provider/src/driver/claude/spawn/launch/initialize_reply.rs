@@ -4,10 +4,11 @@
 //! read leniently and a row naming no value is skipped.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::Path;
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
+use sidekicks_contracts::free_form_string::FilesystemPath;
 
 use crate::driver::claude::session::transport::declarations::{
     ClaudeFastModeDeclaration, ClaudeInitializeDeclaration, ClaudeOfferedModel,
@@ -156,14 +157,15 @@ pub(crate) fn read_claude_initialize_declaration(
     }
 }
 
-// The auto-memory folder, then the team-memory folder, each kept only where it is an absolute path.
-fn read_memory_stores(memory_paths: Option<MemoryPaths>) -> Vec<PathBuf> {
+// The auto-memory folder, then the team-memory folder, each kept only where it is an absolute path
+// a filesystem path carries.
+fn read_memory_stores(memory_paths: Option<MemoryPaths>) -> Vec<FilesystemPath> {
     memory_paths
         .into_iter()
         .flat_map(|paths| [paths.auto, paths.team])
         .flatten()
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
+        .filter(|path| Path::new(path).is_absolute())
+        .filter_map(|path| FilesystemPath::new(path).ok())
         .collect()
 }
 

@@ -29,7 +29,9 @@ use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::run_control::{
     FindTakenMessagesParams, PauseRunParams, ResumeRunParams, TakenMessages,
 };
-use sidekicks_provider::port::run_pause::{ContinuedMessages, ContinuedMessagesError, RunPauses};
+use sidekicks_provider::port::run_pause::{
+    ContinuedMessages, ContinuedMessagesError, RunPauses, SessionOpening,
+};
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_store::database::connection::read_pool::{
@@ -42,7 +44,8 @@ use crate::run::engine::RunEngine;
 use crate::run::engine::errors::{RunEngineError, RunResumeError};
 use crate::run::engine::turns::guards::TURN_END_TYPES_SQL;
 use crate::run::read::{
-    RunRead, RunStateReader, read_run_provider, read_run_through, safe_run_version,
+    RunRead, RunStateReader, read_helper_lead, read_run_provider, read_run_through,
+    safe_run_version,
 };
 use crate::run::refusals::{RunRefusal, require_expected_version};
 use crate::run::state_change::{RunStateChange, RunWriteCompanions, RunWriteError};
@@ -70,6 +73,23 @@ static SELECT_NEWEST_TURN_END_IS_RESTART_CUT_SQL: LazyLock<String> = LazyLock::n
         restart = restart.as_str().expect("a closed word serializes as text"),
         category = EventCategory::RunLifecycle.as_str(),
         turn_ends = *TURN_END_TYPES_SQL,
+    )
+});
+
+// Whether the run's newest lifecycle event is its move from `paused` to `running`: a continue that
+// started no turn since.
+static SELECT_NEWEST_IS_CONTINUE_SQL: LazyLock<String> = LazyLock::new(|| {
+    let paused = serde_json::to_value(RunState::Paused).expect("a closed word serializes");
+    format!(
+        "SELECT type = '{running}' AND json_extract(payload, '$.previousState') IS '{paused}'
+  FROM session_events
+  WHERE category = '{category}'
+    AND run_id = @run_id
+  ORDER BY sequence DESC
+  LIMIT 1",
+        running = SessionEventType::AgentRunRunning.as_str(),
+        paused = paused.as_str().expect("a closed word serializes as text"),
+        category = EventCategory::RunLifecycle.as_str(),
     )
 });
 
@@ -195,8 +215,8 @@ impl From<RunPauseError> for HandlerError {
 }
 
 /// The statements [`RunPauseControl`] prepares on a read connection: the run's row, the provider
-/// it runs on and the run's newest turn end.
-pub const RUN_PAUSE_STATEMENT_CAPACITY: usize = 3;
+/// it runs on, the run's newest turn end and whether it is a provider's helper.
+pub const RUN_PAUSE_STATEMENT_CAPACITY: usize = 4;
 
 /// A resume the driver took: the run's answer, and whether the driver reported the pause's hold
 /// lost, a call it held withdrawn while it held, rather than released by this resume.
@@ -284,10 +304,19 @@ impl RunPauseControl {
     /// under the queue's lock on the session, which is let go for the driver's call and taken
     /// again to settle them, so a change to them meanwhile finds them taken. The caller holds no
     /// lock of the queue's. Refuses, nothing read, as a pause does for an unknown run, a stale
-    /// version and a run in any other state, then with [`RunPauseError::NoDriver`]. The driver's
-    /// params say whether the run's newest turn end is the restart's cut of its pause, which the
-    /// continue owes its continuation; a failed read fails with [`RunPauseError::Read`] or
-    /// [`RunPauseError::Pool`], nothing moved. A resume the driver refuses moves nothing, gives the
+    /// version and a run in any other state. The run's session is then opened where no process of
+    /// this daemon holds it since its restart, a failed opening failing with
+    /// [`RunPauseError::Driver`], nothing moved; then refuses with [`RunPauseError::NoDriver`]. The
+    /// driver's params say whether the run's newest turn end is the restart's cut of its pause,
+    /// which the continue owes its continuation; a failed read fails with [`RunPauseError::Read`]
+    /// or [`RunPauseError::Pool`], nothing moved. A provider's helper the restart cut, whose
+    /// session's opening was deferred because its lead is still held, calls no driver: its
+    /// waiting messages are kept for its lead's continue to carry as its words, it moves to
+    /// `running`, and the lead's continue is handed to the queue, the answer not waiting on it.
+    /// A lead whose session's opening was deferred because a run beneath it waits on the person
+    /// calls no driver either: its waiting messages are kept and it moves to `running`, its
+    /// continue carrying them going with the person's answer that frees the session.
+    /// A resume the driver refuses moves nothing, gives the
     /// messages back and fails with [`RunPauseError::Driver`], as does one whose answer never
     /// came, which keeps the messages for the provider's own word to settle. A move refused once
     /// the driver took the resume (a process exit ended or interrupted the run meanwhile) refuses
@@ -303,6 +332,9 @@ impl RunPauseControl {
         let _run_hold = self.run_lock.acquire(run_id).await;
         let session = OnceLock::new();
         let session = &session;
+        // Set when the run is a helper whose held lead's continue carries it.
+        let is_held_lead_continue = OnceLock::new();
+        let is_held_lead_continue = &is_held_lead_continue;
         let is_hold_lost = OnceLock::new();
         let is_hold_lost = &is_hold_lost;
         let resumed = self
@@ -313,16 +345,45 @@ impl RunPauseControl {
                 version_guard(run_id, expected_run_version),
                 move |run, bound| async move {
                     let session_id = *session.get_or_init(|| run.session_id);
+                    // A session no process holds since the restart is opened first, so its driver
+                    // can take the continue.
+                    let opening = continued
+                        .open_session(session_id)
+                        .await
+                        .map_err(|unopened| {
+                            RunPauseError::Driver(DriverError::Internal(unopened))
+                        })?;
                     let driver = resolve_live_run_driver(&self.providers, run_id, bound)?;
-                    let is_continuation_owed = self
+                    let (is_continuation_owed, is_helper) = self
                         .pool
                         .read(
                             ReadLength::Short,
                             move |reader| -> Result<_, RunPauseError> {
-                                Ok(owes_continuation(reader, &run_id)?)
+                                Ok((
+                                    owes_continuation(reader, &run_id)?,
+                                    read_helper_lead(reader, &run_id)?.is_some(),
+                                ))
                             },
                         )
                         .await?;
+                    // A helper the restart cut under a lead still held with no process, or the
+                    // lead itself while a run beneath it waits on the person: the lead's continue
+                    // carries it, its waiting messages kept as its words. A lead's continue goes
+                    // with the answer that frees it, so only a helper's is handed now.
+                    if opening == SessionOpening::Deferred && (!is_helper || is_continuation_owed) {
+                        let hold = continued.hold_session(session_id).await;
+                        continued
+                            .read(&hold, run_id, driver.message_handing())
+                            .await
+                            .map_err(RunPauseError::WaitingMessagesUnread)?;
+                        continued.keep(&hold, run_id);
+                        if is_helper {
+                            is_held_lead_continue.get_or_init(|| ());
+                        }
+                        // No driver took a resume, so no hold of a pause was lost.
+                        is_hold_lost.get_or_init(|| false);
+                        return Ok(());
+                    }
                     let messages = {
                         let hold = continued.hold_session(session_id).await;
                         continued
@@ -384,6 +445,10 @@ impl RunPauseControl {
             continued.admit(&hold, run_id).await
         };
         self.engine.hand_owed_limit_interrupts(run_id);
+        // After the write to `running` returned, so the queue's continue reads the helper's fact.
+        if is_held_lead_continue.get().is_some() {
+            continued.continue_held_lead(running.session_id, run_id);
+        }
         admitted.map_err(RunPauseError::MessagesNotAdmitted)?;
         Ok(RunResumed {
             response: run_control_response(run_id, &running),
@@ -620,9 +685,9 @@ fn version_guard(run_id: RunId, expected_run_version: SafeInt<0>) -> RunWriteCom
     }
 }
 
-// Whether `run_id`'s newest turn end is the restart's cut of its pause; a run with no turn end
-// owes nothing.
-fn owes_continuation(reader: &Connection, run_id: &RunId) -> rusqlite::Result<bool> {
+/// Whether `run_id`'s newest turn end is the restart's cut of its pause, so its continue owes the
+/// continuation; a run with no turn end owes nothing. Fails as the read fails.
+pub fn owes_continuation(reader: &Connection, run_id: &RunId) -> rusqlite::Result<bool> {
     let is_restart_cut = reader
         .prepare_cached(&SELECT_NEWEST_TURN_END_IS_RESTART_CUT_SQL)?
         .query_row(named_params! { "@run_id": run_id.text().as_str() }, |row| {
@@ -630,6 +695,21 @@ fn owes_continuation(reader: &Connection, run_id: &RunId) -> rusqlite::Result<bo
         })
         .optional()?;
     Ok(is_restart_cut.unwrap_or(false))
+}
+
+/// Whether `run_id` reads as a person's continue left it before any turn started: its newest
+/// lifecycle event its move from `paused` to `running`. Fails as the read fails.
+pub fn read_is_continued_with_no_turn(
+    reader: &Connection,
+    run_id: &RunId,
+) -> rusqlite::Result<bool> {
+    let is_continue = reader
+        .prepare_cached(&SELECT_NEWEST_IS_CONTINUE_SQL)?
+        .query_row(named_params! { "@run_id": run_id.text().as_str() }, |row| {
+            row.get::<_, bool>(0)
+        })
+        .optional()?;
+    Ok(is_continue.unwrap_or(false))
 }
 
 // Gives the messages a failed resume read back, answering `failure`, or the give-back's failure

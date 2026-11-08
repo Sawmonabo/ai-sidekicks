@@ -15,6 +15,7 @@ use tokio::io::AsyncRead;
 use tokio::sync::watch;
 use tokio_util::codec::{AnyDelimiterCodec, AnyDelimiterCodecError, FramedRead};
 
+use crate::child_ending::ChildEnds;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
 use crate::driver::claude::session::control_requests::{
@@ -25,7 +26,7 @@ use crate::driver::claude::session::frame_observation::{
 };
 use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::process::{
-    ClaudeChildEnds, ClaudeProcessListener, ClaudeStreamFrame, ClaudeTurnHolds,
+    ClaudeProcessListener, ClaudeStreamFrame, ClaudeTurnHolds,
 };
 use crate::driver::claude::session::transport::inbound::ClaudeControlFrameReader;
 use crate::driver::diagnostics::{
@@ -51,7 +52,7 @@ pub(crate) struct ClaudeOutputReader {
     startup_hooks: watch::Sender<usize>,
     // Asks the process to end when a line passes the ceiling or the output fails to read; gone
     // once the process's handle dropped, which kills it.
-    ends: Weak<ClaudeChildEnds>,
+    ends: Weak<ChildEnds>,
     // The lines that were no frame, reported once per process.
     unmapped_lines: OnceReportedDiagnostics,
     // The provider session the process runs, named in each diagnostic.
@@ -71,7 +72,7 @@ impl ClaudeOutputReader {
         listener: Arc<dyn ClaudeProcessListener>,
         turn_holds: Option<ClaudeTurnHolds>,
         startup_hooks: watch::Sender<usize>,
-        ends: Weak<ClaudeChildEnds>,
+        ends: Weak<ChildEnds>,
         provider_session_id: String,
         account: ClaudeProcessAccount,
     ) -> Self {
@@ -258,18 +259,20 @@ mod tests {
     use serde_json::{Map, Value, json};
     use sidekicks_contracts::provider::account::record::ProviderAccountId;
     use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+    use sidekicks_contracts::run::id::RunId;
     use sidekicks_platforms::ChildEnd;
     use sidekicks_std::mutex_lock::lock;
     use tokio::io::{AsyncRead, AsyncWriteExt, ReadBuf};
     use tokio::sync::watch;
 
     use super::{CLAUDE_OUTPUT_LINE_MAX_BYTES, ClaudeOutputReader};
+    use crate::child_ending::ChildEnds;
     use crate::driver::claude::session::control_requests::{
         ClaudeAccountMoveMarker, ClaudeControlRequests,
     };
     use crate::driver::claude::session::process::account::ClaudeProcessAccount;
     use crate::driver::claude::session::process::{
-        ClaudeChildEnds, ClaudeProcessEnd, ClaudeProcessListener, ClaudeStreamFrame,
+        ClaudeProcessEnd, ClaudeProcessListener, ClaudeStreamFrame,
     };
     use crate::driver::claude::session::scripted::daemon_services::RecordingUsage;
     use crate::driver::claude::session::scripted::{
@@ -279,6 +282,7 @@ mod tests {
     use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
     use crate::driver::claude::session::transport::user_message::ClaudeWriteAttempt;
     use crate::driver::diagnostics::RecordedEvents;
+    use crate::driver::session_control::SessionToolServer;
     use crate::runtime_binding::store::RuntimeBindingRebind;
     use crate::runtime_binding::test_store::test_provider_account_id;
     use crate::runtime_binding::writer::RuntimeBindingWriter;
@@ -307,7 +311,7 @@ mod tests {
     fn reader(
         requests: ClaudeControlRequests,
         listener: Arc<HeldFrames>,
-        ends: Weak<ClaudeChildEnds>,
+        ends: Weak<ChildEnds>,
     ) -> ClaudeOutputReader {
         ClaudeOutputReader::new(
             requests,
@@ -375,8 +379,8 @@ mod tests {
     #[test]
     fn a_line_past_the_ceiling_is_recorded_and_ends_the_process() {
         let recorded = RecordedEvents::default();
-        let (ends_sender, ends) = watch::channel(None);
-        let ends_sender = Arc::new(ClaudeChildEnds(ends_sender));
+        let (ends_sender, ends) = ChildEnds::new();
+        let ends_sender = Arc::new(ends_sender);
         recorded.record_during(|| {
             tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -430,8 +434,8 @@ mod tests {
     // process would keep running while its session receives nothing more.
     #[tokio::test]
     async fn an_output_read_error_ends_the_process() {
-        let (ends_sender, ends) = watch::channel(None);
-        let ends_sender = Arc::new(ClaudeChildEnds(ends_sender));
+        let (ends_sender, ends) = ChildEnds::new();
+        let ends_sender = Arc::new(ends_sender);
 
         reader(
             ClaudeControlRequests::new(Arc::new(|_request_id: &str| {})),
@@ -476,6 +480,17 @@ mod tests {
             let readings = self.usage.metered().len();
             lock(&self.moves).push((binding_id, provider_account_id, readings));
             ready(Ok(())).boxed()
+        }
+
+        fn replace_tool_servers(
+            &self,
+            _run_id: RunId,
+            _tool_servers: Vec<SessionToolServer>,
+        ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+            ready(Err(
+                io::Error::other("no tool server set is written here").into()
+            ))
+            .boxed()
         }
     }
 

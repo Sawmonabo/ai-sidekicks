@@ -52,7 +52,7 @@ use crate::driver::codex::session::inbound::codex_session_inbound;
 use crate::driver::codex::session::owed_turn_ends::is_codex_turn_in_progress;
 use crate::driver::codex::session::slots::let_go_codex_thread;
 use crate::driver::codex::session::state::{CodexEstablishedConversation, CodexSessionRecord};
-use crate::driver::codex::thread::settings::compose_codex_bare_thread_resume_params;
+use crate::driver::codex::thread::settings::memories::compose_codex_bare_thread_resume_with_memory_switch;
 use crate::driver::codex::thread::view::CodexThreadStatus;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::session_control::{
@@ -71,6 +71,8 @@ pub(crate) struct CodexRestoredHelper {
     pub(crate) newest_turn: CodexListedTurn,
     /// The spend already metered on it; zero until the caller reads it.
     pub(crate) prior_emitted: UsageAxisCounts,
+    /// The model its reopen named, `None` for one only listed or a reply naming none.
+    pub(crate) model: Option<String>,
 }
 
 impl CodexSessionEstablishment {
@@ -270,9 +272,11 @@ impl CodexSessionEstablishment {
         let deadline = Instant::now() + CODEX_UNLOAD_TIMEOUT;
         loop {
             let reply = if is_loaded {
-                request_bare_thread_resume(connection, &record.thread_id).await
+                // Codex applies no setting to a loaded conversation, so none is sent.
+                request_bare_thread_resume(connection, &record.thread_id, None).await
             } else {
-                self.request_resume_with_settings(record, connection).await
+                self.request_resume_with_settings(record, service, connection)
+                    .await
             };
             match reply {
                 Err(error)
@@ -341,13 +345,16 @@ impl CodexSessionEstablishment {
     }
 }
 
-/// `thread/resume` of `thread_id` as it stands, with no setting, asking for its newest turn, and
-/// the reply. Fails as the request does, and when the reply names another conversation.
+/// `thread/resume` of `thread_id` as it stands, with no setting but the session's memory switch
+/// where `auto_memory` is set, asking for its newest turn, and the reply. Fails as the request
+/// does, and when the reply names another conversation.
 pub(super) async fn request_bare_thread_resume(
     connection: &CodexAppServerConnection,
     thread_id: &str,
+    auto_memory: Option<bool>,
 ) -> Result<Box<RawValue>, CodexError> {
-    let mut bare = compose_codex_bare_thread_resume_params(thread_id.to_owned());
+    let mut bare =
+        compose_codex_bare_thread_resume_with_memory_switch(thread_id.to_owned(), auto_memory);
     bare.initial_turns_page = Some(compose_codex_newest_turn_page());
     request_thread_resume(connection, thread_id, &bare).await
 }
@@ -431,7 +438,7 @@ fn bind_open_turns(
 }
 
 /// A live helper run, with the run it was started beneath, whether the service holds its
-/// conversation loaded, whether it is held on the person, and its newest turn once read.
+/// conversation loaded, whether it is held on the person, and its newest turn and model once read.
 struct AdoptedHelper {
     // Its id, which is its conversation's.
     subagent_id: SubagentId,
@@ -440,6 +447,7 @@ struct AdoptedHelper {
     is_loaded: bool,
     is_held: bool,
     newest_turn: Option<CodexListedTurn>,
+    model: Option<String>,
 }
 
 impl AdoptedHelper {
@@ -473,15 +481,17 @@ fn find_live_helpers(live_runs: &[LiveRunResume], loaded: &[String]) -> Vec<Adop
                 run_id: run.run_id,
                 parent_run_id,
                 newest_turn: None,
+                model: run.model_id.as_ref().map(|model| model.as_str().to_owned()),
             })
         })
         .collect()
 }
 
 // Reads each of `helpers`' newest turns on `connection`, in their order: a loaded one reopened,
-// so its frames reach the daemon's connection, an unloaded one listed, which loads nothing. A
-// read Codex refuses is logged and leaves the helper with no turn, which reads `Gone`; a loaded
-// one's running turn is then interrupted, so it does not run on with no run to answer for it.
+// so its frames reach the daemon's connection, with the model its reply names, an unloaded one
+// listed, which loads nothing. A read Codex refuses is logged and leaves the helper with no turn,
+// which reads `Gone`; a loaded one's running turn is then interrupted, so it does not run on with
+// no run to answer for it.
 async fn read_helper_newest_turns(
     connection: &CodexAppServerConnection,
     session_id: SessionId,
@@ -490,12 +500,21 @@ async fn read_helper_newest_turns(
     for helper in helpers {
         let thread_id = helper.subagent_id.as_str();
         let read = if helper.is_loaded {
-            reopen_codex_helper(connection, thread_id).await
+            // Codex applies no setting to a loaded conversation, so none is sent.
+            reopen_codex_helper(connection, thread_id, None)
+                .await
+                .map(|reopened| (reopened.newest_turn, reopened.model))
         } else {
-            read_codex_newest_turn(connection, thread_id).await
+            read_codex_newest_turn(connection, thread_id)
+                .await
+                .map(|newest_turn| (newest_turn, None))
         };
         match read {
-            Ok(newest_turn) => helper.newest_turn = newest_turn,
+            Ok((newest_turn, model)) => {
+                helper.newest_turn = newest_turn;
+                // The reopen's model, else the one the helper's node keeps.
+                helper.model = model.or(helper.model.take());
+            }
             Err(error) => {
                 tracing::warn!(
                     session_id = %session_id,
@@ -616,6 +635,7 @@ fn restore_helper(
         thread_id,
         newest_turn,
         prior_emitted: UsageAxisCounts::default(),
+        model: helper.model,
     })
 }
 

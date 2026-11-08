@@ -159,9 +159,7 @@ async fn a_take_back_and_a_resume_of_one_run_take_the_session_in_turn(
                     answer
                         .await
                         .expect("the test answers the driver")
-                        .map(|()| ResumeRunOutcome {
-                            is_hold_lost: false,
-                        })
+                        .map(|()| ResumeRunOutcome::default())
                 }
                 .boxed()
             });

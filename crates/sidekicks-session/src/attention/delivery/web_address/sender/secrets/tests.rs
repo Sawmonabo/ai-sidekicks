@@ -600,7 +600,7 @@ async fn the_test_message_posts_once_and_writes_no_row() {
         0
     );
     assert!(
-        !fixture.sender.poster.is_client_kept(),
+        !fixture.sender.poster.client.is_kept(),
         "no client is kept while the switch reads off"
     );
 

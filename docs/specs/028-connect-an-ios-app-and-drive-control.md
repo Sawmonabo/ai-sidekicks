@@ -77,7 +77,7 @@ An approval, a question or a plan that starts waiting while the phone has no con
 
 ## Distribution and review
 
-The app is built from the repository and signed under the person's own Apple developer account, installed on their registered iPhone, or through TestFlight, where a build can be tested for up to 90 days ([Apple](https://developer.apple.com/help/app-store-connect/test-a-beta-version/testflight-overview/)). Its push goes out with the person's own APNs key, which their relay holds. It is never listed on the public App Store, so no listing and no public review decides what it may do.
+The app is built in full from the repository, push and passkeys and the direct path included, and installs on the person's own iPhone from their Mac under a free Apple account: the signing lasts seven days and the Mac renews it, a free account signs for three devices, and the iPhone has Developer Mode on. Apple refuses a free account two entitlements, push and Associated Domains, so they are set only in the signing profile, and joining the Apple Developer Program later changes the profile and no code; the same build then installs on a registered iPhone or through TestFlight, where a build can be tested for up to 90 days ([Apple](https://developer.apple.com/help/app-store-connect/test-a-beta-version/testflight-overview/)). Until then, `Waiting on you` reaches the phone through the Home Screen web app's push. With the Program, the app's push goes out with the person's own APNs key, which their relay holds. It is never listed on the public App Store, so no listing and no public review decides what it may do.
 
 ## Open Questions
 

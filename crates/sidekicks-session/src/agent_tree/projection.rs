@@ -71,6 +71,14 @@ pub(crate) fn provider_child_node_statement(
                 .provider_path
                 .as_ref()
                 .map(|path| path.as_str().to_owned()),
+            model_id: child
+                .model_id
+                .as_ref()
+                .map(|model| model.as_str().to_owned()),
+            effort: child
+                .effort
+                .as_ref()
+                .map(|effort| effort.as_str().to_owned()),
             start_call_id: start_call_id.map(str::to_owned),
             own_run_id,
             started_at: occurred_at.clone(),

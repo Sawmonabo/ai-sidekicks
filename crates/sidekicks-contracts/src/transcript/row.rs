@@ -321,7 +321,10 @@ transcript_row_arm! {
         #[garde(custom(|position: &SourcePosition, (): &()| {
             require_marker_to_outrank_row(*position, self.superseded.as_ref())
         }))]
-        #[schemars(extend("exclusiveMinimum" = { "$data": "1/superseded/targetPosition" }))]
+        #[schemars(extend(
+            "type" = "integer",
+            "exclusiveMinimum" = { "$data": "1/superseded/targetPosition" },
+        ))]
         pub position: SourcePosition,
         /// The row's execution epoch.
         pub epoch: SourceEpoch,
@@ -407,7 +410,10 @@ transcript_row_arm! {
         #[garde(custom(|position: &SourcePosition, (): &()| {
             require_marker_to_outrank_row(*position, self.superseded.as_ref())
         }))]
-        #[schemars(extend("exclusiveMinimum" = { "$data": "1/superseded/targetPosition" }))]
+        #[schemars(extend(
+            "type" = "integer",
+            "exclusiveMinimum" = { "$data": "1/superseded/targetPosition" },
+        ))]
         pub position: SourcePosition,
         /// The epoch the rollback rewound.
         pub epoch: SourceEpoch,
@@ -506,7 +512,10 @@ pub struct TranscriptRunStamp {
     #[garde(custom(|position: &SourcePosition, (): &()| {
         require_marker_to_outrank_row(*position, self.superseded.as_ref())
     }))]
-    #[schemars(extend("exclusiveMinimum" = { "$data": "1/superseded/targetPosition" }))]
+    #[schemars(extend(
+        "type" = "integer",
+        "exclusiveMinimum" = { "$data": "1/superseded/targetPosition" },
+    ))]
     pub position: SourcePosition,
     /// The execution epoch.
     pub epoch: SourceEpoch,

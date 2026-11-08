@@ -8,8 +8,8 @@ use serde_json::Value;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 
 use super::{
-    ClaudePersonConfigFiles, InstalledPluginRoot, SERVERS_FILE, read_installed_plugin_roots,
-    read_json_file,
+    ClaudePersonConfigFiles, InstalledPluginRoot, MCP_SERVERS_MEMBER, PROJECTS_MEMBER,
+    SERVERS_FILE, read_installed_plugin_roots, read_json_file, value_at,
 };
 use crate::driver::claude::session::settings_file::ClaudeSettingsReadError;
 
@@ -74,7 +74,7 @@ impl<'sources> ClaudeServerEntryReader<'sources> {
         match binding {
             McpServerBindingRef::User { server_name, .. } => Ok(declared(entry_at(
                 self.read_file(&person.person_config).await?,
-                &["mcpServers", server_name.as_str()],
+                &[MCP_SERVERS_MEMBER, server_name.as_str()],
             ))),
             McpServerBindingRef::Local {
                 scope_ref,
@@ -83,9 +83,9 @@ impl<'sources> ClaudeServerEntryReader<'sources> {
             } => Ok(declared(entry_at(
                 self.read_file(&person.person_config).await?,
                 &[
-                    "projects",
+                    PROJECTS_MEMBER,
                     scope_ref.as_str(),
-                    "mcpServers",
+                    MCP_SERVERS_MEMBER,
                     server_name.as_str(),
                 ],
             ))),
@@ -96,7 +96,7 @@ impl<'sources> ClaudeServerEntryReader<'sources> {
             } => Ok(declared(entry_at(
                 self.read_file(&Path::new(scope_ref.as_str()).join(SERVERS_FILE))
                     .await?,
-                &["mcpServers", server_name.as_str()],
+                &[MCP_SERVERS_MEMBER, server_name.as_str()],
             ))),
             McpServerBindingRef::Plugin {
                 scope_ref,
@@ -106,7 +106,7 @@ impl<'sources> ClaudeServerEntryReader<'sources> {
                 if self.plugins.is_none() {
                     self.plugins = Some(read_installed_plugin_roots(self.plugin_home).await?);
                 }
-                let keys = ["mcpServers", server_name.as_str()];
+                let keys = [MCP_SERVERS_MEMBER, server_name.as_str()];
                 // Each plugin of the name, with the entry its manifest declares inline.
                 let plugins: Vec<(PathBuf, String, Option<Value>)> = self
                     .plugins
@@ -150,11 +150,7 @@ impl<'sources> ClaudeServerEntryReader<'sources> {
 
 // The value at `keys` in `file`, copied.
 fn entry_at(file: Option<&Value>, keys: &[&str]) -> Option<Value> {
-    let mut entry = file?;
-    for key in keys {
-        entry = entry.get(*key)?;
-    }
-    Some(entry.clone())
+    value_at(file?, keys).cloned()
 }
 
 // The data folder Claude Code keeps for the plugin `plugin_id` in `plugin_home`, named for it: a

@@ -1,5 +1,6 @@
-//! A delivery tests build over their own test store, with no provider process, no run being
-//! started and no interrupted run to continue, and the hand a send into a live run makes.
+//! A delivery tests build over their own test store and provider sessions, with no provider
+//! process, no run being started and no interrupted run to continue, and the hand a send into a
+//! live run makes.
 
 use std::sync::Arc;
 
@@ -7,6 +8,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::test_registry::NothingServed;
 use sidekicks_provider::process_identity::ProcessStandIn;
 use sidekicks_session::queue_store::QueueItemRecord;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -15,8 +17,10 @@ use sidekicks_store::events::log_service::EventLogService;
 
 use crate::changes::QueueChangeSignals;
 use crate::delivery::{
-    DeliveryError, InterruptedRunContinuation, OpeningMessages, QueueDelivery, QueueDeliveryDeps,
+    DeliveryError, HeldLeadContinuation, InterruptedRunContinuation, OpeningMessages,
+    QueueDelivery, QueueDeliveryDeps,
 };
+use crate::provider_session::ProviderSessions;
 use crate::recorder::{QueueRecorder, QueueRecorderDeps};
 use crate::session_lock::QueueSessionLock;
 
@@ -40,15 +44,27 @@ impl InterruptedRunContinuation for NoContinuation {
     fn continue_interrupted_run(&self, _session_id: SessionId, _run_id: RunId) {}
 }
 
-/// A delivery reading through `pool`, recording each outcome in `event_log` and `writer`, and
-/// finding each run's driver in `providers`, while no session runs a provider process.
+impl HeldLeadContinuation for NoContinuation {
+    fn continue_held_lead(&self, _session_id: SessionId, _helper_run_id: RunId) {}
+}
+
+/// A delivery reading through `pool`, recording each outcome in `event_log` and `writer`, finding
+/// each run's driver in `providers` and opening a paused run's session through `provider_sessions`,
+/// which the caller keeps alive, while no session runs a provider process.
 pub fn test_delivery(
     pool: Arc<DatabaseReadPool>,
     event_log: Arc<EventLogService>,
     writer: Arc<DatabaseWriter>,
     providers: Arc<ProviderRegistry>,
+    provider_sessions: &Arc<ProviderSessions>,
 ) -> QueueDelivery {
-    QueueDelivery::new(test_delivery_deps(pool, event_log, writer, providers))
+    QueueDelivery::new(test_delivery_deps(
+        pool,
+        event_log,
+        writer,
+        providers,
+        provider_sessions,
+    ))
 }
 
 /// What [`test_delivery`] builds its delivery on, for the queue's own tests to replace the
@@ -58,6 +74,7 @@ pub(crate) fn test_delivery_deps(
     event_log: Arc<EventLogService>,
     writer: Arc<DatabaseWriter>,
     providers: Arc<ProviderRegistry>,
+    provider_sessions: &Arc<ProviderSessions>,
 ) -> QueueDeliveryDeps {
     let recorder = Arc::new(QueueRecorder::new(QueueRecorderDeps {
         event_log,
@@ -73,6 +90,9 @@ pub(crate) fn test_delivery_deps(
         processes: Arc::new(ProcessStandIn::default()),
         openings: Arc::new(NoOpenings),
         continuation: Arc::new(NoContinuation),
+        held_lead_continuation: Arc::new(NoContinuation),
+        provider_sessions: Arc::downgrade(provider_sessions),
+        attachments: Arc::new(NothingServed),
     }
 }
 

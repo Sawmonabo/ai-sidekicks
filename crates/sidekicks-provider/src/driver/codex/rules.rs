@@ -336,7 +336,10 @@ pub(crate) enum CodexProjectRuleWrite {
     /// The rule takes no line, so the file was left as it was.
     Unchanged,
     /// The file was written over `text_before`, its text until then, or made where that is `None`.
-    Written { text_before: Option<String> },
+    Written {
+        /// The file's text before the write, `None` where the write made the file.
+        text_before: Option<String>,
+    },
 }
 
 /// Writes `rule` into the project's own rule file, replacing a rule of the other sense over the

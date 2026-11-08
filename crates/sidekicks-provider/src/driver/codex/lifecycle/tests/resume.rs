@@ -27,9 +27,8 @@ use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_codex_service,
 };
-use crate::driver::codex::session::test_fixture::{
-    OneFolder, TEST_THREAD, TestDaemonTurnBindings, no_turns,
-};
+use crate::driver::codex::session::test_fixture::one_folder::OneFolder;
+use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestDaemonTurnBindings, no_turns};
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::driver::schema::schema_parts;
 use crate::driver::session_control::{
@@ -266,6 +265,7 @@ async fn resume_and_record(
 fn answer_resume_request(script: &ScriptedService, sent: &Value) {
     let answer = match sent["method"].as_str() {
         Some("thread/loaded/list") => json!({"data": [], "nextCursor": null}),
+        Some("config/read") => json!({"config": {}, "origins": {}}),
         Some("thread/resume") => resumed_thread(sent, &json!({"type": "idle"})),
         Some("thread/turns/list") => no_turns(),
         Some("thread/backgroundTerminals/list") => json!({"data": []}),
@@ -278,7 +278,7 @@ fn answer_resume_request(script: &ScriptedService, sent: &Value) {
 }
 
 // The reply to the `thread/resume` `sent`: its conversation, standing at `status`, under the
-// profile it asks for.
+// profile it asks for, on the model every resume reply names.
 fn resumed_thread(sent: &Value, status: &Value) -> Value {
     json!({
         "thread": {
@@ -286,6 +286,7 @@ fn resumed_thread(sent: &Value, status: &Value) -> Value {
             "sessionId": "codex-session",
             "status": status,
         },
+        "model": "gpt-5.4",
         "activePermissionProfile": {"id": sent["params"]["permissions"]},
     })
 }
@@ -395,6 +396,7 @@ async fn a_loaded_conversation_is_joined_as_it_runs() {
                     .expect("a minted UUID is an event id"),
             }],
             subagent_id: None,
+            model_id: None,
             is_stopping: false,
             run_state: RunState::Running,
         },
@@ -403,6 +405,7 @@ async fn a_loaded_conversation_is_joined_as_it_runs() {
             parent_run_id: Some(lead_run),
             open_turns: Vec::new(),
             subagent_id: Some(SubagentId::new(HELPER_THREAD.to_owned()).expect("a helper id")),
+            model_id: None,
             is_stopping: false,
             run_state: RunState::Running,
         },

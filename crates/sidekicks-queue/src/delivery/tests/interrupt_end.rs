@@ -1,5 +1,5 @@
-//! The interrupt's end: by its choice it cancels, places or leaves the messages the provider no
-//! longer holds, and keeps handed the ones it does.
+//! The interrupt's end: by its choice it returns, places or leaves the messages the provider no
+//! longer holds, and keeps handed the ones it does; a return ends each message as the Stop does.
 
 use std::sync::Arc;
 
@@ -12,11 +12,13 @@ use sidekicks_store::events::session::appender::{SessionEventAppender, SessionEv
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use tokio::time::timeout;
 
+use super::run_end::{Ended, held_draft};
 use super::{
     Fixture, HANDS_AT_ONCE, WAIT, continued_ids, count_steers, driver_handing, fixture, hand,
     insert_item, item_ids, set_run_state, settle, stored_item,
 };
 use crate::delivery::interrupt::InterruptEndWrites;
+use crate::test_items::{Form, insert_form};
 
 /// A run with three messages waiting: the first two handed to the provider, the third not.
 async fn interrupted_fixture() -> (Fixture, [QueueItemRecord; 3]) {
@@ -197,4 +199,36 @@ async fn an_interrupt_of_a_starting_run_takes_its_opening_with_the_rest() {
     let writes = end_writes(&fixture, InterruptPendingChoice::ReturnToDraft, None, &[]).await;
 
     assert_eq!(item_ids(&writes.changed), vec![opening.id]);
+}
+
+// `returnToDraft` ends the messages the run's end write returns by the Stop's table, in that same
+// write: words alone are canceled into the draft, a review ends not delivered. Killed by the
+// return canceling every message it took back, or by its draft write left out.
+#[tokio::test]
+async fn return_to_draft_ends_the_messages_by_the_stops_table() {
+    let fixture = fixture(driver_handing(HANDS_AT_ONCE)).await;
+    let mut ids = Vec::new();
+    for form in [Form::Words("Words"), Form::Review] {
+        ids.push(
+            insert_form(
+                &fixture.database,
+                &fixture.log,
+                fixture.session_id,
+                fixture.run_id,
+                form,
+            )
+            .await,
+        );
+    }
+
+    let writes = end_writes(&fixture, InterruptPendingChoice::ReturnToDraft, None, &[]).await;
+    assert_eq!(item_ids(&writes.changed), ids);
+    commit(&fixture, writes).await;
+
+    let ended: Vec<_> = ids
+        .iter()
+        .map(|id| stored_item(&fixture, *id).state)
+        .collect();
+    assert_eq!(ended, [Ended::Canceled.state(), Ended::Failed.state()]);
+    assert_eq!(held_draft(&fixture).as_deref(), Some("Words"));
 }

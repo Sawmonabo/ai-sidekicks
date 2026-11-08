@@ -235,9 +235,11 @@ pub fn resolve_child(
 /// depth, oldest first, each with its head; the badge's figures; and the refused creates that name
 /// a parent run. What the log reports is read from its events before `read_bound` outside its
 /// skipped ranges; each head's binding and name are its agent's row as it stands now, which no
-/// bound limits; each head's spend is its member's own in `agent_spend`, 0 where the list names
-/// none. Fails as a run's agent read does, with [`AgentTreeReadError::RunMissing`] when a run the
-/// tree names has no row, and as SQLite or a stored column does.
+/// bound limits, except that a provider helper's model and effort are its own where its start named
+/// them, else those of the nearest helper above it whose start did; each head's spend is its
+/// member's own in `agent_spend`, 0 where the list names none. Fails as a run's agent read does,
+/// with [`AgentTreeReadError::RunMissing`] when a run the tree names has no row, and as SQLite or a
+/// stored column does.
 pub fn read_agent_tree(
     reader: &Connection,
     session_id: &SessionId,
@@ -266,12 +268,25 @@ pub fn read_agent_tree(
         let run_agent = ancestry
             .agents
             .read_agent_binding(session_id, &draft.head_run)?;
+        // A provider helper runs under its parent's agent, so the model and effort its own start
+        // named, else the ones the nearest helper above it started on, which it inherited, come
+        // before that agent's binding; the model it ran on comes first.
+        let place = match &draft.subject {
+            LinkSubject::Node { place, .. } => Some(*place),
+            LinkSubject::Run { .. } => None,
+        };
         let model_id = draft
             .model_runs
             .iter()
             .filter_map(|run_id| newest_models.get(run_id))
             .max_by_key(|(sequence, _)| *sequence)
-            .map_or(run_agent.binding.model_id, |(_, model)| model.clone());
+            .map(|(_, model)| model.clone())
+            .or_else(|| tree.lineage(place).find_map(|node| node.model_id.clone()))
+            .unwrap_or(run_agent.binding.model_id);
+        let effort = tree
+            .lineage(place)
+            .find_map(|node| node.effort.clone())
+            .or(run_agent.binding.effort);
         let via_agent_name = match &draft.subject {
             LinkSubject::Run {
                 reached_by: ChildRunProvenance::BridgeRun,
@@ -300,7 +315,7 @@ pub fn read_agent_tree(
         };
         let head = ChildRunHead {
             model_id,
-            effort: run_agent.binding.effort,
+            effort,
             via_agent_name,
             tokens: token_counts
                 .get(&draft.head_run)
@@ -486,6 +501,21 @@ impl SessionTree {
         })
     }
 
+    // The node at `place`, then each node above it, nearest first; none for no place.
+    fn lineage(&self, place: Option<usize>) -> impl Iterator<Item = &AgentTreeNode> {
+        self.lineage_places(place).map(|place| &self.nodes[place])
+    }
+
+    // The place of the node at `place`, then of each node above it, nearest first.
+    fn lineage_places(&self, place: Option<usize>) -> impl Iterator<Item = usize> {
+        std::iter::successors(place, |&place| {
+            self.nodes[place]
+                .parent_child_handle
+                .as_ref()
+                .and_then(|handle| self.node_of_handle.get(handle).copied())
+        })
+    }
+
     /// The run `run_id`; fails with [`AgentTreeReadError::RunMissing`] when the session has none.
     pub(crate) fn run(&self, run_id: RunId) -> Result<&StoredRun, AgentTreeReadError> {
         self.runs
@@ -605,11 +635,7 @@ impl AncestryWalk<'_> {
         let mut seen = HashSet::from([place]);
         let mut upward = Vec::new();
         let mut topmost = place;
-        while let Some(parent) = self.tree.nodes[topmost]
-            .parent_child_handle
-            .as_ref()
-            .and_then(|handle| self.tree.node_of_handle.get(handle).copied())
-        {
+        for parent in self.tree.lineage_places(Some(place)).skip(1) {
             upward.push(self.tree.member(parent)?);
             seen.insert(parent);
             topmost = parent;

@@ -16,7 +16,7 @@ use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
-use sidekicks_contracts::mcp::server::McpServerName;
+use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::ProviderOptionSetting;
@@ -42,6 +42,7 @@ use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_policy::ask_rule::ProviderAskRule;
 use sidekicks_std::text_cut::cut_to_code_points;
+use tokio::sync::oneshot;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
@@ -202,6 +203,9 @@ pub struct LiveRunResume {
     /// The provider's own id of the helper the run is, as its `agent.subagent.started` recorded
     /// it; `None` for a lead or any run no helper's start names.
     pub subagent_id: Option<SubagentId>,
+    /// The model the helper's start named, as its node keeps it; `None` for a lead or a start
+    /// that named none.
+    pub model_id: Option<ProviderToken>,
     /// Whether a stop the run waits on, its own or that of the run whose helper it is, wins over
     /// the resume, so no turn of it is continued.
     pub is_stopping: bool,
@@ -311,6 +315,35 @@ pub struct EndKeptTurnsParams {
     pub stop: CancellationToken,
 }
 
+/// The end of the work a driver took to end a session's kept turns, which the daemon waits on
+/// before it forgets that the session's turns were left to end.
+#[derive(Debug)]
+pub struct KeptTurnsEnding(oneshot::Receiver<()>);
+
+impl KeptTurnsEnding {
+    /// An ending whose work goes on, with the sender the driver sends on once the work has ended;
+    /// a sender dropped unsent reads as the work cut short.
+    pub fn waiting() -> (Self, oneshot::Sender<()>) {
+        let (sender, receiver) = oneshot::channel();
+        (Self(receiver), sender)
+    }
+
+    /// An ending with nothing to wait on: the turns ended with the process that ran them.
+    pub fn ended_now() -> Self {
+        let (ending, sender) = Self::waiting();
+        sender
+            .send(())
+            .expect("the ending holds the receiver it was made with");
+        ending
+    }
+
+    /// Waits for the work to end: `true` once each interrupt has answered, failed or passed its
+    /// deadline, `false` when the stop cut the work first.
+    pub async fn ended(self) -> bool {
+        self.0.await.is_ok()
+    }
+}
+
 /// What the provider holds of one run's turn after a resume.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProviderTurnAnswer {
@@ -380,8 +413,21 @@ pub struct SettleHeldToolCallsParams {
     pub conversation: String,
     /// The provider's own recovery data the leg's binding kept, handed back as stored.
     pub runtime_metadata: Map<String, Value>,
-    /// Whether the session is closed, so no later resume restores a call it held.
-    pub is_closed: bool,
+    /// How the session's held calls are settled.
+    pub settle: HeldCallsSettle,
+}
+
+/// How a session's held tool calls are settled after the daemon's restart or stop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HeldCallsSettle {
+    /// The session is closed: no later resume restores a call, so every one ends.
+    Closed,
+    /// The daemon restarted: a later resume may restore a call its record keeps, and one kept
+    /// nowhere ends with the restart.
+    Restarted,
+    /// The person stopped the service: a call kept nowhere ends with the Stop, and one its record
+    /// keeps waits for the next resume.
+    Stopped,
 }
 
 /// Params of `name_session`: the session, where it runs, and its first exchange, the reply cut
@@ -579,22 +625,22 @@ pub struct ProviderBuildChange {
     pub(crate) to_version: String,
 }
 
-/// One provider conversation a session opened, by the handle it was resumed from, the account it
-/// ran on, and the recovery data its binding kept, which names the home holding it where the
-/// provider keeps that apart from the account's.
+/// One provider conversation a session opened, by handle and account, and the recovery data kept
+/// with it, which names the home holding it where the provider keeps that apart from the account's.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionConversation {
     /// The handle the conversation was resumed from.
     pub resume_handle: String,
     /// The account it ran on.
     pub provider_account_id: ProviderAccountId,
-    /// The provider's own recovery data its binding kept, handed over as stored.
+    /// The provider's own recovery data, its binding's or, for a conversation the session left, the
+    /// leg's it was left from, handed over as stored.
     pub runtime_metadata: Map<String, Value>,
 }
 
-/// Params of `purge_session`: every conversation the session's own bindings opened, newest first,
-/// so a fork comes before the conversation it was forked from. A conversation the person started
-/// in a terminal is never one of them.
+/// Params of `purge_session`: every conversation the session ran on, its bindings' and the ones it
+/// left, newest first, so a fork comes before the one it was forked from. A conversation the
+/// person started in a terminal is never one of them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PurgeSessionParams {
     /// The session.
@@ -830,12 +876,12 @@ pub(crate) fn build_auth_probe_result(
     DriverAuthProbeResult { status, detail }
 }
 
-/// One tool server a session can reach, by its name, and whether the person switched it on.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// One tool server a session can reach, by its binding, and whether the person switched it on.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionToolServer {
-    /// The server's name.
-    pub(crate) server_name: McpServerName,
+    /// The server's scope-qualified binding.
+    pub binding: McpServerBindingRef,
     /// Whether the person switched it on.
-    pub(crate) is_enabled: bool,
+    pub is_enabled: bool,
 }

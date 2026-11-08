@@ -424,11 +424,7 @@ impl SessionTranscriptSink for BriefHistory {
     fn open_run(&mut self, _number: u64, queued: &AgentRunQueuedPayload) -> Result<(), Infallible> {
         // A run's calls are answered within it, so a call still open here never will be.
         self.open_steps.clear();
-        let parent_run_id = match queued {
-            AgentRunQueuedPayload::SessionAgent(payload) => payload.parent_run_id,
-            AgentRunQueuedPayload::ResolvedAgent(payload) => payload.parent_run_id,
-        };
-        self.is_reading_helper = parent_run_id.is_some();
+        self.is_reading_helper = queued.parent_run_id().is_some();
         if self.is_reading_helper {
             self.has_read_helper = true;
         } else {

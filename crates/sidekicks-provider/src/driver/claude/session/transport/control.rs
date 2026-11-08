@@ -105,10 +105,6 @@ pub(crate) enum ClaudeControlRequest {
     GetSettings {},
     /// Reads the hooks the process loaded as its `/hooks` menu lists them, with the settings files
     /// it skipped and what managed settings do to them.
-    #[expect(
-        dead_code,
-        reason = "the inspector's hooks listing sends it after each spawn and at each opening"
-    )]
     GetHooksListing {},
     /// Reads the status of each MCP server the process holds, answered by a
     /// [`ClaudeMcpStatusReply`](super::mcp_status::ClaudeMcpStatusReply).
@@ -337,6 +333,9 @@ pub(crate) struct ClaudeHooks {
     /// After each tool call.
     #[serde(rename = "PostToolUse", skip_serializing_if = "Vec::is_empty")]
     pub(crate) post_tool_use: Vec<ClaudeHookMatcher>,
+    /// After a tool call fails.
+    #[serde(rename = "PostToolUseFailure", skip_serializing_if = "Vec::is_empty")]
+    pub(crate) post_tool_use_failure: Vec<ClaudeHookMatcher>,
     /// After each batch of tool calls.
     #[serde(rename = "PostToolBatch", skip_serializing_if = "Vec::is_empty")]
     pub(crate) post_tool_batch: Vec<ClaudeHookMatcher>,

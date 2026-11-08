@@ -11,7 +11,7 @@ use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_account_service_for, start_scripted_codex_service,
     start_scripted_terminal_service,
 };
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::driver::test_registry::new_session_id;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
@@ -212,7 +212,9 @@ async fn a_failed_switch_off_wait_puts_the_service_back_only_into_an_empty_slot(
         "error": {"code": -32603, "message": "the read failed"}}));
     retiring.await.expect("the retirement ends");
     let registered = registry.services();
-    registry.shutdown(DaemonStopIntent::Stop).await;
+    registry
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
 
     let expected = filling.unwrap_or_else(|| Arc::clone(&scripted.service));
     assert!(

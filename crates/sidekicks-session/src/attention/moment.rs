@@ -312,11 +312,16 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
             ),
         ),
         // Only a limit the daemon enforced fails the run; the person's own interrupt, a stop of
-        // every agent, a canceled workflow phase and a restart raise nothing.
+        // every agent, a canceled workflow phase, a restart and the person's stop of the service
+        // raise nothing.
         SessionEvent::AgentRunInterrupted(payload) => {
             let is_limit = match payload.trigger {
                 Some(InterruptReason::StepLimit | InterruptReason::SpendLimit) => true,
-                Some(InterruptReason::WorkflowPhaseCanceled | InterruptReason::DaemonRestart)
+                Some(
+                    InterruptReason::WorkflowPhaseCanceled
+                    | InterruptReason::DaemonRestart
+                    | InterruptReason::DaemonStop,
+                )
                 | None => false,
             };
             resolve_run(
@@ -331,7 +336,13 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         SessionEvent::AgentRunStopped(payload) => {
             let is_limit = match payload.trigger {
                 Some(StopTrigger::TokenLimit) => true,
-                Some(StopTrigger::StopAll) | None => false,
+                // A stop of every agent raises nothing, and neither does a run the person ended
+                // before it started, by stopping the service or removing every message it was
+                // queued for.
+                Some(
+                    StopTrigger::StopAll | StopTrigger::DaemonStop | StopTrigger::MessagesRemoved,
+                )
+                | None => false,
             };
             resolve_run(
                 payload.run_id,

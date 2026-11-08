@@ -25,7 +25,7 @@ use crate::attention::changes::{AttentionChanges, attention_changes_after_commit
 use crate::attention::projection::attention_projection_statements;
 use crate::attention::schema::schema_parts;
 use crate::attention::service::ATTENTION_SERVICE_STATEMENT_CAPACITY;
-use crate::run::engine::test_fixture::insert_running_run;
+use crate::run::engine::test_fixture::insert_run;
 
 /// A log whose appends carry the attention statements, over a fresh database, and the one session
 /// the test appends to.
@@ -113,7 +113,7 @@ impl AttentionTestLog {
     /// A running run of the session, under `parent` when it has one.
     pub fn run(&self, parent: Option<RunId>) -> RunId {
         let run_id = test_run_id();
-        insert_running_run(&self.database, self.session_id, run_id);
+        insert_run(&self.database, self.session_id, run_id, "running");
         if let Some(parent) = parent {
             self.database
                 .reader()

@@ -39,7 +39,7 @@ use crate::driver::codex::service::registry::{
 use crate::driver::codex::service::supervisor::CodexProgramResolver;
 #[cfg(test)]
 use crate::driver::contract::error::DriverError;
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::runtime_binding::test_store::test_provider_account_id;
 #[cfg(test)]
 use crate::spawned_version::ResolvedProviderExecutable;
@@ -50,6 +50,10 @@ pub(crate) const CODEX_HOME_NAME: &str = "CODEX_HOME";
 /// Set for a stand-in that ignores the hang-up, as a service still finishing its replies does;
 /// only a test's program sets it.
 pub(crate) const HANG_UP_IGNORED_NAME: &str = "SIDEKICKS_TEST_HANG_UP_IGNORED";
+
+/// Set for a stand-in that ignores the stop it is asked, as a service that hangs does, so only a
+/// kill ends it; only a test's program sets it.
+pub(crate) const STOP_IGNORED_NAME: &str = "SIDEKICKS_TEST_STOP_IGNORED";
 
 /// The file a stand-in's script keeps its last start's arguments in, one to a line.
 pub(crate) const LAUNCH_ARGUMENTS_FILE: &str = "codex-arguments";
@@ -110,11 +114,11 @@ impl CodexServiceScript {
     }
 }
 
-/// Writes in `folder` the `codex` script a stand-in service starts through and answers it with
-/// the guard over its launches. The script keeps its arguments in [`LAUNCH_ARGUMENTS_FILE`],
-/// names the files its launches and requests are recorded in, the writing test program as the
-/// stand-in's owner and, where `daemon_socket` is given, the socket whose presence it records,
-/// has the program ignore the hang-up where its environment asks, keeps its own standard output as
+/// Writes in `folder` the `codex` script a stand-in service starts through and answers it with the
+/// guard over its launches. The script keeps its arguments in [`LAUNCH_ARGUMENTS_FILE`], names the
+/// files its launches and requests are recorded in, the writing test program as the stand-in's
+/// owner and, where `daemon_socket` is given, the socket whose presence it records, has the program
+/// ignore the hang-up and the stop where its environment asks, keeps its own standard output as
 /// [`EXECUTOR_OUTPUT`] for an executor's answers, and runs this test program's `stand_in_test`,
 /// whose own output goes nowhere. Panics where it cannot be written.
 pub fn write_codex_service_script(
@@ -140,6 +144,7 @@ pub fn write_codex_service_script(
          {OWNER_NAME}='{owner}'; export {OWNER_NAME}\n\
          {CONNECTION_RECORD_NAME}='{}'; export {CONNECTION_RECORD_NAME}\n{daemon_socket}\
          if [ -n \"${HANG_UP_IGNORED_NAME}\" ]; then trap '' HUP; fi\n\
+         if [ -n \"${STOP_IGNORED_NAME}\" ]; then trap '' TERM; fi\n\
          exec 3>&1\n\
          exec '{}' --exact {stand_in_test} --include-ignored >/dev/null 2>&1\n",
         folder.join(LAUNCH_ARGUMENTS_FILE).display(),
@@ -673,8 +678,13 @@ impl CodexServicesBeside {
 
     /// Stops both, the lasting service included.
     pub async fn stop(self) {
-        self.account.shutdown(DaemonStopIntent::Stop).await;
-        self.terminal.shutdown(DaemonStopIntent::Stop).await;
+        let deadline = daemon_stop_deadline();
+        self.account
+            .shutdown(DaemonStopIntent::Stop, deadline)
+            .await;
+        self.terminal
+            .shutdown(DaemonStopIntent::Stop, deadline)
+            .await;
     }
 }
 

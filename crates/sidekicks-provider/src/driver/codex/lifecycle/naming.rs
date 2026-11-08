@@ -415,7 +415,7 @@ async fn start_title_thread(
     }
     let config = read_codex_config::<Map<String, Value>>(
         connection,
-        Path::new(request.working_directory),
+        Some(Path::new(request.working_directory)),
         false,
     )
     .await?;
@@ -605,8 +605,9 @@ async fn name_in_one_shot(
         answer_file.to_string_lossy().into_owned(),
         prompt.to_owned(),
     ]);
-    let mut launch =
-        compose_codex_native_launch(&dependencies.data_folder, &executable, arguments).await?;
+    let mut launch = compose_codex_native_launch(&dependencies.data_folder, &executable, arguments)
+        .await?
+        .launch;
     launch.working_folder = folder.path().to_owned();
     let left = time_left();
     if left.is_zero() {
@@ -645,8 +646,9 @@ pub(crate) async fn list_mcp_server_names(
 ) -> Result<Vec<String>, CodexError> {
     let mut arguments = home_exec_switches(home_kind);
     arguments.extend(["mcp".to_owned(), "list".to_owned(), "--json".to_owned()]);
-    let launch =
-        compose_codex_native_launch(&dependencies.data_folder, executable, arguments).await?;
+    let launch = compose_codex_native_launch(&dependencies.data_folder, executable, arguments)
+        .await?
+        .launch;
     let listing = run_codex_command(&dependencies.spawner, launch, deadline)
         .await
         .map_err(|error| CodexError::Transport {

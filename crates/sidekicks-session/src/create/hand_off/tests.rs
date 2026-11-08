@@ -10,13 +10,12 @@ use sidekicks_contracts::plan::PlanId;
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountId};
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::{PlanMessage, PlanMessageKind, QueueItemId};
+use sidekicks_contracts::run::queue::{PlanMessage, PlanMessageKind};
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
-use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_workspace::clone::service::CloneAttachedListener;
@@ -27,7 +26,8 @@ use crate::create::tests::{
     FIRST_ACCOUNT, Fixture, PROJECT_ID, SECOND_ACCOUNT, chat_request, lead, new_key,
     project_request,
 };
-use crate::queue_store::{NewQueueItem, QueueItemBody, insert_queue_item_statement};
+use crate::queue_store::QueueItemBody;
+use crate::queue_store::test_items::{test_queue_item, write_item};
 
 const TITLE: &str = "Add the export button";
 const MANAGED_MOUNTS: &str = "SELECT count(*) FROM repo_mounts WHERE origin = 'managed'";
@@ -438,10 +438,10 @@ async fn the_start_hands_each_unseeded_hand_off_to_the_port_and_finishes_none_it
         .finish_handed_off(hand_off_key(seeded))
         .await
         .expect("the seeded hand-off finishes");
-    let seed = NewQueueItem {
-        id: QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id"),
-        session_id: seeded,
-        body: QueueItemBody::PlanMessage {
+    let mut seed = test_queue_item(
+        seeded,
+        RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
+        QueueItemBody::PlanMessage {
             plan_message: PlanMessage {
                 plan_id: seeded_hand_off.plan_id,
                 kind: PlanMessageKind::Seed,
@@ -449,17 +449,9 @@ async fn the_start_hands_each_unseeded_hand_off_to_the_port_and_finishes_none_it
             },
             text: FreeFormText::new("Implement the plan.".to_owned()).expect("a message"),
         },
-        target_run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
-        device_id: None,
-        client_idempotency_key: Some(hand_off_key(seeded)),
-        replaces_queue_item_id: None,
-        now: WireInstant::now(),
-    };
-    fixture
-        .writer
-        .write(vec![insert_queue_item_statement(&seed)])
-        .await
-        .expect("the seed is queued");
+    );
+    seed.client_idempotency_key = Some(hand_off_key(seeded));
+    write_item(&fixture.writer, &seed).await;
     fixture.execute(&format!(
         "UPDATE queue_items SET state = 'admitted' WHERE session_id = '{seeded}'"
     ));

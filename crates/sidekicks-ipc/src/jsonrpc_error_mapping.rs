@@ -53,6 +53,10 @@ const TRUNCATED_DEPTH: &str = "<truncated:max-depth>";
 /// What stands for the rest once [`FIELDS_MAX_NODES`] are kept.
 const TRUNCATED_NODES: &str = "<truncated:max-nodes>";
 
+/// The `mcp.server.configFileInvalid` member whose strings keep their paths: the camelCase serde
+/// name of `McpServerConfigFileInvalidDetails::config_files` in the contracts' MCP governance.
+const CONFIG_FILES_MEMBER: &str = "configFiles";
+
 /// Member names a JavaScript reader treats as an object's prototype machinery, left out at every
 /// depth.
 const RESERVED_KEYS: [&str; 3] = ["__proto__", "constructor", "prototype"];
@@ -241,11 +245,15 @@ fn issue_refusal_data(code: RefusalCode, issues: Vec<Issue>) -> JsonRpcErrorData
 
 /// A refusal's `data`: its code, and its fields once sanitized.
 fn refusal_data(code: RefusalCode, fields: Option<Map<String, Value>>) -> JsonRpcErrorData {
+    // The person must find the config file that does not load, and these paths are the provider's
+    // own report of its layers, never text from its words.
+    let path_kept_member =
+        (code == RefusalCode::McpServerConfigFileInvalid).then_some(CONFIG_FILES_MEMBER);
     JsonRpcErrorData {
         refusal: code.as_str().to_owned(),
         category: code.category(),
         fields: fields.map(|fields| {
-            let members: BTreeMap<String, AnyValue> = sanitize_fields(fields)
+            let members: BTreeMap<String, AnyValue> = sanitize_fields(fields, path_kept_member)
                 .into_iter()
                 .map(|(key, value)| (key, AnyValue(value)))
                 .collect();
@@ -269,21 +277,36 @@ fn json_rpc_error(
 }
 
 /// A refusal's fields made safe to send: strings path-redacted and capped, and objects, arrays,
-/// depth and the whole walk held to their caps, each cut marked where it falls.
-fn sanitize_fields(fields: Map<String, Value>) -> Map<String, Value> {
+/// depth and the whole walk held to their caps, each cut marked where it falls. The strings under
+/// the top-level member `path_kept_member` are capped and keep their paths.
+fn sanitize_fields(
+    fields: Map<String, Value>,
+    path_kept_member: Option<&str>,
+) -> Map<String, Value> {
     let mut budget = FIELDS_MAX_NODES;
-    sanitize_members(fields, 0, &mut budget)
+    sanitize_members(fields, 0, &mut budget, true, path_kept_member)
 }
 
-fn sanitize_value(value: Value, depth: usize, budget: &mut usize) -> Value {
+fn sanitize_value(value: Value, depth: usize, budget: &mut usize, redacts_paths: bool) -> Value {
     if depth > FIELDS_MAX_DEPTH {
         return Value::from(TRUNCATED_DEPTH);
     }
     match value {
         Value::Null | Value::Bool(_) | Value::Number(_) => value,
-        Value::String(text) => Value::String(cap_text(redact_paths(&text), FIELDS_VALUE_MAX_LEN)),
-        Value::Array(elements) => Value::Array(sanitize_elements(elements, depth, budget)),
-        Value::Object(members) => Value::Object(sanitize_members(members, depth, budget)),
+        Value::String(text) if redacts_paths => {
+            Value::String(cap_text(redact_paths(&text), FIELDS_VALUE_MAX_LEN))
+        }
+        Value::String(text) => Value::String(cap_text(text, FIELDS_VALUE_MAX_LEN)),
+        Value::Array(elements) => {
+            Value::Array(sanitize_elements(elements, depth, budget, redacts_paths))
+        }
+        Value::Object(members) => Value::Object(sanitize_members(
+            members,
+            depth,
+            budget,
+            redacts_paths,
+            None,
+        )),
     }
 }
 
@@ -291,6 +314,8 @@ fn sanitize_members(
     members: Map<String, Value>,
     depth: usize,
     budget: &mut usize,
+    redacts_paths: bool,
+    path_kept_member: Option<&str>,
 ) -> Map<String, Value> {
     let member_count = members.len();
     let mut kept = Map::new();
@@ -309,14 +334,20 @@ fn sanitize_members(
             break;
         }
         *budget -= 1;
-        let child = sanitize_value(child, depth + 1, budget);
+        let redacts_child_paths = redacts_paths && path_kept_member != Some(key.as_str());
+        let child = sanitize_value(child, depth + 1, budget, redacts_child_paths);
         kept.insert(key, child);
         kept_count += 1;
     }
     kept
 }
 
-fn sanitize_elements(elements: Vec<Value>, depth: usize, budget: &mut usize) -> Vec<Value> {
+fn sanitize_elements(
+    elements: Vec<Value>,
+    depth: usize,
+    budget: &mut usize,
+    redacts_paths: bool,
+) -> Vec<Value> {
     let element_count = elements.len();
     let mut kept = Vec::with_capacity(element_count.min(FIELDS_MAX_ARRAY_LEN + 1));
     for element in elements.into_iter().take(FIELDS_MAX_ARRAY_LEN) {
@@ -325,7 +356,7 @@ fn sanitize_elements(elements: Vec<Value>, depth: usize, budget: &mut usize) -> 
             return kept;
         }
         *budget -= 1;
-        kept.push(sanitize_value(element, depth + 1, budget));
+        kept.push(sanitize_value(element, depth + 1, budget, redacts_paths));
     }
     if element_count > FIELDS_MAX_ARRAY_LEN {
         let left_out = element_count - FIELDS_MAX_ARRAY_LEN;
@@ -431,8 +462,8 @@ mod tests {
         serde_json::from_slice(&json).expect("an error response is JSON")
     }
 
-    fn refused(message: &str, detail: Option<Map<String, Value>>) -> Value {
-        let refusal = DomainError::new(message, RefusalCode::SystemInternalError);
+    fn refused(code: RefusalCode, message: &str, detail: Option<Map<String, Value>>) -> Value {
+        let refusal = DomainError::new(message, code);
         let refusal = match detail {
             Some(detail) => refusal.with_detail(detail),
             None => refusal,
@@ -541,8 +572,32 @@ mod tests {
         "branch feature/login is checked out"
     )]
     fn absolute_paths_are_redacted_from_the_message(#[case] message: &str, #[case] sent: &str) {
-        let response = refused(message, None);
+        let response = refused(RefusalCode::SystemInternalError, message, None);
         assert_eq!(response["error"]["message"], sent);
+    }
+
+    // A config file's path reaches the wire only in `mcp.server.configFileInvalid`'s
+    // `configFiles`; the message and every other member stay path-redacted.
+    #[rstest]
+    #[case::config_file_invalid(
+        RefusalCode::McpServerConfigFileInvalid,
+        "/Users/x/.codex/config.toml"
+    )]
+    #[case::other_code(RefusalCode::McpServerConfigWriteConflict, "<redacted-path>")]
+    fn config_file_paths_reach_the_wire_only_for_their_code(
+        #[case] code: RefusalCode,
+        #[case] sent_path: &str,
+    ) {
+        let detail = json!({
+            "configFiles": ["/Users/x/.codex/config.toml"],
+            "serverName": "/Users/x/secret",
+        });
+        let detail = serde_json::from_value(detail).expect("the detail is an object");
+        let response = refused(code, "cannot parse /Users/x/secret", Some(detail));
+        assert_eq!(response["error"]["message"], "cannot parse <redacted-path>");
+        let fields = &response["error"]["data"]["fields"];
+        assert_eq!(fields["configFiles"], json!([sent_path]));
+        assert_eq!(fields["serverName"], "<redacted-path>");
     }
 
     /// The largest extent a value reaches: members per object, elements per array, code points per
@@ -597,7 +652,11 @@ mod tests {
             .into_iter()
             .chain((0..2 * FIELDS_MAX_KEYS).map(|index| (format!("member{index}"), wide.clone())))
             .collect();
-        let response = refused("the detail is wide", Some(detail));
+        let response = refused(
+            RefusalCode::SystemInternalError,
+            "the detail is wide",
+            Some(detail),
+        );
         let mut extent = Extent::default();
         measure(&response["error"]["data"]["fields"], 0, &mut extent);
         // A cut adds one marker member or element where it falls, at most one per object or array.

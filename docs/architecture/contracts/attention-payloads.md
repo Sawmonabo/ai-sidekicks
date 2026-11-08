@@ -52,7 +52,8 @@ interface AttentionItem {
   // The name the entry is shown under — the session's name, or the run's name on a run's entry;
   // an untitled session reads `New chat` for a chat and `New session` for a project session — and
   // the word the line reads after it (`Waiting on you`, `Finished`, `Failed`, or a Notify step's
-  // own notice text). A banner says the name and the state and nothing else.
+  // own notice text). A banner says the name and the state and nothing else. The name is composed
+  // each time the entry is read and never stored, so a rename shows on every entry at once.
   displayName: string;
   stateWord: string;
   // The console draws four kinds from these: `Waiting on you` (`pendingApproval`, `pendingInput`;
@@ -151,6 +152,9 @@ interface AttentionDeliveryOutcome {
     | "notEncrypted"
     | "storeUnavailable";
   cause?: "locked" | "unavailable" | "secretMissing" | "secretDamaged"; // on storeUnavailable alone
+  // On the email digest's `refused` alone: `address`, refused before the message, or `message`,
+  // refused after it.
+  stage?: "address" | "message";
   httpStatus: number | null; // null where the address gave no answer
   undelivered: number;
 }
@@ -159,10 +163,16 @@ interface AttentionDeliveryListResponse {
   webAddress: { saved: boolean; host: string | null; lastOutcome: AttentionDeliveryOutcome | null };
   // `knownMailDomains`: the service's mail-server table's keys, aliases and domains, so the page
   // draws `Mail server`, `Port` and `User name` only when the address's domain, as it is typed, is
-  // not in the table, matching its domain the way the service's lookup does.
+  // not in the table, matching its domain the way the service's lookup does. `signIn`: the
+  // Microsoft sign-in's own state, kept with its token. `microsoftMailDomains`: the table's keys
+  // whose server is Microsoft's, so the page draws `Sign in with Microsoft` in the password's place
+  // once the address's resolved mail server is Microsoft's (a typed `Mail server` is Microsoft's
+  // when it is or ends in `.office365.com`, `.outlook.com` or `.hotmail.com`).
   emailDigest: {
     passwordSaved: boolean;
+    signIn: "signedOut" | "signedIn" | "refused";
     knownMailDomains: string[];
+    microsoftMailDomains: string[];
     lastOutcome: AttentionDeliveryOutcome | null;
   };
 }
@@ -185,6 +195,18 @@ interface AttentionDeliveryTestResponse {
 interface AttentionMailPasswordUpdateRequest {
   password: string; // write-only: sealed in the credential store or secrets.json, never read back
 }
+// `attention.mailAccount.signIn` answers the Microsoft sign-in page's address for the client to
+// open. One attempt runs at a time: a second press ends the first, and an attempt ends 15 minutes
+// after it opened. `attention.mailAccount.signOut` removes the signed-in token.
+interface AttentionMailAccountSignInResponse {
+  authorizationUrl: string;
+}
+// The payload of `attention.mailAccount.signIn.completed`, appended at every sign-in attempt's end;
+// the page reads `attention.delivery.list` again on it.
+interface AttentionMailAccountSignInCompletedPayload {
+  outcome: "success" | "failure";
+  reason?: string;
+}
 interface AttentionWebAddressUpdateRequest {
   address: string; // an http or https address with a host; any other text is refused
 }
@@ -198,8 +220,10 @@ interface AttentionWebAddressSecretRotateResponse {
 // `attention.webAddress.delete` waits for the attempt in flight, then removes the channel's outcome
 // row and drops every waiting message, uncounted, then removes the address and its signing secret.
 // Refusals: `attention.delivery.storeUnavailable` (`cause: locked | unavailable`),
-// `attention.delivery.notConfigured` (`missing: address | password`; also `secret.rotate` with no
-// address saved) and `attention.webAddress.notAnAddress` (`update` on text that is no address).
+// `attention.delivery.notConfigured` (`missing: address | password | mailServer | signIn`; also
+// `secret.rotate` with no address saved), `attention.delivery.signInUnsupported` (`signIn` where the
+// resolved mail server is not Microsoft's), `attention.delivery.signInFailed` (`signIn` that cannot
+// be started) and `attention.webAddress.notAnAddress` (`update` on text that is no address).
 ```
 
 > **Scope and aggregate carrier (Plan-016 D-016-2).** `runId` is the scope discriminator: an item carrying it is run-scoped, an item omitting it is the session-scoped aggregate that [Spec-017 §Required Behavior](../../specs/017-notifications-and-attention-model.md#required-behavior) requires alongside run scope. There is no separate aggregate type and no aggregate-only field. On an aggregate, `severity` carries the aggregation over its contributors, the session's unresolved waiting entries and its informational entries not yet seen — `actionable` while **any** contributor is actionable, `informational` only when every contributor is — per [Spec-017 §Default Behavior](../../specs/017-notifications-and-attention-model.md#default-behavior), while `trigger` and `sourceEventId` are taken from one deterministically selected representative contributor: highest severity first (`actionable` before `informational`), then earliest `createdAt`, then lexicographically smallest `id`. Because the representative is a real contributor rather than a synthesized placeholder, `sourceEventId` always resolves on an aggregate and stays non-optional. Aggregates are read-projection-only: `attention.subscribe` returns them and no delivery carries one — a banner, a web-address message or an email line speaks for the single canonical trigger that caused it, so no aggregate is ever delivered and no per-contributor fan-out is inferred from one. Canonical statement: [Plan-016 §API And Transport Changes](../../plans/016-notifications-and-attention-model.md#api-and-transport-changes) and [Plan-016](../../plans/016-notifications-and-attention-model.md) D-016-2.
@@ -210,13 +234,15 @@ Plan-016's attention surface is exposed as the `attention.*` methods below, all 
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
-| `attention.subscribe` | `subscription` | `AttentionSubscribeRequest` | `SubscribeAckResponse`, then `AttentionProjection` emissions |
+| `attention.subscribe` | `subscription` | `AttentionSubscribeRequest` | `SubscribeAcknowledgmentResponse`, then `AttentionProjection` emissions |
 | `attention.banner.settle` | `mutation` | `AttentionBannerSettleRequest` | `EmptyPayload` |
 | `attention.seen.update` | `mutation` | `AttentionSeenUpdateRequest` | `EmptyPayload` |
 | `attention.delivery.list` | `query` | `EmptyPayload` | `AttentionDeliveryListResponse` |
 | `attention.delivery.test` | `mutation` | `AttentionDeliveryTestRequest` | `AttentionDeliveryTestResponse` |
 | `attention.mailPassword.update` | `mutation` | `AttentionMailPasswordUpdateRequest` | `EmptyPayload` |
 | `attention.mailPassword.delete` | `mutation` | `EmptyPayload` | `EmptyPayload` |
+| `attention.mailAccount.signIn` | `mutation` | `EmptyPayload` | `AttentionMailAccountSignInResponse` |
+| `attention.mailAccount.signOut` | `mutation` | `EmptyPayload` | `EmptyPayload` |
 | `attention.webAddress.update` | `mutation` | `AttentionWebAddressUpdateRequest` | `AttentionWebAddressUpdateResponse` |
 | `attention.webAddress.secret.rotate` | `mutation` | `EmptyPayload` | `AttentionWebAddressSecretRotateResponse` |
 | `attention.webAddress.delete` | `mutation` | `EmptyPayload` | `EmptyPayload` |

@@ -218,6 +218,12 @@ pub fn test_provider() -> ProviderId {
     ProviderId::new("test-provider".to_owned()).expect("the id matches the pattern")
 }
 
+/// A model or effort token for a test, read from `text`, which must fit one.
+#[cfg(any(test, feature = "test-support"))]
+pub fn test_token(text: &str) -> sidekicks_contracts::agent::definition::binding::ProviderToken {
+    FreeFormText::new(text.to_owned()).expect("a test token fits")
+}
+
 #[cfg(test)]
 mod tests {
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;

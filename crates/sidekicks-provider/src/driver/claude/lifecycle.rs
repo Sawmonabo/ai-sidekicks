@@ -4,12 +4,12 @@
 
 mod controls;
 mod held_calls;
+mod inspector;
 mod runs;
 mod sessions;
 #[cfg(test)]
 mod tests;
 
-use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use sidekicks_contracts::provider::driver::commands::{
@@ -33,9 +33,7 @@ use crate::driver::claude::account::ClaudeAccountLegs;
 use crate::driver::claude::account::credentials::ClaudeSignInReader;
 use crate::driver::claude::delivery::commands::{ClaudeCommandChannels, ClaudeCommandPrograms};
 use crate::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
-use crate::driver::claude::delivery::requests::answers::{
-    ClaudeAnswerRules, read_claude_repository,
-};
+use crate::driver::claude::delivery::requests::answers::ClaudeAnswerRules;
 use crate::driver::claude::delivery::requests::{
     ClaudeInboundRequests, ClaudeInboundRequestsDependencies,
 };
@@ -71,9 +69,13 @@ use crate::driver::claude::session::establishment::ClaudeSessionEstablishment;
 use crate::driver::claude::session::establishment::figures::ClaudeHeldFigures;
 use crate::driver::claude::session::establishment::spawn_sources::ClaudeSpawnSources;
 use crate::driver::claude::session::idle_sleep::ClaudeIdleSleep;
+use crate::driver::claude::session::inspector_reads::ClaudeInspectorReads;
 use crate::driver::claude::session::permission_level::ClaudeCommandSandboxCheck;
 use crate::driver::claude::session::permission_level::check_claude_command_sandbox;
 use crate::driver::claude::session::restart::ClaudeSessionRestarts;
+use crate::driver::claude::session::restart::ended_process::{
+    ClaudeEndedConversation, ended_conversation_of,
+};
 use crate::driver::claude::session::slots::ClaudeSessionSlots;
 use crate::driver::claude::spawn::launch::ClaudeProcessLauncher;
 use crate::driver::claude::spawn::launch::installed_build::{
@@ -81,7 +83,6 @@ use crate::driver::claude::spawn::launch::installed_build::{
 };
 use crate::driver::contract::error::DriverError;
 use crate::port::inbound_dispatch::InboundDispatch;
-use crate::port::repository_reader::RepositoryReading;
 use crate::port::run_host::RunHost;
 use crate::port::session_inbox_address::SessionInboxAddresser;
 
@@ -211,6 +212,7 @@ impl ClaudeDriver {
             pool: Arc::clone(&services.pool),
             execution_postures: Arc::clone(&services.execution_postures),
             base_environment: Arc::clone(&services.base_environment),
+            command_search: Arc::clone(&services.command_search),
             reserved_names: Arc::clone(&services.reserved_names),
             background_work: Arc::clone(&services.background_work),
             data_folder: services.data_folder.clone(),
@@ -300,11 +302,19 @@ impl ClaudeDriver {
         self.parts.get()
     }
 
-    /// The repository of `working_folder` as Claude Code places its project settings; `None`
-    /// outside git, and before the daemon registers its repository reader.
-    async fn read_repository(&self, working_folder: &Path) -> Option<(RepositoryReading, bool)> {
-        let repositories = self.sources.ports.repositories.port()?;
-        read_claude_repository(&**repositories, working_folder).await
+    /// The conversation, and the environment naming its home, that the session's next process
+    /// starts from: the live process's, else the last ended one's; `None` when no process ran
+    /// since the daemon started.
+    pub(super) fn last_conversation(
+        &self,
+        session_id: SessionId,
+    ) -> Option<ClaudeEndedConversation> {
+        let parts = self.composed_parts()?;
+        parts
+            .slots()
+            .live_session(session_id)
+            .map(|live| ended_conversation_of(&live))
+            .or_else(|| parts.restarts.ended_conversation(session_id))
     }
 
     // Every piece a session shares, wired over `engine` and its `dispatch`.
@@ -353,10 +363,12 @@ impl ClaudeDriver {
             },
         ));
         let message_taken = Arc::clone(&ports.message_taken);
+        let inspector_reads = Arc::new(ClaudeInspectorReads::default());
         let context_readings = Arc::new(ClaudeContextReadings::new(
             Arc::clone(&ports.context_readings),
             Arc::clone(dispatch),
             Arc::clone(&streams),
+            Arc::clone(&inspector_reads),
         ));
         let goal_endings = Arc::new(ClaudeGoalEndings::default());
         let delivery = Arc::new(ClaudeDeliveryStream::new(ClaudeStreamDependencies {
@@ -506,6 +518,7 @@ impl ClaudeDriver {
                 task_services,
                 sources: Arc::clone(&self.sources),
                 account_servers: Arc::clone(&self.account_servers),
+                inspector_reads,
             }
         });
         let (restarts, run_start, run_controls, interventions, session_controls) =

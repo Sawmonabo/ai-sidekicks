@@ -18,7 +18,6 @@ use crate::driver::codex::app_server_protocol::{AskForApproval, SandboxMode, Thr
 use crate::driver::codex::event_normalizer::CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD;
 use crate::driver::codex::mcp::config::attribution::{PLUGINS_DEFAULT_KEY, PLUGINS_KEY};
 use crate::driver::codex::mcp::config::plugins::CodexPluginServer;
-use crate::driver::codex::mcp::config::server_entry::ENABLED_MEMBER;
 use crate::driver::codex::mcp::config::{CodexMcpConfigReading, CodexMcpRoot};
 use crate::driver::codex::mcp::requirements::server_name_at;
 use crate::driver::codex::mcp::status_list::list_codex_mcp_server_statuses;
@@ -37,6 +36,7 @@ use crate::driver::mcp_server::read::{
 use crate::driver::mcp_server::status::{
     McpServerReading, McpServerStatusEmission, McpServerStatusIngestResult,
 };
+use crate::driver::mcp_server::write::ENTRY_SWITCH_MEMBER;
 
 #[cfg(test)]
 mod tests;
@@ -392,12 +392,17 @@ fn compose_probe_overrides(site: &CodexMcpProbeSite) -> Map<String, Value> {
     let mut servers: Map<String, Value> = site
         .switched_off_names
         .iter()
-        .map(|name| (name.as_str().to_owned(), json!({ ENABLED_MEMBER: false })))
+        .map(|name| {
+            (
+                name.as_str().to_owned(),
+                json!({ ENTRY_SWITCH_MEMBER: false }),
+            )
+        })
         .collect();
     for server in &site.servers {
         let entry = match &server.start {
             CodexProbedServerStart::LoadedByProvider => continue,
-            CodexProbedServerStart::SwitchedOnByName => json!({ ENABLED_MEMBER: true }),
+            CodexProbedServerStart::SwitchedOnByName => json!({ ENTRY_SWITCH_MEMBER: true }),
             CodexProbedServerStart::Sent(_) if server.is_kept_out => continue,
             CodexProbedServerStart::Sent(entry) => Value::Object(entry.clone()),
         };
@@ -405,7 +410,7 @@ fn compose_probe_overrides(site: &CodexMcpProbeSite) -> Map<String, Value> {
     }
     let plugins: Map<String, Value> = std::iter::once(PLUGINS_DEFAULT_KEY)
         .chain(site.switched_off_plugin_keys.iter().map(String::as_str))
-        .map(|key| (key.to_owned(), json!({ ENABLED_MEMBER: false })))
+        .map(|key| (key.to_owned(), json!({ ENTRY_SWITCH_MEMBER: false })))
         .collect();
     Map::from_iter([
         (MCP_SERVERS_KEY.to_owned(), Value::Object(servers)),

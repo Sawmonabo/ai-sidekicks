@@ -9,7 +9,12 @@
 //! settled: failed as no provider session came back, or with the provider's own words where it
 //! refused the resume, each of those then listed for the person until the session's next run
 //! starts, and a lead the person paused kept paused; the questions the tool-server client asked,
-//! whose requests the restart ended, are withdrawn. No write is taken until the pass has listed the
+//! whose requests the restart ended, are withdrawn. A session the person's Stop left in the stop
+//! intent is not opened: its runs end as the Stop ends them, and its name is dropped from the
+//! intent only once that settle has committed, the sweep of the tool call receipts the stop left in
+//! flight has begun and the interrupts of the turns a provider kept running for it have answered,
+//! before it takes calls; a name whose interrupts have yet to answer when the service stops stays
+//! for the next start, which sends them again. No write is taken until the pass has listed the
 //! sessions it rebuilds and those whose runs it ends; from then each listed session alone refuses
 //! the calls that name it until it is rebuilt and settled, so every other session takes its writes
 //! while the pass goes on. A session whose rebuild fails is healed: the store's files are copied
@@ -21,6 +26,8 @@
 //! pass, and a step that fails once the stop came is never read as a failed store.
 
 mod heal;
+mod receipt_sessions;
+mod session;
 
 use std::collections::BTreeSet;
 use std::error::Error;
@@ -31,17 +38,14 @@ use rusqlite::Connection;
 use sidekicks_approval::store::ApprovalRequestReader;
 use sidekicks_artifact::plans::store::read_held_plans;
 use sidekicks_contracts::daemon::recovery::{
-    DaemonRecoveryAttemptedPayload, DaemonRecoveryFailedPayload, DaemonRecoveryHaltedRun,
-    DaemonRecoverySucceededPayload, RecoveryFailureKind, RecoveryId, RecoveryPhase,
-    RecoveryTrigger,
+    DaemonRecoveryAttemptedPayload, DaemonRecoveryFailedPayload, DaemonRecoverySucceededPayload,
+    RecoveryFailureKind, RecoveryId, RecoveryPhase, RecoveryTrigger,
 };
 use sidekicks_contracts::event::envelope::DAEMON_SCOPE_SENTINEL_SESSION_ID;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
-use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
-use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
@@ -49,17 +53,16 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_mcp::client::dispatch::restart_sweep::{McpRestartSweep, McpRestartSweepError};
 use sidekicks_provider::driver::contract::error::bound_failure_detail;
-use sidekicks_provider::driver::session_control::KeptRunTurns;
+use sidekicks_provider::driver::session_control::KeptTurnsEnding;
 use sidekicks_queue::provider_session::ProviderSessions;
-use sidekicks_queue::provider_session::errors::ProviderSessionError;
 use sidekicks_session::interventions::store::read_pending_retries;
 use sidekicks_session::interventions::unresolved::read_ended_runs_with_unresolved;
 use sidekicks_session::questions::service::{QuestionError, QuestionsService};
 use sidekicks_session::run::held_tool_calls::read_sessions_holding_tool_calls;
 use sidekicks_session::run::provider_choice::run_end::read_ended_runs_with_open_choices;
 use sidekicks_session::run::read::RunStateReader;
-use sidekicks_session::run::restart::read_has_own_stop;
 use sidekicks_std::elapsed::elapsed_ms_since;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_store::database::connection::read_pool::{
@@ -73,6 +76,8 @@ use sidekicks_store::events::session::appender::{
 };
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
+use tracing::Instrument as _;
 
 use crate::damaged_history::{DamagedHistory, DamagedHistoryError};
 use crate::database_file::aside_copy::AsideCopyError;
@@ -80,15 +85,15 @@ use crate::database_file::copy::DatabaseFileCopier;
 use crate::projection_rebuild::{
     ProjectionRebuildError, ProjectionRebuildRequest, ProjectionRebuildService,
 };
-use crate::restart_settle::{
-    RESTART_FAILURE_DETAIL, RestartSettle, RestartSettleError, RestartTally,
-};
+use crate::restart_settle::{RestartSettle, RestartSettleError, RestartTally};
 use crate::status::RecoveryStatusTracker;
+use crate::stop_intent::{StopIntent, StopIntentError, StopIntentFile};
 
 /// The statements the pass's own reads run: the failed passes since the last that succeeded, and
-/// the eight every-session listings of what the restart left (the live runs, the pending retries,
-/// the ended runs with an open turn, with an unresolved intervention, with a pending ask and with
-/// an open choice, the held plans, and the sessions holding background calls).
+/// the eight every-session listings of what the restart left (the live runs, which the settle at
+/// the person's stop of the service reads too, the pending retries, the ended runs with an open
+/// turn, with an unresolved intervention, with a pending ask and with an open choice, the held
+/// plans, and the sessions holding background calls).
 pub const STARTUP_RECOVERY_STATEMENT_CAPACITY: usize = 9;
 
 // The failed passes since the last one that succeeded, read from the service's own session.
@@ -110,13 +115,6 @@ static COUNT_FAILURES_SINCE_SUCCESS_SQL: LazyLock<String> = LazyLock::new(|| {
 static UNDESCRIBED_PASS_FAILURE: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =
     LazyLock::new(|| {
         FreeFormText::new("The recovery pass failed without a message".to_owned())
-            .expect("the words are free-form text")
-    });
-
-// What a run records when its provider refused the resume without a message.
-static UNDESCRIBED_RESUME_FAILURE: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =
-    LazyLock::new(|| {
-        FreeFormText::new("The provider could not resume the conversation".to_owned())
             .expect("the words are free-form text")
     });
 
@@ -157,11 +155,18 @@ pub struct StartupRecoveryDeps {
     pub data_folder: PathBuf,
     /// The copy each file is copied aside with.
     pub copier: Arc<DatabaseFileCopier>,
+    /// The intent the person's Stop left, under which the pass ends work as the Stop does.
+    pub stop_intent: Arc<StopIntentFile>,
+    /// The sweep resuming each tool call receipt the stop left in flight.
+    pub mcp_sweep: McpRestartSweep,
 }
 
 /// Runs the recovery pass a start makes before the daemon takes writes.
 pub struct StartupRecovery {
     deps: StartupRecoveryDeps,
+    // Each drop of a name the person's Stop left that waits, past the pass, for the session's kept
+    // turns to end.
+    name_drops: TaskTracker,
 }
 
 // What one pass did: the events its rebuilds read, the bindings its resumes recorded, and the
@@ -171,22 +176,6 @@ struct PassTally {
     events_applied: u64,
     bindings_restored: u64,
     restart: RestartTally,
-}
-
-// How a session's resume ended for the runs it did not leave live: the runs it took, the
-// provider's refusal the others end with, where it refused, and the turns the restart kept of the
-// runs that end with no resume, which are ended on the provider.
-#[derive(Default)]
-struct SessionResume {
-    resumed: BTreeSet<RunId>,
-    refusal: Option<ResumeRefusal>,
-    kept_turns: Vec<KeptRunTurns>,
-}
-
-// A resume the provider refused: what the runs' recovery needs and the provider's own words.
-struct ResumeRefusal {
-    recovery_condition: RecoveryCondition,
-    detail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
 }
 
 // Why a pass stopped short of its end.
@@ -214,6 +203,10 @@ enum PassFailure {
     Aside(#[from] AsideCopyError),
     #[error("the service's stop came before the store's files were copied aside")]
     Stopped,
+    #[error("the stop intent could not be rewritten once a session was settled")]
+    StopIntent(#[source] StopIntentError),
+    #[error("the tool call receipts the stop left in flight could not be swept")]
+    McpSweep(#[from] McpRestartSweepError),
 }
 
 // The sessions the pass works on, as its listing found them.
@@ -231,7 +224,17 @@ struct PassListing {
 impl StartupRecovery {
     /// The pass over `deps`.
     pub fn new(deps: StartupRecoveryDeps) -> Self {
-        Self { deps }
+        Self {
+            deps,
+            name_drops: TaskTracker::new(),
+        }
+    }
+
+    /// Returns once each name drop waiting on a session's kept turns has ended, none starting
+    /// after; the pass's stop, canceled first, ends each wait with the name kept.
+    pub async fn stop(&self) {
+        self.name_drops.close();
+        self.name_drops.wait().await;
     }
 
     /// Runs the pass and returns once it has ended, either way; the recovery state then says how
@@ -283,7 +286,34 @@ impl StartupRecovery {
         .await?;
 
         let listing = self.list_sessions().await?;
-        for session_id in listing.stale.iter().chain(&listing.current_listed) {
+        // The pass's one read of the stop intent, which every step after it reads; a session it
+        // names refuses calls until its runs end as the Stop ends them.
+        let read_intent = self.deps.stop_intent.read().await;
+        let is_named = |session_id: &SessionId| {
+            read_intent
+                .as_ref()
+                .is_some_and(|intent| intent.names(session_id))
+        };
+        // A named session with nothing left to settle is still settled, so its name is dropped.
+        let settled: BTreeSet<SessionId> = match &read_intent {
+            Some(StopIntent::Sessions(named)) => listing
+                .current
+                .iter()
+                .chain(
+                    named
+                        .iter()
+                        .filter(|session_id| !listing.stale.contains(session_id)),
+                )
+                .copied()
+                .collect(),
+            Some(StopIntent::Whole) | None => listing.current.clone(),
+        };
+        for session_id in listing
+            .stale
+            .iter()
+            .chain(&listing.current_listed)
+            .chain(settled.iter().filter(|session_id| is_named(session_id)))
+        {
             self.deps.status.mark_session_rebuilding(session_id);
         }
         self.deps.status.mark_pass_listed();
@@ -297,28 +327,96 @@ impl StartupRecovery {
             if stop.is_cancelled() {
                 return Err(PassFailure::Stopped);
             }
-            self.settle_held_tool_calls(session_id).await;
+            self.settle_held_tool_calls(session_id, is_named(&session_id))
+                .await;
         }
-        for &session_id in &listing.current {
-            self.settle_session(session_id, tally, stop).await?;
+        if stop.is_cancelled() {
+            return Err(PassFailure::Stopped);
+        }
+        // A whole intent becomes the names of the sessions listed, only now, so a pass cut before
+        // leaves it whole.
+        if let Some(intent @ StopIntent::Whole) = &read_intent {
+            let named = listing
+                .stale
+                .iter()
+                .chain(&listing.current)
+                .copied()
+                .collect();
+            self.deps
+                .stop_intent
+                .name_sessions(intent, named)
+                .await
+                .map_err(PassFailure::StopIntent)?;
+        }
+        // The sessions settled under the intent, whose names outlive their settles, each with the
+        // ending of its kept turns' interrupts where a driver took them.
+        let mut stopped = Vec::new();
+        for &session_id in &settled {
+            let is_under_stop = is_named(&session_id);
+            let ending = self
+                .settle_session(session_id, is_under_stop, tally, stop)
+                .await?;
+            if is_under_stop {
+                stopped.push((session_id, ending));
+            }
         }
         let mut heal = heal::HealState::default();
-        let mut is_any_damaged = false;
+        let mut damaged = BTreeSet::new();
         for &session_id in &listing.stale {
             pass.phase = RecoveryPhase::ProjectionRebuild;
             if self
                 .rebuild_session(session_id, &mut heal, tally, stop)
                 .await?
             {
-                // A damaged session takes no write, so what the restart left in it stays.
-                is_any_damaged = true;
+                // A damaged session takes no write, so what the restart left in it stays, and so
+                // does its name.
+                damaged.insert(session_id);
                 continue;
             }
             pass.phase = RecoveryPhase::RunResumption;
             if listing.holding_tool_calls.contains(&session_id) {
-                self.settle_held_tool_calls(session_id).await;
+                self.settle_held_tool_calls(session_id, is_named(&session_id))
+                    .await;
             }
-            self.settle_session(session_id, tally, stop).await?;
+            let is_under_stop = is_named(&session_id);
+            let ending = self
+                .settle_session(session_id, is_under_stop, tally, stop)
+                .await?;
+            if is_under_stop {
+                stopped.push((session_id, ending));
+            }
+        }
+
+        if stop.is_cancelled() {
+            return Err(PassFailure::Stopped);
+        }
+        let is_any_damaged = !damaged.is_empty();
+        // Each receipt's session as the pass knows it now: stopped as the intent read at the
+        // pass's start names it, its receipts in a damaged session left in flight.
+        self.deps
+            .mcp_sweep
+            .start(move |connection, run_id| {
+                let run = RunStateReader::new(connection).read_run(run_id)?;
+                Ok(receipt_sessions::receipt_session(
+                    run.as_ref(),
+                    read_intent.as_ref(),
+                    &damaged,
+                ))
+            })
+            .await?;
+        // Only once the sweep has begun, so a pass cut before leaves each name for the next pass
+        // to sweep its receipts as stopped; the session takes calls only after.
+        for (session_id, ending) in stopped {
+            if let Some(ending) = ending {
+                self.drop_name_once_ended(session_id, ending, stop);
+            } else {
+                self.deps
+                    .stop_intent
+                    .drop_named(&session_id)
+                    .await
+                    .map_err(PassFailure::StopIntent)?;
+                self.deps.status.mark_session_healthy(&session_id);
+            }
         }
 
         if is_any_damaged {
@@ -389,14 +487,56 @@ impl StartupRecovery {
         })
     }
 
-    // Settles the calls `session_id` held in the background through the provider sessions; a
-    // failure is logged and the pass goes on, the calls left running until the session's next
-    // resume settles them.
-    async fn settle_held_tool_calls(&self, session_id: SessionId) {
+    // Drops `session_id`'s name from the stop intent, then lets the session take calls, once
+    // `ending` reads that its kept turns' interrupts have answered, on a task of the pass's own, so
+    // a provider that never answers holds up no other session. Where the work was cut, or `stop`
+    // came first, the name stays and the next start sends the interrupts again; a failed drop is
+    // logged and leaves the name and the session refusing calls, as a failed settle does.
+    fn drop_name_once_ended(
+        &self,
+        session_id: SessionId,
+        ending: KeptTurnsEnding,
+        stop: &CancellationToken,
+    ) {
+        let stop = stop.clone();
+        let stop_intent = Arc::clone(&self.deps.stop_intent);
+        let status = Arc::clone(&self.deps.status);
+        let drop_once_ended = async move {
+            let has_ended = tokio::select! {
+                biased;
+                () = stop.cancelled() => false,
+                has_ended = ending.ended() => has_ended,
+            };
+            if !has_ended {
+                tracing::info!(
+                    %session_id,
+                    "the stop came before the kept turns' interrupts of a session the Stop named \
+                     had answered, so its name stays for the next start"
+                );
+                return;
+            }
+            match stop_intent.drop_named(&session_id).await {
+                Ok(()) => status.mark_session_healthy(&session_id),
+                Err(error) => tracing::error!(
+                    %session_id,
+                    error = &error as &(dyn Error + 'static),
+                    "the name of a session the Stop named could not be dropped once its kept \
+                     turns ended, so it refuses calls until the next start"
+                ),
+            }
+        };
+        self.name_drops
+            .spawn(drop_once_ended.instrument(tracing::Span::current()));
+    }
+
+    // Settles the calls `session_id` held in the background through the provider sessions, as the
+    // person's Stop left them when `is_under_stop`; a failure is logged and the pass goes on, the
+    // calls left running until the session's next resume settles them.
+    async fn settle_held_tool_calls(&self, session_id: SessionId, is_under_stop: bool) {
         if let Err(failure) = self
             .deps
             .provider_sessions
-            .settle_held_tool_calls(session_id)
+            .settle_held_tool_calls(session_id, is_under_stop)
             .await
         {
             tracing::warn!(
@@ -448,216 +588,6 @@ impl StartupRecovery {
             }
             Err(error) => Err(error.into()),
         }
-    }
-
-    // Resumes the session's conversation where it had work in progress, then settles what the
-    // restart left in it; a listed one takes calls again after. Each run a refused resume failed
-    // is listed for the person.
-    async fn settle_session(
-        &self,
-        session_id: SessionId,
-        tally: &mut PassTally,
-        stop: &CancellationToken,
-    ) -> Result<(), PassFailure> {
-        if stop.is_cancelled() {
-            return Err(PassFailure::Stopped);
-        }
-        let status = &self.deps.status;
-        status.mark_session_settling(&session_id);
-        let resume = self.resume_session(session_id, tally, stop).await?;
-        let failure_detail = resume
-            .refusal
-            .as_ref()
-            .map_or(RESTART_FAILURE_DETAIL, |refusal| refusal.detail.as_str());
-        let settled = self
-            .deps
-            .restart_settle
-            .settle_live(
-                session_id,
-                &resume.resumed,
-                failure_detail,
-                None,
-                Some(stop),
-            )
-            .await?;
-        tally.restart.add(settled.tally);
-        // The runs are settled; their turns end on the provider off the pass, which only waits
-        // for the driver to hold the session, so no run reaches it before the work.
-        if !resume.kept_turns.is_empty()
-            && let Err(failure) = self
-                .deps
-                .provider_sessions
-                .end_kept_turns(session_id, resume.kept_turns, stop.clone())
-                .await
-        {
-            tracing::warn!(
-                session_id = %session_id,
-                error = &failure as &(dyn Error + 'static),
-                "the turns a restart kept in a session not resumed could not be ended; they run on"
-            );
-        }
-        if let Some(refusal) = resume.refusal {
-            for run_id in settled.failed_run_ids {
-                status.mark_run_halted(
-                    &session_id,
-                    DaemonRecoveryHaltedRun {
-                        run_id,
-                        recovery_condition: refusal.recovery_condition,
-                        failure_category: Some(RunFailureCategory::ProviderFailure),
-                    },
-                );
-            }
-        }
-        self.deps
-            .restart_settle
-            .settle_ended(session_id, Some(stop))
-            .await?;
-        // The client's open questions came on requests the restart ended, so they are withdrawn
-        // before the session takes calls.
-        self.deps
-            .questions
-            .withdraw_tool_server_questions(session_id)
-            .await?;
-        status.mark_session_healthy(&session_id);
-        Ok(())
-    }
-
-    // Re-arms the session's runs in progress and resumes its conversation through the provider
-    // sessions, which settle each run the resume names as the provider answers for it; a session
-    // with no run in progress, its paused runs included, or whose runs in progress each wait on a
-    // pending stop of their own, is not opened, so no process is started for work the person
-    // stopped. Answers the runs the resume took, a paused one among them staying paused, and the
-    // provider's refusal where it refused; a session with no conversation to resume, or whose
-    // resume failed short of the provider's answer, answers neither, and its runs are settled as
-    // before any resume. Where the session is not opened for its runs in progress, it answers the
-    // kept turns of every one of them too.
-    async fn resume_session(
-        &self,
-        session_id: SessionId,
-        tally: &mut PassTally,
-        stop: &CancellationToken,
-    ) -> Result<SessionResume, PassFailure> {
-        let rearmed = self
-            .deps
-            .restart_settle
-            .rearm_live(session_id, stop)
-            .await?;
-        let in_progress: Vec<RunId> = rearmed
-            .in_progress
-            .iter()
-            .map(|live_run| live_run.run_id)
-            .collect();
-        if in_progress
-            .iter()
-            .all(|run_id| rearmed.stopping.contains(run_id))
-        {
-            return Ok(SessionResume {
-                kept_turns: self.read_kept_turns(session_id, in_progress).await?,
-                ..SessionResume::default()
-            });
-        }
-        if stop.is_cancelled() {
-            return Err(PassFailure::Stopped);
-        }
-        let refusal = match self
-            .deps
-            .provider_sessions
-            .resume_after_restart(session_id)
-            .await
-        {
-            Ok(resumed) => {
-                tally.bindings_restored += u64::from(resumed.is_binding_recorded);
-                return Ok(SessionResume {
-                    resumed: resumed
-                        .named_run_ids
-                        .into_iter()
-                        .filter(|run_id| {
-                            rearmed.paused_run_ids.contains(run_id)
-                                || rearmed
-                                    .in_progress
-                                    .iter()
-                                    .any(|live_run| live_run.run_id == *run_id)
-                        })
-                        .collect(),
-                    refusal: None,
-                    kept_turns: Vec::new(),
-                });
-            }
-            Err(ProviderSessionError::ResumeRefused {
-                recovery_condition,
-                provider_failure_detail,
-                ..
-            }) => ResumeRefusal {
-                recovery_condition,
-                detail: provider_failure_detail,
-            },
-            Err(ProviderSessionError::Driver(refused)) => ResumeRefusal {
-                recovery_condition: RecoveryCondition::RecoveryNeeded,
-                detail: bound_failure_detail(
-                    &describe_error(&refused),
-                    UNDESCRIBED_RESUME_FAILURE.clone(),
-                ),
-            },
-            Err(ProviderSessionError::NoConversation { .. }) => {
-                return Ok(SessionResume::default());
-            }
-            Err(failure) => {
-                tracing::warn!(
-                    session_id = %session_id,
-                    error = &failure as &(dyn Error + 'static),
-                    "a session's conversation could not be resumed; its runs are settled as \
-                     though none came back"
-                );
-                return Ok(SessionResume {
-                    kept_turns: self.read_kept_turns(session_id, in_progress).await?,
-                    ..SessionResume::default()
-                });
-            }
-        };
-        Ok(SessionResume {
-            resumed: BTreeSet::new(),
-            refusal: Some(refusal),
-            kept_turns: self.read_kept_turns(session_id, in_progress).await?,
-        })
-    }
-
-    // The turns the restart kept of `in_progress`, read before the settle ends the runs: each run's
-    // open turns under the provider's ids, a run with none left out, and whether a stop of its own
-    // ends it.
-    async fn read_kept_turns(
-        &self,
-        session_id: SessionId,
-        in_progress: Vec<RunId>,
-    ) -> Result<Vec<KeptRunTurns>, PassFailure> {
-        if in_progress.is_empty() {
-            return Ok(Vec::new());
-        }
-        self.deps
-            .reads
-            .read(ReadLength::Short, move |reader| {
-                let mut kept_turns = Vec::new();
-                for run in RunStateReader::new(reader).list_live_run_resumes(&session_id)? {
-                    if !in_progress.contains(&run.run_id) {
-                        continue;
-                    }
-                    let is_for_stop = read_has_own_stop(reader, &run.run_id)?;
-                    let turn_ids: Vec<_> = run
-                        .open_turns
-                        .into_iter()
-                        .filter_map(|turn| turn.provider_turn_id)
-                        .collect();
-                    if !turn_ids.is_empty() {
-                        kept_turns.push(KeptRunTurns {
-                            run_id: run.run_id,
-                            subagent_id: run.subagent_id,
-                            turn_ids,
-                            is_for_stop,
-                        });
-                    }
-                }
-                Ok::<_, PassFailure>(kept_turns)
-            })
-            .await
     }
 
     // A pass the stop ended says nothing of the store; any other failure is the store's.

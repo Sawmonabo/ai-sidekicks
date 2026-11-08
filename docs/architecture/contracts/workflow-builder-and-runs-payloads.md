@@ -294,7 +294,9 @@ interface WorkflowResultsPostResponse {
 // per row, which is what keeps a long table from opening a subscription per run. Its first notification is
 // the scheduler hold and its waiting count as they stand, and every change to them rides it after, so a
 // hold set on one device shows on another without a poll. A definition's change and a run's removal ride it
-// too, so no open view keeps a row that is gone. A Notify step mints nothing here: it is one informational
+// too, so no open view keeps a row that is gone. Its state frames may be sent newest per key, but a
+// removal, and a schedule's `fired` or `skipped` frame, is an event and is never coalesced. A
+// Notify step mints nothing here: it is one informational
 // entry on the attention projection (attention-payloads.md §Plan-016 — Notifications And Attention Model).
 interface WorkflowSubscribeRequest {
   sessionId?: SessionId; // omit for every run this daemon ran

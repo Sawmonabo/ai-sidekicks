@@ -10,6 +10,8 @@ use regex::Regex;
 use serde_json::{Map, Value};
 use url::Url;
 
+use super::MCP_SERVERS_MEMBER;
+
 /// A dependency written as text: a plugin name, optionally with `@marketplace` and a version range.
 static DEPENDENCY_TEXT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[A-Za-z0-9][-A-Za-z0-9._]*(@[A-Za-z0-9][-A-Za-z0-9._]*)?(@\^[^@]*)?$")
@@ -61,7 +63,7 @@ pub(crate) fn read_plugin_manifest_name(
         ("outputStyles", |value| is_one_or_list_of(value, is_path)),
         ("themes", |value| is_one_or_list_of(value, is_path)),
         ("workflows", |value| is_one_or_list_of(value, is_path)),
-        ("mcpServers", |value| {
+        (MCP_SERVERS_MEMBER, |value| {
             is_one_or_list_of(value, |entry| is_servers(entry) || is_bundle(entry))
         }),
         ("lspServers", |value| is_one_or_list_of(value, is_servers)),

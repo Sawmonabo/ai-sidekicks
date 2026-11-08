@@ -25,11 +25,10 @@ use crate::driver::diagnostics::{
 };
 use crate::event_disposition::{NormalizedEventKind, resolve_adopted_event_target};
 use crate::inbound_json::decode_inbound_json;
-use crate::thread_frame_router::{
-    ChildThreadAnnouncement, ThreadFrameFamilyClass, ThreadScopedFrameCapability,
-};
+use crate::thread_frame_router::{ThreadFrameFamilyClass, ThreadScopedFrameCapability};
 
-/// The `thread/started` method: the thread-frame router's registration input.
+/// The `thread/started` method, sent for a thread a client starts or forks, never for a spawned
+/// helper's.
 pub(crate) const CODEX_THREAD_STARTED_METHOD: &str = "thread/started";
 
 /// The `thread/tokenUsage/updated` method, metered by the usage accountant.
@@ -580,24 +579,6 @@ pub(crate) fn is_codex_tool_call_approval_elicitation(params_json: &[u8]) -> boo
             .and_then(|meta| meta.codex_approval_kind)
             .is_some_and(|kind| kind == CODEX_TOOL_CALL_APPROVAL_KIND)
     })
-}
-
-/// The router's announcement of the child thread a `thread/started` notification names, from its
-/// thread id, the parent thread it declares and whether its source makes it a helper. A helper's
-/// thread id doubles as its subagent identity; any other child, a compaction one among them, has
-/// none, so its spend attributes to the parent run.
-pub(crate) fn derive_codex_child_thread_announcement(
-    thread_id: String,
-    parent_thread_id: Option<String>,
-    is_subagent: bool,
-) -> ChildThreadAnnouncement {
-    let subagent_id = is_subagent.then(|| thread_id.clone());
-    ChildThreadAnnouncement {
-        child_thread_id: thread_id,
-        declared_parent_thread_id: parent_thread_id,
-        subagent_id,
-        waiting_call_id: None,
-    }
 }
 
 #[cfg(test)]

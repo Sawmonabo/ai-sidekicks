@@ -209,15 +209,10 @@ mod tests {
         CodexHookAnswer, CodexHookCall, CodexHookDispatch, CodexHookEvent,
     };
     use crate::driver::codex::run::turn_interrupt::interrupt_codex_running_turn;
-    use crate::driver::codex::session::detached_conversation::CodexDetachedFrames;
-    use crate::driver::codex::transport::connection::CodexConnectionHandlers;
-    use crate::driver::codex::transport::connection::scripted_service::connect_scripted_service;
+    use crate::driver::codex::transport::connection::scripted_service::scripted_connection;
     use crate::driver::run_control::HelperStopReason;
     use crate::driver::test_registry::new_session_id;
     use crate::run::delivery::RunSetupRefusal;
-
-    /// The largest message the scripted connection takes, far above any a test sends.
-    const MESSAGE_LIMIT: usize = 1 << 20;
 
     /// The helper's own conversation, which is its id.
     const HELPER_THREAD: &str = "helper-thread";
@@ -249,15 +244,7 @@ mod tests {
         #[case] answer: serde_json::Value,
         #[case] is_interrupted: bool,
     ) {
-        let (events, _frames) = CodexDetachedFrames::new();
-        let (connection, mut script) = connect_scripted_service(
-            MESSAGE_LIMIT,
-            CodexConnectionHandlers {
-                events,
-                responder: None,
-                token_refresher: None,
-            },
-        );
+        let (connection, mut script, _frames) = scripted_connection();
         let stop = tokio::spawn(async move {
             let stopped = interrupt_codex_running_turn(&connection, HELPER_THREAD, None).await;
             (connection, stopped)

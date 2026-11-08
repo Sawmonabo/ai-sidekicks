@@ -9,7 +9,7 @@ use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::plan::PlanId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::{MessageContent, PlanMessage, PlanMessageKind, QueueItemId};
+use sidekicks_contracts::run::queue::{MessageContent, PlanMessage, PlanMessageKind};
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::directory::SessionLead;
 use sidekicks_contracts::session::id::SessionId;
@@ -19,6 +19,7 @@ use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_session::create::hand_off::{SessionHandOff, record_hand_off_statement};
+use sidekicks_session::queue_store::test_items::test_queue_item;
 use sidekicks_session::queue_store::{
     NewQueueItem, QueueItemBody, QueueItemExit, QueueItemOutcome, insert_queue_item_statement,
     leave_queued_statement,
@@ -75,10 +76,10 @@ async fn record_hand_off(
 
 // The seed of `plan_id` for `fresh`'s queue, as the hand-off's seeding sends it.
 fn seed_item(plan_id: PlanId, planning: SessionId, fresh: SessionId) -> NewQueueItem {
-    NewQueueItem {
-        id: QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id"),
-        session_id: fresh,
-        body: QueueItemBody::PlanMessage {
+    let mut seed = test_queue_item(
+        fresh,
+        RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
+        QueueItemBody::PlanMessage {
             plan_message: PlanMessage {
                 plan_id,
                 kind: PlanMessageKind::Seed,
@@ -87,14 +88,9 @@ fn seed_item(plan_id: PlanId, planning: SessionId, fresh: SessionId) -> NewQueue
             text: MessageContent::new("Implement the plan.".to_owned())
                 .expect("the words are a message"),
         },
-        target_run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
-        device_id: Some(DeviceId::new("device-1".to_owned()).expect("a device id")),
-        client_idempotency_key: Some(
-            ClientUuid::new(mint_uuid_v7().to_string()).expect("a minted UUID is a client UUID"),
-        ),
-        replaces_queue_item_id: None,
-        now: WireInstant::now(),
-    }
+    );
+    seed.device_id = Some(DeviceId::new("device-1".to_owned()).expect("a device id"));
+    seed
 }
 
 // A file in `session_id`'s own storage folder, answered by its path.

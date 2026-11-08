@@ -1,7 +1,10 @@
 //! Replaces a file so that a crash at any moment leaves the old contents or the new, never half of
 //! either and never neither: the platform's crash-safe replace writes and renames it, and then the
 //! folder itself is flushed where the system can flush one, since until then the rename lives only
-//! in memory and a power loss can undo it.
+//! in memory and a power loss can undo it. [`write_without_flush`] flushes neither, for a record
+//! read only while its process lives, which a process crash leaves whole or as it was.
+//! [`remove_file_durably`] removes a file with the same folder flush, so no power loss brings it
+//! back.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -10,7 +13,7 @@ use sidekicks_platforms::LeftoverSweep;
 use tokio::task::JoinError;
 
 use crate::cleanup_failures::CleanupFailures;
-use crate::missing_entry::is_missing_entry;
+use crate::missing_entry::{MissingEntry as _, is_missing_entry};
 
 /// Why a crash-safe write failed.
 #[derive(Debug, thiserror::Error)]
@@ -44,6 +47,53 @@ pub enum AtomicWriteError {
         #[source]
         failure: JoinError,
     },
+}
+
+/// Why a durable removal failed; the file may be gone, but a power loss could still bring it back.
+#[derive(Debug, thiserror::Error)]
+pub enum DurableRemoveError {
+    /// The file system refused the removal or the flush of the file's folder.
+    #[error("removing {} or flushing its folder failed", path.display())]
+    Remove {
+        /// The file removed.
+        path: PathBuf,
+        /// The file system's failure.
+        #[source]
+        failure: io::Error,
+    },
+    /// The blocking task that removed the file ended before it finished.
+    #[error("the removal of {} ended before it finished", path.display())]
+    Interrupted {
+        /// The file removed.
+        path: PathBuf,
+        /// Why the task ended.
+        #[source]
+        failure: JoinError,
+    },
+}
+
+/// Removes `file_path`, then flushes its folder, so the removal survives a power loss; a file
+/// already gone counts as removed. `file_path` is absolute. Fails with [`DurableRemoveError`].
+pub async fn remove_file_durably(file_path: &Path) -> Result<(), DurableRemoveError> {
+    let target = file_path.to_path_buf();
+    let removed = tokio::task::spawn_blocking(move || {
+        std::fs::remove_file(&target).none_if_missing()?;
+        let folder = target
+            .parent()
+            .expect("a path ending in a file name has the folder before it");
+        sidekicks_platforms::flush_folder(folder)
+    })
+    .await;
+    match removed {
+        Ok(removed) => removed.map_err(|failure| DurableRemoveError::Remove {
+            path: file_path.to_path_buf(),
+            failure,
+        }),
+        Err(failure) => Err(DurableRemoveError::Interrupted {
+            path: file_path.to_path_buf(),
+            failure,
+        }),
+    }
 }
 
 /// Replaces `file_path` with `contents`, a new file made with `mode` less the umask (unused on
@@ -141,6 +191,25 @@ pub fn write_and_flush(target: &Path, contents: &[u8], mode: u32) -> Result<(), 
     sidekicks_platforms::replace_file_atomically(target, contents, mode, LeftoverSweep::Unswept)
         .map_err(|error| write_failure(target, error))?;
     flush_folder_of(target)
+}
+
+/// Replaces `target` with `contents` as [`write_and_flush`] does, but flushes neither the file nor
+/// its folder, so a system crash or power loss may leave it empty, partial or as it was; for a
+/// record its readers take only while its process lives. Fails as [`write_and_flush`] does, never
+/// with [`AtomicWriteError::FlushFolder`].
+pub fn write_without_flush(
+    target: &Path,
+    contents: &[u8],
+    mode: u32,
+) -> Result<(), AtomicWriteError> {
+    // No sweep of leftovers runs in the folders these writes go to.
+    sidekicks_platforms::replace_file_atomically_without_flush(
+        target,
+        contents,
+        mode,
+        LeftoverSweep::Unswept,
+    )
+    .map_err(|error| write_failure(target, error))
 }
 
 /// Replaces the existing file `target` with `contents` as [`write_and_flush`] does, the new file

@@ -6,11 +6,12 @@ The database is one schema, created whole when the daemon first opens it. There 
 
 **Storage boundary:** Machine-scoped execution truth and recovery data. See [Data Architecture](../data-architecture.md).
 
-Ten areas keep their tables in files of their own, beside this one:
+Eleven areas keep their tables in files of their own, beside this one:
 
 - [Session Tables (Plan-001)](local-sqlite-session-tables.md)
 - [Session Search Index Tables (ADR-041)](local-sqlite-session-search-tables.md)
 - [Workspace and Git Tables (Plan-006, Plan-007, Plan-008)](local-sqlite-workspace-and-git-tables.md)
+- [Checkpoint and Recovery Tables (Plan-012)](local-sqlite-checkpoint-and-recovery-tables.md)
 - [Orchestration Tables (Plan-013)](local-sqlite-orchestration-tables.md)
 - [Workflow Tables (Plan-014)](local-sqlite-workflow-tables.md)
 - [Attention Tables (Plan-016)](local-sqlite-attention-tables.md)
@@ -31,10 +32,12 @@ PRAGMA secure_delete = ON;      -- deleted content is overwritten with zeros, so
 PRAGMA cache_size = -2000;      -- on every connection, read-only ones included: SQLite's own 2,000 KiB page cache
 PRAGMA cell_size_check = ON;    -- on every connection: each b-tree page is checked as it is first read from disk, so a damaged page fails the read that meets it rather than spreading
 PRAGMA trusted_schema = OFF;    -- on every connection: the schema calls only SQLite's own built-in functions
-PRAGMA optimize = 0x10002;      -- on the writer, once at open after the schema step; the daily PRAGMA optimize is a scheduler job
+PRAGMA optimize = 0x10012;      -- on the writer, once at open after the schema step and daily as a scheduler job: weighs every table, since reads plan on the read pool's connections, each analyzed under SQLite's 2,000-row limit
 ```
 
-The transaction that creates the schema writes its fingerprint, the first 31 bits of the BLAKE3 hash of the schema's text, into `PRAGMA user_version`, and every open of a file that already holds the schema compares the two and refuses a file another build made, never migrating it.
+Five settings keep SQLite's default on purpose. `temp_store` stays a file, since in memory the copy a `VACUUM` builds would hold the whole database in memory. `mmap_size` stays 0, since an I/O error on a mapped page is a signal that ends the process. `auto_vacuum` stays off, since it can make fragmentation worse and the daemon reclaims space with `VACUUM`. `analysis_limit` is not set, since `PRAGMA optimize` sets its own limit and a lower connection limit would replace it. `journal_size_limit` is not set, since the `TRUNCATE` checkpoint after each backup and purge already bounds the write-ahead log.
+
+The schema is created only when the file has no `session_events` table, which exists exactly when every table does, since the whole schema commits at once. The creation runs in a `BEGIN IMMEDIATE` transaction that checks for the table again after taking the write lock, so of two daemons racing on one new file the second finds the first's schema and commits nothing. The transaction that creates the schema writes its fingerprint, the first 31 bits of the BLAKE3 hash of the schema's text, into `PRAGMA user_version`, and every open of a file that already holds the schema compares the two and refuses a file another build made, never migrating it.
 
 ---
 
@@ -297,7 +300,7 @@ CREATE TABLE interventions (
                          CHECK(type IN ('interrupt', 'fasterModelRetry')),
   state                  TEXT NOT NULL DEFAULT 'requested'
                          CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired', 'failed')),
-  payload                TEXT NOT NULL DEFAULT '{}', -- JSON: the request's own fields, as plain text — a person's interrupt's `pending`, `deliverFirst` and optional `reason`, the daemon's own stop's `limit` (`stepLimit`, `spendLimit` or `tokenLimit`) and `turnNumber` (the turn it cut, where it cut one), a faster-model retry's `expectedTurnId` and `model`. A message the person sends mid-turn is a queue send, so its words sit on `queue_items.payload`, never here (Spec-003 §Required Behavior)
+  payload                TEXT NOT NULL DEFAULT '{}', -- JSON: the request's own fields, as plain text — a person's interrupt's `pending`, `deliverFirst` and optional `reason`, the daemon's own stop's `limit` (`stepLimit`, `spendLimit` or `tokenLimit`) and `turnNumber` (the turn it cut, where it cut one; such a row marks that turn as cut only while it is `requested`, `accepted`, `applied` or `degraded`, and never takes `rejected` or `expired`, which are a person's row's outcomes), a faster-model retry's `expectedTurnId` and `model`. A message the person sends mid-turn is a queue send, so its words sit on `queue_items.payload`, never here (Spec-003 §Required Behavior)
   expected_run_version   INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (Spec-003 §Interfaces And Contracts / Plan-002 D-002-2)
   client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (a client's, or the daemon's own for its own stop); return-or-conflict intervention dedupe (Spec-004 §Required Behavior)
   device_id              TEXT,                       -- the device the intervention came from (the machine's own screen or a linked device's channel), found from the connection at acceptance; NULL means the daemon's own stop (Queue And Intervention Model)
@@ -407,6 +410,7 @@ CREATE TABLE left_conversations (
   conversation_id      TEXT NOT NULL            -- provider-owned, bounded as resume_handle is
                        CHECK (length(conversation_id) > 0 AND length(conversation_id) <= 4096 AND instr(conversation_id, char(0)) = 0),
   left_at              TEXT NOT NULL,
+  runtime_metadata     TEXT NOT NULL DEFAULT '{}', -- JSON: the left leg's own recovery data, which each writer passes in; never copied from the binding row
   PRIMARY KEY (provider_name, conversation_id)
 ) STRICT;
 
@@ -827,39 +831,6 @@ The daemon keeps no table of approval rules: the providers keep them ([Spec-010 
 ## Credential Policy Reference (Plan-009)
 
 A run's `executionPosture.credentialPolicyRef` is a plain reference naming the credential deny list the daemon handed the provider for that run ([Spec-010 §Required Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior) posture semantics). It rides the `agent.run.running` posture in `session_events` and needs no table of its own: deleting a session deletes it with the session's rows.
-
----
-
-## Recovery Tables (Plan-012)
-
-```sql
--- Owner: Plan-012
-CREATE TABLE projection_cursors (
-  id              TEXT PRIMARY KEY,
-  session_id      TEXT NOT NULL UNIQUE,
-  last_sequence   INTEGER NOT NULL,           -- last applied event sequence
-  state           TEXT NOT NULL DEFAULT 'current'
-                  CHECK(state IN ('current', 'rebuilding', 'stale')),
-  updated_at      TEXT NOT NULL
-) STRICT;
-
--- Owner: Plan-012. The sessions a restart rebuilds: every session with events
--- has a cursor, written with each event, so only one not current needs a rebuild.
-CREATE INDEX idx_projection_cursors_not_current ON projection_cursors(session_id)
-  WHERE state <> 'current';
-
--- Owner: Plan-012
-CREATE TABLE recovery_checkpoints (
-  id              TEXT PRIMARY KEY,
-  session_id      TEXT NOT NULL,
-  checkpoint_type TEXT NOT NULL,              -- e.g. 'full', 'incremental'
-  as_of_sequence  INTEGER NOT NULL,
-  state_blob      BLOB NOT NULL,
-  created_at      TEXT NOT NULL
-) STRICT;
-
-CREATE INDEX idx_recovery_checkpoints_session ON recovery_checkpoints(session_id);
-```
 
 ---
 

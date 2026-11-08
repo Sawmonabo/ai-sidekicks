@@ -36,7 +36,7 @@ use crate::agent_tree::read::tests::{SessionLog, agent_id, at};
 use crate::agent_tree::sweep::{AGENT_TREE_SWEEP_STATEMENT_CAPACITY, SweepRoot, read_descendants};
 use crate::agents::projection::test_fixture::write_log_row;
 use crate::interventions::service::tests::{Harness, applied, harness};
-use crate::run::engine::test_fixture::insert_running_run;
+use crate::run::engine::test_fixture::insert_run;
 
 // Longer than every stop of a test takes once they run at once; one stop after another never
 // gets past the barrier.
@@ -259,7 +259,7 @@ async fn a_bridged_run_is_stopped_by_the_run_engines_interrupt(#[case] interrupt
     }
     let harness = harness(driver).await;
     let lead_run = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&harness.database, harness.session_id, lead_run);
+    insert_run(&harness.database, harness.session_id, lead_run, "running");
     let connection = harness.database.reader();
     connection
         .execute(

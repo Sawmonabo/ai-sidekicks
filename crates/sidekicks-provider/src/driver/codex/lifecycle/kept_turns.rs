@@ -31,7 +31,7 @@ use crate::driver::codex::session::errors::{
 };
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
-use crate::driver::session_control::EndKeptTurnsParams;
+use crate::driver::session_control::{EndKeptTurnsParams, KeptTurnsEnding};
 
 /// The start of Codex's refusal of an interrupt of a turn that is not the one running, which goes
 /// on with the turn named and the one running.
@@ -63,21 +63,29 @@ impl CodexDriver {
     /// Ends each turn `params` names on the service of the home that holds the session's
     /// conversation, on a task of the driver's that `params.stop` ends where it stands. Answers
     /// once that task holds the session's slot, so a resume of the session waits for the work, or
-    /// at once where the stop came first; each turn's outcome is logged.
-    pub(crate) async fn end_kept_turns(&self, params: EndKeptTurnsParams) {
+    /// at once where the stop came first; each turn's outcome is logged. The ending answered reads
+    /// ended once every turn's interrupt has answered, failed or passed its deadline, and cut where
+    /// the stop came first.
+    pub(crate) async fn end_kept_turns(&self, params: EndKeptTurnsParams) -> KeptTurnsEnding {
         let (held, is_held) = oneshot::channel();
+        let (ending, ended) = KeptTurnsEnding::waiting();
         let slots = Arc::clone(&self.slots);
         let registry = Arc::clone(&self.registry);
         self.tasks.spawn(async move {
             let stop = params.stop.clone();
             tokio::select! {
+                // Drops the ending's sender, so the ending reads cut.
                 () = stop.cancelled() => {}
-                () = end_turns_holding_session(&slots, &registry, params, held) => {}
+                () = end_turns_holding_session(&slots, &registry, params, held) => {
+                    // The send fails only once the pass has stopped waiting, at its stop.
+                    let _unheard = ended.send(());
+                }
             }
         });
         // A stop before the claim drops the sender: the daemon is stopping, and the turns not yet
         // interrupted run on.
         is_held.await.unwrap_or_default();
+        ending
     }
 }
 

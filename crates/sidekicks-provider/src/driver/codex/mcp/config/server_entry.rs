@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use serde::Deserialize;
 use serde::de::IgnoredAny;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::mcp::server::{McpApprovalMode, McpToolName};
 use sidekicks_contracts::wire::number::PositiveNumber;
@@ -15,13 +15,50 @@ use sidekicks_contracts::wire::record::Record;
 
 use crate::driver::mcp_server::address::read_server_address;
 use crate::driver::mcp_server::read::{McpServerSignInClient, McpServerToolDefaults};
+use crate::driver::mcp_server::write::ENTRY_SWITCH_MEMBER;
 
-// The member that names the program a stdio server runs.
-const COMMAND_MEMBER: &str = "command";
+/// The member of a server entry that names the program a stdio server runs.
+pub(crate) const COMMAND_MEMBER: &str = "command";
+/// The member of a server entry that holds a stdio server's arguments.
+pub(crate) const ARGS_MEMBER: &str = "args";
+/// The member of a server entry that holds a stdio server's environment, values included.
+pub(crate) const ENV_MEMBER: &str = "env";
+/// The member of a server entry that names the variables a stdio server inherits.
+pub(crate) const ENV_VARS_MEMBER: &str = "env_vars";
+/// The member of a server entry that names the folder a stdio server starts in.
+pub(crate) const CWD_MEMBER: &str = "cwd";
 /// The member of a server entry that names an HTTP server's address.
 pub(crate) const URL_MEMBER: &str = "url";
-/// The member of a server entry that switches the server on or off.
-pub(crate) const ENABLED_MEMBER: &str = "enabled";
+/// The member of a server entry that holds an HTTP server's bearer token itself.
+pub(crate) const BEARER_TOKEN_MEMBER: &str = "bearer_token";
+/// The member of a server entry that names the variable an HTTP server's bearer token is read
+/// from.
+pub(crate) const BEARER_TOKEN_ENV_VAR_MEMBER: &str = "bearer_token_env_var";
+/// The member of a server entry that names the program an HTTP server's headers come from.
+pub(crate) const HTTP_HEADERS_HELPER_MEMBER: &str = "http_headers_helper";
+/// The member of a server entry that holds an HTTP server's headers, values included.
+pub(crate) const HTTP_HEADERS_MEMBER: &str = "http_headers";
+/// The member of a server entry that maps each header to the variable its value is read from.
+pub(crate) const ENV_HTTP_HEADERS_MEMBER: &str = "env_http_headers";
+/// The member of a server entry that holds the scopes a sign-in asks for.
+pub(crate) const SCOPES_MEMBER: &str = "scopes";
+/// The member of a server entry that holds its sign-in client.
+pub(crate) const OAUTH_MEMBER: &str = "oauth";
+/// The member of a server entry that names the resource a sign-in asks for.
+pub(crate) const OAUTH_RESOURCE_MEMBER: &str = "oauth_resource";
+/// The member of a server entry that names how an HTTP server is signed in to.
+pub(crate) const AUTH_MEMBER: &str = "auth";
+/// The member of a server entry that makes a session refuse to start without the server.
+pub(crate) const REQUIRED_MEMBER: &str = "required";
+/// The member of a server entry that bounds the server's start, in seconds.
+pub(crate) const STARTUP_TIMEOUT_SEC_MEMBER: &str = "startup_timeout_sec";
+/// The member of a server entry that bounds the server's start in milliseconds, which the
+/// seconds member takes the place of.
+pub(crate) const STARTUP_TIMEOUT_MS_MEMBER: &str = "startup_timeout_ms";
+/// The member of a server entry that bounds one tool call, in seconds.
+pub(crate) const TOOL_TIMEOUT_SEC_MEMBER: &str = "tool_timeout_sec";
+/// The member of a server entry that sets how its tools are approved where a tool sets nothing.
+pub(crate) const DEFAULT_TOOLS_APPROVAL_MODE_MEMBER: &str = "default_tools_approval_mode";
 // The header Codex sends a bearer token in.
 const AUTHORIZATION_HEADER: &str = "Authorization";
 // The approval mode Codex gives a server's tools when its entry sets none.
@@ -70,7 +107,7 @@ impl std::fmt::Debug for CodexServerTransport {
 pub(crate) fn read_codex_server_transport(entry: &Value) -> Option<CodexServerTransport> {
     if let Some(command) = entry.get(COMMAND_MEMBER).and_then(Value::as_str) {
         let args = entry
-            .get("args")
+            .get(ARGS_MEMBER)
             .and_then(Value::as_array)
             .into_iter()
             .flatten()
@@ -93,7 +130,7 @@ pub(crate) fn has_transport(entry: &Value) -> bool {
 
 /// The switch `entry` sets for its server; `None` where it sets none.
 pub(crate) fn read_switch(entry: &Value) -> Option<bool> {
-    entry.get(ENABLED_MEMBER)?.as_bool()
+    entry.get(ENTRY_SWITCH_MEMBER)?.as_bool()
 }
 
 /// Whether `entry` switches its server off.
@@ -105,7 +142,7 @@ pub(crate) fn is_switched_off(entry: &Value) -> bool {
 pub(crate) fn sets_other_members(entry: &Value) -> bool {
     entry
         .as_object()
-        .is_some_and(|members| members.keys().any(|member| member != ENABLED_MEMBER))
+        .is_some_and(|members| members.keys().any(|member| member != ENTRY_SWITCH_MEMBER))
 }
 
 /// The redacted declaration of `entry`; `None` for an entry that names no transport or does not
@@ -150,19 +187,11 @@ pub(crate) fn read_codex_server_entry(entry: &Value) -> Option<CodexServerDeclar
             .unwrap_or_default(),
     };
     let config = if let Some(command) = entry.command {
-        let mut env_var_names: Vec<String> = Vec::new();
-        let declared = entry.env.iter().flat_map(BTreeMap::keys).cloned().chain(
-            entry
-                .env_vars
-                .into_iter()
-                .flatten()
-                .map(CodexEnvVar::into_name),
-        );
-        for name in declared {
-            if !env_var_names.contains(&name) {
-                env_var_names.push(name);
-            }
+        let env_var_names = CodexStdioVariables {
+            env: entry.env,
+            env_vars: entry.env_vars,
         }
+        .into_names();
         McpServerConfigView::Stdio {
             command,
             args: entry.args,
@@ -212,6 +241,14 @@ pub(crate) fn read_codex_server_entry(entry: &Value) -> Option<CodexServerDeclar
         sign_in_client,
         tool_defaults,
     })
+}
+
+/// The names of the variables a stdio server reads, once each: each name its entry's `env` sets,
+/// then each its `env_vars` names; `None` where either member does not read, which Codex refuses.
+pub(crate) fn read_stdio_variable_names(entry: &Map<String, Value>) -> Option<Vec<String>> {
+    CodexStdioVariables::deserialize(entry)
+        .ok()
+        .map(CodexStdioVariables::into_names)
 }
 
 // A tool list's names that pass the wire bound; Codex matches a longer one against no tool.
@@ -272,6 +309,42 @@ struct CodexServerEntry {
     disabled_tools: Option<Vec<String>>,
     #[serde(default)]
     tools: Option<BTreeMap<String, CodexToolEntry>>,
+}
+
+// The members of a stdio server's entry that name the variables it reads.
+#[derive(Deserialize)]
+#[expect(
+    clippy::zero_sized_map_values,
+    reason = "only the keys are read; each value is skipped unread so none outlives the parse"
+)]
+struct CodexStdioVariables {
+    #[serde(default)]
+    env: Option<BTreeMap<String, IgnoredAny>>,
+    #[serde(default)]
+    env_vars: Option<Vec<CodexEnvVar>>,
+}
+
+impl CodexStdioVariables {
+    // Each name `env` sets, then each `env_vars` names, a repeat dropped.
+    #[expect(
+        clippy::zero_sized_map_values,
+        reason = "only the keys are read; each value is skipped unread so none outlives the parse"
+    )]
+    fn into_names(self) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        let declared = self.env.into_iter().flat_map(BTreeMap::into_keys).chain(
+            self.env_vars
+                .into_iter()
+                .flatten()
+                .map(CodexEnvVar::into_name),
+        );
+        for name in declared {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        names
+    }
 }
 
 // One tool's entry under a server's `tools`: its approval mode, where it sets one.

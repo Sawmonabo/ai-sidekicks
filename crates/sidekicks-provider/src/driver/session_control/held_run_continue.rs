@@ -101,8 +101,9 @@ pub enum ContinueAnswer {
         /// The answers, one line each.
         answer: String,
     },
-    /// A paused helper the person continued, with the words that waited for it.
-    HelperContinued {
+    /// A paused run the person continued, the lead or a helper, with the words that waited for
+    /// it.
+    Continued {
         /// The waiting messages' words, each file a line naming its path; `None` with none.
         words: Option<String>,
     },
@@ -158,15 +159,22 @@ pub fn compose_continuation_text(
                 sentence(question),
                 sentence(answer)
             ),
-            ContinueAnswer::HelperContinued { words } => words.as_ref().map_or_else(
-                || format!("{asker} was paused, and the person continued it."),
-                |words| {
-                    format!(
-                        "{asker} was paused, and the person continued it with: {}",
-                        sentence(words)
-                    )
-                },
-            ),
+            ContinueAnswer::Continued { words } => {
+                let (paused, continued) = if entry.subagent_id.is_none() {
+                    ("You were paused".to_owned(), "you")
+                } else {
+                    (format!("{asker} was paused"), "it")
+                };
+                words.as_ref().map_or_else(
+                    || format!("{paused}, and the person continued {continued}."),
+                    |words| {
+                        format!(
+                            "{paused}, and the person continued {continued} with: {}",
+                            sentence(words)
+                        )
+                    },
+                )
+            }
         };
         if let Some(subagent_id) = &entry.subagent_id {
             line.push(' ');
@@ -223,7 +231,8 @@ mod tests {
     // with no stated time, or due at or past its job's expiry; words that end a sentence take no
     // second period. Killed by the past test flipped (the future fire named, the past ones not),
     // by a fire with no stated time counted missed, by the expiry not read (the expired job's fire
-    // named), and by the period added always (`Which branch?.`).
+    // named), by the period added always (`Which branch?.`), and by the lead's continue worded
+    // as a helper's (`You was paused`).
     #[test]
     fn the_text_names_the_answers_and_only_the_fires_already_past() {
         let now = Timestamp::from_second(1_800_000_000).expect("a time in range");
@@ -255,6 +264,13 @@ mod tests {
                     decision: sidekicks_contracts::approval::ApprovalDecision::Rejected,
                     decline_reason: Some("keep it".to_owned()),
                     edited_action: None,
+                },
+            },
+            ContinueEntry {
+                run_id: lead,
+                subagent_id: None,
+                answer: ContinueAnswer::Continued {
+                    words: Some("check the logs".to_owned()),
                 },
             },
         ];
@@ -290,6 +306,7 @@ mod tests {
                  You asked: Which branch? The person answered: main.\n\
                  Your helper helper-1 asked to approve Bash: rm -rf build. The person declined \
                  it: keep it. Message helper-1.\n\
+                 You were paused, and the person continued you with: check the logs.\n\
                  A scheduled run due at {past} did not run while you waited.\n\
                  A run of the schedule 0 9 * * * due at {past} did not run while you waited."
             )

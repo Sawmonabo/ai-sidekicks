@@ -1,17 +1,19 @@
 //! The run queue's tests, over a test database holding a session whose lead is bound to the
 //! table's first provider, whose driver is a stand-in that records what it is asked: a send to a
-//! session that takes no change and the removal of a queued run's last message here; sends,
-//! starts, run ends, the interrupts' queue, a plan message's withdrawal and an undo in the modules
-//! below.
+//! session that takes no change here; removals, sends, starts, run ends, a continued helper's
+//! failed lead continue, the interrupts' queue and an interrupt's late return to the draft, a plan
+//! message's withdrawal and an undo in the modules below.
 
+mod cancel;
+mod helper_continue;
 mod interrupt;
+mod return_to_draft;
 mod run_ends;
 mod sends;
 mod starts;
 mod undo;
 mod withdrawal;
 
-use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -25,11 +27,8 @@ use sidekicks_contracts::approval::ApprovalRequestId;
 use sidekicks_contracts::daemon::recovery::DaemonRecoveryHaltedRun;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::{
-    AgentQueueItemCancelRequest, AgentQueueItemCreateRequest, QueueItemId, QueuedSkillPick,
-};
+use sidekicks_contracts::run::queue::{AgentQueueItemCreateRequest, QueueItemId, QueuedSkillPick};
 use sidekicks_contracts::session::cost::TokensPerRun;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
@@ -50,26 +49,22 @@ use sidekicks_provider::driver::run_control::{
 };
 use sidekicks_provider::driver::session_control::ProviderSessionHandle;
 use sidekicks_provider::driver::test_registry::registered_test_accounts;
-use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_provider};
+use sidekicks_provider::driver::test_registry::{
+    NothingServed, new_run_id, registry_of_first_provider,
+};
 use sidekicks_provider::driver::{CurrentProviderAccount, PROVIDERS};
 use sidekicks_provider::process_identity::{ProcessStandIn, ProviderProcessIds};
-use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
 use sidekicks_provider::runtime_binding::test_store::{
     resumable_binding_input, spawned_build, test_provider_account_id,
 };
 use sidekicks_session::checkpoints::schema::schema_parts as checkpoint_schema_parts;
 use sidekicks_session::questions::schema::schema_parts;
+use sidekicks_session::queue_store::test_items::{insert_item, words};
 use sidekicks_session::queue_store::{
-    NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, QueueMessageBody,
-    RecordedQueueItemState, insert_queue_item_statement,
+    QueueItemBody, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
 };
-use sidekicks_session::run::binding_cursors::RunBindingCursors;
-use sidekicks_session::run::engine::test_fixture::{
-    insert_running_run, stored_run_state, test_engine,
-};
-use sidekicks_session::run::epochs::ExecutionEpochs;
+use sidekicks_session::run::engine::test_fixture::{insert_run, stored_run_state, test_engine};
 use sidekicks_session::run::pause::RunPauseControl;
-use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::pause_point::PausePoint;
 use sidekicks_std::port_registration::PortRegistration;
@@ -77,23 +72,20 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, insert_lead, test_session_id};
 use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
-use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
-use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use tempfile::TempDir;
 
 use super::answer_continue::HaltedRunRecord;
-use super::{EMPTIED_RUN_DETAIL, RunQueue, RunQueueDeps};
+use super::{RunQueue, RunQueueDeps};
 use crate::changes::QueueChangeSignals;
 use crate::error::QueueError;
 use crate::memory_gate::{MemoryGate, MemoryGateFigures};
 use crate::provider_session::test_opening::{
-    OrphanedAnswersStandIn, RecordedProcessFollowing, RecordedResumedRuns, first_provider,
-    record_first_provider_capabilities, test_execution_postures, test_git_folder_reader,
-    test_opening_composer,
+    OrphanedAnswersStandIn, RecordedResumedRuns, first_provider,
+    record_first_provider_capabilities, test_provider_sessions,
 };
-use crate::provider_session::{ProviderSessions, ProviderSessionsDeps};
 use crate::run_token_limit::RunTokenLimitReader;
+use crate::test_items::{Form, insert_form};
 
 /// The statements the tests' read pool prepares, every reader's together.
 const READ_STATEMENT_CAPACITY: usize = 32;
@@ -246,12 +238,7 @@ fn recording_driver(calls: &Arc<DriverCalls>) -> MockProviderDriver {
     driver.expect_resume_run().returning(move |params| {
         let messages = params.messages.iter().map(|message| message.id).collect();
         lock(&resuming.resumes).push((params.run_id, messages));
-        async {
-            Ok(ResumeRunOutcome {
-                is_hold_lost: false,
-            })
-        }
-        .boxed()
+        async { Ok(ResumeRunOutcome::default()) }.boxed()
     });
     driver
 }
@@ -353,34 +340,14 @@ fn queue_over(
     let engine = test_engine(database, Arc::clone(&log.service), home.path());
     let providers = Arc::new(registry_of_first_provider(Arc::new(driver)));
     record_first_provider_capabilities(&providers, true);
-    let binding_cursors = Arc::new(RunBindingCursors::new(
+    let provider_sessions = test_provider_sessions(
         Arc::clone(&pool),
-        Arc::new(|_: &SessionId| None),
-        Arc::new(RuntimeBindingStore::new(
-            Arc::clone(&pool),
-            Arc::clone(&log.writer),
-        )),
-        Arc::new(Mutex::new(ExecutionEpochs::new(
-            NonZeroUsize::new(8).expect("the cap is not zero"),
-        ))),
-    ));
-    let provider_sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
-        pool: Arc::clone(&pool),
-        appender: Arc::new(SessionEventAppender::new(
-            Arc::clone(&log.service),
-            SESSION_EVENT_VERSION.clone(),
-        )),
-        binding_cursors,
-        providers: Arc::clone(&providers),
-        compose_opening: test_opening_composer(),
-        read_git_folder: test_git_folder_reader(),
-        transition_lock: Arc::new(KeyedLock::new()),
-        process_follower: Arc::new(RecordedProcessFollowing::default()),
-        execution_postures: test_execution_postures(),
-        resumed_runs: resumed_runs.registered(),
-        orphaned_approvals: Arc::clone(orphaned_approvals) as Arc<_>,
-        orphaned_questions: Arc::new(OrphanedAnswersStandIn::<QuestionId>::default()),
-    }));
+        Arc::clone(&log.service),
+        Arc::clone(&log.writer),
+        Arc::clone(&providers),
+        resumed_runs.registered(),
+        Arc::clone(orphaned_approvals) as Arc<_>,
+    );
     let memory_gate = Arc::new(MemoryGate::new(
         MemoryGateFigures {
             physical_memory_bytes: 16 << 30,
@@ -414,6 +381,7 @@ fn queue_over(
             Arc::new(token_limits)
         },
         halted_runs,
+        attachments: Arc::new(NothingServed),
     })
 }
 
@@ -440,11 +408,11 @@ fn client_key() -> ClientUuid {
 
 impl Fixture {
     /// Writes a lead run of the session in `state`, at version 1, queued on the test's account,
-    /// and answers its id; a running one has its session's process opened, as a live lead's is,
-    /// the opening's leg bound on the session's conversation with its cursor open.
+    /// and answers its id; a running one has its session's process opened, as
+    /// [`Fixture::open_session`] opens it.
     async fn insert_run(&self, state: &str) -> RunId {
         let run_id = new_run_id();
-        insert_running_run(&self.database, self.session_id, run_id);
+        insert_run(&self.database, self.session_id, run_id, "running");
         self.insert_event(
             run_id,
             SessionEventType::AgentRunQueued,
@@ -455,18 +423,24 @@ impl Fixture {
         );
         self.set_run_state(run_id, state);
         if state == "running" {
-            let provider_sessions = &self.queue.provider_sessions;
-            provider_sessions
-                .binding_cursors()
-                .create(
-                    self.session_id,
-                    resumable_binding_input(run_id, first_provider()),
-                )
-                .await
-                .expect("the opening's leg is recorded");
-            provider_sessions.record_test_opening(self.session_id);
+            self.open_session(run_id).await;
         }
         run_id
+    }
+
+    /// Opens the session's process in this daemon on `run_id`, as a live lead's is: the opening's
+    /// leg bound on the session's conversation with its cursor open.
+    async fn open_session(&self, run_id: RunId) {
+        let provider_sessions = &self.queue.provider_sessions;
+        provider_sessions
+            .binding_cursors()
+            .create(
+                self.session_id,
+                resumable_binding_input(run_id, first_provider()),
+            )
+            .await
+            .expect("the opening's leg is recorded");
+        provider_sessions.record_test_opening(self.session_id);
     }
 
     /// Moves `run_id` to `state` as a writer outside the engine would.
@@ -521,31 +495,18 @@ impl Fixture {
 
     /// Queues a message for `run_id`, after every one before it, and answers its id.
     async fn queue_message(&self, run_id: RunId) -> QueueItemId {
-        let item_id =
-            QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id");
-        let item = NewQueueItem {
-            id: item_id,
-            session_id: self.session_id,
-            body: QueueItemBody::Message(QueueMessageBody {
-                content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
-                attachments: None,
-                skills: None,
-                answers_question_id: None,
-                output_speed_for_turn: None,
-                workspace_id: None,
-            }),
-            target_run_id: run_id,
-            device_id: None,
-            client_idempotency_key: Some(client_key()),
-            replaces_queue_item_id: None,
-            now: WireInstant::now(),
-        };
-        self.log
-            .writer
-            .write(vec![insert_queue_item_statement(&item)])
+        self.queue_body(run_id, QueueItemBody::Message(words("Look again")))
             .await
-            .expect("the test queues its message");
-        item_id
+    }
+
+    /// Queues an item carrying `body` for `run_id`, after every one before it, and answers its id.
+    async fn queue_body(&self, run_id: RunId, body: QueueItemBody) -> QueueItemId {
+        insert_item(&self.log.writer, self.session_id, run_id, body).await
+    }
+
+    /// Queues an item of `form` for `run_id`, after every one before it, and answers its id.
+    async fn queue_form(&self, run_id: RunId, form: Form) -> QueueItemId {
+        insert_form(&self.database, &self.log, self.session_id, run_id, form).await
     }
 
     /// Sends a message to the session's lead as a person does and answers its id. Fails as the
@@ -599,6 +560,35 @@ impl Fixture {
         stored_run_state(&self.database, &run_id).0
     }
 
+    /// The events the session's log holds, only those of `event_type` and about the queue item
+    /// `item_id` where either is given.
+    fn count_events(&self, event_type: Option<&str>, item_id: Option<QueueItemId>) -> i64 {
+        self.database
+            .reader()
+            .query_row(
+                "SELECT COUNT(*) FROM session_events
+                 WHERE (?1 IS NULL OR type = ?1)
+                   AND (?2 IS NULL OR json_extract(payload, '$.queueItemId') = ?2)",
+                params![event_type, item_id.map(|item_id| item_id.to_string())],
+                |row| row.get(0),
+            )
+            .expect("the test counts the log's events")
+    }
+
+    /// The runs the log holds ended `stopped` once every message they waited for was removed.
+    fn count_stopped_by_removal(&self) -> i64 {
+        self.database
+            .reader()
+            .query_row(
+                "SELECT COUNT(*) FROM session_events
+                 WHERE type = 'agent.run.stopped'
+                   AND json_extract(payload, '$.trigger') = 'messagesRemoved'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("the test reads the runs' ends")
+    }
+
     fn count_items(&self) -> i64 {
         self.database
             .reader()
@@ -638,40 +628,4 @@ async fn a_send_to_a_session_that_takes_no_change_is_refused(
     };
     assert_eq!(refused, code);
     assert_eq!(fixture.count_items(), 0);
-}
-
-// Removing the only message a queued run waits for ends that run `failed` with the emptied
-// detail in the same write, and the message reads canceled. Killed by leaving a queued run with
-// no message to open with.
-#[tokio::test]
-async fn removing_a_queued_runs_last_message_ends_the_run_failed() {
-    let fixture = fixture(MockProviderDriver::new()).await;
-    let run_id = fixture.insert_run("queued").await;
-    let item_id = fixture.queue_message(run_id).await;
-
-    fixture
-        .queue
-        .cancel(AgentQueueItemCancelRequest {
-            queue_item_id: item_id,
-            child_handle: None,
-        })
-        .await
-        .expect("the message is removed");
-
-    assert_eq!(fixture.run_state(run_id), "failed");
-    let detail_events: i64 = fixture
-        .database
-        .reader()
-        .query_row(
-            "SELECT COUNT(*) FROM session_events
-             WHERE type = 'agent.run.failed' AND instr(payload, ?1) > 0",
-            [EMPTIED_RUN_DETAIL.as_str()],
-            |row| row.get(0),
-        )
-        .expect("the test reads the run's end");
-    assert_eq!(detail_events, 1);
-    assert_eq!(
-        fixture.stored_state(item_id),
-        RecordedQueueItemState::Canceled
-    );
 }

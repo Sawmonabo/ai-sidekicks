@@ -45,9 +45,9 @@ tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 
 [features]
-# Helpers other crates' tests use: a provider session opened for a test, and a delivery over a
-# test store.
-test-support = ["sidekicks-provider/test-support"]
+# Helpers other crates' tests use: a provider session opened for a test, the provider sessions
+# tests build, and a delivery over a test store.
+test-support = ["sidekicks-provider/test-support", "sidekicks-store/test-support"]
 
 [lints]
 workspace = true

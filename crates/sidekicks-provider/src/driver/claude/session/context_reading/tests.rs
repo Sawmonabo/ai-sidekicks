@@ -10,6 +10,7 @@ use sidekicks_std::port_registration::PortRegistration;
 
 use super::{ClaudeContextReadings, ClaudeSessionReads, compose_claude_context_read, window_row};
 use crate::driver::claude::delivery::stream::ClaudeSessionStreams;
+use crate::driver::claude::session::inspector_reads::ClaudeInspectorReads;
 use crate::driver::claude::session::transport::declarations::{
     ClaudeMessageRequestFacts, ClaudeMessageUsageObservation,
 };
@@ -75,6 +76,7 @@ fn a_mid_turn_reading_is_made_on_the_last_read_and_the_next_read_replaces_it() {
         Arc::new(registration),
         Arc::new(RecordingRunEngine::default()),
         Arc::new(ClaudeSessionStreams::default()),
+        Arc::new(ClaudeInspectorReads::default()),
     );
     let run_id = RunId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5e").expect("a valid run id");
     let usage = |message_id: &str| ClaudeMessageUsageObservation {

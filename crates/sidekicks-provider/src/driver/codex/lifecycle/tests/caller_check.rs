@@ -14,7 +14,7 @@ use sidekicks_platforms::{
 };
 
 use super::{driver_on_codex_folder, listen_on_codex_folder};
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 
 // A service already listening on the person's Codex folder, joined through the driver's registry,
 // its serving process this test's own; the daemon's caller check, over the services' one set of
@@ -54,5 +54,7 @@ async fn the_caller_check_refuses_the_process_serving_a_codex_service_the_driver
             .expect("the check answers"),
         CallerAdmission::Refused
     );
-    driver.shutdown(DaemonStopIntent::Stop).await;
+    driver
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
 }

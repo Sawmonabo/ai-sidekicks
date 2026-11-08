@@ -31,6 +31,7 @@ use sidekicks_ipc::registry::HandlerError;
 use sidekicks_platforms::real_path;
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::registry::test_token;
 use sidekicks_provider::driver::session_control::StartingLevel;
 use sidekicks_provider::driver::test_registry::registry_of_first_provider;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -641,10 +642,6 @@ async fn a_session_starts_at_its_drivers_level_and_mode_with_the_picked_advisor(
     assert_eq!(advisor(picked), Some(opus()));
 }
 
-fn token(text: &str) -> ProviderToken {
-    ProviderToken::new(text.to_owned()).expect("the token fits")
-}
-
 // Dies to the driver's check of the lead's binding dropped: the session is then born on an axis
 // its driver refuses, to fail at its first run.
 #[tokio::test]
@@ -653,7 +650,7 @@ async fn a_lead_binding_its_driver_refuses_is_refused_and_nothing_lands() {
     let SessionCreateRequest::Project(mut request) = project_request(new_key(), None) else {
         unreachable!("the request is a project's");
     };
-    request.lead.effort = Some(token("max"));
+    request.lead.effort = Some(test_token("max"));
 
     let refusal = refusal_of(
         fixture

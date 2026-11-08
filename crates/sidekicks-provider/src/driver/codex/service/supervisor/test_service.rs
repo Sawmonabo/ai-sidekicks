@@ -8,7 +8,7 @@ mod stand_in;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use futures::future::BoxFuture;
 use futures::{SinkExt as _, StreamExt as _};
@@ -40,7 +40,8 @@ use tokio_util::task::TaskTracker;
 #[cfg(test)]
 pub(crate) use self::stand_in::{
     CODEX_HOME_NAME, CONFIG_READ_REPLY_NAME, HANG_UP_IGNORED_NAME, LAUNCH_ARGUMENTS_FILE,
-    ProgramPerHome, REQUEST_RECORD_NAME, StandInLaunches, read_tree, request_record,
+    ProgramPerHome, REQUEST_RECORD_NAME, STOP_IGNORED_NAME, StandInLaunches, read_tree,
+    request_record,
 };
 pub use self::stand_in::{
     CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, RESUMED_TURN_NAME,
@@ -84,7 +85,7 @@ use crate::driver::codex::shells::CodexShellKind;
 #[cfg(test)]
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::connection::scripted_service::{
-    ScriptedService, connect_scripted_service,
+    SCRIPTED_MESSAGE_LIMIT, ScriptedService, connect_scripted_service,
 };
 use crate::driver::contract::error::DriverError;
 #[cfg(test)]
@@ -101,9 +102,6 @@ const TEST_DISPATCHES_HOOK_MODE: bool = false;
 
 /// The kind of shell the test services' hooks are quoted for.
 const TEST_SESSION_SHELL_KIND: CodexShellKind = CodexShellKind::Sh;
-
-/// The largest message the scripted service takes, far above any a test sends.
-const SCRIPTED_MESSAGE_LIMIT: usize = 1 << 20;
 
 /// The scripted connection's ticket, which routes its frames.
 const SCRIPTED_DIAL: u64 = 1;
@@ -309,7 +307,7 @@ pub(crate) fn start_scripted_account_service_reporting_to(
     start_scripted_codex_service_on(
         CodexHomeKind::Account(test_provider_account_id()),
         CodexServiceKind::Account,
-        Arc::new(UnstartedProgram),
+        Arc::new(UnstartedProgram::default()),
         events,
     )
 }
@@ -323,7 +321,7 @@ pub(crate) fn start_scripted_account_service_for(
     start_scripted_codex_service_on(
         CodexHomeKind::Account(provider_account_id),
         CodexServiceKind::Account,
-        Arc::new(UnstartedProgram),
+        Arc::new(UnstartedProgram::default()),
         Arc::new(UnheardEvents),
     )
 }
@@ -337,7 +335,7 @@ pub(crate) fn start_scripted_api_key_service_for(
     start_scripted_codex_service_on(
         CodexHomeKind::ApiKeyAccount(provider_account_id),
         CodexServiceKind::Account,
-        Arc::new(UnstartedProgram),
+        Arc::new(UnstartedProgram::default()),
         Arc::new(UnheardEvents),
     )
 }
@@ -362,7 +360,7 @@ pub(crate) fn start_scripted_terminal_service() -> ScriptedCodexService {
     start_scripted_codex_service_on(
         CodexHomeKind::PersonalFolder,
         CodexServiceKind::Terminal,
-        Arc::new(UnstartedProgram),
+        Arc::new(UnstartedProgram::default()),
         Arc::new(UnheardEvents),
     )
 }
@@ -374,7 +372,7 @@ pub(crate) fn start_scripted_joined_service() -> ScriptedCodexService {
     start_scripted_codex_service_on(
         CodexHomeKind::PersonalFolder,
         CodexServiceKind::Joined,
-        Arc::new(UnstartedProgram),
+        Arc::new(UnstartedProgram::default()),
         Arc::new(UnheardEvents),
     )
 }
@@ -386,7 +384,7 @@ pub(crate) fn start_scripted_switching_service() -> ScriptedCodexService {
     start_scripted_codex_service_on(
         CodexHomeKind::Switching,
         CodexServiceKind::Account,
-        Arc::new(UnstartedProgram),
+        Arc::new(UnstartedProgram::default()),
         Arc::new(UnheardEvents),
     )
 }
@@ -459,14 +457,20 @@ pub(crate) fn script_codex_service(
     (service, script)
 }
 
-// A scripted service runs no program, so a start on its dependencies fails at the resolve.
-struct UnstartedProgram;
+/// A program a scripted service never runs, so a start on its dependencies fails at the resolve;
+/// it counts the starts that reached it.
+#[derive(Default)]
+pub(crate) struct UnstartedProgram {
+    /// The starts that reached the resolve.
+    pub(crate) starts: AtomicUsize,
+}
 
 impl CodexProgramResolver for UnstartedProgram {
     fn resolve<'call>(
         &'call self,
         _home: &'call CodexServiceHome,
     ) -> BoxFuture<'call, Result<ResolvedProviderExecutable, DriverError>> {
+        self.starts.fetch_add(1, Ordering::SeqCst);
         Box::pin(async {
             Err(DriverError::Internal(
                 "a scripted service runs no program".into(),
@@ -582,10 +586,11 @@ pub(crate) struct StandInReplies {
 /// trusted, and no loaded conversation; a config write is refused, so a start that writes trust
 /// fails. A machine probe is answered too: its ephemeral start opens [`PROBE_THREAD_ID`], each
 /// server its config switches on or sends reports ready, and each listed server is connected with
-/// [`PROBE_TOOL_NAME`]. A config read is answered with `replies`' where one is given, and where a
-/// resumed turn is given, a resume is answered on the conversation it names, under the profile it
-/// asks for, and that conversation's turns are listed as that one turn. Once the connection is
-/// handed an API key, its account read names an API-key sign-in; before, it answers nothing.
+/// [`PROBE_TOOL_NAME`]. A config read is answered with `replies`' where one is given, else with an
+/// empty config, and where a resumed turn is given, a resume is answered on the conversation it
+/// names, under the profile it asks for, and that conversation's turns are listed as that one
+/// turn. Once the connection is handed an API key, its account read names an API-key sign-in;
+/// before, it answers nothing.
 pub(crate) async fn answer_as_codex_service(
     stream: impl AsyncRead + AsyncWrite + Unpin,
     replies: StandInReplies,
@@ -637,6 +642,7 @@ pub(crate) async fn answer_as_codex_service(
             Some("config/read") if replies.config_read.is_some() => {
                 json!({"id": id, "result": replies.config_read})
             }
+            Some("config/read") => json!({"id": id, "result": {"config": {}, "origins": {}}}),
             Some("thread/resume") if replies.resumed_turn.is_some() => {
                 json!({"id": id, "result": resumed_thread(&request["params"], &replies)})
             }

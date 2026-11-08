@@ -8,7 +8,7 @@ The console's window onto the shell commands an agent started. The provider deci
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
-| `agent.command.subscribe` | `subscription` | `AgentCommandSubscribeRequest` | `SubscribeAckResponse`, then `AgentCommandSubscribeFrame` frames |
+| `agent.command.subscribe` | `subscription` | `AgentCommandSubscribeRequest` | `SubscribeAcknowledgmentResponse`, then `AgentCommandSubscribeFrame` frames |
 | `agent.command.stop` | `mutation` | `AgentCommandStopRequest` | `AgentCommandStopResponse` |
 | `agent.command.background` | `mutation` | `AgentCommandBackgroundRequest` | `AgentCommandBackgroundResponse` |
 | `agent.command.write` | `mutation` | `AgentCommandWriteRequest` | `NullPayload` |
@@ -112,4 +112,4 @@ interface AgentCommandWriteRequest {
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
-| `session.providerCommand.subscribe` | `subscription` | `SessionAddressedRequest` | `SubscribeAckResponse`, then `SessionProviderCommandList` frames |
+| `session.providerCommand.subscribe` | `subscription` | `SessionAddressedRequest` | `SubscribeAcknowledgmentResponse`, then `SessionProviderCommandList` frames |

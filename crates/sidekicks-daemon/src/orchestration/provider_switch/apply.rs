@@ -303,7 +303,6 @@ mod tests {
     use rstest::rstest;
     use rusqlite::Connection;
     use serde_json::json;
-    use sidekicks_contracts::agent::definition::binding::ProviderToken;
     use sidekicks_contracts::agent::provider_binding::{
         AgentBindingSwitchAccountState, AgentBindingSwitchBoundary, AgentBindingSwitchDisposition,
         AgentBindingSwitchFailureReason, AgentBindingSwitchPending, AgentBindingSwitchTarget,
@@ -322,6 +321,7 @@ mod tests {
     };
     use sidekicks_provider::driver::contract::MockProviderDriver;
     use sidekicks_provider::driver::contract::error::DriverError;
+    use sidekicks_provider::driver::registry::test_token;
     use sidekicks_provider::driver::test_registry::{bind_run_to_first_provider, new_run_id};
     use sidekicks_session::agents::projection::test_fixture::{run_statements, write_log_row};
     use sidekicks_session::agents::projection::{StoredPendingSwitch, write_pending_switch};
@@ -330,17 +330,13 @@ mod tests {
     use crate::orchestration::binding_switch::mint_switch_id;
     use crate::orchestration::provider_switch::tests::{Fixture, MODEL, pending_ids};
 
-    fn token(word: &str) -> ProviderToken {
-        FreeFormText::new(word.to_owned()).expect("a provider token")
-    }
-
     // The agent's model, listing only the `low` effort.
     fn low_effort_catalog() -> Vec<ProviderModel> {
         vec![ProviderModel {
-            id: token(MODEL),
-            name: token(MODEL),
+            id: test_token(MODEL),
+            name: test_token(MODEL),
             capabilities: Vec::new(),
-            effort_levels: Some(vec![token("low")]),
+            effort_levels: Some(vec![test_token("low")]),
             output_speed_levels: None,
             fast: false,
             larger_window: false,
@@ -371,7 +367,7 @@ mod tests {
                     provider_name: None,
                     model_id: None,
                     provider_account_id: None,
-                    effort: Some(token("low")),
+                    effort: Some(test_token("low")),
                     output_speed: None,
                     options: None,
                     larger_window: None,
@@ -465,7 +461,7 @@ mod tests {
                     continuity: super::InPlaceContinuity::Value,
                     declared_losses: super::BoundedVec::new(Vec::new()).expect("an empty list"),
                 },
-                Some(token("high")),
+                Some(test_token("high")),
             ),
             Outcome::Failed => (
                 AgentBindingSwitchDisposition::Failed {

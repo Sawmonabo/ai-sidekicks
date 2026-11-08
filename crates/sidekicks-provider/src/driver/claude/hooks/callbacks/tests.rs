@@ -91,6 +91,7 @@ async fn route_start(
     let ClaudeRequestRoute::CheckHelperStart {
         request_id,
         agent_id,
+        ..
     } = route_hook_call(
         RegisteredHook::PauseBeforeTool,
         pauses,

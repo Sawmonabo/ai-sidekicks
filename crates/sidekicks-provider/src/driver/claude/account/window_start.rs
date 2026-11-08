@@ -228,7 +228,7 @@ async fn run_claude_smallest_turn(
             // Its input is closed at once, since a line given on the command line beside a piped
             // input waits for the input's end; it then exits after its `result`.
             let ((), turn) = tokio::join!(
-                process.stop(CLAUDE_REQUEST_DEADLINE),
+                process.stop(CLAUDE_REQUEST_DEADLINE, None),
                 read_smallest_turn(&mut arrivals)
             );
             turn

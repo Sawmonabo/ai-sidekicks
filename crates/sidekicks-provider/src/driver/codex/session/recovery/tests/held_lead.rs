@@ -63,6 +63,7 @@ async fn a_persons_restart_carries_the_held_leads_answers_in_place() {
             parent_run_id: None,
             open_turns: Vec::new(),
             subagent_id: None,
+            model_id: None,
             is_stopping: false,
             run_state: RunState::Running,
         }],
@@ -85,6 +86,7 @@ async fn a_persons_restart_carries_the_held_leads_answers_in_place() {
         loop {
             let sent = script.next_sent().await;
             let answer = match sent["method"].as_str() {
+                Some("config/read") => json!({"config": {}, "origins": {}}),
                 Some("thread/resume") => {
                     let mut reply = fork_reply(TEST_THREAD, &settings);
                     reply["thread"]["status"] = json!({"type": "idle"});

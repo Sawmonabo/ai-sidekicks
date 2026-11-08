@@ -19,7 +19,7 @@ use crate::driver::codex::service::supervisor::CodexServiceSocket;
 use crate::driver::codex::service::supervisor::test_service::{
     drop_service_connection, script_codex_service, wait_until_disconnected,
 };
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 // Fails when a planned restart leaves the home's socket on the first service, when the first's
@@ -59,7 +59,9 @@ async fn the_home_socket_follows_the_service_that_holds_it() {
     let recovery_heard = tokio::time::timeout(CRASH_WAIT, services.recoveries.recv()).await;
     let restarted_socket = second.physical_socket();
     let after_recovery = read_socket_link(&home_socket).expect("the link reads");
-    registry.shutdown(DaemonStopIntent::Stop).await;
+    registry
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
 
     assert!(second_socket.is_some());
     assert_ne!(second_socket, first_socket);
@@ -109,7 +111,9 @@ async fn a_second_service_that_fails_to_start_leaves_the_first_the_home_s() {
     let replaced = registry.replace(&first).await;
     let registered = registry.services();
     let link = read_socket_link(&home_socket).expect("the link reads");
-    registry.shutdown(DaemonStopIntent::Stop).await;
+    registry
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
 
     assert!(replaced.is_err());
     assert!(
@@ -155,7 +159,9 @@ async fn a_redial_reaches_the_service_s_own_socket_whatever_the_link_names() {
         .is_ok_and(|()| service.connection().is_err());
     let redialed = service.ensure_started(CRASH_WAIT).await;
     let accepted_through_the_link = accepted.load(Ordering::Relaxed);
-    registry.shutdown(DaemonStopIntent::Stop).await;
+    registry
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
     accepting.abort();
 
     assert!(is_disconnected, "the drop was not heard");
@@ -201,13 +207,17 @@ async fn a_crash_restart_of_the_home_s_service_never_takes_another_service_s_pro
         .await
         .expect("the second starts");
     let second_process = second.process_id().expect("the second runs a process");
-    other_daemon.shutdown(DaemonStopIntent::Restart).await;
+    other_daemon
+        .shutdown(DaemonStopIntent::Restart, daemon_stop_deadline())
+        .await;
 
     let is_home_killed = send_signal(home_process, "-KILL");
     let recovery_heard = tokio::time::timeout(CRASH_WAIT, services.recoveries.recv()).await;
     let recovered_process = home_service.process_id();
     let is_second_running = is_running(second_process);
-    daemon.shutdown(DaemonStopIntent::Stop).await;
+    daemon
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
     let is_second_stopped = wait_until_gone(second_process).await;
 
     assert!(is_home_killed);
@@ -276,7 +286,9 @@ async fn a_planned_restart_during_the_switch_off_leaves_the_socket_link_and_fail
     script.answer(&last, &json!({"data": []}));
     retiring.await.expect("the retirement ends");
     let is_first_stopped = !first.is_serving();
-    registry.shutdown(DaemonStopIntent::Stop).await;
+    registry
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
 
     assert!(
         registered_while_waiting.is_empty(),

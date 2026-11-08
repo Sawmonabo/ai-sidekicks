@@ -283,6 +283,7 @@ async fn a_probe_during_a_sign_in_writes_nothing_and_the_sign_in_saves() {
                 holds_machine_slot: false,
             }) as Arc<dyn ProviderSignInLegs>,
         )]),
+        HashMap::new(),
         Arc::clone(&fixture.notifications) as _,
         Arc::new(RecordingWatcher::default()),
         Arc::clone(&fixture.home_lock),

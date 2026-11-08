@@ -1,6 +1,7 @@
 //! Readers of a Codex thread's replies: the thread and where it stands, the reasoning effort and
 //! the permission profile a start, resume or fork runs under, the turn a turn request names, and
-//! the `thread/read` of a thread's name, preview, source and status.
+//! the `thread/read` of a thread's name, preview, source, status and, for a helper, its nickname,
+//! role and model.
 
 use std::time::Duration;
 
@@ -11,7 +12,9 @@ use crate::driver::codex::app_server_protocol::ThreadReadParams;
 use crate::driver::codex::permission_level::compose_codex_profile_name;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::thread::settings::CodexThreadSettings;
-use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
+use crate::driver::codex::transport::connection::{
+    CodexAppServerConnection, read_codex_given_text, read_codex_object,
+};
 
 /// A thread as a thread reply names it.
 #[derive(Debug)]
@@ -80,12 +83,16 @@ struct ThreadMembers {
 // The members a `thread/read` reply's thread is read for, each on its own: `source` is a string or
 // an object, so no one type reads it.
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ThreadReadingMembers {
     name: Option<Box<RawValue>>,
     preview: Option<Box<RawValue>>,
     source: Option<Box<RawValue>>,
     ephemeral: Option<Box<RawValue>>,
     status: Option<Box<RawValue>>,
+    agent_nickname: Option<Box<RawValue>>,
+    agent_role: Option<Box<RawValue>>,
+    model: Option<Box<RawValue>>,
 }
 
 /// A thread as `thread/read` names it, without its turns.
@@ -100,6 +107,12 @@ pub(crate) struct CodexThreadReading {
     pub(crate) is_typed_in_terminal: bool,
     /// Where the thread stands on the service, `None` where the reply names no status it reads.
     pub(crate) status: Option<CodexThreadStatus>,
+    /// A helper's nickname, `agentNickname`, `None` where it has none or a blank one.
+    pub(crate) agent_nickname: Option<String>,
+    /// The role a helper was started in, `agentRole`, `None` where it has none or a blank one.
+    pub(crate) agent_role: Option<String>,
+    /// The model the thread runs on, `None` where it names none or a blank one.
+    pub(crate) model: Option<String>,
 }
 
 /// The thread the `thread/read` reply `reply` names, or `None` when it carries no readable thread.
@@ -115,13 +128,22 @@ pub(crate) fn read_thread_reading(reply: &RawValue) -> Option<CodexThreadReading
         .ephemeral
         .and_then(|ephemeral| serde_json::from_str::<bool>(ephemeral.get()).ok());
     Some(CodexThreadReading {
-        name: thread.name.and_then(|name| read_given_text(&name)),
-        preview: thread.preview.and_then(|preview| read_given_text(&preview)),
+        name: thread.name.and_then(|name| read_codex_given_text(&name)),
+        preview: thread
+            .preview
+            .and_then(|preview| read_codex_given_text(&preview)),
         is_typed_in_terminal: source.as_deref() == Some(THREAD_TERMINAL_SOURCE)
             && ephemeral == Some(false),
         status: thread
             .status
             .and_then(|status| read_codex_object::<CodexThreadStatus>(status.get())),
+        agent_nickname: thread
+            .agent_nickname
+            .and_then(|nickname| read_codex_given_text(&nickname)),
+        agent_role: thread
+            .agent_role
+            .and_then(|role| read_codex_given_text(&role)),
+        model: thread.model.and_then(|model| read_codex_given_text(&model)),
     })
 }
 
@@ -143,13 +165,6 @@ pub(crate) async fn request_thread_reading(
         )
         .await?;
     Ok(read_thread_reading(&reply))
-}
-
-// A text member, `None` where it is not a string or is blank.
-fn read_given_text(member: &RawValue) -> Option<String> {
-    serde_json::from_str::<String>(member.get())
-        .ok()
-        .filter(|text| !text.trim().is_empty())
 }
 
 // A turn, read by its id.

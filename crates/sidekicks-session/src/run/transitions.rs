@@ -46,21 +46,25 @@ pub(crate) fn is_transition_allowed(from: RunState, to: RunStateChangeState) -> 
 
 // The states each state may move to. A move several triggers share, such as `running -> failed`
 // on an error during execution or at a restart, is one entry; the token limit's stop is the one
-// way into `stopped` from a waiting or pausing state.
+// way into `stopped` from a waiting or pausing state, and `queued -> stopped` is taken by the
+// person's stop of the service and by the removal of every message a queued run waited for.
 fn next_states(from: RunState) -> &'static [RunStateChangeState] {
     use RunStateChangeState as Next;
     match from {
-        RunState::Queued => &[Next::Starting, Next::Failed],
+        RunState::Queued => &[Next::Starting, Next::Failed, Next::Stopped],
         RunState::Starting => &[
             Next::Running,
             Next::Failed,
             Next::Interrupted,
             Next::WaitingForInput,
         ],
+        // A paused helper, or a held lead the person continued, whose continue of the lead the
+        // restart held failed goes back to its pause, as an answered wait goes back to its wait.
         RunState::Running => &[
             Next::WaitingForApproval,
             Next::WaitingForInput,
             Next::Pausing,
+            Next::Paused,
             Next::Interrupted,
             Next::Completed,
             Next::Failed,
@@ -110,6 +114,7 @@ mod tests {
     #[case(Now::Running, Next::WaitingForApproval, true)]
     #[case(Now::Running, Next::WaitingForInput, true)]
     #[case(Now::Running, Next::Pausing, true)]
+    #[case(Now::Running, Next::Paused, true)]
     #[case(Now::Running, Next::Interrupted, true)]
     #[case(Now::Running, Next::Completed, true)]
     #[case(Now::Running, Next::Failed, true)]
@@ -137,12 +142,11 @@ mod tests {
     #[case(Now::Interrupted, Next::Stopped, true)]
     #[case(Now::Completed, Next::Running, false)]
     #[case(Now::Stopped, Next::Running, false)]
-    #[case(Now::Queued, Next::Stopped, false)]
+    #[case(Now::Queued, Next::Stopped, true)]
     #[case(Now::Starting, Next::Stopped, false)]
     #[case(Now::Queued, Next::Running, false)]
     #[case(Now::Queued, Next::Interrupted, false)]
     #[case(Now::Starting, Next::Completed, false)]
-    #[case(Now::Running, Next::Paused, false)]
     #[case(Now::Running, Next::Running, false)]
     #[case(Now::WaitingForInput, Next::WaitingForApproval, false)]
     #[case(Now::Paused, Next::Pausing, false)]

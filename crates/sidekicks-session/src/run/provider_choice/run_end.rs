@@ -6,12 +6,14 @@
 use std::sync::LazyLock;
 
 use rusqlite::Connection;
+use rusqlite::types::Type;
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::provider_choice::{
-    AgentRunRefusalChoiceResolvedPayload, AgentRunUsageCreditsChoiceResolvedPayload,
-    RunRefusalChoiceSettlement, RunRefusalChoiceUnanswered, RunUsageCreditsChoiceSettlement,
-    RunUsageCreditsChoiceUnanswered,
+    AgentRunRefusalChoiceRequestedPayload, AgentRunRefusalChoiceResolvedPayload,
+    AgentRunUsageCreditsChoiceResolvedPayload, RunRefusalChoiceSettlement,
+    RunRefusalChoiceUnanswered, RunUsageCreditsChoiceSettlement, RunUsageCreditsChoiceUnanswered,
 };
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
@@ -23,7 +25,7 @@ use sidekicks_store::events::session::appender::{
 };
 
 use super::held::MovedAnswer;
-use super::{ChoiceDialog, is_settled_since, latest_request, settlement_guard};
+use super::{ChoiceDialog, is_settled_since, latest_request, refused_cause_of, settlement_guard};
 use crate::run::engine::errors::RunEngineError;
 use crate::run::read::{RunStateReader, SessionRun, session_run_of_row};
 use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
@@ -71,6 +73,66 @@ pub(crate) struct OpenChoiceSettlement {
     pub(crate) event: SessionEventDraft,
 }
 
+/// The refusal choice a run waits on, as the run's end without an answer settles it: the refusal
+/// the run fails with, and the choice's settlement `canceled` with its guard.
+pub(crate) struct WaitingRefusal {
+    /// The provider's refusal, read from the choice's stored request.
+    pub(crate) cause: RunFailureCause,
+    /// The choice's settlement `canceled` and the guard that no settlement followed its request.
+    pub(crate) settlement: OpenChoiceSettlement,
+}
+
+// The position of the stored payload among the columns the newest request's read selects.
+const REQUEST_PAYLOAD_COLUMN: usize = 1;
+
+/// The refusal choice `run_id`, a run of `session_id`, waits on, read on `reader`: its newest
+/// request that no settlement followed, or `None` with none. Fails when SQLite refuses the read,
+/// when the stored request does not read as its payload, kept as the column's conversion failure,
+/// or when the settlement event breaks a check of its type.
+pub(crate) fn read_waiting_refusal(
+    reader: &Connection,
+    session_id: SessionId,
+    run_id: RunId,
+) -> Result<Option<WaitingRefusal>, RunEngineError> {
+    let dialog = ChoiceDialog::Refusal;
+    let Some(pending) = latest_request(reader, session_id, run_id, dialog)? else {
+        return Ok(None);
+    };
+    if is_settled_since(reader, session_id, run_id, dialog, &pending)? {
+        return Ok(None);
+    }
+    let requested: AgentRunRefusalChoiceRequestedPayload = serde_json::from_str(&pending.payload)
+        .map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(
+            REQUEST_PAYLOAD_COLUMN,
+            Type::Text,
+            Box::new(error),
+        )
+    })?;
+    let event = unanswered_refusal(session_id, run_id, RunRefusalChoiceUnanswered::Canceled);
+    Ok(Some(WaitingRefusal {
+        cause: refused_cause_of(requested),
+        settlement: OpenChoiceSettlement {
+            guard: settlement_guard(session_id, run_id, dialog, &pending),
+            event: SessionEventDraft::of_session(session_id, &event)?,
+        },
+    }))
+}
+
+// The settlement of `run_id`'s refusal choice with no answer, for `unanswered`.
+fn unanswered_refusal(
+    session_id: SessionId,
+    run_id: RunId,
+    unanswered: RunRefusalChoiceUnanswered,
+) -> SessionEvent {
+    SessionEvent::AgentRunRefusalChoiceResolved(AgentRunRefusalChoiceResolvedPayload {
+        session_id,
+        run_id,
+        choice: RunRefusalChoiceSettlement::Unanswered(unanswered),
+        device_id: None,
+    })
+}
+
 /// The settle of each choice of `run_id`, a run of `session_id`, still unsettled when the run ends
 /// in `end`, read on `reader`, but those in `settled`, which the end's own write settles: `moved`'s
 /// settlement for the request it answered, else `canceled` and `interrupted` for an interrupted
@@ -100,18 +162,15 @@ pub(crate) fn read_open_choice_settlements(
             .filter(|moved| moved.dialog == dialog && moved.requested_sequence == pending.sequence);
         let event = match (moved_settlement, dialog) {
             (Some(moved), _) => moved.settlement.clone(),
-            (None, ChoiceDialog::Refusal) => {
-                SessionEvent::AgentRunRefusalChoiceResolved(AgentRunRefusalChoiceResolvedPayload {
-                    session_id,
-                    run_id,
-                    choice: RunRefusalChoiceSettlement::Unanswered(if is_interrupted {
-                        RunRefusalChoiceUnanswered::Canceled
-                    } else {
-                        RunRefusalChoiceUnanswered::RunEnded
-                    }),
-                    device_id: None,
-                })
-            }
+            (None, ChoiceDialog::Refusal) => unanswered_refusal(
+                session_id,
+                run_id,
+                if is_interrupted {
+                    RunRefusalChoiceUnanswered::Canceled
+                } else {
+                    RunRefusalChoiceUnanswered::RunEnded
+                },
+            ),
             (None, ChoiceDialog::UsageCredits) => SessionEvent::AgentRunUsageCreditsChoiceResolved(
                 AgentRunUsageCreditsChoiceResolvedPayload {
                     session_id,

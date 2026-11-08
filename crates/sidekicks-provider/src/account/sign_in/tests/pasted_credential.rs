@@ -64,6 +64,7 @@ async fn a_sign_in_on_a_pasted_credential_account_is_refused_before_anything_sta
             provider("claude"),
             Arc::clone(&legs) as Arc<dyn ProviderSignInLegs>,
         )]),
+        HashMap::new(),
         Arc::new(RecordingPublisher(published_sender)),
         Arc::new(RecordingWatcher::default()),
         Arc::default(),

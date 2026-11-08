@@ -102,6 +102,18 @@ pub(crate) struct CodexProfileFolders {
     pub(crate) command_channel_folder: PathBuf,
 }
 
+/// The root of the repository a conversation in `folders` runs in: the parent of its common git
+/// folder, which a linked worktree shares with its repository, else its working folder outside a
+/// repository.
+pub(crate) fn codex_repository_root(folders: &CodexProfileFolders) -> &Path {
+    folders
+        .git_common_folder
+        .as_deref()
+        .map_or(folders.working_directory.as_path(), |git_common_folder| {
+            git_common_folder.parent().unwrap_or(git_common_folder)
+        })
+}
+
 /// The thread members one level sets on start, resume, fork and a level move.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -147,14 +159,8 @@ pub(crate) fn compose_codex_profile_name(
         | PermissionLevel::Ask
         | PermissionLevel::Reviewed
         | PermissionLevel::Sandboxed => {
-            // The repository root is the common git folder's parent, so every worktree of one
-            // repository shares its profiles; outside a repository it is the working folder.
-            let repository_root = folders
-                .git_common_folder
-                .as_deref()
-                .map_or(folders.working_directory.as_path(), |git_common_folder| {
-                    git_common_folder.parent().unwrap_or(git_common_folder)
-                });
+            // Every worktree of one repository shares its profiles.
+            let repository_root = codex_repository_root(folders);
             let mut hash = base16ct::lower::encode_string(&Sha256::digest(
                 repository_root.to_string_lossy().as_bytes(),
             ));

@@ -12,7 +12,7 @@ use super::super::CodexDriver;
 use super::{driver_on_codex_folder, listen_on_codex_folder};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::ApplyRowValueParams;
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 
 // The switch's value turned to `is_on` on the computer's one place.
 fn switched(is_on: bool) -> ApplyRowValueParams {
@@ -62,7 +62,9 @@ async fn a_repeated_switch_on_starts_nothing_more() {
     let repeated = driver.apply_row_value(switched(true)).await;
     let second = driver.registry.services();
     let is_still_serving = first.iter().all(|service| service.is_serving());
-    driver.shutdown(DaemonStopIntent::Stop).await;
+    driver
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
 
     assert!(is_on);
     assert!(repeated.is_ok());
@@ -86,7 +88,9 @@ async fn a_switch_in_a_place_the_computer_lacks_is_refused_and_starts_nothing() 
         })
         .await;
     let services = driver.registry.services();
-    driver.shutdown(DaemonStopIntent::Stop).await;
+    driver
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
 
     let Err(DriverError::Refused(refusal)) = applied else {
         panic!("the place was not refused: {applied:?}");

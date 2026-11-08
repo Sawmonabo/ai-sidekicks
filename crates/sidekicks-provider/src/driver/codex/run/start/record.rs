@@ -294,8 +294,13 @@ pub(crate) async fn begin_codex_turn_start(
         .adoptions
         .adopt(record, begin.binding_id.clone());
     if adoption.is_first_binding()
-        && let Err(error) =
-            bind_codex_first_run(record, dependencies.bindings.as_ref(), &begin.binding_id).await
+        && let Err(error) = bind_codex_first_run(
+            record,
+            task.context_readings,
+            dependencies.bindings.as_ref(),
+            &begin.binding_id,
+        )
+        .await
     {
         dependencies.adoptions.undo(record, adoption);
         return CodexTurnBeginAnswer::Refused(error);

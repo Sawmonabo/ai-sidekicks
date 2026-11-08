@@ -5,20 +5,23 @@
 //! driver took the resume, numbers and ends each turn, counts a turn's steps against its step
 //! bound, stops a run at a limit, records the markers a provider reports on a live run, tells a
 //! session when a run's provider does not run it at the fast output level it carried, and re-arms
-//! and finalizes the live runs a restart's resume found again, records an undo's confirmed cut as
-//! the run's rollback, holding back a turn opening that meets an undo's write in progress, and
-//! moves a child run under the run whose call started it.
+//! and finalizes the live runs a restart's resume found again, moves a lead a failed continue
+//! left `running` back to `paused`, records an undo's confirmed cut as the run's rollback, holding
+//! back a turn opening that meets an undo's write in progress, and moves a child run under the run
+//! whose call started it.
 
+mod continued_lead;
 mod ending;
 pub mod errors;
 mod host;
+mod interrupt_hands;
 mod limits;
 mod live;
 mod parent_correction;
 mod provider_started;
 mod resumed;
 mod running_wait;
-mod settle;
+pub mod settle;
 mod start;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_fixture;
@@ -49,6 +52,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::run::delivery::{RunMarker, RunSetupRefusal};
 use sidekicks_provider::run::posture::ExecutionPostureService;
+use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
 use sidekicks_provider::runtime_binding::store::read_binding;
 use sidekicks_std::mutex_lock::lock;
@@ -66,6 +70,8 @@ use sidekicks_store::events::session::read::{DamagedFromSequenceReader, session_
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_workspace::run_setup_gates::{RunSetupGate, RunSetupGates};
 use tokio::sync::{SetOnce, SetOnceError};
+use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 
 use crate::interventions::interrupt_queue::InterruptQueue;
 use crate::interventions::store::run_at_version_statement;
@@ -191,6 +197,10 @@ pub struct RunEngine {
     // weakly, as that source reaches the engine through the drivers' ports.
     session_postures: SetOnce<Weak<dyn SessionPostureSource>>,
     live: Mutex<LiveRuns>,
+    // The tasks that carry a run's interrupt out apart from the call that asked for it, and the
+    // daemon's stop that cuts them.
+    interrupt_hands: TaskTracker,
+    interrupt_hands_stop: CancellationToken,
     // Where a test holds a limit stop once its cut is in and before it reads whether its turn is
     // still open.
     #[cfg(test)]
@@ -239,6 +249,8 @@ impl RunEngine {
             interrupt_queue: SetOnce::new(),
             session_postures: SetOnce::new(),
             live: Mutex::new(LiveRuns::default()),
+            interrupt_hands: TaskTracker::new(),
+            interrupt_hands_stop: CancellationToken::new(),
             #[cfg(test)]
             cut_pause: PausePoint::default(),
             #[cfg(test)]
@@ -394,7 +406,9 @@ impl RunEngine {
     /// waits on its own run's change. A change for a run being continued waits for its continue
     /// the same way, but a terminal before its next turn started belongs to the turn that ended it
     /// and is refused at once; a resume that comes after this change has passed that check waits
-    /// for it to be written. A send's re-open of an ended run is the daemon's, never a provider's.
+    /// for it to be written. A send's re-open of an ended run is the daemon's, never a provider's,
+    /// and so is a move from `running` back to `paused`: a pause that expects no state is taken
+    /// only from `pausing`, and refused with [`RunRefusal::InvalidTransition`] from any other.
     /// A turn the provider ended any other way than interrupted expires, in the change's write,
     /// each interrupt left on the run with no outcome, which did not take, and lets go the run
     /// queue's hold of a person's. Once a turn's end is written with the change, a step limit's
@@ -403,9 +417,14 @@ impl RunEngine {
     /// owes, each failure returned beside the run as the change left it.
     pub async fn apply_provider_state_change(
         self: &Arc<Self>,
-        change: RunStateChange,
+        mut change: RunStateChange,
         turn_end: Option<ProviderTurnEnd>,
     ) -> Result<WriteWithResend<RunRead>, RunEngineError> {
+        // A provider pauses a run only by ending the pause the daemon asked for; the table's
+        // `running -> paused` row is the daemon's own move back after a failed continue.
+        if matches!(change.entry, RunStateEntry::Paused) && change.expected_state.is_none() {
+            change.expected_state = Some(RunState::Pausing);
+        }
         let run_id = change.run_id;
         let to_state = change.entry.state();
         let settling = lock(&self.live)

@@ -6,6 +6,8 @@
 //! routing, as an adoption restores a helper; a held helper's turn listed over at the adoption
 //! ends as the daemon's.
 
+use serde::Deserialize;
+use serde_json::value::RawValue;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
@@ -18,38 +20,67 @@ use crate::driver::codex::session::calls::{CodexSessionCallDependencies, CodexSe
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::history::{CodexListedTurn, read_codex_resumed_newest_turn};
 use crate::driver::codex::session::state::CodexSessionRecord;
-use crate::driver::codex::transport::connection::CodexAppServerConnection;
+use crate::driver::codex::transport::connection::{
+    CodexAppServerConnection, read_codex_given_text, read_codex_object,
+};
 use crate::driver::run_control::ReattachedHelper;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
-/// Reopens the helper `thread_id` on `connection` as it stands, with no setting, and answers its
-/// newest turn, `None` where it holds none; Codex answers a resume that asks for its newest-turn
-/// page, as this one does, with the page or a refusal, so a reply with no page holds no turn.
-/// Fails as the resume does, a parent not loaded among Codex's refusals.
+/// A helper Codex reopened, as its resume's reply names it.
+pub(crate) struct CodexReopenedHelper {
+    /// Its newest turn, `None` where it holds none.
+    pub(crate) newest_turn: Option<CodexListedTurn>,
+    /// The model it runs on, `None` where the reply names none or a blank one.
+    pub(crate) model: Option<String>,
+}
+
+/// Reopens the helper `thread_id` on `connection` as it stands, with no setting but the session's
+/// memory switch `auto_memory`, which a helper the service loads again starts under, and answers
+/// its newest turn, `None` where it holds none, and its model; Codex answers a resume that asks
+/// for its newest-turn page, as this one does, with the page or a refusal, so a reply with no page
+/// holds no turn. Fails as the resume does, a parent not loaded among Codex's refusals.
 pub(crate) async fn reopen_codex_helper(
     connection: &CodexAppServerConnection,
     thread_id: &str,
-) -> Result<Option<CodexListedTurn>, CodexError> {
-    let reply = request_bare_thread_resume(connection, thread_id).await?;
-    Ok(read_codex_resumed_newest_turn(&reply))
+    auto_memory: Option<bool>,
+) -> Result<CodexReopenedHelper, CodexError> {
+    let reply = request_bare_thread_resume(connection, thread_id, auto_memory).await?;
+    Ok(CodexReopenedHelper {
+        newest_turn: read_codex_resumed_newest_turn(&reply),
+        model: read_resumed_model(&reply),
+    })
 }
 
-/// Reopens the helper `thread_id` as [`reopen_codex_helper`] does, registered on `service` as
-/// session `session_id`'s first, since Codex sends a reopened helper's waiting asks right after
-/// its reply and the service refuses one no session names. A refused reopen lets go of the
-/// registration it made; one already there stays.
+// The model a `thread/resume` reply names.
+fn read_resumed_model(reply: &RawValue) -> Option<String> {
+    #[derive(Deserialize)]
+    struct ResumeModel {
+        model: Option<Box<RawValue>>,
+    }
+    read_codex_object::<ResumeModel>(reply.get())?
+        .model
+        .as_deref()
+        .and_then(read_codex_given_text)
+}
+
+/// Reopens the helper `thread_id` as [`reopen_codex_helper`] does, under the session's memory
+/// switch `auto_memory`, which a helper the service loads again starts under, registered on
+/// `service` as session `session_id`'s first, since Codex sends a reopened helper's waiting asks
+/// right after its reply and the service refuses one no session names. A refused reopen lets go of
+/// the registration it made; one already there stays.
 pub(crate) async fn reopen_registered_codex_helper(
     service: &CodexService,
     connection: &CodexAppServerConnection,
     session_id: SessionId,
     thread_id: &str,
-) -> Result<Option<CodexListedTurn>, CodexError> {
+    auto_memory: Option<bool>,
+) -> Result<CodexReopenedHelper, CodexError> {
     let was_registered = service
         .threads_of(&session_id)
         .iter()
         .any(|registered| registered == thread_id);
     service.register_thread(thread_id.to_owned(), session_id);
-    let reopened = reopen_codex_helper(connection, thread_id).await;
+    let reopened = reopen_codex_helper(connection, thread_id, auto_memory).await;
     if reopened.is_err() && !was_registered {
         service.release_thread(thread_id);
     }
@@ -76,14 +107,16 @@ pub(crate) fn bind_codex_helper_run(
 
 /// Restores a helper re-attached after a restart on the session's task, as an adoption restores
 /// one it reopened: bound to its existing child run on the session's binding, then registered in
-/// the session's routing beneath its conversation, its usage based on `prior_emitted`, what was
-/// already metered on it. A helper the routing knows already is left as it is; a conversation no
-/// run named a binding for binds no run. Answers the frames that waited for the helper.
+/// the session's routing beneath its conversation on `model`, its usage based on `prior_emitted`,
+/// what was already metered on it. A helper the routing knows already is left as it is; a
+/// conversation no run named a binding for binds no run. Answers the frames that waited for the
+/// helper.
 pub(crate) async fn restore_reattached_codex_helper(
     task: &mut CodexSessionTask<'_>,
     dependencies: &CodexSessionCallDependencies,
     helper: ReattachedHelper,
     prior_emitted: UsageAxisCounts,
+    model: Option<String>,
 ) -> CodexRoutedFrames {
     let thread_id = helper.subagent_id.as_str().to_owned();
     if task.routing.is_helper_thread(&thread_id) {
@@ -114,6 +147,7 @@ pub(crate) async fn restore_reattached_codex_helper(
             task.record,
             thread_id,
             prior_emitted,
+            model,
         )
         .await
 }

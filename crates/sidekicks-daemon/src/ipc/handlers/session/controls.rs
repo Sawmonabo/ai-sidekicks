@@ -13,7 +13,6 @@ use sidekicks_contracts::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, S
 use sidekicks_contracts::provider::driver::commands::{
     ProviderCommandEntry, ProviderCommandListResponse,
 };
-use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::controls::methods::{
     SessionAddressedRequest, SessionCodeReviewStart, SessionCodeReviewStartRequest,
     SessionModeUpdate, SessionModeUpdateRequest, SessionModeUpdateResponse,
@@ -32,16 +31,14 @@ use sidekicks_ipc::registry::{
 use sidekicks_ipc::stream::feed::Feed;
 use sidekicks_ipc::stream::latest_value::LatestValueFeed;
 use sidekicks_provider::driver::capabilities::DriverCapabilityFlag;
-use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::session_control::{
     AskSideQuestionParams, SubscribeProviderCommandsParams,
 };
 use sidekicks_queue::provider_session::ProviderSessions;
 use sidekicks_queue::provider_session::controls::SideQuestionSource;
 use sidekicks_queue::service::RunQueue;
-use sidekicks_session::driver_resolution::read_session_driver;
 
-use crate::ipc::handlers::driver::{DriverMethodReadError, DriverMethodSources};
+use crate::ipc::handlers::driver::DriverMethodSources;
 
 /// What the session controls read and act through.
 pub(crate) struct SessionControlMethods {
@@ -68,7 +65,7 @@ pub(crate) fn register_session_controls(
             let methods = Arc::clone(&leveling);
             async move {
                 let SessionPermissionLevelUpdateRequest { session_id, level } = request;
-                resolve_driver(&methods.sources, session_id).await?;
+                methods.sources.resolve_driver(session_id).await?;
                 methods
                     .provider_sessions
                     .change_level(session_id, level)
@@ -84,7 +81,7 @@ pub(crate) fn register_session_controls(
             let methods = Arc::clone(&moding);
             async move {
                 let SessionModeUpdateRequest { session_id, mode } = request;
-                resolve_driver(&methods.sources, session_id).await?;
+                methods.sources.resolve_driver(session_id).await?;
                 methods
                     .provider_sessions
                     .change_mode(session_id, mode)
@@ -122,22 +119,6 @@ pub(crate) fn register_session_controls(
     )
 }
 
-// The provider the session's lead runs on and its driver, after the session and its provider
-// pass.
-async fn resolve_driver(
-    sources: &DriverMethodSources,
-    session_id: SessionId,
-) -> Result<(ProviderId, Arc<dyn ProviderDriver>), DriverMethodReadError> {
-    let (provider, _, driver) = read_session_driver::<DriverMethodReadError>(
-        &sources.pool,
-        &sources.providers,
-        sources.read_damaged_from_sequence.as_ref(),
-        session_id,
-    )
-    .await?;
-    Ok((provider, driver))
-}
-
 // Asks on a copy forked from the session's newest conversation, which the driver takes from its
 // live process where one runs; the answer lands as an event under the minted id, before the call
 // answers or after it, as the provider answers.
@@ -149,7 +130,7 @@ async fn ask_side_question(
         session_id,
         question,
     } = request;
-    let (_, driver) = resolve_driver(&methods.sources, session_id).await?;
+    let (_, driver) = methods.sources.resolve_driver(session_id).await?;
     // A session that never ran has no conversation to ask about, and no binding to record on.
     let Some(SideQuestionSource { binding_id, resume }) = methods
         .provider_sessions
@@ -185,7 +166,7 @@ async fn follow_provider_commands(
     sources: &DriverMethodSources,
     session_id: SessionId,
 ) -> Result<Box<dyn Feed<Emission = SessionProviderCommandList>>, HandlerError> {
-    let (provider, driver) = resolve_driver(sources, session_id).await?;
+    let (provider, driver) = sources.resolve_driver(session_id).await?;
     sources
         .providers
         .check_capability(&provider, DriverCapabilityFlag::ProviderCommands)?;
