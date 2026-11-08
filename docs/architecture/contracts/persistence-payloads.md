@@ -40,8 +40,8 @@ interface DaemonRecoveryStatus {
 }
 
 // session.recovery.continue (`Continue from here`) and session.recovery.delete (`Delete session`):
-// both take a damaged session and answer `EmptyPayload`; each is refused `session.recovery.refused`
-// otherwise.
+// both take a damaged session, the delete also a session whose create never finished, and answer
+// `EmptyPayload`; each is refused `session.recovery.refused` otherwise.
 interface SessionTargetRequest {
   sessionId: SessionId;
 }

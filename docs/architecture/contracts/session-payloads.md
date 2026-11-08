@@ -816,7 +816,7 @@ The console's `session.*` operations beyond the [Plan-005](../../plans/005-local
 | `session.tag.remove` | `mutation` | `SessionTagRequest` | `EmptyPayload` |
 | `session.tag.list` | `query` | `EmptyPayload` | `SessionTagListResponse` |
 
-`session.recovery.continue` (`Continue from here`) and `session.recovery.delete` (`Delete session`) act only on a session whose history is damaged; their event and refusals are in [persistence-payloads.md §Plan-012](./persistence-payloads.md#plan-012--persistence-and-recovery).
+`session.recovery.continue` (`Continue from here`) acts only on a session whose history is damaged, and `session.recovery.delete` (`Delete session`) on one whose history is damaged or whose create never finished; their event and refusals are in [persistence-payloads.md §Plan-012](./persistence-payloads.md#plan-012--persistence-and-recovery).
 
 `session.goal.update` and `session.goal.clear` are registered in orchestration-payloads.md §Plan-013's method registry, where the goal's delivery contract lives, and are listed here only so the console's session surface reads whole in one place.
 
