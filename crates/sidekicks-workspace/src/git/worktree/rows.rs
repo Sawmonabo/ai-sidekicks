@@ -1,6 +1,7 @@
 //! The `worktrees` rows the worktree modules read back and the statements more than one of them
-//! writes, the conditions that say a row is live and that an agent runs in a tree, and what a
-//! refused compare-and-swap on one of its transitions means.
+//! writes, the conditions that say a row is live, that it stands ready to work in and that an agent
+//! runs in a tree, the join to a tree's newest branch context, and what a refused compare-and-swap
+//! on one of its transitions means.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -16,10 +17,12 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::worktree::lifecycle::{WorktreeId, WorktreeState};
+use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
 use sidekicks_store::database::writer::WriteError;
+use strum::VariantArray;
 
 use crate::git::worktree::schema::BRANCH_RELEASING_STATE_LIST;
 
@@ -101,6 +104,39 @@ pub(crate) fn live_worktree_state_predicate(table: &str) -> String {
 /// [`live_worktree_state_predicate`] for a query that reads the table by its own name.
 pub(crate) static LIVE_WORKTREE_STATE_PREDICATE: LazyLock<String> =
     LazyLock::new(|| live_worktree_state_predicate("worktrees"));
+
+/// The SQL condition that the `worktrees` row read as `table` stands ready to work in: live and
+/// made, so a tree still being made is left out.
+pub(crate) fn standing_worktree_state_predicate(table: &str) -> String {
+    let standing = sql_list_of(
+        WorktreeState::VARIANTS
+            .iter()
+            .copied()
+            .filter(|&state| is_standing(state))
+            .map(<&'static str>::from),
+    );
+    format!("{table}.state IN ({standing})")
+}
+
+// A made tree on disk that a run or a move may use.
+fn is_standing(state: WorktreeState) -> bool {
+    match state {
+        WorktreeState::Ready | WorktreeState::Dirty | WorktreeState::Merged => true,
+        WorktreeState::Creating | WorktreeState::Retired | WorktreeState::Failed => false,
+    }
+}
+
+/// The join that reads, as `newest`, the newest branch context recorded for the tree read as
+/// `table`, whose `base_branch` stands before the tree's own `base_ref` where one was recorded.
+pub(crate) fn newest_branch_context_join(table: &str) -> String {
+    format!(
+        "LEFT JOIN branch_contexts AS newest
+     ON newest.id = (SELECT context.id FROM branch_contexts AS context
+                      WHERE context.worktree_id = {table}.id
+                      ORDER BY context.updated_at DESC, context.id DESC
+                      LIMIT 1)"
+    )
+}
 
 /// `creating -> ready`, the one transition both a new tree and a put-back tree take.
 pub(crate) static MARK_READY_SQL: LazyLock<String> = LazyLock::new(|| {

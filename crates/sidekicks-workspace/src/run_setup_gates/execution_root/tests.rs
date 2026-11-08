@@ -204,6 +204,29 @@ impl GateFixture {
         WorkspaceId::new(OTHER_WORKSPACE_ID).expect("the id is a UUID")
     }
 
+    /// Writes a live context for a parent run of the session, bound in `workspace_id` at `root`
+    /// with the stored workspace's branch context.
+    fn bind_parent_run(&self, workspace_id: WorkspaceId, root: &Path) {
+        let root = root.to_string_lossy();
+        self.roots
+            .rows
+            .execute(
+                "INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, \
+                 execution_mode, execution_root, checkout_root, git_common_dir, \
+                 branch_context_id, created_at) VALUES (?1, ?2, ?3, 'boundRoot', ?4, ?4, ?5, \
+                 'branch-context', ?6)",
+                params![
+                    test_run_id().text().as_str(),
+                    SESSION_ID,
+                    workspace_id.text().as_str(),
+                    root,
+                    self.roots.repository.join(".git").to_string_lossy(),
+                    PARENT_ROWS_AT
+                ],
+            )
+            .expect("the parent's context is written");
+    }
+
     fn text(&self, sql: &str) -> Option<String> {
         self.roots
             .rows
@@ -400,7 +423,10 @@ async fn a_run_naming_an_older_workspace_is_placed_there_not_in_the_newest(
     let run_id = test_run_id();
     let mut context = run_context(run_id, None);
     match naming {
-        WorkspaceNaming::StartedIn => context.started_in_workspace_id = Some(older),
+        WorkspaceNaming::StartedIn => {
+            fixture.bind_parent_run(older, &parent_folder);
+            context.started_in_workspace_id = Some(older);
+        }
         WorkspaceNaming::Send => context.workspace_id = Some(older),
     }
 
@@ -425,24 +451,84 @@ async fn a_run_naming_an_older_workspace_is_placed_there_not_in_the_newest(
     );
 }
 
+#[rstest]
+#[case::a_helper_started_in_it(WorkspaceNaming::StartedIn)]
+#[case::a_send_naming_it(WorkspaceNaming::Send)]
 #[tokio::test]
-async fn a_send_naming_a_workspace_the_session_does_not_hold_is_refused_unresolved() {
-    // Catches a named workspace that is absent passing as a session with no repository.
+async fn a_run_naming_a_workspace_the_session_does_not_hold_is_refused_not_found(
+    #[case] naming: WorkspaceNaming,
+) {
+    // Catches a named workspace that is absent passing as a session with no repository, or the
+    // helper's started-in workspace left out of the refusal, which would run it unplaced.
     let fixture = GateFixture::new().await;
     fixture.bind(ExecutionMode::BoundRoot).await;
     let run_id = test_run_id();
+    let absent = WorkspaceId::new(OTHER_WORKSPACE_ID).expect("the id is a UUID");
+    let mut context = run_context(run_id, None);
+    match naming {
+        WorkspaceNaming::StartedIn => context.started_in_workspace_id = Some(absent),
+        WorkspaceNaming::Send => context.workspace_id = Some(absent),
+    }
 
     let refused = fixture
-        .assert_ready(&run_context(
-            run_id,
-            Some(WorkspaceId::new(OTHER_WORKSPACE_ID).expect("the id is a UUID")),
-        ))
+        .assert_ready(&context)
         .await
         .expect_err("the named workspace is not the session's");
 
-    assert_eq!(unresolved_cause_code(refused), None);
+    assert_eq!(
+        unresolved_cause_code(refused).as_deref(),
+        Some("workspace.notFound")
+    );
     assert_eq!(fixture.moves.sweeps.load(Ordering::SeqCst), 0);
     assert_eq!(fixture.contexts_of(run_id), 0);
+}
+
+#[tokio::test]
+async fn a_helper_binds_at_its_parents_root_leaving_the_held_move_for_the_parents_end() {
+    // Catches a helper's start taken as a run boundary: the held move would be applied mid-run
+    // and the helper bound in the folder it moved to, or taken and dropped; a sweep would run.
+    let fixture = GateFixture::new().await;
+    let workspace_id = fixture.bind(ExecutionMode::BoundRoot).await;
+    let parent = test_run_id();
+    fixture
+        .assert_ready(&run_context(parent, None))
+        .await
+        .expect("the parent is bound");
+    let sweeps_at_parent = fixture.moves.sweeps.load(Ordering::SeqCst);
+    let person_tree = fixture.roots.add_tree("person-made").await;
+    *lock(&fixture.moves.pending) = Some(person_tree.clone());
+    let helper = test_run_id();
+    let mut context = run_context(helper, None);
+    context.started_in_workspace_id = Some(workspace_id);
+
+    fixture
+        .assert_ready(&context)
+        .await
+        .expect("the helper is bound beside its parent");
+
+    let root_of = |run_id: RunId| {
+        fixture.text(&format!(
+            "SELECT execution_root FROM run_execution_contexts WHERE run_id = '{run_id}'"
+        ))
+    };
+    assert_eq!(
+        root_of(helper),
+        root_of(parent),
+        "the helper works at its parent's root"
+    );
+    assert_ne!(
+        root_of(helper).as_deref(),
+        Some(person_tree.to_string_lossy().as_ref())
+    );
+    assert_eq!(
+        *lock(&fixture.moves.pending),
+        Some(person_tree),
+        "the held move waits for the parent's end"
+    );
+    assert_eq!(
+        fixture.moves.sweeps.load(Ordering::SeqCst),
+        sweeps_at_parent
+    );
 }
 
 #[tokio::test]
