@@ -29,13 +29,6 @@ pub(crate) struct KeepAwakeDeps {
 
 /// Moves the hold as its inputs change until the service stops, then lets go of it. An input
 /// whose sender is gone keeps its last value.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start runs keep-awake over the hold and the power source"
-    )
-)]
 pub(crate) async fn keep_machine_awake(deps: KeepAwakeDeps) {
     let KeepAwakeDeps {
         hold,
