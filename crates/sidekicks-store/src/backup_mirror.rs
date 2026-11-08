@@ -10,6 +10,12 @@
 //! renamed over its copy, so a copy whose size and time reached the disk holds its bytes too. Links
 //! are not followed and not copied. A run may take a root's copy from a folder other than its place,
 //! or keep the copy as the last run left it, while a restore always writes the copy to the place.
+//! Each git folder under a root is copied whole by one routine in both directions: the files that
+//! name its objects read first, its objects copied next, under the hold its writer gives it, the
+//! files that name them placed last, so a copy cut short holds refs over a superset of their
+//! objects.
+
+mod git_folder;
 
 use std::fs::{self, File};
 use std::io;
@@ -25,6 +31,8 @@ use sidekicks_std::file::time_precision::probe_time_precision;
 use sidekicks_std::missing_entry::{MissingEntry as _, is_missing_entry};
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
+
+use crate::backup_mirror::git_folder::is_git_folder;
 
 /// The mirror's folder inside the backups folder; it holds no manifest, so no reader takes it
 /// for a backup.
@@ -214,17 +222,47 @@ pub enum MirrorError {
     },
 }
 
+/// What the mirror asks of whoever writes a git folder while it is copied. Each method blocks,
+/// and answers [`MirrorError::Stopped`] once `stop` fires while it waits.
+pub trait LiveGitFolders: Send + Sync {
+    /// The hold that keeps the objects of `git_folder` from moving until it drops; `None` for a
+    /// folder the caller holds nothing over.
+    fn hold(
+        &self,
+        git_folder: &Path,
+        stop: &CancellationToken,
+    ) -> Result<Option<Box<dyn Send + '_>>, MirrorError>;
+}
+
+// The git folders of a copy no one writes while it is read: a restore's, from the mirror.
+struct UnwrittenGitFolders;
+
+impl LiveGitFolders for UnwrittenGitFolders {
+    fn hold(
+        &self,
+        _git_folder: &Path,
+        _stop: &CancellationToken,
+    ) -> Result<Option<Box<dyn Send + '_>>, MirrorError> {
+        Ok(None)
+    }
+}
+
 /// Brings the mirror at `mirror_folder` level with `roots`, each a place under `home`: the folder
 /// made owner-only where it is missing and the precision of its times probed, then each changed
 /// file copied, each copy whose source is gone deleted, and every folder of a root no longer
-/// listed deleted. Each root's copy is taken from its [`MirrorCopySource`]; a root kept as it is
-/// is still listed, so its copy is neither leveled nor deleted. Checks `stop` before each entry.
-/// Blocking, so it runs through `spawn_blocking`. Fails with [`MirrorError::Stopped`] once `stop`
-/// fires, and with the first refused read, copy or removal.
+/// listed deleted. Each git folder under a root is copied whole by one routine: its refs and the
+/// other files that name objects read first and staged beside their copies, then its objects
+/// copied under the hold `git_folders` gives it, then the staged files placed, and only then the
+/// copies its source no longer lists removed, so a run cut short anywhere leaves refs over a
+/// superset of their objects. Each root's copy is taken from its [`MirrorCopySource`]; a root kept
+/// as it is is still listed, so its copy is neither leveled nor deleted. Checks `stop` before each
+/// entry. Blocking, so it runs through `spawn_blocking`. Fails with [`MirrorError::Stopped`] once
+/// `stop` fires, and with the first refused read, copy or removal.
 pub fn mirror_roots(
     mirror_folder: &Path,
     home: &Path,
     roots: &[MirrorRoot],
+    git_folders: &dyn LiveGitFolders,
     stop: &CancellationToken,
 ) -> Result<MirrorReport, MirrorError> {
     let at = |path: &Path| {
@@ -244,10 +282,14 @@ pub fn mirror_roots(
             MirrorCopySource::Folder(folder) => folder,
             MirrorCopySource::KeptAsIs => continue,
         };
-        let leveled = bring_level(source, &mirror_folder.join(&root.name), precision, stop)?;
-        report.copied_files += leveled.copied_files;
-        report.copied_bytes += leveled.copied_bytes;
-        report.removed_entries += leveled.removed_entries;
+        level_with_git_folders(
+            source,
+            &mirror_folder.join(&root.name),
+            precision,
+            git_folders,
+            stop,
+            &mut report,
+        )?;
     }
     for entry in fs::read_dir(mirror_folder).map_err(at(mirror_folder))? {
         let entry = entry.map_err(at(mirror_folder))?;
@@ -261,11 +303,12 @@ pub fn mirror_roots(
     Ok(report)
 }
 
-/// Brings the file or folder at `copy` level with `source`, the mirror's run for one root and a
-/// restore's for one place: each file whose copy differs in size, or in modification time by
-/// `precision`, the one [`probe_time_precision`] measured where the copy is, or more, copied, and
-/// each copy whose source is gone deleted; a source that is gone leaves no copy. Checks `stop`
-/// before each entry. Blocking. Fails as [`mirror_roots`] does.
+/// Brings the file or folder at `copy` level with `source`, a restore's run for one place: each
+/// file whose copy differs in size, or in modification time by `precision`, the one
+/// [`probe_time_precision`] measured where the copy is, or more, copied, and each copy whose source
+/// is gone deleted, each git folder by the routine [`mirror_roots`] copies one with, its objects
+/// before the files that name them; a source that is gone leaves no copy. Checks `stop` before
+/// each entry. Blocking. Fails as [`mirror_roots`] does.
 pub fn bring_level(
     source: &Path,
     copy: &Path,
@@ -273,85 +316,184 @@ pub fn bring_level(
     stop: &CancellationToken,
 ) -> Result<MirrorReport, MirrorError> {
     let mut report = MirrorReport::default();
-    copy_changed(source, copy, precision, stop, &mut report)?;
-    remove_gone(source, copy, stop, &mut report)?;
+    level_with_git_folders(
+        source,
+        copy,
+        precision,
+        &UnwrittenGitFolders,
+        stop,
+        &mut report,
+    )?;
     Ok(report)
 }
 
-// Copies each file under `source` whose copy under `copy_root` differs in size or in modification
-// time by `precision` or more; a source that is gone copies nothing.
-fn copy_changed(
+// Brings `copy` level with `source`, each git folder under it held through `git_folders`, adding
+// what it did to `report`.
+fn level_with_git_folders(
     source: &Path,
-    copy_root: &Path,
+    copy: &Path,
     precision: Duration,
+    git_folders: &dyn LiveGitFolders,
     stop: &CancellationToken,
     report: &mut MirrorReport,
 ) -> Result<(), MirrorError> {
-    let at = |path: &Path| {
-        let path = path.to_path_buf();
-        move |source| MirrorError::Io { path, source }
+    let mut leveling = Leveling {
+        precision,
+        git_folders,
+        stop,
+        report,
     };
-    if fs::symlink_metadata(source)
-        .none_if_missing()
-        .map_err(at(source))?
-        .is_none()
-    {
-        return Ok(());
-    }
-    for entry in WalkDir::new(source) {
-        if stop.is_cancelled() {
+    leveling.copy_changed(source, copy)?;
+    leveling.remove_gone(source, copy)
+}
+
+// One leveling's settings and the report it adds to.
+struct Leveling<'run> {
+    precision: Duration,
+    git_folders: &'run dyn LiveGitFolders,
+    stop: &'run CancellationToken,
+    report: &'run mut MirrorReport,
+}
+
+impl Leveling<'_> {
+    // Fails with `Stopped` once the stop fires.
+    fn check_stop(&self) -> Result<(), MirrorError> {
+        if self.stop.is_cancelled() {
             return Err(MirrorError::Stopped);
         }
-        let entry = entry.map_err(|failure| MirrorError::Io {
-            path: failure.path().unwrap_or(source).to_path_buf(),
-            source: failure.into(),
-        })?;
-        let relative = entry
-            .path()
-            .strip_prefix(source)
-            .expect("the walk stays under its root");
-        let copy = path_under(copy_root, relative);
-        let file_type = entry.file_type();
-        let copy_metadata = fs::symlink_metadata(&copy)
+        Ok(())
+    }
+
+    // The failure `error` at `path`.
+    fn failed(&self, path: &Path, error: io::Error) -> MirrorError {
+        MirrorError::Io {
+            path: path.to_path_buf(),
+            source: error,
+        }
+    }
+
+    // Removes the copy at `path`, a folder with all it holds, and counts it.
+    fn remove(&mut self, path: &Path, is_folder: bool) -> Result<(), MirrorError> {
+        let removed = if is_folder {
+            remove_tree(path)
+        } else {
+            fs::remove_file(path)
+        };
+        removed.map_err(|error| self.failed(path, error))?;
+        self.report.removed_entries += 1;
+        Ok(())
+    }
+
+    // Copies each file under `source` whose copy under `copy_root` differs in size or in
+    // modification time by the precision or more, each git folder by its own routine; a source
+    // that is gone copies nothing.
+    fn copy_changed(&mut self, source: &Path, copy_root: &Path) -> Result<(), MirrorError> {
+        if fs::symlink_metadata(source)
             .none_if_missing()
-            .map_err(at(&copy))?;
-        if file_type.is_dir() {
-            if copy_metadata
-                .as_ref()
-                .is_some_and(|metadata| !metadata.is_dir())
-            {
-                fs::remove_file(&copy).map_err(at(&copy))?;
-            }
-            fs::create_dir_all(&copy).map_err(at(&copy))?;
-            continue;
+            .map_err(|error| self.failed(source, error))?
+            .is_none()
+        {
+            return Ok(());
         }
-        if !file_type.is_file() {
-            continue;
-        }
-        let metadata = entry.metadata().map_err(|failure| MirrorError::Io {
-            path: entry.path().to_path_buf(),
-            source: failure.into(),
-        })?;
-        let modified = metadata.modified().map_err(at(entry.path()))?;
-        if let Some(copy_metadata) = &copy_metadata {
-            if copy_metadata.is_file()
-                && copy_metadata.len() == metadata.len()
-                && copy_metadata
-                    .modified()
-                    .is_ok_and(|copied| is_same_modified_time(copied, modified, precision))
-            {
+        let mut walk = WalkDir::new(source).into_iter();
+        while let Some(entry) = walk.next() {
+            self.check_stop()?;
+            let entry = entry.map_err(|failure| MirrorError::Io {
+                path: failure.path().unwrap_or(source).to_path_buf(),
+                source: failure.into(),
+            })?;
+            let relative = entry
+                .path()
+                .strip_prefix(source)
+                .expect("the walk stays under its root");
+            let copy = path_under(copy_root, relative);
+            let file_type = entry.file_type();
+            if file_type.is_dir() && is_git_folder(entry.path()) {
+                walk.skip_current_dir();
+                self.copy_git_folder(entry.path(), &copy)?;
                 continue;
             }
-            if copy_metadata.is_dir() {
-                remove_tree(&copy).map_err(at(&copy))?;
+            let copy_metadata = fs::symlink_metadata(&copy)
+                .none_if_missing()
+                .map_err(|error| self.failed(&copy, error))?;
+            if file_type.is_dir() {
+                if copy_metadata
+                    .as_ref()
+                    .is_some_and(|metadata| !metadata.is_dir())
+                {
+                    fs::remove_file(&copy).map_err(|error| self.failed(&copy, error))?;
+                }
+                fs::create_dir_all(&copy).map_err(|error| self.failed(&copy, error))?;
+                continue;
+            }
+            if !file_type.is_file() {
+                continue;
+            }
+            let metadata = entry.metadata().map_err(|failure| MirrorError::Io {
+                path: entry.path().to_path_buf(),
+                source: failure.into(),
+            })?;
+            let is_copied = copy_when_changed(
+                entry.path(),
+                &metadata,
+                &copy,
+                copy_metadata.as_ref(),
+                self.precision,
+            )
+            .map_err(|error| self.failed(&copy, error))?;
+            if is_copied {
+                self.report.copied_files += 1;
+                self.report.copied_bytes += metadata.len();
             }
         }
-        copy_file(entry.path(), &copy, modified, |from, to| fs::copy(from, to))
-            .map_err(at(&copy))?;
-        report.copied_files += 1;
-        report.copied_bytes += metadata.len();
+        Ok(())
     }
-    Ok(())
+
+    // Deletes each copy under `copy_root` whose source under `source` is gone or is no longer of
+    // its kind, a copy on its way that a cut-short run left among them; a copy whose source is a
+    // git folder was leveled whole by its routine.
+    fn remove_gone(&mut self, source: &Path, copy_root: &Path) -> Result<(), MirrorError> {
+        if fs::symlink_metadata(copy_root)
+            .none_if_missing()
+            .map_err(|error| self.failed(copy_root, error))?
+            .is_none()
+        {
+            return Ok(());
+        }
+        let mut walk = WalkDir::new(copy_root).into_iter();
+        while let Some(entry) = walk.next() {
+            self.check_stop()?;
+            let entry = entry.map_err(|failure| MirrorError::Io {
+                path: failure.path().unwrap_or(copy_root).to_path_buf(),
+                source: failure.into(),
+            })?;
+            let relative = entry
+                .path()
+                .strip_prefix(copy_root)
+                .expect("the walk stays under its root");
+            let original = path_under(source, relative);
+            // A source whose folder became a file names nothing, as a missing one does.
+            let original_metadata = match fs::symlink_metadata(&original) {
+                Ok(metadata) => Some(metadata),
+                Err(failure) if is_missing_entry(&failure) => None,
+                Err(failure) => return Err(self.failed(&original, failure)),
+            };
+            let is_kept = original_metadata.is_some_and(|metadata| {
+                metadata.is_dir() == entry.file_type().is_dir() && !metadata.is_symlink()
+            });
+            if is_kept {
+                if entry.file_type().is_dir() && is_git_folder(&original) {
+                    walk.skip_current_dir();
+                }
+                continue;
+            }
+            if entry.file_type().is_dir() {
+                walk.skip_current_dir();
+            }
+            self.remove(entry.path(), entry.file_type().is_dir())?;
+        }
+        Ok(())
+    }
 }
 
 // `relative` under `root`, `root` itself when `relative` is empty, as for a root that is a file.
@@ -372,6 +514,48 @@ fn is_same_modified_time(left: SystemTime, right: SystemTime, precision: Duratio
     apart < precision
 }
 
+// Whether a copy whose metadata is `copy` holds the file whose metadata is `source`: a file of its
+// size whose modification time is one with it at `precision`.
+fn is_unchanged_copy(copy: &fs::Metadata, source: &fs::Metadata, precision: Duration) -> bool {
+    copy.is_file()
+        && copy.len() == source.len()
+        && match (copy.modified(), source.modified()) {
+            (Ok(copied), Ok(modified)) => is_same_modified_time(copied, modified, precision),
+            _ => false,
+        }
+}
+
+// Copies the file `source`, whose metadata is `metadata`, over `copy`, whose metadata is
+// `copy_metadata`, unless the copy holds it at `precision`; a folder at the copy is removed first.
+// Answers whether it copied.
+fn copy_when_changed(
+    source: &Path,
+    metadata: &fs::Metadata,
+    copy: &Path,
+    copy_metadata: Option<&fs::Metadata>,
+    precision: Duration,
+) -> io::Result<bool> {
+    if let Some(copy_metadata) = copy_metadata {
+        if is_unchanged_copy(copy_metadata, metadata, precision) {
+            return Ok(false);
+        }
+        if copy_metadata.is_dir() {
+            remove_tree(copy)?;
+        }
+    }
+    copy_file(source, copy, metadata.modified()?, |from, to| {
+        fs::copy(from, to)
+    })?;
+    Ok(true)
+}
+
+// Where a copy on its way to `copy` is written.
+fn in_progress_path(copy: &Path) -> PathBuf {
+    let mut in_progress = copy.as_os_str().to_owned();
+    in_progress.push(COPY_IN_PROGRESS_SUFFIX);
+    PathBuf::from(in_progress)
+}
+
 // Copies `source` beside `copy` through `copy_bytes`, with `modified` as its modification time,
 // flushes it and renames it over the copy. A failed step removes the file beside the copy, a failed
 // removal kept beside the step's failure, so a full disk is not kept full until the next run.
@@ -381,302 +565,34 @@ fn copy_file(
     modified: SystemTime,
     copy_bytes: impl FnOnce(&Path, &Path) -> io::Result<u64>,
 ) -> io::Result<()> {
-    let mut in_progress = copy.as_os_str().to_owned();
-    in_progress.push(COPY_IN_PROGRESS_SUFFIX);
-    let in_progress = PathBuf::from(in_progress);
-    fs::remove_file(&in_progress).none_if_missing()?;
-    let placed = copy_bytes(source, &in_progress)
-        .and_then(|_bytes| {
-            File::options()
-                .write(true)
-                .open(&in_progress)?
-                .set_modified(modified)
-        })
-        .and_then(|()| flush_file(&in_progress))
-        .and_then(|()| rename_replacing(&in_progress, copy));
-    placed.map_err(|failure| {
+    let in_progress = in_progress_path(copy);
+    write_in_progress(source, &in_progress, modified, copy_bytes)?;
+    rename_replacing(&in_progress, copy).map_err(|failure| {
         remove_file_after_failure(failure, &in_progress, "the mirror's copy").into_io_error()
     })
 }
 
-// Deletes each copy under `copy_root` whose source under `source` is gone or is no longer of its
-// kind, a copy on its way that a cut-short run left among them.
-fn remove_gone(
+// Copies `source` to `in_progress` through `copy_bytes`, with `modified` as its modification time,
+// and flushes it; a failed step removes it, as `copy_file` does.
+fn write_in_progress(
     source: &Path,
-    copy_root: &Path,
-    stop: &CancellationToken,
-    report: &mut MirrorReport,
-) -> Result<(), MirrorError> {
-    let at = |path: &Path| {
-        let path = path.to_path_buf();
-        move |source| MirrorError::Io { path, source }
-    };
-    if fs::symlink_metadata(copy_root)
-        .none_if_missing()
-        .map_err(at(copy_root))?
-        .is_none()
-    {
-        return Ok(());
-    }
-    let mut walk = WalkDir::new(copy_root).into_iter();
-    while let Some(entry) = walk.next() {
-        if stop.is_cancelled() {
-            return Err(MirrorError::Stopped);
-        }
-        let entry = entry.map_err(|failure| MirrorError::Io {
-            path: failure.path().unwrap_or(copy_root).to_path_buf(),
-            source: failure.into(),
-        })?;
-        let relative = entry
-            .path()
-            .strip_prefix(copy_root)
-            .expect("the walk stays under its root");
-        let original = path_under(source, relative);
-        // A source whose folder became a file names nothing, as a missing one does.
-        let original_metadata = match fs::symlink_metadata(&original) {
-            Ok(metadata) => Some(metadata),
-            Err(failure) if is_missing_entry(&failure) => None,
-            Err(failure) => return Err(at(&original)(failure)),
-        };
-        let is_kept = original_metadata.is_some_and(|metadata| {
-            metadata.is_dir() == entry.file_type().is_dir() && !metadata.is_symlink()
-        });
-        if is_kept {
-            continue;
-        }
-        if entry.file_type().is_dir() {
-            walk.skip_current_dir();
-            remove_tree(entry.path()).map_err(at(entry.path()))?;
-        } else {
-            fs::remove_file(entry.path()).map_err(at(entry.path()))?;
-        }
-        report.removed_entries += 1;
-    }
-    Ok(())
+    in_progress: &Path,
+    modified: SystemTime,
+    copy_bytes: impl FnOnce(&Path, &Path) -> io::Result<u64>,
+) -> io::Result<()> {
+    fs::remove_file(in_progress).none_if_missing()?;
+    let written = copy_bytes(source, in_progress)
+        .and_then(|_bytes| {
+            File::options()
+                .write(true)
+                .open(in_progress)?
+                .set_modified(modified)
+        })
+        .and_then(|()| flush_file(in_progress));
+    written.map_err(|failure| {
+        remove_file_after_failure(failure, in_progress, "the mirror's copy").into_io_error()
+    })
 }
 
 #[cfg(test)]
-mod tests {
-    use std::fs::{self, File};
-    use std::io;
-    use std::path::Path;
-    use std::time::Duration;
-
-    use rstest::rstest;
-    use serde_json::json;
-    use tokio_util::sync::CancellationToken;
-
-    use super::{
-        COPY_IN_PROGRESS_SUFFIX, MirrorReport, MirrorRoot, bring_level, copy_file, mirror_roots,
-        probe_time_precision,
-    };
-
-    fn modified(path: &Path) -> std::time::SystemTime {
-        fs::metadata(path)
-            .and_then(|metadata| metadata.modified())
-            .expect("the test reads a modification time")
-    }
-
-    // A changed file is copied with its modification time, a same-size rewrite a second later
-    // among them, since this folder keeps finer times than a second; a file whose source is gone,
-    // and a root no longer listed, are deleted; a third run copies nothing. Each root is found
-    // under the home it is given. Killed by the size-and-time compare dropped, by a blanket
-    // tolerance of two seconds, by the modification time not kept, and by the removal of gone
-    // copies dropped.
-    #[test]
-    fn a_run_copies_what_changed_and_deletes_what_is_gone() {
-        let scratch = tempfile::tempdir().expect("a scratch folder");
-        let home = scratch.path();
-        let workspace = scratch.path().join("workspace");
-        fs::create_dir_all(workspace.join("notes")).expect("the source folder is made");
-        fs::write(workspace.join("notes/kept.md"), b"kept").expect("written");
-        fs::write(workspace.join("notes/changed.md"), b"first").expect("written");
-        fs::write(workspace.join("gone.md"), b"gone").expect("written");
-        let settings = scratch.path().join("machine-settings.json");
-        fs::write(&settings, b"{}").expect("written");
-        let mirror = scratch.path().join("backups/mirror");
-        let roots = [
-            MirrorRoot::new("workspace".to_owned(), Path::new("workspace")).expect("a root"),
-            MirrorRoot::new("settings".to_owned(), Path::new("machine-settings.json"))
-                .expect("a root"),
-        ];
-        let stop = CancellationToken::new();
-        let first = mirror_roots(&mirror, home, &roots, &stop).expect("the first run copies");
-        assert_eq!(first.copied_files, 4);
-        assert_eq!(fs::read(mirror.join("settings")).expect("read"), b"{}");
-
-        // The rewritten file keeps its size and is written a second after its copy's time.
-        let rewritten = workspace.join("notes/kept.md");
-        let rewritten_time = modified(&rewritten) + Duration::from_secs(1);
-        fs::write(&rewritten, b"KEPT").expect("written");
-        File::options()
-            .write(true)
-            .open(&rewritten)
-            .and_then(|file| file.set_modified(rewritten_time))
-            .expect("the source's time is set");
-        fs::write(workspace.join("notes/changed.md"), b"second, longer").expect("written");
-        fs::remove_file(workspace.join("gone.md")).expect("removed");
-        let listed = [roots[0].clone()];
-
-        let second = mirror_roots(&mirror, home, &listed, &stop).expect("the second run copies");
-
-        assert_eq!(
-            second,
-            MirrorReport {
-                copied_files: 2,
-                copied_bytes: 18,
-                removed_entries: 2,
-            }
-        );
-        assert_eq!(
-            fs::read(mirror.join("workspace/notes/kept.md")).expect("read"),
-            b"KEPT"
-        );
-        let changed_copy = mirror.join("workspace/notes/changed.md");
-        assert_eq!(fs::read(&changed_copy).expect("read"), b"second, longer");
-        assert_eq!(
-            modified(&changed_copy),
-            modified(&workspace.join("notes/changed.md"))
-        );
-        assert!(!mirror.join("workspace/gone.md").exists());
-        assert!(!mirror.join("settings").exists());
-        assert_eq!(
-            mirror_roots(&mirror, home, &listed, &stop).expect("the third run reads"),
-            MirrorReport::default()
-        );
-    }
-
-    // A list read from the backups folder that names a place outside the home folder, or a copy
-    // outside the mirror, is refused, so a restore never writes there; a plain one reads and is
-    // put under the home it is given. Killed by the read's check dropped.
-    #[rstest]
-    #[case::parent(json!({ "name": "notes", "source": "../outside" }))]
-    #[case::absolute(json!({ "name": "notes", "source": "/etc/hosts" }))]
-    #[case::inner_parent(json!({ "name": "notes", "source": "notes/../../outside" }))]
-    #[case::empty_source(json!({ "name": "notes", "source": "" }))]
-    #[case::name_path(json!({ "name": "../notes", "source": "notes" }))]
-    #[case::name_parent(json!({ "name": "..", "source": "notes" }))]
-    fn a_listed_root_outside_the_home_is_refused(#[case] listed: serde_json::Value) {
-        assert!(serde_json::from_value::<MirrorRoot>(listed).is_err());
-        let root: MirrorRoot =
-            serde_json::from_value(json!({ "name": "notes", "source": ".agent/notes.md" }))
-                .expect("a plain root reads");
-        assert_eq!(
-            root.place(Path::new("/home/other")),
-            Path::new("/home/other/.agent/notes.md")
-        );
-    }
-
-    // A copy the disk refuses partway leaves neither the file beside the copy nor the copy, so a
-    // full disk is not kept full until the next run. Killed by a failed copy that keeps its file.
-    #[test]
-    fn a_copy_that_fails_partway_leaves_no_file_beside_the_copy() {
-        let scratch = tempfile::tempdir().expect("a scratch folder");
-        let source = scratch.path().join("source.md");
-        fs::write(&source, b"the source's bytes").expect("written");
-        let copy = scratch.path().join("copy.md");
-        let copy_half_then_fail = |from: &Path, to: &Path| -> io::Result<u64> {
-            let bytes = fs::read(from)?;
-            fs::write(to, &bytes[..bytes.len() / 2])?;
-            Err(io::Error::from(io::ErrorKind::StorageFull))
-        };
-
-        let failure = copy_file(&source, &copy, modified(&source), copy_half_then_fail)
-            .expect_err("the copy fails");
-
-        assert_eq!(failure.kind(), io::ErrorKind::StorageFull);
-        let mut in_progress = copy.as_os_str().to_owned();
-        in_progress.push(COPY_IN_PROGRESS_SUFFIX);
-        assert!(!Path::new(&in_progress).exists());
-        assert!(!copy.exists());
-    }
-
-    // A root copied from a folder outside the home folder is copied under its name, listed by its
-    // place alone, and restored there as plain files; a file gone from the folder leaves the copy
-    // at the next run. Killed by the copy taken from the place, by the run-only source written
-    // into the list, and by a gone source's file kept.
-    #[test]
-    fn a_root_copied_from_another_folder_is_restored_to_its_own_place() {
-        let scratch = tempfile::tempdir().expect("a scratch folder");
-        let home = scratch.path().join("home");
-        let place = home.join("data/restored-clones/s/v");
-        let volume_folder = scratch.path().join("volume/s");
-        fs::create_dir_all(&volume_folder).expect("the volume folder is made");
-        fs::write(volume_folder.join("first"), b"first clone").expect("written");
-        fs::write(volume_folder.join("second"), b"second clone").expect("written");
-        let mirror = scratch.path().join("backups/mirror");
-        let roots = [
-            MirrorRoot::under_home("restored-clones-s-v".to_owned(), &home, &place)
-                .expect("a root")
-                .copied_from(volume_folder.clone()),
-        ];
-        let stop = CancellationToken::new();
-
-        let first = mirror_roots(&mirror, &home, &roots, &stop).expect("the first run copies");
-
-        assert_eq!(first.copied_files, 2);
-        let copy = mirror.join("restored-clones-s-v");
-        assert_eq!(fs::read(copy.join("first")).expect("read"), b"first clone");
-        assert_eq!(
-            fs::read(copy.join("second")).expect("read"),
-            b"second clone"
-        );
-        assert_eq!(
-            serde_json::to_value(&roots).expect("the list serializes"),
-            json!([{ "name": "restored-clones-s-v", "source": "data/restored-clones/s/v" }])
-        );
-        fs::create_dir_all(&home).expect("the home folder is made");
-        let precision = probe_time_precision(&home).expect("the home's precision is probed");
-        bring_level(&copy, &place, precision, &stop).expect("the restore writes the place");
-        assert_eq!(fs::read(place.join("first")).expect("read"), b"first clone");
-        assert_eq!(
-            fs::read(place.join("second")).expect("read"),
-            b"second clone"
-        );
-        assert!(
-            fs::symlink_metadata(place.join("second"))
-                .expect("the restored copy reads")
-                .is_file()
-        );
-
-        fs::remove_file(volume_folder.join("second")).expect("removed");
-        let second = mirror_roots(&mirror, &home, &roots, &stop).expect("the second run copies");
-
-        assert_eq!(second.removed_entries, 1);
-        assert!(copy.join("first").exists());
-        assert!(!copy.join("second").exists());
-    }
-
-    // A root kept as it is while its folder is away keeps its copy, and is not swept as no longer
-    // listed. Killed by a kept root leveled against its missing source, and by a kept root swept.
-    #[test]
-    fn a_kept_root_keeps_its_copy_while_its_source_is_away() {
-        let scratch = tempfile::tempdir().expect("a scratch folder");
-        let home = scratch.path().join("home");
-        let place = home.join("data/restored-clones/s/v");
-        let volume_folder = scratch.path().join("volume/s");
-        fs::create_dir_all(&volume_folder).expect("the volume folder is made");
-        fs::write(volume_folder.join("clone"), b"the clone").expect("written");
-        let mirror = scratch.path().join("backups/mirror");
-        let root = MirrorRoot::under_home("restored-clones-s-v".to_owned(), &home, &place)
-            .expect("a root");
-        let stop = CancellationToken::new();
-        mirror_roots(
-            &mirror,
-            &home,
-            &[root.clone().copied_from(volume_folder.clone())],
-            &stop,
-        )
-        .expect("the first run copies");
-        fs::remove_dir_all(&volume_folder).expect("the volume folder is gone");
-
-        let second = mirror_roots(&mirror, &home, &[root.kept_as_is()], &stop)
-            .expect("the second run reads");
-
-        assert_eq!(second, MirrorReport::default());
-        assert_eq!(
-            fs::read(mirror.join("restored-clones-s-v/clone")).expect("the copy is kept"),
-            b"the clone"
-        );
-    }
-}
+mod tests;
