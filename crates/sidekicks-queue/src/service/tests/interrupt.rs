@@ -1,9 +1,10 @@
 //! The run queue as an interrupt uses it: `Send now` on a provider that reads a priority message,
 //! in each run state, sent again under its key or another, and a reorder after it; an interrupt's
-//! release from inside the session's hold, one left unsettled and a run's end it held back,
-//! settled at a later hold, and a closed session's held-back run ends given back; and a return to
-//! the draft applied after its run ended first, which writes every outcome and the draft in one
-//! write and ends a queued run left with no message `stopped`.
+//! release from inside the session's hold, one left unsettled and a run's end it held back, settled
+//! at a later hold, and a closed session's held-back run ends given back; and a return to the draft
+//! applied after its run ended first, whose Stop still cancels the lead messages into the draft,
+//! writes every outcome and the draft in one write and ends a queued run left with no message
+//! `stopped`.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
