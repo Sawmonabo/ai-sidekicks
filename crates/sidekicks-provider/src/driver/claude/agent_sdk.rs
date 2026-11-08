@@ -61,6 +61,10 @@ const SHA512_MEMBER_PREFIX: &str = "sha512-";
 // What an unpacking failure says it was doing.
 const UNPACKING: &str = "unpacking the Agent SDK's file";
 
+/// The Agent SDK's files a driver fetches through, or why their client could not be built, which
+/// the fork that needs the file answers with.
+pub(crate) type ClaudeAgentSdkClient = Result<Arc<ClaudeAgentSdk>, Arc<reqwest::Error>>;
+
 /// The Agent SDK's file for each Claude Code version asked since the daemon started, fetched on a
 /// task of its own per version and kept in `tools/claude-agent-sdk/<version>/`.
 pub(crate) struct ClaudeAgentSdk {
@@ -192,21 +196,18 @@ impl AgentSdkFetchError {
 }
 
 impl ClaudeAgentSdk {
-    /// The SDK's files under `tools_folder`, fetched from the npm registry over `https` alone.
-    /// Fails when the client cannot be built.
-    #[expect(
-        dead_code,
-        reason = "the undo's fork before Claude Code's last compaction runs it"
-    )]
-    pub(crate) fn for_registry(tools_folder: &Path) -> Result<Self, reqwest::Error> {
+    /// The SDK's files under `tools_folder`, fetched from the npm registry over `https` alone, or
+    /// the failure to build their client.
+    pub(crate) fn for_registry(tools_folder: &Path) -> ClaudeAgentSdkClient {
         let client = outbound_client_builder(IDLE_CONNECTIONS_PER_HOST)
             .https_only(true)
             .redirect(Policy::none())
             .read_timeout(READ_TIMEOUT)
-            .build()?;
+            .build()
+            .map_err(Arc::new)?;
         let record_url =
             Url::parse(AGENT_SDK_RECORD_URL).expect("the registry's record address parses");
-        Ok(Self::new(tools_folder, client, record_url))
+        Ok(Arc::new(Self::new(tools_folder, client, record_url)))
     }
 
     /// The SDK's files under `tools_folder`, the record read through `client` from `record_url`
@@ -222,10 +223,6 @@ impl ClaudeAgentSdk {
 
     /// Starts the fetch for `claude_code_version` unless one is live, and answers once it is
     /// started, without waiting on it.
-    #[expect(
-        dead_code,
-        reason = "the fetch a Claude Code process's start begins once it reports its version"
-    )]
     pub(crate) async fn start_fetch(&self, claude_code_version: &Version) {
         drop(self.fetch_for(claude_code_version).await);
     }

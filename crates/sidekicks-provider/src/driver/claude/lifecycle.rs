@@ -20,7 +20,7 @@ use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_platforms::PathRules;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_std::scheduler::Scheduler;
-use sidekicks_store::data_folder::program_link_folder;
+use sidekicks_store::data_folder::{program_link_folder, tools_folder};
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 
 use crate::command::askpass::command_askpass_program_path;
@@ -32,6 +32,7 @@ use crate::driver::attachments::AttachmentResolver;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::account::ClaudeAccountLegs;
 use crate::driver::claude::account::credentials::ClaudeSignInReader;
+use crate::driver::claude::agent_sdk::ClaudeAgentSdk;
 use crate::driver::claude::delivery::commands::{ClaudeCommandChannels, ClaudeCommandPrograms};
 use crate::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
 use crate::driver::claude::delivery::requests::answers::ClaudeAnswerRules;
@@ -151,13 +152,15 @@ pub(crate) fn compose_claude_launcher(services: &DriverServices) -> Arc<ClaudePr
 
 impl ClaudeDriver {
     /// The driver over the shared services, starting every process from the installed build the
-    /// command names. Stores handles and does no I/O.
+    /// command names, each start fetching the Agent SDK's file for its version into the daemon's
+    /// tools folder. Stores handles and does no I/O.
     pub(crate) fn new(services: &DriverServices) -> Self {
         let launcher = compose_claude_launcher(services);
         let starts = Arc::new(ClaudeInstalledBuild::new(
             Arc::clone(&launcher),
             Arc::clone(&services.command_search),
             services.home_folder.clone(),
+            ClaudeAgentSdk::for_registry(&tools_folder(&services.data_folder)),
         ));
         Self::with_sign_in(
             services,

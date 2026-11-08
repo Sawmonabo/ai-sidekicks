@@ -11,6 +11,7 @@ use sidekicks_contracts::mcp::server::{
 };
 use sidekicks_contracts::place::PlacedPath;
 use sidekicks_platforms::Spawner;
+use sidekicks_store::data_folder::tools_folder;
 use tempfile::TempDir;
 use tokio::runtime::Handle;
 use tokio::time::Instant;
@@ -20,6 +21,7 @@ use crate::command_search::ProviderCommandSearch;
 use crate::driver::CurrentProviderAccount;
 use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::agent_sdk::ClaudeAgentSdk;
 use crate::driver::claude::mcp::config::{
     ClaudeMcpConfigSources, ClaudeMcpRoot, ClaudePersonConfigFiles, read_claude_mcp_config,
 };
@@ -614,6 +616,7 @@ async fn a_real_claude_code_probe_reads_a_sent_server_connected_with_its_tools()
         )),
         Arc::new(ProviderCommandSearch::new(spawner)),
         home.path().to_path_buf(),
+        ClaudeAgentSdk::for_registry(&tools_folder(home.path())),
     );
     let program_folder = program.parent().expect("the program sits in a folder");
     let mut environment: Vec<(String, String)> = std::env::vars()
