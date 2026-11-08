@@ -16,7 +16,7 @@ use strum::{EnumDiscriminants, IntoStaticStr, VariantArray};
 use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
-use crate::machine::settings::ENVIRONMENT_ROW_MAX_LEN;
+use crate::machine::settings::ENVIRONMENT_ENTRY_MAX_UNITS;
 use crate::mcp::server::config::ProviderMcpDeclaration;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
@@ -296,7 +296,7 @@ pub struct ProviderSection {
     /// shells, which a person's own environment row may not take; unique, may be empty.
     #[garde(dive)]
     pub app_set_environment_names:
-        UniqueList<FreeFormText<ENVIRONMENT_ROW_MAX_LEN>, 0, { usize::MAX }>,
+        UniqueList<FreeFormText<ENVIRONMENT_ENTRY_MAX_UNITS>, 0, { usize::MAX }>,
     /// The transports and declaration members its tool servers take.
     #[garde(dive)]
     pub mcp: ProviderMcpDeclaration,
