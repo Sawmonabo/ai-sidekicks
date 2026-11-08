@@ -11,6 +11,7 @@ use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use futures::future::try_join_all;
 use hpke::aead::ChaCha20Poly1305;
 use hpke::kdf::HkdfSha256;
 use hpke::kem::X25519HkdfSha256;
@@ -254,6 +255,8 @@ struct AdmittedParty {
     is_nested: bool,
     /// The first of the party's own arguments, which is an askpass's prompt.
     first_argument: Option<String>,
+    /// Whether the party opened an askpass's prompt, which only an answer ends.
+    is_asking: bool,
     /// The nearest admitted wrapper above it that speaks for its command.
     wrapper: Option<PartyId>,
     /// The party's process, pinned at its admission, whose end releases what the daemon holds of
@@ -303,6 +306,9 @@ impl AdmittedParty {
         if !self.is_nested && matches!(record, PartyRecord::Starting { .. }) {
             self.is_wrapper = true;
         }
+        if matches!(record, PartyRecord::Asking {}) {
+            self.is_asking = true;
+        }
         Some(record)
     }
 }
@@ -329,6 +335,28 @@ pub(crate) struct ReceivedRecord {
     /// The first argument the party was started with past its name, as git and ssh put an
     /// askpass's prompt there.
     pub(crate) first_argument: Option<String>,
+}
+
+/// The processes of the parties a command's stop reached, its wrapper and each party under it,
+/// pinned at their admission, so a wait on their ends sees nothing of the command left running.
+#[derive(Clone, Debug, Default)]
+pub struct StoppedCommandParties {
+    processes: Vec<PinnedProcess>,
+}
+
+impl StoppedCommandParties {
+    /// The parties whose processes are `processes`, as a test's stop answers them.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn of_processes(processes: Vec<PinnedProcess>) -> Self {
+        Self { processes }
+    }
+
+    /// Waits for every party's process to end, together and with no bound of its own; an end
+    /// before the wait counts. Fails with the system's error when an end cannot be watched.
+    pub async fn wait_for_end(&self) -> io::Result<()> {
+        try_join_all(self.processes.iter().map(PinnedProcess::wait_for_end)).await?;
+        Ok(())
+    }
 }
 
 /// A conversation's channel as the daemon holds it: its folder, its key pair, the provider process
@@ -488,6 +516,54 @@ impl CommandChannel {
         .map_err(io::Error::other)?
     }
 
+    /// Stops the command the wrapper `wrapper` runs: each party under it is sent `Stop`, an
+    /// askpass among them the empty answer that alone ends it, and each is waited on until its
+    /// process ended, so none is killed with the wrapper's group before it ended a command of its
+    /// own; then the wrapper is sent its `Stop`. A party let go between the read and its request
+    /// is skipped. Answers the processes of the wrapper and of each party under it. Fails with
+    /// `NotFound` for a wrapper not admitted, and with any other write's or wait's error.
+    pub(crate) async fn stop_command_parties(
+        &self,
+        wrapper: PartyId,
+    ) -> io::Result<StoppedCommandParties> {
+        let (wrapper_process, nested) = {
+            let parties = lock(&self.parties);
+            let admitted = parties.get(&wrapper).ok_or_else(|| {
+                io::Error::new(ErrorKind::NotFound, "no such party on the command channel")
+            })?;
+            let nested: Vec<_> = parties
+                .iter()
+                .filter(|(_, party)| party.wrapper == Some(wrapper))
+                .map(|(&id, party)| (id, party.is_asking, party.process.clone()))
+                .collect();
+            (admitted.process.clone(), nested)
+        };
+        for (party, is_asking, _) in &nested {
+            let request = if *is_asking {
+                DaemonRequest::Answer {
+                    text: String::new(),
+                }
+            } else {
+                DaemonRequest::Stop {}
+            };
+            self.send_unless_let_go(*party, &request).await?;
+        }
+        let mut processes: Vec<_> = nested.into_iter().map(|(_, _, process)| process).collect();
+        try_join_all(processes.iter().map(PinnedProcess::wait_for_end)).await?;
+        self.send_unless_let_go(wrapper, &DaemonRequest::Stop {})
+            .await?;
+        processes.push(wrapper_process);
+        Ok(StoppedCommandParties { processes })
+    }
+
+    // Writes `request` to `party`, a party let go meanwhile skipped. Fails with the write's error.
+    async fn send_unless_let_go(&self, party: PartyId, request: &DaemonRequest) -> io::Result<()> {
+        match self.send_request(party, request).await {
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+            sent => sent,
+        }
+    }
+
     /// Forgets `party`, which has ended, so its key and numbers are not held and the requests it
     /// did not read are removed; a later record from its id is admitted afresh. A request that
     /// cannot be removed is logged.
@@ -639,6 +715,7 @@ impl CommandChannel {
                     is_wrapper: false,
                     is_nested,
                     first_argument,
+                    is_asking: false,
                     wrapper,
                     process: pinned,
                 }));
