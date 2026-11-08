@@ -391,11 +391,11 @@ async fn a_dpop_sign_in_presents_its_token_with_a_proof_of_the_request() {
         .expect("the request is authorized");
 
     let header = |name: &str| {
-        headers
+        let (_, value) = headers
             .iter()
             .find(|(header, _)| header.as_str() == name)
-            .map(|(_, value)| value.to_str().expect("a text header").to_owned())
-            .unwrap_or_else(|| panic!("a {name} header"))
+            .unwrap_or_else(|| panic!("a {name} header"));
+        value.to_str().expect("a text header").to_owned()
     };
     assert_eq!(header(AUTHORIZATION.as_str()), "DPoP test-access-token-1");
     let proof = header(DPOP_PROOF_HEADER_NAME);
