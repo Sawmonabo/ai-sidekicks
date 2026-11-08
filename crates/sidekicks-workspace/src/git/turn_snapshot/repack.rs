@@ -2,17 +2,21 @@
 //! base's tree is packed into its capture folder, so a gc in the repository never takes a captured
 //! file away; once a folder holds more packs than the last fold left, and at each sweep, its packs
 //! are folded. The sweep also packs the trees of captures whose base no ref of the repository
-//! reaches any more, and skips a folder whose refs, packs and loose objects are as its last pass
-//! left them. Every pass, a skipped one too, first removes what a git cut at its bound or a daemon
-//! stopped mid-write left once it is an hour old: git's temporaries, scratch indexes and their
-//! locks, and the owner's capture folders still being made.
+//! reaches any more, packs again a capture whose own pack failed once its loose objects are an hour
+//! old, and skips a folder whose refs, packs and loose objects are as its last pass left them.
+//! Every pass, a skipped one too, first removes what a git cut at its bound or a daemon stopped
+//! mid-write left once it is an hour old: git's temporaries, scratch indexes and their locks, and
+//! the owner's capture folders still being made.
 //!
 //! - Every packing call against a capture folder runs with `--git-dir` alone; of the packing's own
-//!   calls only the pack of a capture's objects attaches the repository, since `prune-packed` and
-//!   the fold with it attached would take a loose object only the repository's packs hold.
-//! - One lock per capture folder orders its packs, folds and sweep passes.
+//!   calls only the packs of captures' objects attach the repository, since `prune-packed`, the
+//!   fold and the pack of listed loose objects with it attached would take or leave out an object
+//!   only the repository's packs hold.
+//! - One lock per capture folder orders its packs, folds and sweep passes, and a purge holds every
+//!   capture folder of its owner on it while they go, so each finds its folder gone after.
 
 use std::collections::{HashMap, HashSet};
+use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -21,7 +25,7 @@ use std::time::{Duration, SystemTime};
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
-use sidekicks_std::missing_entry::is_gone;
+use sidekicks_std::missing_entry::{MissingEntry as _, is_gone};
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
 
@@ -29,7 +33,9 @@ use crate::git::cat_file::object_lines;
 use crate::git::process::version::GitFeature;
 use crate::git::process::{GitCall, GitError, GitRunner};
 use crate::git::turn_snapshot::capture::{CORE_FSYNC_PIN, GitFloorReports};
-use crate::git::turn_snapshot::capture_folder::{CaptureFolder, OBJECTS_SEGMENT, in_git_folder};
+use crate::git::turn_snapshot::capture_folder::{
+    CAPTURES_SEGMENT, CaptureFolder, OBJECTS_SEGMENT, in_git_folder, is_partial_capture_folder_name,
+};
 use crate::git::turn_snapshot::capture_steps::{UNRESOLVED_NAME_EXIT_CODE, joined};
 use crate::git::turn_snapshot::diagnostics::CaptureDiagnostic;
 use crate::git::turn_snapshot::refs::SNAPSHOT_REFS_PREFIX;
@@ -51,6 +57,11 @@ const FOLD_PACK_THRESHOLD: u64 = 10;
 /// Keeps one pack per call whatever the host's `pack.packSizeLimit` says, which would split one
 /// capture's pack into several.
 const PACK_SIZE_LIMIT_PIN: [&str; 2] = ["-c", "pack.packSizeLimit=0"];
+
+/// Keeps `pack-objects` off its path walk, which a `feature.experimental` or `feature.manyFiles`
+/// setting turns on and which loses objects in a capture folder's packs; a git without the
+/// setting takes it silently.
+const PATH_WALK_PIN: [&str; 2] = ["-c", "pack.usePathWalk=false"];
 
 /// How long one fold may run, past the runner's bound for other calls, since its work grows with
 /// every pack the folder holds.
@@ -128,6 +139,16 @@ impl CaptureFolderPass {
     }
 }
 
+/// The bases of a sweep's points that the repository holds as commits, by whether a ref reaches
+/// each; a base gone or naming no commit is in neither.
+#[derive(Debug, Default)]
+struct BaseReach {
+    /// The bases no ref reaches, whose trees gc may take.
+    unreached: HashSet<GitObjectId>,
+    /// The bases a ref reaches.
+    reached: HashSet<GitObjectId>,
+}
+
 /// What a sweep did with one capture folder.
 #[derive(Clone, Debug)]
 pub enum CaptureFolderSweep {
@@ -140,6 +161,13 @@ pub enum CaptureFolderSweep {
     Skipped(CaptureFolderPass),
     /// The folder was swept: its unreached captures packed and its packs folded when due.
     Swept(CaptureFolderPass),
+}
+
+/// A hold on every capture folder of one owner, taken while a purge removes them: a pack, a fold
+/// or a sweep pass of one waits until it drops and then finds the folder gone.
+pub struct OwnerFoldersHold<'a> {
+    /// The lock's hold on each folder, released when this drops.
+    _holds: Vec<KeyHold<'a, PathBuf>>,
 }
 
 /// Why a pack, a fold or a sweep pass failed.
@@ -175,6 +203,9 @@ pub struct CapturePacking {
     failed_folds: Mutex<HashMap<PathBuf, Instant>>,
     /// The daemon run's record of the old gits already reported.
     floor_reports: Arc<GitFloorReports>,
+    /// When this daemon run's packing began; a scratch index last written before it is an earlier
+    /// run's leftover at any age.
+    began_at: SystemTime,
 }
 
 impl CapturePacking {
@@ -187,6 +218,7 @@ impl CapturePacking {
             packs_left_by_fold: Mutex::new(HashMap::new()),
             failed_folds: Mutex::new(HashMap::new()),
             floor_reports,
+            began_at: SystemTime::now(),
         }
     }
 
@@ -198,10 +230,33 @@ impl CapturePacking {
         lock(&self.failed_folds).retain(|folder, _| !folder.starts_with(owner_folder));
     }
 
+    /// Holds every capture folder under the owner folder `owner_folder`, a folder still being made
+    /// aside, once each one's pack, fold or sweep pass under way ends; the hold lasts until the
+    /// answer drops. An owner with no captures folder answers an empty hold. Fails as listing the
+    /// captures folder does.
+    pub async fn hold_owner_folders(
+        &self,
+        owner_folder: &Path,
+    ) -> io::Result<OwnerFoldersHold<'_>> {
+        let captures = owner_folder.join(CAPTURES_SEGMENT);
+        let mut folders = Vec::new();
+        if let Some(mut entries) = tokio::fs::read_dir(&captures).await.none_if_missing()? {
+            while let Some(entry) = entries.next_entry().await? {
+                let name = entry.file_name();
+                if !is_partial_capture_folder_name(&name) {
+                    folders.push(captures.join(name));
+                }
+            }
+        }
+        Ok(OwnerFoldersHold {
+            _holds: self.folder_lock.acquire_all(folders).await,
+        })
+    }
+
     /// Packs what `captured` borrows from the repository beyond its base's tree into its capture
     /// folder, removes the loose copies, and starts a fold on a task of its own when one is due,
-    /// running git for the project at `place`. Never fails: a failure is logged and the remaining
-    /// steps skipped.
+    /// running git for the project at `place`; a folder a purge removed before its turn is left
+    /// alone. Never fails: a failure is logged and the remaining steps skipped.
     pub async fn pack(self: &Arc<Self>, place: Option<&Place>, captured: &CapturedCommit) {
         let capture_folder = &captured.capture_folder;
         let folder = capture_folder.folder().to_path_buf();
@@ -213,6 +268,9 @@ impl CapturePacking {
             revisions.push('\n');
         }
         let hold = self.folder_lock.acquire(folder.clone()).await;
+        if is_folder_removed(&folder).await {
+            return;
+        }
         let packed = self
             .pack_revisions(place, capture_folder, revisions.into_bytes(), &hold)
             .await;
@@ -241,13 +299,15 @@ impl CapturePacking {
     /// One sweep pass over the capture folder of the owner whose folder is `owner_folder`, for the
     /// repository whose common git folder is `common_folder`, running git for the project at
     /// `place`. A repository whose common git folder is gone answers `RepositoryGone` and keeps its
-    /// capture folder. Every pass first removes the owner's capture folders still being made and,
+    /// capture folder; a capture folder a purge removed before the pass's turn answers `Absent`. Every pass first removes the owner's capture folders still being made and,
     /// once git has counted the folder's objects, git's temporaries and the scratch indexes left in
-    /// it, each once it is an hour old. Skipped when the repository's refs read as `last_pass` left
-    /// them, read at `read_at`, and the folder holds no loose object and no fold is due; else the
-    /// trees of the folder's captures and of `extra_points` whose base no ref reaches are packed
-    /// and the packs folded. Fails with the step's failure, so no pass is kept and the next sweep
-    /// runs it all.
+    /// it, each once it is an hour old, a scratch index also once it predates this daemon run.
+    /// Skipped when the repository's refs read as `last_pass` left them, read at `read_at`, and the
+    /// folder holds no loose object and no fold is due; else the trees of the folder's captures and
+    /// of `extra_points` whose base no ref reaches are packed, the captures whose tree is a loose
+    /// object an hour old are packed again on their own base, those loose objects are packed, and
+    /// the packs folded. Fails with the step's failure, so no pass is kept and the next sweep runs
+    /// it all.
     pub async fn sweep_capture_folder(
         &self,
         place: Option<&Place>,
@@ -282,12 +342,17 @@ impl CapturePacking {
         let pass = CaptureFolderPass { ref_state, read_at };
         let folder = capture_folder.folder().to_path_buf();
         let hold = self.folder_lock.acquire(folder.clone()).await;
+        if is_folder_removed(&folder).await {
+            return Ok(CaptureFolderSweep::Absent);
+        }
         let counts = self.count_objects(place, &folder, &hold).await?;
-        // A temporary loose object counts as garbage, so the fan-out folders are listed only then.
-        let (cleared, is_object_folder_walked) = (folder.clone(), counts.garbage > 0);
-        joined(
+        // A temporary loose object counts as garbage and a stale one as loose, so the fan-out
+        // folders are listed only then.
+        let is_object_folder_walked = counts.garbage > 0 || counts.loose > 0;
+        let (cleared, run_began_at) = (folder.clone(), self.began_at);
+        let stale_objects = joined(
             tokio::task::spawn_blocking(move || {
-                clear_capture_folder_leftovers(&cleared, is_object_folder_walked)
+                clear_capture_folder_leftovers(&cleared, is_object_folder_walked, run_began_at)
             })
             .await,
         )
@@ -298,8 +363,8 @@ impl CapturePacking {
         }
         let mut points = self.read_capture_points(place, &folder, &hold).await?;
         points.extend_from_slice(extra_points);
-        let unreached = self
-            .read_unreached_bases(place, &folder, common_folder, &points, &hold)
+        let reach = self
+            .read_base_reach(place, &folder, common_folder, &points, &hold)
             .await?;
         let unreached_trees: Vec<&GitObjectId> = points
             .iter()
@@ -307,7 +372,7 @@ impl CapturePacking {
                 point
                     .base
                     .as_ref()
-                    .is_some_and(|base| unreached.contains(base))
+                    .is_some_and(|base| reach.unreached.contains(base))
             })
             .map(|point| &point.tree)
             .collect();
@@ -320,6 +385,25 @@ impl CapturePacking {
                 &hold,
             )
             .await?;
+        }
+        if !stale_objects.is_empty() {
+            // A capture whose own pack failed left its tree loose; one whose base no ref reaches
+            // was packed above.
+            let stale: HashSet<&GitObjectId> = stale_objects.iter().collect();
+            let failed_points: Vec<&SnapshotPoint> = points
+                .iter()
+                .filter(|point| stale.contains(&point.tree))
+                .filter(|point| {
+                    point
+                        .base
+                        .as_ref()
+                        .is_none_or(|base| reach.reached.contains(base))
+                })
+                .collect();
+            self.pack_stale_points(place, &capture_folder, &failed_points, &hold)
+                .await?;
+            self.pack_listed_objects(place, &folder, &stale_objects, &hold)
+                .await?;
         }
         self.fold_held(place, &folder, &hold).await?;
         Ok(CaptureFolderSweep::Swept(pass))
@@ -336,29 +420,30 @@ impl CapturePacking {
         hold: &KeyHold<'_, PathBuf>,
     ) -> Result<ObjectCounts, PackingError> {
         let folder = capture_folder.folder();
-        // The packs' name prefix: git names each `pack-<hash>` in the folder's pack folder.
-        let pack_base = folder
-            .join(OBJECTS_SEGMENT)
-            .join(PACK_SEGMENT)
-            .join(PACK_SEGMENT);
         // `--revs` on standard input, never a `rev-list` pipe, whose line buffer a long path
         // passes; `--non-empty` writes no pack when nothing is new; never `--local`,
         // `--incremental` or `--thin`, which leave borrowed objects out.
         let mut arguments = in_git_folder(
             folder,
-            &[&CORE_FSYNC_PIN, &PACK_SIZE_LIMIT_PIN],
+            &[&CORE_FSYNC_PIN, &PACK_SIZE_LIMIT_PIN, &PATH_WALK_PIN],
             &["pack-objects", "-q", "--revs", "--non-empty"],
         );
-        arguments.push(pack_base.into_os_string());
+        arguments.push(pack_name_base(folder));
         let mut call = GitCall::read(arguments).with_input(revisions);
         for (name, value) in capture_folder.write_environment() {
             call = call.with_environment(name, value);
         }
         self.git.run(place, call).await?;
-        // No alternate attached, so only what the folder's own packs hold is removed.
+        self.prune_packed(place, folder).await?;
+        self.count_objects(place, folder, hold).await
+    }
+
+    // Removes the folder's loose objects its packs hold. No alternate attached, so only what the
+    // folder's own packs hold is removed.
+    async fn prune_packed(&self, place: Option<&Place>, folder: &Path) -> Result<(), GitError> {
         let arguments = in_git_folder(folder, &[], &["prune-packed", "-q"]);
         self.git.run(place, GitCall::read(arguments)).await?;
-        self.count_objects(place, folder, hold).await
+        Ok(())
     }
 
     // The capture folder's loose objects and packs.
@@ -395,9 +480,12 @@ impl CapturePacking {
     }
 
     // A fold a capture's pack found due, run when the folder's lock comes free and only when it is
-    // still due then. Never fails: a failure is logged.
+    // still due and still there then. Never fails: a failure is logged.
     async fn fold_when_due(&self, place: Option<&Place>, folder: PathBuf) {
         let hold = self.folder_lock.acquire(folder.clone()).await;
+        if is_folder_removed(&folder).await {
+            return;
+        }
         let folded = self.fold_held(place, &folder, &hold).await;
         drop(hold);
         if let Err(failure) = folded {
@@ -461,7 +549,7 @@ impl CapturePacking {
         // `-a`, `-A` or `-m`, which fail on a folder whose objects are borrowed.
         let arguments = in_git_folder(
             folder,
-            &[&CORE_FSYNC_PIN, &PACK_SIZE_LIMIT_PIN],
+            &[&CORE_FSYNC_PIN, &PACK_SIZE_LIMIT_PIN, &PATH_WALK_PIN],
             &[
                 "repack",
                 "--geometric=2",
@@ -509,16 +597,16 @@ impl CapturePacking {
         Ok(points)
     }
 
-    // The distinct bases of `points` that the repository holds as commits and no ref of it
-    // reaches; a base gone or naming no commit is logged and left out.
-    async fn read_unreached_bases(
+    // The distinct bases of `points` that the repository holds as commits, by whether a ref of it
+    // reaches each; a base gone or naming no commit is logged and left out of both.
+    async fn read_base_reach(
         &self,
         place: Option<&Place>,
         folder: &Path,
         common_folder: &Path,
         points: &[SnapshotPoint],
         _hold: &KeyHold<'_, PathBuf>,
-    ) -> Result<HashSet<GitObjectId>, PackingError> {
+    ) -> Result<BaseReach, PackingError> {
         let mut bases: Vec<&GitObjectId> = points
             .iter()
             .filter_map(|point| point.base.as_ref())
@@ -526,7 +614,7 @@ impl CapturePacking {
         bases.sort_unstable();
         bases.dedup();
         if bases.is_empty() {
-            return Ok(HashSet::new());
+            return Ok(BaseReach::default());
         }
         let input = object_lines(bases.iter().copied());
         let arguments = in_git_folder(common_folder, &[], &["cat-file", "--batch-check"]);
@@ -535,7 +623,7 @@ impl CapturePacking {
             .run(place, GitCall::read(arguments).with_input(input))
             .await?;
         let presence = read_bases_present(&output.stdout, &bases)?;
-        let mut unreached = HashSet::new();
+        let mut reach = BaseReach::default();
         for (base, presence) in bases.into_iter().zip(presence) {
             match presence {
                 BasePresence::Commit => {}
@@ -554,11 +642,13 @@ impl CapturePacking {
                 &["rev-list", "-n1", base.as_str(), "--not", "--all"],
             );
             let output = self.git.run(place, GitCall::read(arguments)).await?;
-            if !read_reach(&output.stdout, base)? {
-                unreached.insert(base.clone());
+            if read_reach(&output.stdout, base)? {
+                reach.reached.insert(base.clone());
+            } else {
+                reach.unreached.insert(base.clone());
             }
         }
-        Ok(unreached)
+        Ok(reach)
     }
 
     // Packs `trees` into the capture folder less what the repository's `HEAD` tree holds, the
@@ -601,6 +691,77 @@ impl CapturePacking {
             .await?;
         Ok(())
     }
+
+    // Packs, as each capture's own pack would have, the trees of `points` less what the tree of
+    // the base each stands on holds, one pack per base, the repository attached. The negative is
+    // the base's tree, never its commit, which leaves nothing out of a tree.
+    async fn pack_stale_points(
+        &self,
+        place: Option<&Place>,
+        capture_folder: &CaptureFolder,
+        points: &[&SnapshotPoint],
+        hold: &KeyHold<'_, PathBuf>,
+    ) -> Result<(), PackingError> {
+        let mut trees_by_base: HashMap<Option<&GitObjectId>, Vec<&GitObjectId>> = HashMap::new();
+        for point in points {
+            trees_by_base
+                .entry(point.base.as_ref())
+                .or_default()
+                .push(&point.tree);
+        }
+        for (base, trees) in trees_by_base {
+            let mut revisions = String::new();
+            for tree in trees {
+                revisions.push_str(tree.as_str());
+                revisions.push('\n');
+            }
+            if let Some(base) = base {
+                revisions.push_str("--not\n");
+                revisions.push_str(base.as_str());
+                revisions.push_str("^{tree}\n");
+            }
+            self.pack_revisions(place, capture_folder, revisions.into_bytes(), hold)
+                .await?;
+        }
+        Ok(())
+    }
+
+    // Packs the folder's own `objects` not yet in a pack, nothing attached, so an id the folder
+    // lacks fails the pack, then removes the loose copies.
+    async fn pack_listed_objects(
+        &self,
+        place: Option<&Place>,
+        folder: &Path,
+        objects: &[GitObjectId],
+        _hold: &KeyHold<'_, PathBuf>,
+    ) -> Result<(), PackingError> {
+        // `--incremental` leaves out what the passes above packed; nothing is borrowed here.
+        let mut arguments = in_git_folder(
+            folder,
+            &[&CORE_FSYNC_PIN, &PACK_SIZE_LIMIT_PIN, &PATH_WALK_PIN],
+            &["pack-objects", "-q", "--incremental", "--non-empty"],
+        );
+        arguments.push(pack_name_base(folder));
+        let call = GitCall::read(arguments).with_input(object_lines(objects));
+        self.git.run(place, call).await?;
+        self.prune_packed(place, folder).await?;
+        Ok(())
+    }
+}
+
+// Whether `folder` is known to be gone, as a purge leaves it; a failed check reads as present, so
+// the work goes on and reports its own failure.
+async fn is_folder_removed(folder: &Path) -> bool {
+    matches!(tokio::fs::try_exists(folder).await, Ok(false))
+}
+
+// The name prefix of `folder`'s packs: git names each `pack-<hash>` in the folder's pack folder.
+fn pack_name_base(folder: &Path) -> OsString {
+    folder
+        .join(OBJECTS_SEGMENT)
+        .join(PACK_SEGMENT)
+        .join(PACK_SEGMENT)
+        .into_os_string()
 }
 
 // Whether a fold of a folder holding `packs` packs is due, when the last fold there left `left`

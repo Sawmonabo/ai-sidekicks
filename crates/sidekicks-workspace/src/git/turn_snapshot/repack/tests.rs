@@ -558,3 +558,157 @@ async fn a_sweep_of_a_deleted_repository_answers_its_absence_and_keeps_its_folde
     );
     assert!(!partial.exists(), "the partial folder is removed");
 }
+
+// Fails when the sweep leaves the loose objects of a capture whose pack failed unwalked (the gc in
+// the repository then takes the staged blob only the capture's tree names), or packs that tree
+// less the base's commit rather than its tree, which leaves nothing out and copies the base's file.
+#[tokio::test]
+async fn a_sweep_packs_again_a_capture_whose_own_pack_failed_once_an_hour_has_passed() {
+    // Root writes into a folder whatever its mode.
+    if is_superuser() {
+        return;
+    }
+    let git = test_git_runner();
+    let root = tempfile::tempdir().expect("the temporary folder is made");
+    let (repository, _) = repository_with_a_commit(&git, root.path()).await;
+    let common = read_git_common_folder(&git, None, &repository, None)
+        .await
+        .expect("the repository's git folder is read");
+    stage_file(&git, &repository, "kept.txt", "in the base\n").await;
+    write_in(
+        &git,
+        &repository,
+        &[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-q",
+            "-m",
+            "base",
+        ],
+    )
+    .await;
+    let base_blob = answer(
+        &git,
+        GitCall::read(in_folder(&repository, &["rev-parse", "HEAD:kept.txt"])),
+    )
+    .await;
+    stage_file(&git, &repository, "n.txt", "only staged\n").await;
+    let database = TestDatabase::new(schema_parts());
+    let (service, packing) = service_and_packing(&git, &database);
+    let owner = root.path().join("owner");
+    let capture_folder = CaptureFolder::open_or_create(&git, None, &owner, &common)
+        .await
+        .expect("the capture folder is made");
+    let folder = capture_folder.folder();
+    let unwritable = make_unwritable(&folder.join("objects").join("pack"))
+        .expect("the pack folder is made unwritable");
+    let outcome = service
+        .capture_turn_snapshot(None, &turn_of(&repository, &owner, minted_run_id(), 0))
+        .await;
+    drop(unwritable);
+    let TurnSnapshotCaptureOutcome::Captured {
+        snapshot_commit, ..
+    } = outcome
+    else {
+        panic!("the turn is captured, got {outcome:?}");
+    };
+    assert!(
+        counted(&git, folder, "count").await > 0,
+        "the failed pack left the capture loose"
+    );
+    let aged_time = SystemTime::now() - LEFTOVER_AGE;
+    for fan_out in fs::read_dir(folder.join("objects")).expect("the object folder is listed") {
+        let fan_out = fan_out.expect("the entry reads").path();
+        if fan_out.file_name().is_some_and(|name| name.len() == 2) {
+            for object in fs::read_dir(&fan_out).expect("the fan-out folder is listed") {
+                let object = object.expect("the entry reads").path();
+                fs::set_times(&object, FileTimes::new().set_modified(aged_time))
+                    .expect("the loose object is aged");
+            }
+        }
+    }
+
+    let swept = packing
+        .sweep_capture_folder(None, &owner, &common, None, &[], SystemTime::now())
+        .await;
+    write_in(&git, &repository, &["reset", "--quiet"]).await;
+    collect_garbage(&git, &repository).await;
+
+    assert!(
+        matches!(swept, Ok(CaptureFolderSweep::Swept(_))),
+        "got {swept:?}"
+    );
+    assert_eq!(counted(&git, folder, "count").await, 0);
+    let file = format!("{}:n.txt", snapshot_commit.as_str());
+    let read = answer_with_captures(
+        &git,
+        &repository,
+        &capture_folder,
+        &["cat-file", "-p", &file],
+    )
+    .await;
+    assert_eq!(read, "only staged");
+    let base_in_folder = git
+        .run(
+            None,
+            GitCall::read([
+                git_folder_argument(folder),
+                "cat-file".into(),
+                "-e".into(),
+                base_blob.into(),
+            ]),
+        )
+        .await;
+    assert!(
+        base_in_folder.is_err(),
+        "the base's file is left out of the pack"
+    );
+}
+
+// Fails when a sweep queued behind an owner's hold works on its folder without checking it is
+// still there once the hold drops (counting its objects then fails), or when the hold leaves the
+// owner's capture folder free.
+#[tokio::test]
+async fn a_sweep_queued_behind_the_owners_hold_finds_its_folder_gone() {
+    let git = test_git_runner();
+    let root = tempfile::tempdir().expect("the temporary folder is made");
+    let (repository, _) = repository_with_a_commit(&git, root.path()).await;
+    let common = read_git_common_folder(&git, None, &repository, None)
+        .await
+        .expect("the repository's git folder is read");
+    let packing = CapturePacking::new(git.clone(), Arc::new(GitFloorReports::default()));
+    let owner = root.path().join("owner");
+    let capture_folder = CaptureFolder::open_or_create(&git, None, &owner, &common)
+        .await
+        .expect("the capture folder is made");
+    let folder = capture_folder.folder().to_path_buf();
+    let hold = packing
+        .hold_owner_folders(&owner)
+        .await
+        .expect("the owner's folders are held");
+    let handles = packing.folder_lock.queue_handle_count(folder.clone());
+    let mut sweep = std::pin::pin!(packing.sweep_capture_folder(
+        None,
+        &owner,
+        &common,
+        None,
+        &[],
+        SystemTime::now()
+    ));
+
+    tokio::select! {
+        swept = &mut sweep => panic!("the sweep waits for the hold, got {swept:?}"),
+        () = packing.folder_lock.wait_for_queue_past(folder.clone(), handles) => {}
+    }
+    fs::remove_dir_all(&folder).expect("the capture folder is removed");
+    drop(hold);
+    let swept = sweep.await;
+
+    assert!(
+        matches!(swept, Ok(CaptureFolderSweep::Absent)),
+        "got {swept:?}"
+    );
+}

@@ -248,9 +248,11 @@ impl TurnSnapshotService {
     /// Records the checkout's project state (tracked plus non-ignored untracked files, a file over
     /// the size bound left out) as a snapshot commit at the ref of the input's point, a turn's end
     /// or a workflow run's point, in the owner's capture folder, running git for the project at
-    /// `place`, then packs what it borrows from the repository. Never fails: every failure is
-    /// logged and answered `Failed` with its step and cause, since a snapshot never holds up a
-    /// run; a git lacking a feature is logged once per place and feature.
+    /// `place`, then packs what it borrows from the repository; a workflow run's point is answered
+    /// once its ref is written, its pack following off the caller's path and, should it fail, left
+    /// for the sweep to pack again. Never fails: every failure is logged and answered `Failed` with
+    /// its step and cause, since a snapshot never holds up a run; a git lacking a feature is logged
+    /// once per place and feature.
     pub async fn capture_turn_snapshot(
         &self,
         place: Option<&Place>,
@@ -292,8 +294,16 @@ impl TurnSnapshotService {
                     skipped_embedded_repositories,
                     ..
                 } = committed;
-                self.release_and_pack(place, held, snapshot_commit.clone(), base_commit.clone())
-                    .await;
+                let captured = release(held, snapshot_commit.clone(), base_commit.clone());
+                match input.point {
+                    RunSnapshotPoint::Turn { .. } => self.packing.pack(place, &captured).await,
+                    RunSnapshotPoint::WorkflowRun { .. } => {
+                        let (packing, place) = (Arc::clone(&self.packing), place.cloned());
+                        tokio::spawn(async move {
+                            packing.pack(place.as_ref(), &captured).await;
+                        });
+                    }
+                }
                 TurnSnapshotCaptureOutcome::Captured {
                     snapshot_ref,
                     snapshot_commit,
@@ -353,8 +363,8 @@ impl TurnSnapshotService {
             base_commit,
             ..
         } = committed;
-        self.release_and_pack(place, held, snapshot_commit.clone(), base_commit.clone())
-            .await;
+        let captured = release(held, snapshot_commit.clone(), base_commit.clone());
+        self.packing.pack(place, &captured).await;
         CheckoutTreeOutcome::Captured {
             tree,
             snapshot_commit,
@@ -399,25 +409,6 @@ impl TurnSnapshotService {
                 Err(fail_capture(run_key, snapshot_ref, failed_step, failure))
             }
         }
-    }
-
-    // Lets the checkout go, so the next capture of it does not wait, then packs what the capture
-    // `snapshot_commit` borrows from the repository beyond `base_commit`.
-    async fn release_and_pack(
-        &self,
-        place: Option<&Place>,
-        held: HeldCheckout<'_>,
-        snapshot_commit: GitObjectId,
-        base_commit: Option<GitObjectId>,
-    ) {
-        let HeldCheckout {
-            capture_folder,
-            hold,
-            ..
-        } = held;
-        drop(hold);
-        let captured = CapturedCommit::new(capture_folder, snapshot_commit, base_commit);
-        self.packing.pack(place, &captured).await;
     }
 
     // The capture's steps through its commit, each run at the top level of the verified checkout,
@@ -737,6 +728,22 @@ fn read_run_context(
             })
         })
         .optional()?)
+}
+
+// Lets the checkout go, so the next capture of it does not wait, and answers the capture
+// `snapshot_commit` on `base_commit` for its pack.
+fn release(
+    held: HeldCheckout<'_>,
+    snapshot_commit: GitObjectId,
+    base_commit: Option<GitObjectId>,
+) -> CapturedCommit {
+    let HeldCheckout {
+        capture_folder,
+        hold,
+        ..
+    } = held;
+    drop(hold);
+    CapturedCommit::new(capture_folder, snapshot_commit, base_commit)
 }
 
 // The commit subject of a snapshot at `point`: a turn's, or a workflow run's.
