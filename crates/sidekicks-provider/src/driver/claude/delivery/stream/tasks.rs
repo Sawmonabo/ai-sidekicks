@@ -12,7 +12,7 @@ mod resume;
 use std::collections::HashSet;
 
 use jiff::Timestamp;
-use serde_json::value::to_raw_value;
+use serde_json::value::RawValue;
 use sidekicks_contracts::event::envelope::EventOccurredAt;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -36,7 +36,7 @@ use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::reorder_buffer::{ReorderBufferedEvent, ReorderPairingRole};
 use crate::port::held_tool_calls::HeldToolCall;
-use crate::port::tool_traces::{ToolTrace, record_tool_traces};
+use crate::port::tool_traces::{ToolTrace, is_recording_tool_traces, record_tool_traces};
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner};
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 
@@ -50,8 +50,9 @@ impl ClaudeDeliveryStream {
     /// Takes one task frame of `kind`, `frame_kind` on the wire, read once off `text`: a helper's
     /// end moves its child run, the frame's command or tool-server task is read on the run that
     /// started it, the helper's child run where a helper started it and `lead` otherwise, a held
-    /// call's end closes it and its progress becomes its status line, and a call a resume rebuilt
-    /// is kept by its restored start or ended by the first list that leaves it out.
+    /// call's end closes it, traced with its notification while `Record traces` is on, and its
+    /// progress becomes its status line, and a call a resume rebuilt is kept by its restored start
+    /// or ended by the first list that leaves it out.
     #[expect(
         clippy::wildcard_enum_match_arm,
         reason = "only the task frames reach this read, and a move changes no held call"
@@ -71,6 +72,7 @@ impl ClaudeDeliveryStream {
             self.end_helper(session, &task).await;
         }
         let run = self.task_run(session, &task, lead);
+        let is_tracing = is_recording_tool_traces(&self.dependencies.tool_traces);
         let (ends, progress) = {
             let mut guard = session.lock();
             let readings = &mut *guard;
@@ -84,7 +86,16 @@ impl ClaudeDeliveryStream {
                     (Vec::new(), None)
                 }
                 ClaudeWireFrameKind::SystemTaskNotification => {
-                    (held.release(&task).into_iter().collect(), None)
+                    // The notification is the held call's result as Claude Code sent it; the reader
+                    // passed only a line that is one JSON object.
+                    let end = held.release(&task).map(|mut end| {
+                        end.notification = is_tracing.then(|| {
+                            RawValue::from_string(text.to_owned())
+                                .expect("a routed frame is one JSON object")
+                        });
+                        end
+                    });
+                    (end.into_iter().collect(), None)
                 }
                 ClaudeWireFrameKind::SystemBackgroundTasksChanged => {
                     // The first list after a resume ends the rebuilt calls it leaves out as ended
@@ -266,24 +277,23 @@ impl ClaudeDeliveryStream {
 
     /// Closes each held call in `ends`, read off a frame of `wire`, through the reorder buffer.
     /// Each close is appended after its run and unpaired, since its stand-in result already
-    /// answered the call's opening; a call that kept its arguments and closed with a body is traced
-    /// with that body as its result.
+    /// answered the call's opening; a call that holds its arguments and ended with its task's
+    /// notification is traced with that notification as its result.
     pub(super) async fn close_held_calls(
         &self,
         session: &ClaudeSessionStream,
-        ends: Vec<ClaudeHeldCallEnd>,
+        mut ends: Vec<ClaudeHeldCallEnd>,
         wire: &str,
     ) {
         if ends.is_empty() {
             return;
         }
         let traces: Vec<ToolTrace> = ends
-            .iter()
+            .iter_mut()
             .filter_map(|end| {
-                let text = end.text.as_ref()?;
-                end.opened.trace(session.session_id, &end.tool_use_id, || {
-                    to_raw_value(text).expect("a string writes as JSON")
-                })
+                let notification = end.notification.take()?;
+                end.opened
+                    .take_trace(session.session_id, &end.tool_use_id, || notification)
             })
             .collect();
         let rows = ends
@@ -312,6 +322,7 @@ impl ClaudeDeliveryStream {
             opened,
             outcome,
             text,
+            ..
         } = end;
         if let (Some(statuses), Ok(tool_call_id)) = (
             self.dependencies.tool_call_statuses.port(),

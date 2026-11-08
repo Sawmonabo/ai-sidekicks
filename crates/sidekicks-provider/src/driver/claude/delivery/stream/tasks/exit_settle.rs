@@ -46,6 +46,7 @@ impl ClaudeDeliveryStream {
                     opened: held.opened,
                     outcome,
                     text,
+                    notification: None,
                 })
             })
             .collect();

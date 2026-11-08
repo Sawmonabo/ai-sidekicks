@@ -47,7 +47,8 @@ impl ClaudeDeliveryStream {
             }
         };
         let rows = {
-            let mut readings = session.lock();
+            let mut guard = session.lock();
+            let readings = &mut *guard;
             let mut rows = Vec::with_capacity(stand_ins.len());
             for (tool_use_id, stand_in) in stand_ins {
                 let Some((task_id, opened)) = readings.tool_server_tasks.held_call(&tool_use_id)
@@ -55,10 +56,10 @@ impl ClaudeDeliveryStream {
                     continue;
                 };
                 readings.buffer.forget_initiation(&tool_use_id);
-                let survives_restart = survives(kept.as_ref(), (&tool_use_id, &task_id), &stand_in);
+                let survives_restart = survives(kept.as_ref(), (&tool_use_id, task_id), &stand_in);
                 let (Ok(tool_call_id), Ok(task_id)) = (
                     ToolCallId::new(tool_use_id.clone()),
-                    FreeFormText::new(task_id),
+                    FreeFormText::new(task_id.to_owned()),
                 ) else {
                     tracing::warn!(
                         session_id = %session.session_id,

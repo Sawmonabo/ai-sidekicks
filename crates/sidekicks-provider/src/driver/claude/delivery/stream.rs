@@ -457,14 +457,14 @@ impl ClaudeDeliveryStream {
             }
             ClaudeWireFrameKind::StreamEvent => self.stream_event(session, &lead, &frame.text),
             ClaudeWireFrameKind::Assistant => {
-                if let Some(message) = message {
+                if let Some(mut message) = message {
                     // An answered request is heard at its `message_start`, since a reply begun
                     // before an account move goes on streaming its messages after it.
                     if message.error() == Some(CLAUDE_LOGIN_REFUSAL) {
                         session.settle_first_request(ClaudeFirstRequest::LoginRefused);
                     }
                     let usage = frame.observation.message_usage.as_ref();
-                    self.assistant(session, &lead, &message, usage).await;
+                    self.assistant(session, &lead, &mut message, usage).await;
                 }
             }
             ClaudeWireFrameKind::User => {
@@ -561,6 +561,7 @@ impl ClaudeDeliveryStream {
             readings.now_steers.clear();
             readings.turn = None;
             readings.command_tasks.forget();
+            readings.helper_tool_calls.forget();
             let held = readings.tool_server_tasks.take_held();
             readings.tool_server_tasks.forget();
             held
@@ -619,7 +620,7 @@ impl ClaudeDeliveryStream {
         &self,
         session: &ClaudeSessionStream,
         lead: &ClaudeBoundRun,
-        frame: &ClaudeMessageFrame,
+        frame: &mut ClaudeMessageFrame,
         usage: Option<&ClaudeMessageUsageObservation>,
     ) {
         self.dependencies
@@ -642,7 +643,6 @@ impl ClaudeDeliveryStream {
                 lead,
                 &mut readings.open_tool_calls,
                 Timestamp::now(),
-                is_recording_tool_traces(&self.dependencies.tool_traces),
             );
             // A goal line draws the goal row alone, never a message in the agent's own words.
             if frame.text().is_some_and(is_goal_line) {
@@ -694,6 +694,7 @@ impl ClaudeDeliveryStream {
         lead: &ClaudeBoundRun,
         frame: &ClaudeMessageFrame,
     ) {
+        let is_tracing = is_recording_tool_traces(&self.dependencies.tool_traces);
         let (rows, tasks, stand_ins, arrival, traces) = {
             let mut guard = session.lock();
             let readings = &mut *guard;
@@ -708,6 +709,7 @@ impl ClaudeDeliveryStream {
                 &mut readings.open_tool_calls,
                 &readings.tool_server_tasks,
                 Timestamp::now(),
+                is_tracing,
             );
             readings.failed_call_words.extend(reading.failed_results);
             let tasks = readings.turn_readings.observe_results(frame);

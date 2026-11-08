@@ -51,6 +51,9 @@ pub(crate) struct ClaudeHeldCallEnd {
     /// Claude Code's summary, then a line per file the call returned; none for a stopped call,
     /// whose summary is only the task's name.
     pub(crate) text: Option<String>,
+    /// The task notification that ended the call, as Claude Code sent it, kept for the call's
+    /// trace while `Record traces` is on; none for an end the daemon settled.
+    pub(crate) notification: Option<Box<RawValue>>,
 }
 
 /// One held or settled call, kept by its task, with the newest task run a frame of it named.
@@ -153,11 +156,11 @@ impl ClaudeToolServerTasks {
 
     /// The task the held call `tool_use_id` runs as, and the call's opening; `None` for a call not
     /// held.
-    pub(crate) fn held_call(&self, tool_use_id: &str) -> Option<(String, ClaudeOpenToolCall)> {
+    pub(crate) fn held_call(&self, tool_use_id: &str) -> Option<(&str, &ClaudeOpenToolCall)> {
         self.held
             .iter()
             .find(|(_, held)| held.tool_use_id == tool_use_id)
-            .map(|(task_id, held)| (task_id.clone(), held.opened.clone()))
+            .map(|(task_id, held)| (task_id.as_str(), &held.opened))
     }
 
     /// Takes every held call out, each by its task, as the process ends with them still running;
@@ -215,6 +218,7 @@ impl ClaudeToolServerTasks {
                 opened: call.opened,
                 outcome,
                 text,
+                notification: None,
             });
         }
         Some(self.settle(task_id.to_owned(), call, outcome, text))
@@ -271,7 +275,7 @@ impl ClaudeToolServerTasks {
     }
 
     // Keeps `call` settled under its task, the oldest settled call forgotten past the cap, and
-    // answers its end.
+    // answers its end, which takes the call's arguments, so a later ending traces it no more.
     fn settle(
         &mut self,
         task_id: String,
@@ -279,14 +283,19 @@ impl ClaudeToolServerTasks {
         outcome: ClaudeToolCallOutcome,
         text: Option<String>,
     ) -> ClaudeHeldCallEnd {
-        let end = ClaudeHeldCallEnd {
+        let settled = ClaudeHeldCall {
             tool_use_id: call.tool_use_id.clone(),
-            opened: call.opened.clone(),
+            opened: call.opened.without_arguments(),
+            newest_run_id: call.newest_run_id,
+        };
+        self.settled.push(task_id, settled);
+        ClaudeHeldCallEnd {
+            tool_use_id: call.tool_use_id,
+            opened: call.opened,
             outcome,
             text,
-        };
-        self.settled.push(task_id, call);
-        end
+            notification: None,
+        }
     }
 }
 

@@ -75,6 +75,7 @@ impl ClaudeDeliveryStream {
                         opened,
                         outcome,
                         text,
+                        notification: None,
                     });
                 } else {
                     readings
