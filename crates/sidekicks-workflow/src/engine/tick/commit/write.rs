@@ -14,6 +14,7 @@ use sidekicks_store::events::session::appender::{
 };
 
 use super::{RunLiveStep, RunTurnCommit, RunTurnCommitFailure, RunTurnCommitted, StepMove};
+use crate::definitions::kept_values::dropped_artifact_ids;
 use crate::engine::event_record::{EngineDecision, RunEngineRecord};
 use crate::engine::tick::run_status::{RunPersonWait, RunStepCounts};
 
@@ -23,7 +24,8 @@ impl RunTurnCommit {
     /// status move implies as the last, and every statement ahead of the rows, the run's own after
     /// the steps'. `live_steps` are the run's steps the tick keeps live after the turn, which a
     /// resumption point names beside the steps this turn readied. Once it commits, each report
-    /// that moved its step, each gate answer and the run's status go to `record`. A turn with
+    /// that moved its step, each gate answer and the run's status go to `record`, and it answers
+    /// the artifacts its write's own reads found the replaced kept values naming. A turn with
     /// nothing writes nothing. Fails with [`RunTurnCommitFailure`], nothing of the turn stored.
     pub(crate) async fn append<'tick>(
         self,
@@ -36,6 +38,7 @@ impl RunTurnCommit {
             mut drafts,
             statements,
             artifact_ids,
+            dropped_reads,
             answer,
         } = self.drafted(live_steps)?;
         let event_count = drafts.len();
@@ -48,12 +51,19 @@ impl RunTurnCommit {
             ..SessionEventLinkage::default()
         };
         match appender.append(last, linkage).await {
-            Ok(receipt) => Ok(answer
-                .recorded(
-                    sequences_ending_at(receipt.sequence, event_count),
-                    Some(record),
-                )
-                .await),
+            Ok(receipt) => {
+                let dropped_kept_artifact_ids = dropped_reads
+                    .iter()
+                    .flat_map(|&read| dropped_artifact_ids(&receipt.prelude_results[read]))
+                    .collect();
+                Ok(answer
+                    .recorded(
+                        sequences_ending_at(receipt.sequence, event_count),
+                        Some(record),
+                        dropped_kept_artifact_ids,
+                    )
+                    .await)
+            }
             Err(error) => Err(RunTurnCommitFailure {
                 error: error.into(),
                 artifact_ids,
@@ -65,7 +75,8 @@ impl RunTurnCommit {
     /// across every session they live in, all or none: the turns of one session in one append, in
     /// the order given, and the sessions in the order their first turn comes. Each turn is drafted
     /// and answers as [`RunTurnCommit::append`] says, and a turn of a run the tick does not drive,
-    /// handed no record, records nothing. Every session's turns hold an event. Fails
+    /// handed no record, records nothing; Keep going's turns keep no value, so none answers a
+    /// replaced kept value's artifact. Every session's turns hold an event. Fails
     /// with [`RunTurnCommitFailure`], nothing of any turn stored, naming every turn's artifacts;
     /// a refused statement's index counts across the whole write.
     pub(crate) async fn append_together<'tick>(
@@ -153,7 +164,11 @@ impl RunTurnCommit {
         }
         let mut committed = Vec::with_capacity(drafted.len());
         for ((turn, record), turn_sequences) in drafted.into_iter().zip(sequences) {
-            committed.push(turn.answer.recorded(turn_sequences, record).await);
+            committed.push(
+                turn.answer
+                    .recorded(turn_sequences, record, Vec::new())
+                    .await,
+            );
         }
         Ok(committed)
     }
@@ -176,6 +191,7 @@ impl RunTurnCommit {
             statements,
             pending,
             artifact_ids,
+            dropped_reads,
             moves,
             gates,
         } = self;
@@ -194,6 +210,7 @@ impl RunTurnCommit {
                 drafts,
                 statements,
                 artifact_ids,
+                dropped_reads,
                 answer: TurnAnswer {
                     pending,
                     moves,
@@ -212,12 +229,14 @@ impl RunTurnCommit {
 }
 
 /// A turn drafted for its write: its session, its events and statements, the artifacts its
-/// payload refs name, and what it answers once the write commits.
+/// payload refs name, the reads of its replaced kept values' artifacts among its statements, and
+/// what it answers once the write commits.
 struct DraftedTurn {
     session_id: SessionId,
     drafts: Vec<SessionEventDraft>,
     statements: Vec<WriteStatement>,
     artifact_ids: Vec<ArtifactId>,
+    dropped_reads: Vec<usize>,
     answer: TurnAnswer,
 }
 
@@ -241,15 +260,18 @@ impl TurnAnswer {
             readied: Vec::new(),
             counts: self.counts,
             person_wait: self.person_wait,
+            dropped_kept_artifact_ids: Vec::new(),
         }
     }
 
-    /// The answer of a turn whose events committed at `event_sequences`, in write order, once
-    /// each move, gate answer and status move went to `record`, where there is one.
+    /// The answer of a turn whose events committed at `event_sequences`, in write order, and whose
+    /// write replaced the kept values naming `dropped_kept_artifact_ids`, once each move, gate
+    /// answer and status move went to `record`, where there is one.
     async fn recorded(
         self,
         event_sequences: Vec<SafeInt<0>>,
         record: Option<&RunEngineRecord>,
+        dropped_kept_artifact_ids: Vec<ArtifactId>,
     ) -> RunTurnCommitted {
         let readied = self
             .pending
@@ -276,6 +298,7 @@ impl TurnAnswer {
             readied,
             counts: self.counts,
             person_wait: self.person_wait,
+            dropped_kept_artifact_ids,
         }
     }
 }

@@ -21,6 +21,8 @@
 //! - Reads: each borrows a connection from the daemon's read pool on a blocking thread.
 
 use std::error::Error;
+use std::mem;
+use std::ops::Range;
 use std::sync::Arc;
 
 use rusqlite::Connection;
@@ -40,7 +42,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::sync::watch;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::statement::WriteStatement;
+use crate::database::statement::{StatementResult, WriteStatement};
 use crate::database::writer::messages::WriteJob;
 use crate::database::writer::{CommitHook, DatabaseWriter, PendingWrite, WriteError};
 use crate::events::canonicalizer::{OccurredAtNormalizationRefusal, normalize_occurred_at};
@@ -121,13 +123,17 @@ pub struct EventLogAppendOptions {
     pub preceding_events: Vec<(UnsequencedEventEnvelope, Option<String>)>,
 }
 
-/// An appended event once it committed: its id and the sequence the writer gave it.
+/// An appended event once it committed: its id, the sequence the writer gave it and what its
+/// append's prelude did.
 #[derive(Clone, Debug)]
 pub struct EventLogAppendReceipt {
     /// The event's id, as given.
     pub id: FreeFormText<EVENT_FIELD_MAX_LEN>,
     /// The event's sequence in its session's log.
     pub sequence: SafeInt<0>,
+    /// What each statement of the append's `transactional_prelude` did, in order; the projection's
+    /// statements are left out.
+    pub prelude_results: Vec<StatementResult>,
 }
 
 /// Why an append was not kept; none of its events is stored.
@@ -331,9 +337,17 @@ pub struct EventLogService {
 /// A write of one or more appends, composed and checked, ready to queue.
 struct ComposedWrite {
     job: WriteJob,
-    /// Each append's event id beside where its own row sits among the write's rows, in the order
-    /// the appends were given.
-    receipts: Vec<(FreeFormText<EVENT_FIELD_MAX_LEN>, usize)>,
+    /// Where each append's receipt is read from the committed write, in the order the appends
+    /// were given.
+    receipts: Vec<ReceiptPlace>,
+}
+
+/// Where one append's receipt sits in its write: its event's id, its own row among the write's
+/// rows, and its prelude's statements among the write's statements.
+struct ReceiptPlace {
+    id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    row_index: usize,
+    prelude: Range<usize>,
 }
 
 impl EventLogService {
@@ -408,13 +422,17 @@ impl EventLogService {
         for (envelope, options) in appends {
             let ComposedWrite { job, receipts } = self.compose_write(envelope, options)?;
             let row_offset = joined.job.events.len();
+            let statement_offset = joined.job.statements.len();
             joined.job.statements.extend(job.statements);
             joined.job.events.extend(job.events);
-            joined.receipts.extend(
-                receipts
-                    .into_iter()
-                    .map(|(id, row_index)| (id, row_offset + row_index)),
-            );
+            joined
+                .receipts
+                .extend(receipts.into_iter().map(|place| ReceiptPlace {
+                    id: place.id,
+                    row_index: row_offset + place.row_index,
+                    prelude: statement_offset + place.prelude.start
+                        ..statement_offset + place.prelude.end,
+                }));
         }
         let holds = SESSION_APPEND_LOCK.acquire_all(session_ids).await;
         let queued = self.enqueue(joined);
@@ -651,6 +669,7 @@ impl EventLogService {
         let id = event_rows[0].envelope.id.clone();
         rows.extend(event_rows);
 
+        let prelude = 0..transactional_prelude.len();
         let mut statements = transactional_prelude;
         if let Some(projection_statements) = &self.projection_statements {
             for row in rows
@@ -667,7 +686,11 @@ impl EventLogService {
                 statements,
                 events: rows,
             },
-            receipts: vec![(id, row_index)],
+            receipts: vec![ReceiptPlace {
+                id,
+                row_index,
+                prelude,
+            }],
         })
     }
 
@@ -686,24 +709,32 @@ impl EventLogService {
     }
 }
 
-/// A write once queued, with each append's event id and where its row sits among the write's.
+/// A write once queued, with where each append's receipt sits in it.
 struct QueuedAppend {
     pending: PendingWrite,
-    receipts: Vec<(FreeFormText<EVENT_FIELD_MAX_LEN>, usize)>,
+    receipts: Vec<ReceiptPlace>,
 }
 
-/// Each append's receipt of a queued write once it committed, in the order the appends were given.
+/// Each append's receipt of a queued write once it committed, in the order the appends were given,
+/// each prelude's results moved out of the write's.
 async fn committed(queued: QueuedAppend) -> Result<Vec<EventLogAppendReceipt>, EventAppendError> {
-    let committed = queued.pending.await?;
+    let mut committed = queued.pending.await?;
     Ok(queued
         .receipts
         .into_iter()
-        .map(|(id, row_index)| EventLogAppendReceipt {
-            id,
+        .map(|place| EventLogAppendReceipt {
+            id: place.id,
             sequence: *committed
                 .sequences
-                .get(row_index)
+                .get(place.row_index)
                 .expect("a committed write has a sequence per row, each event's among them"),
+            prelude_results: committed
+                .statement_results
+                .get_mut(place.prelude)
+                .expect("a committed write answers each of its statements")
+                .iter_mut()
+                .map(mem::take)
+                .collect(),
         })
         .collect())
 }

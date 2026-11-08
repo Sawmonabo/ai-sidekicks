@@ -14,6 +14,7 @@ use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWai
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 
 use super::{EngineTick, PausePoint, ReadiedNext, RunTurn, TurnReadied, step_failure};
+use crate::definitions::kept_values::remove_dropped;
 use crate::engine::event_record::{EngineFault, EngineIntent, EngineOutcome};
 use crate::engine::ports::{AgentStepRun, WorkflowRunSnapshotPointRequest};
 use crate::engine::tick::branch_cancellation::WaveSettle;
@@ -134,12 +135,10 @@ impl EngineTick {
             error,
             artifact_ids,
         } = failure;
-        for artifact_id in &artifact_ids {
-            if let Err(removal) = self.payloads.delete(artifact_id).await {
-                live.record
-                    .fault(Some(step), EngineFault::TurnPayloadLeftBehind, &*removal)
-                    .await;
-            }
+        for (_, removal) in remove_dropped(&*self.payloads, &artifact_ids).await {
+            live.record
+                .fault(Some(step), EngineFault::TurnPayloadLeftBehind, &*removal)
+                .await;
         }
         live.record
             .fault(Some(step), EngineFault::SettlementWriteFailed, &error)
