@@ -1,10 +1,10 @@
 //! The text and thinking Claude Code streams while it writes a response, as `stream_event` frames
 //! under `--include-partial-messages`: each block's pieces go out as stored pieces of its message,
-//! and the block's assistant frame, which arrives before the block's stop, sends what the pieces
-//! have not yet carried. A response Claude Code cut short drops what still waits of the blocks it
-//! will never finish. Each piece names its block by its index and by the response under its
-//! message's id it came in, since Claude Code can send a second response under an id it already
-//! sent. The frames are untrusted, so each member is read leniently.
+//! and the block's assistant frame, before or after the block's stop, sends what the pieces have
+//! not yet carried. A response Claude Code cut short drops what still waits of the blocks it will
+//! never finish. Each piece names its block by its index and by the response under its message's
+//! id it came in, since Claude Code can send a second response under an id it already sent. The
+//! frames are untrusted, so each member is read leniently.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -21,7 +21,6 @@ use tokio::time::Instant;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::messages::{
     ClaudeMessageBody, ClaudeMessageFrame, ClaudeMessageRow, ClaudeMessageRowKind,
-    claude_provider_block,
 };
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
@@ -53,8 +52,9 @@ pub(crate) struct ClaudeStreamedBlockKey {
 }
 
 impl ClaudeStreamedBlockKey {
-    fn provider_block(&self) -> Option<ProviderBlock> {
-        claude_provider_block(self.block_index, self.attempt)
+    /// The block a piece of this block names.
+    pub(crate) fn provider_block(&self) -> Option<ProviderBlock> {
+        ProviderBlock::new(self.block_index, self.attempt)
     }
 }
 
@@ -68,8 +68,10 @@ pub(crate) struct ClaudeStreamedPiece {
 
 /// Whether a streamed block is a reply's text or its thinking.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ProseKind {
+pub(crate) enum ProseKind {
+    /// A reply's text.
     Text,
+    /// Its thinking.
     Thinking,
 }
 
@@ -123,28 +125,37 @@ impl ProseRow {
     }
 }
 
-// What one `stream_event` frame says, naming the response by its API message id, the
-// `message.id` its assistant frames carry.
-enum ClaudeStreamEvent {
+/// What one `stream_event` frame says, naming the response by its API message id, the
+/// `message.id` its assistant frames carry.
+pub(crate) enum ClaudeStreamEvent {
+    /// A response under the id opened.
     MessageStarted {
+        /// The response's API message id.
         message_id: String,
     },
+    /// A block of the response opened.
     BlockStarted {
+        /// The response's API message id.
         message_id: String,
+        /// The block's index in the response.
         block_index: u64,
     },
-    BlockStopped {
-        message_id: String,
-    },
+    /// A piece of a text or thinking block.
     ProsePiece {
+        /// The response's API message id.
         message_id: String,
+        /// The block's index in the response.
         block_index: u64,
+        /// Whether the block is text or thinking.
         kind: ProseKind,
+        /// The piece's text.
         piece: String,
     },
+    /// The response ended.
     MessageStopped {
+        /// The response's API message id.
         message_id: String,
-        // The index from which the response's blocks will never get an assistant frame.
+        /// The index from which the response's blocks will never get an assistant frame.
         abandoned_from_index: Option<u64>,
     },
 }
@@ -188,16 +199,77 @@ struct AbandonedBlocks {
 
 lenient_object!(StreamEventFrame, StreamEvent, StreamDelta, AbandonedBlocks);
 
+/// Which response under each API message id is streaming and the block it last started, as one
+/// process's `stream_event` frames say.
+#[derive(Debug, Default)]
+pub(crate) struct ClaudeStreamedResponses {
+    // Which response under each id is streaming, from 1: a `message_start` under an id already
+    // seen opens the id's next response, as Claude Code may send two under one id.
+    attempt_by_message: HashMap<String, u64>,
+    // The key of the block each response last started, kept past the block's stop until an
+    // assistant frame finishes it, whichever of the two comes first.
+    started_block_by_message: HashMap<String, ClaudeStreamedBlockKey>,
+}
+
+impl ClaudeStreamedResponses {
+    /// Takes a response's opening or a block's start; any other event changes nothing.
+    pub(crate) fn observe(&mut self, event: &ClaudeStreamEvent) {
+        match event {
+            ClaudeStreamEvent::MessageStarted { message_id } => {
+                *self
+                    .attempt_by_message
+                    .entry(message_id.clone())
+                    .or_default() += 1;
+                // A block the response before left unfinished gets no frame of this one.
+                self.started_block_by_message.remove(message_id);
+            }
+            ClaudeStreamEvent::BlockStarted {
+                message_id,
+                block_index,
+            } => {
+                let key = ClaudeStreamedBlockKey {
+                    message_id: message_id.clone(),
+                    attempt: self.attempt_of(message_id),
+                    block_index: *block_index,
+                };
+                self.started_block_by_message
+                    .insert(message_id.clone(), key);
+            }
+            ClaudeStreamEvent::ProsePiece { .. } | ClaudeStreamEvent::MessageStopped { .. } => {}
+        }
+    }
+
+    /// The response under `message_id` streaming now, from 1; one whose `message_start` was
+    /// missed is the first.
+    pub(crate) fn attempt_of(&self, message_id: &str) -> u64 {
+        self.attempt_by_message
+            .get(message_id)
+            .copied()
+            .unwrap_or(1)
+    }
+
+    /// The key of the block the response under `message_id` last started, which the assistant
+    /// frame now arriving finishes; `None` where no block started since the last one finished.
+    pub(crate) fn take_started_block(
+        &mut self,
+        message_id: &str,
+    ) -> Option<ClaudeStreamedBlockKey> {
+        self.started_block_by_message.remove(message_id)
+    }
+
+    /// Forgets every response.
+    fn clear(&mut self) {
+        self.attempt_by_message.clear();
+        self.started_block_by_message.clear();
+    }
+}
+
 /// The blocks one session's process is streaming, from their first piece to their turn's end.
 pub(crate) struct ClaudeStreamedBlocks {
     text: StreamedText<ClaudeStreamedBlockKey>,
-    // Which response under each API message id is streaming, from 1: a `message_start` under an
-    // id already seen opens the id's next response, as Claude Code may send two under one id.
-    attempt_by_message: HashMap<String, u64>,
+    responses: ClaudeStreamedResponses,
     // The row each streamed block's pieces are written as, by its key.
     prose_rows: HashMap<ClaudeStreamedBlockKey, ProseRow>,
-    // The block each response is streaming now, by its API message id.
-    streaming_block_by_message: HashMap<String, u64>,
     // The streamed blocks of each response no assistant frame has finished yet.
     unfinished_blocks_by_message: HashMap<String, BTreeSet<u64>>,
     // The key of the block each assistant frame of the open turn finished, by the frame's uuid.
@@ -209,9 +281,8 @@ impl ClaudeStreamedBlocks {
     pub(crate) fn new() -> Self {
         Self {
             text: StreamedText::default(),
-            attempt_by_message: HashMap::new(),
+            responses: ClaudeStreamedResponses::default(),
             prose_rows: HashMap::new(),
-            streaming_block_by_message: HashMap::new(),
             unfinished_blocks_by_message: HashMap::new(),
             block_key_by_message_uuid: HashMap::new(),
         }
@@ -227,21 +298,10 @@ impl ClaudeStreamedBlocks {
         provider_account_id: &ProviderAccountId,
         now: Instant,
     ) -> Option<Instant> {
-        match read_stream_event(frame)? {
-            ClaudeStreamEvent::MessageStarted { message_id } => {
-                *self.attempt_by_message.entry(message_id).or_default() += 1;
-                None
-            }
-            ClaudeStreamEvent::BlockStarted {
-                message_id,
-                block_index,
-            } => {
-                self.streaming_block_by_message
-                    .insert(message_id, block_index);
-                None
-            }
-            ClaudeStreamEvent::BlockStopped { message_id } => {
-                self.streaming_block_by_message.remove(&message_id);
+        let event = read_stream_event(frame)?;
+        self.responses.observe(&event);
+        match event {
+            ClaudeStreamEvent::MessageStarted { .. } | ClaudeStreamEvent::BlockStarted { .. } => {
                 None
             }
             ClaudeStreamEvent::ProsePiece {
@@ -253,7 +313,7 @@ impl ClaudeStreamedBlocks {
                 let provider_message_id =
                     FreeFormText::<EVENT_FIELD_MAX_LEN>::new(message_id.clone()).ok()?;
                 let key = ClaudeStreamedBlockKey {
-                    attempt: self.attempt_of(&message_id),
+                    attempt: self.responses.attempt_of(&message_id),
                     message_id: message_id.clone(),
                     block_index,
                 };
@@ -316,19 +376,19 @@ impl ClaudeStreamedBlocks {
         rows: Vec<ClaudeMessageRow>,
         provider_account_id: &ProviderAccountId,
     ) -> (Vec<ClaudeStreamedPiece>, Vec<ClaudeMessageRow>) {
-        let streamed = frame.provider_message_id().and_then(|message_id| {
-            self.streaming_block_by_message
-                .get(message_id)
-                .map(|block_index| (message_id.to_owned(), *block_index))
-        });
-        let Some((message_id, block_index)) = streamed else {
+        let Some(message_id) = frame.provider_message_id() else {
             return (Vec::new(), rows);
         };
-        let key = ClaudeStreamedBlockKey {
-            attempt: self.attempt_of(&message_id),
-            message_id: message_id.clone(),
-            block_index,
+        let Some(key) = self.responses.take_started_block(message_id) else {
+            // A frame that finishes no started block belongs to the response streaming now.
+            let attempt = self.responses.attempt_of(message_id);
+            let rows = rows
+                .into_iter()
+                .map(|row| stamp_attempt(row, attempt))
+                .collect();
+            return (Vec::new(), rows);
         };
+        let (message_id, block_index) = (key.message_id.clone(), key.block_index);
         let mut pieces = Vec::new();
         let mut unstreamed = Vec::new();
         for row in rows {
@@ -344,7 +404,7 @@ impl ClaudeStreamedBlocks {
                     .insert(uuid.to_owned(), key.clone());
             }
             self.prose_rows.remove(&key);
-            // The frame names its block by its place in the frame, so the last piece takes the
+            // The frame names its block by its index in the frame, so the last piece takes the
             // streamed block's, as the pieces before it did, and joins their row.
             prose.payload.provider_block = key.provider_block();
             let last_piece = match self.text.complete(&key, final_text) {
@@ -387,8 +447,7 @@ impl ClaudeStreamedBlocks {
     /// Answers what still waits of the blocks `run_id`'s turn left unfinished, as the turn ends.
     pub(crate) fn end_turn(&mut self, run_id: RunId) -> Vec<ClaudeStreamedPiece> {
         let pieces = self.text.end_turn(&run_id.to_string());
-        self.attempt_by_message.clear();
-        self.streaming_block_by_message.clear();
+        self.responses.clear();
         self.unfinished_blocks_by_message.clear();
         let rows = self.rows_of(pieces);
         self.prose_rows
@@ -400,18 +459,9 @@ impl ClaudeStreamedBlocks {
     pub(crate) fn end_all(&mut self) -> Vec<ClaudeStreamedPiece> {
         let pieces = self.text.end_all();
         let rows = self.rows_of(pieces);
-        self.attempt_by_message.clear();
+        self.responses.clear();
         self.prose_rows.clear();
         rows
-    }
-
-    // The response under `message_id` streaming now, from 1; one whose `message_start` was missed
-    // is the first.
-    fn attempt_of(&self, message_id: &str) -> u64 {
-        self.attempt_by_message
-            .get(message_id)
-            .copied()
-            .unwrap_or(1)
     }
 
     // The rows of streamed pieces.
@@ -448,7 +498,7 @@ impl ClaudeStreamedBlocks {
             return;
         }
         // The cut-short response is the one under the id this `message_stop` closes.
-        let attempt = self.attempt_of(message_id);
+        let attempt = self.responses.attempt_of(message_id);
         let stored_block_count = abandoned
             .into_iter()
             .filter(|block_index| {
@@ -497,7 +547,9 @@ fn report(
     });
 }
 
-fn read_stream_event(frame: &str) -> Option<ClaudeStreamEvent> {
+/// What one `stream_event` frame says; `None` for an event no reader takes, or one naming no
+/// response.
+pub(crate) fn read_stream_event(frame: &str) -> Option<ClaudeStreamEvent> {
     let frame: StreamEventFrame = serde_json::from_str(frame).ok()?;
     let message_id = frame.api_message_id.filter(|id| !id.is_empty())?;
     let event = frame.event?;
@@ -508,7 +560,6 @@ fn read_stream_event(frame: &str) -> Option<ClaudeStreamEvent> {
             message_id,
             block_index: block_index?,
         }),
-        "content_block_stop" => Some(ClaudeStreamEvent::BlockStopped { message_id }),
         "content_block_delta" => {
             let delta = event.delta?;
             let (kind, piece) = match delta.delta_type.as_deref()? {
@@ -538,4 +589,156 @@ fn read_stream_event(frame: &str) -> Option<ClaudeStreamEvent> {
 // A whole, non-negative block index; a fraction or a negative number is none.
 fn read_block_index(value: &Value) -> Option<u64> {
     value.as_u64()
+}
+
+// A prose row with its block named under response `attempt`; any other row as it is.
+fn stamp_attempt(mut row: ClaudeMessageRow, attempt: u64) -> ClaudeMessageRow {
+    if let ClaudeMessageRowKind::Thinking { payload, .. }
+    | ClaudeMessageRowKind::Session {
+        row: LateAppendableRow::AgentMessageSent(payload),
+        ..
+    } = &mut row.row
+    {
+        payload.provider_block = payload
+            .provider_block
+            .and_then(|block| ProviderBlock::new(block.index.get(), attempt));
+    }
+    row
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use jiff::Timestamp;
+    use serde_json::{Value, json};
+    use sidekicks_contracts::event::declared_variants::ProviderBlock;
+    use sidekicks_contracts::provider::account::record::ProviderAccountId;
+    use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+    use sidekicks_contracts::run::id::RunId;
+    use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use tokio::time::Instant;
+
+    use super::{ClaudeStreamedBlocks, ClaudeStreamedPiece, ClaudeStreamedRun};
+    use crate::driver::claude::delivery::messages::{
+        ClaudeMessageBody, ClaudeMessageFrame, ClaudeMessageRow, ClaudeMessageRowKind,
+        read_claude_assistant_rows,
+    };
+    use crate::driver::claude::run::routes::ClaudeBoundRun;
+    use crate::driver::streamed_text::STREAMED_TEXT_PIECE_INTERVAL;
+    use crate::run::delivery::LateAppendableRow;
+
+    fn stream_event(event: &Value) -> String {
+        json!({"type": "stream_event", "api_message_id": "m1", "event": event}).to_string()
+    }
+
+    fn text_delta(index: u64, text: &str) -> String {
+        stream_event(&json!({
+            "type": "content_block_delta",
+            "index": index,
+            "delta": {"type": "text_delta", "text": text},
+        }))
+    }
+
+    // A reply row's block and text.
+    fn stamp(row: &ClaudeMessageRow) -> (Option<ProviderBlock>, &str) {
+        match &row.row {
+            ClaudeMessageRowKind::Session {
+                row: LateAppendableRow::AgentMessageSent(payload),
+                body: ClaudeMessageBody::Text(text),
+            } => (payload.provider_block, text.as_str()),
+            ClaudeMessageRowKind::Session { .. } | ClaudeMessageRowKind::Thinking { .. } => {
+                panic!("a text block's row is a reply")
+            }
+        }
+    }
+
+    // Each piece's block and text.
+    fn stamps(pieces: &[ClaudeStreamedPiece]) -> Vec<(Option<ProviderBlock>, &str)> {
+        pieces.iter().map(|piece| stamp(&piece.row)).collect()
+    }
+
+    fn block(index: u64, attempt: u64) -> Option<ProviderBlock> {
+        ProviderBlock::new(index, attempt)
+    }
+
+    // A frame after its block's stop finishes that block, a second response under one id is a
+    // new attempt, and a frame of no streamed block names the response streaming now.
+    #[test]
+    fn each_piece_names_its_own_block_and_response() {
+        let session_id =
+            SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
+        let run = ClaudeBoundRun {
+            run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
+            binding_id: RuntimeBindingId::new("binding".to_owned()).expect("a valid binding id"),
+        };
+        let streamed_run = ClaudeStreamedRun {
+            session_id,
+            run_id: run.run_id,
+        };
+        let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
+        let mut blocks = ClaudeStreamedBlocks::new();
+        let started = Instant::now();
+        let observe = |blocks: &mut ClaudeStreamedBlocks, frame: String| {
+            blocks.observe(&frame, streamed_run, &account, started);
+        };
+
+        observe(&mut blocks, stream_event(&json!({"type": "message_start"})));
+        observe(
+            &mut blocks,
+            stream_event(&json!({"type": "content_block_start", "index": 0})),
+        );
+        observe(&mut blocks, text_delta(0, "Hello"));
+        observe(
+            &mut blocks,
+            stream_event(&json!({"type": "content_block_start", "index": 2})),
+        );
+        observe(&mut blocks, text_delta(2, "World"));
+        let first_pieces = blocks.due(started + STREAMED_TEXT_PIECE_INTERVAL);
+        observe(
+            &mut blocks,
+            stream_event(&json!({"type": "content_block_stop", "index": 2})),
+        );
+        let finish = |blocks: &mut ClaudeStreamedBlocks, uuid: &str, text: &str| {
+            let frame = json!({
+                "type": "assistant",
+                "uuid": uuid,
+                "message": {"id": "m1", "content": [{"type": "text", "text": text}]},
+            });
+            let frame: ClaudeMessageFrame =
+                serde_json::from_str(&frame.to_string()).expect("the assistant frame reads");
+            let rows = read_claude_assistant_rows(
+                &frame,
+                session_id,
+                &run,
+                &mut HashMap::new(),
+                Timestamp::now(),
+            );
+            blocks.finish(&frame, rows, &account)
+        };
+        let (last_pieces, unstreamed) = finish(&mut blocks, "frame-2", "World!");
+        observe(&mut blocks, stream_event(&json!({"type": "message_start"})));
+        observe(
+            &mut blocks,
+            stream_event(&json!({"type": "content_block_start", "index": 0})),
+        );
+        observe(&mut blocks, text_delta(0, "Again"));
+        let retried_pieces = blocks.due(started + STREAMED_TEXT_PIECE_INTERVAL * 2);
+        observe(&mut blocks, stream_event(&json!({"type": "message_start"})));
+        let (whole_pieces, whole_rows) = finish(&mut blocks, "frame-3", "Whole.");
+
+        assert_eq!(
+            stamps(&first_pieces),
+            [(block(0, 1), "Hello"), (block(2, 1), "World")]
+        );
+        assert_eq!(stamps(&last_pieces), [(block(2, 1), "!")]);
+        assert!(unstreamed.is_empty());
+        assert_eq!(stamps(&retried_pieces), [(block(0, 2), "Again")]);
+        assert!(whole_pieces.is_empty());
+        assert_eq!(
+            whole_rows.iter().map(stamp).collect::<Vec<_>>(),
+            [(block(0, 3), "Whole.")]
+        );
+    }
 }

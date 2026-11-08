@@ -99,10 +99,13 @@ impl<'de> serde::de::Visitor<'de> for LenientVisitor<ClaudeMessageContent> {
         Ok(Some(ClaudeMessageContent::Text(text.to_owned())))
     }
 
+    // Each block read keeps its index in the list, which a block left out still counts.
     fn visit_seq<A: SeqAccess<'de>>(self, mut blocks: A) -> Result<Self::Value, A::Error> {
         let mut read = Vec::new();
+        let mut index = 0;
         while let Some(block) = blocks.next_element::<LenientElement<ClaudeContentBlock>>()? {
-            read.extend(block.0);
+            read.extend(block.0.map(|block| ClaudeContentBlock { index, ..block }));
+            index += 1;
         }
         Ok(Some(ClaudeMessageContent::Blocks(read)))
     }
@@ -132,9 +135,12 @@ struct ClaudeStopDetails {
     category: Option<String>,
 }
 
-// Every member a content block of either frame carries that a row reads.
+// Every member a content block of either frame carries that a row reads, and its index in the
+// message's content.
 #[derive(Deserialize)]
 struct ClaudeContentBlock {
+    #[serde(skip)]
+    index: usize,
     #[serde(rename = "type", default, deserialize_with = "read_lenient")]
     block_type: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
@@ -358,6 +364,18 @@ impl ClaudeMessageFrame {
         }
     }
 
+    /// The index in the message's content of its last non-empty text block.
+    pub(crate) fn last_text_index(&self) -> Option<usize> {
+        self.blocks()
+            .iter()
+            .rev()
+            .find(|block| {
+                block.block_type.as_deref() == Some("text")
+                    && block.text.as_ref().is_some_and(|text| !text.is_empty())
+            })
+            .map(|block| block.index)
+    }
+
     /// The refusal an `assistant` frame's message ends on (`stop_reason` `refusal`), with the
     /// model that refused and its check's category and explanation; Claude Code sends it whether
     /// or not a `model_refusal_no_fallback` frame follows.
@@ -409,8 +427,8 @@ impl ClaudeMessageFrame {
 /// The rows of one `assistant` frame of the lead on `run`: each thinking block's summary and each
 /// text block under the message's id, a fresh one where the frame names none, and each tool call
 /// as `agent.toolCall.invoked`, which opens the call in `open_tool_calls` on `run` at `now`. A
-/// summary or text names its block by its place in the frame on the message's first response; a
-/// streamed block's last piece takes the block the stream named.
+/// summary or text names its block by its index in the message's content on the message's first
+/// response; a streamed block's last piece takes the block the stream named.
 pub(crate) fn read_claude_assistant_rows(
     frame: &ClaudeMessageFrame,
     session_id: SessionId,
@@ -426,28 +444,29 @@ pub(crate) fn read_claude_assistant_rows(
         .unwrap_or_else(|| {
             EventText::new(mint_uuid_v7().to_string()).expect("a uuid is a field's text")
         });
-    let output_payload = |place: usize| RunAgentOutputPayload {
+    let output_payload = |index: usize| RunAgentOutputPayload {
         session_id,
         provider_message_id: provider_message_id.clone(),
         content_type: None,
         run_id,
-        provider_block: u64::try_from(place)
-            .ok()
-            .and_then(|index| claude_provider_block(index, 1)),
+        provider_block: Some(
+            ProviderBlock::new(SafeInt::from_usize(index).get(), 1)
+                .expect("a held block's index is a safe integer"),
+        ),
         origin: None,
         source_epoch: None,
         source_position: None,
         content_length: None,
         content_encoding: None,
     };
-    for (place, block) in frame.blocks().iter().enumerate() {
+    for block in frame.blocks() {
         let block_type = block.block_type.as_deref();
         // A redacted block carries no text, so it has no row.
         if block_type == Some("thinking")
             && let Some(thinking) = block.thinking.as_ref().filter(|text| !text.is_empty())
         {
             rows.push(unpaired(ClaudeMessageRowKind::Thinking {
-                payload: output_payload(place),
+                payload: output_payload(block.index),
                 content: thinking.clone(),
             }));
             continue;
@@ -456,7 +475,7 @@ pub(crate) fn read_claude_assistant_rows(
             && let Some(text) = block.text.as_ref().filter(|text| !text.is_empty())
         {
             rows.push(unpaired(ClaudeMessageRowKind::Session {
-                row: LateAppendableRow::AgentMessageSent(output_payload(place)),
+                row: LateAppendableRow::AgentMessageSent(output_payload(block.index)),
                 body: ClaudeMessageBody::Text(text.clone()),
             }));
             continue;
@@ -624,15 +643,6 @@ pub(crate) fn close_opened_call(
         ClaudeToolCallOutcome::Failed { end_cause } => {
             LateAppendableRow::AgentToolCallFailed(activity.into_failed(end_cause))
         }
-    })
-}
-
-/// The block `index` of the response `attempt` under a message's id; `None` where either lies
-/// outside a safe integer's range.
-pub(crate) fn claude_provider_block(index: u64, attempt: u64) -> Option<ProviderBlock> {
-    Some(ProviderBlock {
-        index: SafeInt::new(index)?,
-        attempt: SafeInt::new(attempt)?,
     })
 }
 

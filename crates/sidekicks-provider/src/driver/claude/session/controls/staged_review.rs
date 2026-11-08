@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use sidekicks_contracts::event::declared_variants::RunAgentOutputPayload;
+use sidekicks_contracts::event::declared_variants::{ProviderBlock, RunAgentOutputPayload};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
@@ -44,6 +44,7 @@ enum ClaudeStagedReviewEnd {
     Reported {
         text: String,
         provider_message_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+        provider_block: Option<ProviderBlock>,
     },
 }
 
@@ -140,8 +141,9 @@ impl ClaudeSessionControls {
             Ok(ClaudeStagedReviewEnd::Reported {
                 text,
                 provider_message_id,
+                provider_block,
             }) => {
-                self.deliver_report(live, &run, text, provider_message_id)
+                self.deliver_report(live, &run, text, provider_message_id, provider_block)
                     .await;
                 Some(RunStateReport::new(
                     run.run_id,
@@ -282,6 +284,7 @@ impl ClaudeSessionControls {
         Ok(ClaudeStagedReviewEnd::Reported {
             text: reply.text,
             provider_message_id,
+            provider_block: reply.provider_block,
         })
     }
 
@@ -309,13 +312,14 @@ impl ClaudeSessionControls {
         run: &ClaudeBoundRun,
         text: String,
         provider_message_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+        provider_block: Option<ProviderBlock>,
     ) {
         let payload = RunAgentOutputPayload {
             session_id: live.session_id,
             provider_message_id,
             content_type: None,
             run_id: run.run_id,
-            provider_block: None,
+            provider_block,
             origin: None,
             source_epoch: None,
             source_position: None,
