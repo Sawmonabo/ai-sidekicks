@@ -16,7 +16,7 @@ use sidekicks_std::missing_entry::{MissingEntry as _, is_missing_entry};
 use walkdir::WalkDir;
 
 use super::{
-    CopiedIndex, CopiedIndexCheck, Leveling, MirrorError, copy_when_changed, in_progress_path,
+    CopiedIndex, CopiedIndexCheck, LevelStop, Leveling, copy_when_changed, in_progress_path,
     is_in_progress_name, is_unchanged_copy, write_in_progress,
 };
 
@@ -64,11 +64,7 @@ impl Leveling<'_> {
     // skipped. A folder gone at a round's start, once its hold is taken, or when its objects' copy
     // ends has its copy removed. Each git folder nested among the files (a submodule's) is copied
     // after by a routine of its own.
-    pub(super) fn copy_git_folder(
-        &mut self,
-        folder: &Path,
-        copy: &Path,
-    ) -> Result<(), MirrorError> {
+    pub(super) fn copy_git_folder(&mut self, folder: &Path, copy: &Path) -> Result<(), LevelStop> {
         let mut nested = Vec::new();
         for round in 1..=ROUNDS {
             if !self.is_present(folder)? {
@@ -125,7 +121,7 @@ impl Leveling<'_> {
         copy: &Path,
         pointers: &[ListedEntry],
         staged: &[PathBuf],
-    ) -> Result<CopiedIndexCheck, MirrorError> {
+    ) -> Result<CopiedIndexCheck, LevelStop> {
         let again = self.list_tree_entries(folder, &[Path::new("")], &mut Vec::new())?;
         let compared = |entries: &'_ [ListedEntry]| -> Vec<&ListedEntry> {
             entries
@@ -160,17 +156,17 @@ impl Leveling<'_> {
             })
             .collect();
         let git_folders = self.git_folders;
-        git_folders.check_copied_indexes(
+        Ok(git_folders.check_copied_indexes(
             folder,
             &copy.join(OBJECTS_FOLDER_NAME),
             &indexes,
             self.stop,
-        )
+        )?)
     }
 
     // Removes the files `staged` left beside their copies under `copy`, so the copy stays as the
     // last run left it.
-    fn discard_staged(&self, copy: &Path, staged: &[PathBuf]) -> Result<(), MirrorError> {
+    fn discard_staged(&self, copy: &Path, staged: &[PathBuf]) -> Result<(), LevelStop> {
         for relative in staged {
             let in_progress = in_progress_path(&copy.join(relative));
             fs::remove_file(&in_progress)
@@ -181,7 +177,7 @@ impl Leveling<'_> {
     }
 
     // Whether `path` is there.
-    fn is_present(&self, path: &Path) -> Result<bool, MirrorError> {
+    fn is_present(&self, path: &Path) -> Result<bool, LevelStop> {
         Ok(fs::symlink_metadata(path)
             .none_if_missing()
             .map_err(|error| self.failed(path, error))?
@@ -189,7 +185,7 @@ impl Leveling<'_> {
     }
 
     // Removes `copy`, when it is there.
-    fn remove_copy(&mut self, copy: &Path) -> Result<(), MirrorError> {
+    fn remove_copy(&mut self, copy: &Path) -> Result<(), LevelStop> {
         let copy_metadata = fs::symlink_metadata(copy)
             .none_if_missing()
             .map_err(|error| self.failed(copy, error))?;
@@ -200,7 +196,7 @@ impl Leveling<'_> {
     }
 
     // Makes the folder `copy`, a file in its place removed first.
-    fn make_folder(&self, copy: &Path) -> Result<(), MirrorError> {
+    fn make_folder(&self, copy: &Path) -> Result<(), LevelStop> {
         let copy_metadata = fs::symlink_metadata(copy)
             .none_if_missing()
             .map_err(|error| self.failed(copy, error))?;
@@ -219,7 +215,7 @@ impl Leveling<'_> {
         folder: &Path,
         starts: &[&Path],
         nested: &mut Vec<PathBuf>,
-    ) -> Result<Vec<ListedEntry>, MirrorError> {
+    ) -> Result<Vec<ListedEntry>, LevelStop> {
         let mut entries = Vec::new();
         for start in starts {
             if start.as_os_str().is_empty() {
@@ -250,7 +246,7 @@ impl Leveling<'_> {
         relative: &Path,
         entries: &mut Vec<ListedEntry>,
         nested: &mut Vec<PathBuf>,
-    ) -> Result<(), MirrorError> {
+    ) -> Result<(), LevelStop> {
         self.check_stop()?;
         if relative.file_name().is_some_and(is_passed_over_name) {
             return Ok(());
@@ -284,7 +280,7 @@ impl Leveling<'_> {
 
     // The names in `folder` in order, a reftable stack's list after the tables it names; a folder
     // gone holds none.
-    fn read_names(&self, folder: &Path) -> Result<Vec<OsString>, MirrorError> {
+    fn read_names(&self, folder: &Path) -> Result<Vec<OsString>, LevelStop> {
         let mut names = Vec::new();
         let Some(listing) = fs::read_dir(folder)
             .none_if_missing()
@@ -313,7 +309,7 @@ impl Leveling<'_> {
         folder: &Path,
         copy: &Path,
         pointers: &[ListedEntry],
-    ) -> Result<Vec<PathBuf>, MirrorError> {
+    ) -> Result<Vec<PathBuf>, LevelStop> {
         let mut staged = Vec::new();
         for entry in pointers {
             self.check_stop()?;
@@ -349,7 +345,7 @@ impl Leveling<'_> {
     // and every other entry first and `pack` and `info` last, reading those two again, at most a
     // few times, whenever an entry listed there vanished before its copy, since a repack installs
     // a pack before it removes the ones it replaces. Answers every path listed.
-    fn copy_objects(&mut self, folder: &Path, copy: &Path) -> Result<Vec<PathBuf>, MirrorError> {
+    fn copy_objects(&mut self, folder: &Path, copy: &Path) -> Result<Vec<PathBuf>, LevelStop> {
         let objects = Path::new(OBJECTS_FOLDER_NAME);
         self.make_folder(&copy.join(objects))?;
         let mut listed = vec![objects.to_path_buf()];
@@ -387,7 +383,7 @@ impl Leveling<'_> {
         folder: &Path,
         copy: &Path,
         entries: &[ListedEntry],
-    ) -> Result<bool, MirrorError> {
+    ) -> Result<bool, LevelStop> {
         let mut has_vanished = false;
         for entry in entries {
             self.check_stop()?;
@@ -433,7 +429,7 @@ impl Leveling<'_> {
         source: &Path,
         target: &Path,
         written: io::Result<()>,
-    ) -> Result<bool, MirrorError> {
+    ) -> Result<bool, LevelStop> {
         match written {
             Ok(()) => Ok(true),
             Err(error) if self.is_present(source)? => Err(self.failed(target, error)),
@@ -443,7 +439,7 @@ impl Leveling<'_> {
 
     // Places each staged file of `staged` (paths under `copy`) over its copy, a reftable stack's
     // list last, so it never names a table not yet in place.
-    fn place_pointers(&self, copy: &Path, staged: &[PathBuf]) -> Result<(), MirrorError> {
+    fn place_pointers(&self, copy: &Path, staged: &[PathBuf]) -> Result<(), LevelStop> {
         let (lists, tables_and_others): (Vec<&PathBuf>, Vec<&PathBuf>) =
             staged.iter().partition(|relative| {
                 relative.file_name() == Some(OsStr::new(REFTABLE_LIST_FILE_NAME))
@@ -467,7 +463,7 @@ impl Leveling<'_> {
         pointers: &[ListedEntry],
         objects: &[PathBuf],
         nested: &[PathBuf],
-    ) -> Result<(), MirrorError> {
+    ) -> Result<(), LevelStop> {
         let pointer_paths: HashSet<&Path> = pointers
             .iter()
             .map(|entry| entry.relative.as_path())
@@ -487,14 +483,11 @@ impl Leveling<'_> {
         start: &Path,
         listed: &HashSet<&Path>,
         passed_over: &[&Path],
-    ) -> Result<(), MirrorError> {
+    ) -> Result<(), LevelStop> {
         let mut walk = WalkDir::new(start).min_depth(1).into_iter();
         while let Some(entry) = walk.next() {
             self.check_stop()?;
-            let entry = entry.map_err(|failure| MirrorError::Io {
-                path: failure.path().unwrap_or(start).to_path_buf(),
-                source: failure.into(),
-            })?;
+            let entry = entry.map_err(|failure| self.walk_failed(start, failure))?;
             let relative = entry
                 .path()
                 .strip_prefix(copy)

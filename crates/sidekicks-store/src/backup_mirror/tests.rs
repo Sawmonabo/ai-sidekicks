@@ -192,9 +192,12 @@ fn a_root_copied_from_another_folder_is_restored_to_its_own_place() {
 }
 
 // A root kept as it is while its folder is away keeps its copy, and is not swept as no longer
-// listed. Killed by a kept root leveled against its missing source, and by a kept root swept.
+// listed; one still copied from that folder, as a listing that found it just before the folder went
+// would give it, keeps its copy too and names the folder skipped. Killed by a kept root leveled
+// against its missing source, by a kept root swept, by a removal made without the folder's check
+// (the copy is emptied), and by the skip not named.
 #[test]
-fn a_kept_root_keeps_its_copy_while_its_source_is_away() {
+fn a_root_whose_other_folder_is_away_keeps_its_copy() {
     let scratch = tempfile::tempdir().expect("a scratch folder");
     let home = scratch.path().join("home");
     let place = home.join("data/restored-clones/s/v");
@@ -215,16 +218,26 @@ fn a_kept_root_keeps_its_copy_while_its_source_is_away() {
     .expect("the first run copies");
     fs::remove_dir_all(&volume_folder).expect("the volume folder is gone");
 
-    let second = mirror_roots(
+    let kept = mirror_roots(
         &mirror,
         &home,
-        &[root.kept_as_is()],
+        &[root.clone().kept_as_is()],
         &UnwrittenGitFolders,
         &stop,
     )
     .expect("the second run reads");
+    let away = mirror_roots(
+        &mirror,
+        &home,
+        &[root.copied_from(volume_folder.clone())],
+        &UnwrittenGitFolders,
+        &stop,
+    )
+    .expect("the third run reads");
 
-    assert_eq!(second, MirrorReport::default());
+    assert_eq!(kept, MirrorReport::default());
+    assert_eq!(away.skipped_folders, [volume_folder]);
+    assert_eq!(away.removed_entries, 0);
     assert_eq!(
         fs::read(mirror.join("restored-clones-s-v/clone")).expect("the copy is kept"),
         b"the clone"

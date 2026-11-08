@@ -11,7 +11,9 @@
 //! time reached the disk holds its bytes too; a leveling never copies such a name and removes every
 //! one it finds on the side it writes. Links
 //! are not followed and not copied. A run may take a root's copy from a folder other than its place,
-//! or keep the copy as the last run left it, while a restore always writes the copy to the place.
+//! or keep the copy as the last run left it, while a restore always writes the copy to the place;
+//! a folder other than the place that is gone while its root is copied, a drive unplugged, never
+//! empties the copy.
 //! Each git folder under a root is copied whole by one routine in both directions: the files that
 //! name its objects read first, its objects copied next, under the hold its writer gives it, the
 //! files that name them placed last, so a copy cut short holds refs over a superset of their
@@ -313,7 +315,9 @@ impl LiveGitFolders for UnwrittenGitFolders {
 /// copy's reach; one still changing then, or whose index git cannot read, keeps its last copy and
 /// is named in the report's skipped folders. Each root's copy is taken from its
 /// [`MirrorCopySource`]; a root kept as it is is still listed, so its copy is neither leveled nor
-/// deleted. Checks `stop` before each entry. Blocking, so it runs through `spawn_blocking`. Fails
+/// deleted, and a root copied from another folder that is gone when its copy starts, before a copy
+/// is removed or after a read fails keeps its copy as it stands and is named skipped. Checks `stop`
+/// before each entry. Blocking, so it runs through `spawn_blocking`. Fails
 /// with [`MirrorError::Stopped`] once `stop` fires, and with the first refused read, copy or
 /// removal.
 pub fn mirror_roots(
@@ -332,12 +336,12 @@ pub fn mirror_roots(
     let mut report = MirrorReport::default();
     for root in roots {
         let place;
-        let source = match &root.copy_source {
+        let (source, is_other_folder) = match &root.copy_source {
             MirrorCopySource::Place => {
                 place = root.place(home);
-                &place
+                (&place, false)
             }
-            MirrorCopySource::Folder(folder) => folder,
+            MirrorCopySource::Folder(folder) => (folder, true),
             MirrorCopySource::KeptAsIs => continue,
         };
         level_with_git_folders(
@@ -345,6 +349,7 @@ pub fn mirror_roots(
             &mirror_folder.join(&root.name),
             precision,
             git_folders,
+            is_other_folder,
             stop,
             &mut report,
         )?;
@@ -379,6 +384,7 @@ pub fn bring_level(
         copy,
         precision,
         &UnwrittenGitFolders,
+        false,
         stop,
         &mut report,
     )?;
@@ -386,34 +392,69 @@ pub fn bring_level(
 }
 
 // Brings `copy` level with `source`, each git folder under it held through `git_folders`, adding
-// what it did to `report`.
+// what it did to `report`. A source that `is_other_folder`, a root's copy taken from a folder
+// other than its place, that is gone when the leveling starts, before a copy is removed, or after
+// a read fails, as when its drive was unplugged, keeps the copy with what was copied so far,
+// removes nothing more and is named in the report's skipped folders.
 fn level_with_git_folders(
     source: &Path,
     copy: &Path,
     precision: Duration,
     git_folders: &dyn LiveGitFolders,
+    is_other_folder: bool,
     stop: &CancellationToken,
     report: &mut MirrorReport,
 ) -> Result<(), MirrorError> {
     let mut leveling = Leveling {
         precision,
         git_folders,
+        away_folder: is_other_folder.then_some(source),
         stop,
-        report,
+        report: &mut *report,
     };
-    leveling.copy_changed(source, copy)?;
-    leveling.remove_gone(source, copy)
+    match leveling.level(source, copy) {
+        Ok(()) => Ok(()),
+        Err(LevelStop::Failed(failure)) => Err(failure),
+        Err(LevelStop::Away) => {
+            report.skipped_folders.push(source.to_path_buf());
+            Ok(())
+        }
+    }
+}
+
+// Why a leveling ended before its end.
+enum LevelStop {
+    // The run's stop, or a step the file system refused.
+    Failed(MirrorError),
+    // The folder a root's copy is taken from is gone, so the copy is kept as it stands.
+    Away,
+}
+
+impl From<MirrorError> for LevelStop {
+    fn from(failure: MirrorError) -> Self {
+        Self::Failed(failure)
+    }
 }
 
 // One leveling's settings and the report it adds to.
 struct Leveling<'run> {
     precision: Duration,
     git_folders: &'run dyn LiveGitFolders,
+    // The folder a root's copy is taken from when it is not the root's place, whose absence keeps
+    // the copy as it stands.
+    away_folder: Option<&'run Path>,
     stop: &'run CancellationToken,
     report: &'run mut MirrorReport,
 }
 
 impl Leveling<'_> {
+    // Brings `copy` level with `source`.
+    fn level(&mut self, source: &Path, copy: &Path) -> Result<(), LevelStop> {
+        self.check_away()?;
+        self.copy_changed(source, copy)?;
+        self.remove_gone(source, copy)
+    }
+
     // Fails with `Stopped` once the stop fires.
     fn check_stop(&self) -> Result<(), MirrorError> {
         if self.stop.is_cancelled() {
@@ -422,16 +463,43 @@ impl Leveling<'_> {
         Ok(())
     }
 
-    // The failure `error` at `path`.
-    fn failed(&self, path: &Path, error: io::Error) -> MirrorError {
-        MirrorError::Io {
-            path: path.to_path_buf(),
-            source: error,
+    // Fails with `Away` when the folder the copy is taken from, other than the root's place, is
+    // gone.
+    fn check_away(&self) -> Result<(), LevelStop> {
+        let Some(folder) = self.away_folder else {
+            return Ok(());
+        };
+        match fs::symlink_metadata(folder) {
+            Ok(_) => Ok(()),
+            Err(error) if is_missing_entry(&error) => Err(LevelStop::Away),
+            Err(error) => Err(LevelStop::Failed(MirrorError::Io {
+                path: folder.to_path_buf(),
+                source: error,
+            })),
         }
     }
 
-    // Removes the copy at `path`, a folder with all it holds, and counts it.
-    fn remove(&mut self, path: &Path, is_folder: bool) -> Result<(), MirrorError> {
+    // The failure `error` at `path`, or `Away` when the folder the copy is taken from is gone.
+    fn failed(&self, path: &Path, error: io::Error) -> LevelStop {
+        match self.check_away() {
+            Ok(()) => LevelStop::Failed(MirrorError::Io {
+                path: path.to_path_buf(),
+                source: error,
+            }),
+            Err(stop) => stop,
+        }
+    }
+
+    // The failure a walk from `start` met.
+    fn walk_failed(&self, start: &Path, failure: walkdir::Error) -> LevelStop {
+        let path = failure.path().unwrap_or(start).to_path_buf();
+        self.failed(&path, failure.into())
+    }
+
+    // Removes the copy at `path`, a folder with all it holds, and counts it; nothing is removed
+    // once the folder the copy is taken from is gone.
+    fn remove(&mut self, path: &Path, is_folder: bool) -> Result<(), LevelStop> {
+        self.check_away()?;
         let removed = if is_folder {
             remove_tree(path)
         } else {
@@ -445,7 +513,7 @@ impl Leveling<'_> {
     // Copies each file under `source` whose copy under `copy_root` differs in size or in
     // modification time by the precision or more, each git folder by its own routine; a source
     // that is gone copies nothing.
-    fn copy_changed(&mut self, source: &Path, copy_root: &Path) -> Result<(), MirrorError> {
+    fn copy_changed(&mut self, source: &Path, copy_root: &Path) -> Result<(), LevelStop> {
         if fs::symlink_metadata(source)
             .none_if_missing()
             .map_err(|error| self.failed(source, error))?
@@ -456,10 +524,7 @@ impl Leveling<'_> {
         let mut walk = WalkDir::new(source).into_iter();
         while let Some(entry) = walk.next() {
             self.check_stop()?;
-            let entry = entry.map_err(|failure| MirrorError::Io {
-                path: failure.path().unwrap_or(source).to_path_buf(),
-                source: failure.into(),
-            })?;
+            let entry = entry.map_err(|failure| self.walk_failed(source, failure))?;
             let relative = entry
                 .path()
                 .strip_prefix(source)
@@ -493,10 +558,9 @@ impl Leveling<'_> {
             if !file_type.is_file() {
                 continue;
             }
-            let metadata = entry.metadata().map_err(|failure| MirrorError::Io {
-                path: entry.path().to_path_buf(),
-                source: failure.into(),
-            })?;
+            let metadata = entry
+                .metadata()
+                .map_err(|failure| self.failed(entry.path(), failure.into()))?;
             let is_copied = copy_when_changed(
                 entry.path(),
                 &metadata,
@@ -516,7 +580,7 @@ impl Leveling<'_> {
     // Deletes each copy under `copy_root` whose source under `source` is gone or is no longer of
     // its kind, and each copy on its way that a cut-short run left; a copy whose source is a git
     // folder was leveled whole by its routine.
-    fn remove_gone(&mut self, source: &Path, copy_root: &Path) -> Result<(), MirrorError> {
+    fn remove_gone(&mut self, source: &Path, copy_root: &Path) -> Result<(), LevelStop> {
         if fs::symlink_metadata(copy_root)
             .none_if_missing()
             .map_err(|error| self.failed(copy_root, error))?
@@ -527,10 +591,7 @@ impl Leveling<'_> {
         let mut walk = WalkDir::new(copy_root).into_iter();
         while let Some(entry) = walk.next() {
             self.check_stop()?;
-            let entry = entry.map_err(|failure| MirrorError::Io {
-                path: failure.path().unwrap_or(copy_root).to_path_buf(),
-                source: failure.into(),
-            })?;
+            let entry = entry.map_err(|failure| self.walk_failed(copy_root, failure))?;
             let relative = entry
                 .path()
                 .strip_prefix(copy_root)
