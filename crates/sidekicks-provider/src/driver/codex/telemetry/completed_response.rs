@@ -20,7 +20,7 @@ use crate::usage_delta_accountant::{MeteredUsageDelta, UsageAxisCounts, meter_fr
 pub(crate) mod tests;
 
 /// The name every server-sent event Codex logs carries, its completed responses among them.
-const SSE_EVENT_NAME: &str = "codex.sse_event";
+pub(crate) const SSE_EVENT_NAME: &str = "codex.sse_event";
 
 /// The event kind of a completed response.
 const RESPONSE_COMPLETED_KIND: &str = "response.completed";

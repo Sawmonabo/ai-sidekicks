@@ -14,43 +14,15 @@ use crate::driver::codex::app_server_protocol::{
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Codex's export reader places each request it prices through it"
-    )
-)]
 const THREAD_LIST_METHOD: &str = "thread/list";
 
 /// The threads one `thread/list` page asks for.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Codex's export reader places each request it prices through it"
-    )
-)]
 const THREAD_LIST_PAGE_LIMIT: u32 = 100;
 
 /// The most `thread/list` pages one walk reads before it gives the thread up as not listed.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Codex's export reader places each request it prices through it"
-    )
-)]
 const THREAD_LIST_MAX_PAGES: usize = 5;
 
 /// Every sub-agent source; Codex lists only interactive threads when the listing names none.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Codex's export reader places each request it prices through it"
-    )
-)]
 const SUB_AGENT_SOURCE_KINDS: [ThreadSourceKind; 5] = [
     ThreadSourceKind::SubAgent,
     ThreadSourceKind::SubAgentReview,
@@ -60,13 +32,6 @@ const SUB_AGENT_SOURCE_KINDS: [ThreadSourceKind; 5] = [
 ];
 
 /// Where a Codex thread sits relative to the threads sessions hold.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Codex's export reader places each request it prices through it"
-    )
-)]
 #[derive(Debug)]
 pub(crate) enum CodexThreadPlacement {
     /// A session holds the thread itself, so its stream prices it.
@@ -86,13 +51,6 @@ pub(crate) enum CodexThreadPlacement {
 }
 
 /// Why a walk found no held thread above a Codex thread.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Codex's export reader places each request it prices through it"
-    )
-)]
 #[derive(Debug)]
 pub(crate) enum CodexUnplacedThread {
     /// A thread on the way up was not in the listing before it ended or the page bound was
@@ -106,13 +64,6 @@ pub(crate) enum CodexUnplacedThread {
 
 // The members of a `thread/list` page the walk reads; an absent or empty `nextCursor` ends the
 // listing.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Codex's export reader places each request it prices through it"
-    )
-)]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ThreadListPage {
@@ -120,13 +71,6 @@ struct ThreadListPage {
     next_cursor: Option<String>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Codex's export reader places each request it prices through it"
-    )
-)]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ListedThread {
@@ -138,13 +82,6 @@ struct ListedThread {
 /// service, read from `thread/list` only when no session holds the thread itself. `session_of` is
 /// called between the walk's requests, never across one. Fails as a request fails, and with
 /// `CodexError::Transport` for a reply that is not a page.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Codex's export reader places each request it prices through it"
-    )
-)]
 pub(crate) async fn place_codex_thread(
     connection: &CodexAppServerConnection,
     thread_id: &str,
@@ -215,13 +152,6 @@ pub(crate) async fn place_codex_thread(
 
 // One page of every sub-agent thread on the service, the most recently updated first, from
 // `cursor`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Codex's export reader places each request it prices through it"
-    )
-)]
 async fn read_thread_list_page(
     connection: &CodexAppServerConnection,
     cursor: Option<String>,

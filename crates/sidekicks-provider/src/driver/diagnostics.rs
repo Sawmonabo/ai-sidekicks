@@ -149,9 +149,10 @@ pub enum DriverDiagnosticKind {
     /// A plan the provider proposed could not be recorded (no plan text, no plan record
     /// registered, or its record's write failed), so its request is refused; the reason says which.
     PlanNotRecorded,
-    /// A telemetry record read for price named no conversation or model, or carried a count or
-    /// word its reader cannot read, so it was refused whole; its details name the field, never its
-    /// value.
+    /// A telemetry record read for price named no conversation or model, carried a count or word
+    /// its reader cannot read, or could not be placed on a session, so it was refused whole; its
+    /// details name the field, or the thread a record could not be placed under, never a value read
+    /// from a count.
     TelemetryRecordRefused,
 }
 

@@ -259,15 +259,13 @@ impl CodexSessionIntake {
         self.record_usage(usage).await;
     }
 
-    // `held`'s spend, filed as its thread's owner on the turn held with it; `None` where the
+    // `held`'s spend, filed as its owner thread's on the turn held with it; `None` where the
     // stream stated it, so it is passed over, or where it has no binding to file on.
     fn price_held_response(&mut self, held: CodexHeldResponse) -> Option<MeteredUsage> {
         let CodexHeldResponse {
-            exported,
-            live_turn,
-            ..
+            exported, turn_id, ..
         } = held;
-        let response = exported.response;
+        let response = &exported.response;
         if self
             .routing
             .streamed_responses()
@@ -283,11 +281,11 @@ impl CodexSessionIntake {
             return None;
         };
         let mut delta = response.meter();
-        delta.attributed_turn_id = live_turn;
+        delta.attributed_turn_id = turn_id;
         let usage = attribute_codex_usage(
             &Self::routed_frames_intake(&self.parts),
             record,
-            &response.conversation_id,
+            exported.owner_thread(),
             delta,
         );
         response.log_read_for_price();
@@ -619,11 +617,10 @@ impl CodexSessionInboundHandler for CodexSessionIntake {
             {
                 return;
             }
-            let live_turn = self
-                .thread_turns
-                .live_turn(&response.conversation_id)
-                .map(str::to_owned);
-            if let Some(pushed_out) = self.held.hold(exported, live_turn) {
+            // A response placed below a held thread waits on that thread's live turn.
+            let turn_thread = exported.turn_thread().to_owned();
+            let turn_id = self.thread_turns.live_turn(&turn_thread).map(str::to_owned);
+            if let Some(pushed_out) = self.held.hold(exported, turn_id, Some(turn_thread)) {
                 tracing::info!(
                     conversation_id = pushed_out.exported.response.conversation_id.as_str(),
                     "a codex session's held responses are full; the oldest is decided now"

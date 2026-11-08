@@ -1,6 +1,6 @@
 //! The driver's register of its Codex launches' exports: the tag each launch carries, its export
-//! status, the reader that hands the receiver each export, and the drain that takes each completed
-//! response the reader handed off to the session holding its thread.
+//! status and placement state, the reader that hands the receiver each export, and the drain that
+//! takes each completed response the reader handed off to the session it belongs to.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -17,12 +17,15 @@ use tokio::sync::mpsc::error::TrySendError;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
+use sidekicks_contracts::session::id::SessionId;
+
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
 use crate::driver::codex::session::inbound::CodexSessionInbound;
 use crate::driver::codex::telemetry::completed_response::{
     CodexCompletedResponse, read_codex_completed_responses,
 };
 use crate::driver::codex::telemetry::held_responses::CodexExportedResponse;
+use crate::driver::codex::telemetry::placement::{CodexLaunchPlacement, place_off_stream};
 use crate::pricing::export_status::ExportStatusTracker;
 use crate::pricing::receiver::{TelemetryExport, TelemetryExportReader};
 
@@ -65,10 +68,11 @@ pub(crate) struct CodexExports {
     stop: CancellationToken,
 }
 
-// One completed response the reader handed off, with the service that ran it, since a relaunch
-// drops the tag it was read under.
+// One completed response the reader handed off, with the service that ran it and its launch's
+// placement state, since a relaunch drops the tag it was read under.
 struct CodexExportItem {
     service: Weak<CodexService>,
+    launch: Weak<Mutex<CodexLaunchPlacement>>,
     response: CodexCompletedResponse,
     arrived_at: Instant,
 }
@@ -86,12 +90,13 @@ struct CodexLaunchExports {
     by_tag: HashMap<u64, CodexLaunchExport>,
 }
 
-// One launch: the service it started, which a later launch of the same service replaces, and its
-// export status.
+// One launch: the service it started, which a later launch of the same service replaces, its
+// export status and where its off-stream threads were placed, which go with it.
 struct CodexLaunchExport {
     service_id: CodexServiceId,
     service: Weak<CodexService>,
     tracker: Arc<ExportStatusTracker>,
+    placement: Arc<Mutex<CodexLaunchPlacement>>,
 }
 
 impl CodexExports {
@@ -155,6 +160,7 @@ impl CodexExports {
                 service_id,
                 service: Arc::downgrade(service),
                 tracker,
+                placement: Arc::default(),
             },
         );
         drop(launches);
@@ -209,12 +215,15 @@ impl CodexExports {
         let launch = text
             .and_then(|text| text.parse::<u64>().ok())
             .and_then(|tag| {
-                lock(&self.launches)
-                    .by_tag
-                    .get(&tag)
-                    .map(|launch| (Arc::clone(&launch.tracker), Weak::clone(&launch.service)))
+                lock(&self.launches).by_tag.get(&tag).map(|launch| {
+                    (
+                        Arc::clone(&launch.tracker),
+                        Weak::clone(&launch.service),
+                        Arc::downgrade(&launch.placement),
+                    )
+                })
             });
-        let Some((tracker, service)) = launch else {
+        let Some((tracker, service, placement)) = launch else {
             tracing::info!(tag = ?text, "a codex export names no launch the daemon holds");
             return;
         };
@@ -237,6 +246,7 @@ impl CodexExports {
         {
             self.offer(CodexExportItem {
                 service: Weak::clone(&service),
+                launch: Weak::clone(&placement),
                 response,
                 arrived_at,
             });
@@ -288,17 +298,18 @@ impl CodexExportDrain {
             let Some(item) = item else {
                 return;
             };
-            deliver(item);
+            deliver(item).await;
         }
     }
 }
 
-// Pushes `item`'s response onto the queue of the session holding its thread on its service; a
-// response whose service is gone, whose thread no session holds or which no session took is
-// logged and dropped.
-fn deliver(item: CodexExportItem) {
+// Pushes `item`'s response onto the queue of the session holding its thread on its service, else
+// places it off the stream on its launch; a response whose service or launch is gone is logged
+// and dropped.
+async fn deliver(item: CodexExportItem) {
     let CodexExportItem {
         service,
+        launch,
         response,
         arrived_at,
     } = item;
@@ -309,19 +320,34 @@ fn deliver(item: CodexExportItem) {
         );
         return;
     };
-    let Some(session_id) = service.session_of_thread(&response.conversation_id) else {
+    if let Some(session_id) = service.session_of_thread(&response.conversation_id) {
+        let exported = CodexExportedResponse {
+            response,
+            arrived_at,
+            placed: None,
+        };
+        push_exported_response(&service, session_id, exported);
+        return;
+    }
+    let Some(launch) = launch.upgrade() else {
         tracing::info!(
             conversation_id = response.conversation_id.as_str(),
-            "no codex session holds a completed response's thread; it is dropped"
+            "a codex completed response's launch was replaced; it is dropped"
         );
         return;
     };
-    let conversation_id = response.conversation_id.clone();
-    let response = CodexExportedResponse {
-        response,
-        arrived_at,
-    };
-    if !service.push_session_item(&session_id, CodexSessionInbound::ExportedResponse(response)) {
+    place_off_stream(&service, &launch, response, arrived_at).await;
+}
+
+/// Pushes `exported` onto `session_id`'s queue on `service`; one no session took is logged and
+/// dropped.
+pub(crate) fn push_exported_response(
+    service: &CodexService,
+    session_id: SessionId,
+    exported: CodexExportedResponse,
+) {
+    let conversation_id = exported.response.conversation_id.clone();
+    if !service.push_session_item(&session_id, CodexSessionInbound::ExportedResponse(exported)) {
         tracing::info!(
             conversation_id = conversation_id.as_str(),
             %session_id,
