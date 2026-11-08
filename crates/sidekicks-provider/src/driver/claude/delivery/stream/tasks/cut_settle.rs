@@ -2,14 +2,11 @@
 //! closed stopped before the cut.
 
 use sidekicks_contracts::event::declared_variants::ToolCallEndCause;
-use sidekicks_contracts::session::id::SessionId;
 
 use super::rebuilt_opening;
-use crate::driver::claude::delivery::claude_delivery_origin;
 use crate::driver::claude::delivery::mcp_tasks::ClaudeHeldCallEnd;
 use crate::driver::claude::delivery::messages::ClaudeToolCallOutcome;
 use crate::driver::claude::delivery::stream::{ClaudeDeliveryStream, ClaudeSessionStream};
-use crate::driver::delivery_dispatch::dispatch_delivery;
 use crate::port::held_tool_calls::HeldToolCall;
 
 impl ClaudeDeliveryStream {
@@ -41,29 +38,5 @@ impl ClaudeDeliveryStream {
                 }
             })
             .collect()
-    }
-
-    /// Closes each of `session_id`'s cut held calls in `ends`, appended after its run on the
-    /// binding its opening names, one at a time in `ends`' order, so each close has landed, or its
-    /// refusal is logged as the dispatch logs it, when this answers.
-    pub(crate) async fn close_cut_held_calls(
-        &self,
-        session_id: SessionId,
-        ends: Vec<ClaudeHeldCallEnd>,
-    ) {
-        for end in ends {
-            let Some(close) = self.held_call_close(session_id, end) else {
-                continue;
-            };
-            // The close pairs with nothing, since the call's stand-in answered its opening, so it
-            // goes straight out rather than through the stream's reorder buffer.
-            let delivery = close.row.into_inbound(close.binding_id, None, close.body);
-            dispatch_delivery(
-                &*self.dependencies.dispatch,
-                claude_delivery_origin(None, None),
-                delivery,
-            )
-            .await;
-        }
     }
 }

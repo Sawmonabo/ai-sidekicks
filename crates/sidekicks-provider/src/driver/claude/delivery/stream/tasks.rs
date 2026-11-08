@@ -25,6 +25,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::text_cut::cut_to_code_points;
 
 use super::{ClaudeDeliveryStream, ClaudeSessionStream, report_engine_failure};
+use crate::driver::claude::delivery::claude_delivery_origin;
 use crate::driver::claude::delivery::commands::ClaudeTaskFrame;
 use crate::driver::claude::delivery::mcp_tasks::ClaudeHeldCallEnd;
 use crate::driver::claude::delivery::messages::{ClaudeOpenToolCall, close_opened_call};
@@ -34,6 +35,7 @@ use crate::driver::claude::frame_routing::ClaudeMeteredReading;
 use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::driver::claude::session::conversation_home::ClaudeConversationHomeKeep;
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
+use crate::driver::delivery_dispatch::dispatch_delivery;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::reorder_buffer::{ReorderBufferedEvent, ReorderPairingRole};
 use crate::port::held_tool_calls::HeldToolCall;
@@ -293,6 +295,32 @@ impl ClaudeDeliveryStream {
             })
             .collect();
         self.admit_rows(session, rows, wire).await;
+    }
+
+    /// Closes each of `session_id`'s held calls in `ends` straight out, past the reorder buffer,
+    /// one at a time in `ends`' order, each appended after its run on the binding its opening
+    /// names. This is the close for a call no stream frame carries: an undo's cut call, or a held
+    /// call of a session no process runs; each close has landed, or its refusal is logged as the
+    /// dispatch logs it, when this answers.
+    pub(crate) async fn close_held_calls_directly(
+        &self,
+        session_id: SessionId,
+        ends: Vec<ClaudeHeldCallEnd>,
+    ) {
+        for end in ends {
+            let Some(close) = self.held_call_close(session_id, end) else {
+                continue;
+            };
+            // The close pairs with nothing, since the call's stand-in answered its opening, and no
+            // account is at hand; a refusal's diagnostic names the binding.
+            let delivery = close.row.into_inbound(close.binding_id, None, close.body);
+            dispatch_delivery(
+                &*self.dependencies.dispatch,
+                claude_delivery_origin(None, None),
+                delivery,
+            )
+            .await;
+        }
     }
 
     // The close of `session_id`'s held call `end`, on the run its opening recorded and that run's

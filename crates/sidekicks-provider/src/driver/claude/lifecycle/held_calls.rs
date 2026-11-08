@@ -120,7 +120,7 @@ impl ClaudeDriver {
             .establishment
             .task_services
             .delivery
-            .close_cut_held_calls(session_id, ends)
+            .close_held_calls_directly(session_id, ends)
             .await;
         Ok(())
     }
