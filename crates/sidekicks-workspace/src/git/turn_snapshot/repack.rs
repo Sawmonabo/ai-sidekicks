@@ -52,6 +52,11 @@ const FOLD_PACK_THRESHOLD: u64 = 10;
 /// capture's pack into several.
 const PACK_SIZE_LIMIT_PIN: [&str; 2] = ["-c", "pack.packSizeLimit=0"];
 
+/// Keeps `pack-objects` off its path walk, which a `feature.experimental` or `feature.manyFiles`
+/// setting turns on and which loses objects in a capture folder's packs; a git without the
+/// setting takes it silently.
+const PATH_WALK_PIN: [&str; 2] = ["-c", "pack.usePathWalk=false"];
+
 /// How long one fold may run, past the runner's bound for other calls, since its work grows with
 /// every pack the folder holds.
 const FOLD_TIMEOUT: Duration = Duration::from_mins(10);
@@ -346,7 +351,7 @@ impl CapturePacking {
         // `--incremental` or `--thin`, which leave borrowed objects out.
         let mut arguments = in_git_folder(
             folder,
-            &[&CORE_FSYNC_PIN, &PACK_SIZE_LIMIT_PIN],
+            &[&CORE_FSYNC_PIN, &PACK_SIZE_LIMIT_PIN, &PATH_WALK_PIN],
             &["pack-objects", "-q", "--revs", "--non-empty"],
         );
         arguments.push(pack_base.into_os_string());
@@ -461,7 +466,7 @@ impl CapturePacking {
         // `-a`, `-A` or `-m`, which fail on a folder whose objects are borrowed.
         let arguments = in_git_folder(
             folder,
-            &[&CORE_FSYNC_PIN, &PACK_SIZE_LIMIT_PIN],
+            &[&CORE_FSYNC_PIN, &PACK_SIZE_LIMIT_PIN, &PATH_WALK_PIN],
             &[
                 "repack",
                 "--geometric=2",
