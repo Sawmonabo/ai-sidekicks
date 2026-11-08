@@ -11,7 +11,7 @@ use serde::de::{IgnoredAny, SeqAccess};
 use serde::{Deserialize, Deserializer};
 use serde_json::value::RawValue;
 use sidekicks_contracts::event::declared_variants::{
-    RunAgentOutputPayload, ToolActivityPayload, ToolCallEndCause,
+    ProviderBlock, RunAgentOutputPayload, ToolActivityPayload, ToolCallEndCause,
 };
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
@@ -407,7 +407,9 @@ impl ClaudeMessageFrame {
 
 /// The rows of one `assistant` frame of the lead on `run`: each thinking block's summary and each
 /// text block under the message's id, a fresh one where the frame names none, and each tool call
-/// as `agent.toolCall.invoked`, which opens the call in `open_tool_calls` on `run` at `now`.
+/// as `agent.toolCall.invoked`, which opens the call in `open_tool_calls` on `run` at `now`. A
+/// summary or text names its block by its place in the frame on the message's first response; a
+/// streamed block's last piece takes the block the stream named.
 pub(crate) fn read_claude_assistant_rows(
     frame: &ClaudeMessageFrame,
     session_id: SessionId,
@@ -423,26 +425,28 @@ pub(crate) fn read_claude_assistant_rows(
         .unwrap_or_else(|| {
             EventText::new(mint_uuid_v7().to_string()).expect("a uuid is a field's text")
         });
-    let output_payload = || RunAgentOutputPayload {
+    let output_payload = |place: usize| RunAgentOutputPayload {
         session_id,
         provider_message_id: provider_message_id.clone(),
         content_type: None,
         run_id,
-        provider_block: None,
+        provider_block: u64::try_from(place)
+            .ok()
+            .and_then(|index| claude_provider_block(index, 1)),
         origin: None,
         source_epoch: None,
         source_position: None,
         content_length: None,
         content_encoding: None,
     };
-    for block in frame.blocks() {
+    for (place, block) in frame.blocks().iter().enumerate() {
         let block_type = block.block_type.as_deref();
         // A redacted block carries no text, so it has no row.
         if block_type == Some("thinking")
             && let Some(thinking) = block.thinking.as_ref().filter(|text| !text.is_empty())
         {
             rows.push(unpaired(ClaudeMessageRowKind::Thinking {
-                payload: output_payload(),
+                payload: output_payload(place),
                 content: thinking.clone(),
             }));
             continue;
@@ -451,7 +455,7 @@ pub(crate) fn read_claude_assistant_rows(
             && let Some(text) = block.text.as_ref().filter(|text| !text.is_empty())
         {
             rows.push(unpaired(ClaudeMessageRowKind::Session {
-                row: LateAppendableRow::AgentMessageSent(output_payload()),
+                row: LateAppendableRow::AgentMessageSent(output_payload(place)),
                 body: ClaudeMessageBody::Text(text.clone()),
             }));
             continue;
@@ -614,6 +618,15 @@ pub(crate) fn close_opened_call(
         ClaudeToolCallOutcome::Failed { end_cause } => {
             LateAppendableRow::AgentToolCallFailed(activity.into_failed(end_cause))
         }
+    })
+}
+
+/// The block `index` of the response `attempt` under a message's id; `None` where either lies
+/// outside a safe integer's range.
+pub(crate) fn claude_provider_block(index: u64, attempt: u64) -> Option<ProviderBlock> {
+    Some(ProviderBlock {
+        index: SafeInt::new(index)?,
+        attempt: SafeInt::new(attempt)?,
     })
 }
 

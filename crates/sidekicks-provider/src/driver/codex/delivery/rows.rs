@@ -5,7 +5,9 @@
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::agent::definition::AgentId;
-use sidekicks_contracts::event::declared_variants::{RunAgentOutputPayload, ToolActivityPayload};
+use sidekicks_contracts::event::declared_variants::{
+    ProviderBlock, RunAgentOutputPayload, ToolActivityPayload,
+};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -294,7 +296,11 @@ pub(crate) fn compose_codex_prose_piece(
         content_length: None,
         content_encoding: None,
         run_id: run.run_id,
-        provider_block: None,
+        // An item is a message of one block, so its id alone names the block.
+        provider_block: Some(ProviderBlock {
+            index: SafeInt::new(0)?,
+            attempt: SafeInt::new(1)?,
+        }),
         origin: None,
         source_epoch: None,
         source_position: None,
