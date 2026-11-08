@@ -50,7 +50,8 @@ impl CodexServiceRecovery {
 
     /// Restarts `service` as [`Self::restart_service`] does on the driver's tasks, without waiting
     /// for it: a request while an earlier one has not ended joins that one, so one restart runs at
-    /// a time per service, and a failure no caller waits for is reported.
+    /// a time per service, and a joined `change` runs once more after it. A failure no caller
+    /// waits for is reported.
     pub(crate) fn request_restart(
         self: &Arc<Self>,
         service: &Arc<CodexService>,
@@ -60,7 +61,8 @@ impl CodexServiceRecovery {
     }
 
     /// Restarts `service` as [`Self::request_restart`] does and answers once the restart it began
-    /// or joined has ended. Fails as that restart fails, read as a start's failure is.
+    /// or joined has ended, with the one a joined change runs. Fails as the last of them fails,
+    /// read as a start's failure is.
     pub(crate) fn restart_and_wait(
         self: &Arc<Self>,
         service: &Arc<CodexService>,
@@ -85,8 +87,9 @@ impl CodexServiceRecovery {
         self.lock().restarting.contains_key(&service_id)
     }
 
-    // Marks `service` restarting and spawns its restart, or joins the restart under way; `ended`,
-    // when given, is told how the restart ended.
+    // Marks `service` restarting and spawns its restart, or joins the restart under way, `change`
+    // kept for one more restart after it, the latest replacing an earlier one; `ended`, when given,
+    // is told how the last restart ended.
     fn enter_restart(
         self: &Arc<Self>,
         service: &Arc<CodexService>,
@@ -96,11 +99,16 @@ impl CodexServiceRecovery {
         let mut state = self.lock();
         match state.restarting.entry(service.id()) {
             Entry::Occupied(mut under_way) => {
-                under_way.get_mut().waiters.extend(ended);
+                let under_way = under_way.get_mut();
+                under_way.waiters.extend(ended);
+                if change.is_some() {
+                    under_way.joined_change = change;
+                }
                 return;
             }
             Entry::Vacant(slot) => {
                 slot.insert(ServiceRestart {
+                    joined_change: None,
                     waiters: ended.into_iter().collect(),
                 });
             }
@@ -109,16 +117,25 @@ impl CodexServiceRecovery {
         let recovery = Arc::clone(self);
         let service = Arc::clone(service);
         self.dependencies.tasks.spawn(async move {
-            let restarted = recovery
-                .restart_service(&service, change)
-                .await
-                .map_err(Arc::new);
-            let waiters = recovery
-                .lock()
-                .restarting
-                .remove(&service.id())
-                .unwrap_or_default()
-                .waiters;
+            let mut change = change;
+            let (restarted, waiters) = loop {
+                let restarted = recovery
+                    .restart_service(&service, change)
+                    .await
+                    .map_err(Arc::new);
+                // Taken and cleared in one step, so a request between the two is never lost.
+                let mut state = recovery.lock();
+                let mut restart = state.restarting.remove(&service.id()).unwrap_or_default();
+                let Some(joined) = restart.joined_change.take() else {
+                    break (restarted, restart.waiters);
+                };
+                state.restarting.insert(service.id(), restart);
+                drop(state);
+                if let Err(error) = &restarted {
+                    report_restart_failed(&service, error);
+                }
+                change = Some(joined);
+            };
             let heard = waiters
                 .into_iter()
                 .filter(|waiter| waiter.send(restarted.clone()).is_ok())
@@ -387,7 +404,10 @@ type RestartEnded = oneshot::Sender<Result<(), Arc<CodexError>>>;
 /// A restart begun on a service that has not ended, with the callers waiting for its end.
 #[derive(Default)]
 pub(super) struct ServiceRestart {
-    /// Each told how the restart ended.
+    /// The build change a request brought while the restart ran, run in one more restart once it
+    /// ends.
+    joined_change: Option<ProviderBuildChange>,
+    /// Each told how the last restart ended.
     waiters: Vec<RestartEnded>,
 }
 

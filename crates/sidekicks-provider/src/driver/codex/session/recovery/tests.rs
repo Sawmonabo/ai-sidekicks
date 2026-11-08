@@ -37,6 +37,7 @@ use crate::runtime_binding::resume::ResumeFunctionLegs;
 
 mod bound_helpers;
 mod held_lead;
+mod joined_restart;
 
 // What the stand-ins for the reviewer denials and the queue heard, in order, each with the turn
 // ends the run engine took before it, and what held each gone session's slot as the queue heard.
