@@ -24,7 +24,7 @@ use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::events::session::appender::SessionEventDraft;
-use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGateError};
+use sidekicks_workspace::run_setup_gates::{ParentRun, RunSetupContext, RunSetupGateError};
 
 use crate::agent_tree::projection::{ProviderChildNodeWrite, provider_child_node_statement};
 use crate::agent_tree::store::{find_node, mint_child_handle};
@@ -195,7 +195,10 @@ impl RunEngine {
                 session_id,
                 opening_words: None,
                 workspace_id: None,
-                started_in_workspace_id: parent_workspace_id,
+                parent_run: Some(ParentRun {
+                    run_id: parent_run_id,
+                    workspace_id: parent_workspace_id,
+                }),
                 execution_posture,
             })
             .await;
@@ -316,7 +319,7 @@ impl RunEngine {
                     workspace_id: None,
                     // A continue is a run boundary in the session's process, which follows the
                     // session's current workspace, not the one the interrupted turn was bound in.
-                    started_in_workspace_id: None,
+                    parent_run: None,
                     execution_posture,
                 })
                 .await

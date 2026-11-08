@@ -242,18 +242,23 @@ async fn a_subagent_runs_at_the_posture_its_session_moved_to_since_its_parent_st
     );
 }
 
-// A gate that records the workspace each run it checks was started in, and passes it.
+// A gate that records the parent run and its workspace each run it checks was started beneath,
+// and passes it.
 #[derive(Default)]
-struct StartedInGate {
-    started_in: Mutex<Vec<Option<WorkspaceId>>>,
+struct ParentRunGate {
+    parents: Mutex<Vec<Option<(RunId, Option<WorkspaceId>)>>>,
 }
 
-impl RunSetupGate for StartedInGate {
+impl RunSetupGate for ParentRunGate {
     fn assert_run_ready<'a>(
         &'a self,
         context: &'a RunSetupContext,
     ) -> BoxFuture<'a, Result<(), RunSetupGateError>> {
-        lock(&self.started_in).push(context.started_in_workspace_id);
+        lock(&self.parents).push(
+            context
+                .parent_run
+                .map(|parent| (parent.run_id, parent.workspace_id)),
+        );
         Box::pin(std::future::ready(Ok(())))
     }
 }
@@ -278,9 +283,10 @@ fn bind_run_in_new_workspace(database: &TestDatabase, run_id: RunId) -> Workspac
     workspace_id
 }
 
-// A helper is gated in its parent's workspace, never left for the execution-root gate to place in
-// the session's newest, and a continue on its provider's turn in the session's current one. Killed
-// by the helper's start handing its gates no workspace, and by the continue handing its run's own.
+// A helper is gated beside its own parent run in that run's workspace, never left for the
+// execution-root gate to place in the session's newest, and a continue on its provider's turn in
+// the session's current one. Killed by the helper's start handing its gates no parent or no
+// workspace, and by the continue handing a parent of its own.
 #[tokio::test]
 async fn a_helper_is_gated_in_its_parents_workspace_and_a_continue_in_the_sessions() {
     let database = TestDatabase::new(subagent_schema_parts());
@@ -288,7 +294,7 @@ async fn a_helper_is_gated_in_its_parents_workspace_and_a_continue_in_the_sessio
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let git_folder = home.path().join("repo.git");
     std::fs::create_dir(&git_folder).expect("the git folder is made");
-    let gate = Arc::new(StartedInGate::default());
+    let gate = Arc::new(ParentRunGate::default());
     let engine = test_engine_with(
         &database,
         log.service,
@@ -317,9 +323,9 @@ async fn a_helper_is_gated_in_its_parents_workspace_and_a_continue_in_the_sessio
         .expect("the continue is written");
 
     assert_eq!(
-        *lock(&gate.started_in),
-        [None, Some(parent_workspace), None],
-        "the parent's send named none, the helper names its parent's, and the continue none"
+        *lock(&gate.parents),
+        [None, Some((parent, Some(parent_workspace))), None],
+        "the parent's send has no parent, the helper its own with its workspace, a continue none"
     );
 }
 

@@ -38,7 +38,7 @@ use crate::repo::mount::reattach::{
 };
 use crate::repo::root_resolver::RepoRootResolver;
 use crate::run_setup_gates::{
-    RunSetupContext, RunSetupGate, RunSetupGateError, RunTerminalContext,
+    ParentRun, RunSetupContext, RunSetupGate, RunSetupGateError, RunTerminalContext,
 };
 use crate::test_rows::PARENT_ROWS_AT;
 
@@ -47,6 +47,9 @@ const RUNNING_AGENT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4ea1";
 
 // Far past any git call these tests make, so only a binding waiting on its own hold reaches it.
 const DEADLOCK_BOUND: Duration = Duration::from_secs(60);
+
+// When another of the session's runs bound itself after a helper's parent.
+const SIBLING_BOUND_AT: &str = "2026-10-14T09:31:00.000Z";
 
 /// Answers every run's agent; no test here re-attaches, so it is never asked.
 struct AnyRunAgent;
@@ -206,7 +209,10 @@ impl GateFixture {
 
     /// Writes a live context for a parent run of the session, bound in `workspace_id` at `root`
     /// with the stored workspace's branch context.
-    fn bind_parent_run(&self, workspace_id: WorkspaceId, root: &Path) {
+    // Writes a live context of a new run of the session at `root` in `workspace_id`, bound at
+    // `bound_at`, and answers the run.
+    fn bind_parent_run(&self, workspace_id: WorkspaceId, root: &Path, bound_at: &str) -> RunId {
+        let run_id = test_run_id();
         let root = root.to_string_lossy();
         self.roots
             .rows
@@ -216,15 +222,16 @@ impl GateFixture {
                  branch_context_id, created_at) VALUES (?1, ?2, ?3, 'boundRoot', ?4, ?4, ?5, \
                  'branch-context', ?6)",
                 params![
-                    test_run_id().text().as_str(),
+                    run_id.text().as_str(),
                     SESSION_ID,
                     workspace_id.text().as_str(),
                     root,
                     self.roots.repository.join(".git").to_string_lossy(),
-                    PARENT_ROWS_AT
+                    bound_at
                 ],
             )
             .expect("the parent's context is written");
+        run_id
     }
 
     fn text(&self, sql: &str) -> Option<String> {
@@ -241,10 +248,10 @@ impl GateFixture {
     }
 }
 
-/// Which of the run's two names carries the workspace it was started in.
+/// Which of the run's two names carries its workspace.
 #[derive(Clone, Copy, Debug)]
 enum WorkspaceNaming {
-    /// The provider started it in its parent's workspace.
+    /// The provider started it beneath a parent run in that run's workspace.
     StartedIn,
     /// The person's send named it.
     Send,
@@ -260,7 +267,7 @@ fn run_context(run_id: RunId, workspace_id: Option<WorkspaceId>) -> RunSetupCont
         session_id: session_id(),
         opening_words: None,
         workspace_id,
-        started_in_workspace_id: None,
+        parent_run: None,
         execution_posture: serde_json::from_value(json!({
             "mode": "yolo",
             "credentialPolicyRef": "curated-credentials",
@@ -415,7 +422,8 @@ async fn a_run_naming_an_older_workspace_is_placed_there_not_in_the_newest(
     #[case] naming: WorkspaceNaming,
 ) {
     // Catches the session's newest workspace taken for a run that names another: a helper would
-    // leave its parent's process folder, and a send the workspace it named.
+    // leave its parent's process folder, and a send the workspace it named. A helper copying the
+    // newest live context in its parent's workspace, not its own parent's, binds a sibling's root.
     let fixture = GateFixture::new().await;
     let newest = fixture.bind(ExecutionMode::BoundRoot).await;
     let parent_folder = fixture.roots.add_tree("parent-folder").await;
@@ -424,8 +432,13 @@ async fn a_run_naming_an_older_workspace_is_placed_there_not_in_the_newest(
     let mut context = run_context(run_id, None);
     match naming {
         WorkspaceNaming::StartedIn => {
-            fixture.bind_parent_run(older, &parent_folder);
-            context.started_in_workspace_id = Some(older);
+            let parent = fixture.bind_parent_run(older, &parent_folder, PARENT_ROWS_AT);
+            let sibling_folder = fixture.roots.add_tree("sibling-folder").await;
+            fixture.bind_parent_run(older, &sibling_folder, SIBLING_BOUND_AT);
+            context.parent_run = Some(ParentRun {
+                run_id: parent,
+                workspace_id: Some(older),
+            });
         }
         WorkspaceNaming::Send => context.workspace_id = Some(older),
     }
@@ -466,7 +479,12 @@ async fn a_run_naming_a_workspace_the_session_does_not_hold_is_refused_not_found
     let absent = WorkspaceId::new(OTHER_WORKSPACE_ID).expect("the id is a UUID");
     let mut context = run_context(run_id, None);
     match naming {
-        WorkspaceNaming::StartedIn => context.started_in_workspace_id = Some(absent),
+        WorkspaceNaming::StartedIn => {
+            context.parent_run = Some(ParentRun {
+                run_id: test_run_id(),
+                workspace_id: Some(absent),
+            });
+        }
         WorkspaceNaming::Send => context.workspace_id = Some(absent),
     }
 
@@ -499,7 +517,10 @@ async fn a_helper_binds_at_its_parents_root_leaving_the_held_move_for_the_parent
     *lock(&fixture.moves.pending) = Some(person_tree.clone());
     let helper = test_run_id();
     let mut context = run_context(helper, None);
-    context.started_in_workspace_id = Some(workspace_id);
+    context.parent_run = Some(ParentRun {
+        run_id: parent,
+        workspace_id: Some(workspace_id),
+    });
 
     fixture
         .assert_ready(&context)
