@@ -27,7 +27,7 @@ use crate::pricing::export_status::ExportStatusTracker;
 use crate::pricing::receiver::{TelemetryExport, TelemetryExportReader};
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 /// Codex's log batch interval: the SDK's default `OTEL_BLRP_SCHEDULE_DELAY`, which the launch's
 /// withhold keeps the person's own value from changing.
@@ -112,6 +112,12 @@ impl CodexExports {
             })),
             stop,
         }
+    }
+
+    /// The scheduler the launches' export checks run on, which a test counts them on.
+    #[cfg(test)]
+    pub(crate) fn scheduler(&self) -> &Scheduler {
+        &self.scheduler
     }
 
     /// The hand-off's drain, which the first call takes and every later one answers `None`.

@@ -4,7 +4,7 @@ use std::time::Duration;
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use opentelemetry_proto::tonic::common::v1::any_value::Value;
 use opentelemetry_proto::tonic::common::v1::{AnyValue, KeyValue};
-use opentelemetry_proto::tonic::logs::v1::ResourceLogs;
+use opentelemetry_proto::tonic::logs::v1::{LogRecord, ResourceLogs, ScopeLogs};
 use opentelemetry_proto::tonic::resource::v1::Resource;
 use serde_json::json;
 use serde_json::value::to_raw_value;
@@ -24,8 +24,8 @@ use crate::pricing::receiver::{TelemetryExport, TelemetryExportReader as _};
 
 const THREAD: &str = "thread-1";
 
-// How many export checks the scheduler holds.
-fn export_checks(scheduler: &Scheduler) -> usize {
+/// How many export checks `scheduler` holds.
+pub(crate) fn export_checks(scheduler: &Scheduler) -> usize {
     scheduler
         .waiting_job_names()
         .into_iter()
@@ -60,8 +60,9 @@ fn settle_turn(
     exports.turn_settled(service_id, settled.made_request, settled.started_at);
 }
 
-// A log export whose one resource carries `tag`, as Codex's SDK reads it from the launch.
-fn export_tagged(tag: &CodexExportTag) -> TelemetryExport {
+/// A log export whose one resource carries `tag`, as Codex's SDK reads it from the launch, and
+/// holds `records`.
+pub(crate) fn export_tagged(tag: &CodexExportTag, records: Vec<LogRecord>) -> TelemetryExport {
     let attributes = tag.resource_attributes();
     let (key, value) = attributes.split_once('=').expect("the tag is a pair");
     TelemetryExport::Logs(ExportLogsServiceRequest {
@@ -76,6 +77,10 @@ fn export_tagged(tag: &CodexExportTag) -> TelemetryExport {
                 }],
                 ..Default::default()
             }),
+            scope_logs: vec![ScopeLogs {
+                log_records: records,
+                ..Default::default()
+            }],
             ..Default::default()
         }],
     })
@@ -108,7 +113,9 @@ async fn a_launch_holds_one_export_check_only_while_request_turns_wait_for_an_ex
     settle_turn(&mut turns, &exports, service_id, "turn-3", true);
     assert_eq!(export_checks(&scheduler), 1);
 
-    exports.read_telemetry_export(export_tagged(&tag)).await;
+    exports
+        .read_telemetry_export(export_tagged(&tag, Vec::new()))
+        .await;
     assert_eq!(export_checks(&scheduler), 0);
 
     // A turn begun after the export, so the export does not count for it.

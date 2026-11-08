@@ -11,6 +11,19 @@ use crate::usage_delta_accountant::UsageAxisCounts;
 
 const REFUSED_COUNTER: &str = "driver.telemetry.recordRefused";
 
+/// The thread this file's records are on.
+const THREAD: &str = "thread-r";
+
+/// The counts this file's completed response carries.
+const COUNTS: UsageAxisCounts = UsageAxisCounts {
+    input: Some(1000),
+    cached_input: Some(200),
+    cache_write_input: Some(50),
+    output: Some(100),
+    reasoning_output: Some(30),
+    total: Some(1100),
+};
+
 fn attribute(key: &str, value: Value) -> KeyValue {
     KeyValue {
         key: key.to_owned(),
@@ -23,9 +36,9 @@ fn text(key: &str, value: &str) -> KeyValue {
     attribute(key, Value::StringValue(value.to_owned()))
 }
 
-// A record as Codex's log bridge sends it: tracing's call-site name in `event_name`, the event's
-// own name among the attributes.
-fn codex_record(attributes: Vec<KeyValue>) -> LogRecord {
+/// A record as Codex's log bridge sends it: tracing's call-site name in `event_name`, the event's
+/// own name among the attributes.
+pub(crate) fn codex_record(attributes: Vec<KeyValue>) -> LogRecord {
     LogRecord {
         event_name: "event core/src/client.rs:2753".to_owned(),
         attributes,
@@ -33,9 +46,10 @@ fn codex_record(attributes: Vec<KeyValue>) -> LogRecord {
     }
 }
 
-fn shared_attributes() -> Vec<KeyValue> {
+// The attributes every record of Codex's on `thread_id` carries, the person's identity among them.
+fn shared_attributes(thread_id: &str) -> Vec<KeyValue> {
     vec![
-        text("conversation.id", "thread-r"),
+        text("conversation.id", thread_id),
         text("model", "gpt-5.6-luna"),
         text("user.email", "person-email-value"),
         text("user.account_id", "account-id-value"),
@@ -45,19 +59,39 @@ fn shared_attributes() -> Vec<KeyValue> {
     ]
 }
 
-fn completed_response_attributes() -> Vec<KeyValue> {
+/// The attributes of a completed response on `thread_id` carrying `counts`, as Codex logs them:
+/// input, output and total as digit strings, the rest as integers, an absent count left out.
+pub(crate) fn completed_response_attributes(
+    thread_id: &str,
+    counts: &UsageAxisCounts,
+) -> Vec<KeyValue> {
     let mut attributes = vec![
         text("event.name", "codex.sse_event"),
         text("event.kind", "response.completed"),
         text("service_tier", "priority"),
-        text("input_token_count", "1000"),
-        text("output_token_count", "100"),
-        text("tool_token_count", "1100"),
-        attribute("cached_token_count", Value::IntValue(200)),
-        attribute("cache_write_token_count", Value::IntValue(50)),
-        attribute("reasoning_token_count", Value::IntValue(30)),
     ];
-    attributes.extend(shared_attributes());
+    let digits = [
+        ("input_token_count", counts.input),
+        ("output_token_count", counts.output),
+        ("tool_token_count", counts.total),
+    ];
+    for (key, count) in digits {
+        if let Some(count) = count {
+            attributes.push(text(key, &count.to_string()));
+        }
+    }
+    let integers = [
+        ("cached_token_count", counts.cached_input),
+        ("cache_write_token_count", counts.cache_write_input),
+        ("reasoning_token_count", counts.reasoning_output),
+    ];
+    for (key, count) in integers {
+        if let Some(count) = count {
+            let count = i64::try_from(count).expect("a test's count fits");
+            attributes.push(attribute(key, Value::IntValue(count)));
+        }
+    }
+    attributes.extend(shared_attributes(thread_id));
     attributes
 }
 
@@ -67,7 +101,7 @@ fn sse_record(kind: &str, extra: Vec<KeyValue>) -> LogRecord {
         text("event.kind", kind),
     ];
     attributes.extend(extra);
-    attributes.extend(shared_attributes());
+    attributes.extend(shared_attributes(THREAD));
     codex_record(attributes)
 }
 
@@ -85,7 +119,9 @@ fn one_resource(scopes: Vec<Vec<LogRecord>>) -> ResourceLogs {
 }
 
 fn first_completed_response() -> CodexCompletedResponse {
-    let resource = one_resource(vec![vec![codex_record(completed_response_attributes())]]);
+    let resource = one_resource(vec![vec![codex_record(completed_response_attributes(
+        THREAD, &COUNTS,
+    ))]]);
     let mut responses = read_codex_completed_responses(&resource, None);
     assert_eq!(responses.len(), 1);
     responses.remove(0)
@@ -97,7 +133,7 @@ fn first_completed_response() -> CodexCompletedResponse {
 fn a_mixed_export_yields_its_one_completed_response_and_logs_it_without_identity() {
     let resource = one_resource(vec![
         vec![
-            codex_record(completed_response_attributes()),
+            codex_record(completed_response_attributes(THREAD, &COUNTS)),
             sse_record("response.completed", vec![text("duration_ms", "12")]),
             sse_record(
                 "response.completed",
@@ -112,7 +148,7 @@ fn a_mixed_export_yields_its_one_completed_response_and_logs_it_without_identity
             codex_record(
                 [
                     vec![text("event.name", "codex.tool_result")],
-                    shared_attributes(),
+                    shared_attributes(THREAD),
                 ]
                 .concat(),
             ),
@@ -122,7 +158,7 @@ fn a_mixed_export_yields_its_one_completed_response_and_logs_it_without_identity
                         text("event.name", "codex.turn_cost"),
                         attribute("usage.estimated_usd", Value::DoubleValue(0.25)),
                     ],
-                    shared_attributes(),
+                    shared_attributes(THREAD),
                 ]
                 .concat(),
             ),
@@ -135,17 +171,10 @@ fn a_mixed_export_yields_its_one_completed_response_and_logs_it_without_identity
     assert_eq!(
         responses,
         [CodexCompletedResponse {
-            conversation_id: "thread-r".to_owned(),
+            conversation_id: THREAD.to_owned(),
             model_id: FreeFormText::new("gpt-5.6-luna".to_owned()).expect("the model fits"),
             service_tier: BoundedText::new("priority".to_owned()),
-            counts: UsageAxisCounts {
-                input: Some(1000),
-                cached_input: Some(200),
-                cache_write_input: Some(50),
-                output: Some(100),
-                reasoning_output: Some(30),
-                total: Some(1100),
-            },
+            counts: COUNTS,
         }]
     );
     assert!(recorded.counters().is_empty(), "{:?}", recorded.texts());
@@ -153,7 +182,7 @@ fn a_mixed_export_yields_its_one_completed_response_and_logs_it_without_identity
     let logged = RecordedEvents::default();
     logged.record_during(|| responses[0].log_read_for_price());
     let texts = logged.texts();
-    assert!(texts.iter().any(|text| text == "thread-r"), "{texts:?}");
+    assert!(texts.iter().any(|text| text == THREAD), "{texts:?}");
     assert!(texts.iter().any(|text| text == "gpt-5.6-luna"), "{texts:?}");
     assert!(
         texts
@@ -184,7 +213,7 @@ fn a_malformed_record_is_refused_whole_its_field_named_and_its_value_never(
     #[case] replacement: Option<Value>,
     #[case] bad_value: Option<&str>,
 ) {
-    let mut attributes: Vec<KeyValue> = completed_response_attributes()
+    let mut attributes: Vec<KeyValue> = completed_response_attributes(THREAD, &COUNTS)
         .into_iter()
         .filter(|attribute| attribute.key != field)
         .collect();

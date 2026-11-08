@@ -17,7 +17,7 @@ use crate::record_readers::is_digits;
 use crate::usage_delta_accountant::{MeteredUsageDelta, UsageAxisCounts, meter_from_zero};
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 /// The name every server-sent event Codex logs carries, its completed responses among them.
 const SSE_EVENT_NAME: &str = "codex.sse_event";
