@@ -468,6 +468,7 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         | SessionEvent::WorktreeDirtied(_)
         | SessionEvent::WorktreeCleaned(_)
         | SessionEvent::WorktreeMerged(_)
+        | SessionEvent::WorktreeReopened(_)
         | SessionEvent::WorktreeRetired(_)
         | SessionEvent::SessionEventCompacted(_)
         | SessionEvent::AgentMessageSent(_)

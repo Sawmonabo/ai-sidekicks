@@ -288,6 +288,8 @@ session_events! {
     WorktreeCleaned(WorktreeLifecyclePayload) = "worktree.cleaned",
     /// Emitted when the worktree's branch has merged back.
     WorktreeMerged(WorktreeLifecyclePayload) = "worktree.merged",
+    /// Emitted when a merged worktree's branch gains commits of its own again.
+    WorktreeReopened(WorktreeLifecyclePayload) = "worktree.reopened",
     /// Emitted when a worktree retires, recorded before any disk change; cleanup is asynchronous
     /// and idempotent. Carries the kept copy when a discard kept one.
     WorktreeRetired(WorktreeRetiredPayload) = "worktree.retired",

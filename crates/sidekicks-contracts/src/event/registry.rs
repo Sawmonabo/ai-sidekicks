@@ -186,6 +186,7 @@ session_event_types! {
         WorktreeDirtied = "worktree.dirtied",
         WorktreeCleaned = "worktree.cleaned",
         WorktreeMerged = "worktree.merged",
+        WorktreeReopened = "worktree.reopened",
         WorktreeRetired = "worktree.retired",
         RepoMountHealthChanged = "repoMount.health.changed",
         SessionBranchChanged = "session.branch.changed",
