@@ -2,11 +2,13 @@
 //! test writer.
 
 use rusqlite::params;
+use serde_json::json;
 use sidekicks_contracts::artifacts::attachment_reference::AttachmentReferenceList;
 use sidekicks_contracts::artifacts::id::ArtifactId;
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::plan::PlanId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::{PlanMessage, PlanMessageKind, QueueItemId};
+use sidekicks_contracts::run::queue::{PlanMessage, PlanMessageKind, QueueItemId, QueuedSkillPick};
 use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -16,13 +18,17 @@ use sidekicks_session::queue_store::{QueueItemBody, QueueMessageBody};
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::events::log_service::test_fixture::TestLog;
 
+/// The artifact id of the file a [`Form::WithExtras`] message carries.
+pub(crate) const WITH_EXTRAS_FILE: &str = "01900000-0000-7000-8000-000000000002";
+
 /// A waiting item's form, with the words it carries.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Form {
     /// A lead message carrying only words.
     Words(&'static str),
-    /// A lead message carrying a file beside its words.
-    WithFiles(&'static str),
+    /// A lead message carrying a file ([`WITH_EXTRAS_FILE`]), a skill pick and a turn speed beside
+    /// its words.
+    WithExtras(&'static str),
     /// A helper's message carrying only words.
     Helper(&'static str),
     /// A review of the staged changes.
@@ -36,10 +42,20 @@ impl Form {
     pub(crate) fn body(self) -> QueueItemBody {
         match self {
             Self::Words(text) | Self::Helper(text) => QueueItemBody::Message(words(text)),
-            Self::WithFiles(text) => QueueItemBody::Message(QueueMessageBody {
+            Self::WithExtras(text) => QueueItemBody::Message(QueueMessageBody {
                 attachments: Some(AttachmentReferenceList(vec![
-                    ArtifactId::try_from(mint_uuid_v7()).expect("a minted UUID is an artifact id"),
+                    ArtifactId::new(WITH_EXTRAS_FILE).expect("a fixed artifact id"),
                 ])),
+                skills: Some(vec![
+                    serde_json::from_value(json!({ "name": "review", "path": "/skills/review" }))
+                        .expect("a resolved pick"),
+                ]),
+                skill_picks: Some(vec![QueuedSkillPick {
+                    name: FreeFormText::new("review".to_owned()).expect("a skill name"),
+                    folder_path: FilesystemPath::new("/skills/review".to_owned())
+                        .expect("a skill folder"),
+                }]),
+                output_speed_for_turn: Some(FreeFormText::new("fast".to_owned()).expect("a speed")),
                 ..words(text)
             }),
             Self::Review => QueueItemBody::Review {

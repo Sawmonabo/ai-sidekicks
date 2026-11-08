@@ -1,10 +1,11 @@
-//! The Stop's end of the messages waiting for its run: a lead message carrying only words goes back
-//! into the draft ahead of what the draft holds, every other form ends not delivered.
+//! The Stop's end of the messages waiting for its run: a lead message goes back into the draft
+//! whole, its words ahead of what the draft holds, every other form ends not delivered.
 
 use std::sync::Arc;
 
 use rstest::rstest;
 use rusqlite::{OptionalExtension as _, params};
+use serde_json::{Value, json};
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_session::queue_store::{QueueItemReader, RecordedQueueItemState};
@@ -13,7 +14,7 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 use super::{Fixture, HANDS_AT_ONCE, driver_handing, fixture, stored_item};
 use crate::delivery::run_end::stop_message_ends;
-use crate::test_items::{Form, insert_form};
+use crate::test_items::{Form, WITH_EXTRAS_FILE, insert_form};
 
 /// What became of a waiting item.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,62 +49,95 @@ pub(super) fn held_draft(fixture: &Fixture) -> Option<String> {
         .expect("the test reads the draft")
 }
 
-/// Holds `text` as the session's draft, as the person's typing does.
-fn hold_draft(fixture: &Fixture, text: &str) {
+/// What rides with the session's draft, as the test reads it back; `None` when no row or no extras
+/// are held.
+fn held_extras(fixture: &Fixture) -> Option<Value> {
+    fixture
+        .database
+        .reader()
+        .query_row(
+            "SELECT extras FROM session_drafts WHERE session_id = ?1",
+            params![fixture.session_id.text().as_str()],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .expect("the test reads the draft")
+        .flatten()
+        .map(|extras| serde_json::from_str(&extras).expect("held extras are JSON"))
+}
+
+/// Holds `text` with `extras` as the session's draft, as the person's typing does.
+fn hold_draft(fixture: &Fixture, text: &str, extras: Option<Value>) {
     fixture
         .database
         .reader()
         .execute(
-            "INSERT INTO session_drafts (session_id, text, updated_at) VALUES (?1, ?2, ?3)",
+            "INSERT INTO session_drafts (session_id, text, extras, updated_at)
+             VALUES (?1, ?2, ?3, ?4)",
             params![
                 fixture.session_id.text().as_str(),
                 text,
+                extras.map(|extras| extras.to_string()),
                 WireInstant::now().as_str()
             ],
         )
         .expect("the test holds a draft");
 }
 
+/// The file the held draft of the case with extras carries.
+const HELD_FILE: &str = "01900000-0000-7000-8000-000000000001";
+
 // Each form of a waiting message ends as the Stop's table says, committed as the run's end commits
-// its companions, and the returned words go into the draft one line each, in queue order, ahead of
-// the held draft. Killed by the held draft replaced or put first, the order reversed, a message
-// with files, a helper's message, a review or a plan message canceled, or a draft written when no
-// words returned.
+// its companions: every lead message is canceled into the draft whole, its words one line each, in
+// queue order, ahead of the held draft's, its file and skill pick after the held draft's, and its
+// speed only where the held draft names none. Killed by the held draft replaced or put first, the
+// order reversed, a lead message with a file and a skill pick ended not delivered or returned
+// without them, the held file dropped or put last, the held speed overwritten, a helper's message,
+// a review or a plan message canceled, or a draft written when no message returned.
 #[rstest]
 #[case::two_messages_ahead_of_the_held_draft(
     &[Form::Words("First"), Form::Words("Second")],
-    Some("Held"),
+    Some(("Held", None)),
     &[Ended::Canceled, Ended::Canceled],
     Some("First\nSecond\nHeld"),
+    None,
 )]
 #[case::one_message_with_no_draft_held(
     &[Form::Words("Only")],
     None,
     &[Ended::Canceled],
     Some("Only"),
-)]
-#[case::a_message_with_files_between_two_with_words(
-    &[Form::Words("Before"), Form::WithFiles("With a file"), Form::Words("After")],
     None,
-    &[Ended::Canceled, Ended::Failed, Ended::Canceled],
-    Some("Before\nAfter"),
+)]
+#[case::a_message_with_a_file_and_a_skill_between_two_with_words(
+    &[Form::Words("Before"), Form::WithExtras("With a file"), Form::Words("After")],
+    Some(("Held", Some(json!({ "attachments": [HELD_FILE], "outputSpeedForTurn": "standard" })))),
+    &[Ended::Canceled, Ended::Canceled, Ended::Canceled],
+    Some("Before\nWith a file\nAfter\nHeld"),
+    Some(json!({
+        "attachments": [HELD_FILE, WITH_EXTRAS_FILE],
+        "skills": [{ "name": "review", "folderPath": "/skills/review" }],
+        "outputSpeedForTurn": "standard",
+    })),
 )]
 #[case::a_review_a_plan_message_and_a_helpers_message(
     &[Form::Review, Form::PlanMessage, Form::Helper("To the helper")],
     None,
     &[Ended::Failed, Ended::Failed, Ended::Failed],
     None,
+    None,
 )]
 #[tokio::test]
 async fn a_stop_returns_each_waiting_message_by_its_form(
     #[case] forms: &[Form],
-    #[case] held: Option<&str>,
+    #[case] held: Option<(&str, Option<Value>)>,
     #[case] expected: &[Ended],
     #[case] expected_draft: Option<&str>,
+    #[case] expected_extras: Option<Value>,
 ) {
     let fixture = fixture(driver_handing(HANDS_AT_ONCE)).await;
-    if let Some(held) = held {
-        hold_draft(&fixture, held);
+    if let Some((text, extras)) = held {
+        hold_draft(&fixture, text, extras);
     }
     let mut ids = Vec::with_capacity(forms.len());
     for form in forms {
@@ -154,4 +188,5 @@ async fn a_stop_returns_each_waiting_message_by_its_form(
         assert_eq!(stored.body, before.body);
     }
     assert_eq!(held_draft(&fixture).as_deref(), expected_draft);
+    assert_eq!(held_extras(&fixture), expected_extras);
 }
