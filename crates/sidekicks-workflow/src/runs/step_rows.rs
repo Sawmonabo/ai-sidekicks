@@ -129,7 +129,7 @@ static WAIT_ON_ACCOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE workflow_steps
   SET status = '{waiting}', wait_cause = '{account}', wait_account_id = @wait_account_id,
-      wait_started_at = @wait_started_at, resume_at = NULL,
+      wait_started_at = @wait_started_at, resume_at = @resume_at,
       total_pool_wait_ms = total_pool_wait_ms + @pool_wait_ms
   WHERE {STEP_KEY_SQL}"
     )
@@ -354,12 +354,14 @@ pub(crate) fn wait_step_on_person(
     )
 }
 
-/// Moves `step` to `waiting` on the spent account `account_id` since `started_at`, with no resume
-/// instant, adding `pool_wait_ms`, the time a hold the wait cut ran since its last report.
+/// Moves `step` to `waiting` on the spent account `account_id` since `started_at`, resuming at
+/// `resume_at` where one is armed, adding `pool_wait_ms`, the time a hold the wait cut ran since
+/// its last report.
 pub(crate) fn wait_step_on_account(
     step: &WorkflowStepKey,
     account_id: &ProviderAccountId,
     started_at: &WireInstant,
+    resume_at: Option<&WireInstant>,
     pool_wait_ms: u64,
 ) -> WriteStatement {
     keyed_statement(
@@ -368,6 +370,7 @@ pub(crate) fn wait_step_on_account(
         vec![
             text_binding("@wait_account_id", account_id.as_str()),
             text_binding("@wait_started_at", started_at.as_str()),
+            nullable_text_binding("@resume_at", resume_at.map(WireInstant::as_str)),
             pool_wait_binding(pool_wait_ms),
         ],
     )

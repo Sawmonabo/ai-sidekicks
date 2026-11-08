@@ -10,8 +10,9 @@ use std::time::SystemTime;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
-use jiff::Timestamp;
+use jiff::{SignedDuration, Timestamp};
 use rusqlite::{Connection, Row, named_params};
+use sidekicks_contracts::daemon::config::RunTimeLimitMinutes;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::wire::instant::{NotAnInstant, WireInstant};
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -29,6 +30,8 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::database::stored_column::text_column;
 use tokio::sync::mpsc;
 
+use crate::engine::ports::WorkflowRunLimits;
+use crate::engine::tick::run_status::RunPersonWait;
 use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
 use crate::engine::waits::step_key;
 use crate::kinds::{StepFailure, coded_step_error};
@@ -58,6 +61,20 @@ const DUE_WAITS_SQL: &str = "SELECT workflow_run_id, node_id, attempt, execution
      wait_started_at, wait_deadline_at FROM workflow_steps \
      WHERE wait_deadline_at IS NOT NULL AND wait_deadline_at <= @instant \
      ORDER BY wait_deadline_at, execution_index";
+
+// The instant a run that started at `started_at` passes `limit` once the `person_wait_ms` it
+// waited on people are added, `None` past the last instant a timestamp holds.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+fn cap_instant(
+    started_at: Timestamp,
+    limit: RunTimeLimitMinutes,
+    person_wait_ms: u64,
+) -> Option<Timestamp> {
+    let span_ms = (u64::from(limit.get()) * 60_000).checked_add(person_wait_ms)?;
+    started_at
+        .checked_add(SignedDuration::from_millis(i64::try_from(span_ms).ok()?))
+        .ok()
+}
 
 // The stored instant in column `index` of `row`, as a timestamp.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
@@ -157,26 +174,51 @@ pub(crate) struct EngineDeadlines {
     reads: Arc<DatabaseReadPool>,
     /// Where a due step's failure is reported, to the tick.
     reports: mpsc::Sender<StepReport>,
+    /// `Stop a run after`, read again at each use, so a change holds from the next.
+    limits: Arc<dyn WorkflowRunLimits>,
     /// The runs the tick dropped in this daemon life, whose stored waits stay off the clock until
     /// the restart settles them; one id per failed write, and the restart starts with none.
     skipped: Mutex<HashSet<WorkflowRunId>>,
 }
 
 impl EngineDeadlines {
-    /// The clock on `scheduler`, reading on `reads` and reporting to `reports`; nothing is armed
-    /// until its first [`InstantJob::rearm`].
+    /// The clock on `scheduler`, reading on `reads`, reporting to `reports` and holding each run to
+    /// the run time limit `limits` answers; nothing is armed until its first
+    /// [`InstantJob::rearm`].
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn new(
         scheduler: Arc<Scheduler>,
         reads: Arc<DatabaseReadPool>,
         reports: mpsc::Sender<StepReport>,
+        limits: Arc<dyn WorkflowRunLimits>,
     ) -> Arc<Self> {
         Arc::new(Self {
             armed: ArmedInstant::new(scheduler, DEADLINE_JOB, DEADLINE_RETRY_JOB),
             reads,
             reports,
+            limits,
             skipped: Mutex::new(HashSet::new()),
         })
+    }
+
+    /// When the run that started at `run_started_at`, its person-wait columns `person_wait`,
+    /// passes `Stop a run after` as set now: `None` with no limit, or while a person wait is open,
+    /// since the cap does not count a wait on a person.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    pub(crate) fn cap_deadline(
+        &self,
+        run_started_at: Timestamp,
+        person_wait: &RunPersonWait,
+    ) -> Option<WireInstant> {
+        if person_wait.since.is_some() {
+            return None;
+        }
+        let cap = cap_instant(
+            run_started_at,
+            self.limits.run_time_limit()?,
+            person_wait.total_ms,
+        )?;
+        WireInstant::from_timestamp(cap)
     }
 
     /// Keeps the waits of the dropped run `run_id` off the clock from its next read on.

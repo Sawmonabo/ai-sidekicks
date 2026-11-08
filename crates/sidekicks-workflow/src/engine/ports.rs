@@ -29,6 +29,7 @@ use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::UuidTextForm;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::ComposedText;
 use sidekicks_contracts::workflow::definition::document::{WorkflowDefinitionId, WorkflowNodeId};
 use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowStepError};
@@ -189,6 +190,8 @@ pub enum AgentStepOutcome {
     AccountSpent {
         /// The spent account.
         provider_account_id: ProviderAccountId,
+        /// When the account's limit resets, where the provider stated the instant.
+        resets_at: Option<WireInstant>,
     },
     /// The run failed.
     Failed {

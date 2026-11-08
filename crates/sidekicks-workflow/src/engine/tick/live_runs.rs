@@ -152,6 +152,8 @@ pub(crate) struct LiveStep {
     /// The agent run it waits on while its account is spent, kept for the account's resume and
     /// stopped when the step is canceled.
     pub(crate) parked_agent_run: Option<Box<dyn AgentStepRun>>,
+    /// When it resumes itself from its spent account's wait, where a resume is armed.
+    pub(crate) resume_at: Option<WireInstant>,
 }
 
 impl LiveStep {
@@ -178,6 +180,7 @@ impl LiveStep {
             cancel: None,
             is_winding_down: false,
             parked_agent_run: None,
+            resume_at: None,
         }
     }
 }
@@ -226,8 +229,8 @@ impl LiveRun {
     }
 
     /// Moves the live step at `execution_index` to `status`, waiting on `wait_cause` where it
-    /// waits, as the turn's commit moved its row; the step leaves any person wait it held, whose
-    /// deadline is cleared.
+    /// waits, as the turn's commit moved its row; the step leaves any wait it held, whose deadline
+    /// or armed resume is cleared.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn move_step(
         &mut self,
@@ -271,6 +274,36 @@ impl LiveRun {
         }
     }
 
+    /// Moves the live step at `execution_index` to `waiting` on its spent account, as the turn's
+    /// commit stored it, keeping its agent `run` for the resume and arming its `resume_at` where
+    /// one is set.
+    pub(crate) fn wait_on_account(
+        &mut self,
+        execution_index: u64,
+        run: Box<dyn AgentStepRun>,
+        resume_at: Option<WireInstant>,
+    ) {
+        self.move_step(
+            execution_index,
+            WorkflowStepStatus::Waiting,
+            Some(WorkflowWaitCause::Account),
+        );
+        let live_step = self
+            .steps
+            .get_mut(&execution_index)
+            .expect("a step the turn moved is live");
+        live_step.parked_agent_run = Some(run);
+        live_step.resume_at.clone_from(&resume_at);
+        if let Some(at) = resume_at {
+            let armed = EngineDecision::DeadlineArmed {
+                deadline: EngineDeadline::ResumeAt,
+                at,
+            };
+            self.deadline_lines.push((live_step.step.clone(), armed));
+            self.needs_deadline_read = true;
+        }
+    }
+
     /// Takes the live step at `execution_index` out of the run, `None` where none is live; the
     /// step leaves any person wait it held, whose deadline is cleared.
     pub(crate) fn remove_step(&mut self, execution_index: u64) -> Option<LiveStep> {
@@ -308,13 +341,17 @@ impl LiveRun {
     }
 }
 
-// Takes `live_step` out of its person wait, answering the clear line of the deadline it held.
+// Takes `live_step` out of its wait, answering the clear line of the person wait's deadline or
+// the account wait's armed resume it held.
 fn leave_wait(live_step: &mut LiveStep) -> Option<(WorkflowStepKey, EngineDecision<'static>)> {
-    let wait_id = live_step.wait_id.take()?;
-    let at = live_step.wait_deadline_at.take()?;
-    let cleared = EngineDecision::DeadlineCleared {
-        deadline: EngineDeadline::Wait { wait_id },
-        at,
+    let wait_id = live_step.wait_id.take();
+    let deadline_at = live_step.wait_deadline_at.take();
+    let resume_at = live_step.resume_at.take();
+    let (deadline, at) = match (wait_id, deadline_at, resume_at) {
+        (Some(wait_id), Some(at), _) => (EngineDeadline::Wait { wait_id }, at),
+        (_, _, Some(at)) => (EngineDeadline::ResumeAt, at),
+        _ => return None,
     };
+    let cleared = EngineDecision::DeadlineCleared { deadline, at };
     Some((live_step.step.clone(), cleared))
 }

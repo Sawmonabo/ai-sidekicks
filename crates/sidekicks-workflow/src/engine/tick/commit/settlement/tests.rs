@@ -475,6 +475,7 @@ async fn a_wait_is_stored_before_anyone_is_asked(#[case] case: WaitCase) {
         },
         WaitCase::Account => StepSettlement::AccountSpent {
             provider_account_id: account(),
+            resets_at: None,
             run: runner.made_run(),
         },
     };
@@ -518,7 +519,8 @@ async fn a_wait_is_stored_before_anyone_is_asked(#[case] case: WaitCase) {
                 assert_eq!(types, ["workflow.phase.suspended"]);
             }
         }
-        (WaitCase::Account, SettlementAnswer::AccountSpent { run }) => {
+        (WaitCase::Account, SettlementAnswer::AccountSpent { run, resume_at }) => {
+            assert_eq!(resume_at, None);
             assert_eq!(step_json(&harness, "wait_cause", 1), json!("account"));
             assert_eq!(
                 step_json(&harness, "wait_account_id", 1),

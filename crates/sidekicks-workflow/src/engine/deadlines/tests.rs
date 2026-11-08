@@ -18,6 +18,8 @@ use sidekicks_store::database::writer::test_file::TestDatabase;
 use tokio::sync::{mpsc, watch};
 
 use super::{ENGINE_DEADLINE_STATEMENT_CAPACITY, EngineDeadlines};
+use crate::engine::ports::WorkflowRunLimits;
+use crate::engine::ports::run_limits::ScriptedRunLimits;
 use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
 use crate::kinds::StepFailure;
 use crate::schema::schema_parts;
@@ -37,6 +39,11 @@ fn test_step(execution_index: u32) -> WorkflowStepKey {
         "executionIndex": execution_index,
     }))
     .expect("the test's step key")
+}
+
+// Run limits with no limit set.
+fn no_limits() -> Arc<dyn WorkflowRunLimits> {
+    Arc::new(ScriptedRunLimits::default())
 }
 
 // The test clock's start, moved on by `after`.
@@ -139,7 +146,7 @@ async fn a_dropped_runs_deadline_leaves_the_clock() {
         ENGINE_DEADLINE_STATEMENT_CAPACITY,
     ));
     let (reports, mut received) = mpsc::channel(8);
-    let deadlines = EngineDeadlines::new(scheduler, reads, reports);
+    let deadlines = EngineDeadlines::new(scheduler, reads, reports, no_limits());
 
     deadlines.skip_run(WorkflowRunId::new(DROPPED_RUN_ID).expect("the test's run id"));
     Arc::clone(&deadlines).rearm().await;
@@ -208,7 +215,7 @@ async fn a_deadline_that_passed_fails_its_step_once_the_clock_reaches_it() {
         ENGINE_DEADLINE_STATEMENT_CAPACITY,
     ));
     let (reports, mut received) = mpsc::channel(8);
-    let deadlines = EngineDeadlines::new(Arc::clone(&scheduler), reads, reports);
+    let deadlines = EngineDeadlines::new(Arc::clone(&scheduler), reads, reports, no_limits());
 
     Arc::clone(&deadlines).rearm().await;
     assert_eq!(

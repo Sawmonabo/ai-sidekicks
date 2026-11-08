@@ -272,6 +272,8 @@ pub(crate) enum StepSettlement {
     AccountSpent {
         /// The spent account.
         provider_account_id: ProviderAccountId,
+        /// When the account's limit resets, where the provider stated the instant.
+        resets_at: Option<WireInstant>,
         /// The step's agent run, kept to resume when the account is back.
         run: Box<dyn AgentStepRun>,
     },

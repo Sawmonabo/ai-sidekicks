@@ -251,6 +251,8 @@ pub(crate) enum SettlementAnswer {
     AccountSpent {
         /// The step's agent run, kept to resume when the account is back.
         run: Box<dyn AgentStepRun>,
+        /// When the step resumes itself, where a resume is armed.
+        resume_at: Option<WireInstant>,
     },
     /// The step was canceled; a step its leaving readies rides `workflow.step.canceled`.
     Canceled {
@@ -340,6 +342,11 @@ impl RunTurnCommit {
     /// The run this turn writes.
     pub(crate) fn run_id(&self) -> WorkflowRunId {
         self.run_id
+    }
+
+    /// The run's person-wait columns as the turn found them; the write moves them last.
+    pub(crate) fn person_wait(&self) -> &RunPersonWait {
+        &self.person_wait
     }
 
     /// Ends the run as `ending` says in this turn's write, its row and its run event after every

@@ -10,7 +10,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
 use sidekicks_contracts::workflow::run::snapshot::WorkflowRunPauseNumber;
-use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
+use sidekicks_contracts::workflow::run::status::WorkflowStepStatus;
 use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseCancellationReason;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 
@@ -31,7 +31,8 @@ use crate::kinds::{PersonAsk, StepFailure};
 
 impl EngineTick {
     /// Offers `report` to the run's waves, then adds it to the turn and follows what a settlement
-    /// answers; the run cap's failure goes to the run whichever step reported it. A wave's
+    /// answers; the run cap's failure goes to the run whichever step reported it, and a spent
+    /// account's reset at or past the run's cap deadline is dropped, so no resume is armed. A wave's
     /// `branchesCanceled` is written whether or not its deciding step is live; a failed step's own
     /// settlement after its cancel ends its wind-down, writing nothing; any other report of a step
     /// that is not live, or is live and failed, is dropped.
@@ -41,7 +42,7 @@ impl EngineTick {
         turn: &mut RunTurn,
         report: StepReport,
     ) {
-        let report = match report {
+        let mut report = match report {
             StepReport {
                 at,
                 kind: StepReportKind::Settled(StepSettlement::Failed { failure, log_lines }),
@@ -52,6 +53,19 @@ impl EngineTick {
             }
             report => report,
         };
+        // The cap wins: a reset at or past the run's cap deadline is not armed.
+        if let StepReportKind::Settled(StepSettlement::AccountSpent { resets_at, .. }) =
+            &mut report.kind
+            && let Some(resets) = resets_at.as_ref().and_then(WireInstant::timestamp)
+            && let Some(cap) = self
+                .deadlines
+                .cap_deadline(live.scope.run_started_at, turn.commit.person_wait())
+                .as_ref()
+                .and_then(WireInstant::timestamp)
+            && resets >= cap
+        {
+            *resets_at = None;
+        }
         let Some(mut report) = offer_to_waves(live, &mut turn.follow_ups, report).await else {
             return;
         };
@@ -192,8 +206,9 @@ impl EngineTick {
     /// Follows the settlement of `step` at `at`: a completion or a pass-on settles the walk and
     /// records the outputs; a retry readies the next attempt, canceled unrun in a stopped run; a
     /// cancel drops the step. A park or an end keeps the step live and failed and stops the run's
-    /// other steps, an end deciding the run's ending with the step's error; a person wait or a spent account keeps it waiting, a spent account's agent run
-    /// kept on it.
+    /// other steps, an end deciding the run's ending with the step's error; a person wait or a
+    /// spent account keeps it waiting, a spent account's agent run kept on it and its resume armed
+    /// where one is set.
     pub(super) async fn follow_settlement(
         &self,
         live: &mut LiveRun,
@@ -269,14 +284,8 @@ impl EngineTick {
                     is_point_taken: false,
                 });
             }
-            SettlementAnswer::AccountSpent { run } => {
-                let execution_index = step.execution_index.get();
-                let account = Some(WorkflowWaitCause::Account);
-                live.move_step(execution_index, WorkflowStepStatus::Waiting, account);
-                live.steps
-                    .get_mut(&execution_index)
-                    .expect("a step the turn moved is live")
-                    .parked_agent_run = Some(run);
+            SettlementAnswer::AccountSpent { run, resume_at } => {
+                live.wait_on_account(step.execution_index.get(), run, resume_at);
             }
         }
     }

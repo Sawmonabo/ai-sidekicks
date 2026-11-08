@@ -322,8 +322,11 @@ fn settlement_json(settlement: &StepSettlement) -> Value {
         } }),
         StepSettlement::AccountSpent {
             provider_account_id,
+            resets_at,
             run: _,
-        } => json!({ "accountSpent": { "providerAccountId": provider_account_id } }),
+        } => json!({ "accountSpent": {
+            "providerAccountId": provider_account_id, "resetsAt": resets_at,
+        } }),
         StepSettlement::Canceled {
             hold_started_at,
             cancellation_reason,

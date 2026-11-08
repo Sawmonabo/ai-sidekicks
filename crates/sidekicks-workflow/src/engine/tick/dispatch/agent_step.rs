@@ -245,8 +245,10 @@ impl StepDispatch {
                 }
                 Ok(AgentStepOutcome::AccountSpent {
                     provider_account_id,
+                    resets_at,
                 }) => StepSettlement::AccountSpent {
                     provider_account_id,
+                    resets_at,
                     run,
                 },
                 Ok(AgentStepOutcome::Failed { error }) => StepSettlement::Failed {
@@ -277,6 +279,7 @@ mod tests {
     use secrecy::SecretString;
     use serde_json::{Map, Value, json};
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
+    use sidekicks_contracts::wire::instant::WireInstant;
     use sidekicks_contracts::workflow::definition::document::WorkflowNode;
     use sidekicks_contracts::workflow::run::step::record::WorkflowCost;
     use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
@@ -344,13 +347,19 @@ mod tests {
         }
     }
 
-    /// A run whose account is spent.
+    /// A run whose account is spent until the test's reset instant.
     fn spent_run() -> AgentStepOutcome {
         AgentStepOutcome::AccountSpent {
             provider_account_id: serde_json::from_value(json!(ACCOUNT))
                 .expect("the test's account id reads"),
+            resets_at: Some(
+                WireInstant::try_from(RESETS_AT.to_owned()).expect("the test's instant reads"),
+            ),
         }
     }
+
+    /// When the test's spent account resets.
+    const RESETS_AT: &str = "2026-10-02T05:00:00.000Z";
 
     /// The `Started` an agent step sends, carrying `permission_level`.
     fn started_at(permission_level: &Value) -> Value {
@@ -386,7 +395,7 @@ mod tests {
         Value::Null,
         false,
         spent_run(),
-        json!({ "accountSpent": { "providerAccountId": ACCOUNT } })
+        json!({ "accountSpent": { "providerAccountId": ACCOUNT, "resetsAt": RESETS_AT } })
     )]
     #[tokio::test]
     async fn an_agent_steps_run_joins_the_gate_once_and_the_step_starts_when_the_run_does(
@@ -502,7 +511,7 @@ mod tests {
                 "logLines": [],
             } })
         } else {
-            json!({ "accountSpent": { "providerAccountId": ACCOUNT } })
+            json!({ "accountSpent": { "providerAccountId": ACCOUNT, "resetsAt": RESETS_AT } })
         };
         assert_eq!(settled, expected);
         assert_eq!(next_report(&mut received, &step).await, None);

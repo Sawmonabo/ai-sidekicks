@@ -1,10 +1,14 @@
 use std::time::Duration;
 
+use jiff::{SignedDuration, Timestamp};
 use rstest::rstest;
 use rusqlite::params;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
+use sidekicks_contracts::daemon::config::RunTimeLimitMinutes;
+use sidekicks_contracts::wire::instant::WireInstant;
 use tokio::time::timeout;
 
+use crate::engine::ports::AgentStepOutcome;
 use crate::engine::tick::turns::tests::harness::{
     Harness, QUIET, WAIT, attempt_column, edge, item, node, retried, step_column,
 };
@@ -323,4 +327,120 @@ async fn a_park_winds_down_its_running_sibling_and_starts_nothing_after_it() {
         [(json!("siblingFailure"), json!(1))]
     );
     assert_eq!(harness.status("C"), None);
+}
+
+/// The run time limit the account tests set, 30 minutes.
+fn half_hour() -> Option<RunTimeLimitMinutes> {
+    RunTimeLimitMinutes::new(30)
+}
+
+/// `at` moved on by `milliseconds`, as a stored instant.
+fn instant_after(at: Timestamp, milliseconds: i64) -> WireInstant {
+    let later = at
+        .checked_add(SignedDuration::from_millis(milliseconds))
+        .expect("the test's instant is in range");
+    WireInstant::from_timestamp(later).expect("the test's instant is after year 0000")
+}
+
+/// The scope's run, its trigger feeding the agent step `A`, started and its run asked for.
+async fn start_agent_run(harness: &Harness) {
+    harness
+        .start(
+            vec![
+                node("trigger", "test.trigger", 0, None),
+                node("A", "test.agent", 1, None),
+            ],
+            &[edge("trigger", "A", 0)],
+            vec![item(json!({}))],
+            |_| {},
+        )
+        .await;
+    timeout(WAIT, harness.agents.wait_for_request())
+        .await
+        .expect("A asks for its run");
+}
+
+/// An agent run's end on a spent account, resetting at `resets_at` where the provider stated it.
+fn spent(resets_at: Option<WireInstant>) -> AgentStepOutcome {
+    AgentStepOutcome::AccountSpent {
+        provider_account_id: serde_json::from_value(json!("account-a"))
+            .expect("the test's account id reads"),
+        resets_at,
+    }
+}
+
+/// The record lines of `record` on an armed resume.
+fn resume_lines(harness: &Harness, record: &str) -> Vec<Map<String, Value>> {
+    harness
+        .record_lines(record)
+        .into_iter()
+        .filter(|line| line.get("deadline") == Some(&json!("resumeAt")))
+        .collect()
+}
+
+/// When the scope's run started, as its row stores it.
+fn run_started_at(harness: &Harness) -> Timestamp {
+    let started_at: String = harness
+        .rows
+        .query_row(
+            "SELECT started_at FROM workflow_runs WHERE id = ?1",
+            params![harness.scope.run_id.text().as_str()],
+            |row| row.get(0),
+        )
+        .expect("the run's row reads");
+    started_at.parse().expect("a stored instant reads")
+}
+
+/// A spent account whose stated reset falls before the run's cap parks its step `waiting` with
+/// its resume at the reset itself, on the row and on `workflow.phase.suspended`, and records the
+/// arm once. Kills: an offset on the boundary; the event's `resumeAt` left off; the resume never
+/// armed.
+#[tokio::test]
+async fn a_reset_before_the_cap_arms_the_parked_steps_resume_at_the_boundary() {
+    let mut harness = Harness::new(None).await;
+    harness.limits.set_run_time_limit(half_hour());
+    start_agent_run(&harness).await;
+    let resets_at = instant_after(Timestamp::now(), 60_000);
+
+    harness.agents.end(spent(Some(resets_at.clone())));
+    harness
+        .wait_until(|rows| step_column(rows, "A", "status").as_deref() == Some("waiting"))
+        .await;
+    harness.wait_for_earlier_turns().await;
+
+    assert_eq!(
+        step_column(&harness.rows, "A", "resume_at").as_deref(),
+        Some(resets_at.as_str())
+    );
+    let (_, _, _, suspended) = harness.event("workflow.phase.suspended", "A");
+    assert_eq!(suspended["resumeAt"], json!(resets_at));
+    let armed = resume_lines(&harness, "deadlineArmed");
+    assert_eq!(armed.len(), 1, "the resume is armed once");
+    assert_eq!(armed[0]["at"], json!(resets_at));
+}
+
+/// A spent account whose stated reset falls at the run's cap deadline or past it parks its step
+/// unscheduled: no resume on the row or the event, and no arm recorded. Kills: the cap comparison
+/// dropped; a reset at the deadline read as before it.
+#[rstest]
+#[case::at_the_cap(0)]
+#[case::past_the_cap(1)]
+#[tokio::test]
+async fn a_reset_at_or_past_the_cap_parks_the_step_unscheduled(#[case] past_cap_ms: i64) {
+    let mut harness = Harness::new(None).await;
+    harness.limits.set_run_time_limit(half_hour());
+    start_agent_run(&harness).await;
+    let cap_ms = 30 * 60_000;
+    let resets_at = instant_after(run_started_at(&harness), cap_ms + past_cap_ms);
+
+    harness.agents.end(spent(Some(resets_at)));
+    harness
+        .wait_until(|rows| step_column(rows, "A", "status").as_deref() == Some("waiting"))
+        .await;
+    harness.wait_for_earlier_turns().await;
+
+    assert_eq!(step_column(&harness.rows, "A", "resume_at"), None);
+    let (_, _, _, suspended) = harness.event("workflow.phase.suspended", "A");
+    assert_eq!(suspended.get("resumeAt"), None);
+    assert!(resume_lines(&harness, "deadlineArmed").is_empty());
 }

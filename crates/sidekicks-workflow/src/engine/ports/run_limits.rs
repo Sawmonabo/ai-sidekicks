@@ -25,6 +25,11 @@ impl ScriptedRunLimits {
             run_time_limit: Mutex::new(None),
         }
     }
+
+    /// Sets `Stop a run after` for every later read.
+    pub(crate) fn set_run_time_limit(&self, limit: Option<RunTimeLimitMinutes>) {
+        *sidekicks_std::mutex_lock::lock(&self.run_time_limit) = limit;
+    }
 }
 
 impl WorkflowRunLimits for ScriptedRunLimits {
