@@ -389,8 +389,9 @@ async fn a_restart_ends_each_turn_a_limits_row_names_with_the_limit(
                     .reader()
                     .execute(
                         "INSERT INTO interventions (id, target_run_id, type, state,
-                           expected_run_version, client_idempotency_key, created_at)
+                           expected_run_version, client_idempotency_key, payload, created_at)
                          VALUES (?1, ?2, 'fasterModelRetry', 'accepted', 1, ?1,
+                           '{\"expectedTurnId\":\"turn-1\",\"model\":\"faster-model\"}',
                            '2026-01-01T00:00:00.000Z')",
                         params![id, run_id.text().as_str()],
                     )
