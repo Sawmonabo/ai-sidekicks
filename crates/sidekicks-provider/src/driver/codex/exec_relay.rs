@@ -467,11 +467,14 @@ impl CodexExecRelay {
                 .await;
             return;
         }
-        let process_id = message.params.as_ref().and_then(|params| params.process_id);
-        let own_process_id = process_id
+        let own_process_id = message
+            .params
+            .as_ref()
+            .and_then(|params| params.process_id)
             .filter(|_started| method == ClientMethod::ProcessStart)
             .and_then(text_of);
-        let line = executor.relay_client_request(connection, &line, id, method, process_id);
+        let line =
+            executor.relay_client_request(connection, &line, id, method, message.params.as_ref());
         match method {
             ClientMethod::ProcessStart => {
                 #[cfg(test)]
@@ -494,6 +497,9 @@ impl CodexExecRelay {
             ClientMethod::Initialize
             | ClientMethod::Initialized
             | ClientMethod::ProcessNamed
+            | ClientMethod::FileOpen
+            | ClientMethod::FileNamed
+            | ClientMethod::FileClose
             | ClientMethod::Passed => forward(executor, line).await,
         }
     }

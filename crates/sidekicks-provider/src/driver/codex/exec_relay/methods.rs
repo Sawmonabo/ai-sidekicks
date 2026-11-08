@@ -9,6 +9,9 @@ pub(super) const INITIALIZED_METHOD: &str = "initialized";
 /// The write the relay sends itself for the person's input.
 pub(super) const PROCESS_WRITE_METHOD: &str = "process/write";
 
+/// The close of an open file, which the relay also sends itself for a dropped connection's files.
+pub(super) const FS_CLOSE_METHOD: &str = "fs/close";
+
 /// The executor's notifications of a process's end.
 pub(super) const PROCESS_EXITED_METHOD: &str = "process/exited";
 pub(super) const PROCESS_CLOSED_METHOD: &str = "process/closed";
@@ -54,17 +57,38 @@ pub(super) enum ClientMethod {
     /// A method that names one of the connection's processes, passed on under the relay's id for
     /// it.
     ProcessNamed,
+    /// `fs/open`, under a file handle the relay mints; its answer names the connection's own
+    /// handle again.
+    FileOpen,
+    /// `fs/readBlock` and `fs/writeBlock`, under the relay's handle for the connection's file.
+    FileNamed,
+    /// `fs/close`, under the relay's handle for the connection's file, whose answer forgets it.
+    FileClose,
     /// Any other method the executor serves, passed on under the relay's request id.
     Passed,
 }
 
+/// The id a client's method names by the connection's own id: its kind, read from the params'
+/// member of that kind, and whether the method mints a relay id for it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct NamedId {
+    /// The kind of id, which picks its table and its params' member.
+    pub(super) kind: RelayIdKind,
+    /// Whether the method mints a relay id, where any other takes the one already minted.
+    pub(super) mints: bool,
+}
+
 impl ClientMethod {
-    /// Whether the method names a process by the connection's own id.
-    pub(super) fn names_process(self) -> bool {
-        matches!(
-            self,
-            Self::ProcessStart | Self::ProcessTerminate | Self::ProcessNamed
-        )
+    /// The id the method names by the connection's own id; `None` for one that names none.
+    pub(super) fn named_id(self) -> Option<NamedId> {
+        let (kind, mints) = match self {
+            Self::ProcessStart => (RelayIdKind::Process, true),
+            Self::ProcessTerminate | Self::ProcessNamed => (RelayIdKind::Process, false),
+            Self::FileOpen => (RelayIdKind::FileHandle, true),
+            Self::FileNamed | Self::FileClose => (RelayIdKind::FileHandle, false),
+            Self::Initialize | Self::Initialized | Self::Passed => return None,
+        };
+        Some(NamedId { kind, mints })
     }
 
     /// How the relay carries `method`; `None` for a method the executor does not serve.
@@ -75,6 +99,9 @@ impl ClientMethod {
             "process/start" => Self::ProcessStart,
             "process/terminate" => Self::ProcessTerminate,
             "process/read" | PROCESS_WRITE_METHOD | "process/signal" => Self::ProcessNamed,
+            "fs/open" => Self::FileOpen,
+            "fs/readBlock" | "fs/writeBlock" => Self::FileNamed,
+            FS_CLOSE_METHOD => Self::FileClose,
             "environment/info"
             | "environment/status"
             | "environmentConfig/read"
@@ -82,10 +109,6 @@ impl ClientMethod {
             | "capabilities/discoverV2"
             | "http/request"
             | "fs/readFile"
-            | "fs/open"
-            | "fs/readBlock"
-            | "fs/writeBlock"
-            | "fs/close"
             | "fs/writeFile"
             | "fs/createDirectory"
             | "fs/watchMissing"

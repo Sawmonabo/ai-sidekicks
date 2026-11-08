@@ -28,6 +28,7 @@ use crate::command::waiting_checks::SystemInputWaitReader;
 mod acts;
 mod connections;
 mod exchange;
+mod file_handles;
 mod parity;
 mod processes;
 mod starts;
@@ -207,6 +208,12 @@ async fn next_forwarded(fake: &mut FakeExecutor) -> Value {
     tokio::time::timeout(SOCKET_READ_WAIT, fake.next_sent())
         .await
         .expect("the relay forwards the message")
+}
+
+// Fails when the relay writes the executor anything within the quiet wait.
+async fn assert_executor_quiet(fake: &mut FakeExecutor) {
+    let read = tokio::time::timeout(QUIET_WAIT, fake.next_sent()).await;
+    assert!(read.is_err(), "the executor read {read:?}");
 }
 
 // Fails when `socket` receives anything within the quiet wait.

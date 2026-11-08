@@ -7,6 +7,8 @@ use std::borrow::Cow;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 
+use crate::driver::codex::exec_relay::methods::RelayIdKind;
+
 /// The members of a message the relay routes by; the rest passes on as it came.
 #[derive(Deserialize)]
 pub(super) struct RoutedMessage<'line> {
@@ -45,8 +47,25 @@ pub(super) struct RoutedParams<'line> {
     /// The process the message names, as raw JSON.
     #[serde(borrow)]
     pub(super) process_id: Option<&'line RawValue>,
+    /// The open file the message names by its handle, as raw JSON.
+    #[serde(borrow)]
+    pub(super) handle_id: Option<&'line RawValue>,
+    /// The http request the message names, as raw JSON.
+    #[serde(borrow)]
+    pub(super) request_id: Option<&'line RawValue>,
     /// The exit code a `process/exited` reports.
     pub(super) exit_code: Option<i32>,
+}
+
+impl<'line> RoutedParams<'line> {
+    /// The member that names an id of `kind`, as raw JSON.
+    pub(super) fn id_of(&self, kind: RelayIdKind) -> Option<&'line RawValue> {
+        match kind {
+            RelayIdKind::Process => self.process_id,
+            RelayIdKind::FileHandle => self.handle_id,
+            RelayIdKind::HttpRequest => self.request_id,
+        }
+    }
 }
 
 /// An answer's refusal, as far as the relay reads it.
