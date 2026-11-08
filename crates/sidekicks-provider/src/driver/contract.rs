@@ -328,10 +328,12 @@ pub trait ProviderDriver: Send + Sync {
     /// Closes one session.
     fn close_session(&self, params: CloseSessionParams) -> BoxFuture<'_, Result<(), DriverError>>;
 
-    /// Settles the tool calls a session held in the background while no process of it runs, after
-    /// a restart or the person's Stop of the daemon: each ends as the provider kept it or as the
-    /// restart or Stop ended it, one its record keeps under a Stop waits for the next resume, and
-    /// every one of a closed session ends.
+    /// Settles the tool calls a session held in the background. At rest after a restart or the
+    /// person's Stop of the daemon, while no process of it runs: each ends as the provider kept it
+    /// or as the restart or Stop ended it, one its record keeps under a Stop waits for the next
+    /// resume, and every one of a closed session ends. For an undo, the calls it names end
+    /// stopped on the session's live process, each close recorded before the settle answers;
+    /// fails `NoLiveSession` for an undo with no live process.
     fn settle_held_tool_calls(
         &self,
         params: SettleHeldToolCallsParams,
