@@ -1,14 +1,13 @@
 //! Many connections onto the relay's one executor: each answered apart under its own ids, a
-//! closed one's answers reaching no one, and every one closed by the executor's end.
+//! closed one's answers reaching no one, and every one answered by the executor's end and kept
+//! open.
 
-use futures::StreamExt as _;
 use serde_json::{Value, json};
 use sidekicks_std::mutex_lock::lock;
-use tokio_tungstenite::tungstenite::Message;
 
 use super::{
-    ListeningRelay, SOCKET_READ_WAIT, admitted_socket, assert_quiet, initialize, listening_relay,
-    next_forwarded, next_text, send_text, wait_until,
+    ListeningRelay, admitted_socket, assert_quiet, initialize, listening_relay, next_forwarded,
+    next_text, send_text, wait_until,
 };
 use crate::driver::test_registry::new_session_id;
 
@@ -117,16 +116,18 @@ async fn a_closed_connections_answer_reaches_no_one_and_the_other_goes_on() {
     assert_quiet(&mut staying).await;
 }
 
-// Once the executor's output closes, every connection onto it closes too, each socket reading a
-// close or its end. Killed by the serve task keeping a sender of its own, which keeps a
-// connection open with no executor behind it.
+// Once the executor's output closes, each of two connections is answered its own request the
+// executor left unanswered, under its own id with the error naming the end, and never the other's;
+// each stays open, and its next request is answered with the same error. Killed by owed answers
+// sent to one connection or under the relay's ids, by connections closed at the end, and by a
+// later request passed on to the ended executor, each failing a read or the quiet wait.
 #[tokio::test]
-async fn the_executors_end_closes_every_connection() {
+async fn the_executors_end_answers_every_connection_its_own_requests_and_stays_open() {
     let folder = tempfile::tempdir().expect("a test folder");
     // The relay is kept to the end, so no connection closes for its own drop.
     let ListeningRelay {
         relay: _relay,
-        fake,
+        mut fake,
         url,
         presented,
     } = listening_relay(new_session_id(), folder.path()).await;
@@ -134,21 +135,29 @@ async fn the_executors_end_closes_every_connection() {
         admitted_socket(&url, &presented).await,
         admitted_socket(&url, &presented).await,
     ];
-    // Each handshake answered, so each connection is attached before the executor ends.
-    for socket in &mut sockets {
+    let paths = ["file:///first", "file:///second"];
+    for (socket, path) in sockets.iter_mut().zip(paths) {
         initialize(socket).await;
+        send_text(socket, &metadata_request(2, path)).await;
+        assert_eq!(next_forwarded(&mut fake).await["params"]["path"], path);
     }
 
     drop(fake);
 
+    let ended_answer = |id: u64| {
+        json!({ "id": id, "error": {
+            "code": -32603,
+            "message": "The Codex executor running this service's commands ended; the service \
+                        starts a new one.",
+        }})
+    };
     for socket in &mut sockets {
-        let read = tokio::time::timeout(SOCKET_READ_WAIT, socket.next())
-            .await
-            .expect("the connection closes within its wait");
-        assert!(
-            matches!(read, None | Some(Ok(Message::Close(_)) | Err(_))),
-            "the connection reads on: {read:?}"
-        );
+        assert_eq!(next_text(socket).await, ended_answer(2));
+    }
+    for (socket, path) in sockets.iter_mut().zip(paths) {
+        send_text(socket, &metadata_request(3, path)).await;
+        assert_eq!(next_text(socket).await, ended_answer(3));
+        assert_quiet(socket).await;
     }
 }
 
