@@ -19,11 +19,11 @@ use rusqlite::Connection;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::{WorkflowDefinitionId, WorkflowNode};
 use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowStepError};
 use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use sidekicks_contracts::workflow::run::snapshot::{WorkflowRunEpoch, WorkflowRunPauseNumber};
 use sidekicks_contracts::workflow::run::status::WorkflowStepStatus;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 use sidekicks_std::scheduler::armed_instant::InstantJob as _;
@@ -142,12 +142,13 @@ pub(crate) struct EngineTick {
     pause_point_tasks: HashMap<Id, PausePoint>,
 }
 
-/// An approval pause's point: its run, the wait whose card follows it, and its place among the
-/// run's pauses.
+/// An approval pause's point: its run, the wait whose card follows it, the run's execution it
+/// belongs to, and which of that execution's pauses it is.
 struct PausePoint {
     run_id: WorkflowRunId,
     wait_id: UuidTextForm,
-    ordinal: SafeInt<1>,
+    epoch: WorkflowRunEpoch,
+    pause_number: WorkflowRunPauseNumber,
 }
 
 /// One run's share of a turn while it is gathered: its write, what it readied, the reports its
@@ -321,7 +322,8 @@ impl EngineTick {
         if let Err(error) = taken {
             tracing::warn!(
                 workflow_run_id = %point.run_id,
-                ordinal = point.ordinal.get(),
+                epoch = point.epoch.0.get(),
+                pause_number = point.pause_number.0.get(),
                 error = &*error as &(dyn Error + 'static),
                 "a workflow run's pause point could not be taken"
             );

@@ -4,18 +4,20 @@ use jiff::Timestamp;
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::approval::ApprovalDecision;
+use sidekicks_contracts::git::local::WorkflowRunSnapshotPoint;
 use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::run::gate_resolution::WorkflowGateKind;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use sidekicks_contracts::workflow::run::snapshot::{WorkflowRunEpoch, WorkflowRunPauseNumber};
 use sidekicks_contracts::workflow::run::status::WorkflowStepStatus;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use tokio::time::timeout;
 
 use crate::engine::chain::KeepGoingAnswer;
-use crate::engine::ports::{WorkflowRunSnapshotPoint, WorkflowRunSnapshotPointRequest};
+use crate::engine::ports::WorkflowRunSnapshotPointRequest;
 use crate::engine::tick::turns::tests::harness::ports::OrderedCall;
 use crate::engine::tick::turns::tests::harness::{
     Harness, QUIET, WAIT, edge, item, node, step_column,
@@ -300,13 +302,16 @@ async fn a_failed_ask_fails_its_step() {
     assert_eq!(failures, 1);
 }
 
-/// The order log's line for pause `ordinal` of the run of `harness`.
-fn pause_point(harness: &Harness, ordinal: u64) -> OrderedCall {
+/// The order log's line for pause `pause_number` of the first execution of the run of `harness`.
+fn pause_point(harness: &Harness, pause_number: u64) -> OrderedCall {
     OrderedCall::Point(WorkflowRunSnapshotPointRequest {
         session_id: harness.scope.session_id,
         workflow_run_id: harness.scope.run_id,
         point: WorkflowRunSnapshotPoint::Pause {
-            ordinal: SafeInt::new(ordinal).expect("the test's ordinal"),
+            epoch: WorkflowRunEpoch(SafeInt::ZERO),
+            pause_number: WorkflowRunPauseNumber(
+                SafeInt::new(pause_number).expect("the test's pause number"),
+            ),
         },
     })
 }

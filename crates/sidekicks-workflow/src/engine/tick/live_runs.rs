@@ -11,6 +11,7 @@ use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
+use sidekicks_contracts::workflow::run::snapshot::WorkflowRunEpoch;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 use sidekicks_contracts::workflow::run::step::record::{
     WorkflowPayloadRef, WorkflowStepKey, WorkflowStepSource,
@@ -68,7 +69,11 @@ pub(crate) struct LiveRun {
     pub(crate) needs_deadline_read: bool,
     /// The deadline arm and clear lines of the run's turn, recorded once its write commits.
     pub(crate) deadline_lines: Vec<(WorkflowStepKey, EngineDecision<'static>)>,
-    /// The approval pauses the run has taken, so its next pause is this count and 1.
+    /// The run's current execution, 0 for its first; a re-execution moves it to the next and
+    /// starts its pause count again.
+    pub(crate) epoch: WorkflowRunEpoch,
+    /// The approval pauses the run's current execution has taken, so its next pause is this count
+    /// and 1.
     pub(crate) approval_pauses: u64,
     /// The approval asks whose pause point is being taken, each asked once its point ends.
     pub(crate) pausing: Vec<TurnAsk>,
@@ -150,6 +155,7 @@ impl LiveRun {
             stop: None,
             needs_deadline_read: false,
             deadline_lines: Vec::new(),
+            epoch: WorkflowRunEpoch(SafeInt::ZERO),
             approval_pauses: 0,
             pausing: Vec::new(),
         }

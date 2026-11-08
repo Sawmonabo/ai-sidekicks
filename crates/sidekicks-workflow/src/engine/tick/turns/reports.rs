@@ -5,17 +5,17 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+use sidekicks_contracts::git::local::WorkflowRunSnapshotPoint;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
+use sidekicks_contracts::workflow::run::snapshot::WorkflowRunPauseNumber;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 
 use super::{EngineTick, PausePoint, ReadiedNext, RunTurn, TurnReadied, step_failure};
 use crate::engine::event_record::{EngineFault, EngineIntent, EngineOutcome};
-use crate::engine::ports::{
-    AgentStepRun, WorkflowRunSnapshotPoint, WorkflowRunSnapshotPointRequest,
-};
+use crate::engine::ports::{AgentStepRun, WorkflowRunSnapshotPointRequest};
 use crate::engine::tick::branch_cancellation::WaveSettle;
 use crate::engine::tick::commit::{RunTurnCommit, SettlementAnswer, SettlementWriteFailure};
 use crate::engine::tick::live_runs::{LiveRun, LiveStep, TurnAsk};
@@ -309,18 +309,23 @@ impl EngineTick {
     /// the run's next pause, and keeps the ask on the run until the point ends.
     fn take_pause_point(&mut self, live: &mut LiveRun, turn_ask: TurnAsk) {
         live.approval_pauses += 1;
-        let ordinal =
-            SafeInt::new(live.approval_pauses).expect("a run's pause count is a safe integer");
+        let pause_number = WorkflowRunPauseNumber(
+            SafeInt::new(live.approval_pauses).expect("a run's pause count is a safe integer"),
+        );
         let request = WorkflowRunSnapshotPointRequest {
             session_id: live.scope.session_id,
             workflow_run_id: live.scope.run_id,
-            point: WorkflowRunSnapshotPoint::Pause { ordinal },
+            point: WorkflowRunSnapshotPoint::Pause {
+                epoch: live.epoch,
+                pause_number,
+            },
         };
         let task = self.pause_points.spawn(self.snapshot_points.take(request));
         let point = PausePoint {
             run_id: live.scope.run_id,
             wait_id: turn_ask.opened.wait_id,
-            ordinal,
+            epoch: live.epoch,
+            pause_number,
         };
         self.pause_point_tasks.insert(task.id(), point);
         live.pausing.push(turn_ask);

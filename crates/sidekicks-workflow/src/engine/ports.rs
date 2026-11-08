@@ -19,13 +19,13 @@ use secrecy::SecretString;
 use serde_json::{Map, Value};
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::daemon::config::WorkflowChainAskAfterRuns;
+use sidekicks_contracts::git::local::WorkflowRunSnapshotPoint;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::UuidTextForm;
-use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::ComposedText;
 use sidekicks_contracts::workflow::definition::document::{WorkflowDefinitionId, WorkflowNodeId};
 use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowStepError};
@@ -346,20 +346,6 @@ pub trait ApprovalCardRaiser: Send + Sync {
     fn raise(&self, request: WorkflowApprovalCardRequest) -> BoxFuture<'_, Result<(), PortError>>;
 }
 
-/// A point of a workflow run at which its checkout is recorded, in the run's own capture folder.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum WorkflowRunSnapshotPoint {
-    /// The run's start, written as `start`.
-    Start,
-    /// One of the run's approval pauses, written as `pause-<ordinal>`.
-    Pause {
-        /// The pause's place among the run's approval pauses, counted from 1.
-        ordinal: SafeInt<1>,
-    },
-    /// The run's end, written as `end`.
-    End,
-}
-
 /// A snapshot point a workflow run takes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WorkflowRunSnapshotPointRequest {
@@ -367,7 +353,7 @@ pub struct WorkflowRunSnapshotPointRequest {
     pub session_id: SessionId,
     /// The run whose checkout is recorded.
     pub workflow_run_id: WorkflowRunId,
-    /// The point taken.
+    /// The point taken, in the execution it belongs to.
     pub point: WorkflowRunSnapshotPoint,
 }
 
