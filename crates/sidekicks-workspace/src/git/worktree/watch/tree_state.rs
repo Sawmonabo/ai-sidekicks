@@ -1,14 +1,15 @@
 //! The worktree state moves the working-folder watch writes: the daemon's standing tree at a
 //! watched folder moves `-> dirty` when uncommitted work is seen there, `dirty -> ready` once it
-//! reads clean again, and `ready -> merged` once its branch has merged back, each with its event in
-//! the row's own write.
+//! reads clean again, `ready -> merged` once its branch has merged back and `merged -> ready` once
+//! its branch gains commits of its own again, each with its event in the row's own write.
 //!
 //! - Whether the tree is clean is one `git status` on each change burst, read before the burst's
 //!   change goes out; a folder holding no standing tree costs one row read and runs no git.
-//! - Whether its branch merged back is read after the change goes out, so no subscriber waits for
-//!   it: at the watch's start, after a change in the tree's git folder, which every commit, merge,
-//!   fetch or ref move makes, and after the tree reads clean again, never after a burst of file
-//!   changes alone that leaves it as it was ([`super::merged`]).
+//! - Whether its branch merged back, or a merged one gained commits of its own again, is read after
+//!   the change goes out, so no subscriber waits for it: at the watch's start, after a change in the
+//!   tree's git folder, which every commit, merge, fetch or ref move makes, and after the tree reads
+//!   clean again, never after a burst of file changes alone that leaves it as it was
+//!   ([`super::merged`]).
 //! - Every failure is logged, and the folder's next change checks again.
 
 use std::error::Error;
@@ -21,7 +22,7 @@ use sidekicks_contracts::worktree::lifecycle::WorktreeState;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadError, ReadLength};
 use sidekicks_store::events::session::appender::SessionEventLinkage;
 
-use super::merged::MergedCheck;
+use super::merged::{MergedCheck, own_commit_tip_statement};
 use super::{WatchTarget, WatcherShared};
 use crate::git::worktree::event_emitter::EmitWorktreeEventInput;
 use crate::git::worktree::reads::has_uncommitted_work;
@@ -78,9 +79,19 @@ static MARK_MERGED_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// The daemon's standing tree at a watched folder that reads clean and `ready`, which the merged
-/// check reads, and whether this check moved it back from `dirty`.
-pub(super) struct ReadyTree {
+// `merged -> ready`.
+static MARK_REOPENED_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE worktrees SET state = '{ready}', updated_at = @now
+  WHERE id = @worktree_id AND state = '{merged}'",
+        ready = <&'static str>::from(WorktreeState::Ready),
+        merged = <&'static str>::from(WorktreeState::Merged),
+    )
+});
+
+/// The daemon's standing tree at a watched folder that reads clean, `ready` or `merged`, which the
+/// merged check reads, and whether this check moved it back from `dirty`.
+pub(super) struct CleanTree {
     /// The tree.
     pub(super) tree: StandingTree,
     /// Whether this check wrote its `dirty -> ready` move.
@@ -98,12 +109,13 @@ pub(super) struct StandingTree {
     pub(super) own_commit_tip: Option<String>,
 }
 
-// The move a check found due.
+// The move a check found due; a reopened tree's row records the tip that holds its new commits.
 #[derive(Clone, Copy, Debug)]
-enum TreeMove {
+enum TreeMove<'tip> {
     Dirtied,
     Cleaned,
     Merged,
+    Reopened { tip: &'tip str },
 }
 
 // Why the standing tree at a folder could not be read.
@@ -117,13 +129,13 @@ enum StandingTreeReadError {
 
 /// Reads the daemon's standing tree at `target`'s folder and writes its `-> dirty` or
 /// `dirty -> ready` move where the folder at `key` makes one due, with its event in the same write;
-/// answers the tree when it reads clean and `ready`. A write the row refused, its tree retired or
-/// moved meanwhile, appends nothing.
+/// answers the tree when it reads clean, `ready` or `merged`. A write the row refused, its tree
+/// retired or moved meanwhile, appends nothing.
 pub(super) async fn check_uncommitted_work(
     shared: &WatcherShared,
     key: &Path,
     target: &WatchTarget,
-) -> Option<ReadyTree> {
+) -> Option<CleanTree> {
     let tree = match read_standing_tree(shared, target).await {
         Ok(Some(tree)) => tree,
         Ok(None) => return None,
@@ -159,17 +171,15 @@ pub(super) async fn check_uncommitted_work(
             }
             true
         }
-        WorktreeState::Ready => false,
-        WorktreeState::Merged
-        | WorktreeState::Creating
-        | WorktreeState::Retired
-        | WorktreeState::Failed => return None,
+        WorktreeState::Ready | WorktreeState::Merged => false,
+        WorktreeState::Creating | WorktreeState::Retired | WorktreeState::Failed => return None,
     };
-    Some(ReadyTree { tree, is_cleaned })
+    Some(CleanTree { tree, is_cleaned })
 }
 
-/// Writes `tree`'s `ready -> merged` move, with its event in the same write, once its branch,
-/// checked out at `key`, has merged back. A write the row refused appends nothing.
+/// Writes `tree`'s `ready -> merged` move once its branch, checked out at `key`, has merged back,
+/// or its `merged -> ready` move once a merged branch gains commits of its own again, with its
+/// event in the same write. A write the row refused appends nothing.
 pub(super) async fn check_merged_back(
     shared: &WatcherShared,
     key: &Path,
@@ -177,6 +187,23 @@ pub(super) async fn check_merged_back(
     merged: &mut MergedCheck,
     tree: &StandingTree,
 ) {
+    if tree.row.state == WorktreeState::Merged {
+        match merged
+            .reopened_tip(&shared.deps.git, target.place.as_ref(), key, tree)
+            .await
+        {
+            Ok(Some(tip)) => {
+                write_move(shared, &tree.row, TreeMove::Reopened { tip: &tip }).await;
+            }
+            Ok(None) => {}
+            Err(error) => tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "whether a merged worktree's branch gained commits of its own could not be read; \
+                 the next change in its git folder reads it again"
+            ),
+        }
+        return;
+    }
     match merged
         .has_merged_back(&shared.deps, target.place.as_ref(), key, tree)
         .await
@@ -218,13 +245,18 @@ async fn read_standing_tree(
 
 // Writes the row's move and its event in one write, the move guarded on its legal predecessor;
 // whether the move was written.
-async fn write_move(shared: &WatcherShared, tree: &WorktreeRow, due: TreeMove) -> bool {
+async fn write_move(shared: &WatcherShared, tree: &WorktreeRow, due: TreeMove<'_>) -> bool {
     let now = WireInstant::now();
     let sql = match due {
         TreeMove::Dirtied => MARK_DIRTY_SQL.as_str(),
         TreeMove::Cleaned => MARK_CLEANED_SQL.as_str(),
         TreeMove::Merged => MARK_MERGED_SQL.as_str(),
+        TreeMove::Reopened { .. } => MARK_REOPENED_SQL.as_str(),
     };
+    let mut prelude = vec![transition_statement(sql, &tree.id, &now, Some(1))];
+    if let TreeMove::Reopened { tip } = due {
+        prelude.push(own_commit_tip_statement(&tree.id, tip, &now));
+    }
     // The row's own session: the event belongs to its maker, and the watch acts for no one.
     let input = EmitWorktreeEventInput {
         session_id: tree.created_by_session_id,
@@ -235,7 +267,7 @@ async fn write_move(shared: &WatcherShared, tree: &WorktreeRow, due: TreeMove) -
     };
     let linkage = SessionEventLinkage {
         occurred_at: Some(now.clone()),
-        transactional_prelude: vec![transition_statement(sql, &tree.id, &now, Some(1))],
+        transactional_prelude: prelude,
         ..SessionEventLinkage::default()
     };
     let events = &shared.deps.events;
@@ -243,6 +275,7 @@ async fn write_move(shared: &WatcherShared, tree: &WorktreeRow, due: TreeMove) -
         TreeMove::Dirtied => events.emit_worktree_dirtied(input, linkage).await,
         TreeMove::Cleaned => events.emit_worktree_cleaned(input, linkage).await,
         TreeMove::Merged => events.emit_worktree_merged(input, linkage).await,
+        TreeMove::Reopened { .. } => events.emit_worktree_reopened(input, linkage).await,
     };
     match written {
         Ok(_) => true,

@@ -1,5 +1,5 @@
-//! The worktree state moves the watch writes, `-> dirty`, back to `ready` and `-> merged`, read
-//! through a real worktree whose branch is committed, synced and merged.
+//! The worktree state moves the watch writes, `-> dirty`, back to `ready`, `-> merged` and back
+//! from it, read through a real worktree whose branch is committed, synced and merged.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -182,11 +182,15 @@ enum MergeStyle {
 
 // A fresh tree reads neither dirty nor merged; new uncommitted work moves its row `-> dirty`,
 // committing it back to `ready`, and its branch merged back `-> merged`, each with its one event;
-// a merged tree dirtied and cleaned by file edits alone reads merged again. Kills a move written
-// without its event, an event appended without its move, a fresh tree read as merged, the clean
-// move dropped, a squash of two commits compared only commit by commit, a fast-forward merge whose
-// commit the watch never saw before it merged left unseeded from the reflog, and a clean move that
-// leaves the merged check waiting for a change in the git folder.
+// a merged tree dirtied and cleaned by file edits alone reads merged again, stays merged while
+// only its base moves, and moves back to `ready` with its event once it commits work of its own,
+// recording that tip. Kills a move written without its event, an event appended without its move,
+// a fresh tree read as merged, the clean move dropped, a squash of two commits compared only
+// commit by commit, a fast-forward merge whose commit the watch never saw before it merged left
+// unseeded from the reflog, a clean move that leaves the merged check waiting for a change in the
+// git folder, a merged tree left unchecked, a reopen count not bounded by the recorded tip (which
+// reads a squash-merged branch as reopened at the base's next commit), and a reopen that does not
+// record its tip.
 #[rstest]
 #[case::fast_forward(MergeStyle::FastForward)]
 #[case::squash(MergeStyle::Squash)]
@@ -244,6 +248,20 @@ async fn a_tree_reads_dirty_then_ready_then_merged_once_its_own_commits_merge_ba
             watched.event("merged", "merged"),
         ]
     );
+
+    let (git, repository) = (watched.fixture.git.clone(), watched.repository.clone());
+    commit_empty(&git, &repository, "elsewhere").await;
+    watched.tell_ref_moved("main").await;
+    let (state, events) = watched.settled_state().await;
+    assert_eq!((state.as_str(), events.len()), ("merged", 6));
+
+    watched.write_and_commit_file("next.txt").await;
+    watched.tell_ref_moved("feature").await;
+    let (state, events) = watched.settled_state().await;
+    assert_eq!(state, "ready");
+    assert_eq!(events[6..], [watched.event("reopened", "ready")]);
+    let tip = git_in(&git, &watched.tree, &["rev-parse", "HEAD"]).await;
+    assert_eq!(watched.recorded_tip(), Some(tip));
 }
 
 /// How a test leaves a tree's branch level with or behind its base without merging work back.

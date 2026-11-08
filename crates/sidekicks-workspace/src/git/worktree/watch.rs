@@ -20,9 +20,10 @@
 //!   receivers by its key, whether or not a session subscribes, with how its tree is followed.
 //! - The daemon's worktree at a folder moves `-> dirty` or back to `ready` with its event, checked
 //!   at the watch's start and before each change goes out, so a reader the change wakes reads it;
-//!   it moves `-> merged` with its event once its branch merged back, read after the start is
-//!   answered and after the change goes out, so no subscriber waits for it, and only at the start,
-//!   after a change in its git folder and once the tree reads clean again.
+//!   it moves `-> merged` with its event once its branch merged back, and from `merged` back to
+//!   `ready` once its branch gains commits of its own again, each read after the start is answered
+//!   and after the change goes out, so no subscriber waits for it, and only at the start, after a
+//!   change in its git folder and once the tree reads clean again.
 
 use std::collections::HashMap;
 use std::io;
@@ -154,8 +155,8 @@ pub struct WorkingFolderWatcherDeps {
     pub writer: Arc<DatabaseWriter>,
     /// The sessions standing in a folder, for the branch write-back.
     pub occupancy: MountOccupancyReader,
-    /// Where `session.branch.changed`, `worktree.dirtied`, `worktree.cleaned` and
-    /// `worktree.merged` are appended.
+    /// Where `session.branch.changed`, `worktree.dirtied`, `worktree.cleaned`, `worktree.merged`
+    /// and `worktree.reopened` are appended.
     pub events: Arc<WorktreeEventEmitter>,
     /// The daemon's scheduler, which runs each slow tick.
     pub scheduler: Arc<Scheduler>,

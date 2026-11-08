@@ -12,6 +12,8 @@
 //!   left unapplied there: each of its commits' patches found on that side, or all of its changes
 //!   as one squashed patch. The patch test runs once per combination of the recorded tip, the
 //!   base's and the upstream's.
+//! - A merged branch reads reopened once a check counts such commits of its own past its recorded
+//!   tip.
 //! - A base that names no local or remote-tracking branch, and a recorded tip the repository no
 //!   longer holds, read as not merged, each logged once.
 
@@ -20,6 +22,7 @@ use std::path::Path;
 
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::worktree::lifecycle::WorktreeId;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::writer::WriteError;
 
@@ -150,6 +153,46 @@ impl MergedCheck {
         let verdict = is_applied(git, place, folder, &tips).await?;
         self.last_patch_test = Some((tips, verdict));
         Ok(verdict)
+    }
+
+    /// The tip of `tree`'s branch, merged back and checked out at `folder`, once it holds commits of
+    /// its own past the recorded tip that neither the base nor its upstream holds, which the row
+    /// then records; `None` while it holds none. Fails as git does.
+    pub(super) async fn reopened_tip(
+        &mut self,
+        git: &GitRunner,
+        place: Option<&Place>,
+        folder: &Path,
+        tree: &StandingTree,
+    ) -> Result<Option<String>, GitError> {
+        let branch_ref = format!("{BRANCH_REF_PREFIX}{}", tree.row.branch_name.as_str());
+        let Some(tips) = self
+            .read_tips(git, place, folder, &branch_ref, &tree.base)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let mut past = tips.targets.clone();
+        past.extend(tree.own_commit_tip.iter().cloned());
+        let count = match count_past(git, place, folder, &tips.tip, &past, Commits::OwnOnly).await {
+            Ok(count) => count,
+            // A recorded tip the repository no longer holds bounds nothing.
+            Err(error) => match &tree.own_commit_tip {
+                Some(recorded) if !is_commit_held(git, place, folder, recorded).await? => {
+                    count_past(
+                        git,
+                        place,
+                        folder,
+                        &tips.tip,
+                        &tips.targets,
+                        Commits::OwnOnly,
+                    )
+                    .await?
+                }
+                _ => return Err(error),
+            },
+        };
+        Ok((count > 0).then_some(tips.tip))
     }
 
     // The branch's tip and its targets, the base's upstream read only where it holds commits the
@@ -520,22 +563,35 @@ async fn read_with_input(
         .stdout)
 }
 
+/// Records `tip` on the row of the worktree `worktree_id` as the last tip of its branch seen holding
+/// commits of its own.
+pub(super) fn own_commit_tip_statement(
+    worktree_id: &WorktreeId,
+    tip: &str,
+    now: &WireInstant,
+) -> WriteStatement {
+    WriteStatement {
+        sql: RECORD_OWN_COMMIT_TIP_SQL.into(),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@tip", tip),
+            text_binding("@worktree_id", worktree_id.text().as_str()),
+            text_binding("@now", now.as_str()),
+        ]),
+        expected_row_count: None,
+    }
+}
+
 async fn record_own_commit_tip(
     deps: &WorkingFolderWatcherDeps,
     tree: &StandingTree,
     tip: &str,
 ) -> Result<(), WriteError> {
-    let now = WireInstant::now();
     deps.writer
-        .write(vec![WriteStatement {
-            sql: RECORD_OWN_COMMIT_TIP_SQL.into(),
-            bindings: StatementBindings::Named(vec![
-                text_binding("@tip", tip),
-                text_binding("@worktree_id", tree.row.id.text().as_str()),
-                text_binding("@now", now.as_str()),
-            ]),
-            expected_row_count: None,
-        }])
+        .write(vec![own_commit_tip_statement(
+            &tree.row.id,
+            tip,
+            &WireInstant::now(),
+        )])
         .await?;
     Ok(())
 }

@@ -1,7 +1,8 @@
 //! One watched folder's task: it starts the folder's watches, picks the tree's mode (a watch, or
 //! the slow tick where the machine's watch limit has no room), reads every notice, tick and raise
 //! one at a time, sends one change per burst, writes a changed branch back and moves the folder's
-//! worktree `-> dirty` or back to `ready` before the change goes out and `-> merged` after it. The
+//! worktree `-> dirty` or back to `ready` before the change goes out and `-> merged` or back from
+//! it after. The
 //! folder-change receivers hear each change, the watch's start and each fall to the slow tick, with
 //! the mode.
 
@@ -27,7 +28,7 @@ use super::ignored_paths::{
 };
 use super::merged::MergedCheck;
 use super::slow_tick::{StatusEntry, read_status_digest};
-use super::tree_state::{ReadyTree, StandingTree, check_merged_back, check_uncommitted_work};
+use super::tree_state::{CleanTree, StandingTree, check_merged_back, check_uncommitted_work};
 use super::{
     FolderKey, FolderSignals, FolderStartError, FolderWatchChangeKind, StartOutcome, WatchTarget,
     WatcherShared, WatcherState,
@@ -70,8 +71,8 @@ pub(super) async fn run_folder<W: Watcher + Send + 'static>(
         () = close.cancelled() => return,
         outcome = watched.start() => outcome,
     };
-    let (outcome, ready) = match outcome {
-        Ok(ready) => (Ok(()), ready),
+    let (outcome, clean) = match outcome {
+        Ok(clean) => (Ok(()), clean),
         Err(error) => (Err(error), None),
     };
     let has_started = outcome.is_ok();
@@ -81,7 +82,7 @@ pub(super) async fn run_folder<W: Watcher + Send + 'static>(
         tokio::select! {
             biased;
             () = close.cancelled() => {}
-            () = watched.watch(ready) => {}
+            () = watched.watch(clean) => {}
         }
     }
     watched.stop_tick();
@@ -144,9 +145,9 @@ enum WatchTake {
 impl<W: Watcher + Send + 'static> WatchedFolder<W> {
     // Reads the git folders and what git ignores, watches the git folders, then the tree or the
     // slow tick, then checks the branch and the tree's uncommitted work once, since either may have
-    // changed while nothing watched; answers the tree when it reads clean and `ready`, whose merged
-    // check waits until the start is answered.
-    async fn start(&mut self) -> Result<Option<ReadyTree>, FolderStartError> {
+    // changed while nothing watched; answers the tree when it reads clean, `ready` or `merged`,
+    // whose merged check waits until the start is answered.
+    async fn start(&mut self) -> Result<Option<CleanTree>, FolderStartError> {
         let git = &self.shared.deps.git;
         let place = self.target.place.as_ref();
         let key = self.folder.key.clone();
@@ -196,12 +197,12 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
         Ok(self.check_uncommitted_work().await)
     }
 
-    // Checks whether the clean `ready` tree the start read merged back, then reads the watches,
+    // Checks the merged state of the clean tree the start read, then reads the watches,
     // ticks and raises one at a time until the folder is closed; a change is sent only once no
     // notice is ready, so a burst reaches each subscriber once.
-    async fn watch(&mut self, ready: Option<ReadyTree>) {
-        if let Some(ready) = ready {
-            self.check_merged_back(&ready.tree).await;
+    async fn watch(&mut self, clean: Option<CleanTree>) {
+        if let Some(clean) = clean {
+            self.check_merged_back(&clean.tree).await;
         }
         loop {
             let event = tokio::select! {
@@ -220,14 +221,14 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
                 FolderEvent::Tick => self.take_tick().await,
                 FolderEvent::IgnoredRead(read) => self.take_ignored_read(read).await,
                 FolderEvent::Flush => {
-                    let ready = self.check_uncommitted_work().await;
+                    let clean = self.check_uncommitted_work().await;
                     self.send_change();
                     // A tree clean again may have merged back while it was dirty.
                     let is_merged_check_due = std::mem::take(&mut self.is_merged_check_due);
-                    if let Some(ready) = ready
-                        && (is_merged_check_due || ready.is_cleaned)
+                    if let Some(clean) = clean
+                        && (is_merged_check_due || clean.is_cleaned)
                     {
-                        self.check_merged_back(&ready.tree).await;
+                        self.check_merged_back(&clean.tree).await;
                     }
                 }
             }
@@ -575,7 +576,7 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
     }
 
     // Takes the folder exclusively, since what it keeps is not shared across threads.
-    async fn check_uncommitted_work(&mut self) -> Option<ReadyTree> {
+    async fn check_uncommitted_work(&mut self) -> Option<CleanTree> {
         check_uncommitted_work(&self.shared, &self.folder.key, &self.target).await
     }
 
