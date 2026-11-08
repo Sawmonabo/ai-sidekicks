@@ -224,7 +224,7 @@ interface SessionRecord {
   pendingWorkingFolder: { path: string } | null;
   // The daemon-held composer store below: the whole unsent draft (empty when there is none) and the whole
   // staged set, so every device opens the same half-written message.
-  draft: string;
+  draft: SessionDraft;
   attachments: SessionAttachmentSummary[];
   // This session's OWN bound on how many steps one turn may take, absent where the person set none —
   // in which case the machine's own Runtime value applies, and where that is unset the turn is
@@ -370,10 +370,28 @@ interface SessionWorkingFolderUpdateResponse {
 // message or review reaches the person's other devices, and Send needs no upload step because the
 // file was already copied. Typed unsent text is NEVER written to renderer-local storage.
 
+// The unsent draft, whole: its words and what rides with them, in the shapes
+// `agent.queueItem.create` takes ([Run Control Payload Contracts](run-control-payloads.md)), so a
+// draft sends again as it was. A draft the person saved and
+// one a Stop or an interrupt's return to the draft put back read the same: a lead message taken
+// back joins the draft whole, its words on their own line ahead of the held words, its files and
+// skill picks after the held ones, and its turn speed and repository only where the held draft
+// names none.
+interface SessionDraftExtras {
+  attachments?: ArtifactId[]; // the files, in staging order
+  skills?: { name: string; folderPath: string }[]; // the skills picked, in the order picked
+  outputSpeedForTurn?: string; // the speed its turn alone runs at
+  workspaceId?: WorkspaceId; // the repository the run its send starts binds to
+}
+interface SessionDraft {
+  text: string; // empty when no words are typed
+  extras: SessionDraftExtras; // `{}` when nothing rides with the words
+}
+
 // SessionDraftUpdate — session.draft.update.
 interface SessionDraftUpdateRequest {
   sessionId: SessionId;
-  text: string; // the whole draft; an empty string clears it
+  draft: SessionDraft; // the whole draft; an empty one, no words and no extras, clears it
 }
 interface SessionDraftUpdateResponse {
   sessionId: SessionId;

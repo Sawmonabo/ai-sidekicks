@@ -192,10 +192,17 @@ It is **configuration, not session history**: it is not events-canonical and is 
 ```sql
 -- Owner: Plan-001
 -- One row per session, so a half-typed message survives a restart and reaches the person's other
--- devices. An empty draft is no row: Send deletes it.
+-- devices. An empty draft, no words and no extras, is no row: Send deletes it. A lead message a
+-- Stop or an interrupt's return to the draft takes back joins the row whole: its words on their
+-- own line ahead of the held words, its files and skill picks after the held ones, and its turn
+-- speed and repository only where the held draft names none.
 CREATE TABLE session_drafts (
   session_id  TEXT PRIMARY KEY,
   text        TEXT NOT NULL,
+  extras      TEXT,                             -- JSON of what rides with the words, the members a
+                                                -- send carries: attachments, skills (the person's
+                                                -- picks), outputSpeedForTurn, workspaceId; NULL
+                                                -- when none ride
   updated_at  TEXT NOT NULL                     -- RFC 3339 UTC, ms precision
 ) STRICT;
 
