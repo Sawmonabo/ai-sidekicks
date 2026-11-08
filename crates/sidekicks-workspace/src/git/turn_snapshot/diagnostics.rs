@@ -87,6 +87,9 @@ pub enum TurnSnapshotRetentionSkipReason {
     GitDirUnusable,
     /// The listing succeeded but an `update-ref -d` did not; refs already deleted still count.
     RefDeleteFailed,
+    /// The capture folder's reclaim mark could not be written, so no ref was deleted; retry the
+    /// prune.
+    ReclaimMarkFailed,
 }
 
 /// What the captures and their packing report to the service log: a diagnostic is the daemon's

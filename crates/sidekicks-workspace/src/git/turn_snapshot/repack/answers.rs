@@ -106,7 +106,7 @@ fn read_point(line: &str) -> Option<SnapshotPoint> {
         }
         Some(base)
     };
-    (tree.as_str().len() == commit.as_str().len()).then_some(SnapshotPoint { tree, base })
+    (tree.as_str().len() == commit.as_str().len()).then_some(SnapshotPoint { commit, tree, base })
 }
 
 /// Whether each of `bases` is a commit, from `cat-file --batch-check`'s answer `stdout` to them in

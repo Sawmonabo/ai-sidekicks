@@ -3,7 +3,8 @@
 //! file away; once a folder holds more packs than the last fold left, and at each sweep, its packs
 //! are folded. The sweep also packs the trees of captures whose base no ref of the repository
 //! reaches any more, packs again a capture whose own pack failed once its loose objects are an hour
-//! old, and skips a folder whose refs, packs and loose objects are as its last pass left them.
+//! old, reclaims the objects of a run whose refs were deleted from the folder, and skips a folder
+//! whose refs, packs and loose objects are as its last pass left them and that has no reclaim due.
 //! Every pass, a skipped one too, first removes what a git cut at its bound or a daemon stopped
 //! mid-write left once it is an hour old: git's temporaries, scratch indexes and their locks, and
 //! the owner's capture folders still being made.
@@ -50,6 +51,7 @@ use ref_state::{RefState, read_ref_state};
 
 mod answers;
 mod leftovers;
+mod reclaim;
 mod ref_state;
 
 /// The packs a capture folder may hold before a fold is due, when no fold has run there yet.
@@ -112,10 +114,12 @@ impl CapturedCommit {
     }
 }
 
-/// One capture a sweep keeps alive: its tree and the repository's commit it stands on, `None` for
-/// a capture taken before the repository had a commit, which has nothing to reach.
+/// One capture a sweep keeps alive: its commit, its tree and the repository's commit it stands
+/// on, `None` for a capture taken before the repository had a commit, which has nothing to reach.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SnapshotPoint {
+    /// The capture's commit in its capture folder.
+    pub commit: GitObjectId,
     /// The capture's tree.
     pub tree: GitObjectId,
     /// The repository's commit the capture stood on.
@@ -315,8 +319,10 @@ impl CapturePacking {
     /// them, read at `read_at`, and the folder holds no loose object and no fold is due; else the
     /// trees of the folder's captures and of `extra_points` whose base no ref reaches are packed,
     /// the captures whose tree is a loose object an hour old are packed again on their own base,
-    /// those loose objects are packed, and the packs folded. Fails with the step's failure, so no
-    /// pass is kept and the next sweep runs it all.
+    /// those loose objects are packed, a folder a prune marked once its run's refs are gone is
+    /// reclaimed from its refs, `extra_points` and its kept indexes, and the packs folded; a
+    /// folder holding a reclaim due is never skipped. Fails with the step's failure, so no pass is
+    /// kept and the next sweep runs it all.
     #[expect(
         clippy::too_many_arguments,
         reason = "each is one fact of the pass the caller holds, the meter its job's own"
@@ -363,6 +369,7 @@ impl CapturePacking {
         if is_folder_removed(&folder).await {
             return Ok(CaptureFolderSweep::Absent);
         }
+        let due_marks = self.read_due_marks(place, &folder, &hold, meter).await?;
         let counts = self.count_objects(place, &folder, &hold).await?;
         // A temporary loose object counts as garbage and a stale one as loose, so the fan-out
         // folders are listed only then.
@@ -377,7 +384,11 @@ impl CapturePacking {
         )
         .map_err(PackingError::Folder)?;
         let is_unchanged = last_pass.is_some_and(|last| last.is_unchanged_by(&pass.ref_state));
-        if is_unchanged && counts.loose == 0 && !self.is_fold_due(&folder, counts.packs) {
+        if is_unchanged
+            && counts.loose == 0
+            && due_marks.is_empty()
+            && !self.is_fold_due(&folder, counts.packs)
+        {
             return Ok(CaptureFolderSweep::Skipped(pass));
         }
         let mut points = self.read_capture_points(place, &folder, &hold).await?;
@@ -422,6 +433,10 @@ impl CapturePacking {
             self.pack_stale_points(place, &capture_folder, &failed_points, &hold)
                 .await?;
             self.pack_listed_objects(place, &folder, &stale_objects, &hold)
+                .await?;
+        }
+        if !due_marks.is_empty() {
+            self.reclaim(place, &folder, extra_points, &due_marks, &hold, meter)
                 .await?;
         }
         self.fold_held(place, &folder, &hold).await?;

@@ -261,19 +261,34 @@ async fn a_workflow_runs_points_land_beside_each_other_and_one_taken_again_keeps
 // the prune is aimed at the repository instead of the owner's capture folder (the repository's
 // ref of the same name goes, or the capture folder's stays), when a symref planted under the
 // run's prefix takes the branch it names with it, or when any ref under the prefix is left
-// behind; a second prune finds none.
+// behind; a second prune finds none. Fails too when a prune that deletes refs leaves no reclaim
+// mark (the sweep never reclaims the run's objects), when a skipped or empty prune leaves one, and
+// when the delete runs before the mark or past a failed one (the blocked mark's refs go).
 #[rstest]
-#[case::an_unended_run_is_skipped(None, true, Some(TurnSnapshotRetentionSkipReason::RunNotEnded))]
+#[case::an_unended_run_is_skipped(
+    None,
+    true,
+    false,
+    Some(TurnSnapshotRetentionSkipReason::RunNotEnded)
+)]
 #[case::an_owner_without_a_capture_folder_is_skipped(
     Some(ENDED_AT),
     false,
+    false,
     Some(TurnSnapshotRetentionSkipReason::GitDirAbsent)
 )]
-#[case::a_planted_symref_goes_and_its_branch_stays(Some(ENDED_AT), true, None)]
+#[case::a_planted_symref_goes_and_its_branch_stays(Some(ENDED_AT), true, false, None)]
+#[case::a_mark_that_cannot_be_written_deletes_no_ref(
+    Some(ENDED_AT),
+    true,
+    true,
+    Some(TurnSnapshotRetentionSkipReason::ReclaimMarkFailed)
+)]
 #[tokio::test]
 async fn a_run_prune_deletes_every_ref_under_its_prefix_in_the_capture_folder_and_nothing_else(
     #[case] released_at: Option<&str>,
     #[case] is_capture_folder_made: bool,
+    #[case] is_mark_blocked: bool,
     #[case] skip_reason: Option<TurnSnapshotRetentionSkipReason>,
 ) {
     let git = test_git_runner();
@@ -300,6 +315,10 @@ async fn a_run_prune_deletes_every_ref_under_its_prefix_in_the_capture_folder_an
             ["symbolic-ref", planted_ref.as_str(), "refs/heads/kept"],
         ] {
             answer_in_git_folder(&git, folder, &arguments, &[]).await;
+        }
+        if is_mark_blocked {
+            // A file where the marks' folder goes, so the mark cannot be written.
+            std::fs::write(folder.join("reclaims"), "").expect("the blocking file is written");
         }
         Some((capture_folder, snapshot))
     } else {
@@ -344,11 +363,15 @@ async fn a_run_prune_deletes_every_ref_under_its_prefix_in_the_capture_folder_an
             ),
             "got {pruned:?}"
         );
-        if capture_folder.is_some() {
+        if let Some((capture_folder, _)) = &capture_folder {
             assert_eq!(
                 remaining.lines().count(),
                 2,
                 "a skipped prune deletes nothing"
+            );
+            assert!(
+                is_mark_blocked || !capture_folder.folder().join("reclaims").exists(),
+                "a skipped prune marks nothing"
             );
         }
         return;
@@ -365,6 +388,12 @@ async fn a_run_prune_deletes_every_ref_under_its_prefix_in_the_capture_folder_an
         answer_in_git_folder(&git, capture_folder.folder(), &kept, &[]).await,
         snapshot
     );
+    let mark = capture_folder
+        .folder()
+        .join("reclaims")
+        .join(run_key.to_string());
+    assert!(mark.exists(), "the prune marks the folder for its reclaim");
+    std::fs::remove_file(&mark).expect("the mark is removed");
     let again = service.prune_snapshots_for_run(None, run_key, &owner).await;
     let is_empty_prune = matches!(
         &again,
@@ -374,6 +403,7 @@ async fn a_run_prune_deletes_every_ref_under_its_prefix_in_the_capture_folder_an
         is_empty_prune,
         "a second prune finds nothing, got {again:?}"
     );
+    assert!(!mark.exists(), "an empty prune marks nothing");
 }
 
 // Fails when the capture takes a lock of its own instead of the run setup gate's: it then runs
