@@ -66,6 +66,8 @@ pub(crate) fn worktree_row(id: &str, branch_name: &str, state: &str) -> String {
 pub struct RunContextRow<'a> {
     /// The run.
     pub run_id: &'a str,
+    /// The session the run belongs to.
+    pub session_id: &'a str,
     /// The mode's text, any text, so a test can store one outside the set.
     pub execution_mode: &'a str,
     /// Where the run executes.
@@ -84,6 +86,7 @@ impl RunContextRow<'_> {
     /// The unreleased bound-root run `run` in the checkout `/repos/app`.
     pub const BOUND_ROOT: RunContextRow<'static> = RunContextRow {
         run_id: "run",
+        session_id: "session",
         execution_mode: "boundRoot",
         execution_root: "/repos/app",
         checkout_root: Some("/repos/app"),
@@ -98,11 +101,12 @@ impl RunContextRow<'_> {
             .execute(
                 "INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, \
                  execution_mode, execution_root, checkout_root, git_common_dir, worktree_id, \
-                 branch_context_id, created_at, released_at) VALUES (:run_id, 'session', \
+                 branch_context_id, created_at, released_at) VALUES (:run_id, :session_id, \
                  'workspace', :execution_mode, :execution_root, :checkout_root, :git_common_dir, \
                  :worktree_id, 'branch-context', :created_at, :released_at)",
                 named_params! {
                     ":run_id": self.run_id,
+                    ":session_id": self.session_id,
                     ":execution_mode": self.execution_mode,
                     ":execution_root": self.execution_root,
                     ":checkout_root": self.checkout_root,

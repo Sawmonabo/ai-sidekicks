@@ -223,6 +223,13 @@ impl CapturePacking {
         }
     }
 
+    /// The lock each capture folder's packs, folds and sweep passes take, keyed by its path, for a
+    /// test that waits for a caller to queue on one.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn folder_lock(&self) -> &KeyedLock<PathBuf> {
+        &self.folder_lock
+    }
+
     /// Forgets what this daemon run keeps of the capture folders under the owner folder
     /// `owner_folder`, for an owner whose folder was removed: how many packs each folder's last
     /// fold left and when a fold there failed.
