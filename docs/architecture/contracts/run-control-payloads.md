@@ -571,12 +571,7 @@ interface AgentQueueItemSubscribeRequest {
 // changes, `kind: "behind"`, carrying the head cursor, and takes a snapshot read in place of every
 // change. The queue is a list as it now stands, so its frame is the changes alone and never says
 // it is behind.
-type RecordStreamFrame<Change, Cursor> =
-  | { kind: "changes"; changes: Change[] }
-  | { kind: "behind"; headCursor: Cursor };
-interface CurrentStateStreamFrame<Change> {
-  changes: Change[];
-}
+
 // One change on agent.run.subscribe: the delivery and the cursor of the event it came from, or, for
 // Codex's safety hold, which the session's history never records, the session's newest cursor when
 // it went out.
@@ -589,7 +584,9 @@ interface RunStateStreamChange {
     | AgentRunRecoveryRequestedPayload
     | AgentRunRecoveryResolvedPayload;
 }
-type RunStateStreamFrame = RecordStreamFrame<RunStateStreamChange, EventCursor>;
+type RunStateStreamFrame =
+  | { kind: "changes"; changes: RunStateStreamChange[] }
+  | { kind: "behind"; headCursor: EventCursor };
 // One change on agent.queueItem.subscribe: the item as it now stands, and the cursor of the
 // `agent.queueItem.*` event that changed it, or, for a reorder, which no event records, the
 // session's newest cursor when the change went out.
@@ -597,7 +594,9 @@ interface RunQueueStreamChange {
   cursor: EventCursor;
   item: QueueItemSummary;
 }
-type RunQueueStreamFrame = CurrentStateStreamFrame<RunQueueStreamChange>;
+interface RunQueueStreamFrame {
+  changes: RunQueueStreamChange[];
+}
 
 // A child's three controls: the session's own steer, interrupt and pause addressed at one child
 // (Spec-003 §Required Behavior). A steer names the helper itself, its session and `childHandle`, so
