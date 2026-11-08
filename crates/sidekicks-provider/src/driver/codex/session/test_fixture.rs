@@ -39,8 +39,9 @@ use crate::driver::codex::delivery::frames::{
     CodexFrameDelivery, CodexFrameDeliveryDependencies, CodexFrameEffects,
 };
 use crate::driver::codex::delivery::rows::CodexRowRun;
-use crate::driver::codex::lifecycle::intake::{
-    CodexRoutedFramesIntake, apply_codex_routed_frames, observe_codex_session_frame,
+use crate::driver::codex::lifecycle::intake::observe_codex_session_frame;
+use crate::driver::codex::lifecycle::intake::routed_frames::{
+    CodexRoutedFramesIntake, apply_codex_routed_frames,
 };
 use crate::driver::codex::notification_routing::{CodexRoutedFrames, CodexSessionRouting};
 use crate::driver::codex::permission_level::{CodexProfileFolders, compose_codex_profile_name};
