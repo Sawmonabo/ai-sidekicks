@@ -1,7 +1,7 @@
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
@@ -21,6 +21,7 @@ use sidekicks_workspace::git::turn_snapshot::command_capture::CommandCaptureServ
 use sidekicks_workspace::git::turn_snapshot::repack::{
     CaptureFolderSweep, CapturePacking, PackingError,
 };
+use sidekicks_workspace::managed::service::managed_workspaces_folder;
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -379,4 +380,213 @@ async fn a_capture_folders_copy_holds_its_lock_and_every_object_its_copied_refs_
     )
     .expect("the repository's objects are attached");
     git_at(&git, &copy, &["rev-list", "--objects", "--all"]).await;
+}
+
+// The real git folders with `on_hold` run before each hold a copy asks for, given the count of
+// holds asked so far, this one included.
+struct ActOnHold {
+    inner: BackupGitFolders,
+    on_hold: Box<dyn Fn(usize) + Send + Sync>,
+    holds: AtomicUsize,
+}
+
+impl ActOnHold {
+    // The real git folders over a packing of their own, `on_hold` run on the mirror's thread.
+    fn new(git: &GitRunner, on_hold: impl Fn(usize) + Send + Sync + 'static) -> Arc<Self> {
+        let packing = Arc::new(CapturePacking::new(
+            git.clone(),
+            Arc::new(GitFloorReports::default()),
+        ));
+        Arc::new(Self {
+            inner: BackupGitFolders::new(packing, git.clone(), Handle::current()),
+            on_hold: Box::new(on_hold),
+            holds: AtomicUsize::new(0),
+        })
+    }
+}
+
+impl LiveGitFolders for ActOnHold {
+    fn hold(
+        &self,
+        git_folder: &Path,
+        stop: &CancellationToken,
+    ) -> Result<Option<Box<dyn Send + '_>>, MirrorError> {
+        (self.on_hold)(self.holds.fetch_add(1, Ordering::SeqCst) + 1);
+        self.inner.hold(git_folder, stop)
+    }
+
+    fn check_copied_indexes(
+        &self,
+        git_folder: &Path,
+        copy_objects: &Path,
+        indexes: &[CopiedIndex],
+        stop: &CancellationToken,
+    ) -> Result<CopiedIndexCheck, MirrorError> {
+        self.inner
+            .check_copied_indexes(git_folder, copy_objects, indexes, stop)
+    }
+}
+
+// The objects the index of the work tree `folder` names, one per entry.
+async fn index_objects(git: &GitRunner, folder: &Path) -> Vec<String> {
+    git_in(git, folder, &["ls-files", "--stage"])
+        .await
+        .lines()
+        .map(|entry| {
+            entry
+                .split(' ')
+                .nth(1)
+                .expect("an entry names its object")
+                .to_owned()
+        })
+        .collect()
+}
+
+// A live repository whose ref moves and whose object is pruned between the copy's first read and
+// its objects' copy is read again and copied whole; one whose refs move at every hold keeps its
+// last copy after three rounds and is named skipped; an index entry unstaged and pruned the same
+// way is read again, so the copy's index names only objects it holds; and an entry naming a blob
+// the repository itself never had is copied as it is. Killed by no second read (the copy's
+// `topic` names a commit it lacks), by a fourth round (four holds), by a placing after the third
+// unstable round (the second run's copy changes), by no index check (the copy's index names a blob
+// it lacks), and by an object the live folder also lacks and still names counted moved (the
+// workspace is named skipped).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_live_repositorys_copy_reads_its_refs_again_when_they_move_during_it() {
+    let git = test_git_runner();
+    let scratch = tempfile::tempdir().expect("a scratch folder");
+    let root = real_path(scratch.path()).expect("the scratch folder resolves");
+    let home = root.join("home");
+    let workspaces = managed_workspaces_folder(&home);
+    let workspace = workspaces.join("chat");
+    make_repository(&git, &workspace).await;
+    git_in(&git, &workspace, &["checkout", "--quiet", "-b", "topic"]).await;
+    fs::write(workspace.join("topic.md"), "topic\n").expect("written");
+    git_in(&git, &workspace, &["add", "topic.md"]).await;
+    git_in(&git, &workspace, &["commit", "--quiet", "-m", "topic"]).await;
+    git_in(&git, &workspace, &["checkout", "--quiet", "main"]).await;
+    let mirror = root.join("mirror");
+    let roots =
+        [MirrorRoot::under_home("workspaces".to_owned(), &home, &workspaces).expect("a root")];
+    let copy = mirror.join("workspaces/chat");
+    let runtime = Handle::current();
+    let run_git = {
+        let (git, workspace, runtime) = (git.clone(), workspace.clone(), runtime.clone());
+        move |arguments: &[&str]| {
+            runtime.block_on(git_in(&git, &workspace, arguments));
+        }
+    };
+
+    let prune_topic = run_git.clone();
+    let moved_once = ActOnHold::new(&git, move |hold| {
+        if hold == 1 {
+            prune_topic(&["branch", "--force", "topic", "main"]);
+            prune_topic(&["reflog", "expire", "--expire=now", "--all"]);
+            prune_topic(&["prune", "--expire=now"]);
+        }
+    });
+    let first = mirror_on_thread(
+        &mirror,
+        &home,
+        &roots,
+        moved_once,
+        &CancellationToken::new(),
+    )
+    .await
+    .expect("the first run copies");
+    git_in(&git, &copy, &["rev-list", "--quiet", "--objects", "--all"]).await;
+    let copied_topic = git_in(&git, &copy, &["rev-parse", "topic"]).await;
+    let main = git_in(&git, &workspace, &["rev-parse", "main"]).await;
+    let refs = ["for-each-ref", "--format=%(refname) %(objectname)"];
+    let first_refs = git_in(&git, &copy, &refs).await;
+
+    let move_ref = run_git.clone();
+    let always_moving = ActOnHold::new(&git, move |hold| {
+        move_ref(&["update-ref", &format!("refs/heads/moved-{hold}"), "main"]);
+    });
+    let moving = mirror_on_thread(
+        &mirror,
+        &home,
+        &roots,
+        Arc::clone(&always_moving) as Arc<dyn LiveGitFolders>,
+        &CancellationToken::new(),
+    )
+    .await
+    .expect("the second run copies");
+    let unstable_refs = git_in(&git, &copy, &refs).await;
+
+    fs::write(workspace.join("staged.md"), "staged, never committed\n").expect("written");
+    git_in(&git, &workspace, &["add", "staged.md"]).await;
+    let staged_blob = git_in(&git, &workspace, &["rev-parse", ":staged.md"]).await;
+    let unstage = run_git.clone();
+    let unstaged_once = ActOnHold::new(&git, move |hold| {
+        if hold == 1 {
+            unstage(&["rm", "--quiet", "--cached", "staged.md"]);
+            unstage(&["prune", "--expire=now"]);
+        }
+    });
+    let unstaged = mirror_on_thread(
+        &mirror,
+        &home,
+        &roots,
+        unstaged_once,
+        &CancellationToken::new(),
+    )
+    .await
+    .expect("the third run copies");
+    let unstaged_index = index_objects(&git, &copy).await;
+    let mut absent_from_copy = Vec::new();
+    for object in &unstaged_index {
+        let call = SETTINGS
+            .iter()
+            .map(OsString::from)
+            .chain(in_folder(&copy, &["cat-file", "-e", object]));
+        if git.run(None, GitCall::read(call)).await.is_err() {
+            absent_from_copy.push(object.clone());
+        }
+    }
+
+    let never_written = git
+        .run(
+            None,
+            GitCall::read(in_folder(&workspace, &["hash-object", "--stdin"]))
+                .with_input(b"never written\n".to_vec()),
+        )
+        .await
+        .expect("the blob's id is read");
+    let ghost = String::from_utf8(never_written.stdout)
+        .expect("an id is text")
+        .trim()
+        .to_owned();
+    let entry = format!("100644,{ghost},ghost.md");
+    git_in(
+        &git,
+        &workspace,
+        &["update-index", "--add", "--cacheinfo", &entry],
+    )
+    .await;
+    let ghost_run = mirror_on_thread(
+        &mirror,
+        &home,
+        &roots,
+        ActOnHold::new(&git, |_| {}),
+        &CancellationToken::new(),
+    )
+    .await
+    .expect("the fourth run copies");
+    let ghost_index = index_objects(&git, &copy).await;
+
+    assert!(first.skipped_folders.is_empty(), "got {first:?}");
+    assert_eq!(copied_topic, main);
+    assert_eq!(always_moving.holds.load(Ordering::SeqCst), 3);
+    assert_eq!(moving.skipped_folders, [workspace.join(".git")]);
+    assert_eq!(unstable_refs, first_refs);
+    assert!(unstaged.skipped_folders.is_empty(), "got {unstaged:?}");
+    assert!(
+        !unstaged_index.contains(&staged_blob.trim().to_owned()),
+        "the copy's index still names the unstaged blob"
+    );
+    assert_eq!(absent_from_copy, Vec::<String>::new());
+    assert!(ghost_run.skipped_folders.is_empty(), "got {ghost_run:?}");
+    assert!(ghost_index.contains(&ghost), "got {ghost_index:?}");
 }
