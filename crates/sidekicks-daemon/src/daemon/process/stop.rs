@@ -207,6 +207,9 @@ async fn wait_within<T>(
 /// Why the crash monitor's end failed.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CrashMonitorEndFailure {
+    /// The watch that replaces an ended monitor ended abnormally.
+    #[error("the crash monitor's watch ended abnormally")]
+    Watch(#[source] JoinError),
     /// The monitor could not be killed.
     #[error("the crash monitor could not be ended")]
     Kill(#[source] io::Error),

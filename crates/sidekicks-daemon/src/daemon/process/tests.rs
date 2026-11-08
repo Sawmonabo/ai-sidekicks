@@ -1,3 +1,4 @@
+mod crash_monitor;
 mod provider_accounts;
 mod restart;
 mod status_record;
