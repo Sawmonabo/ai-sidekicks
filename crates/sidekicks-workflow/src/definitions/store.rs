@@ -3,6 +3,7 @@
 //! level, background browser, provider), which mint none. Each change is one write, so a refused
 //! write leaves nothing behind.
 
+mod deletion;
 mod params;
 mod settings;
 #[cfg(test)]
@@ -21,7 +22,6 @@ use sidekicks_contracts::name_fold::fold_name;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::schema::ReceivedCheckError;
 use sidekicks_contracts::trust_statement::DeviceId;
-use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -34,8 +34,7 @@ use sidekicks_contracts::workflow::definition::document::{
 use sidekicks_contracts::workflow::definition::item::WorkflowPinnedItem;
 use sidekicks_contracts::workflow::definition::methods::{
     WorkflowCreateOrigin, WorkflowDefinitionCreateRequest, WorkflowDefinitionCreateResponse,
-    WorkflowDefinitionDeleteResponse, WorkflowDefinitionUpdateRequest,
-    WorkflowDefinitionUpdateResponse,
+    WorkflowDefinitionUpdateRequest, WorkflowDefinitionUpdateResponse,
 };
 use sidekicks_contracts::workflow::definition::refusals::{
     WorkflowDefinitionFinding, check_workflow_graph,
@@ -56,7 +55,6 @@ use tokio::task::JoinError;
 use crate::definitions::content_hash::{WorkflowDocumentHash, hash_workflow_body};
 use crate::definitions::drafts::clear_workflow_draft_statement;
 use crate::definitions::errors::DefinitionRefusal;
-use crate::definitions::kept_values::clear_kept_values_statement;
 use crate::definitions::library::{WorkflowLibrary, name_holder_statement};
 use crate::definitions::store::params::check_node_params;
 use crate::expressions::save_check::check_expressions;
@@ -136,18 +134,6 @@ const LATEST_VERSION_SQL: &str = "SELECT deleted_at,
       AS latest_version_number
   FROM workflow_definitions WHERE id = @definition_id";
 
-const SOFT_DELETE_SQL: &str = "UPDATE workflow_definitions SET deleted_at = @at, updated_at = @at
-  WHERE id = @definition_id AND deleted_at IS NULL";
-
-// A deleted workflow arms nothing; a trigger with no schedule armed has no next fire.
-const DISARM_TRIGGERS_SQL: &str = "UPDATE workflow_triggers SET enabled = 0, next_fire_at = NULL
-  WHERE definition_id = @definition_id";
-
-const COUNT_PINNED_RUNS_SQL: &str = "SELECT COUNT(*) FROM workflow_runs
-  WHERE workflow_version_id IN (
-    SELECT id FROM workflow_versions WHERE definition_id = @definition_id
-  )";
-
 // The position of the name check among a create's and a save's statements, of the copied
 // version's check among a Duplicate's, and of the read of the saved version among a save's.
 const NAME_CHECK_INDEX: usize = 0;
@@ -156,8 +142,6 @@ const SAVED_VERSION_INDEX: usize = 3;
 // How many free copy names a Duplicate reads, each followed by one write, so a name taken between
 // a read and its write is read past once before the Duplicate is refused.
 const DUPLICATE_NAME_READS: usize = 2;
-// The position of the pinned runs' count among a delete's statements.
-const PINNED_RUN_COUNT_INDEX: usize = 4;
 
 /// Who saved a version: the device the save came from, and the agent that saved it, if one did.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -459,71 +443,6 @@ impl WorkflowDefinitionStore {
             workflow_version_id: saved.workflow_version_id,
             content_hash,
             created_at: saved.created_at,
-        })
-    }
-
-    /// Marks the workflow deleted, disarms its triggers, and deletes its kept values and its draft,
-    /// in one write; its versions stay, so the runs pinned to them still read, and the reply counts
-    /// those runs. Fails with [`WorkflowDefinitionStoreError::NotFound`] for a workflow not in the
-    /// library.
-    #[expect(
-        dead_code,
-        reason = "the workflow definition handlers and the workflow agent tools"
-    )]
-    pub(crate) async fn delete(
-        &self,
-        definition_id: WorkflowDefinitionId,
-    ) -> Result<WorkflowDefinitionDeleteResponse, WorkflowDefinitionStoreError> {
-        let definition_text = definition_id.text();
-        let deleted_at = WireInstant::now();
-        let of_definition = || {
-            StatementBindings::Named(vec![text_binding(
-                "@definition_id",
-                definition_text.as_str(),
-            )])
-        };
-        let statements = vec![
-            WriteStatement {
-                sql: Cow::Borrowed(SOFT_DELETE_SQL),
-                bindings: StatementBindings::Named(vec![
-                    text_binding("@at", deleted_at.as_str()),
-                    text_binding("@definition_id", definition_text.as_str()),
-                ]),
-                expected_row_count: Some(1),
-            },
-            WriteStatement {
-                sql: Cow::Borrowed(DISARM_TRIGGERS_SQL),
-                bindings: of_definition(),
-                expected_row_count: None,
-            },
-            clear_kept_values_statement(definition_id),
-            clear_workflow_draft_statement(Some(definition_id)),
-            WriteStatement {
-                sql: Cow::Borrowed(COUNT_PINNED_RUNS_SQL),
-                bindings: of_definition(),
-                expected_row_count: None,
-            },
-        ];
-        let results = match self.writer.write(statements).await {
-            Ok(results) => results,
-            Err(WriteError::Refused { .. }) => {
-                return Err(WorkflowNotFound::Definition { definition_id }.into());
-            }
-            Err(error) => return Err(error.into()),
-        };
-        let retained_run_count = match results
-            .get(PINNED_RUN_COUNT_INDEX)
-            .and_then(|count| count.rows.first())
-            .and_then(|row| row.first())
-        {
-            Some(&Value::Integer(count)) => u64::try_from(count).ok().and_then(SafeInt::new),
-            _ => None,
-        }
-        .expect("a count of rows is a safe integer");
-        Ok(WorkflowDefinitionDeleteResponse {
-            definition_id,
-            deleted: True::default(),
-            retained_run_count,
         })
     }
 
