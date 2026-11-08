@@ -23,7 +23,7 @@ use crate::daemon::crash::monitor::{
 };
 use crate::daemon::panic_hook::send_panics_to_monitor;
 use crate::daemon::process::start_error::DaemonStartError;
-use crate::daemon::process::stop::{CrashMonitorEndFailure, DaemonStopFailure};
+use crate::daemon::process::stop::{CrashMonitorEndFailure, DaemonStopFailure, TaskStopFailure};
 
 // The longest the crash monitor's end waits for the killed monitor to exit, apart from the drain,
 // since a kill is sent before the wait begins.
@@ -126,7 +126,13 @@ impl CrashMonitor {
                     child = Some(monitor.child);
                 }
                 Ok(None) => {}
-                Err(ended) => failures.push(CrashMonitorEndFailure::Watch(ended).into()),
+                Err(error) => failures.push(
+                    TaskStopFailure {
+                        task: "crash monitor's watch",
+                        error,
+                    }
+                    .into(),
+                ),
             }
         }
         if let Some(mut child) = child {
