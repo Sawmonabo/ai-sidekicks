@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use rstest::rstest;
-use serde_json::json;
 use serde_json::value::{RawValue, to_raw_value};
+use serde_json::{Value, json};
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus};
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -18,7 +18,6 @@ use crate::driver::claude::mcp::connectors::organization_mark::{
 use crate::driver::claude::mcp::machine_probe::probe_ceiling;
 use crate::driver::claude::mcp::precedence::rank_claude_mcp_servers;
 use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
-use crate::driver::claude::session::transport::control::ClaudeToolServerEntry;
 use crate::driver::claude::session::transport::mcp_status::ClaudeMcpStatusReply;
 use crate::driver::mcp_server::read::McpServerPolicy;
 use crate::driver::mcp_server::status::McpServerReading;
@@ -654,10 +653,10 @@ async fn read_account_answers(
 // A `claudeai` row becomes a read-only connector of the account under its display name, read
 // with the status and tools its row reports, and the `managed` row and the
 // `managedMcpServers` entry read-only organization servers served with their host alone, the
-// entry kept whole only in the form a probe sends; the person's own `user` row is left to the
-// config read. Killed by a connector bound in a writable scope, by a connector's reading
-// dropped, by an organization address kept with its path or query, by a `managedMcpServers`
-// entry listed twice, and by its address or headers lost from the form a probe sends.
+// entry kept whole as written; the person's own `user` row is left to the config read. Killed by
+// a connector bound in a writable scope, by a connector's reading dropped, by an organization
+// address kept with its path or query, by a `managedMcpServers` entry listed twice, and by its
+// address or headers lost from the entry kept.
 #[test]
 fn an_accounts_rows_become_read_only_connectors_and_host_only_organization_servers() {
     let account = test_provider_account_id();
@@ -743,23 +742,20 @@ fn an_accounts_rows_become_read_only_connectors_and_host_only_organization_serve
         .map(FreeFormText::as_str)
         .collect();
     assert_eq!(tool_names, ["send_message"]);
-    let sendable: Vec<(&str, &ClaudeToolServerEntry)> = servers
+    let kept: Vec<(&str, Value)> = servers
         .organization_entries
         .iter()
-        .map(|(name, entry)| (name.as_str(), entry))
+        .map(|(name, entry)| (name.as_str(), Value::Object(entry.clone())))
         .collect();
     assert_eq!(
-        sendable,
+        kept,
         [(
             "docs",
-            &ClaudeToolServerEntry::Sse {
-                url: "https://docs.example.com/v1/sse?key=organization-secret".to_owned(),
-                headers: [(
-                    "Authorization".to_owned(),
-                    "Bearer header-secret".to_owned()
-                )]
-                .into(),
-            }
+            json!({
+                "type": "sse",
+                "url": "https://docs.example.com/v1/sse?key=organization-secret",
+                "headers": { "Authorization": "Bearer header-secret" }
+            })
         )]
     );
     let organization: Vec<(&str, &str)> = servers

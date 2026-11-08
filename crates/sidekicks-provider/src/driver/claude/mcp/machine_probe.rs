@@ -20,7 +20,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::mcp::server::{
     McpServerBindingRef, McpServerName, McpServerStatus, McpToolName,
@@ -31,7 +31,7 @@ use tokio::sync::mpsc;
 use tokio::time::Instant;
 
 use self::plugin_load::{PluginLoad, PluginLoadReport};
-use self::sent_entry::{SentEntry, compose_sent_entry};
+use self::sent_entry::{SentEntry, compose_sent_entry, compose_tool_server_entry};
 use self::variables::expand_entry_variables;
 use crate::driver::claude::mcp::ClaudeMcpProcess;
 use crate::driver::claude::mcp::config::{
@@ -109,9 +109,9 @@ pub(crate) struct ClaudeMcpProbeSources<'sources> {
     pub(crate) plugin_roots: &'sources [ClaudePluginRoot],
     /// The attached project roots, in the order the probe goes through them.
     pub(crate) attached_roots: &'sources [PlacedPath],
-    /// Each organization server of the account as `mcp_set_servers` takes it, by its name; one
-    /// with no entry here cannot be sent whole.
-    pub(crate) organization_entries: &'sources BTreeMap<McpServerName, ClaudeToolServerEntry>,
+    /// Each organization server's entry of the account as written, by its name; one with no
+    /// entry here, or one the set cannot carry whole, is not sent.
+    pub(crate) organization_entries: &'sources BTreeMap<McpServerName, Map<String, Value>>,
 }
 
 // One process's worth of targets: the root it runs in, each target with the name it is sent and
@@ -224,7 +224,7 @@ pub(crate) async fn probe_claude_mcp_servers(
                     sources
                         .organization_entries
                         .get(server_name)
-                        .cloned()
+                        .and_then(|entry| compose_tool_server_entry(Value::Object(entry.clone())))
                         .map_or(SentEntry::Unsendable, |entry| {
                             SentEntry::Sent(expand_entry_variables(
                                 entry,

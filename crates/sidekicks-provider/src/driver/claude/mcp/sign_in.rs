@@ -510,9 +510,8 @@ async fn read_sign_in_entry(
                     .map_err(|error| internal(Box::new(error)))?
                     .organization_entries
                     .get(server_name)
-                    .map(serde_json::to_value)
-                    .transpose()
-                    .map_err(|error| internal(Box::new(error)))?,
+                    .cloned()
+                    .map(Value::Object),
             }
         }
         McpServerBindingRef::User { .. }

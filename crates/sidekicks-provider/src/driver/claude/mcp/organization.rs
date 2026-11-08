@@ -2,9 +2,9 @@
 //! computer and the entries it declares, and the servers a Claude Code process reports from it and
 //! from the managed settings' `managedMcpServers`, a remote one served with its address's host
 //! only. A `managedMcpServers` entry is always a remote one, since Claude Code drops one that names
-//! a program, and is kept whole, its headers included, only in the form a probe sends. The file's
-//! entries are read as written for a sign-in's address and its takeover; a listing still takes each
-//! from the process, which reports it as an `enterprise` row, a program's included.
+//! a program, and is kept whole as written, its headers included, for a probe and a sign-in. The
+//! file's entries are read as written for a sign-in's address and its takeover; a listing still
+//! takes each from the process, which reports it as an `enterprise` row, a program's included.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -19,9 +19,7 @@ use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::mcp::config::{
     ClaudeMcpEndpoint, ClaudeMcpServer, MCP_SERVERS_MEMBER, read_json_file,
 };
-use crate::driver::claude::mcp::machine_probe::sent_entry::compose_tool_server_entry;
 use crate::driver::claude::session::settings_file::ClaudeSettingsReadError;
-use crate::driver::claude::session::transport::control::ClaudeToolServerEntry;
 use crate::driver::claude::session::transport::mcp_status::ClaudeMcpServerStatusRow;
 use crate::driver::mcp_server::address::{
     ServerAddressIdentity, ServerAddressReading, read_server_address,
@@ -72,22 +70,21 @@ pub(crate) async fn read_managed_mcp_servers(
 }
 
 /// An organization's servers as one account's process reports them: each one's declaration, and
-/// each `managedMcpServers` entry in the form `mcp_set_servers` takes, its whole address and
-/// headers included. It derives no `Debug`, and an entry's own prints its transport alone.
+/// each `managedMcpServers` entry as written, its whole address, headers and `oauth` included. It
+/// derives no `Debug`, so no entry's values print.
 pub(crate) struct ClaudeOrganizationServers {
     /// The servers, a remote one served with its address's host only.
     pub(crate) servers: Vec<ClaudeMcpServer>,
-    /// Each `managedMcpServers` entry a probe can send whole, by its server's name; a server with
-    /// none reads `unknown` unsent.
-    pub(crate) entries: BTreeMap<McpServerName, ClaudeToolServerEntry>,
+    /// Each `managedMcpServers` entry as written, by its server's name.
+    pub(crate) entries: BTreeMap<McpServerName, Map<String, Value>>,
 }
 
 /// The organization's servers among `rows`, an account's `mcp_status` rows, and in
 /// `effective_settings`, its `get_settings` reply's merged settings: each `managedMcpServers`
 /// entry, then each `managed` or `enterprise` row of a name not yet listed, so an entry Claude
 /// Code reports both ways is listed once, by the settings' whole address. Only a
-/// `managedMcpServers` entry is kept in a form a probe sends: Claude Code reports a row's address
-/// cut short and its headers not at all.
+/// `managedMcpServers` entry is kept as written: Claude Code reports a row's address cut short and
+/// its headers not at all.
 pub(crate) fn read_claude_organization_servers(
     rows: &[ClaudeMcpServerStatusRow],
     effective_settings: Option<&Value>,
@@ -97,10 +94,10 @@ pub(crate) fn read_claude_organization_servers(
     for (name, written, entry) in read_managed_server_entries(effective_settings) {
         let address = entry.url.as_deref().map(read_server_address);
         if let Some(server) = managed_server(name, entry.transport.as_deref(), address, None) {
-            if let (McpServerBindingRef::Managed { server_name, .. }, Some(sendable)) =
-                (&server.binding, compose_tool_server_entry(written.clone()))
+            if let (McpServerBindingRef::Managed { server_name, .. }, Some(written)) =
+                (&server.binding, written.as_object())
             {
-                entries.insert(server_name.clone(), sendable);
+                entries.insert(server_name.clone(), written.clone());
             }
             push_unlisted(&mut servers, server);
         }
