@@ -596,8 +596,9 @@ impl CodexService {
         self.send(SupervisorEvent::PlannedRestart);
     }
 
-    /// Restarts an account's service on the program as it is now and answers once it is up
-    /// again, the start bounded as [`Self::ensure_started`] bounds it. Fails as that start fails.
+    /// Restarts an account's service on the program as it is now, or dials a joined one again, and
+    /// answers once it is up again, the start bounded as [`Self::ensure_started`] bounds it. Fails
+    /// as that start fails.
     pub(crate) async fn restart_planned(&self) -> Result<(), CodexError> {
         let mut availability = self.availability.subscribe();
         availability.borrow_and_update();

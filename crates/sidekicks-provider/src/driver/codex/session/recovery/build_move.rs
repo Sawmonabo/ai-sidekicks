@@ -149,9 +149,10 @@ impl CodexServiceRecovery {
     }
 
     /// Restarts `service` on the program as it is now, its conversations resumed on the new
-    /// process and each session told of `change` where a build move asked for one: an account's
-    /// in place once its sessions are idle, a terminal one through its planned restart, and the
-    /// person's own redialed. Fails as an account service's start fails.
+    /// process and each session told of `change` where a build move asked for one, and answers once
+    /// the restart took hold: an account's in place once its sessions are idle, a terminal one
+    /// once a second service took its place, and the person's own once it is dialed again. Fails as
+    /// the new start or the redial fails.
     async fn restart_service(
         self: &Arc<Self>,
         service: &Arc<CodexService>,
@@ -161,34 +162,34 @@ impl CodexServiceRecovery {
             CodexServiceKind::Account => {
                 self.restart_account_service(service, change.as_ref()).await
             }
-            CodexServiceKind::Terminal => {
-                if let Some(change) = change {
-                    self.lock()
-                        .pending_build_change
-                        .insert(service.id(), change);
-                }
-                service.request_planned_restart();
-                Ok(())
+            // Only one that serves is replaced, as its own planned restart replaces only one up.
+            CodexServiceKind::Terminal if service.is_serving() => {
+                self.replace_terminal_service(service, change).await
             }
+            CodexServiceKind::Terminal => Ok(()),
             // The redial's recovery resumes its conversations as a reconnect does.
-            CodexServiceKind::Joined => {
-                service.request_planned_restart();
-                Ok(())
-            }
+            CodexServiceKind::Joined => service.restart_planned().await,
         }
     }
 
-    /// A terminal service's planned restart: a second service on the program as it is now, and
-    /// each session moved to it once idle; the first is retired once it holds none.
+    /// A terminal service's planned restart its supervisor asked for: a second service on the
+    /// program as it is now, and each session moved to it once idle; the first is retired once it
+    /// holds none. A failure is reported.
     pub(crate) async fn move_terminal_service(self: &Arc<Self>, service: &Arc<CodexService>) {
-        let change = self.lock().pending_build_change.remove(&service.id());
-        let replacement = match self.dependencies.services.replace(service).await {
-            Ok(replacement) => replacement,
-            Err(error) => {
-                report_restart_failed(service, &error);
-                return;
-            }
-        };
+        if let Err(error) = self.replace_terminal_service(service, None).await {
+            report_restart_failed(service, &error);
+        }
+    }
+
+    // Starts a second service in a terminal service's place and moves each session to it once
+    // idle, each told of `change` once it resumed there; the first is retired once it holds none.
+    // Fails as the second's start fails, the first then kept.
+    async fn replace_terminal_service(
+        self: &Arc<Self>,
+        service: &Arc<CodexService>,
+        change: Option<ProviderBuildChange>,
+    ) -> Result<(), CodexError> {
+        let replacement = self.dependencies.services.replace(service).await?;
         let sessions = service.attached_sessions();
         if sessions.is_empty() {
             self.retire_when_empty(service);
@@ -204,6 +205,7 @@ impl CodexServiceRecovery {
                     .await;
             });
         }
+        Ok(())
     }
 
     // Holds every session on an account's service in its slot once each is idle, restarts the

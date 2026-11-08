@@ -60,7 +60,7 @@ use crate::driver::diagnostics::{
 };
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::driver::ports::{ProcessGoneListener, SessionRelaunchListener};
-use crate::driver::session_control::{DriverResumeResult, ProviderBuildChange};
+use crate::driver::session_control::DriverResumeResult;
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
@@ -126,8 +126,6 @@ struct RecoveryState {
     restart_waits: HashMap<CodexServiceId, Vec<(SessionId, oneshot::Sender<DriverResumeResult>)>>,
     // The answers each person's restart carries to its session's held lead, until its resume.
     restart_continues: HashMap<SessionId, CodexHeldLeadContinue>,
-    // The build a terminal service's planned restart moves its sessions to.
-    pending_build_change: HashMap<CodexServiceId, ProviderBuildChange>,
     // The services a build move left, waiting for their held conversations to be let go.
     retiring: HashSet<CodexServiceId>,
     // The services whose requested restart has not ended, so a second request joins it.
