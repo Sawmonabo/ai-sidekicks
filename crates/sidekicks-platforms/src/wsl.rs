@@ -16,6 +16,8 @@ use std::path::Path;
 
 use typed_path::{WindowsComponent, WindowsPath, WindowsPrefix};
 
+use crate::path::rules::PathRules;
+
 /// A folder inside a WSL distribution, read from its Windows form: the distribution's name and
 /// the folder's Linux path.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -89,10 +91,11 @@ pub fn drive_path_of(path: &str) -> Option<String> {
     if *mount != "mnt" {
         return None;
     }
-    let mut drive_path = format!("{}:\\", char::from(letter.to_ascii_uppercase()));
+    let separator = PathRules::Windows.separator();
+    let mut drive_path = format!("{}:{separator}", char::from(letter.to_ascii_uppercase()));
     for (index, name) in rest.iter().enumerate() {
         if index > 0 {
-            drive_path.push('\\');
+            drive_path.push(separator);
         }
         drive_path.extend(name.chars().map(escape_for_windows));
     }
@@ -105,7 +108,7 @@ fn escape_for_windows(character: char) -> char {
     match u8::try_from(character) {
         Ok(byte) if is_escaped_by_wsl(byte) => char::from_u32(0xF000 | u32::from(byte))
             .expect("U+F001 to U+F07F are Unicode scalar values"),
-        Ok(_) | Err(_) => character,
+        _ => character,
     }
 }
 
@@ -175,7 +178,8 @@ mod tests {
     // Killed by the `/` to `\` join dropped (the first case), the root's `\` dropped (`/mnt/c`),
     // the fold dropped (the two `..` cases that land, and `/mnt/c/..`), `..` let stop at the root
     // (`/../mnt/c/x`), the escape dropped (`a:b`, `a\b`), any one character or either case taken
-    // (`/mnt/1/x`, `/mnt/C/x`), any name taken (`cc`, `wsl`), or `//` read as the form.
+    // (`/mnt/1/x`, `/mnt/C/x`), any name taken (`cc`, `wsl`), any first folder taken (`/home/c/x`,
+    // `/MNT/c/x`), or `//` read as the form.
     #[rstest]
     #[case::drive_path("/mnt/c/repos/app", Some(r"C:\repos\app"))]
     #[case::drive_alone("/mnt/c", Some("C:\\"))]
@@ -191,6 +195,8 @@ mod tests {
     #[case::two_letters("/mnt/cc/x", None)]
     #[case::wsl_folder("/mnt/wsl/x", None)]
     #[case::digit("/mnt/1/x", None)]
+    #[case::another_folder("/home/c/x", None)]
+    #[case::upper_case_mount("/MNT/c/x", None)]
     #[case::unc_start("//mnt/c/x", None)]
     #[case::relative("mnt/c/x", None)]
     #[case::windows_drive(r"C:\repos", None)]
