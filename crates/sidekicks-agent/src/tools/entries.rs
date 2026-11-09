@@ -1,6 +1,7 @@
 //! The shared tool server's live entries, one per session spawn and tool server: the spawn's
 //! provider, its secret, the dispatcher bound to that spawn and the MCP sessions admitted for it.
-//! A spawn holds its entry's guard, so the entry leaves the table when the spawn drops.
+//! A spawn holds its entry's guard, so the entry leaves the table when the spawn drops, and every
+//! call the spawn's process left open is canceled with it.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, Weak};
@@ -10,6 +11,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::bearer_token::BearerToken;
 use sidekicks_provider::driver::callback_tool::CallbackToolDispatcher;
 use sidekicks_std::mutex_lock::lock;
+use tokio_util::sync::CancellationToken;
 
 /// The table's key: the session and the tool server's name on its route.
 type EntryKey = (SessionId, String);
@@ -27,6 +29,8 @@ pub struct ToolServerEntry {
     dispatcher: CallbackToolDispatcher,
     /// The `Mcp-Session-Id`s admitted for the spawn.
     mcp_sessions: Mutex<HashSet<String>>,
+    /// Canceled when the spawn drops, since its process is gone and no open call is answered.
+    spawn_ended: CancellationToken,
 }
 
 // The budget: an entry is at most 256 B beside what its dispatcher points at.
@@ -41,6 +45,11 @@ impl ToolServerEntry {
     /// The dispatcher that answers the spawn's tool calls.
     pub fn dispatcher(&self) -> &CallbackToolDispatcher {
         &self.dispatcher
+    }
+
+    /// Settles once the spawn dropped, so a call its process left open is canceled.
+    pub async fn ended(&self) {
+        self.spawn_ended.cancelled().await;
     }
 
     /// Admits `mcp_session_id` for the spawn.
@@ -84,6 +93,7 @@ impl ToolServerEntries {
             token,
             dispatcher,
             mcp_sessions: Mutex::new(HashSet::new()),
+            spawn_ended: CancellationToken::new(),
         });
         let key = (session_id, server_name.to_owned());
         let guard = ToolServerEntryGuard {
@@ -109,8 +119,9 @@ impl ToolServerEntries {
     }
 }
 
-/// A spawn's hold on its entry: dropping it takes the entry out of the table, with the MCP
-/// sessions admitted for it, unless a later spawn of the session replaced it already.
+/// A spawn's hold on its entry: dropping it cancels the calls the spawn left open and takes the
+/// entry out of the table, with the MCP sessions admitted for it, unless a later spawn of the
+/// session replaced it already.
 #[must_use = "dropping the guard takes the spawn's entry out of the table"]
 pub struct ToolServerEntryGuard {
     /// The table the entry sits in.
@@ -123,6 +134,9 @@ pub struct ToolServerEntryGuard {
 
 impl Drop for ToolServerEntryGuard {
     fn drop(&mut self) {
+        if let Some(entry) = self.entry.upgrade() {
+            entry.spawn_ended.cancel();
+        }
         let Some(entries) = self.entries.upgrade() else {
             return;
         };

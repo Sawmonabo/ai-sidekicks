@@ -2,7 +2,7 @@
 //! its routing band, and the slot each session occupies, from a process coming up to one whose
 //! disposal failed.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -108,6 +108,18 @@ pub(crate) struct ClaudeSessionRoutingBand {
     /// The `SendMessage` calls read in the lead's running turn, answered or not: a helper one wakes
     /// runs on past the call's result, so its start waits on no call.
     pub(crate) message_call_ids: HashSet<String>,
+    /// The calls of the daemon's own tool server read in the session's stream and not answered
+    /// yet, each with the thread that made it.
+    pub(crate) daemon_tool_calls: HashMap<String, ClaudeToolCallThread>,
+}
+
+/// The thread of a session's stream that made one tool call.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ClaudeToolCallThread {
+    /// The session's own thread.
+    Session,
+    /// A helper's, by the agent id its frames carry.
+    Helper(String),
 }
 
 impl ClaudeSessionRoutingBand {
@@ -121,6 +133,7 @@ impl ClaudeSessionRoutingBand {
             accountant: UsageDeltaAccountant::new(DESCRIPTOR.provider_id()),
             usage_tally: ClaudeThreadUsageTally::default(),
             message_call_ids: HashSet::new(),
+            daemon_tool_calls: HashMap::new(),
         }
     }
 }

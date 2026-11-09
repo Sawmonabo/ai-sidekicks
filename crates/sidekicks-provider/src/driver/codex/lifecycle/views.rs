@@ -134,6 +134,15 @@ impl CodexSessionViews {
             })
     }
 
+    /// The run `session_id`'s own conversation is running while `thread_id` names that
+    /// conversation; `None` for another conversation, no live record or no one running run.
+    pub(crate) fn lead_run_on(&self, session_id: SessionId, thread_id: &str) -> Option<RunId> {
+        self.lock()
+            .get(&session_id)
+            .filter(|view| view.thread_id == thread_id)
+            .and_then(|view| view.run_id)
+    }
+
     /// Every live turn of `session_id`'s conversation, oldest first; none with no live record.
     pub(crate) fn open_turn_ids(&self, session_id: SessionId) -> Vec<String> {
         self.lock()

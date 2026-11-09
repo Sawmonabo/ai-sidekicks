@@ -1,11 +1,11 @@
 //! The routing facts of one stream frame Claude Code writes on its output: its kind, the helper it
 //! came from, a helper's start, move to the background and end, the tool calls a `user` frame's
-//! results answer, the `SendMessage` calls an assistant frame makes, an assistant message's usage
-//! with what prices its request and a turn's own usage, the `system/init` declaration with its MCP
-//! servers' readings and a later whole `/` list, the compaction boundary, and a start-up hook's
-//! start or end. The frame is untrusted, so it is read once into a struct naming only these
-//! members, each leniently: an absent or malformed one reads as absent, and every other member is
-//! skipped unread. `modelUsage`, the process's sum over every thread, is never read.
+//! results answer, the `SendMessage` calls and the daemon's own tool calls an assistant frame
+//! makes, an assistant message's usage with what prices its request and a turn's own usage, the
+//! `system/init` declaration with its MCP servers' readings and a later whole `/` list, the
+//! compaction boundary, and a start-up hook's start or end. The frame is untrusted, so it is read
+//! once into a struct naming only these members, each leniently: an absent or malformed one reads
+//! as absent, and every other member is skipped unread. `modelUsage`, the process's sum over every thread, is never read.
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -26,7 +26,9 @@ use crate::driver::claude::session::transport::declarations::{
 };
 use crate::driver::claude::tools::normalize_claude_mcp_server_init_census;
 use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
+use crate::mcp::tool_name::TOOL_SERVER_TOOL_PREFIX;
 use crate::record_readers::filter_non_empty;
+use crate::tool_server_name::DAEMON_TOOL_SERVER_NAME;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
 // The hook events whose run Claude Code reports while it starts, which `initialize`'s wait does
@@ -269,21 +271,13 @@ impl ClaudeStreamFrameRead {
                     .collect()
             })
             .unwrap_or_default();
-        let message_call_ids = (frame_kind == "assistant")
-            .then(|| self.message.as_ref()?.content.as_ref())
-            .flatten()
-            .map(|content| {
-                content
-                    .0
-                    .iter()
-                    .filter(|block| {
-                        block.block_type.as_deref() == Some("tool_use")
-                            && block.name.as_deref() == Some(CLAUDE_MESSAGE_TOOL_NAME)
-                    })
-                    .filter_map(|block| filter_non_empty(block.id.clone()))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let message_call_ids =
+            self.tool_call_ids(&frame_kind, |name| name == CLAUDE_MESSAGE_TOOL_NAME);
+        let daemon_tool_call_ids = self.tool_call_ids(&frame_kind, |name| {
+            name.strip_prefix(TOOL_SERVER_TOOL_PREFIX)
+                .and_then(|rest| rest.strip_prefix(DAEMON_TOOL_SERVER_NAME))
+                .is_some_and(|tool| tool.starts_with("__"))
+        });
         let backgrounded_helper_id = (frame_kind == "system/task_updated"
             && self.patch.as_ref().and_then(|patch| patch.is_backgrounded) == Some(true))
         .then(|| filter_non_empty(self.task_id.clone()))
@@ -308,9 +302,29 @@ impl ClaudeStreamFrameRead {
             backgrounded_helper_id,
             answered_call_ids,
             message_call_ids,
+            daemon_tool_call_ids,
             handshake,
             compaction_boundary,
         }
+    }
+
+    // The ids of the tool calls an assistant frame makes to a tool whose name `is_named` takes.
+    fn tool_call_ids(&self, frame_kind: &str, is_named: impl Fn(&str) -> bool) -> Vec<String> {
+        (frame_kind == "assistant")
+            .then(|| self.message.as_ref()?.content.as_ref())
+            .flatten()
+            .map(|content| {
+                content
+                    .0
+                    .iter()
+                    .filter(|block| {
+                        block.block_type.as_deref() == Some("tool_use")
+                            && block.name.as_deref().is_some_and(&is_named)
+                    })
+                    .filter_map(|block| filter_non_empty(block.id.clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     fn read_handshake(&self) -> ClaudeHandshakeDeclaration {

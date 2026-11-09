@@ -41,7 +41,9 @@ use crate::driver::claude::run::start::{ClaudeRunStart, claude_session_unavailab
 use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, ClaudeUnansweredCause,
 };
-use crate::driver::claude::session::state::{ClaudeSessionRoutingBand, LiveClaudeSession};
+use crate::driver::claude::session::state::{
+    ClaudeSessionRoutingBand, ClaudeToolCallThread, LiveClaudeSession,
+};
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::{
     ClaudeBackgroundTasksReply, ClaudeControlRequest, ClaudeInterruptReceipt,
@@ -234,6 +236,17 @@ impl ClaudeInterventions {
         band: Arc<Mutex<ClaudeSessionRoutingBand>>,
     ) {
         lock(&self.routing_bands).insert(session_id, band);
+    }
+
+    /// The thread of `session_id`'s stream that made the daemon's tool call `call_id`; `None` when
+    /// the stream made no such call, or answered it already.
+    pub(crate) fn daemon_tool_call_thread(
+        &self,
+        session_id: SessionId,
+        call_id: &str,
+    ) -> Option<ClaudeToolCallThread> {
+        let band = lock(&self.routing_bands).get(&session_id).cloned()?;
+        lock(&band).daemon_tool_calls.get(call_id).cloned()
     }
 
     /// The cumulative usage `live`'s own thread was last metered at, the whole conversation's

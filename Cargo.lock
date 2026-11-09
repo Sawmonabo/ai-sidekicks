@@ -8419,9 +8419,12 @@ dependencies = [
 name = "sidekicks-agent"
 version = "0.0.0"
 dependencies = [
+ "futures",
  "garde",
+ "http",
  "jiff",
  "jsonschema",
+ "rmcp",
  "rstest",
  "schemars 1.2.3",
  "serde",
@@ -8430,6 +8433,9 @@ dependencies = [
  "sidekicks-provider",
  "sidekicks-std",
  "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]

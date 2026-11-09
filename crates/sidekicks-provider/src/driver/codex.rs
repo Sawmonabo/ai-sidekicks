@@ -10,6 +10,7 @@ use std::time::SystemTime;
 
 use futures::FutureExt;
 use futures::future::{BoxFuture, ready};
+use serde_json::{Map, Value};
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::mcp::server::config::McpServerConfigInput;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpWritableBindingRef};
@@ -29,6 +30,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 #[cfg(any(test, feature = "test-support"))]
 use sidekicks_std::mutex_lock::lock;
 
+use crate::driver::agent_tools::AgentToolCaller;
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::mcp::compose_codex_mcp_entry;
 use crate::driver::codex::mcp::sign_in::read_codex_server_addresses;
@@ -740,5 +742,13 @@ impl ProviderDriver for CodexDriver {
     ) -> BoxFuture<'_, Vec<Result<McpServerAddressReading, DriverError>>> {
         read_codex_server_addresses(&self.registry, &self.project_rules.home_folder, requests)
             .boxed()
+    }
+
+    fn calling_run(
+        &self,
+        session_id: SessionId,
+        call_meta: Map<String, Value>,
+    ) -> BoxFuture<'_, Option<AgentToolCaller>> {
+        ready(self.calling_run(session_id, call_meta)).boxed()
     }
 }

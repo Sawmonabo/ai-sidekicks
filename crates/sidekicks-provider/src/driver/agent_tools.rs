@@ -1,7 +1,10 @@
 //! The facts a driver declares about the daemon's agent tools: how its provider loads them, where it
-//! takes their shared rules, how it waits on another session and what it does with a long call.
+//! takes their shared rules, how it waits on another session and what it does with a long call; and
+//! the run a driver finds behind one call of them.
 
 use serde::{Deserialize, Serialize};
+use sidekicks_contracts::provider::tool_call::ToolCallId;
+use sidekicks_contracts::run::id::RunId;
 use strum::{IntoStaticStr, VariantArray};
 
 /// How a provider loads the daemon's tools up front rather than behind its own tool search.
@@ -48,4 +51,14 @@ pub enum AgentToolLongCall {
     ProviderBackgrounds,
     /// The daemon answers the call with a task handle of its own and delivers the answer later.
     DaemonHandle,
+}
+
+/// The run behind one call of the daemon's tools, as the call's `_meta` names it to its driver.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AgentToolCaller {
+    /// The run whose turn made the call: the lead's running run, or a helper's child run.
+    pub run_id: RunId,
+    /// The provider's own id for the call, where its `_meta` carries one; the tool server names the
+    /// call by its request id otherwise.
+    pub tool_call_id: Option<ToolCallId>,
 }

@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use futures::future::BoxFuture;
+use serde_json::{Map, Value};
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::mcp::server::config::McpServerConfigInput;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpWritableBindingRef};
@@ -30,6 +31,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::time::Instant;
 
+use crate::driver::agent_tools::AgentToolCaller;
 use crate::driver::contract::account::ProviderAccountLegs;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
@@ -731,4 +733,13 @@ pub trait ProviderDriver: Send + Sync {
         &self,
         requests: Vec<McpServerAddressRead>,
     ) -> BoxFuture<'_, Vec<Result<McpServerAddressReading, DriverError>>>;
+
+    /// The run behind a call of the daemon's tools on `session_id`, read from the call's `_meta` as
+    /// the provider sends it: the lead's running run, or the child run of the helper that made the
+    /// call. `None` when the `_meta` names no run the session holds, which the tool server refuses.
+    fn calling_run(
+        &self,
+        session_id: SessionId,
+        call_meta: Map<String, Value>,
+    ) -> BoxFuture<'_, Option<AgentToolCaller>>;
 }

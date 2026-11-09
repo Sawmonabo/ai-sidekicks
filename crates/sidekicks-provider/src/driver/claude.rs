@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::{BoxFuture, ready};
+use serde_json::{Map, Value};
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::mcp::server::config::McpServerConfigInput;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpWritableBindingRef};
@@ -15,12 +16,14 @@ use sidekicks_contracts::provider::driver::capabilities::{ProviderMode, Provider
 use sidekicks_contracts::provider::driver::commands::ProviderCommandBindingGroup;
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 
 use crate::command::running_set::takes_no_input;
+use crate::driver::agent_tools::AgentToolCaller;
 use crate::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
 use crate::driver::claude::delivery::turn_readings::read_claude_task_list_change;
 use crate::driver::claude::lifecycle::ClaudeDriver;
@@ -29,6 +32,7 @@ use crate::driver::claude::mcp::{read_claude_mcp_servers, reread_claude_live_mcp
 use crate::driver::claude::session::establishment::context::{
     CLAUDE_ADVISOR_ROW_ID, read_claude_row_choice,
 };
+use crate::driver::claude::session::state::ClaudeToolCallThread;
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::account::{HelperModeAccountLegs, ProviderAccountLegs};
 use crate::driver::contract::error::DriverError;
@@ -131,6 +135,9 @@ const CLAUDE_MESSAGE_HANDING: MessageHanding = MessageHanding {
     kept_by_process: true,
     reads_priority_message: true,
 };
+
+/// The member of a tool call's `_meta` naming the tool use Claude Code's stream made it as.
+const CLAUDE_TOOL_USE_ID_META_KEY: &str = "claudecode/toolUseId";
 
 /// What a retry on a faster model answers on Claude Code, which holds no turn for a safety check.
 const NO_HELD_TURN_REASON: &str = "Claude Code holds no turn for a safety check.";
@@ -648,6 +655,34 @@ impl ProviderDriver for ClaudeDriver {
         requests: Vec<McpServerAddressRead>,
     ) -> BoxFuture<'_, Vec<Result<McpServerAddressReading, DriverError>>> {
         self.read_mcp_server_addresses(requests).boxed()
+    }
+
+    // The call's tool use, as the session's stream made it: the session's own thread's gives the
+    // lead's running run, a helper's gives the helper's child run once it is bound.
+    fn calling_run(
+        &self,
+        session_id: SessionId,
+        call_meta: Map<String, Value>,
+    ) -> BoxFuture<'_, Option<AgentToolCaller>> {
+        async move {
+            let tool_use_id = call_meta.get(CLAUDE_TOOL_USE_ID_META_KEY)?.as_str()?;
+            let parts = self.parts().ok()?;
+            let routes = &parts.run_start.routes;
+            let run_id = match parts
+                .interventions
+                .daemon_tool_call_thread(session_id, tool_use_id)?
+            {
+                ClaudeToolCallThread::Session => routes.lead_run_on(session_id)?.run_id,
+                ClaudeToolCallThread::Helper(agent_id) => {
+                    routes.bound_child_run_for(session_id, &agent_id).await
+                }
+            };
+            Some(AgentToolCaller {
+                run_id,
+                tool_call_id: ToolCallId::new(tool_use_id.to_owned()).ok(),
+            })
+        }
+        .boxed()
     }
 }
 

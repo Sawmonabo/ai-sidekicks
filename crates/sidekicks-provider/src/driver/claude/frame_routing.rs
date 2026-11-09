@@ -28,7 +28,7 @@ use crate::driver::claude::handshake_register::{
 };
 use crate::driver::claude::session::process::ClaudeStreamFrame;
 use crate::driver::claude::session::state::{
-    ClaudeRoutableFrame, ClaudeSessionRoutingBand, ClaudeUsageEstablishment,
+    ClaudeRoutableFrame, ClaudeSessionRoutingBand, ClaudeToolCallThread, ClaudeUsageEstablishment,
 };
 use crate::driver::claude::session::transport::declarations::{
     self, ClaudeMessageRequestFacts, ClaudeMessageUsageObservation,
@@ -293,6 +293,18 @@ impl ClaudeFrameRouting {
                 band.router.stop_waiting_on_child(&helper_id);
             }
             band.message_call_ids.insert(call_id.clone());
+        }
+        // Read before the frame routes, so a held helper frame's call is known when the call
+        // reaches the daemon's tool server right after it.
+        for call_id in &observation.daemon_tool_call_ids {
+            let thread = observation
+                .subagent_id
+                .clone()
+                .map_or(ClaudeToolCallThread::Session, ClaudeToolCallThread::Helper);
+            band.daemon_tool_calls.insert(call_id.clone(), thread);
+        }
+        for call_id in &observation.answered_call_ids {
+            band.daemon_tool_calls.remove(call_id);
         }
         // A start naming a call answered earlier in the turn waits on nothing, so the ids are kept
         // until the lead's turn ends.

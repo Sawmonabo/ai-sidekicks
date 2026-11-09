@@ -16,7 +16,8 @@ use std::time::Duration;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
-use tokio::sync::watch;
+use tokio::pin;
+use tokio::sync::{Notify, watch};
 
 /// Where a helper's child run lives: its session, the agent id its frames and hook callbacks
 /// carry, the run it was started beneath, the binding the lead's process is attributed on, and
@@ -157,6 +158,8 @@ impl RouteTables {
 #[derive(Default)]
 pub(crate) struct ClaudeRunRoutes {
     tables: Mutex<RouteTables>,
+    // Woken each time a helper's child run is bound.
+    child_bound: Notify,
 }
 
 impl ClaudeRunRoutes {
@@ -416,6 +419,22 @@ impl ClaudeRunRoutes {
     /// Binds a helper's child run to its session and the agent id Claude Code gave it.
     pub(crate) fn bind_child_run(&self, run_id: RunId, route: ClaudeChildRunRoute) {
         self.lock().children.insert(run_id, route);
+        self.child_bound.notify_waiters();
+    }
+
+    /// The child run of the helper Claude Code named `agent_id` on a session, waiting for its
+    /// binding when the helper's frames came ahead of it; dropping the future ends the wait.
+    pub(crate) async fn bound_child_run_for(&self, session_id: SessionId, agent_id: &str) -> RunId {
+        loop {
+            let bound = self.child_bound.notified();
+            pin!(bound);
+            // Registered before the read, so a binding between the two still wakes it.
+            bound.as_mut().enable();
+            if let Some(run_id) = self.child_run_for(session_id, agent_id) {
+                return run_id;
+            }
+            bound.await;
+        }
     }
 
     /// Drops a child run's route once its helper ended.

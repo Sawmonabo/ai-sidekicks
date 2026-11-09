@@ -182,6 +182,8 @@ pub(crate) struct ClaudeInboundFrameObservation {
     pub(crate) answered_call_ids: Vec<String>,
     /// The `SendMessage` calls an `assistant` frame makes.
     pub(crate) message_call_ids: Vec<String>,
+    /// The calls of the daemon's own tool server an `assistant` frame makes.
+    pub(crate) daemon_tool_call_ids: Vec<String>,
 
     /// The `system/init` declaration, which rides the observation so routing always sees it.
     pub(crate) handshake: Option<ClaudeHandshakeDeclaration>,

@@ -283,7 +283,7 @@ impl CallbackToolHost {
         run_id: RunId,
         tool_name: FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>,
         tool_call_id: ToolCallId,
-        fault: &dyn Display,
+        fault: &(dyn Display + Sync),
     ) -> CallbackToolResult {
         let provider = self
             .lock_registries()

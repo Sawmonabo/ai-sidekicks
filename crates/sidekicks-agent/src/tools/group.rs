@@ -3,16 +3,58 @@
 //! sends `notifications/tools/list_changed` when a session's groups change; this module only says
 //! which loadings changed.
 
+use schemars::JsonSchema;
+use serde_json::Value;
+use sidekicks_contracts::schema::{
+    ListedSchemaError, ReceivedCheckError, listed_schema_for, received_check,
+};
+
 use crate::tools::gate::CallbackToolGate;
 use crate::tools::session::{self, ToolDescription, ask, remind, send, start, wait};
 
-/// One of the daemon's own agent tools: what the model reads about it and how it is gated.
+/// One of the daemon's own agent tools: what the model reads about it, how it is gated, and its
+/// arguments as a listing shows them and as a call's are checked.
 #[derive(Clone, Copy, Debug)]
 pub struct AgentTool {
     /// The tool's name and description.
     pub description: ToolDescription,
     /// How a call to it is gated.
     pub gate: CallbackToolGate,
+    /// Its arguments' schema as its listing carries it.
+    pub listed_schema: fn() -> Result<Value, ListedSchemaError>,
+    /// The first fault the received check finds in a call's arguments, `None` when it takes them;
+    /// fails where the check cannot be built.
+    pub received_fault: fn(&Value) -> Result<Option<String>, ReceivedCheckError>,
+}
+
+impl AgentTool {
+    /// The tool described by `description` and gated by `gate`, whose arguments are a `T`.
+    pub const fn of<T: JsonSchema + 'static>(
+        description: ToolDescription,
+        gate: CallbackToolGate,
+    ) -> Self {
+        Self {
+            description,
+            gate,
+            listed_schema: listed_schema_for::<T>,
+            received_fault: received_fault::<T>,
+        }
+    }
+}
+
+// The first fault `T`'s received check finds in `arguments`, led by the field it is in.
+fn received_fault<T: JsonSchema + 'static>(
+    arguments: &Value,
+) -> Result<Option<String>, ReceivedCheckError> {
+    let check = received_check::<T>()?;
+    Ok(check.validate(arguments).err().map(|fault| {
+        let field = fault.instance_path().to_string();
+        if field.is_empty() {
+            fault.to_string()
+        } else {
+            format!("{field}: {fault}")
+        }
+    }))
 }
 
 /// When a provider loads a group's tools.

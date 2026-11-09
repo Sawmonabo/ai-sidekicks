@@ -8,6 +8,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
+use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
@@ -32,56 +33,21 @@ pub mod wait;
 #[cfg(test)]
 mod tests;
 
-/// The twelve session tools, each with the gate its module declares; the one list of them.
+/// The twelve session tools, each with the gate its module declares and its arguments' type; the
+/// one list of them.
 pub const TOOLS: [AgentTool; 12] = [
-    AgentTool {
-        description: list::DESCRIPTION,
-        gate: list::GATE,
-    },
-    AgentTool {
-        description: search::DESCRIPTION,
-        gate: search::GATE,
-    },
-    AgentTool {
-        description: options::DESCRIPTION,
-        gate: options::GATE,
-    },
-    AgentTool {
-        description: read::DESCRIPTION,
-        gate: read::GATE,
-    },
-    AgentTool {
-        description: update::DESCRIPTION,
-        gate: update::GATE,
-    },
-    AgentTool {
-        description: group::DESCRIPTION,
-        gate: group::GATE,
-    },
-    AgentTool {
-        description: start::DESCRIPTION,
-        gate: start::GATE,
-    },
-    AgentTool {
-        description: send::DESCRIPTION,
-        gate: send::GATE,
-    },
-    AgentTool {
-        description: ask::DESCRIPTION,
-        gate: ask::GATE,
-    },
-    AgentTool {
-        description: wait::DESCRIPTION,
-        gate: wait::GATE,
-    },
-    AgentTool {
-        description: stop::DESCRIPTION,
-        gate: stop::GATE,
-    },
-    AgentTool {
-        description: remind::DESCRIPTION,
-        gate: remind::GATE,
-    },
+    AgentTool::of::<list::SessionListArguments>(list::DESCRIPTION, list::GATE),
+    AgentTool::of::<search::SessionSearchArguments>(search::DESCRIPTION, search::GATE),
+    AgentTool::of::<EmptyPayload>(options::DESCRIPTION, options::GATE),
+    AgentTool::of::<read::SessionReadArguments>(read::DESCRIPTION, read::GATE),
+    AgentTool::of::<update::SessionUpdateArguments>(update::DESCRIPTION, update::GATE),
+    AgentTool::of::<group::SessionGroupArguments>(group::DESCRIPTION, group::GATE),
+    AgentTool::of::<start::SessionStartArguments>(start::DESCRIPTION, start::GATE),
+    AgentTool::of::<send::SessionSendArguments>(send::DESCRIPTION, send::GATE),
+    AgentTool::of::<ask::SessionAskArguments>(ask::DESCRIPTION, ask::GATE),
+    AgentTool::of::<wait::SessionWaitArguments>(wait::DESCRIPTION, wait::GATE),
+    AgentTool::of::<stop::SessionStopArguments>(stop::DESCRIPTION, stop::GATE),
+    AgentTool::of::<remind::SessionRemindArguments>(remind::DESCRIPTION, remind::GATE),
 ];
 
 /// The longest page cursor a tool takes back, in code points.

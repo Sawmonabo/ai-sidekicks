@@ -148,6 +148,16 @@ impl CodexRunRoutes {
         self.lock().helpers.contains_key(&run_id)
     }
 
+    /// The child run of the helper of `session_id` whose own conversation is `thread_id`, until the
+    /// helper ends.
+    pub(crate) fn helper_run_on(&self, session_id: SessionId, thread_id: &str) -> Option<RunId> {
+        self.lock()
+            .helpers
+            .iter()
+            .find(|(_, helper)| helper.session_id == session_id && helper.thread_id == thread_id)
+            .map(|(run_id, _)| *run_id)
+    }
+
     /// Removes and answers the route of a helper's child run that ended.
     pub(crate) fn retire_helper_run(&self, run_id: RunId) -> Option<CodexHelperRoute> {
         self.lock().helpers.remove(&run_id)

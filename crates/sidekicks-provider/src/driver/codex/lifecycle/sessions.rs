@@ -6,13 +6,17 @@ use std::error::Error;
 use std::sync::Arc;
 
 use futures::future::join_all;
+use serde::Deserialize;
+use serde_json::{Map, Value};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::time::{Instant, timeout_at};
 
 use super::{CODEX_SERVICE_STARTUP_TIMEOUT, CodexDriver, CodexDriverParts};
+use crate::driver::agent_tools::AgentToolCaller;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnWait};
 use crate::driver::codex::run::turn_interrupt::interrupt_codex_turn;
@@ -38,7 +42,17 @@ use crate::driver::session_control::{
     MoveSessionToForkResult, ProviderBuildChange, ProviderSessionHandle, PurgeSessionParams,
     ResumeSessionParams,
 };
+use crate::record_readers::filter_non_empty;
 use crate::usage_delta_accountant::UsageAxisCounts;
+
+/// The members of a tool call's `_meta` that name the conversation that made it and the call.
+#[derive(Deserialize)]
+struct CodexToolCallMeta {
+    #[serde(rename = "threadId")]
+    thread_id: Option<String>,
+    #[serde(rename = "itemId")]
+    item_id: Option<String>,
+}
 
 impl CodexDriver {
     /// Opens a session on a fresh conversation on its account's service. Fails with
@@ -376,6 +390,28 @@ impl CodexDriver {
                  stop's deadline, so the ones still waiting are withdrawn"
             );
         }
+    }
+
+    /// The run behind a call of the daemon's tools: `_meta.threadId` names the conversation that
+    /// made it, the session's own giving its running run and a helper's giving that helper's child
+    /// run; `_meta.itemId`, where Codex knows it, is the call's own id. A `_meta` naming no
+    /// conversation, or naming it with something other than text, gives no run.
+    pub(crate) fn calling_run(
+        &self,
+        session_id: SessionId,
+        call_meta: Map<String, Value>,
+    ) -> Option<AgentToolCaller> {
+        let meta: CodexToolCallMeta = serde_json::from_value(Value::Object(call_meta)).ok()?;
+        let thread_id = filter_non_empty(meta.thread_id)?;
+        let run_id = self
+            .views
+            .lead_run_on(session_id, &thread_id)
+            .or_else(|| self.run_routes.helper_run_on(session_id, &thread_id))?;
+        Some(AgentToolCaller {
+            run_id,
+            tool_call_id: filter_non_empty(meta.item_id)
+                .and_then(|item_id| ToolCallId::new(item_id).ok()),
+        })
     }
 
     /// Where the session's process stands: a live record on a service that is up is `Live`; one
