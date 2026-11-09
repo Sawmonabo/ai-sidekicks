@@ -6,13 +6,15 @@
 //! open is tried again at the next call.
 //!
 //! A store call blocks until the store answers, and a locked store answers only once the person
-//! answers its unlock prompt, so each call runs on a blocking thread and is answered `locked` when
-//! it gets no answer within its time. The calls on one entry run one at a time, and the entry stays
-//! held until the store's answer even after its caller stopped waiting, so a locked store holds at
-//! most one blocking thread per entry, and a late answer always lands before the next call on that
-//! entry runs, so it never overwrites a retry's value. A call that is still queued for its entry
-//! when its caller stops waiting leaves the queue and never reaches the store; one that lands after
-//! its caller stopped waiting is logged.
+//! answers its prompt, so each call runs on a blocking thread and is answered `locked` when it gets
+//! no answer within its time. The store shows one prompt at a time and holds every other call
+//! behind it, so the calls run one at a time across every service and a call's time starts only at
+//! its turn: a prompt the person leaves open delays the calls behind it and fails only its own. The
+//! turn stays held until the store's answer even after its caller stopped waiting, so a locked
+//! store holds at most one blocking thread, and a late answer always lands before the next call
+//! runs, so it never overwrites a retry's value. A call still waiting for its turn when its caller
+//! stops waiting leaves the line and never reaches the store; one that lands after its caller
+//! stopped waiting is logged.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -23,11 +25,12 @@ use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_platforms::{CredentialStore, CredentialStoreError, SecretStoreOffer};
 use sidekicks_std::keyed_lock::{HeldWorkEnd, KeyedLock};
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::oneshot;
 
 use crate::credential_store::seal::SecretSeal;
 use crate::credential_store::{KeychainRefusal, SecretKeychain};
 
-/// How long one keychain call may take, its waits and an unlock prompt included.
+/// How long one keychain call may take from its turn at the store, a prompt included.
 pub const KEYCHAIN_CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// How many times shorter than a keychain call the seal service's probe and the sealed file's open
@@ -89,34 +92,33 @@ impl CredentialStoreAccess for SystemCredentialStore {
     }
 }
 
-/// The operating system's credential store and the lock each of its entries is called under,
-/// shared by every service's keychain on it; see the module doc.
+/// The operating system's credential store and the turn its calls take one at a time, shared by
+/// every service's keychain on it; see the module doc.
 pub(crate) struct OsCredentialStore {
     /// Opens the store.
     open: StoreOpen,
     /// The store once opened.
     opened: Mutex<Option<CredentialStore>>,
-    /// Held by each call on an entry, by service and account, until the store answers; a listing
-    /// holds its service with no account.
-    entries: Arc<KeyedLock<(String, String)>>,
-    /// How long a caller waits for its call, the wait for the entry included.
+    /// Held by each call until the store answers, so one call reaches the store at a time.
+    turn: Arc<KeyedLock<()>>,
+    /// How long a caller waits for its call from its turn.
     call_timeout: Duration,
 }
 
 impl OsCredentialStore {
-    /// The calls on the store `open` opens, each answered within `call_timeout`, its wait for the
-    /// entry included.
+    /// The calls on the store `open` opens, one at a time, each answered within `call_timeout`
+    /// from its turn.
     pub(crate) fn new(open: StoreOpen, call_timeout: Duration) -> Arc<Self> {
         Arc::new(Self {
             open,
             opened: Mutex::new(None),
-            entries: Arc::new(KeyedLock::new()),
+            turn: Arc::new(KeyedLock::new()),
             call_timeout,
         })
     }
 
-    /// The items filed under `service` in this store, sharing its per-entry lock with every other
-    /// service's, each call answered within the store's time.
+    /// The items filed under `service` in this store, its calls taking turns with every other
+    /// service's, each answered within the store's time.
     pub(crate) fn keychain(self: &Arc<Self>, service: &str) -> OsSecretKeychain {
         OsSecretKeychain {
             store: Arc::clone(self),
@@ -152,10 +154,10 @@ impl OsCredentialStore {
         .await
     }
 
-    // Runs `operation` on the entry under `service` and `account` once every earlier call on it has
-    // answered, on a blocking thread, and answers `locked` when that takes longer than the store's
-    // time. The entry stays held until the store answers even after the caller stops
-    // waiting; a call still queued for the entry then leaves the queue.
+    // Runs `operation` on the entry under `service` and `account` once every earlier call has
+    // answered, on a blocking thread, and answers `locked` when it takes longer than the store's
+    // time from its turn. The turn stays held until the store answers even after the caller stops
+    // waiting; a call still waiting for its turn then leaves the line.
     async fn call<Answer: Send + 'static>(
         self: &Arc<Self>,
         service: &str,
@@ -167,9 +169,12 @@ impl OsCredentialStore {
         let store = Arc::clone(self);
         let (service, account) = (service.to_owned(), account.to_owned());
         let logged_service = service.clone();
-        let held_call = self.entries.run_held(
-            (service.clone(), account.clone()),
+        let (turn_taken, has_turn) = oneshot::channel::<()>();
+        let held_call = self.turn.run_held(
+            (),
             async move {
+                // A caller that stopped waiting just now has nothing left to tell.
+                turn_taken.send(()).unwrap_or(());
                 tokio::task::spawn_blocking(move || {
                     operation(&store.opened_store()?, &service, &account)
                 })
@@ -183,8 +188,19 @@ impl OsCredentialStore {
                 );
             },
         );
+        let mut held_call = std::pin::pin!(held_call);
+        // The wait for the turn is not timed: only the call at the store can be held by a prompt.
+        let ended_before_its_turn = tokio::select! {
+            biased;
+            ended = &mut held_call => Some(ended),
+            _ = has_turn => None,
+        };
         let call_timeout = self.call_timeout;
-        match tokio::time::timeout(call_timeout, held_call).await {
+        let answered = match ended_before_its_turn {
+            Some(ended) => Ok(ended),
+            None => tokio::time::timeout(call_timeout, held_call).await,
+        };
+        match answered {
             Ok(Ok(Ok(Ok(answer)))) => Ok(answer),
             Ok(Ok(Ok(Err(refused)))) => {
                 let cause = if refused.is_locked() {
@@ -364,44 +380,35 @@ mod tests {
         OsCredentialStore::new(Arc::new(move || Ok(credentials.clone())), call_timeout)
     }
 
-    /// A call the store does not answer in time reads `locked`; a second call on the same entry
-    /// while the first holds it reads `locked` too, leaves the entry's queue at once with its store
-    /// handle, and never reaches the store, even once the first's call ends. Mutation: race no
-    /// `select!` against the caller giving up, so the second call's task stays queued holding the
-    /// store until the first's call ends (the outer timeout fails the test).
+    /// A call held past its time by a prompt fails alone: a call on another service's item issued
+    /// meanwhile waits its turn without reaching the store, then is served once the prompt is
+    /// answered, though it waited longer than its own time. Mutations: take the turn per item, so
+    /// the second call reaches the store beside the first; count a call's time from when it is
+    /// issued, so the second runs out while it waits.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_held_entry_answers_locked_and_a_call_given_up_never_reaches_the_store() {
+    async fn a_call_behind_an_open_prompt_waits_its_turn_and_is_served() {
         let blocking_store = BlockingCredentialStore::new();
-        let store = store_over(&blocking_store, Duration::from_millis(200));
-        let keychain = Arc::new(store.keychain(KeychainService::WorkflowSecrets.as_str()));
-        let handles_idle = Arc::strong_count(&store);
+        let call_timeout = Duration::from_millis(200);
+        let store = store_over(&blocking_store, call_timeout);
+        let secrets = Arc::new(store.keychain(KeychainService::WorkflowSecrets.as_str()));
+        let tokens = Arc::new(store.keychain(KeychainService::ProviderTokens.as_str()));
 
         let scenario = async {
             let first = tokio::spawn({
-                let keychain = Arc::clone(&keychain);
-                async move { keychain.read("secret").await.map(drop) }
+                let secrets = Arc::clone(&secrets);
+                async move { secrets.read("secret").await.map(drop) }
             });
             blocking_store.wait_for_calls(1).await;
-            let handles_before_second = Arc::strong_count(&store);
-            let second = keychain.read("secret").await.map(drop);
-            // The second call's task lets go of its store handle as soon as its caller gives up.
-            while Arc::strong_count(&store) > handles_before_second {
-                tokio::task::yield_now().await;
-            }
-            let first = first.await.expect("the first call's task ends");
-            let calls_while_held = blocking_store.calls();
-
-            blocking_store.release();
-            // Once the first call's task lets go of the entry, the next call takes it at once.
-            while Arc::strong_count(&store) > handles_idle {
-                tokio::task::yield_now().await;
-            }
-            let third = tokio::spawn({
-                let keychain = Arc::clone(&keychain);
-                async move { keychain.read("secret").await.map(drop) }
+            let second = tokio::spawn({
+                let tokens = Arc::clone(&tokens);
+                async move { tokens.read("token").await.map(drop) }
             });
-            blocking_store.wait_for_calls(2).await;
-            drop(third.await.expect("the third call's task ends"));
+            let first = first.await.expect("the first call's task ends");
+            // Past the second call's own time counted from when it was issued.
+            tokio::time::sleep(call_timeout).await;
+            let calls_while_held = blocking_store.calls();
+            blocking_store.release();
+            let second = second.await.expect("the second call's task ends");
             (first, second, calls_while_held)
         };
         let outcome = tokio::time::timeout(Duration::from_secs(5), scenario).await;
@@ -409,21 +416,19 @@ mod tests {
         let (first, second, calls_while_held) =
             outcome.expect("every call answers within its time");
 
-        for refused in [first, second] {
-            assert_eq!(
-                refused
-                    .expect_err("a call with no answer is refused")
-                    .cause(),
-                KeychainRefusalCause::Locked
-            );
-        }
+        assert_eq!(
+            first
+                .expect_err("the call held past its time is refused")
+                .cause(),
+            KeychainRefusalCause::Locked
+        );
         assert_eq!(calls_while_held, 1);
-        assert_eq!(blocking_store.calls(), 2);
+        second.expect("the call behind the prompt is served once the prompt is answered");
     }
 
     /// A write held past its caller's time, then a retry with another value: the retry reaches the
     /// store only after the late write lands, so the item holds the retry's value. Mutation: let
-    /// go of the entry when the caller gives up, so the retry's write reaches the store beside the
+    /// go of the turn when the caller gives up, so the retry's write reaches the store beside the
     /// late one and either may land last.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_late_write_lands_before_the_retry_and_never_overwrites_it() {

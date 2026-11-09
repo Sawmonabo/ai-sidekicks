@@ -36,9 +36,11 @@
 //!
 //! Every call answers within its one time, its waits for the place and a check included; a call
 //! with no answer in that time reads `locked` from the operating system's store, where a prompt
-//! can hold it, and `unavailable` from either file. A sealed write that runs out of time may still
-//! land; the items file holds the item from its seal through the file write, so a retry waits for
-//! it and is never overwritten by it.
+//! can hold it, and `unavailable` from either file. A call served by the operating system's store
+//! counts its time there from its turn at the store, so one waiting behind another call's prompt
+//! is delayed, never refused. A sealed write that runs out of time may still land; the items file
+//! holds the item from its seal through the file write, so a retry waits for it and is never
+//! overwritten by it.
 
 mod erase;
 mod place_move;
@@ -183,7 +185,9 @@ impl SecretItems {
     }
 
     // Serves one call within the call's time: waits for the place, settles it when it is not, then
-    // runs `call` on the keychain of the place while no move can start.
+    // runs `call` on the keychain of the place while no move can start. The operating system's
+    // store times its own calls from their turn there, so a call waiting behind another's prompt is
+    // not refused here.
     async fn serve<'call, Answer: Send>(
         self: &'call Arc<Self>,
         keychain: &'call ItemsKeychain,
@@ -192,29 +196,35 @@ impl SecretItems {
         ) -> BoxFuture<'call, Result<Answer, KeychainRefusal>>
         + Send,
     ) -> Result<Answer, KeychainRefusal> {
-        let answer = tokio::time::timeout(self.call_timeout, async {
-            let (state, place) = loop {
-                let state = self.state.read().await;
-                match state.readiness() {
-                    Readiness::Ready(place) => break (state, place),
-                    Readiness::Refused(refusal) => return Err(refusal),
-                    Readiness::Unsettled => {}
+        let deadline = tokio::time::Instant::now() + self.call_timeout;
+        let answer = async {
+            let (state, place) = tokio::time::timeout_at(deadline, async {
+                loop {
+                    let state = self.state.read().await;
+                    match state.readiness() {
+                        Readiness::Ready(place) => return Ok((state, place)),
+                        Readiness::Refused(refusal) => return Err(refusal),
+                        Readiness::Unsettled => {}
+                    }
+                    drop(state);
+                    let mut state = self.state.write().await;
+                    self.settle_held(&mut state).await?;
                 }
-                drop(state);
-                let mut state = self.state.write().await;
-                self.settle_held(&mut state).await?;
+            })
+            .await
+            .map_err(|_elapsed| self.out_of_time())??;
+            let place_call = call(keychain.at(place)?);
+            let answer = if place == SecretsPlace::OperatingSystem {
+                place_call.await
+            } else {
+                tokio::time::timeout_at(deadline, place_call)
+                    .await
+                    .unwrap_or_else(|_elapsed| Err(self.out_of_time()))
             };
-            let answer = call(keychain.at(place)?).await;
             drop(state);
             answer
-        })
-        .await
-        .unwrap_or_else(|_elapsed| {
-            Err(KeychainRefusal::new(
-                self.timeout_cause(),
-                format!("the keychain gave no answer within {:?}", self.call_timeout),
-            ))
-        });
+        }
+        .await;
         if let Err(refusal) = &answer {
             tracing::warn!(
                 service = keychain.service.as_str(),
@@ -225,19 +235,23 @@ impl SecretItems {
         answer
     }
 
-    // The cause of a call that ran out of time: `locked` where the operating system's store held
+    // The refusal of a call that ran out of time: `locked` where the operating system's store held
     // it, since a prompt can, and `unavailable` from either file, which nothing unlocks. A call
     // that ran out before the place was picked counts the store this run would pick first.
-    fn timeout_cause(&self) -> KeychainRefusalCause {
+    fn out_of_time(&self) -> KeychainRefusal {
         let is_os_store = match PlaceView::read(&self.view).picked {
             Some(place) => place == SecretsPlace::OperatingSystem,
             None => self.os_store.is_some() && !self.runs_while_logged_out,
         };
-        if is_os_store {
+        let cause = if is_os_store {
             KeychainRefusalCause::Locked
         } else {
             KeychainRefusalCause::Unavailable
-        }
+        };
+        KeychainRefusal::new(
+            cause,
+            format!("the keychain gave no answer within {:?}", self.call_timeout),
+        )
     }
 
     // Reads the place record into `state` when this run has not read it yet.
