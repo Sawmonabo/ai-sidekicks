@@ -7,7 +7,11 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
 
+use crate::tools::gate::CallbackToolGate;
 use crate::tools::session::{SessionReference, ToolDescription, text_field};
+
+/// How `session_stop` is gated: it acts, so the calling session's level decides it.
+pub const GATE: CallbackToolGate = CallbackToolGate::Level;
 
 /// What a model reads about `session_stop`.
 pub const DESCRIPTION: ToolDescription = ToolDescription {

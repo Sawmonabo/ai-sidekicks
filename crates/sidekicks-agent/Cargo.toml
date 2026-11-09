@@ -26,6 +26,7 @@ serde.workspace = true
 serde_json.workspace = true
 sidekicks-contracts.workspace = true
 sidekicks-provider.workspace = true
+sidekicks-std.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

@@ -11,7 +11,11 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
 
+use crate::tools::gate::CallbackToolGate;
 use crate::tools::session::{SessionReference, ToolDescription, text_limits};
+
+/// How `session_wait` is gated: it acts, so the calling session's level decides it.
+pub const GATE: CallbackToolGate = CallbackToolGate::Level;
 
 /// What a model reads about `session_wait`.
 pub const DESCRIPTION: ToolDescription = ToolDescription {

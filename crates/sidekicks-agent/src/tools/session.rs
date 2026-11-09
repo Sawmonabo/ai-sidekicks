@@ -12,6 +12,8 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
 
+use crate::tools::group::AgentTool;
+
 pub mod ask;
 pub mod errors;
 pub mod group;
@@ -29,6 +31,58 @@ pub mod wait;
 
 #[cfg(test)]
 mod tests;
+
+/// The twelve session tools, each with the gate its module declares; the one list of them.
+pub const TOOLS: [AgentTool; 12] = [
+    AgentTool {
+        description: list::DESCRIPTION,
+        gate: list::GATE,
+    },
+    AgentTool {
+        description: search::DESCRIPTION,
+        gate: search::GATE,
+    },
+    AgentTool {
+        description: options::DESCRIPTION,
+        gate: options::GATE,
+    },
+    AgentTool {
+        description: read::DESCRIPTION,
+        gate: read::GATE,
+    },
+    AgentTool {
+        description: update::DESCRIPTION,
+        gate: update::GATE,
+    },
+    AgentTool {
+        description: group::DESCRIPTION,
+        gate: group::GATE,
+    },
+    AgentTool {
+        description: start::DESCRIPTION,
+        gate: start::GATE,
+    },
+    AgentTool {
+        description: send::DESCRIPTION,
+        gate: send::GATE,
+    },
+    AgentTool {
+        description: ask::DESCRIPTION,
+        gate: ask::GATE,
+    },
+    AgentTool {
+        description: wait::DESCRIPTION,
+        gate: wait::GATE,
+    },
+    AgentTool {
+        description: stop::DESCRIPTION,
+        gate: stop::GATE,
+    },
+    AgentTool {
+        description: remind::DESCRIPTION,
+        gate: remind::GATE,
+    },
+];
 
 /// The longest page cursor a tool takes back, in code points.
 pub const PAGE_CURSOR_MAX_LEN: usize = 512;

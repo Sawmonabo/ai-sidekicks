@@ -14,9 +14,13 @@ use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
 use sidekicks_contracts::trust_statement::MACHINE_OR_DEVICE_NAME_MAX_LEN;
 use sidekicks_contracts::wire::text::FreeFormText;
 
+use crate::tools::gate::CallbackToolGate;
 use crate::tools::session::{
     SessionReference, ToolDescription, path_limits, permission_level_words, text_field,
 };
+
+/// How `session_start` is gated: it acts, so the calling session's level decides it.
+pub const GATE: CallbackToolGate = CallbackToolGate::Level;
 
 /// What a model reads about `session_start`.
 pub const DESCRIPTION: ToolDescription = ToolDescription {

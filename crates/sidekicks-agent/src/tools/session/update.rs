@@ -9,7 +9,11 @@ use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
 use sidekicks_contracts::tag::TagList;
 use sidekicks_contracts::wire::text::FreeFormText;
 
+use crate::tools::gate::CallbackToolGate;
 use crate::tools::session::{SessionReference, ToolDescription, require_one_of, text_field};
+
+/// How `session_update` is gated: it acts, so the calling session's level decides it.
+pub const GATE: CallbackToolGate = CallbackToolGate::Level;
 
 /// What a model reads about `session_update`.
 pub const DESCRIPTION: ToolDescription = ToolDescription {

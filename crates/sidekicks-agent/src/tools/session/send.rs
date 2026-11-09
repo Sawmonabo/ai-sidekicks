@@ -9,7 +9,11 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
 use sidekicks_contracts::wire::text::FreeFormText;
 
+use crate::tools::gate::CallbackToolGate;
 use crate::tools::session::{SessionReference, ToolDescription, path_limits, text_field};
+
+/// How `session_send` is gated: it acts, so the calling session's level decides it.
+pub const GATE: CallbackToolGate = CallbackToolGate::Level;
 
 /// What a model reads about `session_send`.
 pub const DESCRIPTION: ToolDescription = ToolDescription {

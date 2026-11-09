@@ -8,7 +8,11 @@ use sidekicks_contracts::project::{PROJECT_NAME_MAX_LEN, ProjectName};
 use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
 use sidekicks_contracts::wire::text::FreeFormText;
 
+use crate::tools::gate::CallbackToolGate;
 use crate::tools::session::{ToolDescription, text_field};
+
+/// How `session_list` is gated: it only reads what the calling session may already read.
+pub const GATE: CallbackToolGate = CallbackToolGate::Read;
 
 /// What a model reads about `session_list`.
 pub const DESCRIPTION: ToolDescription = ToolDescription {

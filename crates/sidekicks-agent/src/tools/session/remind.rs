@@ -11,7 +11,11 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::session_messages::PERSON_CLOCK_TIME_FORMAT;
 
+use crate::tools::gate::CallbackToolGate;
 use crate::tools::session::{ToolDescription, text_field};
+
+/// How `session_remind` is gated: it acts, so the calling session's level decides it.
+pub const GATE: CallbackToolGate = CallbackToolGate::Level;
 
 /// What a model reads about `session_remind`.
 pub const DESCRIPTION: ToolDescription = ToolDescription {

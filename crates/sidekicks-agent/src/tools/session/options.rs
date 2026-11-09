@@ -5,7 +5,11 @@ use std::fmt::{self, Write as _};
 
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 
+use crate::tools::gate::CallbackToolGate;
 use crate::tools::session::{ToolDescription, permission_level_words};
+
+/// How `session_options` is gated: it only reads what the calling session may already read.
+pub const GATE: CallbackToolGate = CallbackToolGate::Read;
 
 /// What a model reads about `session_options`.
 pub const DESCRIPTION: ToolDescription = ToolDescription {

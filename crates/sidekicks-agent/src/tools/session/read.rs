@@ -15,10 +15,14 @@ use sidekicks_contracts::session::search::SESSION_SEARCH_QUERY_MAX_LEN;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
+use crate::tools::gate::CallbackToolGate;
 use crate::tools::session::{
     PAGE_CURSOR_MAX_LEN, PageCursor, SESSION_ITEM_ID_MAX_LEN, SessionReference, ToolDescription,
     text_field,
 };
+
+/// How `session_read` is gated: it only reads what the calling session may already read.
+pub const GATE: CallbackToolGate = CallbackToolGate::Read;
 
 /// What a model reads about `session_read`.
 pub const DESCRIPTION: ToolDescription = ToolDescription {

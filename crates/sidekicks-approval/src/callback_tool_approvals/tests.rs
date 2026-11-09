@@ -7,6 +7,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use serde_json::{Map, json};
+use sidekicks_agent::tools::gate::CallbackToolGate;
 use sidekicks_contracts::approval::{ApprovalResolveRequest, ApprovalResolveResponse};
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::id::ProviderId;
@@ -41,8 +42,8 @@ use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGate};
 use tokio::task::JoinHandle;
 
 use super::{
-    CANCELED_STEP_REFUSAL, CallbackToolApprovalError, CallbackToolApprovals, CallbackToolGate,
-    UNGATED_TOOL_REFUSAL, answer_of,
+    CANCELED_STEP_REFUSAL, CallbackToolApprovalError, CallbackToolApprovals, UNGATED_TOOL_REFUSAL,
+    answer_of,
 };
 use crate::permission_asks::tests::{AsksFixture, device};
 use crate::permission_check::{NO_LEVEL_REFUSAL, WORKFLOW_START_REFUSAL};

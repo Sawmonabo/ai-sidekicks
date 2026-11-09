@@ -21,11 +21,10 @@ use std::error::Error;
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
-use serde_json::{Map, Value};
+use sidekicks_agent::tools::gate::CallbackToolGate;
 use sidekicks_contracts::approval::ApprovalDecision;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::text::NonEmptyText;
-use sidekicks_contracts::workflow::definition::document::WorkflowDefinitionId;
 use sidekicks_provider::callback_tools::host::{
     CallbackToolApprovalBasis, CallbackToolApprovalOutcome, CallbackToolApprovalSeam,
     CallbackToolPortError,
@@ -55,25 +54,6 @@ pub(crate) const CANCELED_REFUSAL: &str =
 /// What a workflow step reads when its action's card ended unanswered with its run or session.
 pub(crate) const CANCELED_STEP_REFUSAL: &str =
     "This step's approval ended unanswered, so its action did not run.";
-
-/// How one of the app's own tools is gated.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the agent tool server's gate map")
-)]
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum CallbackToolGate {
-    /// It only reads what the calling session may already read.
-    Read,
-    /// It acts, gated by the session's level alone.
-    Level,
-    /// It starts the workflow its arguments name, read by `workflow_id_of`, which answers `None`
-    /// for arguments that name none.
-    WorkflowStart {
-        /// Reads the workflow a call's arguments name.
-        workflow_id_of: fn(&Map<String, Value>) -> Option<WorkflowDefinitionId>,
-    },
-}
 
 /// Why the seam could not adjudicate a call, which the host answers `denied`.
 #[derive(Debug, thiserror::Error)]

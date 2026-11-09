@@ -11,11 +11,15 @@ use sidekicks_contracts::session::search::SESSION_SEARCH_QUERY_MAX_LEN;
 use sidekicks_contracts::tag::Tag;
 use sidekicks_contracts::wire::text::FreeFormText;
 
+use crate::tools::gate::CallbackToolGate;
 use crate::tools::session::list::SessionListLine;
 use crate::tools::session::{
     PAGE_CURSOR_MAX_LEN, PageCursor, SessionReference, ToolDescription, more_trailer,
     require_one_of, text_field,
 };
+
+/// How `session_search` is gated: it only reads what the calling session may already read.
+pub const GATE: CallbackToolGate = CallbackToolGate::Read;
 
 /// What a model reads about `session_search`.
 pub const DESCRIPTION: ToolDescription = ToolDescription {

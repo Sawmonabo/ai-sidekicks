@@ -3,4 +3,7 @@
 //! one that implements it: the shell tools from the shell crate, and a tool that calls queue or
 //! session from a crate above those.
 
+pub mod entries;
+pub mod gate;
+pub mod group;
 pub mod session;

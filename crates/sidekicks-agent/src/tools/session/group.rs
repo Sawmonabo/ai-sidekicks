@@ -9,9 +9,13 @@ use serde_json::json;
 use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
 use sidekicks_contracts::wire::text::FreeFormText;
 
+use crate::tools::gate::CallbackToolGate;
 use crate::tools::session::{
     SessionReference, ToolDescription, require_one_of, text_field, text_limits,
 };
+
+/// How `session_group` is gated: it acts, so the calling session's level decides it.
+pub const GATE: CallbackToolGate = CallbackToolGate::Level;
 
 /// What a model reads about `session_group`.
 pub const DESCRIPTION: ToolDescription = ToolDescription {
