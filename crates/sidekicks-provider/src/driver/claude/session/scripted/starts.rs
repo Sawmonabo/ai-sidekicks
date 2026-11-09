@@ -44,7 +44,7 @@ use crate::driver::claude::session::transport::readings::{
 use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::driver::claude::spawn::launch::bring_up::{
-    ClaudeBringUpRequest, ClaudeSettingsReadback,
+    ClaudeBringUpRequest, ClaudeSettingsReadback, compose_claude_session_settings,
 };
 use crate::driver::claude::spawn::launch::control_only::ClaudeShortProcessArrival;
 use crate::driver::claude::spawn::launch::initialize_reply::ClaudeListedCommand;
@@ -92,6 +92,14 @@ pub(crate) struct ScriptedOneTurnRecord {
     pub(crate) text: String,
 }
 
+/// What one one-turn process the driver asked for starts with.
+pub(crate) struct ScriptedOneTurnStart {
+    /// Its starting environment.
+    pub(crate) environment: Vec<(String, String)>,
+    /// The settings document a bring-up composes from its legs.
+    pub(crate) settings: Value,
+}
+
 #[derive(Default)]
 struct ScriptedStartTables {
     sessions: VecDeque<Result<Arc<ScriptedChannel>, String>>,
@@ -108,7 +116,7 @@ struct ScriptedStartTables {
     // Each scripted one turn's outcome, and what it waits for before answering it.
     one_turn_outcomes: VecDeque<(ClaudeOneTurnOutcome, OneTurnWait)>,
     one_turns: Vec<ScriptedOneTurnRecord>,
-    one_turn_environments: Vec<Vec<(String, String)>>,
+    one_turn_starts: Vec<ScriptedOneTurnStart>,
     account_server_channels: VecDeque<Arc<ScriptedChannel>>,
     account_server_holds: VecDeque<oneshot::Receiver<()>>,
     account_server_reads: usize,
@@ -362,9 +370,9 @@ impl ScriptedStarts {
         std::mem::take(&mut self.lock().one_turns)
     }
 
-    /// Takes the environment of each one-turn process run so far.
-    pub(crate) fn take_one_turn_environments(&self) -> Vec<Vec<(String, String)>> {
-        std::mem::take(&mut self.lock().one_turn_environments)
+    /// Takes what each one-turn process run so far started with.
+    pub(crate) fn take_one_turn_starts(&self) -> Vec<ScriptedOneTurnStart> {
+        std::mem::take(&mut self.lock().one_turn_starts)
     }
 
     /// Waits until at least `count` session starts were recorded since the last take.
@@ -476,9 +484,12 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 permission_mode: request.permission_mode,
                 text: request.text.text.clone(),
             });
-            tables
-                .one_turn_environments
-                .push(request.spawn.legs.spawn_environment.clone());
+            let settings = compose_claude_session_settings(&request.spawn)
+                .expect("a scripted one turn's settings compose");
+            tables.one_turn_starts.push(ScriptedOneTurnStart {
+                environment: request.spawn.legs.spawn_environment.clone(),
+                settings: serde_json::to_value(settings).expect("the settings serialize"),
+            });
             tables.one_turn_outcomes.pop_front()
         };
         let (outcome, wait) = outcome.unwrap_or_else(|| {

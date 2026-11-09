@@ -63,4 +63,7 @@ pub(crate) struct ClaudeSpawnBoundLegs {
     /// The command channel the session process's commands reach the daemon through; `None` for
     /// a process that runs no session's commands, or where none opened.
     pub(crate) command_channel: Option<Arc<ClaudeCommandChannel>>,
+    /// Whether the process's git and ssh may ask for a credential, through the command channel
+    /// where one opened; a side question's copy asks no one, so such a question fails at once.
+    pub(crate) can_ask_for_credentials: bool,
 }

@@ -139,6 +139,7 @@ pub(crate) fn scripted_live_session(
             advisor: ClaudeSessionAdvisor::Unpicked,
             output_style: None,
             command_channel: None,
+            can_ask_for_credentials: true,
         },
         initialize: ClaudeInitializeDeclaration::default(),
         command_choices: async move { choices }.boxed().shared(),

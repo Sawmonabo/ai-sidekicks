@@ -105,16 +105,18 @@ pub(crate) fn parse_cli_version_report(raw: &str) -> DriverCliVersionReport {
 /// Resolves the configured command to the build to spawn and how the system starts it, in
 /// `spawn_environment`, the provider's own: a command holding a separator is taken as a path, a
 /// bare one is searched along the environment's `PATH` (never the daemon's), then through
-/// `command_search` in `search_folders`; the build found is resolved to its real path. Fails with
-/// [`DriverError::ExecutableUnresolvable`] naming the command as configured when it is blank, names
-/// no build, or names one the system cannot start, and with [`DriverError::Internal`] when a
-/// blocking task ends before it answers.
+/// `command_search` in `search_folders`, each build there read for its version with
+/// `version_arguments`, the driver's, before `--version`; the build found is resolved to its real
+/// path. Fails with [`DriverError::ExecutableUnresolvable`] naming the command as configured when
+/// it is blank, names no build, or names one the system cannot start, and with
+/// [`DriverError::Internal`] when a blocking task ends before it answers.
 pub(crate) async fn resolve_provider_executable(
     command_search: &ProviderCommandSearch,
     provider: &ProviderId,
     requested_command: String,
     spawn_environment: Vec<(String, String)>,
     search_folders: Vec<ProgramFolder>,
+    version_arguments: &[String],
 ) -> Result<ResolvedProviderExecutable, DriverError> {
     if requested_command.chars().all(is_ecmascript_whitespace) {
         let cause = io::Error::new(
@@ -139,7 +141,12 @@ pub(crate) async fn resolve_provider_executable(
             is_build_found,
         }) => {
             let found = command_search
-                .find(&requested_command, search_folders, &spawn_environment)
+                .find(
+                    &requested_command,
+                    search_folders,
+                    &spawn_environment,
+                    version_arguments,
+                )
                 .await
                 .map_err(|error| DriverError::Internal(Box::new(error)))?;
             let Some(hit) = found else {
@@ -315,6 +322,7 @@ mod tests {
             command.to_owned(),
             environment,
             Vec::new(),
+            &[],
         )
         .await;
 

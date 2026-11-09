@@ -1,7 +1,7 @@
 //! The `--settings` document every Claude Code process starts with: how long Claude Code keeps a
 //! conversation, its agent view held off, a session's whole permission rules, its advisor and
 //! output style, the command sandbox at Sandboxed, and in its `env` the variables the app sets on
-//! every process and the telemetry switches.
+//! every process, a session process's command variables and the telemetry switches.
 
 pub(crate) mod private_file;
 pub(crate) mod telemetry_switches;
@@ -17,6 +17,9 @@ use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_platforms::PathRules;
 use sidekicks_policy::ask_rule::ProviderAskRule;
+use sidekicks_workspace::git::process::environment::{
+    GIT_TERMINAL_PROMPT_OFF, NO_PROMPT_ENVIRONMENT,
+};
 
 use crate::background_work::{BackgroundWorkForms, plain_background_work_forms};
 use crate::driver::claude::DESCRIPTOR;
@@ -83,7 +86,8 @@ pub(crate) struct ClaudeSpawnSettings {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) disable_all_hooks: bool,
     /// The variables Claude Code sets inside the process, over its starting environment and the
-    /// person's own settings files: the app's own on every process, and the telemetry switches.
+    /// person's own settings files: the app's own on every process, a session process's command
+    /// variables, and the telemetry switches.
     pub(crate) env: BTreeMap<&'static str, String>,
     /// No exporter headers helper, written with the telemetry switches.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -287,19 +291,25 @@ pub(crate) fn compose_claude_permissions(
 }
 
 /// The `--settings` document for a process at the session's current `posture`, advisor, output
-/// style and own rules, its commands reaching `command_channel` where one opened. Fails as
-/// [`compose_claude_permissions`] does.
+/// style and own rules, its commands reaching `command_channel` where one opened, and asking no one
+/// for a credential unless `can_ask_for_credentials`. Fails as [`compose_claude_permissions`] does.
 pub(crate) fn compose_claude_spawn_settings(
     request: &ClaudePermissionsRequest<'_>,
     posture: Option<&ExecutionPosture>,
     advisor: &ClaudeSessionAdvisor,
     output_style: Option<&str>,
     command_channel: Option<&ClaudeCommandChannel>,
+    can_ask_for_credentials: bool,
 ) -> Result<ClaudeSpawnSettings, ClaudeRulesError> {
     let writable_roots = posture
         .map(ExecutionPosture::writable_roots)
         .unwrap_or_default();
     let level = posture.map(ExecutionPosture::permission_level);
+    let mut env = compose_app_variables();
+    env.extend(compose_command_variables(
+        command_channel,
+        can_ask_for_credentials,
+    ));
     Ok(ClaudeSpawnSettings {
         cleanup_period_days: CLAUDE_CLEANUP_PERIOD_DAYS,
         disable_agent_view: AgentViewOff,
@@ -309,7 +319,7 @@ pub(crate) fn compose_claude_spawn_settings(
         sandbox: (level == Some(PermissionLevel::Sandboxed))
             .then(|| compose_claude_sandbox_settings(writable_roots, command_channel)),
         disable_all_hooks: false,
-        env: compose_app_variables(),
+        env,
         otel_headers_helper: None,
     })
 }
@@ -322,6 +332,30 @@ fn compose_app_variables() -> BTreeMap<&'static str, String> {
         .settings_environment
         .iter()
         .map(|(name, value)| (*name, (*value).to_owned()))
+        .collect()
+}
+
+// The variables a session process's commands run with: git kept from asking on a terminal, and
+// `command_channel`'s wrapper and askpass where one opened; for a process that may ask no one, the
+// variables that fail a git or ssh question at once. In the document's `env` they outrank an `env`
+// in the person's own settings files, which would unwrap the commands in the starting environment.
+fn compose_command_variables(
+    command_channel: Option<&ClaudeCommandChannel>,
+    can_ask_for_credentials: bool,
+) -> Vec<(&'static str, String)> {
+    if !can_ask_for_credentials {
+        return NO_PROMPT_ENVIRONMENT
+            .iter()
+            .map(|(name, value)| (*name, (*value).to_owned()))
+            .collect();
+    }
+    let (prompt_variable, prompt_off) = GIT_TERMINAL_PROMPT_OFF;
+    std::iter::once((prompt_variable, prompt_off.to_owned()))
+        .chain(
+            command_channel
+                .into_iter()
+                .flat_map(|channel| channel.environment().iter().cloned()),
+        )
         .collect()
 }
 
@@ -512,8 +546,9 @@ mod tests {
             background_work: &BackgroundWorkForms::of_providers(PROVIDERS),
         };
         let advisor_setting = |advisor: ClaudeSessionAdvisor| {
-            let settings = compose_claude_spawn_settings(&request, None, &advisor, None, None)
-                .expect("the settings compose");
+            let settings =
+                compose_claude_spawn_settings(&request, None, &advisor, None, None, true)
+                    .expect("the settings compose");
             serde_json::to_value(settings).expect("the settings serialize")["advisorModel"].clone()
         };
 
@@ -525,10 +560,12 @@ mod tests {
         );
     }
 
-    // Killed by a variable dropped from a session's or a short process's document or given another
-    // value there, which lets an `env` in the person's own settings files set it (the helper caps
-    // lowered under the person's limit, a dialog deadline armed, the build updated mid-session),
-    // and by any of them also set in the starting environment.
+    // Killed by a variable dropped from a session's, a copy's or a short process's document or
+    // given another value there, which lets an `env` in the person's own settings files set it (the
+    // helper caps lowered under the person's limit, a dialog deadline armed, the build updated
+    // mid-session, git asking on a terminal, a copy's git or ssh question waiting on a credential
+    // helper), by a short process given a session's command variables, and by any of them also
+    // set in the starting environment.
     #[test]
     fn every_process_sets_the_apps_variables_in_its_document_alone() {
         let request = ClaudePermissionsRequest {
@@ -538,31 +575,52 @@ mod tests {
             path_rules: PathRules::Posix,
             background_work: &BackgroundWorkForms::of_providers(PROVIDERS),
         };
-        let session = compose_claude_spawn_settings(
-            &request,
-            None,
-            &ClaudeSessionAdvisor::Unpicked,
-            None,
-            None,
-        )
-        .expect("the settings compose");
+        let session_env = |can_ask_for_credentials| {
+            let settings = compose_claude_spawn_settings(
+                &request,
+                None,
+                &ClaudeSessionAdvisor::Unpicked,
+                None,
+                None,
+                can_ask_for_credentials,
+            )
+            .expect("the settings compose");
+            serde_json::to_value(settings).expect("the settings serialize")["env"].clone()
+        };
+        let apps_variables = json!({
+            "DISABLE_AUTOUPDATER": "1",
+            "DISABLE_UPDATES": "1",
+            "CLAUDE_AUTO_BACKGROUND_TASKS": "1",
+            "CLAUDE_CODE_USER_DIALOG_TIMEOUT_MS": "0",
+            "BASH_MAX_TIMEOUT_MS": "2147483647",
+            "CLAUDE_CODE_QUESTION_PREVIEW_FORMAT": "markdown",
+            "CLAUDE_CODE_QUESTION_EXTENDED": "1",
+            "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "9223372036854775807",
+            "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "9223372036854775807",
+        });
+        let with = |pairs: &[(&str, &str)]| {
+            let mut env = apps_variables.clone();
+            for (name, value) in pairs {
+                env[*name] = json!(value);
+            }
+            env
+        };
 
-        for settings in [session, ClaudeSpawnSettings::short_process(true)] {
-            assert_eq!(
-                serde_json::to_value(settings).expect("the settings serialize")["env"],
-                json!({
-                    "DISABLE_AUTOUPDATER": "1",
-                    "DISABLE_UPDATES": "1",
-                    "CLAUDE_AUTO_BACKGROUND_TASKS": "1",
-                    "CLAUDE_CODE_USER_DIALOG_TIMEOUT_MS": "0",
-                    "BASH_MAX_TIMEOUT_MS": "2147483647",
-                    "CLAUDE_CODE_QUESTION_PREVIEW_FORMAT": "markdown",
-                    "CLAUDE_CODE_QUESTION_EXTENDED": "1",
-                    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "9223372036854775807",
-                    "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "9223372036854775807",
-                })
-            );
-        }
+        assert_eq!(session_env(true), with(&[("GIT_TERMINAL_PROMPT", "0")]));
+        assert_eq!(
+            session_env(false),
+            with(&[
+                ("GIT_ASKPASS", ""),
+                ("GCM_INTERACTIVE", "never"),
+                ("SSH_ASKPASS_REQUIRE", "never"),
+                ("GIT_TERMINAL_PROMPT", "0"),
+            ])
+        );
+        assert_eq!(
+            serde_json::to_value(ClaudeSpawnSettings::short_process(true))
+                .expect("the settings serialize")["env"],
+            apps_variables
+        );
         let reserved_names = ReservedEnvironmentNames::of_providers(&[]);
         let environment = compose_claude_environment_without_home(SessionEnvironment {
             base: &[],

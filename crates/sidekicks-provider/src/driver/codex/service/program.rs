@@ -113,6 +113,7 @@ impl CodexProgramResolver for CodexInstalledProgram {
                 command,
                 environment,
                 search_folders,
+                &[],
             )
             .await
         }

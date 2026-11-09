@@ -14,7 +14,6 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::PathRules;
 use sidekicks_store::data_folder::agent_memory_folder;
 use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
-use sidekicks_workspace::git::process::environment::GIT_TERMINAL_PROMPT_OFF;
 
 use crate::background_work::BackgroundWorkForms;
 use crate::callback_tools::host::{
@@ -165,11 +164,11 @@ pub(crate) enum ClaudeSpawnLegsError {
 }
 
 /// Builds the legs every spawn path starts a process from, offering no callback tools and
-/// installing no registry: the account home's retention set, git kept from asking on a terminal,
-/// a command channel's variables where one opened, and the keys that continue an interrupted turn,
-/// with the request's words where it gives them, where the request asks it. Fails when the
-/// retention cannot be written, the curated credential list cannot be resolved or the environment
-/// cannot be built.
+/// installing no registry: the account home's retention set, and the keys that continue an
+/// interrupted turn, with the request's words where it gives them, where the request asks it. The
+/// command channel's variables travel in the process's settings document, never in its
+/// environment. Fails when the retention cannot be written, the curated credential list cannot be
+/// resolved or the environment cannot be built.
 pub(crate) async fn build_claude_spawn_bound_legs(
     request: ClaudeSpawnLegsRequest,
     services: &ClaudeSpawnLegServices<'_>,
@@ -188,22 +187,11 @@ pub(crate) async fn build_claude_spawn_bound_legs(
                 }),
         )
         .await?;
-    let (prompt_variable, prompt_off) = GIT_TERMINAL_PROMPT_OFF;
-    let command_environment = std::iter::once((prompt_variable.to_owned(), prompt_off.to_owned()))
-        .chain(
-            request
-                .command_channel
-                .iter()
-                .flat_map(|channel| channel.environment().iter().cloned()),
-        )
-        .chain(
-            request
-                .continues_interrupted_turn
-                .then(|| interrupted_turn_resume_environment(request.resume_prompt.as_deref()))
-                .into_iter()
-                .flatten(),
-        )
-        .collect::<Vec<_>>();
+    let resume_environment = if request.continues_interrupted_turn {
+        interrupted_turn_resume_environment(request.resume_prompt.as_deref())
+    } else {
+        Vec::new()
+    };
     let spawn_environment = compose_claude_process_environment(
         ClaudeProcessEnvironmentRequest {
             session: SessionEnvironment {
@@ -219,7 +207,7 @@ pub(crate) async fn build_claude_spawn_bound_legs(
             },
             data_folder: &services.data_folder,
         },
-        &command_environment,
+        &resume_environment,
     )?;
     Ok(ClaudeSpawnBoundLegs {
         session_id: request.session_id,
@@ -242,6 +230,7 @@ pub(crate) async fn build_claude_spawn_bound_legs(
         advisor: context.advisor,
         output_style: context.output_style,
         command_channel: request.command_channel,
+        can_ask_for_credentials: true,
     })
 }
 

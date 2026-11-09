@@ -25,6 +25,7 @@ use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::process::{
     ClaudeCodeProcess, ClaudeProcessLaunch, ClaudeProcessListener, ClaudeTurnHolds,
 };
+use crate::driver::claude::session::rules::ClaudeRulesError;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::{
     ClaudeControlRequest, ClaudePermissionMode, ClaudeSettingsReply, ClaudeThinkingDisplay,
@@ -38,9 +39,9 @@ use crate::driver::claude::spawn::arguments::{
 use crate::driver::claude::spawn::launch::{
     ClaudeLaunchError, ClaudeProcessLauncher, initialize_reply,
 };
-use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::claude::spawn::settings::{
-    ClaudePermissionsRequest, compose_claude_spawn_settings,
+    ClaudePermissionsRequest, ClaudeSessionAdvisor, ClaudeSpawnSettings,
+    compose_claude_spawn_settings,
 };
 use crate::driver::session_control::SubagentPolicy;
 use crate::port::in_process_tool_servers::InProcessToolServers;
@@ -120,19 +121,7 @@ pub(crate) async fn bring_up_claude_process(
 ) -> Result<ClaudeBroughtUp, ClaudeLaunchError> {
     let spawn = request.spawn;
     let legs = spawn.legs;
-    let settings = compose_claude_spawn_settings(
-        &ClaudePermissionsRequest {
-            credential_deny_paths: &legs.credential_deny_paths,
-            memory_folders: &legs.memory_folders,
-            session_rules: spawn.session_rules,
-            path_rules: spawn.path_rules,
-            background_work: &legs.background_work,
-        },
-        legs.execution_posture.as_ref(),
-        &legs.advisor,
-        legs.output_style.as_deref(),
-        legs.command_channel.as_deref(),
-    )?;
+    let settings = compose_claude_session_settings(&spawn)?;
     let has_managed_mcp_file =
         has_readable_managed_mcp_file(DESCRIPTOR.managed_settings_folder().as_deref()).await;
     // A fork's predecessor keeps running on the session's channel until the fork is adopted, which
@@ -194,6 +183,28 @@ pub(crate) async fn bring_up_claude_process(
             Err(error.into())
         }
     }
+}
+
+/// The `--settings` document a process of `spawn`'s session starts with, from its legs and the
+/// session's own rules. Fails as the session's own rules fail to compose.
+pub(crate) fn compose_claude_session_settings(
+    spawn: &ClaudeSessionSpawn<'_>,
+) -> Result<ClaudeSpawnSettings, ClaudeRulesError> {
+    let legs = spawn.legs;
+    compose_claude_spawn_settings(
+        &ClaudePermissionsRequest {
+            credential_deny_paths: &legs.credential_deny_paths,
+            memory_folders: &legs.memory_folders,
+            session_rules: spawn.session_rules,
+            path_rules: spawn.path_rules,
+            background_work: &legs.background_work,
+        },
+        legs.execution_posture.as_ref(),
+        &legs.advisor,
+        legs.output_style.as_deref(),
+        legs.command_channel.as_deref(),
+        legs.can_ask_for_credentials,
+    )
 }
 
 // `initialize`, the thinking display and the settings readback, in order.
@@ -409,6 +420,7 @@ mod tests {
             advisor: ClaudeSessionAdvisor::Unpicked,
             output_style: None,
             command_channel: Some(Arc::clone(&channel)),
+            can_ask_for_credentials: true,
         };
         let launcher = ClaudeProcessLauncher::new(
             spawner,

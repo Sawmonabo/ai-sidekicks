@@ -1,9 +1,9 @@
 //! Finds a provider's command in the folders its own installer, the system's package manager, npm
 //! and the Node version and package managers put it, for a spawn whose search path holds none.
 //! Where more than one build is found, the newest runs: each build's `--version` is read under a
-//! deadline, and a read that printed is kept for that build. A build runs with the folder it was
-//! found in first on its search path, where a Node manager keeps the `node` its script's
-//! `#!/usr/bin/env node` names.
+//! deadline, after the arguments its driver supplies, and a read that printed is kept for that
+//! build. A build runs with the folder it was found in first on its search path, where a Node
+//! manager keeps the `node` its script's `#!/usr/bin/env node` names.
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -94,13 +94,14 @@ impl ProviderCommandSearch {
     /// The newest build `command` names in `folders`, searched in order, or `None` where none holds
     /// it. A build whose version cannot be read ranks below every build whose can; among equal
     /// versions the earlier folder wins; the same build found twice keeps its first folder. Builds
-    /// run in `spawn_environment`, the provider's own. Fails only when the blocking search task
-    /// ends before it answers.
+    /// run in `spawn_environment`, the provider's own, with `version_arguments`, its driver's,
+    /// before `--version`. Fails only when the blocking search task ends before it answers.
     pub(crate) async fn find(
         &self,
         command: &str,
         folders: Vec<ProgramFolder>,
         spawn_environment: &[(String, String)],
+        version_arguments: &[String],
     ) -> io::Result<Option<ProviderCommandSearchHit>> {
         let (owned_command, owned_environment) = (command.to_owned(), spawn_environment.to_vec());
         let hits = tokio::task::spawn_blocking(move || {
@@ -113,7 +114,7 @@ impl ProviderCommandSearch {
         }
         let versions = futures::future::join_all(
             hits.iter()
-                .map(|hit| self.read_version(hit, spawn_environment)),
+                .map(|hit| self.read_version(hit, spawn_environment, version_arguments)),
         )
         .await;
         // Replaced only by a strictly newer version, so equal versions keep the earlier folder.
@@ -134,6 +135,7 @@ impl ProviderCommandSearch {
         &self,
         hit: &ProviderCommandSearchHit,
         spawn_environment: &[(String, String)],
+        version_arguments: &[String],
     ) -> Option<Version> {
         let version = {
             let mut versions = lock(&self.versions);
@@ -153,7 +155,7 @@ impl ProviderCommandSearch {
             }
         };
         match version
-            .get_or_try_init(|| self.read_build_version(hit, spawn_environment))
+            .get_or_try_init(|| self.read_build_version(hit, spawn_environment, version_arguments))
             .await
         {
             Ok(version) => version.clone(),
@@ -175,8 +177,11 @@ impl ProviderCommandSearch {
         &self,
         hit: &ProviderCommandSearchHit,
         spawn_environment: &[(String, String)],
+        version_arguments: &[String],
     ) -> Result<Option<Version>, VersionReadError> {
-        let output = self.read_version_output(hit, spawn_environment).await?;
+        let output = self
+            .read_version_output(hit, spawn_environment, version_arguments)
+            .await?;
         let parsed = parse_cli_version_report(&String::from_utf8_lossy(&output))
             .parsed_version
             .and_then(|parsed| Version::parse(&parsed).ok());
@@ -190,15 +195,18 @@ impl ProviderCommandSearch {
         Ok(parsed)
     }
 
-    // What the build printed for `--version`, started from the spawner's thread with its folder
-    // first on its search path, its tree ended when it passes the deadline or its output bound.
+    // What the build printed for `version_arguments` then `--version`, started from the
+    // spawner's thread with its folder first on its search path, its tree ended when it passes the
+    // deadline or its output bound.
     async fn read_version_output(
         &self,
         hit: &ProviderCommandSearchHit,
         spawn_environment: &[(String, String)],
+        version_arguments: &[String],
     ) -> Result<Vec<u8>, VersionReadError> {
         let mut environment = spawn_environment.to_vec();
         place_folder_first_on_search_path(&mut environment, &hit.folder, PathRules::NATIVE);
+        let arguments = version_arguments.to_vec();
         let build = hit.build.clone();
         let daemon_pid = std::process::id();
         let mut child = self
@@ -208,6 +216,7 @@ impl ProviderCommandSearch {
                 let mut command = Command::new(&start.program);
                 command
                     .args(&start.leading_arguments)
+                    .args(arguments)
                     .arg("--version")
                     .env_clear()
                     .envs(environment)
@@ -459,6 +468,7 @@ if [ -e \"$marker\" ]; then echo 'tool 2.0.0'; else touch \"$marker\"; sleep 30;
                     "tool",
                     folders.iter().cloned().map(ProgramFolder::Folder).collect(),
                     &environment,
+                    &[],
                 )
                 .await
                 .expect("the search runs")

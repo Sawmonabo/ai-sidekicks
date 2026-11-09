@@ -32,7 +32,6 @@ use sidekicks_platforms::PathRules;
 use sidekicks_policy::ask_rule::ProviderAskRule;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
-use sidekicks_workspace::git::process::environment::NO_PROMPT_ENVIRONMENT;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -656,10 +655,10 @@ impl ClaudeSessionControls {
 
 /// The legs a one-turn process of `live`'s session starts on: its own, at the level, advisor and
 /// style it runs with now, on the full id of the model it runs, in `working_directory` where one
-/// is given, its commands reaching `command_channel` where given. The session's own channel stays the session process's, since it
-/// admits only parties under that process, so its variables give way to `command_channel`'s, and a
-/// process given none runs its commands with no channel. It reports its MCP servers on no status
-/// leg, since its servers are the session's.
+/// is given, its commands reaching `command_channel` where given. The session's own channel stays
+/// the session process's, since it admits only parties under that process, so a process given none
+/// runs its commands with no channel. It reports its MCP servers on no status leg, since its
+/// servers are the session's.
 pub(crate) fn one_turn_legs(
     live: &LiveClaudeSession,
     working_directory: Option<std::path::PathBuf>,
@@ -667,21 +666,7 @@ pub(crate) fn one_turn_legs(
 ) -> ClaudeSpawnBoundLegs {
     let settings = lock(&live.settings).clone();
     let legs = &live.spawn_bound_legs;
-    let session_variables = legs
-        .command_channel
-        .as_deref()
-        .map_or(&[][..], ClaudeCommandChannel::environment);
-    let own_variables = command_channel
-        .as_deref()
-        .map_or(&[][..], ClaudeCommandChannel::environment);
     ClaudeSpawnBoundLegs {
-        spawn_environment: legs
-            .spawn_environment
-            .iter()
-            .filter(|variable| !session_variables.contains(variable))
-            .chain(own_variables)
-            .cloned()
-            .collect(),
         command_channel,
         model: claude_full_model_id(&live.initialize, &settings.running_model),
         execution_posture: settings.execution_posture,
@@ -693,32 +678,12 @@ pub(crate) fn one_turn_legs(
     }
 }
 
-/// The SSH askpass variable, which the no-prompt environment leaves unset rather than empty.
-const SSH_ASKPASS_VARIABLE: &str = "SSH_ASKPASS";
-
-/// `legs` for a process that may ask no one for a credential, a side question's copy: every
-/// askpass and prompt variable the session's environment carries gives way to the no-prompt
-/// environment, each of its pairs set once, so a git or ssh question fails at once.
+/// `legs` for a process that may ask no one for a credential, a side question's copy: no command
+/// channel, and a settings document whose variables fail a git or ssh question at once.
 pub(crate) fn without_credential_prompts(legs: ClaudeSpawnBoundLegs) -> ClaudeSpawnBoundLegs {
-    let is_prompt_variable = |name: &str| {
-        name == SSH_ASKPASS_VARIABLE
-            || NO_PROMPT_ENVIRONMENT
-                .iter()
-                .any(|(prompt_name, _)| *prompt_name == name)
-    };
-    let spawn_environment = legs
-        .spawn_environment
-        .into_iter()
-        .filter(|(name, _)| !is_prompt_variable(name))
-        .chain(
-            NO_PROMPT_ENVIRONMENT
-                .iter()
-                .map(|(name, value)| ((*name).to_owned(), (*value).to_owned())),
-        )
-        .collect();
     ClaudeSpawnBoundLegs {
-        spawn_environment,
         command_channel: None,
+        can_ask_for_credentials: false,
         ..legs
     }
 }

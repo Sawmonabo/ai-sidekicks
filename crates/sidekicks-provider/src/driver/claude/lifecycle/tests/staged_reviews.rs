@@ -13,7 +13,7 @@ use sidekicks_contracts::run::failure_cause::{RunFailureCause, RunRefusedOrigin}
 use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_platforms::RUNS_COMMAND_WRAPPER;
+use sidekicks_platforms::{PathRules, RUNS_COMMAND_WRAPPER};
 use sidekicks_workspace::git::process::test_git_runner;
 use sidekicks_workspace::git::process::test_repository::make_test_repository;
 use tokio_util::sync::CancellationToken;
@@ -29,6 +29,9 @@ use crate::driver::claude::session::scripted::{binding_id, register_claude_price
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::declarations::ClaudeHandshakeDeclaration;
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
+use crate::driver::claude::spawn::launch::bring_up::{
+    ClaudeSessionSpawn, compose_claude_session_settings,
+};
 use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnOutcome, ClaudeOneTurnReply};
 use crate::driver::contract::params_and_results::RunOpeningItem;
 use crate::driver::run_control::InterruptRunRequest;
@@ -339,8 +342,11 @@ fn review_run() -> ClaudeBoundRun {
     }
 }
 
-// Killed by a staged review whose process starts with no channel of its own, and by one that keeps
-// the session process's channel variables, which admit no party under the review's process.
+// Killed by a staged review whose process starts with no channel of its own, or with the session
+// process's, which admits no party under the review's process; by a command variable dropped from
+// a process's settings document, which lets an `env` in the person's own settings files unwrap its
+// commands or send their git and ssh questions elsewhere; and by one also set in its starting
+// environment.
 #[tokio::test]
 async fn the_staged_reviews_process_starts_on_a_channel_of_its_own() {
     if !RUNS_COMMAND_WRAPPER {
@@ -372,23 +378,51 @@ async fn the_staged_reviews_process_starts_on_a_channel_of_its_own() {
         .expect("the review's legs compose");
 
     let review_channel = review_channel.expect("the review has a channel of its own");
-    let review_variables = review_channel.environment();
-    assert!(
-        review_variables
-            .iter()
-            .all(|variable| legs.spawn_environment.contains(variable))
-    );
-    assert!(
-        session_channel
-            .environment()
-            .iter()
-            .filter(|variable| !review_variables.contains(variable))
-            .all(|variable| !legs.spawn_environment.contains(variable))
-    );
-    assert!(
-        legs.spawn_environment
-            .contains(&("GIT_TERMINAL_PROMPT".to_owned(), "0".to_owned()))
-    );
+    for (legs, channel) in [
+        (&live.spawn_bound_legs, &session_channel),
+        (&legs, &review_channel),
+    ] {
+        let settings = compose_claude_session_settings(&ClaudeSessionSpawn {
+            legs,
+            session_rules: &[],
+            step_bound: None,
+            in_process_servers: None,
+            path_rules: PathRules::NATIVE,
+        })
+        .expect("the settings compose");
+        let env = &serde_json::to_value(settings).expect("the settings serialize")["env"];
+        assert_eq!(
+            env["SIDEKICKS_COMMAND_CHANNEL"],
+            json!(
+                channel
+                    .folder()
+                    .to_str()
+                    .expect("the channel's folder is text")
+            )
+        );
+        assert_eq!(env["SSH_ASKPASS_REQUIRE"], json!("force"));
+        assert_eq!(env["GIT_TERMINAL_PROMPT"], json!("0"));
+        assert_eq!(env["GIT_ASKPASS"], env["SSH_ASKPASS"]);
+        for name in [
+            "CLAUDE_CODE_SHELL_PREFIX",
+            "GIT_ASKPASS",
+            "SSH_ASKPASS",
+            "SSH_ASKPASS_REQUIRE",
+            "GIT_TERMINAL_PROMPT",
+            "SIDEKICKS_COMMAND_CHANNEL",
+            "SIDEKICKS_COMMAND_CHANNEL_KEY",
+            "SIDEKICKS_COMMAND_PROVIDER",
+        ] {
+            assert!(
+                env[name].as_str().is_some_and(|value| !value.is_empty()),
+                "{name}"
+            );
+            assert!(
+                legs.spawn_environment.iter().all(|(set, _)| set != name),
+                "{name}"
+            );
+        }
+    }
     review_channel
         .close()
         .await

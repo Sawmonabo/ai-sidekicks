@@ -672,23 +672,16 @@ impl ClaudeCommandChannels {
         let mut environment = channel
             .environment()
             .into_iter()
-            .map(|(name, value)| Ok((name.to_owned(), environment_text(value)?)))
+            .map(|(name, value)| Ok((name, environment_text(value)?)))
             .collect::<io::Result<Vec<_>>>()?;
         environment.extend([
             (
-                CLAUDE_SHELL_PREFIX_COMMAND.variable.to_owned(),
+                CLAUDE_SHELL_PREFIX_COMMAND.variable,
                 environment_text(self.programs.wrapper_program.clone().into_os_string())?,
             ),
-            (
-                COMMAND_PROVIDER_VARIABLE.to_owned(),
-                DESCRIPTOR.id.to_owned(),
-            ),
+            (COMMAND_PROVIDER_VARIABLE, DESCRIPTOR.id.to_owned()),
         ]);
-        environment.extend(
-            command_prompt_environment(&self.programs.askpass_program)
-                .into_iter()
-                .map(|(name, value)| (name.to_owned(), value)),
-        );
+        environment.extend(command_prompt_environment(&self.programs.askpass_program));
         let watch = channel.watch().await?;
         Ok(Arc::new(ClaudeCommandChannel {
             session_id,
@@ -722,7 +715,7 @@ impl ClaudeCommandChannels {
 pub(crate) struct ClaudeCommandChannel {
     session_id: SessionId,
     channel: Arc<CommandChannel>,
-    environment: Vec<(String, String)>,
+    environment: Vec<(&'static str, String)>,
     apart_run: Option<ClaudeApartRunCommands>,
     sets: Arc<RunningCommandSets>,
     input_waits: Arc<dyn InputWaitReader>,
@@ -733,8 +726,9 @@ pub(crate) struct ClaudeCommandChannel {
 
 impl ClaudeCommandChannel {
     /// The variables the process's commands carry so they run under the wrapper, which reaches
-    /// the channel, and their git and ssh ask through the askpass.
-    pub(crate) fn environment(&self) -> &[(String, String)] {
+    /// the channel, and their git and ssh ask through the askpass; the process's settings document
+    /// sets them.
+    pub(crate) fn environment(&self) -> &[(&'static str, String)] {
         &self.environment
     }
 

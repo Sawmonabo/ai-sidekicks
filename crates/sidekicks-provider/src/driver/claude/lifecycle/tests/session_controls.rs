@@ -120,8 +120,9 @@ pub(super) fn counts(input: u64, output: u64) -> UsageAxisCounts {
 }
 
 // Killed by running a side question in the session's own posture instead of plan mode, on the
-// alias instead of its full id, by refusing one on a session at rest, by a copy that keeps an
-// askpass or channel variable or sets only `GIT_TERMINAL_PROMPT` of the no-prompt environment, by
+// alias instead of its full id, by refusing one on a session at rest, by a copy whose settings
+// document keeps an askpass or channel variable or sets only `GIT_TERMINAL_PROMPT` of the
+// no-prompt environment, by a copy that sets any of them in its starting environment, by
 // a copy at rest started in its account's home rather than the one its binding names as holding
 // its conversation, where a switch left it, and by a copy priced off anything but its own spend:
 // a parent's sum taken off (rows less 100 and 10), the spend no message showed dropped (one row at
@@ -225,23 +226,15 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_prices_the_copy_a
             in_plan_mode(resume_params(resting_session).resume_handle),
         ]
     );
-    let prompt_variables = |environment: &[(String, String)]| -> Vec<(String, String)> {
-        let mut variables: Vec<_> = environment
-            .iter()
-            .filter(|(name, _)| {
-                name.contains("ASKPASS")
-                    || name.starts_with("SIDEKICKS_COMMAND")
-                    || [
-                        "GCM_INTERACTIVE",
-                        "GIT_TERMINAL_PROMPT",
-                        "CLAUDE_CODE_SHELL_PREFIX",
-                    ]
-                    .contains(&name.as_str())
-            })
-            .cloned()
-            .collect();
-        variables.sort();
-        variables
+    let is_prompt_variable = |name: &str| {
+        name.contains("ASKPASS")
+            || name.starts_with("SIDEKICKS_COMMAND")
+            || [
+                "GCM_INTERACTIVE",
+                "GIT_TERMINAL_PROMPT",
+                "CLAUDE_CODE_SHELL_PREFIX",
+            ]
+            .contains(&name)
     };
     let no_prompt: Vec<_> = [
         ("GCM_INTERACTIVE", "never"),
@@ -249,16 +242,29 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_prices_the_copy_a
         ("GIT_TERMINAL_PROMPT", "0"),
         ("SSH_ASKPASS_REQUIRE", "never"),
     ]
-    .map(|(name, value)| (name.to_owned(), value.to_owned()))
+    .map(|(name, value)| (name.to_owned(), json!(value)))
     .into();
-    let environments = fixture.starts.take_one_turn_environments();
-    assert_eq!(environments.len(), 2);
+    let starts = fixture.starts.take_one_turn_starts();
+    assert_eq!(starts.len(), 2);
     assert_eq!(
-        PathRules::NATIVE.environment_value(&environments[1], "CLAUDE_CONFIG_DIR"),
+        PathRules::NATIVE.environment_value(&starts[1].environment, "CLAUDE_CONFIG_DIR"),
         conversation_home.to_str()
     );
-    for environment in &environments {
-        assert_eq!(prompt_variables(environment), no_prompt);
+    for start in &starts {
+        let settings_prompt_variables: Vec<_> = start.settings["env"]
+            .as_object()
+            .expect("the settings carry an env")
+            .iter()
+            .filter(|(name, _)| is_prompt_variable(name.as_str()))
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect();
+        assert_eq!(settings_prompt_variables, no_prompt);
+        assert!(
+            start
+                .environment
+                .iter()
+                .all(|(name, _)| !is_prompt_variable(name))
+        );
     }
     stop.cancel();
     let metered: Vec<_> = fixture

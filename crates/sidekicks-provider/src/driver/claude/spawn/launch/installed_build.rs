@@ -11,7 +11,7 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use serde_json::{Value, json};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_platforms::PathRules;
+use sidekicks_platforms::{PathRules, ProgramFolder};
 use tokio::time::Instant;
 
 use crate::capability::probe::CapabilityProbeExchange;
@@ -48,6 +48,7 @@ use crate::driver::claude::spawn::launch::one_turn::{
     ClaudeOneTurnOutcome, ClaudeOneTurnRequest, run_claude_one_turn,
 };
 use crate::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
+use crate::driver::claude::spawn::one_shot_command::compose_claude_subcommand_arguments;
 use crate::driver::claude::version::read_reported_version;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
@@ -220,17 +221,29 @@ pub(crate) async fn resolve_claude_build(
     home_folder: &std::path::Path,
     environment: Vec<(String, String)>,
 ) -> Result<ResolvedProviderExecutable, DriverError> {
+    let search_folders = list_command_folders(&DESCRIPTOR, home_folder, &environment);
+    resolve_claude_build_in_folders(command_search, environment, search_folders).await
+}
+
+// The build the configured command names along `environment`'s `PATH`, else the newest in
+// `search_folders`, each of those read for its version with the export-off settings document, so
+// the read starts with its updates off as every other Claude Code process does.
+async fn resolve_claude_build_in_folders(
+    command_search: &ProviderCommandSearch,
+    environment: Vec<(String, String)>,
+    search_folders: Vec<ProgramFolder>,
+) -> Result<ResolvedProviderExecutable, DriverError> {
     let command = DESCRIPTOR
         .command_lookup(PathRules::NATIVE)
         .and_then(|lookup| lookup.names.first())
         .map_or_else(String::new, |name| (*name).to_owned());
-    let search_folders = list_command_folders(&DESCRIPTOR, home_folder, &environment);
     resolve_provider_executable(
         command_search,
         &DESCRIPTOR.provider_id(),
         command,
         environment,
         search_folders,
+        &compose_claude_subcommand_arguments(&[]),
     )
     .await
 }
@@ -572,5 +585,78 @@ impl CapabilityProbeExchange for ClaudeProbeExchange<'_> {
             }
         }
         .boxed()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::Value;
+    use sidekicks_platforms::{
+        ProgramFolder, Spawner, StandInAnswer, StandInProgram, read_recorded_arguments,
+        write_stand_in_program,
+    };
+
+    use super::resolve_claude_build_in_folders;
+    use crate::command_search::ProviderCommandSearch;
+    use crate::driver::claude::spawn::settings::compose_claude_export_off_settings;
+
+    // Killed by a version read that drops the arguments its driver supplies, and by the Claude
+    // driver supplying none: either starts a build's `--version` with neither update pin. Two
+    // builds, since a lone build is never read.
+    #[tokio::test]
+    async fn each_builds_version_read_carries_the_export_off_document() {
+        let root = tempfile::tempdir().expect("the temporary folder is made");
+        let empty_search_path = root.path().join("empty");
+        std::fs::create_dir(&empty_search_path).expect("the folder is made");
+        let mut folders = Vec::new();
+        let mut records = Vec::new();
+        for (index, version) in ["2.1.0", "2.1.1"].into_iter().enumerate() {
+            let folder = root.path().join(index.to_string());
+            std::fs::create_dir(&folder).expect("the folder is made");
+            let record = folder.join("arguments");
+            write_stand_in_program(
+                &folder,
+                "claude",
+                &StandInProgram {
+                    answers_by_first_argument: Vec::new(),
+                    otherwise: StandInAnswer {
+                        standard_output: format!("{version} (Claude Code)\n"),
+                        exit_code: 0,
+                        argument_record: Some(record.clone()),
+                    },
+                },
+            )
+            .expect("the build is written");
+            folders.push(ProgramFolder::Folder(folder));
+            records.push(record);
+        }
+        let search = ProviderCommandSearch::new(
+            Spawner::new(tokio::runtime::Handle::current()).expect("the spawner thread starts"),
+        );
+        let environment = vec![(
+            "PATH".to_owned(),
+            empty_search_path.to_string_lossy().into_owned(),
+        )];
+
+        resolve_claude_build_in_folders(&search, environment, folders)
+            .await
+            .expect("a build resolves");
+
+        for record in &records {
+            let arguments =
+                read_recorded_arguments(record).expect("the read recorded its arguments");
+            assert_eq!(
+                arguments,
+                [
+                    "--settings".to_owned(),
+                    compose_claude_export_off_settings(),
+                    "--version".to_owned(),
+                ]
+            );
+            let document: Value =
+                serde_json::from_str(&arguments[1]).expect("the document is JSON");
+            assert_eq!(document["env"]["DISABLE_AUTOUPDATER"], "1");
+            assert_eq!(document["env"]["DISABLE_UPDATES"], "1");
+        }
     }
 }
