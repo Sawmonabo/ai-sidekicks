@@ -233,13 +233,15 @@ pub fn insert_step(connection: &Connection, run_id: &str, step: &TestStep<'_>) {
             finished_at: None,
             source_json: "[]".to_owned(),
             output_item_counts_json: "[]".to_owned(),
+            pin_hash: None,
+            reused_from_json: None,
         },
     );
 }
 
 /// A settled step a test stores: its node, attempt and execution index, where it stands, when it
-/// ended, the `(node, execution index)` of the step of its run that fed each input slot, and how
-/// many items each main output holds, its output itself empty.
+/// ended, the `(node, execution index)` of the step of its run that fed each input slot, how many
+/// items each main output holds, its output itself empty, the pin it ran on and the step it reused.
 #[cfg(test)]
 pub(crate) struct TestSettledStep<'step> {
     /// Its node.
@@ -256,6 +258,11 @@ pub(crate) struct TestSettledStep<'step> {
     pub(crate) sources: &'step [(&'step str, u32)],
     /// How many items each main output holds.
     pub(crate) output_item_counts: &'step [u64],
+    /// The hash of the pin it ran on, or for a reused skip its source step's.
+    pub(crate) pin_hash: Option<&'step str>,
+    /// For a reused skip, the run, execution index and version of the first attempt of its node
+    /// whose data it carries.
+    pub(crate) reused_from: Option<(&'step str, u32, &'step str)>,
 }
 
 /// Stores `step` in run `run_id`.
@@ -281,6 +288,19 @@ pub(crate) fn insert_settled_step(
             finished_at: Some(step.finished_at),
             source_json: test_step_sources(step.sources).to_string(),
             output_item_counts_json: serde_json::json!(step.output_item_counts).to_string(),
+            pin_hash: step.pin_hash,
+            reused_from_json: step
+                .reused_from
+                .map(|(run_id, execution_index, version_id)| {
+                    serde_json::json!({
+                        "step": {
+                            "workflowRunId": run_id, "nodeId": step.node_id, "attempt": 1,
+                            "executionIndex": execution_index,
+                        },
+                        "workflowVersionId": version_id,
+                    })
+                    .to_string()
+                }),
         },
     );
 }
@@ -300,7 +320,7 @@ pub(crate) fn test_step_sources(sources: &[(&str, u32)]) -> serde_json::Value {
 }
 
 // The columns a stored step row takes beyond its run: the step, its node and attempt, when it
-// ended and what fed it and it holds.
+// ended, what fed it and it holds, the pin it ran on and the step it reused.
 struct StepRow<'step> {
     node_id: &'step str,
     attempt: u32,
@@ -308,6 +328,8 @@ struct StepRow<'step> {
     finished_at: Option<&'step str>,
     source_json: String,
     output_item_counts_json: String,
+    pin_hash: Option<&'step str>,
+    reused_from_json: Option<String>,
 }
 
 // Stores `row` in run `run_id`; a waiting step started waiting when it started, and a wait on a
@@ -324,8 +346,9 @@ fn insert_step_row(connection: &Connection, run_id: &str, row: &StepRow<'_>) {
             "INSERT INTO workflow_steps (workflow_run_id, node_id, attempt, execution_index, \
              status, wait_cause, wait_account_id, resume_at, wait_started_at, wait_id, \
              started_at, finished_at, source_json, output_item_counts_json, input_ref, \
-             output_ref, log_ref) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?15, ?15)",
+             output_ref, log_ref, pin_hash, reused_from_json) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?15, ?15, \
+             ?16, ?17)",
             params![
                 run_id,
                 row.node_id,
@@ -342,7 +365,9 @@ fn insert_step_row(connection: &Connection, run_id: &str, row: &StepRow<'_>) {
                 row.finished_at,
                 row.source_json,
                 row.output_item_counts_json,
-                EMPTY_PAYLOAD_REF
+                EMPTY_PAYLOAD_REF,
+                row.pin_hash,
+                row.reused_from_json
             ],
         )
         .expect("the test stores a step");

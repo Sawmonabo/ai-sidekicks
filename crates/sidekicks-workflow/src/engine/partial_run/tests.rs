@@ -3,6 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::{
     WorkflowDefinitionId, WorkflowDocumentHashedBody, WorkflowNode, WorkflowNodeId,
@@ -17,12 +18,16 @@ use super::{
     PartialRunPlan, SettledStep, SourceVersion, dirty_nodes, plan_partial_run, read_settled_steps,
 };
 use crate::definitions::versions::history::WorkflowVersions;
-use crate::engine::tick::RunGraph;
+use crate::engine::tick::{RunGraph, RunPin};
 use crate::kinds::{NodeKindTable, PassThroughExecutor, loop_test_kind, main_test_kind};
 use crate::test_rows::{
-    TestSettledStep, insert_later_workflow_version, insert_run, insert_settled_step,
-    insert_workflow_version_body, test_node_id, test_step_sources, workflow_tables,
+    TEST_SESSION_ID, TestSettledStep, insert_later_workflow_version, insert_run,
+    insert_settled_step, insert_workflow_version_body, test_node_id, test_step_sources,
+    workflow_tables,
 };
+
+mod pins;
+mod reuse;
 
 const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e01";
 const FIRST_VERSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e11";
@@ -142,6 +147,8 @@ fn settled_row<'step>(
         finished_at,
         sources,
         output_item_counts: &[0],
+        pin_hash: None,
+        reused_from: None,
     }
 }
 
@@ -157,8 +164,8 @@ fn store_run(connection: &Connection, run_id: &str, version_id: &str) {
     );
 }
 
-/// The settled step a test expects: run `run_id`'s first attempt at `execution_index` of
-/// `node_id`, on `version_id`, fed by `sources`.
+/// The settled step a test expects: run `run_id`'s succeeded first attempt at `execution_index` of
+/// `node_id`, on `version_id`, fed by `sources`, giving no pin and reusing no step.
 fn settled(
     run_id: &str,
     node_id: &str,
@@ -173,17 +180,22 @@ fn settled(
             attempt: SafeInt::new(1).expect("an attempt"),
             execution_index: SafeInt::new(execution_index).expect("an execution index"),
         },
+        status: WorkflowStepStatus::Succeeded,
         workflow_version_id: WorkflowVersionId::new(version_id).expect("the test's version id"),
+        session_id: SessionId::new(TEST_SESSION_ID).expect("the test's session id"),
         sources: serde_json::from_value(test_step_sources(sources)).expect("the sources read"),
+        input_ref: WorkflowPayloadRef::Inline { items: Vec::new() },
         output_ref: WorkflowPayloadRef::Inline { items: Vec::new() },
         output_item_counts: vec![SafeInt::new(0).expect("a count")],
+        pin_hash: None,
+        reused_from: None,
     }
 }
 
-/// A node's newest settled step is read across the runs of every version, past a newer failed
-/// step and over an older succeeded one; a node with only a canceled step has none. Mutations:
-/// drop the status filter (the failed step is read); order by the end ascending (the older step
-/// is read).
+/// A node's source run is the run of its newest settled step across the runs of every version, past
+/// a newer failed step and over an older succeeded one; a node with only a canceled step has none.
+/// Mutations: drop the status filter (the failed step's run is picked); order by the end ascending
+/// (the older step's run is picked).
 #[test]
 fn the_newest_settled_step_is_read_across_versions_past_a_newer_failed_one() {
     let connection = workflow_tables();
@@ -229,7 +241,13 @@ fn the_newest_settled_step_is_read_across_versions_past_a_newer_failed_one() {
         read.into_iter().collect::<Vec<_>>(),
         vec![(
             test_node_id("A"),
-            settled(SECOND_RUN_ID, "A", 1, SECOND_VERSION_ID, &[("T", 0)])
+            vec![settled(
+                SECOND_RUN_ID,
+                "A",
+                1,
+                SECOND_VERSION_ID,
+                &[("T", 0)]
+            )]
         )]
     );
 }
@@ -367,9 +385,61 @@ fn dirty_of(source_body: &Value, target_body: &Value) -> BTreeSet<WorkflowNodeId
     )
 }
 
+/// A step a test run stores at its position in the run, which is its execution index: its node,
+/// the `(node, execution index)` that fed each slot, its attempt and status, the pin it ran on and
+/// the `(run, execution index, version)` of the step it reused.
+#[derive(Clone, Copy)]
+struct RunRow<'row> {
+    node_id: &'row str,
+    sources: &'row [(&'row str, u32)],
+    attempt: u32,
+    status: WorkflowStepStatus,
+    pin_hash: Option<&'row str>,
+    reused_from: Option<(&'row str, u32, &'row str)>,
+}
+
+/// The succeeded first attempt of `node_id` fed by `sources`, giving no pin and reusing no step.
+fn row<'row>(node_id: &'row str, sources: &'row [(&'row str, u32)]) -> RunRow<'row> {
+    RunRow {
+        node_id,
+        sources,
+        attempt: 1,
+        status: WorkflowStepStatus::Succeeded,
+        pin_hash: None,
+        reused_from: None,
+    }
+}
+
+/// Stores run `run_id` of `version_id` with `rows`, each at its position as its execution index,
+/// ended in that order within `minute`, so a run stored with a later minute holds the newer steps.
+fn store_run_rows(
+    connection: &Connection,
+    run_id: &str,
+    version_id: &str,
+    minute: u32,
+    rows: &[RunRow<'_>],
+) {
+    store_run(connection, run_id, version_id);
+    for (row, execution_index) in rows.iter().zip(0..) {
+        let finished_at = format!("2026-10-02T00:{minute:02}:{execution_index:02}.000Z");
+        let step = TestSettledStep {
+            attempt: row.attempt,
+            pin_hash: row.pin_hash,
+            reused_from: row.reused_from,
+            ..settled_row(
+                row.node_id,
+                execution_index,
+                row.status,
+                &finished_at,
+                row.sources,
+            )
+        };
+        insert_settled_step(connection, run_id, &step);
+    }
+}
+
 /// Stores run `run_id` of `version_id` with one succeeded step per `(node, sources)` of `steps`,
-/// each at its position as its execution index, ended in that order within `minute`, so a run
-/// stored with a later minute holds the newer steps.
+/// as [`store_run_rows`] stores them.
 fn store_run_steps(
     connection: &Connection,
     run_id: &str,
@@ -377,18 +447,11 @@ fn store_run_steps(
     minute: u32,
     steps: &[(&str, &[(&str, u32)])],
 ) {
-    store_run(connection, run_id, version_id);
-    for ((node_id, sources), execution_index) in steps.iter().zip(0..) {
-        let finished_at = format!("2026-10-02T00:{minute:02}:{execution_index:02}.000Z");
-        let step = settled_row(
-            node_id,
-            execution_index,
-            WorkflowStepStatus::Succeeded,
-            &finished_at,
-            sources,
-        );
-        insert_settled_step(connection, run_id, &step);
-    }
+    let rows: Vec<RunRow<'_>> = steps
+        .iter()
+        .map(|&(node_id, sources)| row(node_id, sources))
+        .collect();
+    store_run_rows(connection, run_id, version_id, minute, &rows);
 }
 
 /// The chain's four steps in one run, each fed by the step before it.
@@ -403,28 +466,48 @@ const CHAIN_STEPS: &[(&str, &[(&str, u32)])] = &[
 type KeptStep = (String, WorkflowRunId);
 
 /// The plan of a partial run of version 2, whose body is `target_body`, on `target` over `scope`,
-/// as the nodes it executes, each reused node and each node read as prior input, the last two each
-/// with the run its step came from.
-fn plan(
+/// given `pins`.
+fn planned(
     connection: &Connection,
     target_body: &Value,
     target: &str,
     scope: WorkflowNodeExecuteScope,
-) -> (Vec<String>, Vec<KeptStep>, Vec<KeptStep>) {
+    pins: &HashMap<WorkflowNodeId, RunPin>,
+) -> PartialRunPlan {
     let version = WorkflowVersions::new(connection)
         .read_version(WorkflowVersionId::new(SECOND_VERSION_ID).expect("the test's version id"))
         .expect("the target version reads");
     let graph = graph_of(&parsed(target_body));
+    plan_partial_run(
+        connection,
+        &version,
+        &graph,
+        &test_node_id(target),
+        scope,
+        pins,
+    )
+    .expect("the plan reads")
+}
+
+/// `plan` as the nodes it executes, each reused node and each node read as prior input, the last
+/// two each with the run its steps came from.
+fn kept_runs(plan: PartialRunPlan) -> (Vec<String>, Vec<KeptStep>, Vec<KeptStep>) {
     let PartialRunPlan {
         executed,
         reused,
         inputs,
-    } = plan_partial_run(connection, &version, &graph, &test_node_id(target), scope)
-        .expect("the plan reads");
-    let kept = |steps: Vec<(WorkflowNodeId, SettledStep)>| -> Vec<KeptStep> {
-        steps
+    } = plan;
+    let kept = |nodes: Vec<(WorkflowNodeId, Vec<SettledStep>)>| -> Vec<KeptStep> {
+        nodes
             .into_iter()
-            .map(|(node_id, settled)| (node_id.as_str().to_owned(), settled.step.workflow_run_id))
+            .map(|(node_id, steps)| {
+                let run_id = steps
+                    .first()
+                    .expect("a kept node has steps")
+                    .step
+                    .workflow_run_id;
+                (node_id.as_str().to_owned(), run_id)
+            })
             .collect()
     };
     (
@@ -437,6 +520,23 @@ fn plan(
     )
 }
 
+/// The plan of a partial run of version 2, whose body is `target_body`, on `target` over `scope`
+/// with no pins, as [`kept_runs`] lists it.
+fn plan(
+    connection: &Connection,
+    target_body: &Value,
+    target: &str,
+    scope: WorkflowNodeExecuteScope,
+) -> (Vec<String>, Vec<KeptStep>, Vec<KeptStep>) {
+    kept_runs(planned(
+        connection,
+        target_body,
+        target,
+        scope,
+        &HashMap::new(),
+    ))
+}
+
 /// The ids `ids` as a plan lists them.
 fn names(ids: &[&str]) -> Vec<String> {
     ids.iter().map(|&id| id.to_owned()).collect()
@@ -446,77 +546,6 @@ fn names(ids: &[&str]) -> Vec<String> {
 fn reused_from(run_id: &str, ids: &[&str]) -> Vec<KeptStep> {
     let run_id = WorkflowRunId::new(run_id).expect("the test's run id");
     ids.iter().map(|&id| (id.to_owned(), run_id)).collect()
-}
-
-/// A covered node no run settled executes, and so does every node after it. Mutation: reuse a
-/// node with no settled step (the plan finds no step to reuse for it).
-#[test]
-fn a_covered_node_with_no_settled_step_executes() {
-    let connection = workflow_tables();
-    let chain = body(&chain(), CHAIN);
-    store_versions(&connection, &chain, &chain);
-    let steps: &[(&str, &[(&str, u32)])] = &[("T", &[]), ("A", &[("T", 0)]), ("C", &[("B", 9)])];
-    store_run_steps(&connection, FIRST_RUN_ID, FIRST_VERSION_ID, 1, steps);
-    assert_eq!(
-        plan(&connection, &chain, "C", WorkflowNodeExecuteScope::FromHere),
-        (
-            names(&["B", "C"]),
-            reused_from(FIRST_RUN_ID, &["T", "A"]),
-            Vec::new()
-        )
-    );
-}
-
-/// A reused step is checked against the version that computed its data, not its own run's: a run
-/// of version 2 reused `T`, `A` and `B` from a run of version 1, and `A`'s params changed between
-/// the two, so a later run from `C` finds `A` dirty though its newest row is version 2's. Mutation:
-/// read a reused row's version from its own run (`A` and `B` are reused).
-#[test]
-fn a_reused_step_is_checked_against_the_version_that_computed_it() {
-    let connection = workflow_tables();
-    let first = body(&chain(), CHAIN);
-    let second = body(
-        &chain_nodes("A", &json!({ "params": { "note": "x" } })),
-        CHAIN,
-    );
-    store_versions(&connection, &first, &second);
-    store_run_steps(&connection, FIRST_RUN_ID, FIRST_VERSION_ID, 1, CHAIN_STEPS);
-    store_run_steps(
-        &connection,
-        SECOND_RUN_ID,
-        SECOND_VERSION_ID,
-        2,
-        CHAIN_STEPS,
-    );
-    for node_id in ["T", "A", "B"] {
-        let reused_from = json!({
-            "step": {
-                "workflowRunId": FIRST_RUN_ID, "nodeId": node_id, "attempt": 1,
-                "executionIndex": 0,
-            },
-            "workflowVersionId": FIRST_VERSION_ID,
-        });
-        connection
-            .execute(
-                "UPDATE workflow_steps SET status = 'skipped', reused_from_json = ?1
-                   WHERE workflow_run_id = ?2 AND node_id = ?3",
-                rusqlite::params![reused_from.to_string(), SECOND_RUN_ID, node_id],
-            )
-            .expect("the test marks the step reused");
-    }
-    assert_eq!(
-        plan(
-            &connection,
-            &second,
-            "C",
-            WorkflowNodeExecuteScope::FromHere
-        ),
-        (
-            names(&["A", "B", "C"]),
-            reused_from(SECOND_RUN_ID, &["T"]),
-            Vec::new()
-        )
-    );
 }
 
 /// Each node is checked against the version its own step ran: the trigger's step ran version 1,
@@ -583,32 +612,6 @@ fn a_dirty_node_makes_the_clean_nodes_after_it_execute() {
         (
             names(&["A", "B", "C"]),
             reused_from(FIRST_RUN_ID, &["T"]),
-            Vec::new()
-        )
-    );
-}
-
-/// After a later run re-ran `T` and `A` alone, `B`'s newest step was fed by the older `A`, so it
-/// is not reused beside the newer one and executes. Mutation: reuse a step whatever fed it (`B` is
-/// reused from the older run).
-#[test]
-fn a_step_fed_by_another_run_than_its_reused_feeders_executes() {
-    let connection = workflow_tables();
-    let chain = body(&chain(), CHAIN);
-    store_versions(&connection, &chain, &chain);
-    store_run_steps(&connection, FIRST_RUN_ID, FIRST_VERSION_ID, 1, CHAIN_STEPS);
-    store_run_steps(
-        &connection,
-        SECOND_RUN_ID,
-        SECOND_VERSION_ID,
-        2,
-        &CHAIN_STEPS[..2],
-    );
-    assert_eq!(
-        plan(&connection, &chain, "C", WorkflowNodeExecuteScope::FromHere),
-        (
-            names(&["B", "C"]),
-            reused_from(SECOND_RUN_ID, &["T", "A"]),
             Vec::new()
         )
     );
