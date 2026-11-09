@@ -269,8 +269,10 @@ interface WorkflowNodeExecuteRequest {
   input?: WorkflowItem[];
 }
 // Refused as a start of the version is (workflow.version.notFound, workflow.run.startDenied,
-// workflow.run.repositoryRequired, workflow.run.inputRequired, workflow.run.idempotencyConflict and
-// the rest), and with workflow.node.notFound for a nodeId the version does not hold.
+// workflow.run.repositoryRequired, workflow.run.inputRequired, workflow.run.idempotencyConflict,
+// workspace.executionRoot.unresolved for a project session's node run that cannot be bound to that
+// session's working folder, and the rest), and with workflow.node.notFound for a nodeId the version
+// does not hold.
 interface WorkflowNodeExecuteResponse {
   workflowRunId: WorkflowRunId;
   // The nodes the daemon actually executed, in execution order — the authoritative answer to what the

@@ -33,6 +33,7 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use sidekicks_workspace::run_setup_gates::execution_root::context::SessionRunBinder;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::{Id, JoinError, JoinSet};
@@ -107,6 +108,8 @@ pub(crate) struct EngineTickDependencies {
     pub(crate) deadlines: Arc<EngineDeadlines>,
     /// The snapshot points a run takes, each on its own task.
     pub(crate) snapshot_points: Arc<dyn RunSnapshotPoints>,
+    /// Told once a run's ending, which releases its execution context, commits.
+    pub(crate) binder: Arc<dyn SessionRunBinder>,
 }
 
 /// The engine's tick: the live runs and the one loop that drives them.
@@ -124,6 +127,7 @@ pub(crate) struct EngineTick {
     person_waits: PersonWaitPorts,
     deadlines: Arc<EngineDeadlines>,
     snapshot_points: Arc<dyn RunSnapshotPoints>,
+    binder: Arc<dyn SessionRunBinder>,
     /// Whether this turn's writes armed or cleared a person wait's deadline, a parked step's resume
     /// or a run's cap, took a late answer, dropped a run or the run limit changed, so the deadline
     /// clock is read again at the turn's end.
@@ -222,6 +226,7 @@ impl EngineTick {
             person_waits,
             deadlines,
             snapshot_points,
+            binder,
         } = dependencies;
         Self {
             dispatch,
@@ -236,6 +241,7 @@ impl EngineTick {
             person_waits,
             deadlines,
             snapshot_points,
+            binder,
             needs_deadline_read: false,
             dropped_waits: HashSet::new(),
             runs: HashMap::new(),
@@ -622,6 +628,7 @@ impl EngineTick {
                 self.ask_people(&mut live, asks).await;
                 self.needs_deadline_read |= std::mem::take(&mut live.needs_deadline_read);
                 if let Some(ending_event_id) = ending_event_id {
+                    self.binder.note_context_changed(live.scope.session_id);
                     for reply in live.cancel_replies.drain(..) {
                         let _unheard = reply.send(Ok(ending_event_id.clone()));
                     }

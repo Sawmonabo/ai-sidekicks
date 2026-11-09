@@ -188,7 +188,7 @@ pub(crate) fn build_execution_root_services(
             events: Arc::clone(&repo.workspace_events),
             worktree_events: Arc::clone(&repo.worktree_events),
             resolver: RepoRootResolver::new(git.clone()),
-            agents: live_run_folders,
+            holders: live_run_folders,
         },
     ));
     let session_working_folders = Arc::new(SessionWorkingFolders::new(SessionWorkingFoldersDeps {
