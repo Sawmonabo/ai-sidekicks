@@ -4,7 +4,7 @@
 
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::Router;
@@ -19,6 +19,7 @@ use hyper::server::conn::http1;
 use hyper_util::rt::{TokioIo, TokioTimer};
 use hyper_util::service::TowerToHyperService;
 use reqwest::Url;
+use sidekicks_std::mutex_lock::lock;
 use subtle::ConstantTimeEq as _;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
@@ -84,14 +85,14 @@ pub enum CallbackPath<'a> {
     /// `/callback`, for a server that advertises `authorization_response_iss_parameter_supported`:
     /// the `iss` it returns tells its responses apart.
     Shared,
-    /// `/callback/<id>`, the id derived from the MCP server's canonical address, so a response
+    /// `/callback/<id>`, the id derived from the MCP server's keyed digest, so a response
     /// arriving at one server's path cannot be taken for another's.
     PerServer(&'a str),
 }
 
 impl CallbackPath<'_> {
     /// The path segment appended for a server-specific callback: the first 16 hex digits of a
-    /// `blake3` hash over the server's canonical address, the same for every attempt.
+    /// `blake3` hash over the server's digest, the same for every attempt.
     fn segment(self) -> Option<String> {
         match self {
             Self::Shared => None,
@@ -154,6 +155,14 @@ pub enum CallbackAnswer {
     Redirect(Url),
     /// 303 to the receiver's own result page, served once, and the receiver closes.
     Page(ResultPage),
+    /// 303 to a new authorization page, the receiver then waiting for the return that carries
+    /// `expected_state` in place of the one before.
+    Restart {
+        /// The page the browser opens.
+        browser_url: Url,
+        /// The `state` the new page's return carries.
+        expected_state: String,
+    },
 }
 
 /// The sign-in that owns a receiver and decides each callback's answer.
@@ -220,7 +229,7 @@ impl RedirectListener {
     }
 
     /// Starts serving: each callback whose `Host` is this address and whose `state` equals
-    /// `expected_state` goes to `owner`. Dropping the receiver before a final answer closes the
+    /// `expected_state`, or the one a restart answer put in its place, goes to `owner`. Dropping the receiver before a final answer closes the
     /// listener at once; after one it closes itself once the result page has had its linger.
     pub fn receive(
         self,
@@ -231,7 +240,7 @@ impl RedirectListener {
         let state = Arc::new(ReceiverState {
             authority: authority(&self.redirect_url),
             redirect_url: self.redirect_url.clone(),
-            expected_state,
+            expected_state: Mutex::new(expected_state),
             owner,
             answered,
         });
@@ -264,7 +273,8 @@ struct ReceiverState {
     authority: String,
     /// The redirect address, which a callback's query is read back onto.
     redirect_url: Url,
-    expected_state: String,
+    /// The `state` a callback must carry, which a restart replaces.
+    expected_state: Mutex<String>,
     owner: Arc<dyn RedirectCallbackOwner>,
     /// Set once the owner gave its final answer (or the hold ran out).
     answered: watch::Sender<bool>,
@@ -451,7 +461,8 @@ async fn receive_callback(
     }
     let mut return_url = state.redirect_url.clone();
     return_url.set_query(query.as_deref());
-    let Some(callback) = read_callback(&parameters, &state.expected_state, return_url) else {
+    let expected_state = lock(&state.expected_state).clone();
+    let Some(callback) = read_callback(&parameters, &expected_state, return_url) else {
         return StatusCode::BAD_REQUEST.into_response();
     };
     let answer = match tokio::time::timeout(BROWSER_HOLD, state.owner.answer(callback)).await {
@@ -469,6 +480,15 @@ async fn receive_callback(
         CallbackAnswer::Redirect(address) => HeaderValue::from_str(address.as_str())
             .expect("a serialized URL is ASCII with no control characters"),
         CallbackAnswer::Page(page) => HeaderValue::from_static(page.path()),
+        CallbackAnswer::Restart {
+            browser_url,
+            expected_state,
+        } => {
+            *lock(&state.expected_state) = expected_state;
+            let location = HeaderValue::from_str(browser_url.as_str())
+                .expect("a serialized URL is ASCII with no control characters");
+            return (StatusCode::SEE_OTHER, [(LOCATION, location)]).into_response();
+        }
     };
     state.answered.send_replace(true);
     (StatusCode::SEE_OTHER, [(LOCATION, location)]).into_response()

@@ -2,16 +2,16 @@
 //! memory map, a local connection's caller pinned with its responsible process and its code
 //! signature, the start as its own responsible process and the daemon's confirmation of a shell's
 //! start, a lasting child's and a session child's start through `posix_spawn` and their reap, the
-//! bound on a program's argument, a process's memory and the machine's available memory, one user's
-//! processes and the arguments and environment a process started with, an open descriptor's path,
-//! the wakes of a folder's and a file's watch, whether a terminal's program waits for input, the
-//! machine's wakes from sleep, whether it runs on AC power, a wall-clock timer, the login keychain,
-//! a program's managed preferences, the Region setting's locale and hour cycle, the volume holding
-//! a path: its top and its id, the removal of an access list a mode change leaves, an address's
-//! opening in the application registered for it, the app's start with no window, the service's
-//! login agent and system service, the shells the live test opens on a folder, the wake helper, the
-//! move of named sign-ins between the keychain and files, and a command run behind the
-//! administrator prompt.
+//! bounds on a program's argument and on its environment's entries and total, a process's memory
+//! and the machine's available memory, one user's processes and the arguments and environment a
+//! process started with, an open descriptor's path, the wakes of a folder's and a file's watch,
+//! whether a terminal's program waits for input, the machine's wakes from sleep, whether it runs on
+//! AC power, a wall-clock timer, the login keychain, a program's managed preferences, the Region
+//! setting's locale and hour cycle, the volume holding a path: its top and its id, the removal of
+//! an access list a mode change leaves, an address's opening in the application registered for it,
+//! the app's start with no window, the service's login agent and system service, the shells the
+//! live test opens on a folder, the wake helper, the move of named sign-ins between the keychain
+//! and files, and a command run behind the administrator prompt.
 
 pub(crate) mod access_control_list;
 pub(crate) mod address_opening;
@@ -51,10 +51,12 @@ use std::io;
 use std::path::PathBuf;
 use std::process::Stdio;
 
-use nix::unistd::SysconfVar;
+use sidekicks_contracts::workflow::run::failures::WorkflowStepValueMeasure;
 use tokio::process::Command;
 
+use crate::environment_value_limits::EnvironmentValueLimits;
 use crate::machine_name::{MachineNameError, require_machine_name};
+use crate::posix::argument_space::read_argument_space;
 use crate::posix::child_command::prepare_child_command;
 #[cfg(any(test, feature = "test-support"))]
 use crate::posix::shell_folder_start::BASH_SHELL_FOLDER_PROBE;
@@ -117,13 +119,24 @@ pub const SHOULD_MEMORY_MAP_READS: bool = true;
 pub const CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER: bool = false;
 
 /// A bound in bytes that no single argument a program can start with reaches:
-/// `sysconf(_SC_ARG_MAX)`, which counts the arguments and the environment together, never
-/// `<limits.h>`'s smaller `ARG_MAX`. Fails with the system's error when the read fails, and with
-/// `Other` when the system sets no limit or one past `usize`.
+/// `sysconf(_SC_ARG_MAX)`, which counts the arguments and the environment together. Fails with the
+/// system's error when the read fails, and with `Other` when the system sets no limit or one past
+/// `usize`.
 pub fn read_command_argument_limit() -> io::Result<usize> {
-    let limit = nix::unistd::sysconf(SysconfVar::ARG_MAX)?
-        .ok_or_else(|| io::Error::other("the system sets no limit on a program's arguments"))?;
-    usize::try_from(limit).map_err(io::Error::other)
+    read_argument_space()
+}
+
+/// The environment bounds on macOS, in bytes: one `sysconf(_SC_ARG_MAX)` read (`kern.argmax`) as
+/// both, since XNU sets no bound on one string and charges every argument and entry, its NUL
+/// counted, a pointer slot each and both lists' NULL terminators to that one space; the caller
+/// subtracts what the start already carries. Fails as the argument-space read does.
+pub fn read_environment_value_limits() -> io::Result<EnvironmentValueLimits> {
+    let space = read_argument_space()?;
+    Ok(EnvironmentValueLimits {
+        per_value: space,
+        total: Some(space),
+        measure: WorkflowStepValueMeasure::Bytes,
+    })
 }
 
 /// The shells the live test opens here, each with no startup files and a prompt of its folder:

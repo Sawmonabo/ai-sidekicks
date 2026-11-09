@@ -58,6 +58,7 @@ pub struct SessionEventDraft {
     payload: Map<String, Value>,
     run: Option<EventRun>,
     content_body: Option<String>,
+    occurred_at: Option<WireInstant>,
 }
 
 impl SessionEventDraft {
@@ -96,6 +97,7 @@ impl SessionEventDraft {
             payload: payload_members(event)?,
             run: event.run(),
             content_body: None,
+            occurred_at: None,
         })
     }
 
@@ -105,6 +107,16 @@ impl SessionEventDraft {
     pub fn with_content_body(self, body: String) -> Self {
         Self {
             content_body: Some(body),
+            ..self
+        }
+    }
+
+    /// The draft recording `at` as the instant its event occurred, in place of the clock's when it
+    /// is appended; an instant its append's linkage carries is kept in its place.
+    #[must_use]
+    pub fn with_occurred_at(self, at: WireInstant) -> Self {
+        Self {
+            occurred_at: Some(at),
             ..self
         }
     }
@@ -175,6 +187,7 @@ impl UnsequencedEventEnvelope {
             payload,
             run,
             content_body: _,
+            occurred_at: _,
         } = draft;
         Self {
             id: FreeFormText::new(mint_uuid_v7().to_string()).expect("a minted UUID is an id"),
@@ -277,8 +290,8 @@ impl UnsequencedEventEnvelope {
 /// The envelope linkage and the atomic table write one append carries.
 #[derive(Debug, Default)]
 pub struct SessionEventLinkage {
-    /// The instant the event records, for a producer whose rows in the same write carry it too;
-    /// the clock's when `None`.
+    /// The instant the main event records, for a producer whose rows in the same write carry it
+    /// too; its draft's when `None`, else the clock's. A preceding event records its own draft's.
     pub occurred_at: Option<WireInstant>,
     /// The id that ties this event to others of one operation.
     pub correlation_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
@@ -296,8 +309,8 @@ pub struct SessionEventLinkage {
 /// Why an append through the appender was not kept; none of its events is stored.
 #[derive(Debug, thiserror::Error)]
 pub enum SessionEventAppendError {
-    /// The linkage's `occurredAt` cannot take the stored form, one finer than a millisecond among
-    /// them.
+    /// The linkage's or a draft's `occurredAt` cannot take the stored form, one finer than a
+    /// millisecond among them.
     #[error("the event's occurredAt cannot be stored")]
     OccurredAt(#[from] OccurredAtNormalizationRefusal),
     /// The event log refused or did not keep the append.
@@ -397,6 +410,21 @@ impl SessionEventAppender {
         Ok(self.event_log.append_held(hold, envelope, options).await?)
     }
 
+    /// Appends each draft of `appends` after its linkage's preceding events, all in one write
+    /// that stores every one or none, each draft of any session at that session's next sequences,
+    /// and returns once it committed, with one receipt per draft in the given order. Fails as
+    /// [`SessionEventAppendError`] says; see [`EventLogService::append_together`].
+    pub async fn append_together(
+        &self,
+        appends: Vec<(SessionEventDraft, SessionEventLinkage)>,
+    ) -> Result<Vec<EventLogAppendReceipt>, SessionEventAppendError> {
+        let envelopes = appends
+            .into_iter()
+            .map(|(draft, linkage)| self.envelope_of(draft, linkage))
+            .collect::<Result<_, _>>()?;
+        Ok(self.event_log.append_together(envelopes).await?)
+    }
+
     fn envelope_of(
         &self,
         mut draft: SessionEventDraft,
@@ -415,20 +443,18 @@ impl SessionEventAppender {
             .into_iter()
             .map(|mut preceding| {
                 let content_body = preceding.content_body.take();
+                let occurred_at = stored_occurred_at(preceding.occurred_at.take())?;
                 let envelope = UnsequencedEventEnvelope::new(
                     preceding,
-                    EventOccurredAt::now(),
+                    occurred_at,
                     None,
                     None,
                     self.version.clone(),
                 );
-                (envelope, content_body)
+                Ok((envelope, content_body))
             })
-            .collect();
-        let occurred_at = match occurred_at {
-            Some(occurred_at) => normalize_occurred_at(occurred_at.as_str())?,
-            None => EventOccurredAt::now(),
-        };
+            .collect::<Result<_, SessionEventAppendError>>()?;
+        let occurred_at = stored_occurred_at(occurred_at.or_else(|| draft.occurred_at.take()))?;
         let draft_body = draft.content_body.take();
         let envelope = UnsequencedEventEnvelope::new(
             draft,
@@ -443,6 +469,14 @@ impl SessionEventAppender {
             preceding_events,
         };
         Ok((envelope, options))
+    }
+}
+
+/// `at` in the stored form, or the clock's instant when `None`.
+fn stored_occurred_at(at: Option<WireInstant>) -> Result<EventOccurredAt, SessionEventAppendError> {
+    match at {
+        Some(at) => Ok(normalize_occurred_at(at.as_str())?),
+        None => Ok(EventOccurredAt::now()),
     }
 }
 

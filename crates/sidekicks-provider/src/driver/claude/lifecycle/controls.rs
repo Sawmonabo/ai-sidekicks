@@ -68,7 +68,6 @@ use crate::driver::contract::params_and_results::{
     GetCapabilitiesResult, ListModelsParams, ListModesParams, ProviderReportedLevel,
 };
 use crate::driver::diagnostics::DriverDiagnosticKind;
-use crate::driver::prior_usage::read_prior_emitted;
 use crate::driver::read_current_account;
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, DriverAuthProbeResult,
@@ -718,7 +717,6 @@ impl ClaudeDriver {
                 params.side_question_id,
                 params.question,
                 copy,
-                &self.sources.ports.usage,
                 hold,
             )
             .await
@@ -734,10 +732,7 @@ impl ClaudeDriver {
         resume: Option<ResumeSessionParams>,
     ) -> Result<ClaudeCopyComposition, DriverError> {
         Ok(match parts.run_start.live_session(session_id) {
-            Ok(live) => {
-                let parent = parts.interventions.session_thread_cumulative(&live)?;
-                ready(Ok(ClaudeSideQuestionCopy::of_live(&live, parent))).boxed()
-            }
+            Ok(live) => ready(Ok(ClaudeSideQuestionCopy::of_live(&live))).boxed(),
             Err(no_live_session) => match resume {
                 Some(resume) => compose_resting_side_question_copy(
                     Arc::clone(&self.sources),
@@ -812,9 +807,8 @@ impl ClaudeDriver {
 
 // The copy of a session at rest, from its resume material: the legs a resume starts with, in the
 // home that holds its conversation, with no callback tools and on the full id of its model, which
-// the build's catalog resolves since no process of the session declared it, and the daemon's
-// emitted sum for it as the parent's cumulative. Fails as the context, the legs or the catalog
-// cannot be read.
+// the build's catalog resolves since no process of the session declared it. Fails as the context,
+// the legs or the catalog cannot be read.
 async fn compose_resting_side_question_copy(
     sources: Arc<ClaudeSpawnSources>,
     starts: Arc<dyn ClaudeProcessStarts>,
@@ -853,13 +847,6 @@ async fn compose_resting_side_question_copy(
         )
         .await?;
     let declaration = read_claude_initialize_declaration(catalog.initialize.as_deref());
-    let parent_cumulative = read_prior_emitted(
-        &sources.ports.usage,
-        DESCRIPTOR.provider_id(),
-        resume.session_id,
-        &resume.resume_handle,
-    )
-    .await;
     Ok(ClaudeSideQuestionCopy {
         legs: ClaudeSpawnBoundLegs {
             model: claude_full_model_id(&declaration, &legs.model),
@@ -867,6 +854,5 @@ async fn compose_resting_side_question_copy(
         },
         provider_account_id: resume.provider_account_id,
         parent_provider_session_id: resume.resume_handle,
-        parent_cumulative,
     })
 }

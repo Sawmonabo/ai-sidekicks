@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use serde_json::json;
+use sidekicks_contracts::event::usage::UsageCostSource;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::failure_cause::{RunFailureCause, RunRefusedOrigin};
@@ -15,8 +16,10 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::PathRules;
 use sidekicks_std::mutex_lock::lock;
+use tokio_util::sync::CancellationToken;
 
 use super::start_params;
+use crate::bounded_poll::poll_until;
 use crate::command::running_set::unbound_running_command_sets;
 use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::claude::session::conversation_home::claude_conversation_home_metadata;
@@ -27,13 +30,17 @@ use crate::driver::claude::session::scripted::driver::{
 use crate::driver::claude::session::scripted::held_calls::init;
 use crate::driver::claude::session::scripted::starts::ScriptedOneTurnRecord;
 use crate::driver::claude::session::scripted::{
-    SCRIPTED_PROVIDER_SESSION_ID, binding_id, hand_scripted_frame, settle,
+    SCRIPTED_PROVIDER_SESSION_ID, binding_id, hand_scripted_frame, register_claude_price_list,
+    settle,
 };
 use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::session::transport::declarations::{
-    ClaudeCumulativeUsageObservation, ClaudeInitializeDeclaration, ClaudeOfferedModel,
+    ClaudeInitializeDeclaration, ClaudeMessageRequestFacts, ClaudeMessageUsageObservation,
+    ClaudeModelCost, ClaudeOfferedModel,
 };
-use crate::driver::claude::spawn::launch::one_turn::ClaudeOneTurnReply;
+use crate::driver::claude::spawn::launch::one_turn::{
+    ClaudeOneTurnOutcome, ClaudeOneTurnReply, ClaudeOneTurnSpend,
+};
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::{
@@ -46,24 +53,61 @@ use crate::port::usage_sink::MeteredUsageOwner;
 use crate::run::delivery::LateAppendableRow;
 use crate::run::posture::compose_execution_posture;
 use crate::run::state_entry::RunStateEntry;
+use crate::runtime_binding::test_store::test_provider_account_id;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
 // The full id the build resolves the session's `opus` to.
 pub(super) const FULL_MODEL_ID: &str = "claude-opus-4-7";
 
-// A one-turn reply answering `text`, reporting `usage` where given.
-pub(super) fn one_turn_reply(text: &str, usage: Option<UsageAxisCounts>) -> ClaudeOneTurnReply {
+// A one-turn reply answering `text`.
+pub(super) fn one_turn_reply(text: &str) -> ClaudeOneTurnReply {
     ClaudeOneTurnReply {
         text: text.to_owned(),
         provider_message_id: None,
         provider_block: None,
         refusal: None,
-        usage: usage.map(|cumulative| ClaudeCumulativeUsageObservation {
-            named_turn_id: None,
-            cumulative,
-            declared_per_turn: None,
-        }),
         compaction_summary: None,
+    }
+}
+
+// A one-turn process that answered `reply` having spent `spend`.
+pub(super) fn one_turn_outcome(
+    reply: ClaudeOneTurnReply,
+    spend: Option<ClaudeOneTurnSpend>,
+) -> ClaudeOneTurnOutcome {
+    ClaudeOneTurnOutcome {
+        reply: Ok(reply),
+        spend,
+    }
+}
+
+// What a one-turn process spent on Opus 5.5: each message's input and output, and the input,
+// output and list cost in dollars its `result` states, where it states them.
+pub(super) fn opus_spend(
+    messages: &[(u64, u64)],
+    stated: Option<(u64, u64, f64)>,
+) -> ClaudeOneTurnSpend {
+    let model_id = || FreeFormText::new("claude-opus-5-5".to_owned()).expect("a model id");
+    let message = |(index, &(input, output)): (usize, &(u64, u64))| ClaudeMessageUsageObservation {
+        message_id: format!("m{}", index + 1),
+        counts: counts(input, output),
+        request: ClaudeMessageRequestFacts {
+            model_id: Some(model_id()),
+            ..ClaudeMessageRequestFacts::default()
+        },
+    };
+    ClaudeOneTurnSpend {
+        thread_id: "one-turn".to_owned(),
+        messages: messages.iter().enumerate().map(message).collect(),
+        model_costs: stated.map(|(input, output, cost_usd)| {
+            vec![ClaudeModelCost {
+                model_id: model_id(),
+                counts: counts(input, output),
+                web_search_requests: None,
+                cost_usd: Some(cost_usd),
+                cost_basis: Some("list".to_owned()),
+            }]
+        }),
     }
 }
 
@@ -77,14 +121,18 @@ pub(super) fn counts(input: u64, output: u64) -> UsageAxisCounts {
 }
 
 // Killed by running a side question in the session's own posture instead of plan mode, on the
-// alias instead of its full id, by refusing one on a session at rest, by metering the fork's total
-// from zero or the live parent's cumulative read as zero instead of less the parent's, and by a
-// copy that keeps an askpass or channel variable or sets only `GIT_TERMINAL_PROMPT` of the
-// no-prompt environment, and by a copy at rest started in its account's home rather than the one
-// its binding names as holding its conversation, where a switch left it.
-#[tokio::test(start_paused = true)]
-async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_the_fork_less_the_parent() {
+// alias instead of its full id, by refusing one on a session at rest, by a copy that keeps an
+// askpass or channel variable or sets only `GIT_TERMINAL_PROMPT` of the no-prompt environment, by
+// a copy at rest started in its account's home rather than the one its binding names as holding
+// its conversation, where a switch left it, and by a copy priced off anything but its own spend:
+// a parent's sum taken off (rows less 100 and 10), the spend no message showed dropped (one row at
+// 20,000), the rows owned as a run's, or the result's figures left untaken (`derivedExact`).
+#[tokio::test]
+async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_prices_the_copy_at_its_own_spend() {
+    let scratch = tempfile::tempdir().expect("a scratch folder is made");
+    let stop = CancellationToken::new();
     let fixture = ScriptedDriver::new();
+    register_claude_price_list(&fixture.services.ports.price_list, &scratch, &stop).await;
     fixture
         .services
         .ports
@@ -117,28 +165,19 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_the_fork_l
         })
         .await
         .expect("the session opens");
-    let live_start = fixture.starts.take_started().pop().expect("a start");
-    let routes = &fixture
-        .driver
-        .composed_parts()
-        .expect("composed")
-        .run_start
-        .routes;
-    let parent_message = json!({"type": "assistant", "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-        "message": {"id": "message-1", "role": "assistant", "content": [],
-            "usage": {"input_tokens": 120, "output_tokens": 15}}});
-    hand_scripted_frame(&*live_start.listener, routes, live_session, &parent_message);
     let resting_session = new_session_id();
     fixture.starts.script_catalog(json!({"models": [
         {"value": "opus", "displayName": "Opus", "resolvedModel": FULL_MODEL_ID},
     ]}));
     fixture.usage.report_prior(counts(100, 10));
+    let spent = |stated| Some(opus_spend(&[(1_000, 500)], stated));
+    fixture.starts.script_one_turn(one_turn_outcome(
+        one_turn_reply("live"),
+        spent(Some((1_400, 600, 0.02))),
+    ));
     fixture
         .starts
-        .script_one_turn(one_turn_reply("live", Some(counts(180, 40))));
-    fixture
-        .starts
-        .script_one_turn(one_turn_reply("at rest", Some(counts(150, 30))));
+        .script_one_turn(one_turn_outcome(one_turn_reply("at rest"), spent(None)));
     let ask = |session_id, resume| AskSideQuestionParams {
         session_id,
         binding_id: binding_id("lead"),
@@ -222,24 +261,41 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_the_fork_l
     for environment in &environments {
         assert_eq!(prompt_variables(environment), no_prompt);
     }
+    stop.cancel();
     let metered: Vec<_> = fixture
         .usage
         .metered()
         .into_iter()
-        .filter(|metered| matches!(metered.owner, MeteredUsageOwner::SessionCopy))
         .map(|metered| {
+            let axes = metered.delta.axis_deltas;
+            let is_copy = metered.owner == MeteredUsageOwner::Session;
             (
+                is_copy,
                 metered.session_id,
-                metered.delta.axis_deltas.input,
-                metered.delta.axis_deltas.output,
+                metered.binding_id,
+                axes.input,
+                axes.output,
             )
         })
         .collect();
+    let lead = binding_id("lead");
     assert_eq!(
         metered,
         [
-            (live_session, Some(60), Some(25)),
-            (resting_session, Some(50), Some(20)),
+            (true, live_session, lead.clone(), Some(1_000), Some(500)),
+            (true, live_session, lead.clone(), Some(400), Some(100)),
+            (true, resting_session, lead, Some(1_000), Some(500)),
+        ]
+    );
+    let account = test_provider_account_id().as_str().to_owned();
+    assert_eq!(
+        fixture.usage.priced_shares(),
+        [
+            (
+                UsageCostSource::ProviderReported,
+                vec![(account.clone(), 15_909), (account.clone(), 4_091)]
+            ),
+            (UsageCostSource::DerivedExact, vec![(account, 14_000)]),
         ]
     );
 }
@@ -251,7 +307,7 @@ async fn a_side_question_the_model_refuses_is_refused_as_such() {
     fixture.starts.script_catalog(json!({"models": [
         {"value": "opus", "displayName": "Opus", "resolvedModel": FULL_MODEL_ID},
     ]}));
-    fixture.starts.script_one_turn(ClaudeOneTurnReply {
+    let refused = ClaudeOneTurnReply {
         refusal: Some(RunFailureCause::Refused {
             origin: RunRefusedOrigin::Provider,
             model: FreeFormText::new(FULL_MODEL_ID.to_owned()).expect("a model id is text"),
@@ -259,8 +315,11 @@ async fn a_side_question_the_model_refuses_is_refused_as_such() {
             explanation: None,
             safety_category: None,
         }),
-        ..one_turn_reply("", None)
-    });
+        ..one_turn_reply("")
+    };
+    fixture
+        .starts
+        .script_one_turn(one_turn_outcome(refused, None));
     let session_id = new_session_id();
 
     let asked = fixture
@@ -279,6 +338,50 @@ async fn a_side_question_the_model_refuses_is_refused_as_such() {
     };
     assert_eq!(refusal.code, RefusalCode::SessionSideQuestionRefused);
     assert_eq!(answered(&fixture), 0);
+}
+
+// A side question whose caller stops waiting mid-turn still records its copy's spend once the
+// turn ends. Killed by recording the spend on the caller's own future, which the drop ends.
+#[tokio::test(start_paused = true)]
+async fn a_side_question_dropped_mid_turn_still_records_the_copy_spend() {
+    let fixture = ScriptedDriver::new();
+    fixture.starts.script_catalog(json!({"models": [
+        {"value": "opus", "displayName": "Opus", "resolvedModel": FULL_MODEL_ID},
+    ]}));
+    let release = fixture
+        .starts
+        .script_one_turn_until_released(one_turn_outcome(
+            one_turn_reply("late"),
+            Some(opus_spend(&[(1_000, 500)], None)),
+        ));
+    let session_id = new_session_id();
+
+    let asked = fixture.driver.ask_side_question(AskSideQuestionParams {
+        session_id,
+        binding_id: binding_id("lead"),
+        side_question_id: SideQuestionId::try_from(mint_uuid_v7()).expect("a UUID is an id"),
+        question: "Why?".to_owned(),
+        resume: Some(resume_params(session_id)),
+    });
+    let started = poll_until(
+        || fixture.starts.take_one_turns(),
+        |turns| !turns.is_empty(),
+    );
+    tokio::select! {
+        biased;
+        _answered = asked => panic!("the side question waits for its turn's release"),
+        _turns = started => {}
+    }
+    release.send(()).expect("the turn waits for its release");
+
+    let metered = poll_until(|| fixture.usage.metered(), |metered| !metered.is_empty()).await;
+    let recorded: Vec<_> = (metered.iter())
+        .map(|metered| {
+            let axes = metered.delta.axis_deltas;
+            (metered.session_id, axes.input, axes.output)
+        })
+        .collect();
+    assert_eq!(recorded, [(session_id, Some(1_000), Some(500))]);
 }
 
 // The side questions answered so far.
@@ -335,7 +438,7 @@ async fn a_run_started_through_the_driver_trait_ends_on_the_process_result() {
         .await
         .expect("the run starts");
     end_turn_of(&claude, &start, session_id, init());
-    ScriptedDriver::wait_for(|| !run_ends(&fixture, run_id).is_empty()).await;
+    poll_until(|| run_ends(&fixture, run_id), |ends| !ends.is_empty()).await;
 
     assert!(matches!(
         run_ends(&fixture, run_id).as_slice(),

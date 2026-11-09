@@ -363,6 +363,7 @@ async fn the_daemons_stop_stops_the_turn_of_a_resting_sessions_side_question() {
                 .expect("the question is asked at rest"),
             &params,
             Arc::clone(&parts.ports.usage),
+            Arc::clone(&parts.pricing),
         )
         .await
         .expect("the copy takes the question");

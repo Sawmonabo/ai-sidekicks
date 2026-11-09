@@ -32,6 +32,7 @@ use crate::driver::codex::service::supervisor::routing::{
     CodexFrameThreads, CodexSpawnedHelper, read_codex_frame_threads,
 };
 use crate::driver::codex::session::state::{CODEX_THREAD_FRAME_ROUTER_CONFIG, CodexSessionRecord};
+use crate::driver::codex::telemetry::streamed_responses::CodexStreamedResponses;
 use crate::driver::codex::thread::view::CodexThreadReading;
 use crate::driver::codex::token_usage::read_codex_token_usage;
 use crate::driver::codex::tools::normalize_codex_mcp_server_status_notification;
@@ -172,6 +173,8 @@ pub(crate) struct CodexSessionRouting {
     // Each live spawned or restored helper's model by its conversation, which its usage readings
     // name.
     helper_models: HashMap<String, String>,
+    // Each response the stream metered, until the export's twin claims it.
+    streamed: CodexStreamedResponses,
 }
 
 impl CodexSessionRouting {
@@ -186,12 +189,18 @@ impl CodexSessionRouting {
             gate: TerminalEmissionGate::new(),
             pending_compactions,
             helper_models: HashMap::new(),
+            streamed: CodexStreamedResponses::default(),
         }
     }
 
     /// The session's terminal gate, which its close signals before Codex is asked to stop.
     pub(crate) fn gate(&mut self) -> &mut TerminalEmissionGate {
         &mut self.gate
+    }
+
+    /// The responses the session's stream stated, which an exported response is claimed from.
+    pub(crate) fn streamed_responses(&mut self) -> &mut CodexStreamedResponses {
+        &mut self.streamed
     }
 
     /// Binds the session's conversation `thread_id` at an establishment, its usage based as
@@ -568,9 +577,14 @@ impl CodexSessionRouting {
             Some(input.map_or(&record.thread_settings.model, |input| &input.model))
         };
         reading.request.model_id = model.and_then(|model| FreeFormText::new(model.clone()).ok());
-        routed
-            .metered_usage
-            .extend(self.accountant.meter_reading(reading.clone()));
+        // Only a metered delta enters the ledger, so a stale `last`, a replay or a full window's
+        // synthetic reading leaves nothing an export could wrongly claim; the late twin of an
+        // exported response already priced is matched to it and counts nothing.
+        if let Some(delta) = self.accountant.meter_reading(reading.clone())
+            && self.streamed.record(&delta.thread_id, delta.axis_deltas)
+        {
+            routed.metered_usage.push(delta);
+        }
         Some(reading)
     }
 

@@ -5,6 +5,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::AgentId;
+use crate::approval::holder::ApprovalHolder;
 use crate::approval::{
     ApprovalCategory, ApprovalRequestId, ApprovalScope, InvalidationTrigger, RememberedRuleId,
     RememberedScope, ReviewerDenialId,
@@ -19,7 +20,8 @@ use crate::wire::id::ClientUuid;
 use crate::wire::record::JsonRecord;
 use crate::wire::text::NonEmptyText;
 
-/// The `approval.requested` payload. `askId` is present when the request is a provider's
+/// The `approval.requested` payload. `holder` names the agent run whose action it gates or the
+/// workflow wait that asks. `askId` is present when the request is a provider's
 /// permission ask: the daemon's own durable id for the ask, so an answer reaches the right ask
 /// after a restart when several are open on one run. `toolCallId` names the tool call the ask
 /// holds, so that call's row draws its held mark and `Declined`; `inputDigest` fingerprints the
@@ -30,8 +32,8 @@ use crate::wire::text::NonEmptyText;
 pub struct ApprovalRequestedPayload {
     /// The session.
     pub session_id: SessionId,
-    /// The run.
-    pub run_id: RunId,
+    /// What holds it open: an agent run or a workflow wait.
+    pub holder: ApprovalHolder,
     /// The ask.
     pub approval_request_id: ApprovalRequestId,
     /// What it is about.
@@ -78,8 +80,8 @@ pub struct ApprovalRequestedPayload {
 pub struct ApprovalResolvedPayload {
     /// The session.
     pub session_id: SessionId,
-    /// The run.
-    pub run_id: RunId,
+    /// What held it open.
+    pub holder: ApprovalHolder,
     /// The ask.
     pub approval_request_id: ApprovalRequestId,
     /// What it is about.
@@ -119,14 +121,15 @@ pub struct ApprovalResolvedPayload {
     pub edited_action: Option<NonEmptyText>,
 }
 
-/// The `approval.canceled` payload: the ask ended with its run and can no longer be answered.
+/// The `approval.canceled` payload: the ask ended unanswered with its run, its session, its
+/// provider's take-back or its workflow wait, and can no longer be answered.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ApprovalCanceledPayload {
     /// The session.
     pub session_id: SessionId,
-    /// The run.
-    pub run_id: RunId,
+    /// What held it open.
+    pub holder: ApprovalHolder,
     /// The ask.
     pub approval_request_id: ApprovalRequestId,
     /// What it was about.

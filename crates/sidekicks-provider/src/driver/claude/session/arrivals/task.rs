@@ -208,6 +208,10 @@ impl ClaudeSessionTask {
             )
             .await;
         }
+        let lead_costs = (observation.subagent_id.is_none())
+            .then(|| observation.model_costs.clone())
+            .flatten();
+        let lead = routed.turn_at_read.lead.clone();
         let is_reviewed = self.level() == Some(PermissionLevel::Reviewed);
         let after = services
             .delivery
@@ -226,6 +230,14 @@ impl ClaudeSessionTask {
         if is_turn_ending && live.is_any_mcp_server_unsettled() {
             let live = Arc::clone(live);
             tokio::spawn(async move { live.read_mcp_status().await });
+        }
+        // Claude Code states each model's spend at every lead `result`, a steer's mid-turn one too.
+        if let Some(model_costs) = lead_costs {
+            let thread_id = &live.provider_session_id;
+            let delivery = &services.delivery;
+            delivery
+                .price_result(&self.stream, model_costs, lead, thread_id)
+                .await;
         }
     }
 
@@ -439,6 +451,9 @@ impl ClaudeSessionTask {
             .process_exit
             .get_or_init(|| claude_process_exit_of(end))
             .clone();
+        if !services.restarts.is_stopped() {
+            services.delivery.price_process_end(&self.stream).await;
+        }
         let is_superseded = slots
             .live_session(session_id)
             .is_some_and(|held| !Arc::ptr_eq(&held.channel, &self.live.channel));

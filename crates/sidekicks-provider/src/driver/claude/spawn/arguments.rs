@@ -1,20 +1,24 @@
 //! The command line a Claude Code session process starts with: stream-json both ways with the
 //! person's messages replayed, every permission prompt sent to the daemon, the level's permission
-//! mode, the session's model and settings, and how the conversation starts. No tool server is named
-//! on it: the daemon's servers ride Claude Code's in-process route, named at `initialize`.
+//! mode, the session's model, and how the conversation starts. No tool server is named on it: the
+//! daemon's servers ride Claude Code's in-process route, named at `initialize`. Its settings
+//! document is named by the launcher, by its file's path alone.
 
 use std::path::Path;
 
 use serde_json::{Map, Value};
 
 use crate::driver::claude::session::transport::control::ClaudePermissionMode;
-use crate::driver::claude::spawn::settings::ClaudeSpawnSettings;
 use crate::driver::claude::spawn::system_prompt::claude_appended_system_prompt_arguments;
 use crate::driver::session_control::SubagentPolicy;
 
 /// The flag that has Claude Code load no MCP server but those its command line names; under an
 /// administrator's MCP file it makes Claude Code exit at start instead.
 pub(crate) const CLAUDE_NO_MCP_SERVERS: &str = "--strict-mcp-config";
+
+/// The flag that names the settings document Claude Code loads over the person's own settings, a
+/// path or the document inline.
+pub(crate) const CLAUDE_SETTINGS_FLAG: &str = "--settings";
 
 /// How a spawn's conversation starts: a new one, a resume of one, one kept nowhere (a throwaway
 /// copy of a conversation or a new one), or a fork at one message.
@@ -56,8 +60,6 @@ pub(crate) struct ClaudeArgumentsRequest<'a> {
     pub(crate) model: &'a str,
     /// The mode the process runs in, as `--permission-mode` names it.
     pub(crate) permission_mode: ClaudePermissionMode,
-    /// The `--settings` document.
-    pub(crate) settings: &'a ClaudeSpawnSettings,
     /// The session's output schema.
     pub(crate) output_schema: Option<&'a Map<String, Value>>,
     /// The session's helper policy; with helpers off the helper tool is not offered at all.
@@ -99,10 +101,6 @@ pub(crate) fn compose_claude_arguments(request: &ClaudeArgumentsRequest<'_>) -> 
     arguments.push("--model".to_owned());
     arguments.push(request.model.to_owned());
     arguments.extend(claude_appended_system_prompt_arguments().map(str::to_owned));
-    arguments.push("--settings".to_owned());
-    arguments.push(
-        serde_json::to_string(request.settings).expect("the settings document always serializes"),
-    );
     arguments.extend(
         conversation_arguments(&request.conversation)
             .into_iter()
@@ -185,16 +183,11 @@ mod tests {
         ClaudeArgumentsRequest, ClaudeConversationStart, claude_appended_system_prompt_arguments,
         compose_claude_arguments,
     };
-    use crate::driver::claude::session::transport::control::{
-        ClaudePermissionMode, ClaudePermissionsDocument,
-    };
-    use crate::driver::claude::spawn::settings::{
-        AgentViewOff, CLAUDE_CLEANUP_PERIOD_DAYS, ClaudeSpawnSettings, HelperCapsLifted,
-    };
+    use crate::driver::claude::session::transport::control::ClaudePermissionMode;
     use crate::driver::session_control::SubagentPolicy;
 
-    // The arguments every process starts with, `--settings`'s document the last.
-    const LEADING_ARGUMENTS: usize = 18;
+    // The arguments every process starts with, the appended system prompt the last.
+    const LEADING_ARGUMENTS: usize = 16;
 
     // Killed by a `--max-turns` of the bound itself, by a leftover daemon `--mcp-config` entry, by
     // `--strict-mcp-config` under a managed file (Claude Code's startup exit), by a fork that
@@ -302,23 +295,9 @@ mod tests {
         messaging_socket: Option<&str>,
         subagent_policy: Option<&SubagentPolicy>,
     ) -> Vec<String> {
-        let settings = ClaudeSpawnSettings {
-            cleanup_period_days: CLAUDE_CLEANUP_PERIOD_DAYS,
-            disable_agent_view: AgentViewOff,
-            env: HelperCapsLifted,
-            permissions: ClaudePermissionsDocument {
-                allow: Vec::new(),
-                ask: Vec::new(),
-                deny: Vec::new(),
-            },
-            advisor_model: Some(String::new()),
-            output_style: None,
-            sandbox: None,
-        };
         let request = ClaudeArgumentsRequest {
             model: "opus",
             permission_mode: ClaudePermissionMode::Default,
-            settings: &settings,
             output_schema: None,
             subagent_policy,
             step_bound,
@@ -329,9 +308,8 @@ mod tests {
 
         let arguments = compose_claude_arguments(&request);
 
-        assert_eq!(arguments[LEADING_ARGUMENTS - 2], "--settings");
         assert_eq!(
-            arguments[LEADING_ARGUMENTS - 4..LEADING_ARGUMENTS - 2],
+            arguments[LEADING_ARGUMENTS - 2..LEADING_ARGUMENTS],
             claude_appended_system_prompt_arguments(),
         );
         assert!(!arguments.iter().any(|argument| argument == "--mcp-config"));

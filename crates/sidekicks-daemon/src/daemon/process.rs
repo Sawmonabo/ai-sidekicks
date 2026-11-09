@@ -8,7 +8,7 @@ pub(crate) mod damage_gate;
 pub(crate) mod database;
 pub(crate) mod jobs;
 mod mcp_attribution;
-mod method_inputs;
+pub(crate) mod method_inputs;
 pub(crate) mod method_tables;
 mod projections;
 mod provider_accounts;
@@ -43,6 +43,7 @@ use sidekicks_ipc::registry::MethodRegistryBuilder;
 use sidekicks_ipc::stream::subscriptions::Subscriptions;
 use sidekicks_mcp::client::McpClient;
 use sidekicks_mcp::mutation::service::McpMutationService;
+use sidekicks_mcp::sign_in::service::SignInService;
 use sidekicks_platforms::{
     KeepAwakeHold, PowerSourceWatch, Spawner, WakeWatch, WallClock, WallClockTimer,
     askpass_socket_path, check_socket_path, read_command_argument_limit,
@@ -102,10 +103,12 @@ use crate::daemon::process::method_inputs::{
 };
 use crate::daemon::process::method_tables::gate_chain;
 use crate::daemon::process::provider_accounts::ProviderAccountObservation;
+use crate::daemon::process::providers::pricing::{PricingStart, PricingTasks, build_pricing};
 use crate::daemon::process::providers::stored_rows::apply_stored_rows;
 use crate::daemon::process::providers::{
     ProviderStart, Providers, ProvidersRegistration, build_providers, hydrate_capabilities,
-    register_providers, sweep_left_sign_in_folders, sweep_left_staged_worktrees,
+    register_providers, sweep_left_settings_files, sweep_left_sign_in_folders,
+    sweep_left_staged_worktrees,
 };
 use crate::daemon::process::repo_services::{
     RepoAttachments, RepoServiceStart, RepoServices, build_repo_services, make_worktrees_folder,
@@ -197,6 +200,8 @@ pub(crate) struct DaemonProcess {
     pub(crate) mcp_client: Option<Arc<McpClient>>,
     /// The MCP binding edits' service, whose settle pass the stop waits for before the drivers.
     pub(crate) mcp_mutations: Option<Arc<McpMutationService>>,
+    /// The MCP server sign-ins, whose open attempts the stop closes before the drivers.
+    pub(crate) mcp_sign_ins: Option<Arc<SignInService>>,
     /// The repository services, whose watch, fetches and askpass broker the stop ends.
     pub(crate) repo: Option<RepoServices>,
     /// The repository services' background work, ended by the stop before the scheduler.
@@ -222,6 +227,8 @@ pub(crate) struct DaemonProcess {
     pub(crate) provider_accounts: Option<ProviderAccountObservation>,
     /// The web address's sender, which ends with the work's stop and is waited out.
     pub(crate) web_address_sender: Option<JoinHandle<()>>,
+    /// The price list's fetch and the repricing, which end with the work's stop and are waited out.
+    pub(crate) pricing: Option<PricingTasks>,
     /// The clone service, which owns the askpass broker; the stop closes it.
     pub(crate) clones: Option<Arc<CloneService>>,
     /// The live projects list, closed by the stop.
@@ -293,6 +300,7 @@ impl DaemonProcess {
             mcp_attribution_fills: None,
             mcp_client: None,
             mcp_mutations: None,
+            mcp_sign_ins: None,
             repo: None,
             repo_attachments: None,
             session: None,
@@ -304,6 +312,7 @@ impl DaemonProcess {
             keep_awake: None,
             provider_accounts: None,
             web_address_sender: None,
+            pricing: None,
             clones: None,
             project_list_feed: None,
             worktree_setup: None,
@@ -405,6 +414,8 @@ impl DaemonProcess {
         let accept_stop = self.accept_stop();
         let stop_work_step = self.stop_work_step();
         let close_data_folder_step = self.close_data_folder_step();
+        let daemon_started_at =
+            WireInstant::from_timestamp(self.started_at).expect("the clock reads after year 0000");
         let database = self.database.insert(
             open_database_file(DatabaseFileStart {
                 database_path: data_folder.join(DAEMON_DATABASE_FILE_NAME),
@@ -413,8 +424,7 @@ impl DaemonProcess {
                 shell: &shell,
                 copier: &copier,
                 now: Timestamp::now(),
-                daemon_started_at: WireInstant::from_timestamp(self.started_at)
-                    .expect("the clock reads after year 0000"),
+                daemon_started_at: daemon_started_at.clone(),
                 backup_folder,
                 run_folder,
                 secure_defaults: &secure_defaults,
@@ -587,6 +597,7 @@ impl DaemonProcess {
         hydrate_capabilities(&providers).await;
         sweep_left_staged_worktrees(&providers).await;
         sweep_left_sign_in_folders(&providers).await;
+        sweep_left_settings_files(&providers).await;
         // A channel a previous run left served processes that ended with it; a new one takes new
         // keys, so a folder left behind is only logged.
         if let Err(error) = remove_channel_folders(&data_folder).await {
@@ -626,7 +637,7 @@ impl DaemonProcess {
                 machine_device_id,
                 scheduler: Arc::clone(&scheduler),
                 search_index: Arc::clone(&search_index),
-                clock: wall_clock,
+                clock: Arc::clone(&wall_clock),
                 spawner: self.spawner.clone(),
                 git,
                 base_environment,
@@ -657,6 +668,18 @@ impl DaemonProcess {
             },
         )
         .await?;
+        // Before the recovery pass and any session start, so every held request reaches it.
+        let pricing = build_pricing(PricingStart {
+            providers: &providers,
+            reads: Arc::clone(&reads),
+            writer: Arc::clone(&writer),
+            scheduler: Arc::clone(&scheduler),
+            clock: wall_clock,
+            data_folder: &data_folder,
+            daemon_started_at,
+            account_notices: inputs.provider_accounts.account_notices(),
+        })
+        .await?;
         self.recovery = Some(inputs.recovery);
         let attention = inputs.attention;
         let web_address_sender = inputs.web_address_sender;
@@ -667,7 +690,9 @@ impl DaemonProcess {
         // Before the socket serves, so no creation is under way.
         settle_interrupted_creations(self.worktree_creator.insert(inputs.worktree_creator)).await;
         let mcp_inventory = inputs.mcp_inventory;
+        let mcp_owed_sign_outs = inputs.mcp_owed_sign_outs;
         let mcp_mutations = Arc::clone(self.mcp_mutations.insert(inputs.mcp_mutations));
+        self.mcp_sign_ins = Some(inputs.mcp_sign_ins);
         self.mcp_client = Some(inputs.mcp_client);
         let mut provider_accounts = inputs.provider_accounts;
         self.restart_settle = Some(inputs.restart_settle);
@@ -748,6 +773,8 @@ impl DaemonProcess {
         // After the pass, so no read or window start meets a run the last stop left live.
         provider_accounts.start(&followers).await?;
         self.provider_accounts = Some(provider_accounts);
+        // After the pass too, so the repricing's start pass meets no run the last stop left live.
+        self.pricing = Some(pricing.start(&self.work_stop));
         // After the sweep, so a delivery the stop left pending is decided before it is sent.
         let send_settings = settings
             .watch()
@@ -798,6 +825,7 @@ impl DaemonProcess {
         // After the first reads too: a settle reads each provider's config, which may start its
         // service. It runs in the background and never holds the start.
         mcp_mutations.settle_pending();
+        mcp_owed_sign_outs.start_settle();
         // After the first reads, so each provider's read joins what its start runs.
         self.mcp_attribution_fills = Some(McpAttributionFills::start(
             mcp_inventory,

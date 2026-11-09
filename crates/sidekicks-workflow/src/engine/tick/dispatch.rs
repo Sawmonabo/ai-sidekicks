@@ -80,9 +80,13 @@ pub(crate) struct DispatchedStep {
 
 impl StepDispatch {
     /// The dispatch over `ports`, `evaluator`, `reads`, `secrets`, `http` and `kinds`, sending its
-    /// drivers' reports on `reports` and recording the engine's faults to the ports' sink under
-    /// this daemon life.
+    /// drivers' reports on `reports` and recording the engine's faults in `recorder`, the record
+    /// the run start keeps for this daemon life, so a run's lines carry one life and one sequence.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "each is a separate service the dispatch drives steps through"
+    )]
     pub(crate) fn new(
         ports: EnginePorts,
         evaluator: ExpressionEvaluator,
@@ -91,8 +95,8 @@ impl StepDispatch {
         http: reqwest::Client,
         kinds: Arc<NodeKindTable>,
         reports: mpsc::Sender<StepReport>,
+        recorder: Arc<EngineRecorder>,
     ) -> Self {
-        let recorder = Arc::new(EngineRecorder::new(Arc::clone(&ports.records)));
         Self {
             ports,
             recorder,
@@ -175,13 +179,8 @@ impl StepDispatch {
             ];
             return DispatchedStep { cancel, reports };
         };
-        let pinned = pinned_outputs(
-            scope.mode,
-            scope.pin_data.as_ref(),
-            node,
-            main_output_count(kind.spec.outputs.as_slice()),
-        );
-        if let Some(mut outputs) = pinned {
+        if let Some(pin) = scope.pins.get(&node.id) {
+            let mut outputs = pinned_outputs(pin, main_output_count(kind.spec.outputs.as_slice()));
             shape_outputs(
                 node,
                 &main_input_lengths(&kind.spec, &ready.inputs),
@@ -190,6 +189,7 @@ impl StepDispatch {
             let started = StepReportKind::Started {
                 input_ref: ready.input_ref,
                 permission_level: None,
+                pin_hash: Some(pin.hash.clone()),
             };
             let completed = StepSettlement::Completed {
                 outputs,
@@ -337,7 +337,7 @@ impl StepDispatch {
             drop(context);
             let canceled = StepSettlement::Canceled {
                 hold_started_at: None,
-                is_sibling_failure: false,
+                cancellation_reason: None,
             };
             self.report(&step, &cancel, StepReportKind::Settled(canceled))
                 .await;
@@ -364,7 +364,7 @@ impl StepDispatch {
             // Dropping the ticket below withdraws the step's place.
             GateWaitEnd::Canceled { hold_started_at } => StepSettlement::Canceled {
                 hold_started_at,
-                is_sibling_failure: false,
+                cancellation_reason: None,
             },
             // The tick's loop cancels the run once it stops reading reports, so nothing is left
             // to tell.
@@ -418,6 +418,7 @@ impl StepDispatch {
         let started = StepReportKind::Started {
             input_ref: ready.input_ref,
             permission_level: None,
+            pin_hash: None,
         };
         if !self.report(&step, cancel, started).await {
             return;
@@ -478,7 +479,7 @@ fn settle_launch_failure(
     if cancel.is_cancelled() {
         StepSettlement::Canceled {
             hold_started_at: None,
-            is_sibling_failure: false,
+            cancellation_reason: None,
         }
     } else {
         StepSettlement::Failed {
@@ -511,7 +512,7 @@ pub(super) fn error_members(
 /// `failure` as the step settles with it: its node `node_id` where it names none, and its message
 /// and a coded failure's details scrubbed through `redaction`. A decline passes through.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-fn fill_step_failure(
+pub(super) fn fill_step_failure(
     mut failure: StepFailure,
     node_id: &WorkflowNodeId,
     redaction: &RunRedaction,
@@ -571,15 +572,36 @@ fn scrub_step_error(error: &mut WorkflowStepError, redaction: &RunRedaction) {
 }
 
 /// A dispatch for a test over `database`'s reads, a keychain holding nothing, ports refusing every
-/// call and the table of `kinds`, with the receiving end of its report channel.
+/// call and the table of `kinds`, recording in a recorder of its own over the ports' sink, with
+/// the receiving end of its report channel.
 #[cfg(test)]
 fn test_dispatch(
     database: &sidekicks_store::database::writer::test_file::TestDatabase,
     kinds: Vec<crate::kinds::NodeKind>,
 ) -> (StepDispatch, mpsc::Receiver<StepReport>) {
+    let ports = crate::engine::ports::refusing_engine_ports();
+    let recorder = Arc::new(EngineRecorder::new(Arc::clone(&ports.records)));
+    let kinds = Arc::new(NodeKindTable::new(kinds).expect("the test's kinds build a table"));
+    let (dispatch, received, _sender) = test_dispatch_recording(database, ports, kinds, recorder);
+    (dispatch, received)
+}
+
+/// A dispatch as [`test_dispatch`] builds one, over `ports` and the table `kinds`, recording in
+/// `recorder`, with a sending end of its report channel too, which a test reports on as a driver.
+#[cfg(test)]
+pub(super) fn test_dispatch_recording(
+    database: &sidekicks_store::database::writer::test_file::TestDatabase,
+    ports: EnginePorts,
+    kinds: Arc<NodeKindTable>,
+    recorder: Arc<EngineRecorder>,
+) -> (
+    StepDispatch,
+    mpsc::Receiver<StepReport>,
+    mpsc::Sender<StepReport>,
+) {
     let (reports, received) = mpsc::channel(16);
     let dispatch = StepDispatch::new(
-        crate::engine::ports::refusing_engine_ports(),
+        ports,
         ExpressionEvaluator::start().expect("the expression thread starts"),
         Arc::new(DatabaseReadPool::new(
             database.path(),
@@ -589,10 +611,11 @@ fn test_dispatch(
             crate::secrets::store::ScriptedKeychain::holding(&[], false),
         )),
         reqwest::Client::new(),
-        Arc::new(NodeKindTable::new(kinds).expect("the test's kinds build a table")),
-        reports,
+        kinds,
+        reports.clone(),
+        recorder,
     );
-    (dispatch, received)
+    (dispatch, received, reports)
 }
 
 /// The first execution of `node`, the only node of the run of `scope`, readied with an item
@@ -628,7 +651,7 @@ fn test_ready_step(
     }
 }
 
-/// A snapshot of a run in which `node` has not run and no run variable is set.
+/// A snapshot of a run in which `node` has not run and no run variable is set, at `Ask`.
 #[cfg(test)]
 fn test_run_snapshot(
     node: &sidekicks_contracts::workflow::definition::document::WorkflowNode,
@@ -639,5 +662,6 @@ fn test_run_snapshot(
             node.name.as_str().to_owned(),
         )])),
         run_variables: Arc::new(serde_json::Map::new()),
+        permission_level: sidekicks_contracts::session::controls::methods::PermissionLevel::Ask,
     }
 }

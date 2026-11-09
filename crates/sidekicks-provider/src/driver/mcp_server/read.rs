@@ -3,6 +3,7 @@
 //! server's declaration is re-read inside the driver, never sent in the request.
 
 use std::collections::BTreeMap;
+use std::fmt;
 
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::mcp::server::inventory::McpOverrideOrigin;
@@ -109,8 +110,8 @@ pub struct McpServerDeclaration {
     pub disabled_in: Vec<McpOverrideOrigin>,
     /// Whether the person cannot write it, since the provider or an administrator owns it.
     pub is_read_only: bool,
-    /// The sign-in client the declaration names, where it names one.
-    pub sign_in_client: Option<McpServerSignInClient>,
+    /// The sign-in settings the declaration names, where it names any.
+    pub sign_in_settings: Option<McpServerSignInSettings>,
     /// Whether the daemon keeps the binding's switch in its own store, since the provider's own
     /// config has none for it; the provider's `enabled` member is its switch otherwise.
     pub is_switch_kept_by_daemon: bool,
@@ -164,13 +165,42 @@ impl McpServerToolDefaults {
     }
 }
 
-/// The sign-in client a declaration names: never its secret.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct McpServerSignInClient {
+/// The sign-in settings a declaration names: the owner's client, its callback, and where the
+/// authorization server's metadata is read; never the client's secret.
+#[derive(Clone, PartialEq, Eq)]
+pub struct McpServerSignInSettings {
     /// The client's id, presented at sign-in.
     pub client_id: Option<String>,
     /// The callback address registered for the client.
     pub callback_url: Option<String>,
+    /// The fixed loopback port the callback is bound on where no callback address is registered,
+    /// its path the daemon's own for the server.
+    pub callback_port: Option<u16>,
+    /// The address of the authorization server's metadata, read in place of discovery, as the
+    /// entry writes it; `Debug` says only whether one is set, since it may carry a secret.
+    pub authorization_server_metadata_url: Option<String>,
+    /// Whether the sign-in also asks for `offline_access` where the authorization server's
+    /// metadata lists it.
+    pub asks_offline_access_where_listed: bool,
+}
+
+impl fmt::Debug for McpServerSignInSettings {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("McpServerSignInSettings")
+            .field("client_id", &self.client_id)
+            .field("callback_url", &self.callback_url)
+            .field("callback_port", &self.callback_port)
+            .field(
+                "has_authorization_server_metadata_url",
+                &self.authorization_server_metadata_url.is_some(),
+            )
+            .field(
+                "asks_offline_access_where_listed",
+                &self.asks_offline_access_where_listed,
+            )
+            .finish()
+    }
 }
 
 /// What a driver read at one attached root.

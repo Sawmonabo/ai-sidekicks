@@ -7,7 +7,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -43,6 +43,7 @@ use super::{
     SCRIPTED_PROVIDER_SESSION_ID, binding_id, exit_scripted_process, hand_scripted_frame,
     scripted_posture, scripted_staged_changes,
 };
+use crate::bounded_poll::poll_until;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::claude::session::permission_level::ClaudeCommandSandboxCheck;
@@ -530,21 +531,12 @@ impl ScriptedDriver {
         }
     }
 
-    /// Waits until `is_reached` answers true.
-    pub(crate) async fn wait_for(is_reached: impl Fn() -> bool) {
-        while !is_reached() {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    }
-
     /// Waits until `channel` holds the hooks listing its process's start sends.
     pub(crate) async fn wait_for_hooks_listing(channel: &ScriptedChannel) {
-        Self::wait_for(|| {
-            channel
-                .control_requests()
-                .iter()
-                .any(|request| request["subtype"] == "get_hooks_listing")
-        })
+        poll_until(
+            || channel.control_requests(),
+            |requests| (requests.iter()).any(|request| request["subtype"] == "get_hooks_listing"),
+        )
         .await;
     }
 

@@ -38,11 +38,18 @@ fn approval_schema_sql() -> String {
 -- ---------------------------------------------------------------------------
 -- approval_requests: one row per ask, from a provider or from the daemon itself.
 -- ---------------------------------------------------------------------------
--- No REFERENCES on run_id or session_id: run state and the session's own record are event-sourced.
+-- No REFERENCES on the holder's columns or session_id: run state, the workflow's records and the
+-- session's own record are event-sourced.
 CREATE TABLE approval_requests (
   id                    TEXT PRIMARY KEY,
   session_id            TEXT NOT NULL,
-  run_id                TEXT NOT NULL,
+  -- What holds the ask open: the agent run whose action it gates, or a workflow wait, named by its
+  -- workflow run, its wait id and, for a step's approval, the step's node; a chain's question
+  -- names no node.
+  run_id                TEXT,
+  workflow_run_id       TEXT,
+  wait_id               TEXT,
+  node_id               TEXT,
   -- The agent's actor id, or the device a person's request came from.
   requested_by          TEXT NOT NULL,
   category              TEXT NOT NULL CHECK(category IN ({categories})),
@@ -61,14 +68,20 @@ CREATE TABLE approval_requests (
   -- this card; NULL where the input has no canonical form or the card holds no call.
   input_digest          TEXT,
   -- No expired state and no deadline column: a request waits until it is answered, or is
-  -- canceled with its run, its session or its provider process.
+  -- canceled with its run, its session or its provider process; a workflow wait's card is
+  -- canceled only with its wait, which times out, is canceled or ends with its run.
   state                 TEXT NOT NULL DEFAULT '{pending}' CHECK(state IN ({states})),
   created_at            TEXT NOT NULL,
   -- The last state change; a cancellation settles here and writes no resolution row.
-  updated_at            TEXT NOT NULL
+  updated_at            TEXT NOT NULL,
+  CHECK((run_id IS NOT NULL AND workflow_run_id IS NULL AND wait_id IS NULL AND node_id IS NULL)
+     OR (run_id IS NULL AND workflow_run_id IS NOT NULL AND wait_id IS NOT NULL))
 ) STRICT;
 
 CREATE INDEX idx_approval_requests_run ON approval_requests(run_id);
+-- One pending card per workflow wait, so a second raise for one wait finds the open card.
+CREATE UNIQUE INDEX idx_approval_requests_open_wait ON approval_requests(session_id, wait_id)
+  WHERE wait_id IS NOT NULL AND state = '{pending}';
 CREATE INDEX idx_approval_requests_session ON approval_requests(session_id);
 CREATE INDEX idx_approval_requests_state ON approval_requests(state) WHERE state = '{pending}';
 -- One request per ask id. The id is minted once for each provider ask the intake takes; a

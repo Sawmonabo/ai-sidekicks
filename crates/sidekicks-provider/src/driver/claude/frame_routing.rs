@@ -96,16 +96,35 @@ pub(crate) struct ClaudeThreadUsageTally {
 #[derive(Debug)]
 struct ClaudeThreadMessages {
     finished: UsageAxisCounts,
-    open: Option<ClaudeOpenMessage>,
+    open: Option<ClaudeMessageUsageObservation>,
     confirmed: UsageAxisCounts,
 }
 
-// The message a thread is reading: its id, its last counts, and what prices its request so far.
-#[derive(Debug)]
-struct ClaudeOpenMessage {
-    message_id: String,
-    counts: UsageAxisCounts,
-    request: ClaudeMessageRequestFacts,
+impl ClaudeMessageUsageObservation {
+    /// Raises this message to its `later` reading: the larger counts, cache write and searches,
+    /// every other fact as `later` reads it.
+    pub(crate) fn raise(&mut self, later: &ClaudeMessageUsageObservation) {
+        let (so_far, read) = (&self.request, &later.request);
+        let larger = |so_far, read| combine_count(so_far, read, u64::max);
+        self.counts = larger_counts(self.counts, later.counts);
+        self.request = ClaudeMessageRequestFacts {
+            cache_write_extended_tokens: larger(
+                so_far.cache_write_extended_tokens,
+                read.cache_write_extended_tokens,
+            ),
+            web_search_requests: larger(so_far.web_search_requests, read.web_search_requests),
+            ..read.clone()
+        };
+    }
+
+    /// What prices this message's whole request, its whole cache write and searches included.
+    pub(crate) fn whole_request(&self) -> UsageRequestFacts {
+        UsageRequestFacts {
+            cache_write_extended_tokens: self.request.cache_write_extended_tokens,
+            web_search_requests: self.request.web_search_requests,
+            ..request_selectors(&self.message_id, &self.request)
+        }
+    }
 }
 
 impl ClaudeThreadMessages {
@@ -140,11 +159,13 @@ impl ClaudeThreadMessages {
         {
             self.finished = add_counts(self.finished, closed.counts);
         }
-        let open = self.open.get_or_insert_with(|| ClaudeOpenMessage {
-            message_id: message.message_id.clone(),
-            counts: UsageAxisCounts::default(),
-            request: ClaudeMessageRequestFacts::default(),
-        });
+        let open = self
+            .open
+            .get_or_insert_with(|| ClaudeMessageUsageObservation {
+                message_id: message.message_id.clone(),
+                counts: UsageAxisCounts::default(),
+                request: ClaudeMessageRequestFacts::default(),
+            });
         let read = &message.request;
         let so_far = &open.request;
         let request = UsageRequestFacts {
@@ -155,20 +176,7 @@ impl ClaudeThreadMessages {
             web_search_requests: growth(so_far.web_search_requests, read.web_search_requests),
             ..request_selectors(&message.message_id, read)
         };
-        open.counts = larger_counts(open.counts, message.counts);
-        open.request = ClaudeMessageRequestFacts {
-            cache_write_extended_tokens: combine_count(
-                so_far.cache_write_extended_tokens,
-                read.cache_write_extended_tokens,
-                u64::max,
-            ),
-            web_search_requests: combine_count(
-                so_far.web_search_requests,
-                read.web_search_requests,
-                u64::max,
-            ),
-            ..read.clone()
-        };
+        open.raise(message);
         (self.total(), request)
     }
 
@@ -469,21 +477,7 @@ fn meter(
         declared_per_turn: None,
         request,
     })?;
-    let axes = &delta.axis_deltas;
-    // A frame whose only change is a search or a longer-lifetime cache write is still metered.
-    let is_unchanged = [
-        axes.input,
-        axes.cached_input,
-        axes.cache_write_input,
-        axes.output,
-        axes.reasoning_output,
-        axes.total,
-        delta.request.cache_write_extended_tokens,
-        delta.request.web_search_requests,
-    ]
-    .into_iter()
-    .all(|count| count.unwrap_or(0) == 0);
-    (!is_unchanged).then(|| ClaudeMeteredReading {
+    Some(ClaudeMeteredReading {
         subagent_id: observation.subagent_id.clone(),
         delta,
     })

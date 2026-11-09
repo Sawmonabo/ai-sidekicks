@@ -39,7 +39,7 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::account::errors::ProviderAccountRegistryError;
+use crate::account::errors::is_account_not_found;
 use crate::account::usage_turns::sessionless_usage_cost_statement;
 use crate::account::usage_turns::unpriced::{
     UnpricedPage, UnpricedPageCursor, UnpricedRequest, UnpricedUsageKey, held_mark_statement,
@@ -48,6 +48,7 @@ use crate::account::usage_turns::unpriced::{
 use crate::driver::ProviderAccountReader;
 use crate::driver::ports::{HeldRequest, RequestHeldListener};
 use crate::port::usage_sink::{PricedRequest, PricedUsageRow, RecordedUsage, UsageSink};
+use crate::pricing::BoxedError;
 use crate::pricing::rule::{RequestPricer, RequestPricing};
 use crate::pricing::store::HeldPriceList;
 
@@ -57,8 +58,6 @@ pub const HELD_REQUEST_REPRICING_STATEMENT_CAPACITY: usize = 5;
 
 /// The rows a page of a key's held requests takes before the rest of its last request.
 const PAGE_ROWS: NonZeroU32 = NonZeroU32::new(500).expect("five hundred is not zero");
-
-type BoxedError = Box<dyn Error + Send + Sync>;
 
 /// What the repricing is built over.
 pub struct HeldRequestRepricingDependencies {
@@ -321,7 +320,7 @@ impl HeldRequestRepricing {
                     .unwrap_or_default()
             }
             Ok(_) => HashSet::new(),
-            Err(error) if is_account_gone(&error) => {
+            Err(error) if is_account_not_found(&*error) => {
                 let mut held_keys = lock(&self.held_keys);
                 held_keys.kind_held.remove(&account_id);
                 held_keys
@@ -371,7 +370,7 @@ impl HeldRequestRepricing {
                 .await
             {
                 Ok(sign_in_kind) => sign_in_kind,
-                Err(error) if is_account_gone(&error) => return KeyOutcome::Released,
+                Err(error) if is_account_not_found(&*error) => return KeyOutcome::Released,
                 Err(error) => {
                     log_held_key(key, &error, "the account's sign-in kind was not read");
                     return KeyOutcome::HeldForPrice;
@@ -554,14 +553,6 @@ impl RequestHeldListener for HeldRequestRepricing {
         });
         async move { hand_off.await? }.boxed()
     }
-}
-
-// Whether `error` says the account is not registered, its rows gone with its removal.
-fn is_account_gone(error: &BoxedError) -> bool {
-    matches!(
-        error.downcast_ref::<ProviderAccountRegistryError>(),
-        Some(ProviderAccountRegistryError::NotFound)
-    )
 }
 
 fn log_held_key(key: &UnpricedUsageKey, error: &BoxedError, message: &'static str) {

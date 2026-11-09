@@ -78,16 +78,19 @@ mod tests {
                     "category": "trigger",
                     "inputs": [],
                     "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
+                    "needsRepository": false,
                 },
                 "a": {
                     "category": "agent",
                     "inputs": [{ "type": "main", "id": "inputs/main/0", "label": "In" }],
                     "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
+                    "needsRepository": false,
                 },
                 "b": {
                     "category": "agent",
                     "inputs": [{ "type": "main", "id": "inputs/main/0", "label": "In" }],
                     "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
+                    "needsRepository": false,
                 },
             },
         })

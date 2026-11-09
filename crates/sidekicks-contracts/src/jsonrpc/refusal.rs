@@ -734,7 +734,7 @@ refusal_codes! {
     WorkflowCodeInstallFailed = "workflow.code.installFailed" (Internal, 500);
     /// A Code step over its memory budget, 256 MiB per node by default and settable.
     WorkflowCodeOverBudget = "workflow.code.overBudget" (ResourceExhausted, 422);
-    /// A start of a workflow version whose Code steps' packages are not locked.
+    /// A start, or a node run, of a workflow version whose Code steps' packages are not locked.
     WorkflowCodePackagesNotLocked = "workflow.code.packagesNotLocked" (FailedPrecondition, 409);
     /// A `workflow.run.list`, `workflow.step.read` or `workflow.definition.list` `cursor` the
     /// daemon did not write, or one past the end of what it pages; nothing is read.
@@ -752,13 +752,22 @@ refusal_codes! {
     /// posting the results of an unfinished run, or opening a fix session on a step that did not
     /// fail.
     WorkflowInvalidTransition = "workflow.invalidTransition" (FailedPrecondition, 409);
-    /// A `workflow.run.start`, `workflow.run.retry` or `workflow.run.rerun` reused a
-    /// `clientIdempotencyKey` with a differing payload; the run the key first answered is
-    /// untouched. A resend with the same payload is not refused: it answers that run.
+    /// A node run naming a node its version does not hold.
+    WorkflowNodeNotFound = "workflow.node.notFound" (NotFound, 404);
+    /// A start, or a node run, of a version with an edge naming a main handle its node's kind does
+    /// not declare, so nothing runs.
+    WorkflowRunHandleUndeclared = "workflow.run.handleUndeclared" (FailedPrecondition, 409);
+    /// A `workflow.run.start`, `workflow.run.retry`, `workflow.run.rerun` or
+    /// `workflow.node.execute` reused a `clientIdempotencyKey` with a differing payload; the run
+    /// the key first answered is untouched. A resend with the same payload is not refused: it
+    /// answers that run.
     WorkflowRunIdempotencyConflict = "workflow.run.idempotencyConflict" (InvalidArgument, 422);
-    /// A start that leaves a required input its workflow declares unfilled, or gives an input a
-    /// value that does not fit it.
+    /// A start, or a node run, that leaves a required input its workflow declares unfilled, or
+    /// gives an input a value that does not fit it.
     WorkflowRunInputRequired = "workflow.run.inputRequired" (InvalidArgument, 422);
+    /// A start, or a node run, of a version holding a node whose kind the daemon does not list at
+    /// the version the node records, so nothing runs.
+    WorkflowRunNodeKindUnavailable = "workflow.run.nodeKindUnavailable" (FailedPrecondition, 409);
     /// `workflow.run.cancel` refused because the run has ended, so there is nothing to cancel and
     /// reporting success would misinform the person about what their action did.
     WorkflowRunNotCancelable = "workflow.run.notCancelable" (FailedPrecondition, 409);
@@ -768,10 +777,13 @@ refusal_codes! {
     WorkflowRunNotDeletable = "workflow.run.notDeletable" (FailedPrecondition, 409);
     /// A workflow run that does not exist.
     WorkflowRunNotFound = "workflow.run.notFound" (NotFound, 404);
-    /// A `workflow.run.start` from a project session that names a project: that session's run works
-    /// in the session's own repository, so nothing runs.
+    /// A `workflow.run.start`, or a node run, from a project session that names a project: that
+    /// session's run works in the session's own repository, so nothing runs.
     WorkflowRunProjectOnProjectSession = "workflow.run.projectOnProjectSession"
         (InvalidArgument, 422);
+    /// A start, or a node run (`workflow.node.execute`), of a workflow that holds a step running in
+    /// a provider's sandbox and names no provider.
+    WorkflowRunProviderRequired = "workflow.run.providerRequired" (InvalidArgument, 422);
     /// Frozen-definition re-pin refused: a step of the run is still in flight.
     WorkflowRunRepairAttemptInFlight = "workflow.run.repairAttemptInFlight"
         (FailedPrecondition, 409);
@@ -785,9 +797,9 @@ refusal_codes! {
     WorkflowRunRepositoryRequired = "workflow.run.repositoryRequired" (InvalidArgument, 422);
     /// `workflow.run.resume` refused because the target run is not parked.
     WorkflowRunResumeNotParked = "workflow.run.resumeNotParked" (FailedPrecondition, 409);
-    /// Workflow run start refused by Cedar under `Action::"workflow::start"`, or whose principal
-    /// could not be resolved: an agent's start, or a run a trigger fires, judged when it fires with
-    /// the person recorded as its starter.
+    /// Workflow run start, or node run, refused by Cedar under `Action::"workflow::start"`, or
+    /// whose principal could not be resolved: an agent's start or node run, or a run a trigger
+    /// fires, judged when it fires with the person recorded as its starter.
     WorkflowRunStartDenied = "workflow.run.startDenied" (PermissionDenied, 403);
     /// `Retry from this step` refused while the source run is still going.
     WorkflowRunStillRunning = "workflow.run.stillRunning" (FailedPrecondition, 409);

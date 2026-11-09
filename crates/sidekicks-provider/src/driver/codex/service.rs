@@ -2,7 +2,8 @@
 //! supervisor, with its command line, its process and the record a later daemon finds it again
 //! from, the build it runs, Codex's start lock and managed daemon, the home's socket link, the
 //! short commands run beside it, its config warnings, its thread index, its asks, the trust of the
-//! terminal service's hooks and the switching service's sign-in.
+//! terminal service's hooks, the switching service's sign-in and the telemetry switches of each
+//! kind of home.
 
 pub(super) mod asks;
 pub(super) mod command;
@@ -18,5 +19,6 @@ pub(super) mod socket_link;
 mod start_lock;
 pub(super) mod supervisor;
 pub(super) mod switching;
+pub(super) mod telemetry_switches;
 pub(super) mod threads;
 mod trust;

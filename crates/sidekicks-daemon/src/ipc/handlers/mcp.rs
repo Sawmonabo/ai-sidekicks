@@ -1,7 +1,8 @@
 //! The `mcp.*` methods: the server inventory's reads, the public MCP Registry's search, the
-//! binding edits the mutation service answers, and `mcp.subscribe`, the MCP governance stream: the
-//! stored governance events of the daemon-scope sentinel session's log, followed from its head when
-//! the call is taken, and the newest notice per key from the status tracker's notice board, the
+//! binding edits the mutation service answers, `mcp.server.signIn` and `mcp.server.signOut`, which
+//! the sign-in commands answer, and `mcp.subscribe`, the MCP governance stream: the stored
+//! governance events of the daemon-scope sentinel session's log, followed from its head when the
+//! call is taken, and the newest notice per key from the status tracker's notice board, the
 //! stream's place in the board taken before the acknowledgment goes out, so a notice sent after it
 //! is read and none falls between the call and a first `mcp.server.list`.
 
@@ -29,6 +30,7 @@ use sidekicks_ipc::stream::frame_batcher::{ChangeFeed, FrameChanges, FrameRead};
 use sidekicks_mcp::inventory_service::McpInventoryService;
 use sidekicks_mcp::mutation::service::McpMutationService;
 use sidekicks_mcp::registry_search::{MCP_REGISTRY_ADDRESS, McpRegistryClient};
+use sidekicks_mcp::sign_in::commands::McpSignInCommands;
 use sidekicks_mcp::status::notices::{McpNoticeBoard, McpNoticeFeed};
 use sidekicks_store::database::connection::read_pool::DatabaseReadError;
 use sidekicks_store::events::log_service::{
@@ -53,8 +55,8 @@ static MCP_GOVERNANCE_EVENT_TYPE_NAMES: LazyLock<Vec<&'static str>> = LazyLock::
 });
 
 /// What the `mcp.*` methods read: the event log and the status tracker's notice board the
-/// subscription follows, the server inventory, and the mutation service the binding edits go
-/// through; the registry search keeps its own client.
+/// subscription follows, the server inventory, the mutation service the binding edits go through
+/// and the sign-in commands; the registry search keeps its own client.
 pub(crate) struct McpMethodSources {
     /// The event log, whose sentinel session holds the governance events.
     pub(crate) log: Arc<EventLogService>,
@@ -64,12 +66,15 @@ pub(crate) struct McpMethodSources {
     pub(crate) inventory: Arc<McpInventoryService>,
     /// The mutation service `mcp.server.upsert` and `mcp.server.enabled.update` answer from.
     pub(crate) mutations: Arc<McpMutationService>,
+    /// The sign-in commands `mcp.server.signIn` and `mcp.server.signOut` answer from.
+    pub(crate) sign_ins: Arc<McpSignInCommands>,
 }
 
 /// Registers `mcp.server.list`, `mcp.server.read`, `mcp.server.upsert`,
-/// `mcp.server.enabled.update` and `mcp.subscribe` over `sources`, and `mcp.registry.search` over
-/// a registry client built here. A first read of the log that fails refuses the subscription with
-/// nothing open. Fails the start when a method is already registered.
+/// `mcp.server.enabled.update`, `mcp.server.signIn`, `mcp.server.signOut` and `mcp.subscribe`
+/// over `sources`, and `mcp.registry.search` over a registry client built here. A first read of
+/// the log that fails refuses the subscription with nothing open. Fails the start when a method is
+/// already registered.
 pub(crate) fn register_mcp_methods(
     registry: &mut MethodRegistryBuilder,
     sources: McpMethodSources,
@@ -79,12 +84,14 @@ pub(crate) fn register_mcp_methods(
         board,
         inventory,
         mutations,
+        sign_ins,
     } = sources;
     register_inventory_methods(registry, &inventory)?;
     register_request_methods(
         registry,
         Arc::new(McpRegistryClient::new(MCP_REGISTRY_ADDRESS)),
         &mutations,
+        &sign_ins,
     )?;
     registry.register_subscription::<McpSubscribe, _>(
         move |_request: EmptyPayload, _context: HandlerContext, subscription_id: SubscriptionId| {

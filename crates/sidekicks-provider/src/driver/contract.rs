@@ -37,7 +37,10 @@ use crate::driver::contract::params_and_results::{
     ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
 };
 use crate::driver::contract::plan_verdict::{AnswerPlanParams, PlanVerdictAnswer};
-use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
+use crate::driver::contract::sign_in::{
+    McpServerAddressRead, McpServerAddressReading, ProviderSignInTakeover,
+    ProviderSignInTakeoverRequest,
+};
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
 use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
@@ -343,7 +346,8 @@ pub trait ProviderDriver: Send + Sync {
     /// pass of the provider's program on the account the session's leg runs on. `None` only when
     /// both returned no name, or the session never ran. A pass whose `cancel` fires ends at once
     /// and returns `None`, and so does one that runs past the driver's own bound on the whole pass,
-    /// which stops what it started as a cancel does.
+    /// which stops what it started as a cancel does. The pass's spend is recorded on
+    /// `params.binding_id` as the session's own, counted toward no run.
     fn name_session(
         &self,
         params: NameSessionParams,
@@ -715,4 +719,29 @@ pub trait ProviderDriver: Send + Sync {
 
     /// Removes the folders of MCP sign-ins a stopped daemon left. Fails as a removal fails.
     fn remove_left_sign_in_folders(&self) -> BoxFuture<'_, Result<(), DriverError>>;
+
+    /// The folders of the daemon's own where the provider's processes keep files no agent may read,
+    /// such as a process's telemetry token, which every provider's sessions are denied; empty for
+    /// a provider that keeps none.
+    fn private_file_folders(&self) -> Vec<PathBuf> {
+        Vec::new()
+    }
+
+    /// Removes the settings files a stopped daemon's provider processes left. Fails as a removal
+    /// fails.
+    fn remove_left_settings_files(&self) -> BoxFuture<'_, Result<(), DriverError>> {
+        // A driver whose processes write no settings file leaves none.
+        Box::pin(async { Ok(()) })
+    }
+
+    /// Reads the whole address each of `requests`' server entries declares, the one the provider
+    /// connects to, answering one reading per request in their order: its user name and query kept
+    /// and its variables filled as the provider fills them, each config the requests share read
+    /// once. The addresses are held only in memory. A reading fails with
+    /// [`DriverError::NoPersonServerEntry`] for a connector and for a binding whose entry declares
+    /// no remote server, and as its read fails.
+    fn read_mcp_server_addresses(
+        &self,
+        requests: Vec<McpServerAddressRead>,
+    ) -> BoxFuture<'_, Vec<Result<McpServerAddressReading, DriverError>>>;
 }

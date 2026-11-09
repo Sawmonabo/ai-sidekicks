@@ -1,9 +1,11 @@
 //! A session's name on Claude Code: one asked of Claude Code from the session's first exchange,
 //! through `generate_session_title` on its live process, else in a one-turn process that keeps
-//! nothing; and the name the session goes by, told to its live process with `rename_session` or,
-//! at rest, appended to its conversation file as the entry Claude Code's own rename writes.
+//! nothing, whose spend is recorded and priced as the session's own, counted toward no run; and the
+//! name the session goes by, told to its live process with `rename_session` or, at rest, appended
+//! to its conversation file as the entry Claude Code's own rename writes.
 
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use sidekicks_contracts::machine::settings::ProviderRowValues;
@@ -14,6 +16,8 @@ use sidekicks_platforms::PathRules;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
+use crate::driver::claude::pricing::ClaudeOneTurnCharge;
+use crate::driver::claude::session::controls::ClaudeSessionControls;
 use crate::driver::claude::session::conversation_file::conversation_file_of;
 use crate::driver::claude::session::conversation_file::title::append_claude_custom_title;
 use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeSessionUnavailableReason};
@@ -29,13 +33,14 @@ use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::driver::claude::spawn::launch::bring_up::ClaudeSessionSpawn;
 use crate::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
-use crate::driver::claude::spawn::launch::one_turn::ClaudeOneTurnRequest;
+use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnOutcome, ClaudeOneTurnRequest};
 use crate::driver::claude::spawn::legs::{
     ClaudeSpawnLegServices, ClaudeSpawnLegsRequest, build_claude_spawn_bound_legs,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::{NameSessionParams, SubagentPolicy, run_naming_pass_until};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
+use crate::port::usage_sink::MeteredUsageOwner;
 
 /// The model a naming pass runs on when no process of the session is live: the small model
 /// Claude Code's own title pass runs on.
@@ -47,29 +52,34 @@ const CLAUDE_NAMING_DEADLINE: Duration = CLAUDE_REQUEST_DEADLINE;
 
 /// Names the session from its first exchange: Claude Code's title verb on `live` where it answers
 /// with a title, else a one-turn pass on `account`'s home (the account `live` runs on, else the one
-/// its stored leg ran on), on `live`'s legs or the session's own folder. `None` when both gave no
-/// title, `params.cancel` fired, or the pass ran past [`CLAUDE_NAMING_DEADLINE`], where its
-/// one-turn process is stopped as a cancel stops it. Fails as the one-turn pass fails.
+/// its stored leg ran on), on `live`'s legs or the session's own folder, its spend recorded and
+/// priced on `params.binding_id` as the session's own on a task of `controls`, so a cancel never
+/// drops it. `None` when both gave no title, `params.cancel` fired, or the pass ran past
+/// [`CLAUDE_NAMING_DEADLINE`], where its one-turn process is stopped as a cancel stops it. Fails
+/// as the one-turn pass fails.
 pub(crate) async fn name_claude_session(
     live: Option<&LiveClaudeSession>,
-    starts: &dyn ClaudeProcessStarts,
+    starts: &Arc<dyn ClaudeProcessStarts>,
     sources: &ClaudeSpawnSources,
+    controls: &ClaudeSessionControls,
     account: ProviderAccountId,
     params: NameSessionParams,
 ) -> Result<Option<String>, DriverError> {
     let cancel = params.cancel.clone();
     let deadline = Instant::now() + CLAUDE_NAMING_DEADLINE;
     run_naming_pass_until(&cancel, deadline, |stop| async move {
-        draw_claude_title(live, starts, sources, account, params, &stop).await
+        draw_claude_title(live, starts, sources, controls, account, params, &stop).await
     })
     .await
 }
 
-// The title verb on `live`, else the one-turn pass, both ended by `stop`.
+// The title verb on `live`, else the one-turn pass, both ended by `stop`; the one turn's spend is
+// recorded however it ended, before its reply is read, on a task of `controls`.
 async fn draw_claude_title(
     live: Option<&LiveClaudeSession>,
-    starts: &dyn ClaudeProcessStarts,
+    starts: &Arc<dyn ClaudeProcessStarts>,
     sources: &ClaudeSpawnSources,
+    controls: &ClaudeSessionControls,
     account: ProviderAccountId,
     params: NameSessionParams,
     stop: &CancellationToken,
@@ -102,15 +112,21 @@ async fn draw_claude_title(
         text: compose_naming_prompt(&description),
         origin: OutboundTextOrigin::DriverCommand,
     };
-    let reply = if let Some(live) = live {
-        let legs = super::controls::one_turn_legs(live, None, None);
-        run_naming_turn(starts, &legs, account, text, stop).await
+    let legs = if let Some(live) = live {
+        super::controls::one_turn_legs(live, None, None)
     } else {
-        let legs = compose_naming_legs(sources, params.session_id, account.clone(), None).await?;
-        run_naming_turn(starts, &legs, account, text, stop).await
+        compose_naming_legs(sources, params.session_id, account.clone(), None).await?
     };
-    match reply {
-        Ok(reply) => Ok(clean_title(&reply)),
+    let charge = ClaudeOneTurnCharge {
+        session_id: params.session_id,
+        binding_id: params.binding_id,
+        owner: MeteredUsageOwner::Session,
+        provider_account_id: account.clone(),
+    };
+    let (starts, stop) = (Arc::clone(starts), stop.clone());
+    let turn = async move { run_naming_turn(&*starts, &legs, account, text, &stop).await };
+    match controls.run_recorded_turn(turn, charge).await {
+        Ok(reply) => Ok(clean_title(&reply.text)),
         Err(ClaudeLaunchError::TurnStopped) => Ok(None),
         Err(error) => Err(error.into()),
     }
@@ -215,17 +231,20 @@ async fn compose_naming_legs(
     .map_err(|error| DriverError::Internal(Box::new(error)))
 }
 
-// One unkept turn from an empty conversation that answers with a title.
+// One unkept turn from an empty conversation that answers with a title, and what it spent.
 async fn run_naming_turn(
     starts: &dyn ClaudeProcessStarts,
     legs: &ClaudeSpawnBoundLegs,
     provider_account_id: ProviderAccountId,
     text: OutboundText,
     stop: &CancellationToken,
-) -> Result<String, ClaudeLaunchError> {
-    // A pass stopped while its legs were composed starts no process.
+) -> ClaudeOneTurnOutcome {
+    // A pass stopped while its legs were composed starts no process, so spends nothing.
     if stop.is_cancelled() {
-        return Err(ClaudeLaunchError::TurnStopped);
+        return ClaudeOneTurnOutcome {
+            reply: Err(ClaudeLaunchError::TurnStopped),
+            spend: None,
+        };
     }
     starts
         .run_one_turn(ClaudeOneTurnRequest {
@@ -243,7 +262,6 @@ async fn run_naming_turn(
             stop: stop.clone(),
         })
         .await
-        .map(|reply| reply.text)
 }
 
 // What the session is about, as its first exchange shows it.

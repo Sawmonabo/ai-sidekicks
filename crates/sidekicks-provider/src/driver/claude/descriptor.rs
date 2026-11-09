@@ -2,7 +2,7 @@
 //! forms of work it is kept from starting outside a session.
 
 use sidekicks_contracts::agent::provider_binding::AgentBindingSwitchBoundary;
-use sidekicks_contracts::mcp::server::config::McpTransport;
+use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
 use sidekicks_contracts::run::children::ChildStoppedState;
 use sidekicks_contracts::voice::VoiceKind;
 use sidekicks_platforms::{
@@ -158,7 +158,8 @@ pub(crate) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     screen_reader_environment_names: &["CLAUDE_AX_SCREEN_READER"],
     voice_kinds: &[VoiceKind::Dictation],
     mcp_transports: &[McpTransport::Stdio, McpTransport::Http, McpTransport::Sse],
-    mcp_config_members: &[],
+    // It reads a remote entry's `oauth.scopes`.
+    mcp_config_members: &[McpDeclaredConfigMember::OauthScopes],
     mcp_server_names: CLAUDE_MCP_SERVER_NAMES,
     // It keeps a project's `local` servers in its own config.
     is_mcp_local_scope_emulated: false,

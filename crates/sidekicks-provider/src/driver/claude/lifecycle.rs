@@ -52,6 +52,7 @@ use crate::driver::claude::inbox::address::ClaudeRegisteredPlacesAddresser;
 use crate::driver::claude::inbox::listener::ClaudeSessionInboxes;
 use crate::driver::claude::intervention::ClaudeInterventions;
 use crate::driver::claude::mcp::connectors::organization_mark::ClaudeOrganizationMarks;
+use crate::driver::claude::pricing::{ClaudeOneTurnPricing, ClaudeRequestPricer};
 use crate::driver::claude::rate_limit_windows::ClaudeUsageProbeModels;
 use crate::driver::claude::run::controls::ClaudeRunControls;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
@@ -84,6 +85,7 @@ use crate::driver::contract::error::DriverError;
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
 use crate::port::session_inbox_address::SessionInboxAddresser;
+use crate::pricing::live::LivePricing;
 
 /// The Claude Code driver: what it stores when built, and the session pieces it composes once.
 pub(crate) struct ClaudeDriver {
@@ -131,14 +133,15 @@ pub(crate) struct ClaudeSessionParts {
 }
 
 /// The launcher every Claude Code process the driver keeps starts through, over `services`'
-/// handles: the spawner, the child records, the process table, the accounts port, the raw-message
-/// port and the data folder.
+/// handles: the spawner, the child records, the process table, the accounts port, the telemetry
+/// target port, the raw-message port and the data folder.
 pub(crate) fn compose_claude_launcher(services: &DriverServices) -> Arc<ClaudeProcessLauncher> {
     Arc::new(ClaudeProcessLauncher::new(
         services.spawner.clone(),
         Arc::clone(&services.child_records),
         Arc::clone(&services.processes),
         Arc::clone(&services.ports.provider_accounts),
+        Arc::clone(&services.ports.telemetry_target),
         Arc::clone(&services.ports.raw_provider_messages),
         &services.data_folder,
     ))
@@ -371,6 +374,11 @@ impl ClaudeDriver {
             Arc::clone(&inspector_reads),
         ));
         let goal_endings = Arc::new(ClaudeGoalEndings::default());
+        let pricing = Arc::new(LivePricing::new(
+            DESCRIPTOR.provider_id(),
+            Arc::new(ClaudeRequestPricer),
+            ports,
+        ));
         let delivery = Arc::new(ClaudeDeliveryStream::new(ClaudeStreamDependencies {
             engine: Arc::clone(engine),
             dispatch: Arc::clone(dispatch),
@@ -393,6 +401,7 @@ impl ClaudeDriver {
             tool_traces: Arc::clone(&ports.tool_traces),
             goal_endings: Arc::clone(&goal_endings),
             session_message_readings: Arc::clone(&ports.session_message_readings),
+            pricing: Arc::clone(&pricing),
         }));
         let goals = Arc::new(ClaudeGoalCommands::default());
         let cuts = Arc::new(ClaudeConversationCuts {
@@ -452,6 +461,10 @@ impl ClaudeDriver {
                 Arc::clone(&ports.in_process_tool_servers),
                 compose_command_list_reader(slots.clone(), Arc::clone(&handshakes), &routes),
                 Arc::clone(&self.sources.command_channels),
+                ClaudeOneTurnPricing {
+                    usage: Arc::clone(&ports.usage),
+                    live: Arc::clone(&pricing),
+                },
             ));
             let run_controls = ClaudeRunControls {
                 start: run_start.clone(),

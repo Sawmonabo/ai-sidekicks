@@ -78,12 +78,9 @@ async fn follow_projection(
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error;
     use std::sync::Arc;
     use std::time::Duration;
 
-    use futures::FutureExt as _;
-    use futures::future::BoxFuture;
     use serde_json::json;
     use sidekicks_contracts::attention::AttentionSubscribe;
     use sidekicks_contracts::machine::settings::MachineSettings;
@@ -99,7 +96,7 @@ mod tests {
     use sidekicks_session::attention::test_log::AttentionTestLog;
     use sidekicks_std::scheduler::Scheduler;
     use sidekicks_store::database::schema::session_directory::insert_session_row;
-    use sidekicks_workspace::machine_settings::MachineSettingsReader;
+    use sidekicks_workspace::machine_settings::FixedMachineSettings;
     use tokio::sync::watch;
 
     use super::register_attention_subscribe;
@@ -107,17 +104,6 @@ mod tests {
     const MACHINE_DEVICE: &str = "device-machine";
     // Long enough for an aborted follow to be dropped on a loaded machine.
     const WAIT: Duration = Duration::from_secs(10);
-
-    /// The machine's default settings; this test decides no entry, so they are never read.
-    struct DefaultSettings;
-
-    impl MachineSettingsReader for DefaultSettings {
-        fn read_machine_settings(
-            &self,
-        ) -> BoxFuture<'_, Result<MachineSettings, Box<dyn Error + Send + Sync>>> {
-            async { Ok(MachineSettings::default()) }.boxed()
-        }
-    }
 
     fn device(id: &str) -> DeviceId {
         DeviceId::new(id.to_owned()).expect("a test device id")
@@ -148,7 +134,7 @@ mod tests {
             writer: Arc::clone(&log.writer),
             pool: Arc::clone(&log.pool),
             changes: log.changes.clone(),
-            settings: Arc::new(DefaultSettings),
+            settings: Arc::new(FixedMachineSettings(MachineSettings::default())),
             presence: Arc::new(PresenceRegister::default()),
             launcher: Arc::clone(&launcher),
             machine_device_id: device(MACHINE_DEVICE),

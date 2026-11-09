@@ -316,6 +316,7 @@ methods! {
             refusals: [
                 McpBindingStoreUnavailable,
                 McpServerNotFound,
+                McpServerIdempotencyConflict,
                 McpServerSignInFailed,
                 McpServerSignInUnsupported,
                 ProviderNotInstalled,
@@ -324,12 +325,22 @@ methods! {
                 SystemInternalError,
             ],
         },
-        /// Signs out of a server.
+        /// Signs out of a binding's server.
         McpServerSignOut = mutation "mcp.server.signOut" {
             mutating: true,
             params: McpServerSignOutRequest,
             result: EmptyPayload,
-            refusals: [McpBindingStoreUnavailable, McpServerSignOutFailed],
+            refusals: [
+                McpBindingStoreUnavailable,
+                McpServerNotFound,
+                McpServerIdempotencyConflict,
+                McpServerSignOutFailed,
+                McpServerSignInUnsupported,
+                ProviderNotInstalled,
+                ProviderUnavailable,
+                ProviderTimeout,
+                SystemInternalError,
+            ],
         },
         /// Opens a binding's connection again.
         McpServerReconnect = mutation "mcp.server.reconnect" {

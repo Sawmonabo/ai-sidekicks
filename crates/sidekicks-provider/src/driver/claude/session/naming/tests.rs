@@ -19,6 +19,7 @@ use crate::driver::claude::mcp::ClaudeMcpProcess;
 use crate::driver::claude::mcp::connectors::ClaudeAccountServersReadRequest;
 use crate::driver::claude::mcp::machine_probe::ClaudeMcpProbeProcessRequest;
 use crate::driver::claude::mcp::sign_in::ClaudeMcpSignInStart;
+use crate::driver::claude::session::scripted::binding_id;
 use crate::driver::claude::session::scripted::driver::ScriptedDriver;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::readings::{
@@ -31,7 +32,7 @@ use crate::driver::claude::spawn::launch::initialize_reply::ClaudeListedCommand;
 use crate::driver::claude::spawn::launch::installed_build::{
     ClaudeProcessStarts, ClaudeStartedSession,
 };
-use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnReply, ClaudeOneTurnRequest};
+use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnOutcome, ClaudeOneTurnRequest};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::GetCapabilitiesResult;
 use crate::driver::session_control::NameSessionParams;
@@ -73,12 +74,15 @@ impl ClaudeProcessStarts for UnansweredOneTurn {
     fn run_one_turn<'a>(
         &'a self,
         request: ClaudeOneTurnRequest<'a>,
-    ) -> BoxFuture<'a, Result<ClaudeOneTurnReply, ClaudeLaunchError>> {
+    ) -> BoxFuture<'a, ClaudeOneTurnOutcome> {
         *sidekicks_std::mutex_lock::lock(&self.stop) = Some(request.stop.clone());
         self.started.notify_one();
         async move {
             request.stop.cancelled().await;
-            Err(ClaudeLaunchError::TurnStopped)
+            ClaudeOneTurnOutcome {
+                reply: Err(ClaudeLaunchError::TurnStopped),
+                spend: None,
+            }
         }
         .boxed()
     }
@@ -160,6 +164,7 @@ async fn a_naming_pass_whose_one_turn_never_answers_ends_with_none_at_its_deadli
         place: None,
         first_message: "Fix the login page".to_owned(),
         first_reply: "Looking at the form.".to_owned(),
+        binding_id: binding_id("naming"),
         cancel: cancel.clone(),
     };
     let started = one_turn.started.notified();

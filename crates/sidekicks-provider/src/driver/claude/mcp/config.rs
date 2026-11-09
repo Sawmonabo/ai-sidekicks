@@ -48,7 +48,7 @@ use crate::driver::claude::session::settings_file::{
     read_claude_settings_file,
 };
 use crate::driver::mcp_server::address::{ServerAddressIdentity, read_server_address};
-use crate::driver::mcp_server::read::McpServerPolicy;
+use crate::driver::mcp_server::read::{McpServerPolicy, McpServerSignInSettings};
 use crate::inbound_json::decode_inbound_json;
 
 // The settings key naming a project's `.mcp.json` servers its sessions refuse.
@@ -79,6 +79,55 @@ pub(crate) const URL_MEMBER: &str = "url";
 /// The member of a server entry naming the client its owner issued, through which Claude Code
 /// signs in to the server itself.
 pub(crate) const OAUTH_MEMBER: &str = "oauth";
+
+/// A remote entry's `oauth` member, read leniently: one that is no object reads as naming nothing.
+pub(super) type ClaudeOAuthMember = Tolerated<ClaudeServerOAuth>;
+
+/// What an entry's `oauth` member names for its sign-in, each member read on its own, so a
+/// malformed one reads as absent and never drops the entry; `xaa` is not read. None of the members
+/// is `${VAR}`-filled, as Claude Code fills none. It derives no `Debug`, so no value prints.
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ClaudeServerOAuth {
+    #[serde(default)]
+    client_id: Tolerated<String>,
+    #[serde(default)]
+    callback_port: Tolerated<u64>,
+    #[serde(default)]
+    scopes: Tolerated<String>,
+    #[serde(default)]
+    auth_server_metadata_url: Tolerated<String>,
+}
+
+impl ClaudeOAuthMember {
+    /// The sign-in settings and the scopes a remote entry with this member names: the client id,
+    /// the callback Claude Code registers for a positive `callbackPort`
+    /// (`http://localhost:<port>/callback`), the metadata address as written, and the space-split
+    /// scopes, `None` where they name none. Every remote entry's settings ask for `offline_access`
+    /// where the authorization server lists it, as Claude Code does.
+    pub(super) fn read_sign_in(&self) -> (McpServerSignInSettings, Option<Vec<String>>) {
+        let absent = ClaudeServerOAuth::default();
+        let oauth = self.read().unwrap_or(&absent);
+        let settings = McpServerSignInSettings {
+            client_id: oauth.client_id.read().cloned(),
+            callback_url: oauth
+                .callback_port
+                .read()
+                .filter(|port| **port > 0)
+                .map(|port| format!("http://localhost:{port}/callback")),
+            callback_port: None,
+            authorization_server_metadata_url: oauth.auth_server_metadata_url.read().cloned(),
+            asks_offline_access_where_listed: true,
+        };
+        let scopes = oauth.scopes.read().map(|scopes| {
+            scopes
+                .split_whitespace()
+                .map(str::to_owned)
+                .collect::<Vec<String>>()
+        });
+        (settings, scopes.filter(|scopes| !scopes.is_empty()))
+    }
+}
 
 /// The member of a server entry naming a program Claude Code runs for each request's headers.
 pub(crate) const HEADERS_HELPER_MEMBER: &str = "headersHelper";
@@ -192,6 +241,9 @@ pub(crate) struct ClaudeMcpServer {
     /// Whether the account's organization manages a connector's sign-in, as the organization's
     /// connector list reads it; `None` for every other server and where the list was not read.
     pub(crate) organization_managed: Option<bool>,
+    /// The sign-in settings its entry's `oauth` member names, for an `http` or `sse` server
+    /// signed in to at its address; `None` for a program, a WebSocket server and a connector.
+    pub(crate) sign_in_settings: Option<McpServerSignInSettings>,
 }
 
 /// What Claude Code compares a plugin's server or a connector by to find that it duplicates a
@@ -385,7 +437,7 @@ pub(crate) async fn read_claude_mcp_config(
 // entry leaves the rest of the file read.
 #[derive(Deserialize)]
 #[serde(untagged)]
-enum Tolerated<T> {
+pub(super) enum Tolerated<T> {
     Read(T),
     Skipped(IgnoredAny),
 }
@@ -467,6 +519,8 @@ struct ClaudeServerEntry {
     url: Option<String>,
     #[serde(default)]
     headers: Option<BTreeMap<String, IgnoredAny>>,
+    #[serde(default)]
+    oauth: ClaudeOAuthMember,
 }
 
 // The plugin home's list of installed plugins, by plugin id (`<name>@<marketplace>`).
@@ -490,9 +544,9 @@ fn value_at<'value>(value: &'value Value, keys: &[impl AsRef<str>]) -> Option<&'
         .try_fold(value, |value, key| value.get(key.as_ref()))
 }
 
-// A JSON file read into `File`: `None` where the daemon cannot read it or it does not parse as
-// `File`, the error on any other read failure.
-async fn read_json_file<File: DeserializeOwned>(
+/// A JSON file read into `File`: `None` where the daemon cannot read it or it does not parse as
+/// `File`. Fails on any other read failure.
+pub(super) async fn read_json_file<File: DeserializeOwned>(
     path: &Path,
 ) -> Result<Option<File>, ClaudeSettingsReadError> {
     let bytes = match tokio::fs::read(path).await {
@@ -563,26 +617,32 @@ fn read_servers(
         .flatten()
         .filter_map(|(name, entry)| {
             let server_name = McpServerName::new(name.clone()).ok()?;
-            let (config, endpoint) = read_server_entry(entry.read()?)?;
+            let (config, endpoint, sign_in_settings) = read_server_entry(entry.read()?)?;
             Some(ClaudeMcpServer {
                 binding: bind(server_name),
                 config,
                 endpoint,
                 organization_managed: None,
+                sign_in_settings,
             })
         })
         .collect()
 }
 
-// The redacted declaration of one entry and its endpoint; `None` for a transport the declaration
-// view has no form for.
+// The redacted declaration of one entry, its endpoint and, for an `http` or `sse` entry, the
+// sign-in settings its `oauth` member names; `None` for a transport the declaration view has no
+// form for.
 #[expect(
     clippy::zero_sized_map_values,
     reason = "only the keys are read; each value is skipped unread so none outlives the parse"
 )]
 fn read_server_entry(
     entry: &ClaudeServerEntry,
-) -> Option<(McpServerConfigView, Option<ClaudeMcpEndpoint>)> {
+) -> Option<(
+    McpServerConfigView,
+    Option<ClaudeMcpEndpoint>,
+    Option<McpServerSignInSettings>,
+)> {
     let names = |map: &Option<BTreeMap<String, IgnoredAny>>| {
         map.as_ref().map(|map| map.keys().cloned().collect())
     };
@@ -602,7 +662,7 @@ fn read_server_entry(
                 startup_timeout_sec: None,
                 tool_timeout_sec: None,
             };
-            Some((config, Some(endpoint)))
+            Some((config, Some(endpoint), None))
         }
         Some(transport @ (HTTP_TYPE | SSE_TYPE | WS_TYPE)) => {
             let address = read_server_address(entry.url.as_deref()?);
@@ -610,20 +670,24 @@ fn read_server_entry(
             let url_query_param_names =
                 (!address.query_param_names.is_empty()).then_some(address.query_param_names);
             let header_names = names(&entry.headers);
-            let config = if transport == WS_TYPE {
-                McpServerConfigView::Ws {
+            let endpoint = address.identity.map(ClaudeMcpEndpoint::Address);
+            if transport == WS_TYPE {
+                let config = McpServerConfigView::Ws {
                     url,
                     url_query_param_names,
                     header_names,
-                }
-            } else if transport == HTTP_TYPE {
+                };
+                return Some((config, endpoint, None));
+            }
+            let (sign_in_settings, oauth_scopes) = entry.oauth.read_sign_in();
+            let config = if transport == HTTP_TYPE {
                 McpServerConfigView::Http {
                     url,
                     url_query_param_names,
                     header_names,
                     bearer_token_env_var: None,
                     env_http_headers: None,
-                    oauth_scopes: None,
+                    oauth_scopes,
                     oauth_resource: None,
                     enabled: None,
                     required: None,
@@ -637,7 +701,7 @@ fn read_server_entry(
                     header_names,
                     bearer_token_env_var: None,
                     env_http_headers: None,
-                    oauth_scopes: None,
+                    oauth_scopes,
                     oauth_resource: None,
                     enabled: None,
                     required: None,
@@ -645,7 +709,7 @@ fn read_server_entry(
                     tool_timeout_sec: None,
                 }
             };
-            Some((config, address.identity.map(ClaudeMcpEndpoint::Address)))
+            Some((config, endpoint, Some(sign_in_settings)))
         }
         Some(_) => None,
     }

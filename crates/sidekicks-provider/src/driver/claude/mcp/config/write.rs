@@ -301,6 +301,7 @@ mod tests {
     use tempfile::TempDir;
 
     use crate::driver::claude::lifecycle::ClaudeDriver;
+    use crate::driver::claude::spawn::settings::compose_claude_export_off_settings;
     use crate::driver::mcp_server::write::{
         McpServerEntry, McpServerObserved, McpServerObservedEntry, McpServerWrite,
         McpServerWriteOutcome, McpServerWriteRefusal,
@@ -382,12 +383,14 @@ mod tests {
                 .to_string()
         }
 
-        // One line of the record: the command run in `folder` with `arguments`.
+        // One line of the record: the command run in `folder` with `arguments`, after the
+        // export-off settings.
         fn command_line(&self, folder: &Path, arguments: &str) -> String {
             format!(
-                "{}|{}|mcp {arguments}\n",
+                "{}|{}|--settings {} mcp {arguments}\n",
                 std::fs::canonicalize(folder).unwrap().display(),
-                self.folder("config").display()
+                self.folder("config").display(),
+                compose_claude_export_off_settings()
             )
         }
 

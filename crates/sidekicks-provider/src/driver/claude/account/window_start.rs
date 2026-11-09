@@ -224,6 +224,7 @@ async fn run_claude_smallest_turn(
                 working_folder,
                 Some(provider_account_id.clone()),
                 token,
+                false,
             )
             .await?;
             let mut arrivals = arrivals.into_inner();

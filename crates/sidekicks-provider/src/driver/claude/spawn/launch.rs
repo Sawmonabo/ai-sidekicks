@@ -3,7 +3,8 @@
 //! process brought up with its hooks and settings, the processes that keep nothing (the sign-in
 //! probe, the model catalog, the build's version, a session's figures, a resting session's command
 //! list) and the one-turn process.
-//! A process on a token account is handed that account's token there, on a pipe only it reads.
+//! A process on a token account is handed that account's token there, on a pipe only it reads, and
+//! every process its telemetry switches, in the settings file it reads by path.
 
 pub(crate) mod bring_up;
 pub(crate) mod control_only;
@@ -33,8 +34,10 @@ use crate::driver::claude::session::process::{
     ClaudeCodeProcess, ClaudeProcessLaunch, ClaudeProcessListener, ClaudeTurnHolds,
 };
 use crate::driver::claude::session::rules::ClaudeRulesError;
+use crate::driver::claude::spawn::settings::private_file::compose_claude_settings_folder;
 use crate::driver::contract::error::DriverError;
 use crate::port::raw_provider_messages::RawProviderMessages;
+use crate::pricing::receiver::TelemetryTarget;
 use crate::process_registry::ProviderProcessRegistry;
 
 /// The data folder's folder a process that keeps nothing runs in: empty, so Claude Code reads no
@@ -53,6 +56,12 @@ pub(crate) enum ClaudeLaunchError {
     /// The process could not be started.
     #[error("the Claude Code process could not be started")]
     Spawn(#[source] io::Error),
+    /// The file the process reads its settings from could not be written.
+    #[error("the Claude Code process's settings file could not be written")]
+    SettingsFile(#[source] io::Error),
+    /// The process's own telemetry token could not be minted.
+    #[error("the Claude Code process's telemetry token could not be minted")]
+    TelemetryBearer(#[source] getrandom::Error),
     /// The empty folder a process that keeps nothing runs in could not be made.
     #[error("the folder Claude Code's control-only process runs in could not be made")]
     ControlOnlyFolder(#[source] io::Error),
@@ -104,6 +113,8 @@ impl From<ClaudeLaunchError> for DriverError {
             error @ (ClaudeLaunchError::Stopping
             | ClaudeLaunchError::SealedToken(_)
             | ClaudeLaunchError::Spawn(_)
+            | ClaudeLaunchError::SettingsFile(_)
+            | ClaudeLaunchError::TelemetryBearer(_)
             | ClaudeLaunchError::ControlOnlyFolder(_)
             | ClaudeLaunchError::Settings(_)
             | ClaudeLaunchError::CommandRanTurn { .. }
@@ -122,8 +133,10 @@ pub(crate) struct ClaudeProcessLauncher {
     child_records: Arc<dyn DaemonChildRecords>,
     processes: Arc<ProviderProcessRegistry>,
     provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
+    telemetry_target: Arc<PortRegistration<Arc<TelemetryTarget>>>,
     raw_messages: Arc<PortRegistration<Arc<dyn RawProviderMessages>>>,
     control_only_folder: PathBuf,
+    settings_folder: PathBuf,
     live: Mutex<LiveProcesses>,
 }
 
@@ -137,13 +150,15 @@ struct LiveProcesses {
 impl ClaudeProcessLauncher {
     /// A launcher spawning on `spawner`'s thread, recording each process in `child_records` and
     /// counting each spawn in `processes`, reading each account's sealed token through
-    /// `provider_accounts` and handing every line a process writes to `raw_messages`, whose
-    /// processes that keep nothing run in a folder under `data_folder`.
+    /// `provider_accounts` and the export's target through `telemetry_target` and handing every
+    /// line a process writes to `raw_messages`, whose processes that keep nothing run in a folder
+    /// under `data_folder` and whose settings files sit in another.
     pub(crate) fn new(
         spawner: Spawner,
         child_records: Arc<dyn DaemonChildRecords>,
         processes: Arc<ProviderProcessRegistry>,
         provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
+        telemetry_target: Arc<PortRegistration<Arc<TelemetryTarget>>>,
         raw_messages: Arc<PortRegistration<Arc<dyn RawProviderMessages>>>,
         data_folder: &Path,
     ) -> Self {
@@ -152,19 +167,24 @@ impl ClaudeProcessLauncher {
             child_records,
             processes,
             provider_accounts,
+            telemetry_target,
             raw_messages,
             control_only_folder: CLAUDE_CONTROL_ONLY_FOLDER
                 .iter()
                 .fold(data_folder.to_path_buf(), |folder, name| folder.join(name)),
+            settings_folder: compose_claude_settings_folder(data_folder),
             live: Mutex::new(LiveProcesses::default()),
         }
     }
 
     /// Starts one process and keeps it until it exits: a launch naming a pasted token's account and
     /// carrying no token is handed the token sealed for that account, so every process on a token
-    /// account signs in with it. Fails with `Stopping` once the daemon's stop began, a process that
+    /// account signs in with it, and it exports to the telemetry target as registered now under a
+    /// token of its own. Fails with `Stopping` once the daemon's stop began, a process that
     /// started meanwhile being stopped again, with `SealedToken` when the account's sign-in or its
-    /// token cannot be read, and with `Spawn` when it could not be started.
+    /// token cannot be read, with `TelemetryBearer` when its telemetry token cannot be minted,
+    /// with `SettingsFile` when its settings file cannot be written, and with `Spawn` when it
+    /// could not be started.
     pub(crate) async fn start(
         &self,
         mut launch: ClaudeProcessLaunch,
@@ -181,18 +201,19 @@ impl ClaudeProcessLauncher {
                 .await
                 .map_err(ClaudeLaunchError::SealedToken)?;
         }
+        launch.telemetry_target = self.telemetry_target.port().cloned();
         let process = Arc::new(
             ClaudeCodeProcess::start(
                 &self.spawner,
                 &self.child_records,
                 &self.processes,
                 launch,
+                &self.settings_folder,
                 listener,
                 turn_holds,
                 Arc::clone(&self.raw_messages),
             )
-            .await
-            .map_err(ClaudeLaunchError::Spawn)?,
+            .await?,
         );
         let stop_deadline = {
             let mut live = self.lock();

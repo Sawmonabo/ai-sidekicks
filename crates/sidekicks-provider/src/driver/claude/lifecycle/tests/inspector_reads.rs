@@ -13,6 +13,7 @@ use sidekicks_contracts::session::inspector::{
     SessionHookListResponse, SessionMemoryEntry, SessionMemoryEntryKind, SessionMemoryHomeScope,
 };
 
+use crate::bounded_poll::poll_until;
 use crate::driver::ProviderAccountFolders;
 use crate::driver::claude::session::establishment::spawn_sources::claude_account_config_folder;
 use crate::driver::claude::session::inspector_reads::{
@@ -200,11 +201,10 @@ async fn a_spawn_keeps_its_listing_and_each_turn_refreshes_the_stores_and_files(
         session_id,
         init_naming("/memory/store"),
     );
-    ScriptedDriver::wait_for(|| {
-        reads
-            .kept_memory(session_id)
-            .is_some_and(|kept| kept.files == [filesystem_path(Path::new("b"))])
-    })
+    poll_until(
+        || reads.kept_memory(session_id),
+        |kept| (kept.as_ref()).is_some_and(|kept| kept.files == [filesystem_path(Path::new("b"))]),
+    )
     .await;
     settle().await;
 
@@ -330,11 +330,10 @@ async fn a_gone_process_answers_its_kept_rows_and_starts_nothing() {
         session_id,
         init_naming("/memory/store"),
     );
-    ScriptedDriver::wait_for(|| {
-        reads
-            .kept_memory(session_id)
-            .is_some_and(|kept| kept.files == [filesystem_path(Path::new("a"))])
-    })
+    poll_until(
+        || reads.kept_memory(session_id),
+        |kept| (kept.as_ref()).is_some_and(|kept| kept.files == [filesystem_path(Path::new("a"))]),
+    )
     .await;
     settle().await;
     assert_eq!(
@@ -460,7 +459,7 @@ async fn an_opening_joins_a_read_under_way_and_sends_no_listing() {
         .run_start
         .routes;
     hand_scripted_frame(&*start.listener, routes, session_id, &init());
-    ScriptedDriver::wait_for(|| sent(&channel, "get_context_usage") == 1).await;
+    poll_until(|| sent(&channel, "get_context_usage"), |count| *count == 1).await;
     let session = inspected(&fixture, session_id, None);
 
     // The opening starts while that read is held, then the read's answer goes.

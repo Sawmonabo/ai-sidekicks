@@ -30,6 +30,7 @@ use sha2::{Digest as _, Sha256};
 use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_provider::driver::mcp_server::address::fold_server_address;
 use sidekicks_provider::record_readers::read_non_empty_string;
 use strum::{EnumString, IntoStaticStr, VariantArray};
 use tokio::sync::watch;
@@ -38,7 +39,6 @@ use crate::client::connection::McpServerConnection;
 use crate::client::connection::standing::McpStandingConnection;
 use crate::client::poll::{PollError, PollFailure};
 use crate::client::requests::{McpRequestError, RequestWait};
-use crate::sign_in::canonical_server_address;
 
 /// The identity of one MCP tool dispatch. `command_id` is the client-supplied idempotency key on
 /// the dispatch's command receipt row; `tool_name` names no stored row.
@@ -83,7 +83,7 @@ impl McpServerEndpoint {
     /// The endpoint of the server at `address`: the prefix, then the lowercase hex SHA-256 of the
     /// address's canonical form.
     pub(crate) fn at_address(address: &McpServerAddress) -> Self {
-        let digest = Sha256::digest(canonical_server_address(address));
+        let digest = Sha256::digest(fold_server_address(address));
         Self(format!(
             "{}{}",
             Self::ADDRESS_PREFIX,

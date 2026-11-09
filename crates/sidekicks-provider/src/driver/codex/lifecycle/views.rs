@@ -32,12 +32,14 @@ struct CodexSessionView {
 }
 
 /// A live session's conversation as its name is drawn and told: the service it is loaded on, the
-/// conversation, the folder it runs in and the model it runs.
+/// conversation, the account it runs on, the folder it runs in and the model it runs.
 pub(crate) struct CodexConversationView {
     /// The service.
     pub(crate) service: Arc<CodexService>,
     /// The conversation.
     pub(crate) thread_id: String,
+    /// The account the session runs on, which a naming pass's spend is charged to.
+    pub(crate) provider_account_id: ProviderAccountId,
     /// The session's folder.
     pub(crate) working_directory: PathBuf,
     /// The session's model.
@@ -129,6 +131,7 @@ impl CodexSessionViews {
             .map(|view| CodexConversationView {
                 service: Arc::clone(&view.service),
                 thread_id: view.thread_id.clone(),
+                provider_account_id: view.provider_account_id.clone(),
                 working_directory: view.working_directory.clone(),
                 model: view.model.clone(),
             })

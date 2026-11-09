@@ -32,6 +32,7 @@ use sidekicks_platforms::{WallClock, create_missing_private_folders};
 use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
 use sidekicks_std::missing_entry::is_missing_entry;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::outbound_http::KeptOutboundClient;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::scheduler::armed_instant::{ArmedInstant, InstantJob};
 use tokio::sync::{Notify, watch};
@@ -39,7 +40,7 @@ use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::CancellationToken;
 
 use crate::pricing::fetch::{
-    FetchedPriceList, PriceListFetchError, build_price_list_client, fetch_price_list,
+    FetchedPriceList, PRICE_LIST_IDLE_CONNECTIONS, PriceListFetchError, fetch_price_list,
 };
 use crate::pricing::list::{
     DecodedPriceTable, PriceRowSelection, PriceTable, PriceTableRefusal, RefusedPriceField,
@@ -81,6 +82,8 @@ pub struct PriceListConfig {
 pub struct HeldPriceList {
     folder: PathBuf,
     url: Url,
+    // Built for each fetch and released after it, as fetches come hours apart.
+    client: KeptOutboundClient,
     clock: Arc<dyn WallClock>,
     timer: ArmedInstant,
     // Told by the timer and by a key the copy lacks; it only wakes the task.
@@ -193,6 +196,7 @@ impl HeldPriceList {
         let held = Arc::new(Self {
             folder: config.folder,
             url: config.url,
+            client: KeptOutboundClient::new(PRICE_LIST_IDLE_CONNECTIONS),
             clock,
             timer: ArmedInstant::new(scheduler, FETCH_JOB, FETCH_RETRY_JOB),
             wake: Notify::new(),
@@ -352,8 +356,9 @@ impl HeldPriceList {
         &self,
         etag: Option<&str>,
     ) -> Result<FetchedPriceList, PriceListFetchError> {
-        let client = build_price_list_client()?;
-        fetch_price_list(&client, &self.url, etag).await
+        let fetched = fetch_price_list(&self.client, &self.url, etag).await;
+        self.client.release();
+        fetched
     }
 
     // Takes a fetched copy in place of the held one, unless it does not decode or lacks a row the

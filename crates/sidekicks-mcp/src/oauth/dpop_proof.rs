@@ -169,15 +169,23 @@ pub enum DpopSendError {
     /// The request's proof could not be made.
     #[error("the request's DPoP proof could not be made")]
     Proof(#[from] DpopProofError),
-    /// The request failed on the network, or its body could not be read.
+    /// The request failed on the network, or its body could not be read; the error holds no
+    /// address, whose query may carry a credential.
     #[error("the request to the authorization server failed")]
-    Http(#[from] reqwest::Error),
+    Http(#[source] reqwest::Error),
     /// The response's body is past the bound.
     #[error("the authorization server's response body is past {max_bytes} bytes")]
     BodyTooLarge {
         /// The bound, in bytes.
         max_bytes: usize,
     },
+}
+
+impl From<reqwest::Error> for DpopSendError {
+    /// The network failure with its address dropped.
+    fn from(error: reqwest::Error) -> Self {
+        Self::Http(error.without_url())
+    }
 }
 
 /// Sends a request of `method` to `target` over `http` with a proof signed by `key` and bound to
@@ -228,7 +236,7 @@ pub(crate) async fn read_response(
     let body = read_capped_body(response, MAX_RESPONSE_BODY_BYTES)
         .await
         .map_err(|error| match error {
-            CappedBodyError::Read(error) => DpopSendError::Http(error),
+            CappedBodyError::Read(error) => DpopSendError::from(error),
             CappedBodyError::TooLarge { max_bytes } => DpopSendError::BodyTooLarge { max_bytes },
         })?;
     Ok(AuthorizationServerResponse {
@@ -246,7 +254,7 @@ fn asks_for_dpop_nonce(response: &AuthorizationServerResponse) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::sync::{Arc, Mutex};
 
     use axum::Router;
@@ -265,9 +273,18 @@ mod tests {
 
     use super::{DpopKey, make_proof, send_signed};
 
-    fn decode_part(part: &str) -> Value {
+    /// The JSON one base64url part of a proof holds: its header or its claims.
+    pub(crate) fn decode_part(part: &str) -> Value {
         let bytes = URL_SAFE_NO_PAD.decode(part).expect("a base64url part");
         serde_json::from_slice(&bytes).expect("a JSON part")
+    }
+
+    /// The RFC 7638 thumbprint of the JWK in `proof`'s header: the key that signed it.
+    pub(crate) fn proof_thumbprint(proof: &str) -> String {
+        let header = decode_part(proof.split('.').next().expect("a proof has a header"));
+        ES256PublicKey::from_jwk(&header["jwk"].to_string())
+            .expect("a public P-256 JWK")
+            .jwk_thumbprint()
     }
 
     // The nonce claim of the proof in `headers`, `None` when the proof names none.

@@ -11,6 +11,9 @@ use sidekicks_contracts::workflow::run::status::{
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 
 #[cfg(test)]
+use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
+
+#[cfg(test)]
 use crate::schema::WORKFLOW_SCHEMA_SQL;
 
 /// The session every test run lives in.
@@ -24,6 +27,12 @@ const CREATED_AT: &str = "2026-10-01T00:00:00.000Z";
 const STEP_STARTED_AT: &str = "2026-10-02T00:00:01.000Z";
 
 const EMPTY_PAYLOAD_REF: &str = r#"{"kind":"inline","items":[]}"#;
+
+/// The node id `id`, which a test names as text.
+#[cfg(test)]
+pub(crate) fn test_node_id(id: &str) -> WorkflowNodeId {
+    WorkflowNodeId::new(id.to_owned()).expect("the test's node id")
+}
 
 /// A connection on a fresh in-memory database holding the workflow tables, with foreign keys on.
 #[cfg(test)]
@@ -95,6 +104,32 @@ pub(crate) fn insert_workflow_version_body(
         .expect("the test stores a version");
 }
 
+/// Stores `version_id`, version `version_number` of the workflow whose version is
+/// `earlier_version_id`, with `body` as its body and the earlier version's hash and instant.
+#[cfg(test)]
+pub(crate) fn insert_later_workflow_version(
+    connection: &Connection,
+    earlier_version_id: &str,
+    version_id: &str,
+    version_number: u32,
+    body: &serde_json::Value,
+) {
+    connection
+        .execute(
+            "INSERT INTO workflow_versions (id, definition_id, version_number, content_hash, \
+             schema_version, definition_body, created_at) \
+             SELECT ?1, definition_id, ?2, content_hash, schema_version, ?3, created_at \
+             FROM workflow_versions WHERE id = ?4",
+            params![
+                version_id,
+                version_number,
+                body.to_string(),
+                earlier_version_id
+            ],
+        )
+        .expect("the test stores a later version");
+}
+
 // `text`'s instant in the stored form every instant takes, as the runs' writer writes it.
 fn stored_instant(text: &str) -> String {
     let timestamp: jiff::Timestamp = text.parse().expect("the test writes an instant");
@@ -134,6 +169,43 @@ pub fn insert_run(
         .expect("the test stores a run");
 }
 
+/// Stores the waiting run `run_id` of version `version_id` in `session_id`, started at
+/// `started_at`: the first run of its own chain, or a later run of `root`'s chain where one is
+/// given.
+#[cfg(test)]
+pub(crate) fn insert_chain_run(
+    connection: &Connection,
+    run_id: &str,
+    version_id: &str,
+    session_id: &str,
+    started_at: &str,
+    root: Option<&str>,
+) {
+    insert_run(
+        connection,
+        run_id,
+        version_id,
+        WorkflowRunStatus::Waiting,
+        started_at,
+        None,
+    );
+    connection
+        .execute(
+            "UPDATE workflow_runs SET session_id = ?1 WHERE id = ?2",
+            params![session_id, run_id],
+        )
+        .expect("the test moves the run to its session");
+    if let Some(root) = root {
+        connection
+            .execute(
+                "UPDATE workflow_runs SET chain_root_run_id = ?1, chain_run_count = NULL,
+                   chain_kept_going = NULL WHERE id = ?2",
+                params![root, run_id],
+            )
+            .expect("the test chains a later run onto a first run");
+    }
+}
+
 /// A step a test stores: its place in the run, where it stands and what a waiting one waits on.
 pub struct TestStep<'step> {
     /// Its execution index.
@@ -151,6 +223,97 @@ pub struct TestStep<'step> {
 /// Stores `step` in run `run_id`, running the test node; a waiting step started waiting when it
 /// started, and a wait on a person holds a wait id made from its execution index.
 pub fn insert_step(connection: &Connection, run_id: &str, step: &TestStep<'_>) {
+    insert_step_row(
+        connection,
+        run_id,
+        &StepRow {
+            node_id: TEST_NODE_ID,
+            attempt: 1,
+            step,
+            finished_at: None,
+            source_json: "[]".to_owned(),
+            output_item_counts_json: "[]".to_owned(),
+        },
+    );
+}
+
+/// A settled step a test stores: its node, attempt and execution index, where it stands, when it
+/// ended, the `(node, execution index)` of the step of its run that fed each input slot, and how
+/// many items each main output holds, its output itself empty.
+#[cfg(test)]
+pub(crate) struct TestSettledStep<'step> {
+    /// Its node.
+    pub(crate) node_id: &'step str,
+    /// Its attempt, from 1.
+    pub(crate) attempt: u32,
+    /// Its execution index.
+    pub(crate) execution_index: u32,
+    /// Where it stands.
+    pub(crate) status: WorkflowStepStatus,
+    /// When it ended, as stored.
+    pub(crate) finished_at: &'step str,
+    /// Per input slot, the node and execution index of the step that fed it.
+    pub(crate) sources: &'step [(&'step str, u32)],
+    /// How many items each main output holds.
+    pub(crate) output_item_counts: &'step [u64],
+}
+
+/// Stores `step` in run `run_id`.
+#[cfg(test)]
+pub(crate) fn insert_settled_step(
+    connection: &Connection,
+    run_id: &str,
+    step: &TestSettledStep<'_>,
+) {
+    insert_step_row(
+        connection,
+        run_id,
+        &StepRow {
+            node_id: step.node_id,
+            attempt: step.attempt,
+            step: &TestStep {
+                execution_index: step.execution_index,
+                status: step.status,
+                wait_cause: None,
+                wait_account_id: None,
+                resume_at: None,
+            },
+            finished_at: Some(step.finished_at),
+            source_json: test_step_sources(step.sources).to_string(),
+            output_item_counts_json: serde_json::json!(step.output_item_counts).to_string(),
+        },
+    );
+}
+
+/// The `source_json` of a step fed by each of `sources`, a `(node, execution index)` per slot,
+/// each from its node's first main output.
+#[cfg(test)]
+pub(crate) fn test_step_sources(sources: &[(&str, u32)]) -> serde_json::Value {
+    sources
+        .iter()
+        .map(|(node_id, execution_index)| {
+            serde_json::json!({
+                "nodeId": node_id, "outputIndex": 0, "executionIndex": execution_index,
+            })
+        })
+        .collect()
+}
+
+// The columns a stored step row takes beyond its run: the step, its node and attempt, when it
+// ended and what fed it and it holds.
+struct StepRow<'step> {
+    node_id: &'step str,
+    attempt: u32,
+    step: &'step TestStep<'step>,
+    finished_at: Option<&'step str>,
+    source_json: String,
+    output_item_counts_json: String,
+}
+
+// Stores `row` in run `run_id`; a waiting step started waiting when it started, and a wait on a
+// person holds a wait id made from its execution index.
+fn insert_step_row(connection: &Connection, run_id: &str, row: &StepRow<'_>) {
+    let step = row.step;
     let is_waiting = step.status == WorkflowStepStatus::Waiting;
     let is_person_wait = matches!(
         step.wait_cause,
@@ -160,11 +323,13 @@ pub fn insert_step(connection: &Connection, run_id: &str, step: &TestStep<'_>) {
         .execute(
             "INSERT INTO workflow_steps (workflow_run_id, node_id, attempt, execution_index, \
              status, wait_cause, wait_account_id, resume_at, wait_started_at, wait_id, \
-             started_at, input_ref, output_ref, log_ref) \
-             VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11, ?11)",
+             started_at, finished_at, source_json, output_item_counts_json, input_ref, \
+             output_ref, log_ref) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?15, ?15)",
             params![
                 run_id,
-                TEST_NODE_ID,
+                row.node_id,
+                row.attempt,
                 step.execution_index,
                 <&'static str>::from(step.status),
                 step.wait_cause.map(<&'static str>::from),
@@ -174,6 +339,9 @@ pub fn insert_step(connection: &Connection, run_id: &str, step: &TestStep<'_>) {
                 is_person_wait
                     .then(|| format!("00000000-0000-7000-8000-{:012x}", step.execution_index)),
                 STEP_STARTED_AT,
+                row.finished_at,
+                row.source_json,
+                row.output_item_counts_json,
                 EMPTY_PAYLOAD_REF
             ],
         )
