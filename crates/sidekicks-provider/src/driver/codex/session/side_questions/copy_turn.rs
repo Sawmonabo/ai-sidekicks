@@ -4,6 +4,7 @@
 use serde::Deserialize;
 use serde_json::Value;
 use serde_json::value::RawValue;
+use sidekicks_ipc::redaction::scrub_credentials;
 
 use crate::driver::codex::event_normalizer::{
     CODEX_ITEM_COMPLETED_METHOD, CODEX_THREAD_TOKEN_USAGE_METHOD, CODEX_TURN_COMPLETED_METHOD,
@@ -94,12 +95,13 @@ pub(crate) fn read_copy_frame(
 pub(crate) struct CopyTurnFailure(String);
 
 impl CopyTurnFailure {
-    /// The words of Codex's `error` for the turn, else the copy's own.
+    /// The words of Codex's `error` for the turn with any credential they quote masked, else the
+    /// copy's own.
     pub(crate) fn of(error: Option<&Value>) -> Self {
         let words = error
             .and_then(|error| error.get("message"))
             .and_then(Value::as_str)
             .filter(|words| !words.trim().is_empty());
-        Self(words.unwrap_or(NO_ANSWER_DETAIL).to_owned())
+        Self(words.map_or_else(|| NO_ANSWER_DETAIL.to_owned(), scrub_credentials))
     }
 }

@@ -60,9 +60,11 @@ static KEY_VALUE_CREDENTIAL: LazyLock<Regex> = LazyLock::new(|| {
     .expect("the key-value credential pattern is a valid regex")
 });
 
-// Tokens known by their prefix.
+// Tokens known by their prefix, whole or as a service's error quotes one masked, such as
+// `sk-proj-****wxyz`: the mask's `*` and `…` are part of the token, so the characters still shown
+// around it go too.
 static KNOWN_TOKEN_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?-u:\b)(?:gh[pousr]_|github_pat_|glpat-|xox[abprs]-|sk-|AKIA)[A-Za-z0-9_-]{8,}")
+    Regex::new(r"(?-u:\b)(?:gh[pousr]_|github_pat_|glpat-|xox[abprs]-|sk-|AKIA)[A-Za-z0-9_*…-]{8,}")
         .expect("the token prefix pattern is a valid regex")
 });
 

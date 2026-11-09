@@ -13,6 +13,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_ipc::redaction::scrub_credentials;
 
 use super::event_normalizer::CODEX_TURN_COMPLETED_METHOD;
 use crate::driver::contract::error::bound_failure_detail;
@@ -84,9 +85,11 @@ struct CompletedTurn {
 }
 
 impl CompletedTurn {
-    // The error's message where it carries one as text.
-    fn error_message(&self) -> Option<&str> {
-        self.error.as_ref()?.get("message")?.as_str()
+    // The error's message where it carries one as text, any credential it quotes masked.
+    fn error_message(&self) -> Option<String> {
+        Some(scrub_credentials(
+            self.error.as_ref()?.get("message")?.as_str()?,
+        ))
     }
 
     // The turn's status, a word Codex does not send reported once on the connection as unmapped.
@@ -179,7 +182,7 @@ pub(crate) fn compose_codex_turn_terminal(
     let (change, outcome) = compose_run_end(
         run_id,
         status,
-        turn.error_message(),
+        turn.error_message().as_deref(),
         RunEnd {
             is_intended_close,
             failure_cause,
@@ -209,7 +212,9 @@ pub(crate) fn compose_codex_child_terminal(
     let (change, _) = compose_run_end(
         child_run_id,
         status,
-        turn.as_ref().and_then(CompletedTurn::error_message),
+        turn.as_ref()
+            .and_then(CompletedTurn::error_message)
+            .as_deref(),
         RunEnd {
             is_intended_close: false,
             failure_cause: None,

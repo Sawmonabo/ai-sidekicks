@@ -12,6 +12,7 @@ use sidekicks_contracts::run::events::{RunStateChangeState, TurnEndCause};
 use sidekicks_contracts::session::controls::events::RunSafetyBufferingUpdatedPayload;
 use sidekicks_contracts::turn::{ProviderTurnId, TurnTasksUpdate};
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_ipc::redaction::scrub_credentials;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::delivery::failure_cause::{
@@ -670,8 +671,8 @@ pub(crate) fn codex_compaction_wait_key(record: &CodexSessionRecord, thread_id: 
     format!("{}\u{0}{thread_id}", record.session_id)
 }
 
-// An error Codex retries marks the turn retried; one it will not retry is the turn's final error.
-// Answers whether Codex retries the request.
+// An error Codex retries marks the turn retried; one it will not retry is the turn's final error,
+// its message kept with any credential it quotes masked. Answers whether Codex retries the request.
 fn note_turn_error(record: &mut CodexSessionRecord, members: &Map<String, Value>) -> bool {
     let Some(turn_id) = read_non_empty_string(members, "turnId") else {
         return false;
@@ -688,7 +689,7 @@ fn note_turn_error(record: &mut CodexSessionRecord, members: &Map<String, Value>
     record.delivery.final_error_by_turn_id.insert(
         turn_id.to_owned(),
         CodexTurnErrorReading {
-            message: message.to_owned(),
+            message: scrub_credentials(message),
             error_kind: read_codex_error_kind(error),
         },
     );

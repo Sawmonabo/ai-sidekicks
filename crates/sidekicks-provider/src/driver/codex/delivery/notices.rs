@@ -17,6 +17,7 @@ use sidekicks_contracts::session::controls::events::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_ipc::redaction::scrub_credentials;
 use sidekicks_std::text_cut::cut_to_code_points;
 
 use crate::driver::codex::DESCRIPTOR;
@@ -99,13 +100,16 @@ pub(crate) fn release_reroute(
     memory.pending_reroute_by_thread_id.remove(thread_id)
 }
 
-/// Reads a `warning`: the sentence of the reroute waiting on its thread, else the session's.
+/// Reads a `warning`: the sentence of the reroute waiting on its thread, else the session's. Any
+/// credential its words quote is masked, since a transport fallback's warning repeats the failed
+/// request's error.
 pub(crate) fn read_codex_warning(
     memory: &mut CodexDeliveryMemory,
     session_id: SessionId,
     params: &Map<String, Value>,
 ) -> CodexWarningReading {
-    let Some(message) = read_non_empty_string(params, "message").and_then(provider_words) else {
+    let message = read_non_empty_string(params, "message").map(scrub_credentials);
+    let Some(message) = message.as_deref().and_then(provider_words) else {
         return CodexWarningReading::None;
     };
     let reroute = read_non_empty_string(params, "threadId")

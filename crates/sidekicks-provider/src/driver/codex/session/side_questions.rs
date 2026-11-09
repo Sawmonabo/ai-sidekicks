@@ -28,6 +28,7 @@ use sidekicks_contracts::session::controls::methods::{
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_ipc::redaction::scrub_credentials;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::text_cut::cut_to_code_points;
@@ -811,6 +812,7 @@ fn unanswered(
             .and_then(|error| error.get(member))
             .and_then(Value::as_str)
             .filter(|words| !words.trim().is_empty())
+            .map(scrub_credentials)
     };
     let refusal = read_codex_error_kind(error)
         .filter(|kind| CODEX_POLICY_REFUSALS.contains(&kind.as_str()))
@@ -821,8 +823,8 @@ fn unanswered(
                 wire_handle(DESCRIPTOR.provider_id().as_str())
                     .expect("a provider's id is a wire handle")
             }),
-            sentence: words("message").map(failure_detail),
-            explanation: words("additionalDetails").map(failure_detail),
+            sentence: words("message").as_deref().map(failure_detail),
+            explanation: words("additionalDetails").as_deref().map(failure_detail),
             safety_category: wire_handle(&kind),
         });
     match refusal {
