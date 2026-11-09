@@ -785,8 +785,57 @@ mod tests {
     use garde::Validate;
     use serde_json::json;
 
-    use super::WorkflowStepResolution;
-    use crate::schema::closed_schema_for;
+    use super::{WorkflowStep, WorkflowStepResolution};
+    use crate::schema::{assert_received_written_form, closed_schema_for};
+
+    /// A step waiting on each cause passes the received check, which still refuses a member the
+    /// step does not declare. Killed by a closing that leaves the waiting arm's `status` or a
+    /// cause's members unevaluated, or that stops refusing an undeclared member.
+    #[test]
+    fn a_waiting_step_of_every_cause_is_received() {
+        let account = json!({
+            "waitAccount": {
+                "providerAccountId": "account-1",
+                "provider": "claude-code",
+                "label": "Work",
+            },
+            "resumeAt": "2026-01-01T15:00:00.000Z",
+        });
+        let reply = json!({
+            "question": {
+                "questionId": "019b7a40-0280-75e5-8510-ada11a5a7001",
+                "waitId": "019b7a40-0280-75e5-8510-ada11a5a7101",
+                "prompt": "Which label should these issues get?",
+            },
+        });
+        let deadline = json!({ "waitDeadlineAt": "2026-01-01T18:00:00.000Z" });
+        for (cause, own) in [
+            ("account", account),
+            ("reply", reply),
+            ("approval", deadline.clone()),
+            ("form", deadline),
+            ("chain", json!({})),
+        ] {
+            let mut step = json!({
+                "workflowRunId": "019b7a10-0280-75e5-8510-ada11a5a4002",
+                "nodeId": "approve",
+                "attempt": 1,
+                "executionIndex": 3,
+                "source": [{ "nodeId": "notes", "outputIndex": 0, "executionIndex": 2 }],
+                "status": "waiting",
+                "waitCause": cause,
+                "startedAt": "2026-01-01T14:05:00.000Z",
+                "inputRef": { "kind": "inline", "items": [] },
+                "outputRef": { "kind": "inline", "items": [] },
+                "logRef": { "kind": "inline", "items": [] },
+                "totalMemoryWaitMs": 0,
+            });
+            for (member, value) in own.as_object().expect("a cause's members are an object") {
+                step[member] = value.clone();
+            }
+            assert_received_written_form::<WorkflowStep>(step);
+        }
+    }
 
     /// A decline reason is kept on a declined resolution and refused on any other, by the garde
     /// check and the schema alike. Mutations: drop the check or the schema's `if`; refuse the

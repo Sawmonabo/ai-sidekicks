@@ -423,3 +423,34 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: &[],
     method_tables: &[],
 };
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::WorkflowRunSummary;
+    use crate::schema::assert_received_written_form;
+
+    /// A waiting run's row of each cause passes the received check, which still refuses a member
+    /// the row does not declare. Killed by a closing that leaves the waiting arm's `status` or a
+    /// cause's members unevaluated, or that stops refusing an undeclared member.
+    #[test]
+    fn a_waiting_run_of_every_cause_is_received() {
+        for cause in ["approval", "form", "reply", "account", "chain"] {
+            assert_received_written_form::<WorkflowRunSummary>(json!({
+                "workflowRunId": "019b7a10-0280-75e5-8510-ada11a5a4002",
+                "sessionId": "019b7a10-0280-75e5-8510-ada11a5a5001",
+                "definitionId": "019b7a10-0280-75e5-8510-ada11a5a5002",
+                "definitionName": "Triage issues",
+                "mode": "manual",
+                "triggerKind": "trigger.manual",
+                "startedBy": { "kind": "schedule" },
+                "startedAt": "2026-01-01T14:05:00.000Z",
+                "stepCount": 3,
+                "keep": false,
+                "status": "waiting",
+                "waitCause": cause,
+            }));
+        }
+    }
+}

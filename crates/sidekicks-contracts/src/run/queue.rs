@@ -791,7 +791,40 @@ impl ListKey for QueueItemId {
 mod tests {
     use serde_json::{Value, json};
 
-    use super::{PlanMessageKind, UserMessageSentPayload};
+    use super::{PlanMessageKind, QueueItemSummary, UserMessageSentPayload};
+    use crate::schema::assert_received_written_form;
+
+    /// A plan message's row in each state passes the received check, which still refuses a member
+    /// the row does not declare. Killed by a closing that leaves the kind's arm's `kind` or a
+    /// state's members unevaluated, or that stops refusing an undeclared member.
+    #[test]
+    fn a_queue_item_in_every_state_is_received() {
+        for (state, reason) in [
+            ("queued", None),
+            ("admitted", None),
+            ("superseded", None),
+            ("canceled", None),
+            ("notDelivered", Some(json!({ "kind": "failed" }))),
+        ] {
+            let mut item = json!({
+                "kind": "planMessage",
+                "state": state,
+                "id": "0190f5a4-1c2b-7d3e-8f40-5a6b7c8d9e20",
+                "position": 0,
+                "planMessage": {
+                    "planId": "0190f5a4-1c2b-7d3e-8f40-5a6b7c8d9e10",
+                    "kind": "build",
+                },
+                "isSentNow": false,
+                "createdAt": "2026-01-01T14:05:00.000Z",
+                "updatedAt": "2026-01-01T14:05:00.000Z",
+            });
+            if let Some(reason) = reason {
+                item["notDeliveredReason"] = reason;
+            }
+            assert_received_written_form::<QueueItemSummary>(item);
+        }
+    }
 
     fn sent_row(plan_message: Option<Value>) -> Value {
         let mut row = json!({
