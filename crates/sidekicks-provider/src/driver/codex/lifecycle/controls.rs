@@ -24,6 +24,7 @@ use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedStat
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::record::Record;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 
 use super::CodexDriver;
@@ -152,16 +153,16 @@ impl CodexDriver {
     }
 
     /// Asks a side question on a read-only copy of the session's conversation: the live one, else
-    /// the stored one `params.resume` names, forked on the account's service; answers once the
-    /// copy's turn ended with its answer delivered, or once a close or the shutdown stopped it.
-    /// Refused `session.sideQuestion.refused` where Codex's policy refused the turn, and
+    /// the stored one `params.resume` names, forked on the account's service; answers the copy's
+    /// answer once its turn ended with it delivered, or `None` once a close or the shutdown stopped
+    /// it. Refused `session.sideQuestion.refused` where Codex's policy refused the turn, and
     /// `provider.unavailable` in Codex's words where it gave no answer otherwise; fails with
     /// `CodexError::Transport` with neither a live record nor a resume handle, and as the ask
     /// fails.
     pub(crate) async fn ask_side_question(
         &self,
         params: AskSideQuestionParams,
-    ) -> Result<(), DriverError> {
+    ) -> Result<Option<FreeFormText<{ usize::MAX }>>, DriverError> {
         let answer = match (self.slots.require_live(params.session_id), &params.resume) {
             // Asked on the session's task, which reads the copy's frames; waited for off it.
             (Ok(inbound), _) => {

@@ -37,7 +37,7 @@ use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::{
     AskSideQuestionParams, CloseSessionParams, CreateSessionParams, MoveSessionToForkParams,
-    ResumeSessionParams, SessionCloseCause,
+    ResumeSessionParams, SessionCloseCause, SideQuestionPurpose,
 };
 use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::port::run_host::test_host::EngineCall;
@@ -80,7 +80,8 @@ pub(super) fn counts(input: u64, output: u64) -> UsageAxisCounts {
 // from zero or the live parent's cumulative read as zero instead of less the parent's, and by a
 // copy that keeps an askpass or channel variable or sets only `GIT_TERMINAL_PROMPT` of the
 // no-prompt environment, and by a copy at rest started in its account's home rather than the one
-// its binding names as holding its conversation, where a switch left it.
+// its binding names as holding its conversation, where a switch left it; and by answering the ask
+// with no text or another than the one published.
 #[tokio::test(start_paused = true)]
 async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_the_fork_less_the_parent() {
     let fixture = ScriptedDriver::new();
@@ -140,13 +141,14 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_the_fork_l
         .script_one_turn(one_turn_reply("at rest", Some(counts(150, 30))));
     let ask = |session_id, resume| AskSideQuestionParams {
         session_id,
+        purpose: SideQuestionPurpose::Person,
         binding_id: binding_id("lead"),
         side_question_id: SideQuestionId::try_from(mint_uuid_v7()).expect("a UUID is an id"),
         question: "Why?".to_owned(),
         resume,
     };
 
-    fixture
+    let live_answer = fixture
         .driver
         .ask_side_question(ask(live_session, None))
         .await
@@ -157,12 +159,14 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_the_fork_l
         runtime_metadata: claude_conversation_home_metadata(&conversation_home),
         ..resume_params(resting_session)
     };
-    fixture
+    let resting_answer = fixture
         .driver
         .ask_side_question(ask(resting_session, Some(resting_resume)))
         .await
         .expect("the resting session's question is answered");
     assert_eq!(answered(&fixture), 2);
+    let texts = [live_answer, resting_answer].map(|answer| answer.map(FreeFormText::into_string));
+    assert_eq!(texts, [Some("live".to_owned()), Some("at rest".to_owned())]);
 
     let live_provider_session = fixture
         .driver
@@ -266,6 +270,7 @@ async fn a_side_question_the_model_refuses_is_refused_as_such() {
         .driver
         .ask_side_question(AskSideQuestionParams {
             session_id,
+            purpose: SideQuestionPurpose::Person,
             binding_id: binding_id("lead"),
             side_question_id: SideQuestionId::try_from(mint_uuid_v7()).expect("a UUID is an id"),
             question: "Why?".to_owned(),

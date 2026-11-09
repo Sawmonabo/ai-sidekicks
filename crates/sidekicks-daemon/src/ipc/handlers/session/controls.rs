@@ -32,7 +32,7 @@ use sidekicks_ipc::stream::feed::Feed;
 use sidekicks_ipc::stream::latest_value::LatestValueFeed;
 use sidekicks_provider::driver::capabilities::DriverCapabilityFlag;
 use sidekicks_provider::driver::session_control::{
-    AskSideQuestionParams, SubscribeProviderCommandsParams,
+    AskSideQuestionParams, SideQuestionPurpose, SubscribeProviderCommandsParams,
 };
 use sidekicks_queue::provider_session::ProviderSessions;
 use sidekicks_queue::provider_session::controls::SideQuestionSource;
@@ -145,9 +145,11 @@ async fn ask_side_question(
     };
     let side_question_id =
         SideQuestionId::try_from(mint_uuid_v7()).expect("a minted UUID is a side question id");
-    driver
+    // The answer's text is dropped: the session's stream already drew it.
+    let _drawn = driver
         .ask_side_question(AskSideQuestionParams {
             session_id,
+            purpose: SideQuestionPurpose::Person,
             binding_id,
             side_question_id,
             question: question.0.into_string(),

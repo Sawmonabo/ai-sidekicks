@@ -7,6 +7,7 @@ use std::sync::Arc;
 use futures::FutureExt;
 use futures::future::ready;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::text::FreeFormText;
 
 use super::{ClaudeDriver, ClaudeSessionParts};
 use crate::driver::claude::DESCRIPTOR;
@@ -28,12 +29,13 @@ use crate::driver::session_control::{AskSideQuestionParams, ResumeSessionParams}
 
 impl ClaudeDriver {
     /// Asks a side question on a copy of the conversation: the live process's own, else the one
-    /// the session's resume material names; resolves once it is answered. Fails `NoLiveSession`
-    /// for a session at rest asked with no resume material, and as the question's turn fails.
+    /// the session's resume material names; resolves to its answer once it is answered. Fails
+    /// `NoLiveSession` for a session at rest asked with no resume material, and as the question's
+    /// turn fails.
     pub(crate) async fn ask_side_question(
         &self,
         params: AskSideQuestionParams,
-    ) -> Result<(), DriverError> {
+    ) -> Result<Option<FreeFormText<{ usize::MAX }>>, DriverError> {
         let parts = self.parts()?;
         let session_id = params.session_id;
         let copy = self.compose_copy(parts, session_id, params.resume)?;
@@ -54,6 +56,7 @@ impl ClaudeDriver {
                 hold,
             )
             .await
+            .map(Some)
     }
 
     /// The copy of `session_id`'s conversation a one-turn process runs on: the live process's own,

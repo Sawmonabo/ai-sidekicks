@@ -27,6 +27,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::controls::methods::TerminalProviderSession;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::time::Instant;
 
 use crate::driver::contract::account::ProviderAccountLegs;
@@ -631,13 +632,14 @@ pub trait ProviderDriver: Send + Sync {
         params: AnswerSessionCommandParams,
     ) -> BoxFuture<'_, Result<SessionCommandAnswer, DriverError>>;
 
-    /// Asks a side question on a throwaway copy of the conversation; resolves once it is answered,
-    /// is refused `session.sideQuestion.refused` when the model refuses it, and fails as the
+    /// Asks a side question on a throwaway copy of the conversation; resolves to the copy's answer
+    /// once it is answered, or `None` once a close or the daemon's stop let the copy go first. Is
+    /// refused `session.sideQuestion.refused` when the model refuses it, and fails as the
     /// question's turn fails.
     fn ask_side_question(
         &self,
         params: AskSideQuestionParams,
-    ) -> BoxFuture<'_, Result<(), DriverError>>;
+    ) -> BoxFuture<'_, Result<Option<FreeFormText<{ usize::MAX }>>, DriverError>>;
 
     /// Takes the session's summary for a hand-over brief on a throwaway copy of its conversation,
     /// the session's own conversation left as it was and starting no turn; the copy's one turn is

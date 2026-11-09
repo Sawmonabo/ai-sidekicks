@@ -8,6 +8,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::oneshot;
@@ -31,9 +32,9 @@ use crate::driver::session_control::AskSideQuestionParams;
 /// How long the test waits for the copy to be served and let go.
 const SERVE_WAIT: Duration = Duration::from_secs(10);
 
-// Killed by refusing a session with no live record, as before it was built, and by forking
-// anything but the stored conversation the resume names, under the read-only profile, asking
-// nothing.
+// Killed by refusing a session with no live record, as before it was built, by forking anything
+// but the stored conversation the resume names, under the read-only profile, asking nothing, and
+// by answering the ask with no text or another than the one published.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_side_question_on_a_resting_session_forks_its_stored_conversation_and_answers() {
     let session = TestCodexSession::start().await;
@@ -71,7 +72,7 @@ async fn a_side_question_on_a_resting_session_forks_its_stored_conversation_and_
         .expect("the service served the copy");
     tasks.close();
     tasks.wait().await;
-    wait_for_side_question_answer(answer)
+    let answered = wait_for_side_question_answer(answer)
         .await
         .expect("the question is answered");
 
@@ -95,6 +96,10 @@ async fn a_side_question_on_a_resting_session_forks_its_stored_conversation_and_
         })
         .collect();
     assert_eq!(answers, [ANSWER]);
+    assert_eq!(
+        answered.map(FreeFormText::into_string).as_deref(),
+        Some(ANSWER)
+    );
     assert!(
         !session
             .scripted

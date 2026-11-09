@@ -307,11 +307,11 @@ impl ClaudeSessionControls {
     }
 
     /// Asks `question` on the copy of the conversation `copy` composes, in a one-turn process in
-    /// plan mode that keeps nothing, and resolves once it is answered: the answer is appended as a
-    /// row, its turn's usage metered on the session's `binding_id` through `usage`; `hold` keeps
-    /// the session awake until then. Refused `session.sideQuestion.refused` when the model refuses
-    /// the question; fails as the copy cannot be composed or its turn fails, and when its words
-    /// cannot be stored.
+    /// plan mode that keeps nothing, and resolves to the answer once it is answered: the answer is
+    /// appended as a row, its turn's usage metered on the session's `binding_id` through `usage`;
+    /// `hold` keeps the session awake until then. Refused `session.sideQuestion.refused` when the
+    /// model refuses the question; fails as the copy cannot be composed or its turn fails, and when
+    /// its words cannot be stored.
     #[expect(
         clippy::too_many_arguments,
         reason = "the question, where it is metered and the hold that keeps its session awake"
@@ -325,15 +325,17 @@ impl ClaudeSessionControls {
         copy: ClaudeCopyComposition,
         usage: &PortRegistration<Arc<dyn UsageSink>>,
         _hold: ClaudeSideQuestionHold,
-    ) -> Result<(), DriverError> {
+    ) -> Result<FreeFormText<{ usize::MAX }>, DriverError> {
         let copy = copy.await.map_err(DriverError::Internal)?;
         let reply = self
             .run_copy_turn(&copy, question.clone(), &binding_id, usage)
             .await?;
-        let row = side_question_row(session_id, side_question_id, question, reply)?;
+        let answered = side_question_answered(session_id, side_question_id, question, reply)?;
+        let answer = answered.answer.clone();
+        let row = SessionScopedRow::SideQuestionAnswered(answered);
         self.deliver(session_id, InboundDelivery::SessionEvent { row })
             .await;
-        Ok(())
+        Ok(answer)
     }
 
     /// Follows the session's live command list: the listener gets the current list now and each
@@ -741,15 +743,15 @@ async fn meter_side_question(
     }
 }
 
-// The answered row of a side question; refused `session.sideQuestion.refused`, the refusal as the
-// provider gave it in its detail, when the model refused it, and a fault when the question or the
-// answer is blank, holds a NUL or passes the cap.
-fn side_question_row(
+// The answered payload of a side question; refused `session.sideQuestion.refused`, the refusal as
+// the provider gave it in its detail, when the model refused it, and a fault when the question or
+// the answer is blank, holds a NUL or passes the cap.
+fn side_question_answered(
     session_id: SessionId,
     side_question_id: SideQuestionId,
     question: String,
     reply: ClaudeOneTurnReply,
-) -> Result<SessionScopedRow, DriverError> {
+) -> Result<SessionSideQuestionAnsweredPayload, DriverError> {
     if let Some(cause) = reply.refusal {
         return Err(DriverError::from(side_question_refusal(
             session_id,
@@ -760,14 +762,12 @@ fn side_question_row(
     let unstorable = |error: TextError| DriverError::Internal(Box::new(error));
     let question = FreeFormText::new(question).map_err(unstorable)?;
     let answer = FreeFormText::new(reply.text).map_err(unstorable)?;
-    Ok(SessionScopedRow::SideQuestionAnswered(
-        SessionSideQuestionAnsweredPayload {
-            session_id,
-            side_question_id,
-            question: SideQuestionText(question),
-            answer,
-        },
-    ))
+    Ok(SessionSideQuestionAnsweredPayload {
+        session_id,
+        side_question_id,
+        question: SideQuestionText(question),
+        answer,
+    })
 }
 
 // The name Claude Code's own lines give a model: the name `initialize` shows for the alias or

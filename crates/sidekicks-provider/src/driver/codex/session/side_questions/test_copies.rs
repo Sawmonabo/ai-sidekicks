@@ -22,7 +22,9 @@ use crate::driver::codex::permission_level::{CodexProfileFolders, compose_codex_
 use crate::driver::codex::service::supervisor::test_service::{
     next_socket_request, send_on_socket,
 };
-use crate::driver::session_control::{AskSideQuestionParams, ResumeSessionParams};
+use crate::driver::session_control::{
+    AskSideQuestionParams, ResumeSessionParams, SideQuestionPurpose,
+};
 use crate::driver::test_registry::new_agent_id;
 use crate::run::posture::compose_execution_posture;
 use crate::runtime_binding::store::mint_runtime_binding_id;
@@ -75,6 +77,7 @@ pub(crate) fn resting_session(session_id: SessionId, folder: &Path) -> ResumeSes
 pub(crate) fn resting_question(session_id: SessionId, folder: &Path) -> AskSideQuestionParams {
     AskSideQuestionParams {
         session_id,
+        purpose: SideQuestionPurpose::Person,
         binding_id: mint_runtime_binding_id(),
         side_question_id: SideQuestionId::try_from(mint_uuid_v7()).expect("a UUID is an id"),
         question: "What does this read?".to_owned(),

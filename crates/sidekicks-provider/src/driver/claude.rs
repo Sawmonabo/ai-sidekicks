@@ -18,7 +18,7 @@ use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedStat
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::text::NonEmptyText;
+use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 
 use crate::command::running_set::takes_no_input;
 use crate::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
@@ -593,7 +593,7 @@ impl ProviderDriver for ClaudeDriver {
     fn ask_side_question(
         &self,
         params: AskSideQuestionParams,
-    ) -> BoxFuture<'_, Result<(), DriverError>> {
+    ) -> BoxFuture<'_, Result<Option<FreeFormText<{ usize::MAX }>>, DriverError>> {
         self.ask_side_question(params).boxed()
     }
 

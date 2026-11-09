@@ -79,9 +79,11 @@ const THREAD_FORK_METHOD: &str = "thread/fork";
 /// The `codexErrorInfo` arms of a turn Codex's policy refused.
 const CODEX_POLICY_REFUSALS: [&str; 2] = ["cyberPolicy", "misalignmentPolicyViolation"];
 
-/// What came of a side question whose copy was forked: answered with its answer delivered, or why
-/// none came. It closes unanswered when a close or the driver's shutdown stopped the copy.
-pub(crate) type CodexSideQuestionAnswer = oneshot::Receiver<Result<(), CodexError>>;
+/// What came of a side question whose copy was forked: its answer, once delivered, or why none
+/// came. It closes unanswered when a close or the driver's shutdown stopped the copy.
+pub(crate) type CodexSideQuestionAnswer = oneshot::Receiver<CodexSideQuestionOutcome>;
+/// A side question's answer as delivered, or why none came.
+pub(crate) type CodexSideQuestionOutcome = Result<FreeFormText<{ usize::MAX }>, CodexError>;
 /// A frame of a side question's copy, taken before the session's routing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexDivertedFrame {
@@ -103,7 +105,7 @@ struct CodexSideQuestion {
     model: String,
     answer: Option<String>,
     // Where what came of the question goes.
-    answered: oneshot::Sender<Result<(), CodexError>>,
+    answered: oneshot::Sender<CodexSideQuestionOutcome>,
     // Fresh for the copy, so its cost never takes the session's own counts as its base.
     accountant: UsageDeltaAccountant,
     // Fires once the copy's session closed or the driver shut down before its turn ended.
@@ -129,7 +131,7 @@ impl CodexSideQuestion {
         params: &AskSideQuestionParams,
         (copy_thread_id, model): (&str, String),
         stop: CancellationToken,
-        answered: oneshot::Sender<Result<(), CodexError>>,
+        answered: oneshot::Sender<CodexSideQuestionOutcome>,
     ) -> Self {
         let mut accountant = UsageDeltaAccountant::new(DESCRIPTOR.provider_id());
         accountant.establish_thread(copy_thread_id.to_owned(), ThreadBaseEstablishment::Fresh);
@@ -612,13 +614,13 @@ async fn deliver_answer(
                             session_id,
                             side_question_id,
                             question,
-                            answer,
+                            answer: answer.clone(),
                         },
                     ),
                 },
             ))
             .await;
-            Ok(())
+            Ok(answer)
         }
         Some(_) | None => Err(unanswered(
             session_id,
@@ -683,14 +685,14 @@ fn wire_handle(text: &str) -> Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>
     FreeFormText::new(cut_to_code_points(text, PROVIDER_WIRE_HANDLE_MAX_LEN).to_owned()).ok()
 }
 
-/// Waits for what came of a side question: `Ok` once its answer was delivered, and once a close
-/// or the driver's shutdown stopped its copy, with nothing delivered. Fails as the copy's turn gave
-/// no answer: refused `session.sideQuestion.refused` where Codex's policy refused it.
+/// Waits for what came of a side question: its answer once delivered, and `None` once a close or
+/// the driver's shutdown stopped its copy, with nothing delivered. Fails as the copy's turn gave no
+/// answer: refused `session.sideQuestion.refused` where Codex's policy refused it.
 pub(crate) async fn wait_for_side_question_answer(
     answer: CodexSideQuestionAnswer,
-) -> Result<(), CodexError> {
+) -> Result<Option<FreeFormText<{ usize::MAX }>>, CodexError> {
     // A stopped copy drops its question unanswered.
-    answer.await.unwrap_or(Ok(()))
+    answer.await.ok().transpose()
 }
 
 pub(crate) mod copy_turn;

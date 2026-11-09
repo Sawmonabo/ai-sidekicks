@@ -25,6 +25,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::controls::methods::TerminalProviderSession;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::text::FreeFormText;
 #[cfg(any(test, feature = "test-support"))]
 use sidekicks_std::mutex_lock::lock;
 
@@ -661,7 +662,7 @@ impl ProviderDriver for CodexDriver {
     fn ask_side_question(
         &self,
         params: AskSideQuestionParams,
-    ) -> BoxFuture<'_, Result<(), DriverError>> {
+    ) -> BoxFuture<'_, Result<Option<FreeFormText<{ usize::MAX }>>, DriverError>> {
         self.ask_side_question(params).boxed()
     }
 

@@ -661,13 +661,25 @@ pub struct UpdateSessionModeParams {
     pub is_provider_reported: bool,
 }
 
+/// Who asks a side question, which sets how its copy is locked down and where its answer goes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SideQuestionPurpose {
+    /// The person's own side question, its answer published on the session's stream.
+    Person,
+    /// Another session's `session_ask`: the copy holds none of the daemon's tool servers and takes
+    /// no pre-approval, and its answer is returned and drawn on no stream.
+    SessionAsk,
+}
+
 /// Params of `ask_side_question`: a question asked on a throwaway copy of the conversation,
-/// leaving the session's own conversation and permissions as they were. Its answer is appended as
-/// `session.sideQuestion.answered` under `side_question_id`.
+/// leaving the session's own conversation and permissions as they were. The person's answer is
+/// appended as `session.sideQuestion.answered` under `side_question_id`.
 #[derive(Clone)]
 pub struct AskSideQuestionParams {
     /// The session.
     pub session_id: SessionId,
+    /// Who asks.
+    pub purpose: SideQuestionPurpose,
     /// The session's binding, which the side question's usage is recorded on.
     pub binding_id: RuntimeBindingId,
     /// The id the answer carries.
