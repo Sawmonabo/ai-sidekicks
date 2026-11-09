@@ -2,14 +2,14 @@
 // its engine, the subscribe and call helpers, and bridges whose call or subscribe arm a suite
 // decides. Roles only one suite uses stay beside it.
 
-import type {
-  DaemonEvent,
-  DaemonMethod,
-  DaemonParams,
-  DaemonSubscribeParams,
-} from "@ai-sidekicks/contracts/daemon/method-map";
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session/methods";
+import type {
+  DaemonParams,
+  DaemonStreamMethod,
+  DaemonStreamRequest,
+  RegisteredDaemonMethod,
+} from "#shared/daemon/method-bindings.js";
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import type { ServedDaemonCall, Unsubscribe } from "#shared/preload-api.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -57,8 +57,8 @@ export function createFixture(
 /**
  * Subscribe through the bridge as a view would, scoped to the scenario's session.
  *
- * The event name is cast to `DaemonEvent` and the payload left `unknown` because suites name
- * streams by string, including bare event types the daemon's method map omits. The delivered
+ * The event name is cast to `DaemonStreamMethod` and the payload left `unknown` because suites
+ * name streams by string, including bare event types the daemon's method tables omit. The delivered
  * type is a parameter because it depends on the name: a bare event type delivers
  * `EventEnvelope`, the whole-session stream delivers frames (read those through
  * {@link subscribeToSessionStream}), and the two narrowed run streams deliver the registered
@@ -71,8 +71,8 @@ function subscribeThroughBridge<Delivered = EventEnvelope>(
   const received: Delivered[] = [];
   const request = { sessionId: fixture.engine.scenario.sessionId };
   fixture.bridge.daemon.subscribe(
-    eventName as DaemonEvent,
-    request as DaemonSubscribeParams<DaemonEvent>,
+    eventName as DaemonStreamMethod,
+    request as DaemonStreamRequest<DaemonStreamMethod>,
     (payload: unknown) => {
       received.push(payload as Delivered);
     },
@@ -82,7 +82,7 @@ function subscribeThroughBridge<Delivered = EventEnvelope>(
 
 /** What a whole-session stream subscriber was handed: the frames, and their events in order. */
 export interface SessionStreamReceipt {
-  readonly frames: readonly SessionStreamFrame<EventEnvelope>[];
+  readonly frames: readonly SessionStreamFrame[];
   /** Every change's event across the frames received so far, in delivery order. */
   events(): readonly EventEnvelope[];
 }
@@ -94,13 +94,14 @@ export interface SessionStreamReceipt {
  * demand so a case about which beats arrived asserts over the log, not over its batching.
  */
 export function subscribeToSessionStream(fixture: FixtureUnderTest): SessionStreamReceipt {
-  const frames = subscribeThroughBridge<SessionStreamFrame<EventEnvelope>>(
-    fixture,
-    SESSION_EVENT_STREAM,
-  );
+  const frames = subscribeThroughBridge<SessionStreamFrame>(fixture, SESSION_EVENT_STREAM);
   return {
     frames,
-    events: () => frames.flatMap((frame) => frame.changes.map((change) => change.event)),
+    // A `behind` mark carries no changes of its own.
+    events: () =>
+      frames.flatMap((frame) =>
+        frame.kind === "changes" ? frame.changes.map((change) => change.event) : [],
+      ),
   };
 }
 
@@ -114,8 +115,8 @@ export async function callThroughBridge(
   method: string,
 ): Promise<unknown> {
   const served = await fixture.bridge.daemon.call(
-    method as DaemonMethod,
-    undefined as unknown as DaemonParams<DaemonMethod>,
+    method as RegisteredDaemonMethod,
+    undefined as unknown as DaemonParams<RegisteredDaemonMethod>,
   );
   return served.value;
 }

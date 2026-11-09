@@ -86,6 +86,26 @@ describe("the machine's clock and region main reads", () => {
       expected: { regionLocale: "en-GB", hourCycle: "h23" },
     },
     {
+      machineSays: "a Mac in English in Denmark that writes Arabic digits",
+      platform: "darwin",
+      reported: {
+        systemLocale: "en-US@numbers=arab;rg=dkzzzz",
+        countryCode: "DK",
+        userDefaults: { AppleLocale: "en_US@numbers=arab;rg=dkzzzz" },
+      },
+      expected: { regionLocale: "en-DK-u-nu-arab", hourCycle: "h23" },
+    },
+    {
+      machineSays: "a Saudi Mac that writes Latin digits",
+      platform: "darwin",
+      reported: {
+        systemLocale: "ar-SA@numbers=latn",
+        countryCode: "SA",
+        userDefaults: { AppleLocale: "ar_SA@numbers=latn" },
+      },
+      expected: { regionLocale: "ar-SA-u-nu-latn", hourCycle: "h12" },
+    },
+    {
       machineSays: "a US Mac left at its region's clock",
       platform: "darwin",
       reported: { systemLocale: "en-US", countryCode: "US" },

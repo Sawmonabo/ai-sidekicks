@@ -17,9 +17,11 @@ import path from "node:path";
 
 import {
   app,
+  BaseWindow,
   crashReporter,
   nativeImage,
   nativeTheme,
+  powerMonitor,
   screen,
   Tray,
   type NativeImage,
@@ -64,6 +66,7 @@ import {
   type MainDiagnosticLog,
 } from "./services/diagnostic-log.js";
 import { keyProfileToInstall } from "./services/install-profile.js";
+import { PresenceHeartbeat } from "./services/presence-heartbeat.js";
 import { logRefusedRemoteDebugging, refuseRemoteDebugging } from "./services/remote-debugging.js";
 import { describeFailure } from "#shared/failure-message.js";
 import { installRendererProtocol, registerRendererScheme } from "./services/renderer/protocol.js";
@@ -148,11 +151,11 @@ process.on("uncaughtException", (error) => {
   if (!isBrokenPipe(error)) {
     console.error("[ai-sidekicks/desktop] uncaught exception:", error);
   }
-  appDiagnosticRelay.reportFromMain(error, "uncaught-error");
+  appDiagnosticRelay.reportFromMain(error, "uncaughtError");
 });
 process.on("unhandledRejection", (reason) => {
   console.error("[ai-sidekicks/desktop] unhandled rejection:", reason);
-  appDiagnosticRelay.reportFromMain(reason, "unhandled-rejection");
+  appDiagnosticRelay.reportFromMain(reason, "unhandledRejection");
 });
 
 // Compile-time flag: `true` in `electron-vite build --mode=smoke`, `false` in the default
@@ -313,6 +316,16 @@ function startApplication(): void {
       }
       // Before the supervisor starts, so the first link that comes up is told the console theme.
       new ConsoleThemeReport({ link: daemonLink, appearance, log }).start();
+      // Before the supervisor starts too, so the first link that comes up is sent the presence.
+      new PresenceHeartbeat({
+        app,
+        powerMonitor,
+        isAnyWindowFocused: () => BaseWindow.getFocusedWindow() !== null,
+        daemonLink,
+        logWarning: (message) => {
+          log.write({ level: "warning", source: "main/presence-heartbeat", message });
+        },
+      });
       // One table of the file tokens handed to the pages: the native members mint them and the
       // daemon relay swaps them for paths.
       const filePathRefs = new FilePathRefs();

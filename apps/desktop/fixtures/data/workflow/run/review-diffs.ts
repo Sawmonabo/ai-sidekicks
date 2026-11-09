@@ -4,9 +4,9 @@
 // pause, which changed nothing. Any other comparison is left unscripted, so it refuses by name.
 
 import type {
-  GitflowDiffReadResponse,
+  GitDiffReadResponse,
   WorkflowRunSnapshotPoint,
-} from "@ai-sidekicks/contracts/gitflow/local";
+} from "@ai-sidekicks/contracts/git/local";
 import type { WorkflowNodeId } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { ScenarioReply } from "#renderer/services/daemon/scenario/reply.fixture.js";
 import { readMember, readString } from "../../requests.js";
@@ -109,7 +109,7 @@ const PR_412_REVIEW_LINES: readonly string[] = [
 ];
 
 /** The finished digest run's comparison: two files its steps wrote, one edit made outside it. */
-const DIGEST_RUN_CHANGES: GitflowDiffReadResponse = {
+const DIGEST_RUN_CHANGES: GitDiffReadResponse = {
   base: "run start",
   head: "run end",
   files: [
@@ -162,7 +162,7 @@ const DIGEST_RUN_CHANGES: GitflowDiffReadResponse = {
 };
 
 /** The waiting release run's comparison up to its approval pause: nothing was written. */
-const RELEASE_RUN_UNTIL_PAUSE: GitflowDiffReadResponse = {
+const RELEASE_RUN_UNTIL_PAUSE: GitDiffReadResponse = {
   base: "run start",
   head: "approval pause 1",
   files: [],
@@ -170,11 +170,11 @@ const RELEASE_RUN_UNTIL_PAUSE: GitflowDiffReadResponse = {
 
 /** The diff reads a workflow run's `Open in Review` makes, answered by run and snapshot points. */
 export const WORKFLOW_RUN_DIFF_REPLIES: readonly ScenarioReply[] = [
-  { call: "gitflow.diffRead", afterMs: 120, resultFor: answerDiffRead },
+  { call: "git.diff.read", afterMs: 120, resultFor: answerDiffRead },
 ];
 
-function answerDiffRead(request: unknown): GitflowDiffReadResponse | undefined {
-  if (readString(request, "scope") !== "workflow_run") {
+function answerDiffRead(request: unknown): GitDiffReadResponse | undefined {
+  if (readString(request, "scope") !== "workflowRun") {
     return undefined;
   }
   const workflowRunId = readString(request, "workflowRunId");

@@ -89,10 +89,10 @@ describe("classifyNavigation", () => {
     });
   });
 
-  it("refuses an unparseable target", () => {
+  it("refuses an unparsable target", () => {
     expect(classifyNavigation("not a url at all", RENDERER_ORIGINS)).toEqual({
       kind: "refused",
-      reason: "unparseable navigation target",
+      reason: "unparsable navigation target",
     });
   });
 });

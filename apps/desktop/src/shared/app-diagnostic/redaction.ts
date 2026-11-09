@@ -10,8 +10,6 @@ import {
   type AppErrorSource,
 } from "@ai-sidekicks/contracts/daemon/app-diagnostic";
 
-import { elideText } from "../elide-text.js";
-
 // A query or fragment mark follows a character of an address, never a space, a dot or a
 // parenthesis, so a private method's name, `Log.#rotate`, is kept.
 // A frame's address ends in its line and column, `…/index.js?token=x:12:5`: the query before them
@@ -57,9 +55,29 @@ export function redactMessage(message: string): string {
   return bounded(message.replace(/["'`].*["'`]/s, '"…"'), APP_DIAGNOSTIC_TEXT_BOUNDS.message);
 }
 
-/** `text` cut to `bound` characters, an ellipsis marking the cut and counted within it. */
+/**
+ * `text` cut to `bound` code points, as the service's check counts them, an ellipsis marking the
+ * cut and counted within it; a cut never splits a character's surrogate pair.
+ */
 export function bounded(text: string, bound: number): string {
-  return elideText(text, bound, { ellipsisWithinBound: true });
+  // A text of `bound` UTF-16 units or fewer holds at most that many code points.
+  if (text.length <= bound) {
+    return text;
+  }
+  let unitCount = 0;
+  let codePointCount = 0;
+  let cutAt = 0;
+  for (const codePoint of text) {
+    if (codePointCount === bound - 1) {
+      cutAt = unitCount;
+    }
+    if (codePointCount === bound) {
+      return `${text.slice(0, cutAt)}…`;
+    }
+    unitCount += codePoint.length;
+    codePointCount += 1;
+  }
+  return text;
 }
 
 // The stack's frame lines, its `at …` lines, each address in them without its query or fragment;

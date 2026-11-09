@@ -4,14 +4,14 @@
 // `bridge.daemon`. No auth material (daemon session token, PASETO tokens, DPoP key) appears here:
 // `preload-api.test-d.ts` fails the typecheck when a property name the page can reach, daemon
 // results and delivered values included, matches /token|dpop|secret/i and is not a credential-free
-// name, a question's masked-answer flag, or one of the two credentials shown to the person once,
-// each allowed only where it is sent. Paths reach the renderer only as opaque `FilePathRef` values,
-// which main mints and dereferences. Raw `ipcRenderer`, `require`, `process` and Node built-ins
-// never appear.
+// name or the webhook token shown to the person once, allowed only on the reply that sends it.
+// Paths reach the renderer only as opaque `FilePathRef` values, which main mints and dereferences.
+// Raw `ipcRenderer`, `require`, `process` and Node built-ins never appear.
 //
 // The daemon's calls and subscriptions ride a port the preload hands the page, straight to the
-// client helper, and are typed by the daemon's method map in `@ai-sidekicks/contracts`. Every other shape is declared here or beside this file in
-// `src/shared/`, with no dependency on the `electron` package.
+// client helper, and are typed by the generated method tables `daemon/method-bindings.ts` binds.
+// Every other shape is declared here or beside this file in `src/shared/`, with no dependency on
+// the `electron` package.
 //
 // `PreloadApi` carries the members main answers and the members the renderer already calls.
 // `createStubBridge` is the same object with every round-trip member throwing
@@ -19,28 +19,28 @@
 // The request and reply types of the bridge calls not built yet are declared here as well, and
 // each call joins `PreloadApi` with its main handler.
 
-import type {
-  DaemonEvent,
-  DaemonEventPayload,
-  DaemonMethod,
-  DaemonParams,
-  DaemonResult,
-  DaemonSubscribeParams,
-} from "@ai-sidekicks/contracts/daemon/method-map";
+import type { AppLinkTarget } from "@ai-sidekicks/contracts/app-link/target";
 import type {
   MachineSettings,
   MachineSettingsChange,
   MachineSettingsReading,
   SettingsFileRepair,
-} from "@ai-sidekicks/contracts/machine-settings";
-import type { AppLinkTarget } from "@ai-sidekicks/contracts/app-link";
-import type { ServicePlaceLocation } from "@ai-sidekicks/contracts/service-place";
+} from "@ai-sidekicks/contracts/machine/settings";
+import type { Place } from "@ai-sidekicks/contracts/place";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 
 import type { AppFacts, MachineClock } from "./app-facts.js";
 import type { AppearanceChoice, AppearanceGrounds, AppearanceRecord } from "./appearance.js";
 import type { DaemonSubscriptionEnd } from "./daemon/forwarding.js";
+import type {
+  DaemonParams,
+  DaemonResult,
+  DaemonStreamEmission,
+  DaemonStreamMethod,
+  DaemonStreamRequest,
+  RegisteredDaemonMethod,
+} from "./daemon/method-bindings.js";
 import type {
   DaemonStatusRequest,
   DaemonStatusTopic,
@@ -234,12 +234,12 @@ export interface ServiceUpdateWaitingOn {
 export type ServiceUpdateOutcome =
   | { readonly kind: "landed"; readonly fromVersion: string; readonly toVersion: string }
   | {
-      readonly kind: "rolled-back";
+      readonly kind: "rolledBack";
       readonly fromVersion: string;
       readonly toVersion: string;
       readonly reason: string;
     }
-  | { readonly kind: "already-newest" };
+  | { readonly kind: "alreadyNewest" };
 
 /**
  * One delivery of a service update's progress, the first being the current state.
@@ -273,7 +273,7 @@ export type ServicePlaceReading =
  * @consumedBy the places list on Windows, when main answers it
  */
 export interface ServicePlace {
-  readonly place: ServicePlaceLocation;
+  readonly place: Place;
   readonly inUse: boolean;
   /** A distribution's WSL version; absent for Windows itself. */
   readonly wslVersion?: 1 | 2;
@@ -369,16 +369,16 @@ export type BrowserPaneEvent =
   | { readonly kind: "pageCrashed" };
 
 /** What `daemon.subscribe` opens: one of the daemon's subscriptions, or main's status topic. */
-export type DaemonWireTopic = DaemonEvent | DaemonStatusTopic;
+export type DaemonWireTopic = DaemonStreamMethod | DaemonStatusTopic;
 
 /** What a topic is opened with: the request its daemon method registers, or nothing. */
-export type DaemonWireRequest<E extends DaemonWireTopic> = E extends DaemonEvent
-  ? DaemonSubscribeParams<E>
+export type DaemonWireRequest<E extends DaemonWireTopic> = E extends DaemonStreamMethod
+  ? DaemonStreamRequest<E>
   : DaemonStatusRequest;
 
 /** One value a topic delivers: its daemon method's emission, or main's state. */
-export type DaemonWirePayload<E extends DaemonWireTopic> = E extends DaemonEvent
-  ? DaemonEventPayload<E>
+export type DaemonWirePayload<E extends DaemonWireTopic> = E extends DaemonStreamMethod
+  ? DaemonStreamEmission<E>
   : MainProcessState;
 
 /**
@@ -399,7 +399,7 @@ export interface ServedDaemonCall<Value> {
  * helper that exited among them, with an `Error`.
  */
 export interface DaemonWire {
-  call<M extends DaemonMethod>(
+  call<M extends RegisteredDaemonMethod>(
     method: M,
     params: DaemonParams<M>,
   ): Promise<ServedDaemonCall<DaemonResult<M>>>;
@@ -463,7 +463,7 @@ export interface PreloadApi {
     getDroppedFileRef(file: File): Promise<FilePathRef>;
     /**
      * Write a pasted picture to a file only the person can read and answer its token. The file
-     * lasts until `session.attachmentAdd` has copied it, or the page that pasted it goes; empty
+     * lasts until `session.attachment.add` has copied it, or the page that pasted it goes; empty
      * bytes are refused.
      */
     savePastedImage(bytes: ArrayBuffer): Promise<FilePathRef>;

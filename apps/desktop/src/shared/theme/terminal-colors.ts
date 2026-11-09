@@ -3,7 +3,7 @@
 // their own. The stylesheet's aliases and the colors main reports to the background service both
 // read this table, so a shell answers a program with the colors the pane paints.
 
-import type { TerminalColors } from "@ai-sidekicks/contracts/pty";
+import type { TerminalColors } from "@ai-sidekicks/contracts/terminal";
 
 import { formatPaintedHex } from "../color.js";
 import type { ColorScheme } from "../color-scheme.js";
@@ -31,8 +31,11 @@ export const TERMINAL_ROLE_ALIASES: Readonly<Record<TerminalRoleAlias, ColorRole
   "ansi-bright-white": "text",
 };
 
+// One role per color of a palette; a mapped type over a type parameter keeps the palette's length.
+type RolePerColor<Palette> = { readonly [Index in keyof Palette]: ColorRole };
+
 // The sixteen colors' roles in the order a program numbers them, black first and bright white last.
-const TERMINAL_PALETTE_ROLES: readonly ColorRole[] = [
+const TERMINAL_PALETTE_ROLES: RolePerColor<TerminalColors["palette"]> = [
   TERMINAL_ROLE_ALIASES["ansi-black"],
   "ansi-red",
   "ansi-green",
@@ -63,6 +66,14 @@ export function composeTerminalColors(theme: AppearanceTheme, scheme: ColorSchem
     foreground,
     background: paint(TERMINAL_ROLE_ALIASES["ansi-default-background"]),
     cursor: foreground,
-    palette: TERMINAL_PALETTE_ROLES.map(paint),
+    palette: paintEach(TERMINAL_PALETTE_ROLES, paint),
   };
+}
+
+// Paints each role in place, so the colors keep the roles' fixed length.
+function paintEach<Roles extends readonly ColorRole[]>(
+  roles: Roles,
+  paint: (role: ColorRole) => string,
+): { -readonly [Index in keyof Roles]: string } {
+  return roles.map(paint) as { -readonly [Index in keyof Roles]: string };
 }

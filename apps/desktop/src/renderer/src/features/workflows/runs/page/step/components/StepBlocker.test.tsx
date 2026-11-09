@@ -8,7 +8,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
+import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/git/local";
 import { WORKFLOW_STEP_TIMED_OUT_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
 import { type WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";

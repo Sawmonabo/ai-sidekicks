@@ -1,20 +1,22 @@
-// The settings the service reads from its file are what the page checks a reading against, and the
-// defaults the page falls back to are the service's. The service's file read runs the same case
-// table, parsed strictly here with zod; its environment-name refusals are the service's alone.
+// The service's own case table for the machine's settings: the file read, a missing key taking its
+// default, and the environment-name rule, each run here on the same rows, parsed strictly with zod.
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { readCaseTable } from "../../__tests__/case-table.test-support.js";
-import {
-  MACHINE_SETTINGS_DEFAULTS,
-  validateMachineSettings,
-} from "../../generated/machine/settings.js";
+import { environmentNameRefusal } from "../settings/environment-name.js";
+import { parseMachineSettingsFile } from "../settings/file.js";
 
 const machineSettingsCases = readCaseTable(
   z
     .object({
       environmentNames: z.array(
-        z.object({ name: z.string(), refusal: z.string().nullable() }).strict(),
+        z
+          .object({
+            name: z.string(),
+            refusal: z.enum(["notAName", "credentialShaped", "setByApp"]).nullable(),
+          })
+          .strict(),
       ),
       settingsFiles: z.array(
         z
@@ -27,17 +29,22 @@ const machineSettingsCases = readCaseTable(
 );
 
 const readSettings = machineSettingsCases.settingsFiles.flatMap(({ file, settings }) =>
-  settings === null ? [] : [{ file: JSON.stringify(file), settings }],
+  settings === null ? [] : [{ fileText: JSON.stringify(file), file, settings }],
 );
 
-describe("the generated machine settings", () => {
-  it("default to what the service reads from an empty file", () => {
-    expect(MACHINE_SETTINGS_DEFAULTS).toStrictEqual(
-      readSettings.find(({ file }) => file === "{}")?.settings,
-    );
+describe("parseMachineSettingsFile", () => {
+  // Only the rows the service reads: the generated check still takes a file naming one place twice,
+  // which the service refuses.
+  it.each(readSettings)("reads $fileText as the service does", ({ file, settings }) => {
+    expect(parseMachineSettingsFile(file)).toStrictEqual(settings);
   });
+});
 
-  it.each(readSettings)("take the settings the service reads from $file", ({ settings }) => {
-    expect(validateMachineSettings(settings)).toBe(true);
-  });
+describe("environmentNameRefusal", () => {
+  it.each(machineSettingsCases.environmentNames)(
+    "answers $refusal for $name, as the service does",
+    ({ name, refusal }) => {
+      expect(environmentNameRefusal(name)).toBe(refusal);
+    },
+  );
 });

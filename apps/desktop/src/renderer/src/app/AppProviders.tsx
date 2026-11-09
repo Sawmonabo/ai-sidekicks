@@ -39,7 +39,7 @@ const tripwireRouteClock = new ForwardingClock(new RealClock());
 // The route lives as long as the renderer process, so its detach is dropped.
 routeWindowTripwiresToDiagnosticCapture(tripwireRouteClock);
 
-windowDiagnosticCapture.listenTo(window, "console-document");
+windowDiagnosticCapture.listenTo(window, "consoleDocument");
 
 registerFeatureContributions({
   commands: commandContributionRegistry,

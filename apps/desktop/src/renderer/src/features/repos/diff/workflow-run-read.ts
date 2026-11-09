@@ -27,7 +27,7 @@ export function createWorkflowRunDiffRead(
     origin: "workflow-run-diff",
     read: async (signal) =>
       diffModelFromRead(
-        unwrapDaemonReply(await callDaemon(bridge, "gitflow.diffRead", request, { signal })),
+        unwrapDaemonReply(await callDaemon(bridge, "git.diff.read", request, { signal })),
       ),
     // Pinned snapshots have no stream to listen on; the release has nothing to close.
     subscribe: () => () => undefined,

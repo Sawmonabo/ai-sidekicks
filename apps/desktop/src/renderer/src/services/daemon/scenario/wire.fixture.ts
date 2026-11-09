@@ -7,13 +7,13 @@
 // daemon always answers, so the status topic reads connected from its first delivery, with the
 // handshake a compatible service settles, naming the scenario's own device.
 
-import type {
-  DaemonMethod,
-  DaemonParams,
-  DaemonResult,
-} from "@ai-sidekicks/contracts/daemon/method-map";
 import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import { FIXTURE_DEVICE_ID } from "#fixtures/data/this-device.js";
+import type {
+  DaemonParams,
+  DaemonResult,
+  RegisteredDaemonMethod,
+} from "#shared/daemon/method-bindings.js";
 import { DAEMON_STATUS_TOPIC, type MainProcessState } from "#shared/daemon/status-topic.js";
 import type {
   DaemonWire,
@@ -57,6 +57,7 @@ const FIXTURE_SERVICE_STATE: MainProcessState = {
   startedByApp: false,
   whileSignedOut: undefined,
   cannotStart: undefined,
+  cannotStop: undefined,
 };
 
 /** The daemon namespace answered from one scenario's engine. */
@@ -65,7 +66,7 @@ export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DaemonWire 
     // The scenario's untyped reply is cast to `DaemonResult<M>` here, the one place the fixture
     // claims a type. The check holds each registered method to its response schema; a method
     // the app does not call passes unchecked.
-    call: async <MethodName extends DaemonMethod>(
+    call: async <MethodName extends RegisteredDaemonMethod>(
       method: MethodName,
       params: DaemonParams<MethodName>,
     ): Promise<ServedDaemonCall<DaemonResult<MethodName>>> => {
@@ -84,21 +85,21 @@ export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DaemonWire 
     subscribe: <Topic extends DaemonWireTopic>(
       event: Topic,
       params: DaemonWireRequest<Topic>,
-      handler: (payload: DaemonWirePayload<Topic>) => void,
+      handler: (payload: DaemonWirePayload<Topic>, attachments: readonly Uint8Array[]) => void,
       onEnded?: Parameters<DaemonWire["subscribe"]>[3],
     ): Unsubscribe => {
       if (event === DAEMON_STATUS_TOPIC) {
-        handler(FIXTURE_SERVICE_STATE as DaemonWirePayload<Topic>);
+        handler(FIXTURE_SERVICE_STATE as DaemonWirePayload<Topic>, []);
         return () => undefined;
       }
       // The delivery is untyped scenario data cast to the topic's payload; the app parses every
-      // delivery at its own boundary, as it does the live bridge's.
+      // delivery at its own boundary, as it does the live bridge's. Scenario data carries no bytes.
       return subscribeToScenario(
         scenarioEngine,
         event,
         params,
         (delivered) => {
-          handler(delivered as DaemonWirePayload<Topic>);
+          handler(delivered as DaemonWirePayload<Topic>, []);
         },
         onEnded,
       );

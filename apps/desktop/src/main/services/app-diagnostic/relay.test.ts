@@ -35,7 +35,7 @@ const REFUSED: ScriptedAnswer = {
 function recordsOn(connection: ScriptedDaemon): string[] {
   return connection.requests.map(({ params }) => {
     const record = params as { kind: string; message?: string; count?: number; cause?: string };
-    return record.kind === "held-back"
+    return record.kind === "heldBack"
       ? `${String(record.count)} ${String(record.cause)}`
       : String(record.message);
   });
@@ -77,10 +77,10 @@ describe("the app diagnostic relay", () => {
     });
 
     for (let time = 0; time < 5; time++) {
-      relay.reportFromMain(new Error("the row is gone"), "uncaught-error");
+      relay.reportFromMain(new Error("the row is gone"), "uncaughtError");
     }
     for (let error = 0; error < all; error++) {
-      relay.reportFromMain(new Error(`error ${String(error)}`), "uncaught-error");
+      relay.reportFromMain(new Error(`error ${String(error)}`), "uncaughtError");
     }
     await settle();
     const written = [
@@ -91,14 +91,14 @@ describe("the app diagnostic relay", () => {
     // Main's log keeps what the service was sent of main's own errors, and only that.
     expect(logLinesAt("error")).toHaveLength(all);
     expect(logLinesAt("error")[0]).toMatch(
-      /^main\/app-diagnostic uncaught-error: Error: the row is gone\n\s+at /,
+      /^main\/app-diagnostic uncaughtError: Error: the row is gone\n\s+at /,
     );
 
     vi.advanceTimersByTime(windowMs);
     await settle();
     // Two repeats and three errors past the thirty.
-    expect(recordsOn(connection).slice(all)).toStrictEqual(["5 past-rate"]);
-    relay.reportFromMain(new Error("the row is gone"), "uncaught-error");
+    expect(recordsOn(connection).slice(all)).toStrictEqual(["5 pastRate"]);
+    relay.reportFromMain(new Error("the row is gone"), "uncaughtError");
     await settle();
     expect(recordsOn(connection).slice(all + 1)).toStrictEqual(["the row is gone"]);
   });
@@ -112,14 +112,14 @@ describe("the app diagnostic relay", () => {
     });
 
     for (let time = 0; time <= perRecord; time++) {
-      relay.reportFromWindow([{ kind: "held-back", cause: "window-buffer-full", count: 5 }]);
+      relay.reportFromWindow([{ kind: "heldBack", cause: "windowBufferFull", count: 5 }]);
     }
     vi.advanceTimersByTime(windowMs);
     await settle();
 
     expect(recordsOn(connection)).toStrictEqual([
-      ...Array<string>(perRecord).fill("5 window-buffer-full"),
-      "5 past-rate",
+      ...Array<string>(perRecord).fill("5 windowBufferFull"),
+      "5 pastRate",
     ]);
   });
 
@@ -130,11 +130,11 @@ describe("the app diagnostic relay", () => {
     // Two minutes of errors with no link: thirty, then one past the thirty-two that wait.
     const secondMinuteCount = APP_DIAGNOSTIC_RECORDS_HELD_WHILE_UNREACHABLE - all + 1;
     for (let error = 0; error < all; error++) {
-      relay.reportFromMain(new Error(`first minute ${String(error)}`), "uncaught-error");
+      relay.reportFromMain(new Error(`first minute ${String(error)}`), "uncaughtError");
     }
     vi.advanceTimersByTime(windowMs);
     for (let error = 0; error < secondMinuteCount; error++) {
-      relay.reportFromMain(new Error(`second minute ${String(error)}`), "uncaught-error");
+      relay.reportFromMain(new Error(`second minute ${String(error)}`), "uncaughtError");
     }
 
     let answer: ScriptedAnswer = TAKEN;
@@ -148,21 +148,21 @@ describe("the app diagnostic relay", () => {
         { length: secondMinuteCount - 1 },
         (_unused, error) => `second minute ${String(error)}`,
       ),
-      "1 service-unreachable",
+      "1 serviceUnreachable",
     ]);
 
     // The service stops taking records: each one is counted, and main's log says so once.
     answer = REFUSED;
-    relay.reportFromMain(new Error("refused 1"), "uncaught-error");
-    relay.reportFromMain(new Error("refused 2"), "uncaught-error");
+    relay.reportFromMain(new Error("refused 1"), "uncaughtError");
+    relay.reportFromMain(new Error("refused 2"), "uncaughtError");
     await settle();
     expect(logLinesAt("warning")).toHaveLength(1);
     expect(logLinesAt("warning")[0]).toMatch(/^main\/app-diagnostic The background service/);
 
     // The next record it takes brings the count with it.
     answer = TAKEN;
-    relay.reportFromMain(new Error("taken"), "uncaught-error");
+    relay.reportFromMain(new Error("taken"), "uncaughtError");
     await settle();
-    expect(recordsOn(connection).slice(-2)).toStrictEqual(["taken", "2 service-refused"]);
+    expect(recordsOn(connection).slice(-2)).toStrictEqual(["taken", "2 serviceRefused"]);
   });
 });

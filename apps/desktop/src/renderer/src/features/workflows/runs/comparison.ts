@@ -1,4 +1,4 @@
-import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
+import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/git/local";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 

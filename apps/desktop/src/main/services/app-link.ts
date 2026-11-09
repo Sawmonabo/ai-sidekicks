@@ -10,7 +10,8 @@
 
 import type { App } from "electron";
 
-import { APP_LINK_SCHEME, parseAppLink } from "@ai-sidekicks/contracts/app-link";
+import { APP_LINK_SCHEME } from "@ai-sidekicks/contracts/app-link/target";
+import { parseAppLink } from "@ai-sidekicks/contracts/app-link/uri";
 
 import type { NavigationRequest } from "#shared/preload-api.js";
 import type { MainDiagnosticLog } from "./diagnostic-log.js";

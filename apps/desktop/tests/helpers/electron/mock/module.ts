@@ -416,6 +416,11 @@ class ElectronMockImpl implements ElectronMock {
         ),
         subscribeLocalNotification: vi.fn(() => 0),
       },
+      // The presence heartbeat's lock and sleep events, which no suite here raises.
+      powerMonitor: {
+        on: vi.fn(),
+        getSystemIdleState: vi.fn(() => "active"),
+      },
       crashReporter: {
         start: vi.fn(() => {
           this.record("crashReporter.start");

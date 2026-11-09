@@ -11,7 +11,7 @@
 
 /**
  * The change set the implementer's run produced, as the unified patch text a
- * `gitflow.diffRead` file carries.
+ * `git.diff.read` file carries.
  *
  * Two files and two hunks; the second file is a rename with no textual change, which a
  * renderer deriving its notes from `hunks.length` would report as nothing having happened.

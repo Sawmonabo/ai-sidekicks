@@ -13,12 +13,11 @@ import {
   DAEMON_APP_DIAGNOSTIC_METHOD_DESCRIPTORS,
   type AppDiagnosticHeldBackCause,
   type AppDiagnosticRecord,
-  type AppErrorThrown,
-  type AppCapturedDiagnostic,
 } from "@ai-sidekicks/contracts/daemon/app-diagnostic";
 
 import { describeFailure } from "#shared/failure-message.js";
 import { DiagnosticRateLimit, fingerprintOf } from "#shared/app-diagnostic/rate-limit.js";
+import type { AppCapturedDiagnostic, AppErrorThrown } from "#shared/app-diagnostic/record.js";
 import { bounded } from "#shared/app-diagnostic/redaction.js";
 import {
   readThrownValue,
@@ -61,7 +60,7 @@ export class AppDiagnosticRelay {
     this.#options = options;
     this.#limit = new DiagnosticRateLimit(
       (count) => {
-        this.#send(this.#heldBack(count, "past-rate"));
+        this.#send(this.#heldBack(count, "pastRate"));
       },
       // Unreferenced, so a count still waiting never keeps main from quitting.
       (end, ms) => {
@@ -77,7 +76,7 @@ export class AppDiagnosticRelay {
   public reportFromWindow(reports: readonly WindowDiagnosticReport[]): void {
     for (const report of reports) {
       switch (report.kind) {
-        case "held-back":
+        case "heldBack":
           // Held back here too, the count still stands for every record the window held back.
           if (this.#limit.admit(fingerprintOf(report), report.count)) {
             this.#send(this.#heldBack(report.count, report.cause));
@@ -114,7 +113,7 @@ export class AppDiagnosticRelay {
   /** The process drawing every window went away, for `reason` with `exitCode`. */
   public reportRendererGone(reason: string, exitCode: number): void {
     this.#send({
-      kind: "renderer-gone",
+      kind: "rendererGone",
       at: this.#options.now().toISOString(),
       reason: bounded(reason, APP_DIAGNOSTIC_TEXT_BOUNDS.reason),
       exitCode,
@@ -148,7 +147,7 @@ export class AppDiagnosticRelay {
           if (this.#refusedCount > 0) {
             const count = this.#refusedCount;
             this.#refusedCount = 0;
-            this.#send(this.#heldBack(count, "service-refused"));
+            this.#send(this.#heldBack(count, "serviceRefused"));
           }
         },
         (failure: unknown) => {
@@ -177,7 +176,7 @@ export class AppDiagnosticRelay {
     if (this.#unheldCount > 0) {
       const count = this.#unheldCount;
       this.#unheldCount = 0;
-      this.#send(this.#heldBack(count, "service-unreachable"));
+      this.#send(this.#heldBack(count, "serviceUnreachable"));
     }
   }
 
@@ -187,6 +186,6 @@ export class AppDiagnosticRelay {
   }
 
   #heldBack(count: number, cause: AppDiagnosticHeldBackCause): AppDiagnosticRecord {
-    return { kind: "held-back", at: this.#options.now().toISOString(), count, cause };
+    return { kind: "heldBack", at: this.#options.now().toISOString(), count, cause };
   }
 }

@@ -19,7 +19,8 @@
 import type { SchemaCheck } from "@ai-sidekicks/contracts/schema-check";
 import {
   DAEMON_METHOD_BINDINGS,
-  type DaemonMethodBindings,
+  type DaemonParams,
+  type DaemonResult,
   type RegisteredDaemonMethod,
 } from "#shared/daemon/method-bindings.js";
 import { checkFaultPaths } from "#shared/daemon/fault-path.js";
@@ -33,6 +34,7 @@ import { isReadAbandoned, settleUnlessAbandoned } from "#renderer/lib/reads/scop
 import type { FilePathRef, ServedDaemonCall } from "#shared/preload-api.js";
 import type { PlatformBridge } from "../platform/bridge.js";
 import { RefusalError } from "#renderer/lib/refusal/contract.js";
+import { withBytesPlaced } from "./wire/attachments.js";
 
 /** The subsystem name every refusal this module raises carries. */
 export const DAEMON_REPLY_REFUSAL_ORIGIN = "daemon-call";
@@ -192,7 +194,8 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
   }
 
   const served = reply.value;
-  if (!responseCheck(served)) {
+  const attachments = reply.attachments ?? [];
+  if (!responseCheck.call({ attachments }, served)) {
     recordRefusedMemberPaths({
       source: DAEMON_REPLY_DIAGNOSTIC_SOURCE,
       kind: "reply-unreadable",
@@ -209,10 +212,11 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
     };
   }
   // A generated check refuses a member its contract does not carry, so the checked value is the
-  // reply whole.
+  // reply whole, its bytes put where their placeholders stood.
+  const value = withBytesPlaced(served, attachments) as DaemonResult<MethodName>;
   return reply.fileRefs === undefined
-    ? { status: "served", value: served }
-    : { status: "served", value: served, fileRefs: reply.fileRefs };
+    ? { status: "served", value }
+    : { status: "served", value, fileRefs: reply.fileRefs };
 }
 
 /**
@@ -234,21 +238,8 @@ function abandonedRead(): DaemonReply<never> {
   return { status: "refused", refusal: abandonedReadRefusal() };
 }
 
-/** The request one daemon method takes, as its generated request check states it. */
-type DaemonParams<MethodName extends RegisteredDaemonMethod> = CheckedValue<
-  DaemonMethodBindings[MethodName]["requestCheck"]
->;
-
-/** The reply one daemon method serves, as its generated response check states it. */
-type DaemonResult<MethodName extends RegisteredDaemonMethod> = CheckedValue<
-  DaemonMethodBindings[MethodName]["responseCheck"]
->;
-
 /** One method's two generated checks, typed for that method so a passed check narrows. */
 interface MethodChecks<MethodName extends RegisteredDaemonMethod> {
   readonly requestCheck: SchemaCheck<DaemonParams<MethodName>>;
   readonly responseCheck: SchemaCheck<DaemonResult<MethodName>>;
 }
-
-/** The value a generated check admits. */
-type CheckedValue<Check> = Check extends SchemaCheck<infer Value> ? Value : never;

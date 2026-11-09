@@ -13,6 +13,7 @@ import type {
 } from "@ai-sidekicks/contracts/daemon/app-diagnostic";
 
 import { APP_DIAGNOSTIC_RATE_BOUNDS } from "./rate-limit.js";
+import type { AppErrorThrown } from "./record.js";
 
 /** Which window's realm raised an error nothing handled. */
 export type WindowDiagnosticRole = Exclude<AppDiagnosticRole, "main">;
@@ -20,13 +21,13 @@ export type WindowDiagnosticRole = Exclude<AppDiagnosticRole, "main">;
 /** Why a window held reports back: past what it holds, or past the rate it sends at. */
 export type WindowHeldBackCause = Extract<
   AppDiagnosticHeldBackCause,
-  "window-buffer-full" | "past-rate"
+  "windowBufferFull" | "pastRate"
 >;
 
 /** Every {@link WindowHeldBackCause}, for the parse where a window's reports enter main. */
 export const WINDOW_HELD_BACK_CAUSES: readonly WindowHeldBackCause[] = [
-  "window-buffer-full",
-  "past-rate",
+  "windowBufferFull",
+  "pastRate",
 ];
 
 /** One line a window's diagnostic capture takes. */
@@ -45,7 +46,7 @@ export interface DiagnosticRecord {
 /** One thing a window hands main. */
 export type WindowDiagnosticReport =
   | {
-      readonly kind: "uncaught-error" | "unhandled-rejection";
+      readonly kind: AppErrorThrown["kind"];
       readonly role: WindowDiagnosticRole;
       readonly name: string | null;
       readonly message: string;
@@ -54,7 +55,7 @@ export type WindowDiagnosticReport =
     }
   | { readonly kind: "captured"; readonly record: DiagnosticRecord }
   /** Reports the window did not send, and why. */
-  | { readonly kind: "held-back"; readonly cause: WindowHeldBackCause; readonly count: number };
+  | { readonly kind: "heldBack"; readonly cause: WindowHeldBackCause; readonly count: number };
 
 /**
  * The most reports one send carries: as many as the rate lets go in a minute, so what a window
@@ -65,7 +66,7 @@ export const WINDOW_DIAGNOSTIC_BATCH_BOUND: number = APP_DIAGNOSTIC_RATE_BOUNDS.
 
 /** How many records one stands for: a count of records held back, all of them, else one. */
 export function recordCountOf(record: AppDiagnosticRecord | WindowDiagnosticReport): number {
-  return record.kind === "held-back" ? record.count : 1;
+  return record.kind === "heldBack" ? record.count : 1;
 }
 
 /** An error's name, message and stack, or for a value that is no error, its type alone. */
@@ -76,10 +77,7 @@ export interface ThrownValueParts {
 }
 
 /** Reads a thrown or rejected value: an error's own parts, or a sentence naming the value's type. */
-export function readThrownValue(
-  value: unknown,
-  kind: "uncaught-error" | "unhandled-rejection",
-): ThrownValueParts {
+export function readThrownValue(value: unknown, kind: AppErrorThrown["kind"]): ThrownValueParts {
   if (isErrorLike(value)) {
     return {
       name: value.name,
@@ -91,7 +89,7 @@ export function readThrownValue(
   return {
     name: null,
     message:
-      kind === "uncaught-error"
+      kind === "uncaughtError"
         ? `The thrown value is not an error; its type is ${type}.`
         : `The rejection's value is not an error; its type is ${type}.`,
     stack: null,

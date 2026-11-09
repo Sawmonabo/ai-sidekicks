@@ -6,15 +6,13 @@
 // `process.argv` and exposes them as the bridge's `app` namespace. Both spellings of each
 // switch live here once.
 
-import { supportedPlatform, type SupportedPlatform } from "@ai-sidekicks/contracts/platform";
+import type { Arch, SupportedPlatform } from "@ai-sidekicks/contracts/platform";
+import { supportedPlatform } from "@ai-sidekicks/contracts/platform/check";
 
 import { readRequiredSwitchValue } from "./renderer-switch.js";
 
 /** The processor architectures a build runs on. */
-const SUPPORTED_ARCHES = ["arm64", "x64"] as const;
-
-/** One supported processor architecture, in Node's spelling. */
-export type SupportedArch = (typeof SUPPORTED_ARCHES)[number];
+const SUPPORTED_ARCHES: readonly Arch[] = ["arm64", "x64"];
 
 /** The two clocks a machine is set to, in `Intl`'s spelling: 12-hour and 24-hour. */
 const HOUR_CYCLES = ["h12", "h23"] as const;
@@ -26,7 +24,7 @@ export type HourCycle = (typeof HOUR_CYCLES)[number];
 export interface AppFacts {
   readonly version: string;
   readonly platform: SupportedPlatform;
-  readonly arch: SupportedArch;
+  readonly arch: Arch;
   /**
    * Whether the system keeps a primary selection, the text a middle-click pastes, beside its
    * clipboard; the renderer reads this, never the platform, to write and honor one.
@@ -55,7 +53,7 @@ const REGION_LOCALE_SWITCH = "--sidekicks-app-region-locale=";
 const HOUR_CYCLE_SWITCH = "--sidekicks-app-hour-cycle=";
 
 /** `arch` as a supported one; throws for any other. */
-export function supportedArch(arch: string): SupportedArch {
+export function supportedArch(arch: string): Arch {
   const supported = SUPPORTED_ARCHES.find((candidate) => candidate === arch);
   if (supported === undefined) {
     throw new RangeError(`This build does not run on the ${arch} architecture.`);

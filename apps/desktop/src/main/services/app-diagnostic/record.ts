@@ -4,9 +4,7 @@
 
 import {
   APP_DIAGNOSTIC_TEXT_BOUNDS,
-  type AppCapturedDiagnostic,
   type AppDiagnosticRole,
-  type AppErrorThrown,
 } from "@ai-sidekicks/contracts/daemon/app-diagnostic";
 
 import {
@@ -15,6 +13,7 @@ import {
   redactMessage,
   type RedactedErrorParts,
 } from "#shared/app-diagnostic/redaction.js";
+import type { AppCapturedDiagnostic, AppErrorThrown } from "#shared/app-diagnostic/record.js";
 import type { DiagnosticRecord } from "#shared/app-diagnostic/report.js";
 
 /** One error as main has it, before it is redacted. */

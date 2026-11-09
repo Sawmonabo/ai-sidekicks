@@ -54,7 +54,7 @@ describe("the window's diagnostic capture", () => {
     vi.advanceTimersByTime(APP_DIAGNOSTIC_RATE_BOUNDS.windowMs);
     await Promise.resolve();
     expect(batches.flat().slice(APP_DIAGNOSTIC_RATE_BOUNDS.perRecord)).toStrictEqual([
-      { kind: "held-back", cause: "past-rate", count: 2 },
+      { kind: "heldBack", cause: "pastRate", count: 2 },
     ]);
   });
 
@@ -73,8 +73,8 @@ describe("the window's diagnostic capture", () => {
     const sentLineCount = batches.flat().filter((report) => report.kind === "captured").length;
     expect(sentLineCount).toBe(APP_DIAGNOSTIC_RATE_BOUNDS.all - 1);
     expect(batches.flat().at(-1)).toStrictEqual({
-      kind: "held-back",
-      cause: "window-buffer-full",
+      kind: "heldBack",
+      cause: "windowBufferFull",
       count: 3,
     });
 
@@ -82,8 +82,8 @@ describe("the window's diagnostic capture", () => {
     vi.advanceTimersByTime(APP_DIAGNOSTIC_RATE_BOUNDS.windowMs);
     await Promise.resolve();
     expect(batches.flat().at(-1)).toStrictEqual({
-      kind: "held-back",
-      cause: "past-rate",
+      kind: "heldBack",
+      cause: "pastRate",
       count: WINDOW_DIAGNOSTICS_HELD - sentLineCount,
     });
   });

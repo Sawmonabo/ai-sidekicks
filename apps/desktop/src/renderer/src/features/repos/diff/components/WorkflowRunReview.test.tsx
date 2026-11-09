@@ -108,7 +108,7 @@ describe("Review over a workflow run", () => {
     const { calls, engine } = await renderRunReview(
       FINISHED_RUN,
       async (call, passThrough) => {
-        if (call.method === "gitflow.diffRead") {
+        if (call.method === "git.diff.read") {
           diffReads += 1;
           if (diffReads === 1) {
             throw {
@@ -133,7 +133,7 @@ describe("Review over a workflow run", () => {
     await advanceScenarioUntil(engine, () => {
       expect(screen.getByRole("button", { name: /reviews\/pr-412\.md/u })).toBeDefined();
     });
-    expect(calls.filter((call) => call.method === "gitflow.diffRead")).toHaveLength(2);
+    expect(calls.filter((call) => call.method === "git.diff.read")).toHaveLength(2);
     expect(screen.queryByText("Could not load the changes")).toBeNull();
   });
 });

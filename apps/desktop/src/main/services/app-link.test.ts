@@ -13,7 +13,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { composeAppLink } from "@ai-sidekicks/contracts/app-link";
+import { composeAppLink } from "@ai-sidekicks/contracts/app-link/uri";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 

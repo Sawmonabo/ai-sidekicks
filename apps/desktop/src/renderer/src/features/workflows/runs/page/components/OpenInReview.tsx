@@ -1,4 +1,4 @@
-import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
+import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/git/local";
 import type { WorkflowStepReviewPause } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowRunReview } from "@ai-sidekicks/contracts/workflow/run/records";
 

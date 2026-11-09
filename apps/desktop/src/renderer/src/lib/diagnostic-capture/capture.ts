@@ -92,10 +92,10 @@ export class DiagnosticCapture {
     });
     target.addEventListener("unhandledrejection", (event) => {
       this.#hold({
-        kind: "unhandled-rejection",
+        kind: "unhandledRejection",
         role,
         ...redactErrorParts({
-          ...readThrownValue(event.reason, "unhandled-rejection"),
+          ...readThrownValue(event.reason, "unhandledRejection"),
           source: null,
         }),
       });
@@ -112,7 +112,7 @@ export class DiagnosticCapture {
       send,
       limit: new DiagnosticRateLimit(
         (count) => {
-          this.#hold({ kind: "held-back", cause: "past-rate", count });
+          this.#hold({ kind: "heldBack", cause: "pastRate", count });
         },
         (end, ms) => {
           setTimeout(end, ms);
@@ -159,8 +159,8 @@ export class DiagnosticCapture {
     // The count of what did not fit is weighed first, so a cascade past the rate still says what
     // the window dropped, and it goes last, after the reports it follows.
     const bufferFull: WindowDiagnosticReport = {
-      kind: "held-back",
-      cause: "window-buffer-full",
+      kind: "heldBack",
+      cause: "windowBufferFull",
       count: this.#heldBackCount,
     };
     this.#heldBackCount = 0;
@@ -190,7 +190,7 @@ export class DiagnosticCapture {
 
 /** Which window an opened window is, from the frame name it was opened under. */
 export function windowDiagnosticRoleOf(frameName: string): WindowDiagnosticRole {
-  return isConsoleWindowId(frameName) ? "console-window" : "pane-window";
+  return isConsoleWindowId(frameName) ? "consoleWindow" : "paneWindow";
 }
 
 /** An ISO-8601 stamp from the app's clock, so a frozen clock stamps consistently. */
@@ -208,9 +208,9 @@ function reportOfError(
   const parts =
     event.error === null || event.error === undefined
       ? { name: null, message: event.message, stack: null }
-      : readThrownValue(event.error, "uncaught-error");
+      : readThrownValue(event.error, "uncaughtError");
   return {
-    kind: "uncaught-error",
+    kind: "uncaughtError",
     role,
     ...redactErrorParts({
       ...parts,

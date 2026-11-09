@@ -44,10 +44,25 @@
       "types": "./dist/jsonrpc/page-fitting.d.ts",
       "import": "./dist/jsonrpc/page-fitting.js"
     },
+    "./machine/settings/environment-name": {
+      "@ai-sidekicks/source": "./src/machine/settings/environment-name.ts",
+      "types": "./dist/machine/settings/environment-name.d.ts",
+      "import": "./dist/machine/settings/environment-name.js"
+    },
+    "./machine/settings/file": {
+      "@ai-sidekicks/source": "./src/machine/settings/file.ts",
+      "types": "./dist/machine/settings/file.d.ts",
+      "import": "./dist/machine/settings/file.js"
+    },
     "./name-fold": {
       "@ai-sidekicks/source": "./src/name-fold.ts",
       "types": "./dist/name-fold.d.ts",
       "import": "./dist/name-fold.js"
+    },
+    "./platform/check": {
+      "@ai-sidekicks/source": "./src/platform/check.ts",
+      "types": "./dist/platform/check.d.ts",
+      "import": "./dist/platform/check.js"
     },
     "./provider/account/label": {
       "@ai-sidekicks/source": "./src/provider/account/label.ts",

@@ -13,7 +13,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
+import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/git/local";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { WorkflowNodeId } from "@ai-sidekicks/contracts/workflow/definition/document";
 import { WORKFLOW_STEP_TIMED_OUT_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
@@ -306,10 +306,12 @@ describe("a run's header", () => {
     cleanup();
 
     const reason = "The checkout could not be snapshotted: the disk is full.";
-    renderHeader(
-      { ...fixtureRun(WORKFLOW_RUN_IDS.succeeded), review: { state: "missing", reason } },
-      reviews,
-    );
+    const finished = fixtureRun(WORKFLOW_RUN_IDS.succeeded);
+    // Only a finished run's record carries a review, so the arm is narrowed before it is set.
+    if (finished.status !== "succeeded") {
+      throw new Error("the succeeded fixture run has not succeeded");
+    }
+    renderHeader({ ...finished, review: { state: "missing", reason } }, reviews);
     const openInReview = control("Open in Review");
     expect(openInReview.getAttribute("aria-disabled")).toBe("true");
     expect(screen.getByText(reason)).toBeDefined();

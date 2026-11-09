@@ -5,11 +5,7 @@
 // that went is remembered, so the minute holds at most thirty fingerprints. A window applies it
 // as it sends to main and main again before it sends a record on.
 
-import type {
-  AppCapturedDiagnostic,
-  AppDiagnosticHeldBack,
-  AppErrorThrown,
-} from "@ai-sidekicks/contracts/daemon/app-diagnostic";
+import type { AppCapturedDiagnostic, AppDiagnosticHeldBack, AppErrorThrown } from "./record.js";
 
 /** The bounds on how often app diagnostics go on. */
 export const APP_DIAGNOSTIC_RATE_BOUNDS = {
@@ -87,7 +83,7 @@ export function fingerprintOf(record: FingerprintedDiagnostic): string {
   if (record.kind === "captured") {
     return JSON.stringify([record.kind, record.source, record.capturedKind, record.detail]);
   }
-  if (record.kind === "held-back") {
+  if (record.kind === "heldBack") {
     return JSON.stringify([record.kind, record.cause]);
   }
   const firstFrame = record.stack?.split("\n", 1)[0] ?? "";

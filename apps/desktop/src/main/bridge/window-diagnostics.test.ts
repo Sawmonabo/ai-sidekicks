@@ -35,8 +35,8 @@ describe("a window's diagnostics through main", () => {
 
     await bridge.app.reportWindowDiagnostics([
       {
-        kind: "uncaught-error",
-        role: "console-window",
+        kind: "uncaughtError",
+        role: "consoleWindow",
         name: "SyntaxError",
         message: `Unexpected token 'p', "password=hunter2" is not valid JSON`,
         stack: [
@@ -71,8 +71,8 @@ describe("a window's diagnostics through main", () => {
     ];
     expect(thrown.method).toBe("daemon.appDiagnostic.record");
     expect(thrown.params).toMatchObject({
-      kind: "uncaught-error",
-      role: "console-window",
+      kind: "uncaughtError",
+      role: "consoleWindow",
       name: "SyntaxError",
       message: 'Unexpected token "…" is not valid JSON',
       source: { address: "app://renderer/assets/index-3f2a.js", line: 120, column: 17 },
@@ -96,11 +96,37 @@ describe("a window's diagnostics through main", () => {
     expect(JSON.stringify(connection.requests)).not.toContain("hunter2");
   });
 
+  it("cuts a text to its bound in code points, as the service's check counts them", async () => {
+    const connection = scriptedDaemon(() => ({ result: {} }));
+    const bridge = await bridgeOver(connection);
+
+    await bridge.app.reportWindowDiagnostics([
+      {
+        kind: "uncaughtError",
+        role: "consoleWindow",
+        // Each character takes two UTF-16 units, so a cut by units keeps half the bound.
+        name: "😀".repeat(2 * APP_DIAGNOSTIC_TEXT_BOUNDS.name),
+        message: "x is not a function",
+        stack: null,
+        source: null,
+      },
+    ]);
+    await vi.waitFor(() => {
+      expect(connection.requests).toHaveLength(1);
+    });
+
+    const [thrown] = connection.requests as [{ method: string; params: { readonly name: string } }];
+    expect([...thrown.params.name]).toStrictEqual([
+      ...Array<string>(APP_DIAGNOSTIC_TEXT_BOUNDS.name - 1).fill("😀"),
+      "…",
+    ]);
+  });
+
   it("refuses a batch that is not one and sends nothing", async () => {
     const connection = scriptedDaemon(() => ({ result: {} }));
     const bridge = await bridgeOver(connection);
     const report = {
-      kind: "uncaught-error",
+      kind: "uncaughtError",
       name: null,
       message: "x is not a function",
       stack: null,
@@ -111,13 +137,13 @@ describe("a window's diagnostics through main", () => {
       bridge.app.reportWindowDiagnostics([{ ...report, role: "main" as never }]),
     ).rejects.toThrow();
     await expect(
-      bridge.app.reportWindowDiagnostics([{ ...report, role: "pane-window", extra: 1 } as never]),
+      bridge.app.reportWindowDiagnostics([{ ...report, role: "paneWindow", extra: 1 } as never]),
     ).rejects.toThrow();
     await expect(
       bridge.app.reportWindowDiagnostics(
         Array.from({ length: WINDOW_DIAGNOSTIC_BATCH_BOUND + 1 }, () => ({
           ...report,
-          role: "pane-window" as const,
+          role: "paneWindow" as const,
         })),
       ),
     ).rejects.toThrow();

@@ -30,7 +30,7 @@
 //
 // `classifyNavigation` is pure and touches no Electron API, so every arm is unit-testable.
 
-import { webAddressFault } from "@ai-sidekicks/contracts/web-address";
+import { webAddressFault } from "@ai-sidekicks/contracts/web-address/rule";
 import { app, shell, type WebContents } from "electron";
 
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
@@ -64,7 +64,7 @@ const EXTERNAL: NavigationVerdict = { kind: "external" };
 
 /**
  * Classifies one navigation target against the origins a window may navigate within.
- * Fail-closed: an unparseable target, or a scheme that is neither an in-window origin nor a web
+ * Fail-closed: an unparsable target, or a scheme that is neither an in-window origin nor a web
  * address, is `refused`. Web addresses are `http:` or `https:` only. A refusal reason names the
  * class, never the target, so a log line cannot carry an attacker's string.
  */
@@ -76,7 +76,7 @@ export function classifyNavigation(
   try {
     parsedUrl = new URL(targetUrl);
   } catch {
-    return { kind: "refused", reason: "unparseable navigation target" };
+    return { kind: "refused", reason: "unparsable navigation target" };
   }
 
   const host = parsedUrl.host.toLowerCase();

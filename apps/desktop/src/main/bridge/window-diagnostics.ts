@@ -19,7 +19,7 @@ const lineOrColumnSchema = z.number().int().nonnegative();
 const reportSchema: z.ZodType<WindowDiagnosticReport> = z.discriminatedUnion("kind", [
   z
     .object({
-      kind: z.enum(["uncaught-error", "unhandled-rejection"]),
+      kind: z.enum(["uncaughtError", "unhandledRejection"]),
       role: z.enum(APP_DIAGNOSTIC_ROLES).exclude(["main"]),
       name: z.string().nullable(),
       message: z.string(),
@@ -46,7 +46,7 @@ const reportSchema: z.ZodType<WindowDiagnosticReport> = z.discriminatedUnion("ki
     .strict(),
   z
     .object({
-      kind: z.literal("held-back"),
+      kind: z.literal("heldBack"),
       cause: z.enum(WINDOW_HELD_BACK_CAUSES),
       count: z.number().int().positive(),
     })
