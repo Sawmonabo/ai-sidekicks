@@ -37,16 +37,18 @@ use crate::lenient_json::read_lenient;
 use crate::usage_delta_accountant::{UsageAxisCounts, compose_one_turn_spend};
 
 /// The smallest turn's command line before its MCP flag and its line: the stream written as frames
-/// so its `rate_limit_event` and `result` can be read, no conversation kept, and every MCP tool
-/// denied, since `--tools` reaches only the built-in ones and an administrator's MCP file loads its
-/// servers whatever the flag.
-pub(super) const CLAUDE_WINDOW_TURN_ARGUMENTS: [&str; 14] = [
+/// so its `rate_limit_event` and `result` can be read, the model's lowest effort, no conversation
+/// kept, and every MCP tool denied, since `--tools` reaches only the built-in ones and an
+/// administrator's MCP file loads its servers whatever the flag.
+pub(super) const CLAUDE_WINDOW_TURN_ARGUMENTS: [&str; 16] = [
     "-p",
     "--output-format",
     "stream-json",
     "--verbose",
     "--model",
     "haiku",
+    "--effort",
+    "low",
     "--tools",
     "",
     "--system-prompt",
