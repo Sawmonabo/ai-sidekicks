@@ -1,6 +1,7 @@
 //! The driver's register of its Codex launches' exports: the tag each exporting launch carries,
 //! its export status, placement state and copies' threads, and the hand-off of each completed
-//! response its exports state to the drain.
+//! response its exports state to the drain; and the tag of each one-shot exec that exports, with
+//! the responses its exports state, collected for the exec's caller.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -8,6 +9,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::Scheduler;
@@ -18,6 +20,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
 use crate::driver::codex::session::side_questions::copy_turn::SessionUsageFiling;
+use crate::driver::codex::telemetry::completed_response::CodexCompletedResponse;
 use crate::driver::codex::telemetry::copy_threads::CodexEndedCopy;
 use crate::driver::codex::telemetry::drain::{CodexExportDrain, CodexExportItem};
 use crate::driver::codex::telemetry::placement::join::CodexReviewWindow;
@@ -33,30 +36,54 @@ pub(crate) mod tests;
 /// withhold keeps the person's own value from changing.
 pub(crate) const CODEX_EXPORT_INTERVAL: Duration = Duration::from_secs(1);
 
-/// The resource attribute a launch's tag is carried under.
-pub(super) const SERVICE_TAG_KEY: &str = "sidekicks.codex.service";
+/// The resource attribute a service launch's tag is carried under.
+const SERVICE_TAG_KEY: &str = "sidekicks.codex.service";
+
+/// The resource attribute a one-shot exec's tag is carried under.
+const EXEC_TAG_KEY: &str = "sidekicks.codex.exec";
 
 /// How many completed responses the reader's hand-off, and each launch's work queue, holds; a
 /// response past it is refused and counted, as a full OpenTelemetry Collector exporter queue
 /// rejects new data.
 pub(super) const CODEX_EXPORT_HAND_OFF_DEPTH: usize = 1_024;
 
-/// One exporting launch's place in the register: the holder number its token is minted for,
-/// never repeated within a daemon, and the tag its resource carries, which a joined service kept
-/// from the daemon that launched it. The launch stays registered while this lives and its service
-/// does, so a draining launch's last exports are still placed.
+/// What a tag names: a service's launch or a one-shot `codex exec`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CodexTagKind {
+    /// A service's launch, tagged under `sidekicks.codex.service`.
+    Service,
+    /// A one-shot exec, tagged under `sidekicks.codex.exec`.
+    Exec,
+}
+
+impl CodexTagKind {
+    /// The resource attribute a tag of this kind is carried under.
+    pub(super) const fn key(self) -> &'static str {
+        match self {
+            Self::Service => SERVICE_TAG_KEY,
+            Self::Exec => EXEC_TAG_KEY,
+        }
+    }
+}
+
+/// One exporting launch's or exec's place in the register: the holder number its token is minted
+/// for, never repeated within a daemon, what it is, and the tag its resource carries, which a
+/// joined service kept from the daemon that launched it. It stays registered while this lives
+/// and, for a launch, its service does, so a draining launch's last exports are still placed.
 #[derive(Debug)]
 pub(crate) struct CodexExportTag {
     number: u64,
+    kind: CodexTagKind,
     resource_tag: u64,
     _registered: Arc<()>,
 }
 
 impl CodexExportTag {
-    /// The tag as the launch's resource attributes carry it, `sidekicks.codex.service=<n>`: the
-    /// SDK splits the variable on `,` and each pair at its first `=`, and a number holds neither.
+    /// The tag as the process's resource attributes carry it, `sidekicks.codex.service=<n>` or
+    /// `sidekicks.codex.exec=<n>`: the SDK splits the variable on `,` and each pair at its first
+    /// `=`, and a number holds neither.
     pub(crate) fn resource_attributes(&self) -> String {
-        format!("{SERVICE_TAG_KEY}={}", self.resource_tag)
+        format!("{}={}", self.kind.key(), self.resource_tag)
     }
 
     /// The holder the launch's telemetry token is minted for, named by the launch's number.
@@ -85,10 +112,21 @@ pub(crate) struct CodexExports {
     stop: CancellationToken,
 }
 
-// Each registered launch by its number, and the next number to mint.
+/// The responses one exec's exports stated, which its caller takes once the exec ended.
+pub(super) type CodexExecResponses = Arc<Mutex<Vec<CodexCompletedResponse>>>;
+
+// Each registered launch and exec by its number, and the next number to mint, which both share.
 struct CodexLaunchExports {
     next_number: u64,
     by_number: HashMap<u64, CodexLaunchExport>,
+    execs: HashMap<u64, CodexExecExportEntry>,
+}
+
+// One running exec: the account it runs on, its tag's guard, and where its responses collect.
+struct CodexExecExportEntry {
+    provider_account_id: ProviderAccountId,
+    registered: Weak<()>,
+    responses: CodexExecResponses,
 }
 
 // One launch: the service it started, its tag's guard and resource tag, its export status, how
@@ -126,20 +164,27 @@ pub(super) struct CodexDueCopies {
     pub(super) copies: Vec<CodexEndedCopy>,
 }
 
-/// What the register knows of the launch an export's token was minted for.
+/// What the register knows of the launch or exec an export's token was minted for.
 pub(super) enum CodexLaunchLookup {
     /// The launch, its export counted, and its export status, which the reader marks exporting
     /// past the register's lock, since that cancels the launch's armed check.
     Read(CodexLaunchRead, Arc<ExportStatusTracker>),
     /// The launch lives, but the export's resource names another tag or none.
     OtherTag(Weak<CodexService>),
+    /// A running exec, under whose account its responses collect.
+    Exec(ProviderAccountId, CodexExecResponses),
+    /// A running exec on the account named, but the export's resource names another tag or none.
+    ExecOtherTag(ProviderAccountId),
     /// The launch's tag or service is gone.
     Gone,
 }
 
 impl CodexLaunchExports {
-    // Takes out every launch whose tag or service is gone, for the caller to drop past the lock.
+    // Takes out every launch whose tag or service is gone, for the caller to drop past the lock,
+    // and forgets every exec whose tag is gone.
     fn take_gone(&mut self) -> Vec<CodexLaunchExport> {
+        self.execs
+            .retain(|_, exec| exec.registered.strong_count() > 0);
         self.by_number
             .extract_if(|_, launch| !launch.is_live())
             .map(|(_, launch)| launch)
@@ -166,6 +211,7 @@ impl CodexExports {
             launches: Mutex::new(CodexLaunchExports {
                 next_number: 0,
                 by_number: HashMap::new(),
+                execs: HashMap::new(),
             }),
             hand_off,
             drain_items: Mutex::new(Some(items)),
@@ -249,9 +295,41 @@ impl CodexExports {
         });
         CodexExportTag {
             number,
+            kind: CodexTagKind::Service,
             resource_tag,
             _registered: registered,
         }
+    }
+
+    /// Registers a one-shot exec on `provider_account_id` under a new number, which its resource
+    /// carries as its tag; the answer's responses collect what its exports state until the tag
+    /// drops.
+    pub(super) fn exec_started(
+        &self,
+        provider_account_id: &ProviderAccountId,
+    ) -> (CodexExportTag, CodexExecResponses) {
+        let registered = Arc::new(());
+        let responses = CodexExecResponses::default();
+        let number = self.with_live(|launches| {
+            let number = launches.next_number;
+            launches.next_number += 1;
+            launches.execs.insert(
+                number,
+                CodexExecExportEntry {
+                    provider_account_id: provider_account_id.clone(),
+                    registered: Arc::downgrade(&registered),
+                    responses: Arc::clone(&responses),
+                },
+            );
+            number
+        });
+        let tag = CodexExportTag {
+            number,
+            kind: CodexTagKind::Exec,
+            resource_tag: number,
+            _registered: registered,
+        };
+        (tag, responses)
     }
 
     /// A turn of `service_id`'s service that began at `started_at` settled, having made a model
@@ -418,18 +496,29 @@ impl CodexExports {
         })
     }
 
-    /// Looks up `holder`'s launch for an export whose resource carries `resource_tag`: one whose
-    /// tag matches is marked as exporting and its export counted; one whose tag does not, or whose
-    /// tag or service is gone, is answered as such and left as it is.
+    /// Looks up `holder`'s launch or exec for an export whose resource carries `resource_tag`: a
+    /// launch whose tag matches is marked as exporting and its export counted; an exec whose tag
+    /// matches answers where its responses collect; one whose tag does not, or whose tag or
+    /// service is gone, is answered as such and left as it is.
     pub(super) fn export_read(
         &self,
         holder: TelemetryHolderId,
-        resource_tag: Option<u64>,
+        resource_tag: Option<(CodexTagKind, u64)>,
     ) -> CodexLaunchLookup {
-        self.with_live(
-            |launches| match launches.by_number.get_mut(&holder.number()) {
+        self.with_live(|launches| {
+            if let Some(exec) = launches.execs.get(&holder.number()) {
+                let account = exec.provider_account_id.clone();
+                return if resource_tag == Some((CodexTagKind::Exec, holder.number())) {
+                    CodexLaunchLookup::Exec(account, Arc::clone(&exec.responses))
+                } else {
+                    CodexLaunchLookup::ExecOtherTag(account)
+                };
+            }
+            match launches.by_number.get_mut(&holder.number()) {
                 None => CodexLaunchLookup::Gone,
-                Some(launch) if resource_tag != Some(launch.resource_tag) => {
+                Some(launch)
+                    if resource_tag != Some((CodexTagKind::Service, launch.resource_tag)) =>
+                {
                     CodexLaunchLookup::OtherTag(Weak::clone(&launch.service))
                 }
                 Some(launch) => {
@@ -443,8 +532,8 @@ impl CodexExports {
                         Arc::clone(&launch.tracker),
                     )
                 }
-            },
-        )
+            }
+        })
     }
 
     /// Hands `item` to the drain without waiting; a response a full or closed hand-off refuses is

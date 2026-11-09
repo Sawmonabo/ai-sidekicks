@@ -109,6 +109,40 @@ impl UsageAxisCounts {
         };
         *slot = Some(count);
     }
+
+    /// Each axis summed, saturating, present where either side carries it.
+    pub(crate) fn added(self, other: Self) -> Self {
+        self.combined(other, u64::saturating_add)
+    }
+
+    /// Each axis's larger count, present where either side carries it.
+    pub(crate) fn larger(self, other: Self) -> Self {
+        self.combined(other, u64::max)
+    }
+
+    fn combined(self, other: Self, combine: fn(u64, u64) -> u64) -> Self {
+        let axis = |left, right| combine_count(left, right, combine);
+        Self {
+            input: axis(self.input, other.input),
+            cached_input: axis(self.cached_input, other.cached_input),
+            cache_write_input: axis(self.cache_write_input, other.cache_write_input),
+            output: axis(self.output, other.output),
+            reasoning_output: axis(self.reasoning_output, other.reasoning_output),
+            total: axis(self.total, other.total),
+        }
+    }
+}
+
+/// One count combined by `combine`, present where either side carries it.
+pub(crate) fn combine_count(
+    left: Option<u64>,
+    right: Option<u64>,
+    combine: fn(u64, u64) -> u64,
+) -> Option<u64> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(combine(left, right)),
+        (left, right) => left.or(right),
+    }
 }
 
 /// One cumulative usage reading, as a driver read it off a usage frame. `named_turn_id` is the

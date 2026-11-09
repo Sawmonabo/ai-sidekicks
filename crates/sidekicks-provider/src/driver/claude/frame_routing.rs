@@ -44,7 +44,7 @@ use crate::thread_frame_router::{
 };
 use crate::usage_delta_accountant::{
     CumulativeUsageReading, MeteredUsageDelta, ThreadBaseEstablishment, UsageAxisCounts,
-    UsageRequestFacts,
+    UsageRequestFacts, combine_count,
 };
 
 /// What the routing band read off one frame: its route, the helper starts and ends it reports,
@@ -106,7 +106,7 @@ impl ClaudeMessageUsageObservation {
     pub(crate) fn raise(&mut self, later: &ClaudeMessageUsageObservation) {
         let (so_far, read) = (&self.request, &later.request);
         let larger = |so_far, read| combine_count(so_far, read, u64::max);
-        self.counts = larger_counts(self.counts, later.counts);
+        self.counts = self.counts.larger(later.counts);
         self.request = ClaudeMessageRequestFacts {
             cache_write_extended_tokens: larger(
                 so_far.cache_write_extended_tokens,
@@ -140,7 +140,7 @@ impl ClaudeThreadMessages {
     fn total(&self) -> UsageAxisCounts {
         self.open
             .as_ref()
-            .map_or(self.finished, |open| add_counts(self.finished, open.counts))
+            .map_or(self.finished, |open| self.finished.added(open.counts))
     }
 
     // A message's reading, with the thread's sum and what prices the change: the same message's
@@ -157,7 +157,7 @@ impl ClaudeThreadMessages {
             .is_none_or(|open| open.message_id != message.message_id)
             && let Some(closed) = self.open.take()
         {
-            self.finished = add_counts(self.finished, closed.counts);
+            self.finished = self.finished.added(closed.counts);
         }
         let open = self
             .open
@@ -183,7 +183,7 @@ impl ClaudeThreadMessages {
     // A turn's own usage, which the thread's sum reaches at least, with the turn's last message's
     // key and selectors, or none where no message is open.
     fn confirm_turn(&mut self, turn: UsageAxisCounts) -> (UsageAxisCounts, UsageRequestFacts) {
-        let total = larger_counts(self.total(), add_counts(self.confirmed, turn));
+        let total = self.total().larger(self.confirmed.added(turn));
         let request = self
             .open
             .take()
@@ -481,44 +481,6 @@ fn meter(
         subagent_id: observation.subagent_id.clone(),
         delta,
     })
-}
-
-// Each axis summed, present where either side carries it.
-fn add_counts(left: UsageAxisCounts, right: UsageAxisCounts) -> UsageAxisCounts {
-    combine_counts(left, right, u64::saturating_add)
-}
-
-// Each axis's larger count, present where either side carries it.
-fn larger_counts(left: UsageAxisCounts, right: UsageAxisCounts) -> UsageAxisCounts {
-    combine_counts(left, right, u64::max)
-}
-
-fn combine_counts(
-    left: UsageAxisCounts,
-    right: UsageAxisCounts,
-    combine: fn(u64, u64) -> u64,
-) -> UsageAxisCounts {
-    let axis = |left, right| combine_count(left, right, combine);
-    UsageAxisCounts {
-        input: axis(left.input, right.input),
-        cached_input: axis(left.cached_input, right.cached_input),
-        cache_write_input: axis(left.cache_write_input, right.cache_write_input),
-        output: axis(left.output, right.output),
-        reasoning_output: axis(left.reasoning_output, right.reasoning_output),
-        total: axis(left.total, right.total),
-    }
-}
-
-// One count combined, present where either side carries it.
-fn combine_count(
-    left: Option<u64>,
-    right: Option<u64>,
-    combine: fn(u64, u64) -> u64,
-) -> Option<u64> {
-    match (left, right) {
-        (Some(left), Some(right)) => Some(combine(left, right)),
-        (left, right) => left.or(right),
-    }
 }
 
 // How far a message's figure so far grew at this reading, the whole figure where none was read

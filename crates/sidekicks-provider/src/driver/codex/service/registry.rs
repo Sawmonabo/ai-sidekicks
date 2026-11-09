@@ -730,9 +730,18 @@ pub(crate) fn home_config_overrides(kind: &CodexHomeKind) -> Vec<String> {
 /// own, as the `-c` pairs any Codex process on a home of `kind` that is not a service starts with
 /// before its own arguments: `codex exec`, the executor and the other short commands.
 pub(crate) fn home_exec_switches(kind: &CodexHomeKind) -> Vec<String> {
+    compose_home_exec_switches(kind, compose_command_telemetry_switches(kind))
+}
+
+/// The switches of [`home_config_overrides`], then `telemetry_overrides`, as the `-c` pairs a
+/// Codex process on a home of `kind` that is not a service starts with.
+pub(crate) fn compose_home_exec_switches(
+    kind: &CodexHomeKind,
+    telemetry_overrides: Vec<String>,
+) -> Vec<String> {
     home_config_overrides(kind)
         .into_iter()
-        .chain(compose_command_telemetry_switches(kind))
+        .chain(telemetry_overrides)
         .flat_map(|config_override| ["-c".to_owned(), config_override])
         .collect()
 }

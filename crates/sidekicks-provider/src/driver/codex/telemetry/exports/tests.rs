@@ -78,7 +78,12 @@ fn settle_turn(
 /// A log export whose one resource carries `tag`, as Codex's SDK reads it from the launch, and
 /// holds `records`.
 pub(crate) fn export_tagged(tag: &CodexExportTag, records: Vec<LogRecord>) -> TelemetryExport {
-    let attributes = tag.resource_attributes();
+    export_carrying(&tag.resource_attributes(), records)
+}
+
+/// A log export whose one resource carries `attributes`, a process's `OTEL_RESOURCE_ATTRIBUTES`
+/// holding one pair, and holds `records`.
+pub(crate) fn export_carrying(attributes: &str, records: Vec<LogRecord>) -> TelemetryExport {
     let (key, value) = attributes.split_once('=').expect("the tag is a pair");
     TelemetryExport::Logs(ExportLogsServiceRequest {
         resource_logs: vec![ResourceLogs {

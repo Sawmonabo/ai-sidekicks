@@ -125,10 +125,9 @@ pub(crate) fn compose_command_telemetry_switches(home_kind: &CodexHomeKind) -> V
     }
 }
 
-// The log export to `target`, with traces, metrics and each record's content off, and the token
-// minted for the tag the launch of `service` takes from the export register and the tag itself in
-// the process's environment, the token never on its command line. Fails when the token cannot be
-// minted, which leaves the launch out of the register.
+// The log export to `target` and the token minted for the tag the launch of `service` takes from
+// the export register. Fails when the token cannot be minted, which leaves the launch out of the
+// register.
 fn compose_daemon_export(
     target: &TelemetryTarget,
     service: &Arc<CodexService>,
@@ -137,6 +136,16 @@ fn compose_daemon_export(
     let bearer = target
         .bearers()
         .mint(DESCRIPTOR.provider_id(), tag.holder())?;
+    Ok(TelemetrySwitches {
+        config_overrides: compose_daemon_export_overrides(target),
+        environment: compose_daemon_export_environment(&bearer, &tag),
+        launch: Some(CodexLaunchTelemetry { tag, bearer }),
+    })
+}
+
+/// The `key=value` switches that export a Codex process's logs to `target`, with traces, metrics
+/// and each record's content off.
+pub(crate) fn compose_daemon_export_overrides(target: &TelemetryTarget) -> Vec<String> {
     let exporter = json!({
         "otlp-http": {
             "endpoint": format!(
@@ -153,17 +162,22 @@ fn compose_daemon_export(
             .chain(RECORD_CONTENT_OFF)
             .map(str::to_owned),
     );
-    Ok(TelemetrySwitches {
-        config_overrides,
-        environment: vec![
-            (LOGS_HEADERS_VARIABLE.to_owned(), bearer.exporter_headers()),
-            (
-                RESOURCE_ATTRIBUTES_VARIABLE.to_owned(),
-                tag.resource_attributes(),
-            ),
-        ],
-        launch: Some(CodexLaunchTelemetry { tag, bearer }),
-    })
+    config_overrides
+}
+
+/// The environment pairs an exporting Codex process carries: `bearer`'s token and `tag`, so the
+/// token is never on its command line.
+pub(crate) fn compose_daemon_export_environment(
+    bearer: &TelemetryBearer,
+    tag: &CodexExportTag,
+) -> Vec<(String, String)> {
+    vec![
+        (LOGS_HEADERS_VARIABLE.to_owned(), bearer.exporter_headers()),
+        (
+            RESOURCE_ATTRIBUTES_VARIABLE.to_owned(),
+            tag.resource_attributes(),
+        ),
+    ]
 }
 
 /// The daemon's export of `service`, a lasting service a former daemon launched and this one

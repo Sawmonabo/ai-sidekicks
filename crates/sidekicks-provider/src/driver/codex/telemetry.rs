@@ -2,13 +2,14 @@
 //! from, each completed response its records state, the responses a session's stream stated, the
 //! exported responses a session holds until it can tell a stated one from a new one, where a
 //! response on a thread no session streams belongs, the copies' threads, and the drain that takes
-//! each response where it belongs.
+//! each response where it belongs; and a one-shot exec's export, collected for its caller.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub(crate) mod completed_response;
 pub(crate) mod copy_threads;
 pub(crate) mod drain;
+pub(crate) mod exec_export;
 pub(crate) mod exports;
 pub(crate) mod held_responses;
 pub(crate) mod placement;
