@@ -115,6 +115,7 @@ impl ClaudeDeliveryStream {
             turn_at_read,
         } = routed;
         let mut after = ClaudeFrameAfter::default();
+        self.land_continued(session).await;
         if let Some(settled) = routed.settled_output_speed
             && let Err(error) = self
                 .dependencies

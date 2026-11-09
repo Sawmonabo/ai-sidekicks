@@ -699,8 +699,8 @@ fn undo_settle(session_id: SessionId, calls: Vec<HeldToolCall>) -> SettleHeldToo
 
 // Fails when an undo's settle leaves a cut call's task running on its server, its call open in the
 // log, or still on the stream for the stopped ending Claude Code reports after the stop to close a
-// second time. Mutations: the stream's take dropped, so the call stays held (the notification
-// writes a second close); the call ended through `release` as stopped, which keeps it settled (the
+// second time. Mutations: the call not set apart on the stream, so it stays held (the
+// notification writes a second close); the call ended through `release` as stopped, which keeps it settled (the
 // notification closes it again); the close not sent (no close by the settle's answer); the
 // `stop_task` send dropped (no stop for task-A).
 #[tokio::test(start_paused = true)]
@@ -789,8 +789,10 @@ enum FirstStop {
 
 // An undo's settle whose stop of one task Claude Code refuses, or does not answer within the
 // bound, fails naming that task and leaves its call open, while the call whose stop was taken
-// closes stopped. Mutations: a refused or unanswered stop read as taken (call-A closes and the
-// settle answers), and every close held back by one failed stop (call-B stays open).
+// closes stopped; the open call is held on the stream again, so its task's later ending closes
+// it and no later undo finds it open. Mutations: a refused or unanswered stop read as taken
+// (call-A closes and the settle answers), every close held back by one failed stop (call-B stays
+// open), and the unstopped call left off the stream (its ending closes nothing).
 #[rstest]
 #[case::refused(FirstStop::Refused)]
 #[case::unanswered(FirstStop::Unanswered)]
@@ -800,12 +802,13 @@ async fn an_undo_whose_stop_is_not_taken_fails_and_leaves_that_call_open(
 ) {
     let fixture = ScriptedDriver::new();
     let channel = Arc::new(ScriptedChannel::default());
-    let (session_id, run_id, _start) = holding_session(
+    let (session_id, run_id, start) = holding_session(
         &fixture,
         &channel,
         &[("call-A", "task-A"), ("call-B", "task-B")],
     )
     .await;
+    let parts = fixture.driver.composed_parts().expect("composed");
     let _held = match first_stop {
         FirstStop::Refused => {
             channel.answer("stop_task", ScriptedAnswer::Refused);
@@ -841,5 +844,32 @@ async fn an_undo_whose_stop_is_not_taken_fails_and_leaves_that_call_open(
             Ending::Failed(Some(ToolCallEndCause::Stopped)),
             None,
         )]
+    );
+
+    hand_scripted_frame(
+        &*start.listener,
+        &parts.run_start.routes,
+        session_id,
+        &json!({
+            "type": "system",
+            "subtype": "task_notification",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+            "task_id": "task-A",
+            "tool_use_id": "call-A",
+            "status": "stopped",
+        }),
+    );
+    settle().await;
+
+    let stopped = |call: &str| {
+        (
+            call.to_owned(),
+            Ending::Failed(Some(ToolCallEndCause::Stopped)),
+            None,
+        )
+    };
+    assert_eq!(
+        closed_calls(&fixture),
+        [stopped("call-B"), stopped("call-A")]
     );
 }

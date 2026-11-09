@@ -106,9 +106,11 @@ fn deliveries_after_start(
 // reply after it; one kept past its turn's end lands right after the next turn's start; the
 // opening's `started` lands nothing; of two written messages taken into one turn, the newer lands
 // right after the turn's start, before its rows, and the older, which opens it, lands nothing; one
-// kept past its turn's end lands in the turn a continue reopens, before that turn's rows. Killed
-// by a `started` with no turn open dropped, by both signs landing, by the opening landed, by a
-// turn's later message dropped and by a continue that leaves the kept message for a later turn.
+// kept past its turn's end lands in the turn a continue reopens, before that turn's rows, and in
+// the run's next turn when the continue is put back before any frame. Killed by a `started` with
+// no turn open dropped, by both signs landing, by the opening landed, by a turn's later message
+// dropped, by a continue that leaves the kept message for a later turn and by a put-back continue
+// that lands it in the turn it never reopened or forgets it.
 #[tokio::test(start_paused = true)]
 async fn a_claude_steer_lands_where_claude_code_took_it() {
     // Mid-turn: a tool result, the steer's echo, its `started`, a reply.
@@ -253,4 +255,31 @@ async fn a_claude_steer_lands_where_claude_code_took_it() {
         })
         .expect("the reply is delivered");
     assert!(landed_at < reply_at, "{deliveries:?}");
+
+    // Kept past the turn's end, then a continue put back before any frame, as when its write
+    // fails, then the run's next turn.
+    let session = ScriptedSession::new().await;
+    let run_id = session.hold_lead_turn("lead");
+    let steer = new_item();
+    write(&session, run_id, steer, true);
+    session.frame(&init());
+    session.frame(&result(&json!({})));
+    settle().await;
+    session.frame(&started(steer));
+    settle().await;
+    let before = session.stream.continue_turn(
+        &ClaudeBoundRun {
+            run_id,
+            binding_id: binding_id("lead"),
+        },
+        first_turn,
+        None,
+    );
+    session.stream.restore_turn(before);
+    settle().await;
+    assert_eq!(landings(&session), []);
+    session.frame(&init());
+    session.frame(&result(&json!({})));
+    settle().await;
+    assert_eq!(landings(&session), [(steer, 2)]);
 }

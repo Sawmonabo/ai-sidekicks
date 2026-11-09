@@ -6,14 +6,13 @@ use std::time::{Duration, SystemTime};
 
 use jiff::Timestamp;
 use rstest::rstest;
-use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_platforms::{is_superuser, make_unwritable};
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
-use super::{CaptureFolderSweep, CapturePacking, CapturedCommit, is_fold_due};
+use super::{CaptureFolderSweep, CapturePacking, is_fold_due};
 use crate::git::process::{GitCall, GitRunner, in_folder, read_git_common_folder, test_git_runner};
 use crate::git::turn_snapshot::capture::{CheckoutCaptureInput, GitFloorReports};
 use crate::git::turn_snapshot::capture_folder::{CaptureFolder, git_folder_argument};
@@ -25,6 +24,8 @@ use crate::git::turn_snapshot::service::test_support::{
 };
 use crate::git::turn_snapshot::service::{TurnSnapshotCaptureOutcome, TurnSnapshotService};
 use crate::git::worktree::schema::schema_parts;
+
+mod failed_packs;
 
 // A read of a ref state well after its last write, outside the window in which a later write
 // could keep the facts it read.
@@ -304,6 +305,27 @@ async fn a_failed_fold_keeps_the_next_fold_waiting() {
     assert!(failed.is_err(), "the fold fails, got {failed:?}");
     assert!(again.is_ok(), "got {again:?}");
     assert_eq!(counted(&git, &folder, "packs").await, 11);
+}
+
+// A fold a capture's pack finds due waits for the folder's first sweep pass of the daemon run,
+// which packs what an earlier run's failed pack left loose, and runs once that pass read it.
+// Fails when the fold runs before the pass (the eleven packs are folded at once).
+#[tokio::test]
+async fn a_capture_fold_waits_for_the_folders_first_sweep_pass() {
+    let git = test_git_runner();
+    let root = tempfile::tempdir().expect("the temporary folder is made");
+    let (_, folder) = folder_with_eleven_packs(&git, root.path()).await;
+    let packing = CapturePacking::new(git.clone(), Arc::new(GitFloorReports::default()));
+
+    let before_the_pass = packing.fold_when_due(None, folder.clone()).await;
+    let packs_before_the_pass = counted(&git, &folder, "packs").await;
+    lock(&packing.swept_folders).insert(folder.clone());
+    let after_the_pass = packing.fold_when_due(None, folder.clone()).await;
+
+    assert!(before_the_pass.is_ok(), "got {before_the_pass:?}");
+    assert_eq!(packs_before_the_pass, 11);
+    assert!(after_the_pass.is_ok(), "got {after_the_pass:?}");
+    assert!(counted(&git, &folder, "packs").await < 11);
 }
 
 // Fails on an off-by-one at the threshold, when the packs the last fold left are ignored, so
@@ -639,221 +661,4 @@ async fn a_sweep_of_a_deleted_repository_answers_its_absence_and_keeps_its_folde
         "the capture folder is kept"
     );
     assert!(!partial.exists(), "the partial folder is removed");
-}
-
-// A capture whose own pack failed is packed again at the next sweep: in the same daemon run from
-// the run's record before its loose objects age, and after a restart once they are an hour old.
-// Fails when the record is not kept or not packed before the fold, or when the sweep after a
-// restart leaves the capture's loose objects unwalked (the gc in the repository then takes the
-// staged blob only the capture's tree names), or when the tree is packed less the base's commit
-// rather than its tree, which leaves nothing out and copies the base's file.
-#[rstest]
-#[case::in_the_same_run(false)]
-#[case::after_a_restart(true)]
-#[tokio::test]
-async fn a_sweep_packs_again_a_capture_whose_own_pack_failed(#[case] is_restarted: bool) {
-    // Root writes into a folder whatever its mode.
-    if is_superuser() {
-        return;
-    }
-    let git = test_git_runner();
-    let root = tempfile::tempdir().expect("the temporary folder is made");
-    let (repository, _) = repository_with_a_commit(&git, root.path()).await;
-    let common = read_git_common_folder(&git, None, &repository, None)
-        .await
-        .expect("the repository's git folder is read");
-    stage_file(&git, &repository, "kept.txt", "in the base\n").await;
-    write_in(
-        &git,
-        &repository,
-        &[
-            "-c",
-            "user.name=Test",
-            "-c",
-            "user.email=test@example.invalid",
-            "commit",
-            "-q",
-            "-m",
-            "base",
-        ],
-    )
-    .await;
-    let base_blob = answer(
-        &git,
-        GitCall::read(in_folder(&repository, &["rev-parse", "HEAD:kept.txt"])),
-    )
-    .await;
-    stage_file(&git, &repository, "n.txt", "only staged\n").await;
-    let database = TestDatabase::new(schema_parts());
-    let (service, packing) = service_and_packing(&git, &database);
-    let owner = root.path().join("owner");
-    let capture_folder = CaptureFolder::open_or_create(&git, None, &owner, &common)
-        .await
-        .expect("the capture folder is made");
-    let folder = capture_folder.folder();
-    let unwritable = make_unwritable(&folder.join("objects").join("pack"))
-        .expect("the pack folder is made unwritable");
-    let outcome = service
-        .capture_turn_snapshot(None, &turn_of(&repository, &owner, minted_run_id(), 0))
-        .await;
-    drop(unwritable);
-    let TurnSnapshotCaptureOutcome::Captured {
-        snapshot_commit, ..
-    } = outcome
-    else {
-        panic!("the turn is captured, got {outcome:?}");
-    };
-    assert!(
-        counted(&git, folder, "count").await > 0,
-        "the failed pack left the capture loose"
-    );
-    let sweeping = if is_restarted {
-        let aged_time = SystemTime::now() - LEFTOVER_AGE;
-        for fan_out in fs::read_dir(folder.join("objects")).expect("the object folder is listed") {
-            let fan_out = fan_out.expect("the entry reads").path();
-            if fan_out.file_name().is_some_and(|name| name.len() == 2) {
-                for object in fs::read_dir(&fan_out).expect("the fan-out folder is listed") {
-                    let object = object.expect("the entry reads").path();
-                    fs::set_times(&object, FileTimes::new().set_modified(aged_time))
-                        .expect("the loose object is aged");
-                }
-            }
-        }
-        Arc::new(CapturePacking::new(
-            git.clone(),
-            Arc::new(GitFloorReports::default()),
-        ))
-    } else {
-        packing
-    };
-
-    let swept = sweeping
-        .sweep_capture_folder(
-            None,
-            &owner,
-            &common,
-            None,
-            &[],
-            &[],
-            SystemTime::now(),
-            &ProcessorMeter::default(),
-        )
-        .await;
-    write_in(&git, &repository, &["reset", "--quiet"]).await;
-    collect_garbage(&git, &repository).await;
-
-    assert!(
-        matches!(swept, Ok(CaptureFolderSweep::Swept(_))),
-        "got {swept:?}"
-    );
-    assert_eq!(counted(&git, folder, "count").await, 0);
-    let file = format!("{}:n.txt", snapshot_commit.as_str());
-    let read = answer_with_captures(
-        &git,
-        &repository,
-        &capture_folder,
-        &["cat-file", "-p", &file],
-    )
-    .await;
-    assert_eq!(read, "only staged");
-    let base_in_folder = git
-        .run(
-            None,
-            GitCall::read([
-                git_folder_argument(folder),
-                "cat-file".into(),
-                "-e".into(),
-                base_blob.into(),
-            ]),
-        )
-        .await;
-    assert!(
-        base_in_folder.is_err(),
-        "the base's file is left out of the pack"
-    );
-}
-
-// What waits behind an owner's hold.
-#[derive(Debug)]
-enum HeldBack {
-    Sweep,
-    Pack,
-}
-
-// A sweep or a pack queued behind an owner's hold finds its folder gone once the hold drops and
-// leaves it alone. Fails when either works on the folder without checking it is still there (the
-// sweep's count of its objects then fails; the pack fails and keeps its capture to pack again),
-// or when the hold leaves the owner's capture folder free.
-#[rstest]
-#[case::sweep(HeldBack::Sweep)]
-#[case::pack(HeldBack::Pack)]
-#[tokio::test]
-async fn a_sweep_or_a_pack_queued_behind_the_owners_hold_finds_its_folder_gone(
-    #[case] held_back: HeldBack,
-) {
-    let git = test_git_runner();
-    let root = tempfile::tempdir().expect("the temporary folder is made");
-    let (repository, commit) = repository_with_a_commit(&git, root.path()).await;
-    let common = read_git_common_folder(&git, None, &repository, None)
-        .await
-        .expect("the repository's git folder is read");
-    let packing = Arc::new(CapturePacking::new(
-        git.clone(),
-        Arc::new(GitFloorReports::default()),
-    ));
-    let owner = root.path().join("owner");
-    let capture_folder = CaptureFolder::open_or_create(&git, None, &owner, &common)
-        .await
-        .expect("the capture folder is made");
-    let folder = capture_folder.folder().to_path_buf();
-    let hold = packing
-        .hold_owner_folders(&owner)
-        .await
-        .expect("the owner's folders are held");
-    let handles = packing.folder_lock.queue_handle_count(folder.clone());
-    let meter = ProcessorMeter::default();
-    let commit = GitObjectId::new(commit).expect("the commit is an object id");
-    let captured = CapturedCommit::new(capture_folder, commit.clone(), commit, None);
-    let mut waiting = std::pin::pin!(async {
-        match held_back {
-            HeldBack::Sweep => Some(
-                packing
-                    .sweep_capture_folder(
-                        None,
-                        &owner,
-                        &common,
-                        None,
-                        &[],
-                        &[],
-                        SystemTime::now(),
-                        &meter,
-                    )
-                    .await,
-            ),
-            HeldBack::Pack => {
-                packing.pack(None, &captured).await;
-                None
-            }
-        }
-    });
-
-    tokio::select! {
-        ended = &mut waiting => panic!("the {held_back:?} waits for the hold, got {ended:?}"),
-        () = packing.folder_lock.wait_for_queue_past(folder.clone(), handles) => {}
-    }
-    fs::remove_dir_all(&folder).expect("the capture folder is removed");
-    drop(hold);
-    let swept = waiting.await;
-
-    match held_back {
-        HeldBack::Sweep => assert!(
-            matches!(swept, Some(Ok(CaptureFolderSweep::Absent))),
-            "got {swept:?}"
-        ),
-        HeldBack::Pack => assert!(
-            lock(&packing.failed_packs).is_empty(),
-            "the pack left the removed folder alone"
-        ),
-    }
-    assert!(!folder.exists(), "the folder is not made again");
 }

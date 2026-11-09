@@ -91,8 +91,8 @@ struct ForkAnswer {
 }
 
 /// The fork's conversation id, exactly as the SDK named the fork's file, or why there is none.
-/// Runs the SDK in `module` under the bun at `bun`; the caller bounds its own waits for both. A fork
-/// that fails after the SDK began writing has the file it began removed.
+/// Runs the SDK in `module` under the bun at `bun`; the caller bounds its own waits for both. A
+/// fork that fails after the SDK began writing has the file it began removed.
 #[cfg_attr(
     not(test),
     expect(
@@ -393,7 +393,13 @@ mod tests {
             std::fs::write(folder.path().join(name), format!("{first_entry}\n"))
                 .expect("the file is written");
         };
-        let fork_of = |source: &str| json!({"type": "user", "uuid": "copy", "forkedFrom": {"sessionId": source, "messageUuid": "entry"}});
+        let fork_of = |source: &str| {
+            json!({
+                "type": "user",
+                "uuid": "copy",
+                "forkedFrom": {"sessionId": source, "messageUuid": "entry"},
+            })
+        };
         write("source.jsonl", json!({"type": "user", "uuid": "entry"}));
         write("earlier-fork.jsonl", fork_of(SOURCE_ID));
         let before = list_conversation_files(folder.path())

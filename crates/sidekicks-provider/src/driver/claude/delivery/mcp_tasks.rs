@@ -84,11 +84,33 @@ impl ClaudeHeldCall {
     }
 }
 
+// A call whose task an undo is stopping, until the stop answers: still running, from the held or
+// the settled calls, or ended meanwhile as its task's notification ended it.
+enum ClaudeStoppingCall {
+    Running {
+        call: ClaudeHeldCall,
+        is_settled: bool,
+    },
+    Ended(ClaudeHeldCallEnd),
+}
+
+/// What became of a call whose task an undo stopped, once the stop answered.
+pub(crate) enum ClaudeStopOutcome {
+    /// The call closes with this end: Claude Code took the stop, or the task ended meanwhile.
+    Ended(ClaudeHeldCallEnd),
+    /// The stop was not taken and the task still runs, so the call is held again for its ending.
+    HeldAgain,
+    /// The stream began no stop of the task: it neither held nor kept the call.
+    NotBegun,
+}
+
 /// One session's tool-server calls running in the background, held open until their tasks end,
-/// and the calls settled failed or stopped, kept until the process ends.
+/// the calls settled failed or stopped, kept until the process ends, and the calls whose tasks an
+/// undo is stopping.
 pub(crate) struct ClaudeToolServerTasks {
     held: HashMap<String, ClaudeHeldCall>,
     settled: LruCache<String, ClaudeHeldCall>,
+    stopping: HashMap<String, ClaudeStoppingCall>,
 }
 
 impl Default for ClaudeToolServerTasks {
@@ -96,6 +118,7 @@ impl Default for ClaudeToolServerTasks {
         Self {
             held: HashMap::new(),
             settled: LruCache::new(CLAUDE_SETTLED_CALLS_MAX),
+            stopping: HashMap::new(),
         }
     }
 }
@@ -168,13 +191,51 @@ impl ClaudeToolServerTasks {
         self.held.drain().collect()
     }
 
-    /// Takes the call the tool server's task `task_id` runs out whole, held or settled, so a later
-    /// ending of its task finds nothing and closes it no second time; `None` for a task neither
-    /// holds.
-    pub(crate) fn take_named(&mut self, task_id: &str) -> Option<ClaudeHeldCall> {
-        let held = self.held.remove(task_id);
-        let settled = self.settled.pop(task_id);
-        held.or(settled)
+    /// Moves the call the tool server's task `task_id` runs, held or settled, among the calls an
+    /// undo is stopping, so an ending of its task before the stop answers is kept for that answer
+    /// and closes nothing; a task neither holds is left.
+    pub(crate) fn begin_stop(&mut self, task_id: &str) {
+        let (call, is_settled) = match self.held.remove(task_id) {
+            Some(call) => (call, false),
+            None => match self.settled.pop(task_id) {
+                Some(call) => (call, true),
+                None => return,
+            },
+        };
+        self.stopping.insert(
+            task_id.to_owned(),
+            ClaudeStoppingCall::Running { call, is_settled },
+        );
+    }
+
+    /// Ends the stop of task `task_id` that `begin_stop` began, `is_stopped` saying whether Claude
+    /// Code took it: the call ends stopped with no body when it did, as its task's ending ended it
+    /// when that came first, and is held or kept settled again otherwise, so a later ending of its
+    /// task still closes it.
+    pub(crate) fn finish_stop(&mut self, task_id: &str, is_stopped: bool) -> ClaudeStopOutcome {
+        match self.stopping.remove(task_id) {
+            None => ClaudeStopOutcome::NotBegun,
+            Some(ClaudeStoppingCall::Ended(end)) => ClaudeStopOutcome::Ended(end),
+            Some(ClaudeStoppingCall::Running { call, .. }) if is_stopped => {
+                ClaudeStopOutcome::Ended(ClaudeHeldCallEnd {
+                    tool_use_id: call.tool_use_id,
+                    opened: call.opened,
+                    outcome: ClaudeToolCallOutcome::Failed {
+                        end_cause: Some(ToolCallEndCause::Stopped),
+                    },
+                    text: None,
+                    notification: None,
+                })
+            }
+            Some(ClaudeStoppingCall::Running { call, is_settled }) => {
+                if is_settled {
+                    self.settled.push(task_id.to_owned(), call);
+                } else {
+                    self.held.insert(task_id.to_owned(), call);
+                }
+                ClaudeStopOutcome::HeldAgain
+            }
+        }
     }
 
     /// Each held call's task id and call id.
@@ -192,10 +253,33 @@ impl ClaudeToolServerTasks {
     /// The end of the held or settled call whose task the notification `frame` ends: `completed`
     /// with the summary and the files, `stopped` failed with no body, and any other status
     /// failed with the summary and the files. A completed call is released; a failed or stopped
-    /// one is settled. `None` for a frame of an earlier task run, or of any other task.
+    /// one is settled. `None` for a frame of an earlier task run, or of any other task, and for a
+    /// call whose task an undo is stopping, which keeps the end for the stop's answer.
     pub(crate) fn release(&mut self, frame: &ClaudeTaskFrame) -> Option<ClaudeHeldCallEnd> {
         let task_id = frame.task_id()?;
         let run_id = frame.run_id();
+        if let Some(stopping) = self.stopping.get_mut(task_id) {
+            let is_ending = match stopping {
+                ClaudeStoppingCall::Running { call, .. } => call.take_run(run_id),
+                ClaudeStoppingCall::Ended(_) => false,
+            };
+            if is_ending
+                && let Some(ClaudeStoppingCall::Running { call, .. }) =
+                    self.stopping.remove(task_id)
+            {
+                let (outcome, text) = read_end_outcome(frame);
+                let end = ClaudeHeldCallEnd {
+                    tool_use_id: call.tool_use_id,
+                    opened: call.opened,
+                    outcome,
+                    text,
+                    notification: None,
+                };
+                self.stopping
+                    .insert(task_id.to_owned(), ClaudeStoppingCall::Ended(end));
+            }
+            return None;
+        }
         let call = if let Some(held) = self.held.get_mut(task_id) {
             if !held.take_run(run_id) {
                 return None;
@@ -207,19 +291,7 @@ impl ClaudeToolServerTasks {
             }
             self.settled.pop(task_id)?
         };
-        let (outcome, text) = match frame.status() {
-            Some("completed") => (ClaudeToolCallOutcome::Completed, Some(end_text(frame))),
-            Some("stopped") => (
-                ClaudeToolCallOutcome::Failed {
-                    end_cause: Some(ToolCallEndCause::Stopped),
-                },
-                None,
-            ),
-            Some(_) | None => (
-                ClaudeToolCallOutcome::Failed { end_cause: None },
-                Some(end_text(frame)),
-            ),
-        };
+        let (outcome, text) = read_end_outcome(frame);
         if outcome == ClaudeToolCallOutcome::Completed {
             return Some(ClaudeHeldCallEnd {
                 tool_use_id: call.tool_use_id,
@@ -276,10 +348,11 @@ impl ClaudeToolServerTasks {
         Some((held.tool_use_id.clone(), frame.summary()?.to_owned()))
     }
 
-    /// Forgets every held and settled call: the session's process is gone.
+    /// Forgets every held, settled and stopping call: the session's process is gone.
     pub(crate) fn forget(&mut self) {
         self.held.clear();
         self.settled.clear();
+        self.stopping.clear();
     }
 
     // Keeps `call` settled under its task, the oldest settled call forgotten past the cap, and
@@ -304,6 +377,25 @@ impl ClaudeToolServerTasks {
             text,
             notification: None,
         }
+    }
+}
+
+// How the notification `frame` ends its task's call, and the call's body: `completed` with the
+// summary and the files, `stopped` failed with no body, any other status failed with the summary
+// and the files.
+fn read_end_outcome(frame: &ClaudeTaskFrame) -> (ClaudeToolCallOutcome, Option<String>) {
+    match frame.status() {
+        Some("completed") => (ClaudeToolCallOutcome::Completed, Some(end_text(frame))),
+        Some("stopped") => (
+            ClaudeToolCallOutcome::Failed {
+                end_cause: Some(ToolCallEndCause::Stopped),
+            },
+            None,
+        ),
+        Some(_) | None => (
+            ClaudeToolCallOutcome::Failed { end_cause: None },
+            Some(end_text(frame)),
+        ),
     }
 }
 

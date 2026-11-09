@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -423,5 +424,73 @@ fn a_held_folders_refs_moved_before_its_hold_are_read_again() {
         git_in(&copied, &["for-each-ref", "--format=%(refname)"]),
         "refs/heads/main\n"
     );
+    git_in(&copied, &["fsck", "--connectivity-only", "--no-dangling"]);
+}
+
+thread_local! {
+    // What a git folder's copy runs, on the copying thread, each time it has listed `pack` and
+    // `info`; none outside a test that sets it.
+    static ON_OBJECT_LISTING: RefCell<Option<Box<dyn FnMut()>>> = const { RefCell::new(None) };
+}
+
+// Runs the test's step set for the point after a git folder's copy listed `pack` and `info`.
+pub(super) fn pass_object_listing() {
+    ON_OBJECT_LISTING.with_borrow_mut(|step| {
+        if let Some(step) = step {
+            step();
+        }
+    });
+}
+
+// A live repository whose packs git expires between their listing and their copy, as
+// `multi-pack-index expire` removes the packs a newer one covers with no pack written, is copied
+// whole: the round runs again over the packs that are left. Killed by a pack that vanished with
+// none new listed read as the folder deleted (the repository's copy is removed).
+#[test]
+fn a_repository_whose_packs_expire_during_its_copy_is_copied_whole() {
+    let scratch = tempfile::tempdir().expect("a scratch folder");
+    let home = scratch.path().join("home");
+    let place = home.join("data/repository");
+    make_repository(&place);
+    git_in(&place, &["repack", "-q"]);
+    fs::write(place.join("second.md"), b"second").expect("written");
+    git_in(&place, &["add", "second.md"]);
+    git_in(&place, &["commit", "--quiet", "-m", "second"]);
+    git_in(&place, &["repack", "-q"]);
+    let mirror = scratch.path().join("backups/mirror");
+    let roots = [MirrorRoot::under_home("repository".to_owned(), &home, &place).expect("a root")];
+    let stop = CancellationToken::new();
+    let pack_folder = place.join(".git/objects/pack");
+    let expired: Vec<PathBuf> = fs::read_dir(&pack_folder)
+        .expect("the pack folder reads")
+        .map(|entry| entry.expect("an entry reads").path())
+        .collect();
+    assert!(
+        expired
+            .iter()
+            .filter(|path| path.extension() == Some("pack".as_ref()))
+            .count()
+            >= 2
+    );
+    // One pack holding everything, as `repack -a` without `-d` leaves it beside the older packs.
+    git_in(&place, &["repack", "-a", "-q"]);
+    let mut is_expired = false;
+    ON_OBJECT_LISTING.set(Some(Box::new(move || {
+        if !std::mem::replace(&mut is_expired, true) {
+            for path in &expired {
+                fs::remove_file(path).expect("an older pack's file is removed");
+            }
+        }
+    })));
+
+    let report = mirror_roots(&mirror, &home, &roots, &UnwrittenGitFolders, &stop);
+    ON_OBJECT_LISTING.set(None);
+
+    assert_eq!(
+        report.expect("the run reads").skipped_folders,
+        Vec::<PathBuf>::new()
+    );
+    let copied = mirror.join("repository");
+    assert_eq!(git_in(&copied, &["log", "--format=%s"]), "second\nfirst\n");
     git_in(&copied, &["fsck", "--connectivity-only", "--no-dangling"]);
 }

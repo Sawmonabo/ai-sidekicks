@@ -74,6 +74,38 @@ impl ClaudeDeliveryStream {
         (self.dependencies.message_taken)(session.session_id, uuid, taken.run_id);
     }
 
+    // Lands, ahead of the frame being read, the messages a continued turn took over from the time
+    // no turn of their run was open, in that turn; one whose run's turn is no longer open waits
+    // for the run's next turn.
+    pub(super) async fn land_continued(&self, session: &ClaudeSessionStream) {
+        let landings: Vec<InboundDelivery> = {
+            let mut readings = session.lock();
+            let taken = std::mem::take(&mut readings.continued_landings);
+            let mut landings = Vec::with_capacity(taken.len());
+            for taken in taken {
+                let turn = readings
+                    .turn
+                    .as_ref()
+                    .filter(|turn| turn.run_id == taken.run_id)
+                    .and_then(|turn| Some((turn.binding_id.clone(), turn.turn_number?)));
+                match turn {
+                    Some((binding_id, turn_number)) => {
+                        landings.push(InboundDelivery::TurnSteered {
+                            binding_id,
+                            turn_number,
+                            message_id: taken.message_id,
+                        });
+                    }
+                    None => readings.taken_without_turn.push(taken),
+                }
+            }
+            landings
+        };
+        for steered in landings {
+            self.send(session, steered, None).await;
+        }
+    }
+
     // Lands a message in its run's open, numbered turn unless it opened that turn; with no turn of
     // its run open it waits for the run's next turn.
     async fn land_taken(

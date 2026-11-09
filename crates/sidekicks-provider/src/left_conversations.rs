@@ -68,14 +68,21 @@ pub struct LeftConversationRecord {
 
 // Lands only beside the binding update stamped `@left_at` in the same write, and takes the
 // provider from that binding. The recovery data is bound, never read from that binding, whose
-// row by then holds the new leg's data, or another binding's after a fork onto it.
+// row by then holds the new leg's data, or another binding's after a fork onto it. A conversation
+// the session already recorded, a fork an undo moved it onto, takes the time it was left and the
+// leg's own account and recovery data.
 const INSERT_LEFT_CONVERSATION_SQL: &str = "
-  INSERT OR IGNORE INTO left_conversations
+  INSERT INTO left_conversations
     (session_id, provider_name, provider_account_id, conversation_id, left_at, runtime_metadata)
   SELECT @session_id, provider_name, @provider_account_id, @conversation_id, @left_at,
          @runtime_metadata
     FROM runtime_bindings
-   WHERE id = @binding_id AND updated_at = @left_at";
+   WHERE id = @binding_id AND updated_at = @left_at
+  ON CONFLICT (provider_name, conversation_id) DO UPDATE
+     SET provider_account_id = excluded.provider_account_id,
+         left_at = excluded.left_at,
+         runtime_metadata = excluded.runtime_metadata
+   WHERE left_conversations.session_id = excluded.session_id";
 
 // Takes the provider from the binding the session forked off, with no stamp to match, since it
 // lands in the fork's own cut, before the fork's binding is written.

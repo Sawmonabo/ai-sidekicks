@@ -203,6 +203,10 @@ pub(crate) struct ClaudeStreamSession {
     /// The messages taken while no turn of their run was open, in the order taken, emptied at
     /// every turn's opening.
     pub(crate) taken_without_turn: Vec<ClaudeTakenMessage>,
+    /// The messages taken while no turn of their run was open that a continued turn lands ahead
+    /// of the first frame read after it, back among those taken with no turn when the continue
+    /// is put back first.
+    pub(crate) continued_landings: Vec<ClaudeTakenMessage>,
     /// The runs whose start report was delivered.
     pub(crate) initialized_runs: HashSet<RunId>,
     /// The words Claude Code sent the model for each failed or denied call of the turn.
@@ -278,6 +282,7 @@ impl ClaudeStreamSession {
             ),
             turn: None,
             taken_without_turn: Vec::new(),
+            continued_landings: Vec::new(),
             initialized_runs: HashSet::new(),
             failed_call_words: HashMap::new(),
             refusal: None,

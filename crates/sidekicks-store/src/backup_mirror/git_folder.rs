@@ -95,12 +95,11 @@ enum RoundEnd {
     Unread,
 }
 
-// What a round's copy of a git folder's objects read: every path it listed, whether a pack
-// vanished with no new one listed after it, as a folder being deleted leaves it, and whether an
-// entry was still vanishing at the last read.
+// What a round's copy of a git folder's objects read: every path it listed, and whether an entry
+// was still vanishing at the last read, a pack that vanished with no new one listed after it
+// included, as git's `multi-pack-index expire` and a folder being deleted both leave it.
 struct ObjectsCopy {
     listed: Vec<PathBuf>,
-    is_pack_gone: bool,
     is_still_vanishing: bool,
 }
 
@@ -115,8 +114,8 @@ impl Leveling<'_> {
     // the copy's reach or an object was still vanishing at the last read, the round runs again,
     // and after the last one, or when git cannot read an index, nothing is placed or removed and
     // the folder is named skipped. A folder gone at a round's start, once its hold is taken, or
-    // when its objects' copy ends (no longer a git folder, or a pack vanished with none to replace
-    // it) has its copy removed. Each git folder nested among the files (a submodule's) is copied
+    // when its objects' copy ends no longer a git folder, has its copy removed; a pack that vanished
+    // with none to replace it runs the round again, since git removes packs it no longer needs. Each git folder nested among the files (a submodule's) is copied
     // after by a routine of its own.
     pub(super) fn copy_git_folder(&mut self, folder: &Path, copy: &Path) -> Result<(), LevelStop> {
         let mut nested = Vec::new();
@@ -145,9 +144,7 @@ impl Leveling<'_> {
             drop(hold);
             let round_end = match objects {
                 None => RoundEnd::Moved,
-                Some(objects) if !is_git_folder(folder) || objects.is_pack_gone => {
-                    return self.remove_copy(copy);
-                }
+                Some(_) if !is_git_folder(folder) => return self.remove_copy(copy),
                 Some(objects) if objects.is_still_vanishing => RoundEnd::Moved,
                 Some(objects) if is_held => RoundEnd::Whole(objects),
                 Some(objects) => match self.read_round_end(folder, copy, &pointers, &staged)? {
@@ -458,13 +455,14 @@ impl Leveling<'_> {
         let last: Vec<&Path> = last.iter().map(PathBuf::as_path).collect();
         let mut copied = ObjectsCopy {
             listed,
-            is_pack_gone: false,
             is_still_vanishing: false,
         };
         // The packs the read before listed, when one of them vanished before its copy.
         let mut packs_before_vanished: Option<HashSet<PathBuf>> = None;
         for _ in 0..=OBJECT_REREADS {
             let entries = self.list_tree_entries(folder, &last, &mut nested)?;
+            #[cfg(test)]
+            super::tests::pass_object_listing();
             let packs: HashSet<PathBuf> = entries
                 .iter()
                 .filter(|entry| is_pack_file(&entry.relative))
@@ -474,7 +472,7 @@ impl Leveling<'_> {
                 .as_ref()
                 .is_some_and(|before| packs.is_subset(before))
             {
-                copied.is_pack_gone = true;
+                // Still vanishing: the round runs again, and a folder being deleted is found gone.
                 break;
             }
             let vanished = self.copy_listed(folder, copy, &entries)?;

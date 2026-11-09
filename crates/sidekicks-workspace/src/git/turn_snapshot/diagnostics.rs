@@ -152,6 +152,14 @@ pub(crate) enum CaptureDiagnostic {
         /// The kind of object the base names, `None` when the repository lacks it.
         found_type: Option<String>,
     },
+    /// Objects a pack reaches are gone from the capture folder and the repository both, so the
+    /// pack holds the rest and the captures that name them cannot read those files.
+    ObjectsGone {
+        /// The capture folder.
+        capture_folder: PathBuf,
+        /// The gone objects.
+        objects: Vec<GitObjectId>,
+    },
     /// A ref under the captures' namespace does not read as one capture over at most one base, so
     /// the sweep leaves it out.
     UnreadableRef {
@@ -252,6 +260,15 @@ impl CaptureDiagnostic {
                 base = base.as_str(),
                 found_type = found_type.as_deref(),
                 "A capture base is gone or names no commit, so its captures' trees are not packed"
+            ),
+            Self::ObjectsGone {
+                capture_folder,
+                objects,
+            } => tracing::warn!(
+                capture_folder = %capture_folder.display(),
+                objects = ?objects.iter().map(GitObjectId::as_str).collect::<Vec<_>>(),
+                "Objects a capture names are gone from its capture folder and the repository, so \
+                 the rest is packed without them"
             ),
             Self::UnreadableRef {
                 capture_folder,

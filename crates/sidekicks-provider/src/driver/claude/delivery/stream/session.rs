@@ -30,7 +30,6 @@ use crate::driver::claude::session::arrivals::{ClaudeArrivalSender, ClaudeTurnAt
 use crate::driver::claude::session::permission_mode::ClaudePermissionModeRecord;
 use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::diagnostics::OnceReportedDiagnostics;
-use crate::run::delivery::InboundDelivery;
 use crate::tool_call_arguments::ToolCallArgumentStore;
 
 /// Claude Code's error word for a request refused for its login.
@@ -135,8 +134,9 @@ impl ClaudeSessionStream {
     /// Opens the stream on `run`'s turn `turn_number` as it was before the process came up, which a
     /// resumed process continues: its frames go to that turn and its end is that turn's, with no
     /// other turn started. `provider_turn_id` is the id the turn's start recorded. The messages of
-    /// the run Claude Code took while no turn of it was open land in that turn ahead of any frame
-    /// read after. Answers the turn the stream read before, which [`Self::restore_turn`] puts back.
+    /// the run Claude Code took while no turn of it was open land in that turn ahead of the first
+    /// frame read after. Answers the turn the stream read before, which [`Self::restore_turn`]
+    /// puts back with those messages when no frame landed them.
     pub(crate) fn continue_turn(
         &self,
         run: &ClaudeBoundRun,
@@ -157,32 +157,27 @@ impl ClaudeSessionStream {
                 .into_iter()
                 .partition(|taken| taken.run_id == run.run_id);
         readings.taken_without_turn = kept;
+        readings.continued_landings.extend(taken);
         readings.turn = Some(ClaudeOpenTurn {
             run_id: run.run_id,
             binding_id: run.binding_id.clone(),
             turn_number: Some(turn_number),
             opening: None,
         });
-        drop(readings);
-        for taken in taken {
-            // Queued at the call, so it lands before any frame the continued turn reads; nothing
-            // waits on its outcome.
-            drop(self.arrivals.dispatch(InboundDelivery::TurnSteered {
-                binding_id: run.binding_id.clone(),
-                turn_number,
-                message_id: taken.message_id,
-            }));
-        }
         before
     }
 
     /// Puts back the turn the stream read before a continue whose message never reached the
-    /// process.
+    /// process, with the messages the continue would have landed, if no frame landed them yet,
+    /// back among those taken while no turn of their run was open.
     pub(crate) fn restore_turn(&self, before: ClaudeTurnBeforeContinue) {
         let mut readings = self.lock();
         readings.turn = before.turn;
         readings.has_turn_message = before.has_turn_message;
         readings.turn_readings = before.turn_readings;
+        let mut taken = std::mem::take(&mut readings.continued_landings);
+        taken.append(&mut readings.taken_without_turn);
+        readings.taken_without_turn = taken;
     }
 
     /// The turn the stream has open, and whether it already took a message.

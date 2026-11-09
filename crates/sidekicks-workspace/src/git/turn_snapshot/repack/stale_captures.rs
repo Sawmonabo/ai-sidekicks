@@ -29,6 +29,15 @@ pub(super) struct FailedPacks {
     points: Vec<SnapshotPoint>,
 }
 
+// What a read of the captures whose own pack failed found: the ones it can pack, as they are
+// packed, the same ones as recorded, and those whose tree is gone.
+#[derive(Default)]
+struct FailedPointsRead {
+    packable: Vec<SnapshotPoint>,
+    recorded: Vec<SnapshotPoint>,
+    gone: Vec<SnapshotPoint>,
+}
+
 impl CapturePacking {
     // Keeps `captured`, whose own pack into `folder` failed, for the folder's next fold or sweep.
     pub(super) fn keep_failed_pack(&self, folder: PathBuf, captured: &CapturedCommit) {
@@ -48,8 +57,10 @@ impl CapturePacking {
     }
 
     // Packs the captures of `folder` whose own pack failed, each tree on its base's tree and the
-    // commits after, and forgets them once that pack succeeds. Never fails: a failure is logged
-    // and the captures kept.
+    // commits after, and forgets them once that pack succeeds. A capture whose tree is gone from
+    // the folder and the repository is logged and forgotten, since nothing can pack it, and one
+    // whose base is gone or names no commit is packed whole. Never fails: a failure is logged and
+    // the captures kept.
     pub(super) async fn pack_failed_captures(
         &self,
         place: Option<&Place>,
@@ -59,13 +70,35 @@ impl CapturePacking {
         let Some(failed) = lock(&self.failed_packs).get(folder).cloned() else {
             return;
         };
-        let points: Vec<&SnapshotPoint> = failed.points.iter().collect();
-        let commits: Vec<GitObjectId> = failed
-            .points
+        let packed = match self.read_failed_points(place, &failed).await {
+            Ok(read) => read,
+            Err(failure) => {
+                CaptureDiagnostic::PackFailed {
+                    capture_folder: folder.to_path_buf(),
+                    detail: Box::new(failure),
+                }
+                .warn();
+                return;
+            }
+        };
+        if !packed.gone.is_empty() {
+            CaptureDiagnostic::ObjectsGone {
+                capture_folder: folder.to_path_buf(),
+                objects: packed.gone.iter().map(|point| point.tree.clone()).collect(),
+            }
+            .warn();
+            self.forget_failed_points(folder, &packed.gone);
+        }
+        if packed.packable.is_empty() {
+            return;
+        }
+        let points: Vec<&SnapshotPoint> = packed.packable.iter().collect();
+        let commits: Vec<GitObjectId> = packed
+            .packable
             .iter()
             .map(|point| point.commit.clone())
             .collect();
-        let packed = match self
+        let pack = match self
             .pack_stale_points(place, &failed.capture_folder, &points, hold)
             .await
         {
@@ -75,7 +108,7 @@ impl CapturePacking {
             }
             Err(failure) => Err(failure),
         };
-        if let Err(failure) = packed {
+        if let Err(failure) = pack {
             CaptureDiagnostic::PackFailed {
                 capture_folder: folder.to_path_buf(),
                 detail: Box::new(failure),
@@ -83,10 +116,58 @@ impl CapturePacking {
             .warn();
             return;
         }
-        // Only the captures packed here go, never one a pack failing meanwhile kept.
+        self.forget_failed_points(folder, &packed.recorded);
+    }
+
+    // Reads which of `failed`'s captures can be packed, the folder and the repository read
+    // together: a capture whose tree is gone cannot, and one whose base is gone or names no
+    // commit is packed with no base. Fails as git's read does.
+    async fn read_failed_points(
+        &self,
+        place: Option<&Place>,
+        failed: &FailedPacks,
+    ) -> Result<FailedPointsRead, PackingError> {
+        let ids: Vec<&GitObjectId> = failed
+            .points
+            .iter()
+            .flat_map(|point| std::iter::once(&point.tree).chain(point.base.as_ref()))
+            .collect();
+        let arguments = in_git_folder(
+            failed.capture_folder.folder(),
+            &[],
+            &["cat-file", "--batch-check"],
+        );
+        let mut call = GitCall::read(arguments).with_input(object_lines(ids.iter().copied()));
+        for (name, value) in failed.capture_folder.write_environment() {
+            call = call.with_environment(name, value);
+        }
+        let output = self.git.run(place, call).await?;
+        let mut presence = read_bases_present(&output.stdout, &ids)?.into_iter();
+        let mut read = FailedPointsRead::default();
+        for point in &failed.points {
+            let is_tree_gone = presence.next() == Some(BasePresence::Missing);
+            let is_base_commit =
+                point.base.is_none() || presence.next() == Some(BasePresence::Commit);
+            if is_tree_gone {
+                read.gone.push(point.clone());
+                continue;
+            }
+            let mut packable = point.clone();
+            if !is_base_commit {
+                packable.base = None;
+            }
+            read.packable.push(packable);
+            read.recorded.push(point.clone());
+        }
+        Ok(read)
+    }
+
+    // Forgets `points` among `folder`'s captures whose own pack failed, never one a pack failing
+    // meanwhile kept.
+    fn forget_failed_points(&self, folder: &Path, points: &[SnapshotPoint]) {
         let mut failed_packs = lock(&self.failed_packs);
         if let Some(kept) = failed_packs.get_mut(folder) {
-            kept.points.retain(|point| !failed.points.contains(point));
+            kept.points.retain(|point| !points.contains(point));
             if kept.points.is_empty() {
                 failed_packs.remove(folder);
             }

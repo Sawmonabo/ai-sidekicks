@@ -3,7 +3,8 @@
 //! and the lock beside it, and a capture folder still being made. Each is removed by its name once
 //! it is an hour old, as git's prune removes its own temporaries, and a scratch index also once it
 //! was written before this daemon run began; nothing else is touched. The walk of the loose objects
-//! also finds those an hour old, which a capture whose own pack failed left loose.
+//! also finds those an hour old, and those written before this daemon run began at any age, which
+//! a capture whose own pack failed left loose.
 
 use std::ffi::OsStr;
 use std::fs;
@@ -27,7 +28,8 @@ use crate::git::turn_snapshot::capture_folder::{
 pub(super) const STALE_LEFTOVER_AGE: Duration = Duration::from_hours(1);
 
 /// The coarsest step a file system keeps a file's time in (FAT's two seconds), taken off the run's
-/// start so a scratch index this run writes never reads as written before it began.
+/// start so a scratch index or a loose object this run writes never reads as written before it
+/// began.
 const FILE_TIME_STEP: Duration = Duration::from_secs(2);
 
 /// The name prefixes of the temporary files a pack write keeps in the pack folder until it
@@ -68,7 +70,9 @@ fn is_index_without_pack(pack_folder: &Path, name: &OsStr) -> bool {
 /// Removes the stale leftovers of the capture folder `folder`: its temporary packs, then, when
 /// `is_object_folder_walked`, the temporary loose objects in its fan-out folders, then its scratch
 /// indexes and their locks, a scratch index written before `run_began_at` at any age. Answers the
-/// loose objects the walk found an hour old, none when it did not walk. Blocking. Fails as a
+/// loose objects the walk found an hour old or written before `run_began_at`, none when it did not
+/// walk; the record of a capture whose own pack failed is lost with the run, so its loose objects
+/// are packed at the run's first pass, before any fold rolls them up. Blocking. Fails as a
 /// listing, a stat or a removal does; a folder or an entry already gone is none.
 pub(super) fn clear_capture_folder_leftovers(
     folder: &Path,
@@ -77,6 +81,9 @@ pub(super) fn clear_capture_folder_leftovers(
 ) -> io::Result<Vec<GitObjectId>> {
     let objects = folder.join(OBJECTS_SEGMENT);
     remove_stale_temporary_packs(&objects.join(PACK_SEGMENT))?;
+    let run_cutoff = run_began_at
+        .checked_sub(FILE_TIME_STEP)
+        .unwrap_or(SystemTime::UNIX_EPOCH);
     let mut stale_objects = Vec::new();
     if is_object_folder_walked && let Some(entries) = fs::read_dir(&objects).none_if_missing()? {
         for entry in entries {
@@ -89,13 +96,15 @@ pub(super) fn clear_capture_folder_leftovers(
                 remove_stale_entries(&fan_out_folder, stale_cutoff(), |name| {
                     has_any_prefix(name, &[TEMPORARY_OBJECT_PREFIX])
                 })?;
-                read_stale_loose_objects(&fan_out_folder, fan_out, &mut stale_objects)?;
+                read_stale_loose_objects(
+                    &fan_out_folder,
+                    fan_out,
+                    stale_cutoff().max(run_cutoff),
+                    &mut stale_objects,
+                )?;
             }
         }
     }
-    let run_cutoff = run_began_at
-        .checked_sub(FILE_TIME_STEP)
-        .unwrap_or(SystemTime::UNIX_EPOCH);
     remove_stale_entries(
         &folder.join(INDEXES_SEGMENT),
         stale_cutoff().max(run_cutoff),
@@ -117,16 +126,16 @@ pub(super) fn clear_partial_capture_folders(owner_folder: &Path) -> io::Result<u
 }
 
 // Adds to `stale_objects` each loose object in the fan-out folder `fan_out_folder`, named
-// `fan_out`, last written an hour or more ago; a name that is no object id is passed over.
+// `fan_out`, last written at or before `cutoff`; a name that is no object id is passed over.
 fn read_stale_loose_objects(
     fan_out_folder: &Path,
     fan_out: &str,
+    cutoff: SystemTime,
     stale_objects: &mut Vec<GitObjectId>,
 ) -> io::Result<()> {
     let Some(entries) = fs::read_dir(fan_out_folder).none_if_missing()? else {
         return Ok(());
     };
-    let cutoff = stale_cutoff();
     for entry in entries {
         let entry = entry?;
         let Some(object) = entry

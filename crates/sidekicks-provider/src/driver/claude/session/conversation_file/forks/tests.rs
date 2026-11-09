@@ -5,6 +5,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::{ClaudeForkPoint, read_claude_fork_point, resolve_claude_message};
+use ExpectedForkPoint::{After, AtStart, EntryMissing, FileGone};
 
 // Writes conversation `id` into project folder `project` under `config`, one entry per line.
 fn write_conversation(config: &Path, project: &str, id: &str, entries: &[Value]) {
@@ -123,14 +124,22 @@ enum ConversationFile {
 // parent, a read failure read as no fork point, and by any two of the first entry, a missing
 // entry and a gone file answered alike.
 #[rstest::rstest]
-#[case::after_the_turn(ConversationFile::BeforeThePrompt(&["p1", "a1", "t1"]), "p2", Ok(After("t1")))]
+#[case::after_the_turn(
+    ConversationFile::BeforeThePrompt(&["p1", "a1", "t1"]),
+    "p2",
+    Ok(After("t1"))
+)]
 #[case::past_a_progress_row(
     ConversationFile::BeforeThePrompt(&["p1", "a1", "t1", "progress"]),
     "p2",
     Ok(After("t1"))
 )]
 #[case::the_first_entry(ConversationFile::BeforeThePrompt(&[]), "p2", Ok(AtStart))]
-#[case::an_entry_the_file_lacks(ConversationFile::BeforeThePrompt(&["p1"]), "zzz", Ok(EntryMissing))]
+#[case::an_entry_the_file_lacks(
+    ConversationFile::BeforeThePrompt(&["p1"]),
+    "zzz",
+    Ok(EntryMissing)
+)]
 #[case::a_gone_file(ConversationFile::Gone, "p2", Ok(FileGone))]
 #[case::a_folder_in_the_files_place(ConversationFile::FolderInItsPlace, "p2", Err(()))]
 #[tokio::test]
@@ -190,8 +199,6 @@ enum ExpectedForkPoint {
     EntryMissing,
     FileGone,
 }
-
-use ExpectedForkPoint::{After, AtStart, EntryMissing, FileGone};
 
 impl ExpectedForkPoint {
     fn into_point(self) -> ClaudeForkPoint {

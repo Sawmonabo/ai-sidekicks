@@ -51,6 +51,7 @@ use ref_state::{RefState, read_ref_state};
 use stale_captures::FailedPacks;
 
 mod answers;
+mod gone_objects;
 mod leftovers;
 mod object_folders;
 mod reclaim;
@@ -228,8 +229,8 @@ pub enum PackingError {
 
 /// Packs every capture folder after each capture and at each sweep, one at a time per folder, and
 /// keeps, for this daemon run, how many packs each folder's last fold left, when its last fold
-/// failed and the captures whose own pack failed; an old git it meets goes in the daemon run's
-/// shared record.
+/// failed, the captures whose own pack failed and the folders a sweep pass has read; an old git it
+/// meets goes in the daemon run's shared record.
 pub struct CapturePacking {
     /// The daemon's git.
     git: GitRunner,
@@ -242,6 +243,9 @@ pub struct CapturePacking {
     /// Each folder's captures whose own pack failed, until a pack of them succeeds: a fold packs
     /// a loose tree without what it borrows, which a sweep then no longer finds loose.
     failed_packs: Mutex<HashMap<PathBuf, FailedPacks>>,
+    /// The folders a sweep pass of this daemon run has read: a capture's pack folds none before its
+    /// first pass, which packs what an earlier run's failed packs left loose.
+    swept_folders: Mutex<HashSet<PathBuf>>,
     /// The daemon run's record of the old gits already reported.
     floor_reports: Arc<GitFloorReports>,
     /// When this daemon run's packing began; a scratch index last written before it is an earlier
@@ -259,6 +263,7 @@ impl CapturePacking {
             packs_left_by_fold: Mutex::new(HashMap::new()),
             failed_folds: Mutex::new(HashMap::new()),
             failed_packs: Mutex::new(HashMap::new()),
+            swept_folders: Mutex::new(HashSet::new()),
             floor_reports,
             began_at: SystemTime::now(),
         }
@@ -273,11 +278,13 @@ impl CapturePacking {
 
     /// Forgets what this daemon run keeps of the capture folders under the owner folder
     /// `owner_folder`, for an owner whose folder was removed: how many packs each folder's last
-    /// fold left, when a fold there failed and the captures whose own pack failed.
+    /// fold left, when a fold there failed, the captures whose own pack failed and whether a sweep
+    /// pass read it.
     pub fn forget_owner(&self, owner_folder: &Path) {
         lock(&self.packs_left_by_fold).retain(|folder, _| !folder.starts_with(owner_folder));
         lock(&self.failed_folds).retain(|folder, _| !folder.starts_with(owner_folder));
         lock(&self.failed_packs).retain(|folder, _| !folder.starts_with(owner_folder));
+        lock(&self.swept_folders).retain(|folder| !folder.starts_with(owner_folder));
     }
 
     /// Holds every capture folder under the owner folder `owner_folder`, a folder still being made
@@ -350,7 +357,13 @@ impl CapturePacking {
             let place = place.cloned();
             // Off the caller's path; a stop that cuts it short loses nothing.
             tokio::spawn(async move {
-                packing.fold_when_due(place.as_ref(), folder).await;
+                if let Err(failure) = packing.fold_when_due(place.as_ref(), folder.clone()).await {
+                    CaptureDiagnostic::FoldFailed {
+                        capture_folder: folder,
+                        detail: Box::new(failure),
+                    }
+                    .warn();
+                }
             });
         }
     }
@@ -438,6 +451,7 @@ impl CapturePacking {
             && !self.is_fold_due(&folder, packs)
         {
             self.clear_leftovers(&folder, false, meter).await?;
+            lock(&self.swept_folders).insert(folder.clone());
             return Ok(CaptureFolderSweep::Skipped(CaptureFolderPass {
                 ref_state,
                 object_folders,
@@ -452,6 +466,8 @@ impl CapturePacking {
         let stale_objects = self
             .clear_leftovers(&folder, is_object_folder_walked, meter)
             .await?;
+        // Read now: the walk has found what an earlier run left loose, which this pass packs.
+        lock(&self.swept_folders).insert(folder.clone());
         let mut pass = CaptureFolderPass {
             ref_state,
             object_folders,
@@ -543,7 +559,7 @@ impl CapturePacking {
 
     // Packs the objects `revisions` name on standard input into the capture folder, the repository
     // attached so what the captures borrow is copied, removes the loose copies, and counts what is
-    // left.
+    // left. An object gone from both stores is logged and the rest packed as a bare list.
     async fn pack_revisions(
         &self,
         place: Option<&Place>,
@@ -561,11 +577,14 @@ impl CapturePacking {
             &["pack-objects", "-q", "--revs", "--non-empty"],
         );
         arguments.push(pack_name_base(folder));
-        let mut call = GitCall::read(arguments).with_input(revisions);
+        let mut call = GitCall::read(arguments).with_input(revisions.clone());
         for (name, value) in capture_folder.write_environment() {
             call = call.with_environment(name, value);
         }
-        self.git.run(place, call).await?;
+        if let Err(failure) = self.git.run(place, call).await {
+            self.pack_present_objects(place, capture_folder, revisions, failure)
+                .await?;
+        }
         self.prune_packed(place, folder).await?;
         self.count_objects(place, folder, hold).await
     }
@@ -612,21 +631,19 @@ impl CapturePacking {
     }
 
     // A fold a capture's pack found due, run when the folder's lock comes free and only when it is
-    // still due and still there then. Never fails: a failure is logged.
-    async fn fold_when_due(&self, place: Option<&Place>, folder: PathBuf) {
+    // still due and still there then, and once a sweep pass of this daemon run has read the
+    // folder, so no fold rolls up what an earlier run's failed pack left loose before that pass
+    // packs it. Fails as the fold does.
+    async fn fold_when_due(
+        &self,
+        place: Option<&Place>,
+        folder: PathBuf,
+    ) -> Result<(), PackingError> {
         let hold = self.folder_lock.acquire(folder.clone()).await;
-        if is_folder_removed(&folder).await {
-            return;
+        if is_folder_removed(&folder).await || !lock(&self.swept_folders).contains(&folder) {
+            return Ok(());
         }
-        let folded = self.fold_held(place, &folder, &hold).await;
-        drop(hold);
-        if let Err(failure) = folded {
-            CaptureDiagnostic::FoldFailed {
-                capture_folder: folder,
-                detail: Box::new(failure),
-            }
-            .warn();
-        }
+        self.fold_held(place, &folder, &hold).await
     }
 
     // Packs again the captures of `folder` whose own pack failed, then folds its packs into

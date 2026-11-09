@@ -76,17 +76,37 @@ async fn a_relaunch_records_its_own_build_and_keeps_the_predecessors_legs() {
     assert_eq!(relaunched.resume_handle.as_deref(), Some("conversation-2"));
 }
 
+// An update that leaves a conversation records it in its own write, at the update's time with the
+// leg's recovery data, over the row an undo wrote when it moved the session onto that fork.
+// Killed by a left row written insert-or-ignore (the undo's time and recovery data stay).
 #[tokio::test]
 async fn an_update_records_the_left_conversation_in_its_own_write() {
     let database = TestDatabase::new(schema_parts());
     let store = open_store(&database).await;
     let binding = create(&store, spawn_config_on(test_provider_account_id())).await;
+    let session_id = test_session_id();
+    let mut leg_data = Map::new();
+    leg_data.insert("leg".to_owned(), "fork".into());
     let left = LeftConversation {
-        session_id: test_session_id(),
+        session_id,
         provider_account_id: test_provider_account_id(),
         conversation_id: "conversation-1".to_owned(),
-        runtime_metadata: Map::new(),
+        runtime_metadata: leg_data.clone(),
     };
+    database
+        .reader()
+        .execute(
+            "INSERT INTO left_conversations (session_id, provider_name, provider_account_id,
+               conversation_id, left_at, runtime_metadata)
+             VALUES (?, ?, ?, 'conversation-1', '2000-01-01T00:00:00.000Z',
+               '{\"leg\":\"source\"}')",
+            [
+                session_id.text().as_str(),
+                binding.provider_name.as_str(),
+                test_provider_account_id().as_str(),
+            ],
+        )
+        .expect("the undo's row for the fork is written");
 
     let updated = store
         .update(
@@ -102,19 +122,21 @@ async fn an_update_records_the_left_conversation_in_its_own_write() {
         .expect("the binding has a row");
 
     assert_eq!(updated.resume_handle.as_deref(), Some("conversation-2"));
-    let recorded: (String, String) = database
+    let recorded: (String, String, String) = database
         .reader()
         .query_row(
-            "SELECT provider_name, left_at FROM left_conversations WHERE conversation_id = ?",
+            "SELECT provider_name, left_at, runtime_metadata FROM left_conversations
+              WHERE conversation_id = ?",
             ["conversation-1"],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .expect("the left conversation is recorded");
     assert_eq!(
         recorded,
         (
             binding.provider_name.as_str().to_owned(),
-            updated.updated_at
+            updated.updated_at,
+            serde_json::Value::Object(leg_data).to_string()
         )
     );
 }
