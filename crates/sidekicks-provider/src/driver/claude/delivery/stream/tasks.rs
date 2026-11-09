@@ -3,8 +3,7 @@
 //! session's running commands on the run that started it, and a tool server's background call
 //! stays open until its own notification closes it, its progress the status line under it; a
 //! helper's such call is held the same way and traced at its notification, with no row. Also
-//! the usage routing metered off a frame, recorded on the run whose thread spent it, and the move
-//! of the session's bindings onto another account, made in its place among those frames.
+//! the usage routing metered off a frame, recorded on the run whose thread spent it.
 
 mod exit_settle;
 mod rest_settle;
@@ -12,13 +11,9 @@ mod resume;
 
 pub(super) use self::exit_settle::ClaudeExitHolds;
 
-use std::collections::HashSet;
-
 use jiff::Timestamp;
 use serde_json::value::RawValue;
 use sidekicks_contracts::event::envelope::EventOccurredAt;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::id::SessionId;
@@ -36,14 +31,12 @@ use crate::driver::claude::delivery::run_readings::{ClaudeRow, ClaudeRowDelivery
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::frame_routing::ClaudeMeteredReading;
 use crate::driver::claude::run::routes::ClaudeBoundRun;
-use crate::driver::claude::session::conversation_home::ClaudeConversationHomeKeep;
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::reorder_buffer::{ReorderBufferedEvent, ReorderPairingRole};
 use crate::port::held_tool_calls::HeldToolCall;
 use crate::port::tool_traces::is_recording_tool_traces;
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner};
-use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 /// Why usage Claude Code reported is not recorded: no run holds the session's thread, no helper's
 /// route names a binding and the session runs on no binding now.
@@ -213,60 +206,6 @@ impl ClaudeDeliveryStream {
             };
             if let Err(error) = sink.record_metered(metered).await {
                 report_engine_failure(session, "metered usage", &*error);
-            }
-        }
-    }
-
-    /// Moves the session's stream, the binding its lead runs on, every lead run's binding on the
-    /// session and every live helper's onto `provider_account_id`'s account through `bindings`,
-    /// each binding once, in the place the process acknowledged the switch, so each reading
-    /// metered and each report read after it is the new account's and each before it the old
-    /// one's. Each binding names `conversation_home` first where one is given, so none rests on
-    /// the new account without the home that holds its conversation; a binding whose home or move
-    /// is not written is logged, left where it is, and the others are still moved.
-    pub(super) async fn move_account(
-        &self,
-        session: &ClaudeSessionStream,
-        provider_account_id: &ProviderAccountId,
-        lead_binding_id: RuntimeBindingId,
-        bindings: &dyn RuntimeBindingWriter,
-        conversation_home: Option<&ClaudeConversationHomeKeep>,
-    ) {
-        session.move_account(provider_account_id.clone());
-        let routes = &self.dependencies.routes;
-        let mut moved = HashSet::new();
-        let binding_ids = std::iter::once(lead_binding_id).chain(
-            routes
-                .bound_runs_on(session.session_id)
-                .into_iter()
-                .chain(routes.child_runs_on(session.session_id))
-                .map(|run| run.binding_id),
-        );
-        for binding_id in binding_ids {
-            if !moved.insert(binding_id.clone()) {
-                continue;
-            }
-            if let Some(home) = conversation_home
-                && let Err(error) = home.keep_in(bindings, binding_id.clone()).await
-            {
-                tracing::warn!(
-                    session_id = %session.session_id,
-                    error = &*error as &(dyn std::error::Error + 'static),
-                    "a Claude Code session's binding could not name the home that holds its \
-                     conversation, so it stays on the account it was on"
-                );
-                continue;
-            }
-            if let Err(error) = bindings
-                .move_account(binding_id, provider_account_id.clone())
-                .await
-            {
-                tracing::warn!(
-                    session_id = %session.session_id,
-                    error = &*error as &(dyn std::error::Error + 'static),
-                    "a Claude Code session's binding could not move onto the account its process \
-                     switched to"
-                );
             }
         }
     }

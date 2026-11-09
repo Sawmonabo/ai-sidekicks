@@ -13,8 +13,6 @@ use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
@@ -23,15 +21,12 @@ use tokio::time::Instant;
 
 use crate::driver::claude::delivery::claude_delivery_origin;
 use crate::driver::claude::delivery::stream::daemon_ends::ClaudeDaemonEndSettlement;
-use crate::driver::claude::delivery::stream::{
-    ClaudeFirstRequest, ClaudeSessionStream, ClaudeSessionStreams,
-};
+use crate::driver::claude::delivery::stream::{ClaudeSessionStream, ClaudeSessionStreams};
 use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
 use crate::driver::claude::frame_routing::{
     ClaudeFrameRouting, ClaudeRoutedFrames, ClaudeRoutedObservation,
 };
 use crate::driver::claude::run::routes::ClaudeBoundRun;
-use crate::driver::claude::session::conversation_home::ClaudeConversationHomeKeep;
 use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::process::{
     ClaudeProcessEnd, ClaudeProcessListener, ClaudeStreamFrame,
@@ -41,7 +36,6 @@ use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEven
 use crate::driver::delivery_dispatch::dispatch_delivery;
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::run::delivery::{InboundDelivery, InboundOutcome};
-use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 /// The depth past which a session's queue is logged, then again at each doubling.
 const CLAUDE_SESSION_ARRIVALS_DEPTH_MARK: usize = 1_024;
@@ -110,22 +104,6 @@ pub(crate) enum ClaudeOwnDelivery {
         /// The run.
         run_id: RunId,
     },
-    /// The process acknowledged an account switch: the session's bindings move here, among the
-    /// frames, so each usage frame before it stays on the old account and each after it is the
-    /// new one's.
-    AccountMove {
-        /// The account the bindings move onto.
-        provider_account_id: ProviderAccountId,
-        /// The binding the session's lead runs on, moved even when no run is bound.
-        lead_binding_id: RuntimeBindingId,
-        /// Where the move is written.
-        bindings: Arc<dyn RuntimeBindingWriter>,
-        /// The home each binding moved names first; `None` where the account moved onto holds
-        /// the conversation.
-        conversation_home: Option<ClaudeConversationHomeKeep>,
-        /// Answered how the process's next request goes, where the switch listens for it.
-        first_request: Option<oneshot::Sender<ClaudeFirstRequest>>,
-    },
 }
 
 /// The session task the code running now is on, where a delivery for that session is dispatched
@@ -134,8 +112,8 @@ pub(crate) enum ClaudeOwnDelivery {
 pub(crate) struct ClaudeDeliveryPlace {
     /// The session whose task it is.
     session_id: SessionId,
-    /// The account the session's process runs on, its stream's own, moved where it acknowledged a
-    /// switch.
+    /// The account the session's process runs on, its stream's own, moved where the session moves
+    /// onto another account.
     account: ClaudeProcessAccount,
 }
 
@@ -576,8 +554,8 @@ mod tests {
         }
     }
 
-    // At its arrival, moves the process onto `moved_to`'s account, as an acknowledged switch does,
-    // then dispatches a delivery in the session's own place.
+    // At its arrival, moves the process onto `moved_to`'s account, as a move onto another account
+    // does, then dispatches a delivery in the session's own place.
     struct MovingDispatcher {
         session_id: SessionId,
         account: ClaudeProcessAccount,

@@ -15,7 +15,6 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::{Notify, oneshot};
 
-use crate::driver::claude::session::control_requests::ClaudeAccountMoveMarker;
 use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};
 use crate::driver::claude::session::process::ClaudeProcessListener;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
@@ -269,24 +268,6 @@ impl ClaudeProcessChannel for ScriptedChannel {
                     cause: ClaudeUnansweredCause::WriteCut,
                 }),
             }
-        }
-        .boxed()
-    }
-
-    // Answered as scripted, the move handed into the session's queue at a success, as the
-    // process's reader hands it at the answer.
-    fn send_account_move(
-        &self,
-        request: ClaudeControlRequest,
-        account_move: ClaudeAccountMoveMarker,
-    ) -> BoxFuture<'_, Result<ClaudeControlAnswer, ClaudeSessionError>> {
-        let answer = self.send_control_request(request);
-        async move {
-            let answer = answer.await;
-            if answer.is_ok() {
-                account_move.hand_over();
-            }
-            answer
         }
         .boxed()
     }

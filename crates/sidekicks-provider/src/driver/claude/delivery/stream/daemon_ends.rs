@@ -271,26 +271,6 @@ impl ClaudeDeliveryStream {
             ClaudeOwnDelivery::CarriedRelease { run_id } => {
                 self.release_carried_turn(session, run_id).await;
             }
-            ClaudeOwnDelivery::AccountMove {
-                provider_account_id,
-                lead_binding_id,
-                bindings,
-                conversation_home,
-                first_request,
-            } => {
-                self.move_account(
-                    session,
-                    &provider_account_id,
-                    lead_binding_id,
-                    &*bindings,
-                    conversation_home.as_ref(),
-                )
-                .await;
-                // Heard from the next frame on, every one written before the move already read.
-                if let Some(first_request) = first_request {
-                    session.watch_first_request(first_request);
-                }
-            }
         }
     }
 }

@@ -199,14 +199,9 @@ impl ClaudeOutputReader {
         let Some(answer) = self.control_frames.read_response(text) else {
             return;
         };
-        let settled = self.requests.settle(&answer.request_id, answer.outcome);
-        match settled.settlement {
+        match self.requests.settle(&answer.request_id, answer.outcome) {
             ClaudeControlSettlement::Settled | ClaudeControlSettlement::Late => {}
             ClaudeControlSettlement::NeverIssued => self.control_frames.report_unissued_answer(),
-        }
-        // Queued before the next line is read, so it lands between the frames around the answer.
-        if let Some(account_move) = settled.account_move {
-            account_move.hand_over();
         }
     }
 
@@ -265,50 +260,35 @@ impl ClaudeOutputReader {
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error;
     use std::io;
     use std::pin::Pin;
     use std::sync::{Arc, Mutex, Weak};
     use std::task::{Context, Poll};
     use std::time::Duration;
 
-    use futures::FutureExt as _;
-    use futures::future::{BoxFuture, ready};
-    use serde_json::{Map, Value, json};
-    use sidekicks_contracts::provider::account::record::ProviderAccountId;
-    use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
-    use sidekicks_contracts::run::id::RunId;
     use sidekicks_platforms::ChildEnd;
-    use sidekicks_std::mutex_lock::lock;
     use sidekicks_std::port_registration::PortRegistration;
     use tokio::io::{AsyncRead, AsyncWriteExt, ReadBuf};
     use tokio::sync::watch;
 
     use super::{CLAUDE_OUTPUT_LINE_MAX_BYTES, ClaudeOutputReader};
     use crate::child_ending::ChildEnds;
-    use crate::driver::claude::session::control_requests::{
-        ClaudeAccountMoveMarker, ClaudeControlRequests,
-    };
+    use crate::driver::claude::session::control_requests::ClaudeControlRequests;
     use crate::driver::claude::session::process::account::ClaudeProcessAccount;
     use crate::driver::claude::session::process::{
         ClaudeProcessEnd, ClaudeProcessListener, ClaudeStreamFrame,
     };
-    use crate::driver::claude::session::scripted::daemon_services::RecordingUsage;
     use crate::driver::claude::session::scripted::held_calls::init;
     use crate::driver::claude::session::scripted::{
-        SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
+        SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle,
     };
     use crate::driver::claude::session::transport::control::ClaudeControlSubtype;
     use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
     use crate::driver::claude::session::transport::user_message::ClaudeWriteAttempt;
     use crate::driver::diagnostics::RecordedEvents;
     use crate::driver::ports::DriverPorts;
-    use crate::driver::session_control::SessionToolServer;
     use crate::port::raw_provider_messages::RawProviderMessages;
     use crate::port::raw_provider_messages::test_port::KeptRawMessages;
-    use crate::runtime_binding::store::RuntimeBindingRebind;
-    use crate::runtime_binding::test_store::test_provider_account_id;
-    use crate::runtime_binding::writer::RuntimeBindingWriter;
 
     // Keeps the frames it takes and never hands them on, as a session task blocked in a dispatch.
     #[derive(Default)]
@@ -469,169 +449,6 @@ mod tests {
         .await;
 
         assert_eq!(*ends.borrow(), Some(ChildEnd::Stop));
-    }
-
-    // A binding writer that keeps each move with how many readings the usage record held when it
-    // landed, so a reading's account is read off its place: the moved binding's new account from
-    // that count on, its old one before.
-    struct MovesAmongReadings {
-        usage: Arc<RecordingUsage>,
-        moves: Mutex<Vec<(RuntimeBindingId, ProviderAccountId, usize)>>,
-    }
-
-    impl RuntimeBindingWriter for MovesAmongReadings {
-        fn rebind(
-            &self,
-            _rebind: RuntimeBindingRebind,
-        ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-            ready(Err(io::Error::other("no rebind is made here").into())).boxed()
-        }
-
-        fn keep_recovery_data(
-            &self,
-            _binding_id: RuntimeBindingId,
-            _runtime_metadata: Map<String, Value>,
-        ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-            ready(Err(io::Error::other("no recovery data is kept here").into())).boxed()
-        }
-
-        fn move_account(
-            &self,
-            binding_id: RuntimeBindingId,
-            provider_account_id: ProviderAccountId,
-        ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-            let readings = self.usage.metered().len();
-            lock(&self.moves).push((binding_id, provider_account_id, readings));
-            ready(Ok(())).boxed()
-        }
-
-        fn replace_tool_servers(
-            &self,
-            _run_id: RunId,
-            _tool_servers: Vec<SessionToolServer>,
-        ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-            ready(Err(
-                io::Error::other("no tool server set is written here").into()
-            ))
-            .boxed()
-        }
-    }
-
-    fn usage_message(message_id: &str, agent_id: Option<&str>, input: u64) -> Value {
-        let mut frame = json!({
-            "type": "assistant",
-            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-            "message": {
-                "id": message_id,
-                "role": "assistant",
-                "content": [{"type": "text", "text": "working"}],
-                "usage": {"input_tokens": input, "output_tokens": 1},
-            },
-        });
-        if let (Some(frame), Some(agent_id)) = (frame.as_object_mut(), agent_id) {
-            frame.insert("agent_id".to_owned(), Value::from(agent_id));
-        }
-        frame
-    }
-
-    // Fails when the bindings move at the switch's send, which charges the readings written before
-    // the answer to the new account, or on the answer's own path to its caller, which leaves the
-    // readings after it on the old one, when the binding of a helper that outlived its lead's turn,
-    // or the next turn's lead, is left behind, and when the binding the lead rests on between turns
-    // moves anywhere but at the answer among the frames.
-    #[tokio::test(start_paused = true)]
-    async fn usage_frames_that_straddle_the_account_move_are_charged_on_each_side_of_it() {
-        let session = ScriptedSession::new().await;
-        let first_lead = session.hold_lead_turn("lead");
-        let moved_to = ProviderAccountId::new("account-2".to_owned()).expect("an account id fits");
-        let bindings = Arc::new(MovesAmongReadings {
-            usage: Arc::clone(&session.usage),
-            moves: Mutex::default(),
-        });
-        let requests = ClaudeControlRequests::new(Arc::new(|_request_id: &str| {}));
-        let pending = requests
-            .open_account_move(
-                ClaudeControlSubtype::ApplyFlagSettings,
-                ClaudeAccountMoveMarker {
-                    arrivals: session.stream.arrivals().clone(),
-                    provider_account_id: moved_to.clone(),
-                    lead_binding_id: binding_id("resting"),
-                    bindings: Arc::clone(&bindings) as Arc<dyn RuntimeBindingWriter>,
-                    conversation_home: None,
-                    first_request: None,
-                },
-            )
-            .expect("an open table takes a request");
-
-        session.frame(&json!({
-            "type": "system",
-            "subtype": "task_started",
-            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-            "task_id": "helper",
-            "task_type": "local_agent",
-            "tool_use_id": "call-1",
-        }));
-        session.frame(&usage_message("lead-before", None, 10));
-        session.frame(&usage_message("helper-before", Some("helper"), 30));
-        settle().await;
-        // The lead's turn ends while its helper keeps running, and the next turn starts.
-        session.start.routes.unbind_run(first_lead);
-        session.hold_lead_turn("next-lead");
-        let (mut provider, output) = tokio::io::duplex(4096);
-        provider
-            .write_all(
-                format!(
-                    concat!(
-                        r#"{{"type":"control_response","response":{{"subtype":"success","#,
-                        r#""request_id":"{}","response":{{}}}}}}"#,
-                        "\n",
-                    ),
-                    pending.request_id()
-                )
-                .as_bytes(),
-            )
-            .await
-            .expect("the pipe takes the answer");
-        drop(provider);
-        reader(requests, Arc::new(HeldFrames::default()), Weak::new())
-            .read(output, DriverPorts::new().raw_provider_messages)
-            .await;
-        session.frame(&usage_message("lead-after", None, 20));
-        session.frame(&usage_message("helper-after", Some("helper"), 40));
-        settle().await;
-
-        let answer = pending
-            .answer_within(ClaudeWriteAttempt::Written, Duration::from_secs(1))
-            .await;
-        assert!(answer.is_ok(), "the switch was answered: {answer:?}");
-        let moves = lock(&bindings.moves).clone();
-        let charged: Vec<_> = session
-            .usage
-            .metered()
-            .into_iter()
-            .enumerate()
-            .map(|(index, metered)| {
-                let account = moves
-                    .iter()
-                    .find(|(moved, _, at)| *moved == metered.binding_id && *at <= index)
-                    .map_or_else(test_provider_account_id, |(_, account, _)| account.clone());
-                let input = metered.delta.axis_deltas.input.unwrap_or(0);
-                (metered.binding_id, input, account)
-            })
-            .collect();
-        assert_eq!(
-            charged,
-            [
-                (binding_id("lead"), 10, test_provider_account_id()),
-                (binding_id("lead"), 30, test_provider_account_id()),
-                (binding_id("next-lead"), 20, moved_to.clone()),
-                (binding_id("lead"), 40, moved_to.clone()),
-            ]
-        );
-        assert!(
-            moves.contains(&(binding_id("resting"), moved_to, 2)),
-            "the lead's resting binding moves at the answer, after the readings ahead: {moves:?}"
-        );
     }
 
     // Each line Claude Code writes reaches the raw-message port as read, its carriage return kept,

@@ -3,8 +3,7 @@
 //! and the person is told. A new provider build relaunches each session the same way, an idle one
 //! at once and a busy one when its turn settles. Until a relaunch has composed its start, the
 //! ended process's settings are held, so a level or mode moved meanwhile starts with it. A move
-//! onto another account that cannot reach a running process relaunches it the same way, on that
-//! account. What an ended process leaves is in `ended_process`, and the resume that brings it back
+//! onto another account relaunches it the same way, on that account. What an ended process leaves is in `ended_process`, and the resume that brings it back
 //! in `relaunch`.
 
 pub(crate) mod ended_process;

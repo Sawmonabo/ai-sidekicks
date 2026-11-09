@@ -52,8 +52,7 @@ pub(crate) struct ClaudeTurnBeforeContinue {
 /// an await, and its queue.
 pub(crate) struct ClaudeSessionStream {
     pub(super) session_id: SessionId,
-    // The account the process runs on, shared with its readers and moved where it acknowledged a
-    // switch among its frames.
+    // The account the process runs on, shared with its readers.
     account: ClaudeProcessAccount,
     pub(super) step_bound: Option<SafeInt<1>>,
     // The lead whose goal the process carries, and the conversation file its outcomes are read
@@ -200,12 +199,6 @@ impl ClaudeSessionStream {
     /// names the account the stream is on.
     pub(crate) fn account(&self) -> ClaudeProcessAccount {
         self.account.clone()
-    }
-
-    // Moves the stream and the process's readers onto `provider_account_id`'s account, where the
-    // process acknowledged the switch, so every frame read after it is that account's.
-    pub(super) fn move_account(&self, provider_account_id: ProviderAccountId) {
-        self.account.move_to(provider_account_id);
     }
 
     /// Answers `watch` how the process's next request goes; a watch held before is dropped, which

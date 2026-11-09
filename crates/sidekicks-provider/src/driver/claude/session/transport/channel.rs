@@ -6,7 +6,6 @@
 use futures::future::BoxFuture;
 use serde_json::value::RawValue;
 
-use crate::driver::claude::session::control_requests::ClaudeAccountMoveMarker;
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::transport::control::ClaudeControlRequest;
 use crate::driver::claude::session::transport::inbound::ClaudeControlAnswer;
@@ -26,16 +25,6 @@ pub(crate) trait ClaudeProcessChannel: Send + Sync {
     fn send_control_request(
         &self,
         request: ClaudeControlRequest,
-    ) -> BoxFuture<'_, Result<ClaudeControlAnswer, ClaudeSessionError>>;
-
-    /// Sends one control request and settles on its answer as [`Self::send_control_request`]
-    /// does, carrying `account_move`, which the process's reader hands into the session's queue at
-    /// the answer once Claude Code carried the request out; a refusal, a withdrawal or the exit
-    /// drops it.
-    fn send_account_move(
-        &self,
-        request: ClaudeControlRequest,
-        account_move: ClaudeAccountMoveMarker,
     ) -> BoxFuture<'_, Result<ClaudeControlAnswer, ClaudeSessionError>>;
 
     /// Answers one request the process sent, under its own id, with `answer` as the response's

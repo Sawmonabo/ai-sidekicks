@@ -402,8 +402,7 @@ impl ClaudeDeliveryStream {
             ClaudeWireFrameKind::StreamEvent => self.stream_event(session, &lead, &frame.text),
             ClaudeWireFrameKind::Assistant => {
                 if let Some(mut message) = message {
-                    // An answered request is heard at its `message_start`, since a reply begun
-                    // before an account move goes on streaming its messages after it.
+                    // A login refusal is heard here; an answered request at its `message_start`.
                     if message.error() == Some(CLAUDE_LOGIN_REFUSAL) {
                         session.settle_first_request(ClaudeFirstRequest::LoginRefused);
                     }

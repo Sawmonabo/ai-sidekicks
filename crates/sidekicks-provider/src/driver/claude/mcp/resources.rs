@@ -61,7 +61,7 @@ impl ClaudeDriver {
                 RefusalCode::ProviderUnavailable,
             ))
         };
-        let mut environment = live.signed_in_spawn_environment();
+        let mut environment = live.spawn_bound_legs.spawn_environment.clone();
         let working_folder = &live.spawn_bound_legs.working_directory;
         let project = working_folder.to_string_lossy().into_owned();
         let reach = match compose_sent_entry(declared, &environment, Some(project)) {

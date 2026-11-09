@@ -1,16 +1,14 @@
-//! The Claude Code switch leg: each running session moves onto another account. Between two
-//! accounts signed in through their stores the process is pointed at the new store in place, and
-//! the move lands where Claude Code acknowledges it among the session's frames; where either
-//! account runs on a pasted token, the process starts again between turns on the new account,
-//! which hands it that account's token on its pipe, and resumes its conversation by id. A login
-//! refusal on the first request after the move hands the previous account back the same way.
+//! The Claude Code switch leg: each running session moves onto another account by starting its
+//! process again between turns on that account, which resumes its conversation by id, whether the
+//! account signs in through its store or a pasted token; Claude Code reads a store pointed at in
+//! place only once its store-read cache lapses, so no move is made in place. A login refusal on the
+//! first request after the move hands the previous account back the same way.
 
-use std::collections::BTreeMap;
 use std::sync::{Arc, Weak};
 
 use futures::FutureExt;
 use futures::future::join_all;
-use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::PathRules;
@@ -18,19 +16,14 @@ use sidekicks_store::database::connection::read_pool::ReadLength;
 use tokio::sync::oneshot;
 
 use super::ClaudeAccountLegs;
-use crate::driver::claude::account::credentials::SECURE_STORAGE_FOLDER_VARIABLE;
 use crate::driver::claude::delivery::stream::ClaudeFirstRequest;
-use crate::driver::claude::session::control_requests::ClaudeAccountMoveMarker;
 use crate::driver::claude::session::conversation_home::{
     ClaudeConversationHomeKeep, claude_conversation_home_metadata, read_claude_conversation_home,
 };
 use crate::driver::claude::session::establishment::ClaudeSessionEstablishment;
 use crate::driver::claude::session::restart::{ClaudeLegBinding, ClaudeSessionStanding};
 use crate::driver::claude::session::state::LiveClaudeSession;
-use crate::driver::claude::session::transport::control::{
-    ClaudeControlRequest, ClaudeFlagSettings,
-};
-use crate::driver::claude::spawn::environment::{ClaudeAccountFolders, claude_config_folder};
+use crate::driver::claude::spawn::environment::claude_config_folder;
 use crate::driver::contract::account::{FirstRequestAfterMove, SessionAccountMove, SessionToMove};
 use crate::driver::contract::error::DriverError;
 use crate::driver::error_causes::session_process_unavailable;
@@ -57,23 +50,14 @@ pub(super) async fn move_claude_sessions(
     .await
 }
 
-// How one account signs in to a running process: through its store, which a process is pointed
-// at in place, or by a pasted token, which reaches a process only at its start.
-enum ClaudeAccountSignIn {
-    // The folder of the account's store, in the form the process's environment carries.
-    Store(String),
-    Token,
-}
-
 // What a moved session hands back on a login refusal: the binding its lead runs on after the
-// move, the account it left and how that account reaches its process.
+// move and the account it left.
 struct ClaudeHandBack {
     establishment: Arc<ClaudeSessionEstablishment>,
     bindings: Arc<dyn RuntimeBindingWriter>,
     session_id: SessionId,
     binding_id: RuntimeBindingId,
     previous: ProviderAccountId,
-    previous_sign_in: ClaudeAccountSignIn,
 }
 
 // Moves one session, answering once the move landed with how its first request goes after.
@@ -88,8 +72,6 @@ async fn move_claude_session(
         .get()
         .and_then(Weak::upgrade)
         .ok_or_else(|| DriverError::Internal("the Claude Code driver has stopped".into()))?;
-    let previous_sign_in = read_sign_in(legs, &from).await?;
-    let target_sign_in = read_sign_in(legs, &to).await?;
     let restarts = &establishment.task_services.restarts;
     let live = loop {
         match restarts.standing(session.session_id) {
@@ -117,47 +99,24 @@ async fn move_claude_session(
             }
         }
     };
-    let home = keep_process_home(legs, &session, &live).await?;
-    let (watch, heard) = oneshot::channel();
-    // The lead's binding moves with the session, never apart from its frames: at the marker an
-    // in-place move queues among them, or before a relaunch starts the new process on its copy.
-    let binding_id = match (&previous_sign_in, &target_sign_in) {
-        (ClaudeAccountSignIn::Store(_), ClaudeAccountSignIn::Store(store)) => {
-            let account_move = ClaudeStoreMove {
-                store,
-                provider_account_id: &to,
-                lead_binding_id: &session.binding_id,
-                conversation_home: Some(home),
-            };
-            point_at_store(
-                &establishment,
-                &live,
-                &legs.bindings,
-                account_move,
-                Some(watch),
-            )
-            .await?;
-            session.binding_id
-        }
-        (ClaudeAccountSignIn::Token, _) | (_, ClaudeAccountSignIn::Token) => {
-            let leg = ClaudeLegBinding {
-                bindings: Arc::clone(&legs.bindings),
-                binding_id: session.binding_id,
-            };
-            let relaunched = restarts.relaunch_on_account(&live, to.clone(), leg).await?;
-            if let Some(stream) = establishment.streams.get(session.session_id) {
-                stream.watch_first_request(watch);
-            }
-            relaunched
-        }
+    keep_process_home(legs, &session, &live).await?;
+    // The lead's binding moves just before the new process starts, after every frame of the turn
+    // the relaunch waited for, so each reading of that turn stays on the account it ran on.
+    let leg = ClaudeLegBinding {
+        bindings: Arc::clone(&legs.bindings),
+        binding_id: session.binding_id,
     };
+    let binding_id = restarts.relaunch_on_account(&live, to.clone(), leg).await?;
+    let (watch, heard) = oneshot::channel();
+    if let Some(stream) = establishment.streams.get(session.session_id) {
+        stream.watch_first_request(watch);
+    }
     let hand_back = ClaudeHandBack {
         establishment: Arc::clone(&establishment),
         bindings: Arc::clone(&legs.bindings),
         session_id: session.session_id,
         binding_id,
         previous: from,
-        previous_sign_in,
     };
     // Its own task, so the hand-back is made whether or not anyone waits on the answer.
     let watching = tokio::spawn(async move {
@@ -183,8 +142,8 @@ async fn move_claude_session(
 }
 
 impl ClaudeHandBack {
-    // Moves the session back onto the account it left, the way it moved: its store sent again,
-    // or its process started again on that account between turns.
+    // Moves the session back onto the account it left the way it moved: its process started
+    // again on that account between turns.
     async fn hand_back(self) -> Result<(), DriverError> {
         let session_id = self.session_id;
         let restarts = &self.establishment.task_services.restarts;
@@ -192,127 +151,25 @@ impl ClaudeHandBack {
             .slots()
             .live_session(session_id)
             .ok_or_else(|| DriverError::from(session_process_unavailable(session_id)))?;
-        match &self.previous_sign_in {
-            ClaudeAccountSignIn::Store(store) => {
-                // The account handed back holds the conversation in its own home.
-                let account_move = ClaudeStoreMove {
-                    store,
-                    provider_account_id: &self.previous,
-                    lead_binding_id: &self.binding_id,
-                    conversation_home: None,
-                };
-                point_at_store(
-                    &self.establishment,
-                    &live,
-                    &self.bindings,
-                    account_move,
-                    None,
-                )
-                .await
-            }
-            ClaudeAccountSignIn::Token => {
-                let leg = ClaudeLegBinding {
-                    bindings: Arc::clone(&self.bindings),
-                    binding_id: self.binding_id.clone(),
-                };
-                restarts
-                    .relaunch_on_account(&live, self.previous.clone(), leg)
-                    .await
-                    .map(drop)
-            }
-        }
+        let leg = ClaudeLegBinding {
+            bindings: self.bindings,
+            binding_id: self.binding_id,
+        };
+        restarts
+            .relaunch_on_account(&live, self.previous, leg)
+            .await
+            .map(drop)
     }
-}
-
-// An in-place move: the store the process is pointed at, the account it signs in to, the binding
-// the session's lead runs on, which moves with it, and the home every binding moved keeps first
-// where the account moved onto does not hold the conversation.
-struct ClaudeStoreMove<'a> {
-    store: &'a str,
-    provider_account_id: &'a ProviderAccountId,
-    lead_binding_id: &'a RuntimeBindingId,
-    conversation_home: Option<ClaudeConversationHomeKeep>,
-}
-
-// Points `live`'s process at `account_move`'s store in place, through its stream's queue: the
-// session's account, which its stream shares, its lead's binding and its bound runs' move onto
-// the move's account where Claude Code acknowledged it among the frames, each binding naming the
-// move's home first where it carries one, so a run bound since the lead's home was kept never
-// rests on the new account without it, and a process started
-// from the session's legs signs in to the store from the answer on; `first_request` hears how the
-// next request goes. Fails as the request does, nothing moved.
-async fn point_at_store(
-    establishment: &ClaudeSessionEstablishment,
-    live: &LiveClaudeSession,
-    bindings: &Arc<dyn RuntimeBindingWriter>,
-    account_move: ClaudeStoreMove<'_>,
-    first_request: Option<oneshot::Sender<ClaudeFirstRequest>>,
-) -> Result<(), DriverError> {
-    let request = ClaudeControlRequest::ApplyFlagSettings {
-        settings: ClaudeFlagSettings {
-            env: Some(BTreeMap::from([(
-                SECURE_STORAGE_FOLDER_VARIABLE.to_owned(),
-                account_move.store.to_owned(),
-            )])),
-            ..ClaudeFlagSettings::default()
-        },
-    };
-    let stream = establishment
-        .streams
-        .get(live.session_id)
-        .ok_or_else(|| DriverError::from(session_process_unavailable(live.session_id)))?;
-    let store = account_move.store.to_owned();
-    let account_move = ClaudeAccountMoveMarker {
-        arrivals: stream.arrivals().clone(),
-        provider_account_id: account_move.provider_account_id.clone(),
-        lead_binding_id: account_move.lead_binding_id.clone(),
-        bindings: Arc::clone(bindings),
-        conversation_home: account_move.conversation_home,
-        first_request,
-    };
-    live.channel
-        .send_account_move(request, account_move)
-        .await
-        .map_err(DriverError::from)?;
-    live.account.point_at_store(store);
-    Ok(())
-}
-
-// How `provider_account_id`'s account reaches a running process: by its store, or by the token
-// pasted for it. Fails as the account cannot be read.
-async fn read_sign_in(
-    legs: &ClaudeAccountLegs,
-    provider_account_id: &ProviderAccountId,
-) -> Result<ClaudeAccountSignIn, DriverError> {
-    let accounts = legs
-        .ports
-        .provider_accounts
-        .require_port()
-        .map_err(|error| DriverError::Internal(Box::new(error)))?;
-    let mode = accounts
-        .read_observed_auth_mode(provider_account_id.clone())
-        .await
-        .map_err(DriverError::Internal)?;
-    if mode == Some(ProviderAuthMode::OauthToken) {
-        return Ok(ClaudeAccountSignIn::Token);
-    }
-    let folders = accounts
-        .resolve_account_folders(provider_account_id.clone())
-        .await?;
-    Ok(ClaudeAccountSignIn::Store(
-        ClaudeAccountFolders::from(&folders).credential_store_folder,
-    ))
 }
 
 // Records in the lead's binding the home `process` wrote the session's conversation into, every
 // other member of its recovery data kept, before the binding moves off the account whose home it
-// may be, so every later resume finds it there; answers that home, which the session's other
-// bindings keep as they move. Fails as the binding cannot be read or written.
+// may be, so every later resume finds it there. Fails as the binding cannot be read or written.
 async fn keep_process_home(
     legs: &ClaudeAccountLegs,
     session: &SessionToMove,
     process: &LiveClaudeSession,
-) -> Result<ClaudeConversationHomeKeep, DriverError> {
+) -> Result<(), DriverError> {
     let home = claude_config_folder(
         &process.spawn_bound_legs.spawn_environment,
         PathRules::NATIVE,
@@ -324,8 +181,7 @@ async fn keep_process_home(
     };
     keep.keep_in(&*legs.bindings, session.binding_id.clone())
         .await
-        .map_err(DriverError::Internal)?;
-    Ok(keep)
+        .map_err(DriverError::Internal)
 }
 
 // Records in the lead's stored binding, for a session with no process, the home of the account it
@@ -380,7 +236,7 @@ async fn move_binding(
 // Moves the held session's lead binding onto `to`, then its held restart through
 // `move_held_account`; where that restart began meanwhile, the binding goes back to `from`, the
 // account the restart still runs on, so spend metered before the move is charged where it ran and
-// the live process's move takes the binding over among its frames. Answers whether the held
+// the live process's relaunch moves the binding once its turn settles. Answers whether the held
 // restart moved. Fails as the binding cannot move.
 async fn move_held_binding(
     bindings: &dyn RuntimeBindingWriter,
@@ -408,8 +264,8 @@ mod tests {
     use crate::driver::test_registry::new_session_id;
 
     // A held restart that began meanwhile still runs on the account left, so the lead's binding
-    // goes back there: spend metered before the live process's in-place move stays on the account
-    // that served it. Killed by the binding left on the new account when the held restart did not
+    // goes back there: spend metered before the live process starts again on the new account
+    // stays on the account that served it. Killed by the binding left on the new account when the held restart did not
     // move.
     #[tokio::test]
     async fn a_held_restart_that_began_meanwhile_takes_the_binding_back() {

@@ -64,7 +64,7 @@ async fn an_unmarked_exit_settles_each_held_call_by_what_claude_code_kept() {
     session.hold_lead_turn("lead");
     session.ports.tool_traces.set_recording(true);
     let config_folder = claude_config_folder(
-        &session.live.signed_in_spawn_environment(),
+        &session.live.spawn_bound_legs.spawn_environment,
         PathRules::NATIVE,
     )
     .expect("the scripted session's home is known");
@@ -227,7 +227,7 @@ async fn the_daemons_stop_traces_each_saved_ending_and_closes_no_call() {
     session.hold_lead_turn("lead");
     session.ports.tool_traces.set_recording(true);
     let config_folder = claude_config_folder(
-        &session.live.signed_in_spawn_environment(),
+        &session.live.spawn_bound_legs.spawn_environment,
         PathRules::NATIVE,
     )
     .expect("the scripted session's home is known");

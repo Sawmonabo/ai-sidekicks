@@ -261,13 +261,6 @@ impl LiveClaudeSession {
         self.account.move_to(provider_account_id);
     }
 
-    /// The environment a process started from the session's legs runs with: theirs, signed in to
-    /// the credential store the session's process runs on now.
-    pub(crate) fn signed_in_spawn_environment(&self) -> Vec<(String, String)> {
-        self.account
-            .signed_in_environment(&self.spawn_bound_legs.spawn_environment)
-    }
-
     /// Records that a run on `binding_id` took the session's turn on this process.
     pub(crate) fn record_served_binding(&self, binding_id: RuntimeBindingId) {
         lock(&self.served_bindings).insert(binding_id);
