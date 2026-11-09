@@ -36,9 +36,7 @@ export function AccountDefaultControl(props: {
         Set as default
       </button>
       <p className="meridian-settings-page__aside">
-        New sessions run on this account, and every session already running on this provider moves
-        to it at its next request, without stopping. A sidekick or a workflow step set to a specific
-        account stays where it is.
+        New sessions use this account. Running ones switch at their next turn.
       </p>
       {isThisAccount && move.kind === "refused" ? (
         // No live role: the refusal announces itself through the app's announcer.
