@@ -7,7 +7,9 @@ use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::codex::delivery::frames::CodexFrameDispatch;
 use crate::driver::codex::delivery::memory::{CodexStartingTurn, CodexTurnOpening};
-use crate::driver::codex::lifecycle::intake::{CodexRoutedFramesIntake, apply_codex_routed_frames};
+use crate::driver::codex::lifecycle::intake::routed_frames::{
+    CodexRoutedFramesIntake, apply_codex_routed_frames,
+};
 use crate::driver::codex::notification_routing::CodexRoutedFrames;
 use crate::driver::codex::run::steer::register_codex_steer;
 use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestCodexSession, turn_started};
