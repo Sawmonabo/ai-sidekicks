@@ -102,7 +102,7 @@ impl EngineTick {
             None => return,
         }
         let hold = match &report.kind {
-            StepReportKind::WaitingOnPool { .. } => Some(Some(report.at.clone())),
+            StepReportKind::WaitingOnMemory { .. } => Some(Some(report.at.clone())),
             StepReportKind::Admitted { .. } => Some(None),
             StepReportKind::Settled(_) => {
                 let step = report.step.clone();

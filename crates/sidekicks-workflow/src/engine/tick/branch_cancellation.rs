@@ -195,7 +195,7 @@ mod tests {
             }) => json!({ "canceled": {
                 "holdStartedAt": hold_started_at, "cancellationReason": cancellation_reason,
             } }),
-            StepReportKind::WaitingOnPool { .. }
+            StepReportKind::WaitingOnMemory { .. }
             | StepReportKind::Admitted { .. }
             | StepReportKind::Started { .. }
             | StepReportKind::ResumeDue { .. }

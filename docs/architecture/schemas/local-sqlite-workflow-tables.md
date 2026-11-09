@@ -281,8 +281,8 @@ CREATE TABLE workflow_steps (
   permission_level  TEXT                           -- an agent step whose account cannot run its run's level: the level it ran at in its place, from its workflow.step.started; NULL on every other step
                     CHECK(permission_level IS NULL OR permission_level IN ('readonly','ask','reviewed','sandboxed','yolo')),
   decline_reason    TEXT,                          -- the words typed with the Decline on a command step's own approval card that failed it, from its workflow.step.failed; NULL on every other step and on a bare decline
-  total_pool_wait_ms INTEGER NOT NULL DEFAULT 0  -- milliseconds the memory gate held the step, summed over its holds, each from its first workflow.phase.waitingOnPool to the event that ends it
-                    CHECK(total_pool_wait_ms >= 0),
+  total_memory_wait_ms INTEGER NOT NULL DEFAULT 0  -- milliseconds the memory gate held the step, summed over its holds, each from its first workflow.phase.waitingOnMemory to the event that ends it
+                    CHECK(total_memory_wait_ms >= 0),
   PRIMARY KEY (workflow_run_id, node_id, attempt, execution_index),  -- the whole WorkflowStepKey the contracts address a step by; with node_id after the run id it also serves a lookup by run and node
   UNIQUE(workflow_run_id, execution_index),      -- the execution index is a total order per run
   CHECK((cost_usd_micros IS NULL) = (cost_account_id IS NULL)),  -- a figure always names the account that paid it

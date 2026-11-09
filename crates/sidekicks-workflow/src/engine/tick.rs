@@ -204,7 +204,7 @@ pub(crate) struct StepReport {
 pub(crate) enum StepReportKind {
     /// The memory gate holds the step; every report of one hold carries the instant of its first,
     /// so the first is the one whose `at` equals `hold_started_at`.
-    WaitingOnPool {
+    WaitingOnMemory {
         /// When the hold began: the `at` of its first report.
         hold_started_at: WireInstant,
     },
@@ -303,7 +303,7 @@ pub(crate) enum StepSettlement {
         records: StepRecords,
     },
     /// The step was canceled. A step canceled while the gate held it adds its hold to the step's
-    /// pool wait.
+    /// memory wait.
     Canceled {
         /// When the hold the cancel ended began, `None` when the gate was not holding the step.
         hold_started_at: Option<WireInstant>,

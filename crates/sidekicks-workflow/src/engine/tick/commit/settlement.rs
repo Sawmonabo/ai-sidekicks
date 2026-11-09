@@ -172,12 +172,12 @@ impl RunTurnCommit {
                 hold_started_at,
                 cancellation_reason,
             } => {
-                let pool_wait_ms =
+                let memory_wait_ms =
                     held_milliseconds(hold_started_at.as_ref(), reported.last_hold_report_at, at);
                 let readying_event = self.cancel(
                     step,
                     at,
-                    pool_wait_ms,
+                    memory_wait_ms,
                     cancellation_reason,
                     reported.standing(),
                 );
@@ -186,18 +186,18 @@ impl RunTurnCommit {
         }
     }
 
-    /// Writes the cancel of `step`, standing as `standing` before it, at `at` with `pool_wait_ms`
-    /// added to its pool wait: its row, `workflow.phase.failed` with `cancellation_reason` where
+    /// Writes the cancel of `step`, standing as `standing` before it, at `at` with `memory_wait_ms`
+    /// added to its memory wait: its row, `workflow.phase.failed` with `cancellation_reason` where
     /// its run's stop canceled it, then `workflow.step.canceled`, whose index it answers.
     pub(super) fn cancel(
         &mut self,
         step: WorkflowStepKey,
         at: &WireInstant,
-        pool_wait_ms: u64,
+        memory_wait_ms: u64,
         cancellation_reason: Option<WorkflowPhaseCancellationReason>,
         standing: (WorkflowStepStatus, Option<WorkflowWaitCause>),
     ) -> usize {
-        self.statements.push(cancel_step(&step, at, pool_wait_ms));
+        self.statements.push(cancel_step(&step, at, memory_wait_ms));
         let session_id = self.keys.session_id;
         if cancellation_reason.is_some() {
             self.push(
@@ -401,7 +401,7 @@ impl RunTurnCommit {
                         (output_ref, output_lengths.as_slice())
                     }),
                 log_ref: &log_ref,
-                pool_wait_ms: cut_hold_milliseconds(reported.last_hold_report_at, at),
+                memory_wait_ms: cut_hold_milliseconds(reported.last_hold_report_at, at),
             },
         ));
         let session_id = self.keys.session_id;
@@ -528,7 +528,7 @@ fn account_suspended(
 }
 
 /// The whole milliseconds since a hold's last report at `last_hold_report_at` to `at`, which a
-/// settlement that cuts the hold adds to the step's pool wait; 0 for a step the gate was not
+/// settlement that cuts the hold adds to the step's memory wait; 0 for a step the gate was not
 /// holding.
 fn cut_hold_milliseconds(last_hold_report_at: Option<&WireInstant>, at: &WireInstant) -> u64 {
     last_hold_report_at.map_or(0, |since| whole_milliseconds_between(since, at))

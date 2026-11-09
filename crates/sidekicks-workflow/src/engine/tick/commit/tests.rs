@@ -187,11 +187,12 @@ impl TurnHarness {
         step_key(TEST_NODE_ID, execution_index)
     }
 
-    /// The status and pool wait of the step at `execution_index`.
+    /// The status and memory wait of the step at `execution_index`.
     pub(super) fn step_row(&self, execution_index: u32) -> (String, i64) {
         self.rows
             .query_row(
-                "SELECT status, total_pool_wait_ms FROM workflow_steps WHERE execution_index = ?1",
+                "SELECT status, total_memory_wait_ms FROM workflow_steps \
+                 WHERE execution_index = ?1",
                 params![execution_index],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
@@ -292,14 +293,14 @@ fn artifact_payload(artifact_id: ArtifactId) -> WorkflowPayloadRef {
 // Killed by a repeat re-entering the hold, a repeat adding nothing, the admission adding the whole
 // hold again, and a hold report naming its own sequence rather than the readying one.
 #[tokio::test]
-async fn a_held_step_records_one_hold_and_its_pool_wait() {
+async fn a_held_step_records_one_hold_and_its_memory_wait() {
     let harness = TurnHarness::new().await;
     let step = harness.store_step(1, WorkflowStepStatus::Pending);
     let readying = sequence(7);
     let t0 = "2026-10-02T00:01:00.000Z";
     let t30 = "2026-10-02T00:01:30.000Z";
     let t45 = "2026-10-02T00:01:45.000Z";
-    let held = || StepReportKind::WaitingOnPool {
+    let held = || StepReportKind::WaitingOnMemory {
         hold_started_at: instant(t0),
     };
 
@@ -345,7 +346,7 @@ async fn a_held_step_records_one_hold_and_its_pool_wait() {
     let events = harness.events();
     let held_events: Vec<_> = events
         .iter()
-        .filter(|(_, event_type, _, _)| event_type == "workflow.phase.waitingOnPool")
+        .filter(|(_, event_type, _, _)| event_type == "workflow.phase.waitingOnMemory")
         .map(|(_, _, at, payload)| (at.as_str(), payload["waitingSinceSeq"].clone()))
         .collect();
     assert_eq!(held_events, [(t0, json!(7)), (t30, json!(7))]);
@@ -633,7 +634,7 @@ async fn a_canceled_held_step_adds_its_cut_hold(
     #[case] hold_started_at: Option<&str>,
     #[case] cancellation_reason: Option<WorkflowPhaseCancellationReason>,
     #[case] event_types: &[&str],
-    #[case] pool_wait_ms: i64,
+    #[case] memory_wait_ms: i64,
 ) {
     let harness = TurnHarness::new().await;
     let step = harness.store_step(1, status);
@@ -656,7 +657,7 @@ async fn a_canceled_held_step_adds_its_cut_hold(
     ));
     harness.append(commit).await;
 
-    assert_eq!(harness.step_row(1), ("canceled".to_owned(), pool_wait_ms));
+    assert_eq!(harness.step_row(1), ("canceled".to_owned(), memory_wait_ms));
     let events = harness.events();
     let written: Vec<_> = events
         .iter()

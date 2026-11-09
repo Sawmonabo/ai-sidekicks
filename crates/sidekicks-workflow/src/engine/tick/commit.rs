@@ -22,7 +22,7 @@ use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWai
 use sidekicks_contracts::workflow::run::step::events::{
     WorkflowParallelJoinBranchesCanceledPayload, WorkflowPhaseAdmittedPayload,
     WorkflowPhaseCancelingPayload, WorkflowPhaseProgressedPayload, WorkflowPhaseRetriedPayload,
-    WorkflowPhaseStartedPayload, WorkflowPhaseWaitingOnPoolPayload, WorkflowReadiedStep,
+    WorkflowPhaseStartedPayload, WorkflowPhaseWaitingOnMemoryPayload, WorkflowReadiedStep,
     WorkflowStepSkipReason, WorkflowStepSkippedPayload, WorkflowStepStartedPayload,
 };
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
@@ -43,7 +43,7 @@ use crate::kinds::{PersonAsk, StepFailure};
 use crate::runs::gate_resolution::RunEventKeys;
 use crate::runs::step_payload::StepPayloadWriteError;
 use crate::runs::step_rows::{
-    add_step_pool_wait, admit_step, hold_step, insert_pending_step, insert_skipped_step,
+    add_step_memory_wait, admit_step, hold_step, insert_pending_step, insert_skipped_step,
     record_step_start,
 };
 
@@ -151,7 +151,7 @@ struct TurnEvent {
 /// What a report did to its step, kept owned until the write commits and the record takes it.
 enum StepMove {
     /// The memory gate holds the step.
-    WaitingOnPool {
+    WaitingOnMemory {
         /// When the hold began.
         hold_started_at: WireInstant,
     },
@@ -185,7 +185,7 @@ pub(crate) struct ReportedStep<'tick> {
     /// The sequence of the event whose write readied the step, which every hold report names.
     pub(crate) readying_sequence: SafeInt<0>,
     /// The instant of the hold's previous report, `Some` only while the memory gate holds the
-    /// step; a later report of that hold, or a failure or wait that cuts it, adds its pool wait
+    /// step; a later report of that hold, or a failure or wait that cuts it, adds its memory wait
     /// from here.
     pub(crate) last_hold_report_at: Option<&'tick WireInstant>,
     /// The step's node.
@@ -379,7 +379,7 @@ impl RunTurnCommit {
         let readying_sequence = reported.readying_sequence;
         let last_hold_report_at = reported.last_hold_report_at;
         match kind {
-            StepReportKind::WaitingOnPool { hold_started_at } => {
+            StepReportKind::WaitingOnMemory { hold_started_at } => {
                 if at == hold_started_at {
                     self.statements.push(hold_step(&step));
                     self.counts.moved(
@@ -388,26 +388,26 @@ impl RunTurnCommit {
                     );
                 } else {
                     let since = last_hold_report_at.unwrap_or(&hold_started_at);
-                    let pool_wait_ms = whole_milliseconds_between(since, &at);
+                    let memory_wait_ms = whole_milliseconds_between(since, &at);
                     self.statements
-                        .push(add_step_pool_wait(&step, pool_wait_ms));
+                        .push(add_step_memory_wait(&step, memory_wait_ms));
                 }
                 self.push(
                     &at,
-                    SessionEvent::WorkflowPhaseWaitingOnPool(step_payload!(
-                        WorkflowPhaseWaitingOnPoolPayload,
+                    SessionEvent::WorkflowPhaseWaitingOnMemory(step_payload!(
+                        WorkflowPhaseWaitingOnMemoryPayload,
                         session_id,
                         step,
                         waiting_since_seq: readying_sequence,
                     )),
                 );
                 self.moves
-                    .push((step, StepMove::WaitingOnPool { hold_started_at }));
+                    .push((step, StepMove::WaitingOnMemory { hold_started_at }));
             }
             StepReportKind::Admitted { hold_started_at } => {
-                let pool_wait_ms =
+                let memory_wait_ms =
                     held_milliseconds(hold_started_at.as_ref(), last_hold_report_at, &at);
-                self.statements.push(admit_step(&step, pool_wait_ms));
+                self.statements.push(admit_step(&step, memory_wait_ms));
                 self.counts.moved(
                     Some(reported.standing()),
                     (WorkflowStepStatus::Running, None),
@@ -684,8 +684,8 @@ impl StepMove {
     /// The move as the engine's record carries it.
     fn decision(&self) -> EngineDecision<'_> {
         let transition = match self {
-            Self::WaitingOnPool { hold_started_at } => {
-                StepTransition::WaitingOnPool { hold_started_at }
+            Self::WaitingOnMemory { hold_started_at } => {
+                StepTransition::WaitingOnMemory { hold_started_at }
             }
             Self::Admitted => StepTransition::Admitted,
             Self::Started => StepTransition::Started,

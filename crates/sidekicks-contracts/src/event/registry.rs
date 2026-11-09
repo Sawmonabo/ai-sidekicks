@@ -269,7 +269,7 @@ session_event_types! {
     /// The event types of the `workflowPhaseLifecycle` category.
     WORKFLOW_PHASE_LIFECYCLE_EVENT_TYPES = WorkflowPhaseLifecycle [
         WorkflowPhaseAdmitted = "workflow.phase.admitted",
-        WorkflowPhaseWaitingOnPool = "workflow.phase.waitingOnPool",
+        WorkflowPhaseWaitingOnMemory = "workflow.phase.waitingOnMemory",
         WorkflowPhaseStarted = "workflow.phase.started",
         WorkflowPhaseProgressed = "workflow.phase.progressed",
         WorkflowPhaseCanceling = "workflow.phase.canceling",

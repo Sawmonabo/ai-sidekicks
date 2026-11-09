@@ -443,12 +443,12 @@ workflow_step_event! {
 }
 
 workflow_step_event! {
-    /// `workflow.phase.waitingOnPool`: the memory gate holds the step before it starts, written
-    /// on entry to the hold and every 30 seconds while it lasts; memory is the only pool, so the
-    /// payload names none.
+    /// `workflow.phase.waitingOnMemory`: the memory gate holds the step before it starts, written
+    /// on entry to the hold and every 30 seconds while it lasts; the gate weighs memory alone, so
+    /// the payload names nothing else.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    pub struct WorkflowPhaseWaitingOnPoolPayload {
+    pub struct WorkflowPhaseWaitingOnMemoryPayload {
         /// The envelope sequence the hold began at, which ties each repeat back to one hold.
         pub waiting_since_seq: SafeInt<0>,
     }
@@ -678,7 +678,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowPhaseSuspendedPayload>().checked(),
         Definition::read::<WorkflowPhaseCancellationReason>(),
         Definition::read::<WorkflowPhaseFailedPayload>().checked(),
-        Definition::read::<WorkflowPhaseWaitingOnPoolPayload>().checked(),
+        Definition::read::<WorkflowPhaseWaitingOnMemoryPayload>().checked(),
         Definition::read::<WorkflowPhaseAdmittedPayload>().checked(),
         Definition::read::<WorkflowPhaseStartedPayload>().checked(),
         Definition::read::<WorkflowPhaseProgressedPayload>().checked(),

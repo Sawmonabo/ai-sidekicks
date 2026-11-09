@@ -384,8 +384,8 @@ CREATE TABLE workflow_steps (
   -- bare decline.
   decline_reason    TEXT,
   -- The milliseconds the memory gate held the step, summed over its holds.
-  total_pool_wait_ms INTEGER NOT NULL DEFAULT 0
-                    CHECK(total_pool_wait_ms >= 0),
+  total_memory_wait_ms INTEGER NOT NULL DEFAULT 0
+                    CHECK(total_memory_wait_ms >= 0),
   -- The whole step key; it also serves a lookup by run and node.
   PRIMARY KEY (workflow_run_id, node_id, attempt, execution_index),
   UNIQUE(workflow_run_id, execution_index),

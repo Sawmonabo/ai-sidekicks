@@ -110,7 +110,7 @@ pub(crate) enum EngineDecision<'report> {
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum StepTransition<'report> {
     /// The memory gate holds the step.
-    WaitingOnPool {
+    WaitingOnMemory {
         /// When the hold began.
         hold_started_at: &'report WireInstant,
     },
@@ -559,8 +559,8 @@ fn says(line: &mut Map<String, Value>, record: &str, sentence: &str) {
 fn step_reported(line: &mut Map<String, Value>, transition: &StepTransition<'_>) {
     says(line, "stepReported", "A step's report moved it.");
     match transition {
-        StepTransition::WaitingOnPool { hold_started_at } => {
-            line.insert("report".to_owned(), json!("waitingOnPool"));
+        StepTransition::WaitingOnMemory { hold_started_at } => {
+            line.insert("report".to_owned(), json!("waitingOnMemory"));
             line.insert("holdStartedAt".to_owned(), json!(hold_started_at));
         }
         StepTransition::Admitted => {

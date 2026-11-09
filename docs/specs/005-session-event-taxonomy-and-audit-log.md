@@ -486,7 +486,7 @@ Payload shape: `{sessionId, workflowRunId, stepRunId}`; the step types carry the
 | Type | Description |
 | --- | --- |
 | `workflow.phase.admitted` | A step was admitted by the memory gate and may start. |
-| `workflow.phase.waitingOnPool` | A step the memory gate is holding. Diagnostic; the payload carries the sequence the wait began at, which is what correlates the repeats emitted while it stays blocked ([Spec-015 §Cadence](./015-workflow-authoring-and-execution.md#cadence-sa-21-sa-22)). |
+| `workflow.phase.waitingOnMemory` | A step the memory gate is holding. Diagnostic; the payload carries the sequence the wait began at, which is what correlates the repeats emitted while it stays blocked ([Spec-015 §Cadence](./015-workflow-authoring-and-execution.md#cadence-sa-21-sa-22)). |
 | `workflow.phase.started` | An admitted phase began executing. |
 | `workflow.phase.progressed` | A phase reported progress. Cadence is per phase type ([Spec-015 §Cadence](./015-workflow-authoring-and-execution.md#cadence-sa-21-sa-22)). |
 | `workflow.phase.canceling` | A phase was asked to stop and is winding down. |

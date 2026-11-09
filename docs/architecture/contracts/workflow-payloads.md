@@ -644,12 +644,12 @@ type WorkflowPhaseSuspendedPayload = WorkflowStepEventPayload &
       }
     | { waitCause: "chain" }
   );
-// workflow.phase.waitingOnPool — diagnostic, for a step the engine's one memory gate holds before
-// it starts (`waitingMemory`). Memory is the only real pool behind the gate: there is no step count
-// and no terminal slot pool, so the payload names no pool. It is emitted on entry to the held state
+// workflow.phase.waitingOnMemory — diagnostic, for a step the engine's one memory gate holds
+// before it starts (`waitingMemory`). The gate weighs memory alone: there is no step count and no
+// terminal slot pool, so the payload names nothing else. It is emitted on entry to the held state
 // and every 30 seconds while held, so `waitingSinceSeq` — the envelope sequence the wait began at —
 // is what correlates the repeats back to one wait (Spec-015 §Cadence).
-interface WorkflowPhaseWaitingOnPoolPayload extends WorkflowStepEventPayload {
+interface WorkflowPhaseWaitingOnMemoryPayload extends WorkflowStepEventPayload {
   waitingSinceSeq: number;
 }
 // The step boundaries. A started event names the input it ran on, on an agent step whose account
