@@ -252,9 +252,10 @@ pub(crate) async fn run_claude_one_turn(
     outcome
 }
 
-// A tool ask is denied and every other request passes, since no one watches this process; a
-// message for an in-process tool server goes to its server as on the session's own process.
-async fn answer_unwatched(
+/// Answers `asked` on a process no one watches: a tool ask is denied and every other request
+/// passes, and a message for an in-process tool server goes to its server as on the session's own
+/// process, held in `calls`.
+pub(crate) async fn answer_unwatched(
     calls: &ClaudeToolServerCalls,
     context: ClaudeToolServerCallContext,
     asked: ClaudeInboundRequest,

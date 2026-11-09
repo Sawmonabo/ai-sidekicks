@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::record::Record;
 use sidekicks_platforms::PathRules;
@@ -34,11 +35,13 @@ use crate::driver::claude::spawn::legs::{
     ClaudeSpawnLegServices, ClaudeSpawnLegsRequest, build_claude_spawn_bound_legs,
 };
 use crate::driver::contract::error::DriverError;
-use crate::driver::session_control::{NameSessionParams, SubagentPolicy, run_naming_pass_until};
+use crate::driver::session_control::{
+    NameSessionParams, SessionToolServer, SubagentPolicy, run_naming_pass_until,
+};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 
-/// The model a naming pass runs on when no process of the session is live: the small model
-/// Claude Code's own title pass runs on.
+/// The model a process on a session with no live process runs on, a naming pass's among them: the
+/// small model Claude Code's own title pass runs on.
 const CLAUDE_NAMING_MODEL: &str = "haiku";
 
 /// How long a whole naming pass may run, its title verb and its one-turn pass together: as long
@@ -106,7 +109,15 @@ async fn draw_claude_title(
         let legs = super::controls::one_turn_legs(live, None, None);
         run_naming_turn(starts, &legs, account, text, stop).await
     } else {
-        let legs = compose_naming_legs(sources, params.session_id, account.clone(), None).await?;
+        let legs = compose_resting_legs(
+            sources,
+            params.session_id,
+            account.clone(),
+            None,
+            None,
+            None,
+        )
+        .await?;
         run_naming_turn(starts, &legs, account, text, stop).await
     };
     match reply {
@@ -166,22 +177,33 @@ pub(crate) async fn stored_claude_conversation(
     provider_session_id: String,
     conversation_home: Option<&Path>,
 ) -> Result<ClaudeEndedConversation, DriverError> {
-    let legs =
-        compose_naming_legs(sources, session_id, provider_account_id, conversation_home).await?;
+    let legs = compose_resting_legs(
+        sources,
+        session_id,
+        provider_account_id,
+        conversation_home,
+        None,
+        None,
+    )
+    .await?;
     Ok(ClaudeEndedConversation {
         provider_session_id,
         spawn_environment: legs.spawn_environment,
     })
 }
 
-// The legs of a naming pass on a session with no live process: its folder and the home of
-// `provider_account_id`'s account, or `conversation_home` where one is given, the small model, no
-// tools and no level, since the pass's one turn asks for nothing.
-async fn compose_naming_legs(
+/// The legs of a process on a session with no live process: its folder and the home of
+/// `provider_account_id`'s account, or `conversation_home` where one is given, the small model and
+/// no helper, since no turn the person asked for runs on it, with `tool_servers` and
+/// `execution_posture` where the process reaches the session's servers. Fails as the session's
+/// folder, its stored settings or the legs cannot be composed.
+pub(crate) async fn compose_resting_legs(
     sources: &ClaudeSpawnSources,
     session_id: SessionId,
     provider_account_id: ProviderAccountId,
     conversation_home: Option<&Path>,
+    tool_servers: Option<Vec<SessionToolServer>>,
+    execution_posture: Option<ExecutionPosture>,
 ) -> Result<ClaudeSpawnBoundLegs, DriverError> {
     let no_rows: ProviderRowValues = Record::default();
     let context = resolve_claude_spawn_context(
@@ -198,10 +220,9 @@ async fn compose_naming_legs(
         ClaudeSpawnLegsRequest {
             session_id,
             model: CLAUDE_NAMING_MODEL.to_owned(),
-            execution_posture: None,
-            // The naming pass starts no helper.
+            execution_posture,
             subagent_policy: Some(SubagentPolicy::Disabled {}),
-            tool_servers: None,
+            tool_servers,
             output_schema: None,
             on_mcp_server_status: None,
             command_channel: None,

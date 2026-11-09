@@ -1,9 +1,10 @@
 //! A session's held tool-server calls once its process is gone for good: the surviving tasks a
-//! person's close stops, the calls settled at its close, live or at rest, and at the start after a
+//! person's close stops, live or at rest, the calls settled at its close and at the start after a
 //! restart, by what Claude Code kept, and left alone while the daemon stops or a fork takes the
 //! session.
 
 use std::path::PathBuf;
+use std::pin::pin;
 use std::sync::Arc;
 
 use rstest::rstest;
@@ -16,6 +17,8 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::PathRules;
 
 use crate::driver::claude::lifecycle::ClaudeDriver;
+use crate::driver::claude::session::frame_observation::ClaudeStreamFrameRead;
+use crate::driver::claude::session::process::ClaudeStreamFrame;
 use crate::driver::claude::session::restart::ClaudeSessionStanding;
 use crate::driver::claude::session::scripted::channel::{
     ScriptedAnswer, ScriptedChannel, ScriptedWrite,
@@ -29,6 +32,7 @@ use crate::driver::claude::session::scripted::starts::ScriptedStartRecord;
 use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, binding_id, hand_scripted_frame, settle,
 };
+use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::driver::claude::spawn::environment::claude_config_folder;
 use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::driver::session_control::{
@@ -668,4 +672,128 @@ async fn the_start_after_a_restart_settles_a_resting_sessions_held_calls(
         HeldCallsSettle::Stopped => vec![ended_unkept(ToolCallEndCause::DaemonStop), completed],
     };
     assert_eq!(closed, expected);
+}
+
+/// What Claude Code keeps of a resting session's one open call when the person closes it.
+#[derive(Clone, Copy, Debug)]
+enum RestingCall {
+    /// Its record: its task outlives the session's last process.
+    Recorded,
+    /// Nothing.
+    Unkept,
+}
+
+// Fails when a person's close of a session no process runs leaves a surviving task running on its
+// server, resumes anything but the session's own conversation, starts a process with no task to
+// stop, or settles the stopped call before reading Claude Code's ending. Mutations: the person's
+// gate at rest passed as `false` (the close ends with no process resumed); `Unkept` in place of
+// `Resume` (the start's conversation); the recorded filter dropped (a start for the unkept call);
+// the read after the process closed dropped (call-A reads `processExit`).
+#[rstest]
+#[case::recorded(RestingCall::Recorded)]
+#[case::unkept(RestingCall::Unkept)]
+#[tokio::test(start_paused = true)]
+async fn a_persons_close_at_rest_stops_each_surviving_task_in_a_resumed_process(
+    #[case] resting_call: RestingCall,
+) {
+    let fixture = ScriptedDriver::new();
+    let session_id = new_session_id();
+    let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
+    fixture.record_session_leg(session_id, account, STORED_CONVERSATION, Map::new());
+    let run_id = new_run_id();
+    fixture
+        .services
+        .ports
+        .held_tool_calls
+        .register(logged_held_calls(
+            vec![held_call(
+                "call-A",
+                "task-A",
+                (run_id, "binding-A"),
+                None,
+                None,
+            )],
+            &fixture.engine,
+        ))
+        .expect("the read registers once");
+    let config_folder = fixture.home.join(".claude");
+    if matches!(resting_call, RestingCall::Recorded) {
+        write_kept_files(
+            &config_folder,
+            STORED_CONVERSATION,
+            &[("mcp-task-task-A.meta.json", record("call-A"))],
+        );
+    }
+    let channel = Arc::new(ScriptedChannel::default());
+    fixture.starts.script_session(Arc::clone(&channel));
+    let release_stop = channel.hold_next_control("stop_task");
+    let driver = ClaudeDriver::with_starts(
+        &fixture.services,
+        fixture.starts.clone(),
+        fixture.starts.keychain.clone(),
+    );
+
+    let mut close = pin!(driver.close_session(CloseSessionParams {
+        session_id,
+        cause: SessionCloseCause::Person,
+    }));
+    let closed = match resting_call {
+        RestingCall::Recorded => {
+            let start = tokio::select! {
+                start = fixture.next_start() => start,
+                _ = &mut close => panic!("the close ended with no process resumed"),
+            };
+            assert!(matches!(
+                &start.conversation,
+                ClaudeConversationStart::Resume { resume_handle }
+                    if resume_handle == STORED_CONVERSATION
+            ));
+            let restored = async {
+                let text = helper_started("task-A", "mcp_task", "call-A").to_string();
+                let observation = ClaudeStreamFrameRead::read(&text)
+                    .expect("a test frame is an object")
+                    .into_observation();
+                start
+                    .listener
+                    .take_frame(ClaudeStreamFrame { text, observation });
+                ScriptedDriver::wait_for(|| stopped_tasks(&channel) == ["task-A"]).await;
+                write_kept_files(
+                    &config_folder,
+                    STORED_CONVERSATION,
+                    &[(
+                        "mcp-task-task-A.outcome.json",
+                        json!({
+                            "toolUseId": "call-A",
+                            "status": "cancelled",
+                            "serverName": "files",
+                            "toolName": "export",
+                        }),
+                    )],
+                );
+                release_stop.send(()).expect("the stop is held");
+            };
+            let (closed, ()) = tokio::join!(&mut close, restored);
+            closed
+        }
+        RestingCall::Unkept => close.await,
+    };
+    closed.expect("the session closes");
+    settle().await;
+
+    assert!(fixture.starts.take_started().is_empty());
+    let expected = match resting_call {
+        RestingCall::Recorded => {
+            assert_eq!(stopped_tasks(&channel), ["task-A"]);
+            (
+                "call-A".to_owned(),
+                Ending::Failed(Some(ToolCallEndCause::Stopped)),
+                None,
+            )
+        }
+        RestingCall::Unkept => {
+            assert_eq!(stopped_tasks(&channel), Vec::<String>::new());
+            ("call-A".to_owned(), ENDED_WITH_THE_PROCESS, None)
+        }
+    };
+    assert_eq!(closed_calls(&fixture), [expected]);
 }

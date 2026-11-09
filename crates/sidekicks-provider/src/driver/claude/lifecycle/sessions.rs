@@ -159,10 +159,11 @@ impl ClaudeDriver {
     /// Closes the session: a restart waiting for it, its idle sleep, its inbox, its controls and
     /// its reviewer's blocks go, then its process is disposed of, after any transition in flight
     /// settles; a person's close first stops each background task of a tool server that outlives
-    /// the process. Each run it still held ends as the daemon's intended close, and the `Allow
-    /// once` presses its bindings held are let go. Its held tool-server calls still open then end
-    /// as the close ends them, unless the daemon stops; last its command channel is removed. Under
-    /// `DaemonStop` its runs and its review are left as they stand, for the stop's own settle.
+    /// the process, on a session with no process in one resumed for those stops alone. Each run
+    /// it still held ends as the daemon's intended close, and the `Allow once` presses its
+    /// bindings held are let go. Its held tool-server calls still open then end as the close ends
+    /// them, unless the daemon stops; last its command channel is removed. Under `DaemonStop` its
+    /// runs and its review are left as they stand, for the stop's own settle.
     pub(crate) async fn close_session(
         &self,
         params: CloseSessionParams,
@@ -170,8 +171,13 @@ impl ClaudeDriver {
         let session_id = params.session_id;
         let Some(parts) = self.composed_parts() else {
             // No process ran here, but the log may hold calls from before a restart of the daemon.
-            self.settle_held_calls_at_rest(session_id, None, ClaudeHeldCallSettle::SessionClose)
-                .await;
+            self.settle_held_calls_at_rest(
+                session_id,
+                None,
+                ClaudeHeldCallSettle::SessionClose,
+                params.cause == SessionCloseCause::Person,
+            )
+            .await;
             return Ok(());
         };
         let mut close = begin_session_close(parts, params).await;
@@ -190,8 +196,9 @@ impl ClaudeDriver {
 
     // Finishes `close` once its slot is the close's or empty: the process's channel closed, by
     // `deadline` where one is given, its routes retired and, unless the daemon stops, each run it
-    // held ended as the daemon's intended close; then its held calls settled at rest, its inbox
-    // released and its command channel removed, by `deadline` too. A channel still open at the
+    // held ended as the daemon's intended close; then its held calls settled at rest, a person's
+    // close of a session with no process stopping its surviving tasks first, its inbox released
+    // and its command channel removed, by `deadline` too. A channel still open at the
     // deadline leaves its process quarantined, and a folder still being removed is left to the
     // next start's sweep.
     async fn finish_session_close(
@@ -206,6 +213,8 @@ impl ClaudeDriver {
             conversation,
             slot,
         } = close;
+        // A live process's surviving tasks were stopped on it before its channel closed.
+        let stops_surviving_tasks = cause == SessionCloseCause::Person && slot.is_none();
         if let Some(slot) = slot {
             let is_closed = run_until(deadline, slot.close_channel()).await.is_ok();
             if !is_closed {
@@ -256,6 +265,7 @@ impl ClaudeDriver {
                 session_id,
                 conversation,
                 ClaudeHeldCallSettle::SessionClose,
+                stops_surviving_tasks,
             )
             .await;
         }

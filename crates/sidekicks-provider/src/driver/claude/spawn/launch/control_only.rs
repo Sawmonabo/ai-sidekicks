@@ -69,14 +69,14 @@ pub(crate) enum ClaudeShortProcessArrival {
 }
 
 /// Hands each arrival of a short process to the one reading it, until that reader is gone.
-pub(super) struct ForwardedArrivals {
+pub(crate) struct ForwardedArrivals {
     sender: mpsc::UnboundedSender<ClaudeShortProcessArrival>,
     is_reader_gone: AtomicBool,
 }
 
 impl ForwardedArrivals {
     /// A listener forwarding to the receiver it comes with.
-    pub(super) fn open() -> (
+    pub(crate) fn open() -> (
         Arc<Self>,
         mpsc::UnboundedReceiver<ClaudeShortProcessArrival>,
     ) {
