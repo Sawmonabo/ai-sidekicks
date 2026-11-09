@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::Arc;
 
 use rusqlite::{Connection, params};
@@ -30,6 +29,8 @@ use sidekicks_store::database::writer::test_file::{
     insert_test_event, test_run_id, test_session_id,
 };
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+use sidekicks_workspace::git::process::test_git_runner;
+use sidekicks_workspace::git::process::test_repository::git_in;
 use sidekicks_workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
@@ -84,12 +85,8 @@ impl SeededCodexRun {
         let account_home = account_folder.path().join("account");
         std::fs::create_dir(&account_home).expect("the account's home is made");
         let repository = tempfile::tempdir().expect("the repository's folder is made");
-        let initialized = Command::new("git")
-            .args(["init", "--quiet"])
-            .arg(repository.path())
-            .status()
-            .expect("git runs");
-        assert!(initialized.success(), "git makes the repository");
+        // Through the runner, which drops a caller's `GIT_DIR`, so the init stays in this folder.
+        git_in(&test_git_runner(), repository.path(), &["init", "--quiet"]).await;
         let session_id = test_session_id();
         let run_id = test_run_id();
         seed_rows(
