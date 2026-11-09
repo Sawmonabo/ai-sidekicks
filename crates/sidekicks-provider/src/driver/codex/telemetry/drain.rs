@@ -310,6 +310,17 @@ async fn run_launch_work(
                     }
                     CodexStatusTurn::Arriving => {
                         if let Some(fallback) = fallback.as_mut() {
+                            // A last pass prices what the lost exports carried, up to the
+                            // returned export's bound.
+                            if fallback.is_reading()
+                                && let Some(service) = service.upgrade()
+                            {
+                                tokio::select! {
+                                    biased;
+                                    () = stop.cancelled() => break,
+                                    () = fallback.pass(&service) => {}
+                                }
+                            }
                             fallback.stop_reading();
                         }
                         continue;

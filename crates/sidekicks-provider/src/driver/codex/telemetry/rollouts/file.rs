@@ -70,18 +70,18 @@ pub(crate) struct CodexRolloutRequest {
 }
 
 /// The stretch of time whose records are priced: stamped at or after `since_ms` and, once the
-/// export arrives again, before `until_ms`.
+/// export arrives again, at or before `until_ms`.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct CodexPricedWindow {
-    /// The launch's last export before it stopped, else its start, in Unix milliseconds.
+    /// Just past the launch's last export before it stopped, else its start, in Unix milliseconds.
     pub(crate) since_ms: u64,
-    /// The first export after it stopped, in Unix milliseconds.
+    /// The last stamp priced once the first export after the stop arrived, in Unix milliseconds.
     pub(crate) until_ms: Option<u64>,
 }
 
 impl CodexPricedWindow {
     fn covers(self, at_ms: u64) -> bool {
-        at_ms >= self.since_ms && self.until_ms.is_none_or(|until_ms| at_ms < until_ms)
+        at_ms >= self.since_ms && self.until_ms.is_none_or(|until_ms| at_ms <= until_ms)
     }
 }
 
@@ -371,8 +371,8 @@ fn read_unix_ms(stamp: &str) -> Option<u64> {
     u64::try_from(timestamp.as_millisecond()).ok()
 }
 
-// Pushes `entry` onto `kept`, the oldest forgotten past `bound`.
-fn remember<T>(kept: &mut VecDeque<T>, entry: T, bound: usize) {
+/// Pushes `entry` onto `kept`, the oldest forgotten past `bound`.
+pub(crate) fn remember<T>(kept: &mut VecDeque<T>, entry: T, bound: usize) {
     if kept.len() >= bound {
         kept.pop_front();
     }

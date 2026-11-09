@@ -2,24 +2,20 @@
 //! runs; and, over the method sources a test builds, the subscription's notices and the wake
 //! helper's install and removal behind an account's wake switch.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::error::Error;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::FutureExt as _;
-use futures::StreamExt as _;
 use futures::future::BoxFuture;
 use rstest::rstest;
-use secrecy::{ExposeSecret as _, SecretString};
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use sidekicks_contracts::jsonrpc::negotiation::{
     CONNECTION_INITIALIZE_METHOD, CURRENT_PROTOCOL_VERSION,
 };
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_contracts::method::Method as _;
 use sidekicks_contracts::provider::account::methods::{
     PROVIDER_ACCOUNT_METHOD_DESCRIPTORS, ProviderAccountCredentialHomeReset,
@@ -28,17 +24,13 @@ use sidekicks_contracts::provider::account::methods::{
     ProviderAccountUpdateResponse,
 };
 use sidekicks_contracts::provider::account::record::{
-    BillingMode, ProviderAccountId, ProviderAccountNotification, ProviderAuthMode,
+    BillingMode, ProviderAccountNotification, ProviderAuthMode,
 };
 use sidekicks_contracts::provider::account::sign_in::{
-    PROVIDER_SIGN_IN_CODE_MAX_LEN, ProviderAccountRegisterResponse, ProviderAccountSignInResponse,
-    ProviderSignInArm, ProviderSignInCancelStatus,
+    ProviderAccountRegisterResponse, ProviderAccountSignInResponse,
 };
-use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
-use sidekicks_contracts::web_address::HttpsAddress;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::call_fixtures::{context, request};
@@ -55,11 +47,8 @@ use sidekicks_ipc::stream::feed::CreditGate;
 use sidekicks_platforms::{
     ParentProcess, ResponsibleProcess, WakeHelperStatus, WallClock, this_process,
 };
-use sidekicks_provider::account::credential_home::CredentialHome;
 use sidekicks_provider::account::home_lock::AccountHomeLock;
-use sidekicks_provider::account::observer::{
-    AccountLiveTurns, ProviderAccountObserver, ProviderAccountObserverDeps,
-};
+use sidekicks_provider::account::observer::{ProviderAccountObserver, ProviderAccountObserverDeps};
 use sidekicks_provider::account::registry::{AccountAdmission, ProviderAccountRegistry};
 use sidekicks_provider::account::resolver::ProviderAccounts;
 use sidekicks_provider::account::sign_in::{
@@ -67,23 +56,15 @@ use sidekicks_provider::account::sign_in::{
 };
 use sidekicks_provider::account::token_custody::ProviderTokenCustody;
 use sidekicks_provider::account::wake_helper::{MachineWakeHelper, ScriptedWakeHelper};
+use sidekicks_provider::driver::ProviderAccountReader;
 use sidekicks_provider::driver::contract::MockProviderDriver;
-use sidekicks_provider::driver::contract::account::{
-    ProviderSignInHandle, ProviderSignInInput, ProviderSignInLegs, ProviderSignInObservation,
-    ProviderTokenStatusLegs,
-};
-use sidekicks_provider::driver::contract::error::DriverError;
+use sidekicks_provider::driver::contract::account::{ProviderSignInLegs, ProviderTokenStatusLegs};
 use sidekicks_provider::driver::test_registry::{first_provider, registry_of_first_provider};
-use sidekicks_provider::driver::{ProviderAccountFolders, ProviderAccountReader};
-use sidekicks_provider::port::usage_sink::{
-    MeteredUsage, PricedRequest, ProviderQuotaWindow, RecordedUsage, UsageSink,
-};
-use sidekicks_provider::usage_delta_accountant::UsageAxisCounts;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
-use sidekicks_store::credential_store::{KeychainRefusal, SecretKeychain};
+use sidekicks_store::credential_store::SecretKeychain;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
@@ -92,11 +73,13 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use tempfile::TempDir;
 use tokio::sync::watch;
 
+use self::stand_ins::{AcceptingStatusRead, EndlessSignIn, HeldTokens, NoSessions, UnreadUsage};
 use super::notifications::ProviderAccountNotifications;
 use super::{ProviderAccountMethodSources, register_provider_account_methods};
 use crate::daemon::schema::schema_parts;
-use crate::orchestration::account_switch::{AccountSwitch, AccountSwitchDeps, SessionLevelMoves};
+use crate::orchestration::account_switch::{AccountSwitch, AccountSwitchDeps};
 
+mod stand_ins;
 mod wake_switch;
 
 /// This start's session token.
@@ -206,214 +189,6 @@ const READ_STATEMENT_CAPACITY: usize = 64;
 
 // How long a test waits for a notification before it fails.
 const WAIT: Duration = Duration::from_secs(10);
-
-// An in-memory keychain service that keeps every value written, until it is told to refuse
-// writes.
-#[derive(Default)]
-struct HeldTokens(Mutex<BTreeMap<String, String>>, AtomicBool);
-
-impl HeldTokens {
-    fn refuse_writes(&self) {
-        self.1.store(true, Ordering::SeqCst);
-    }
-}
-
-impl SecretKeychain for HeldTokens {
-    fn write<'call>(
-        &'call self,
-        account: &'call str,
-        value: &'call SecretString,
-    ) -> BoxFuture<'call, Result<(), KeychainRefusal>> {
-        if self.1.load(Ordering::SeqCst) {
-            let refusal = KeychainRefusal::of_test_keychain(KeychainRefusalCause::Unavailable);
-            return async { Err(refusal) }.boxed();
-        }
-        lock(&self.0).insert(account.to_owned(), value.expose_secret().to_owned());
-        async { Ok(()) }.boxed()
-    }
-
-    fn read<'call>(
-        &'call self,
-        account: &'call str,
-    ) -> BoxFuture<'call, Result<Option<SecretString>, KeychainRefusal>> {
-        let held = lock(&self.0).get(account).cloned().map(SecretString::from);
-        async move { Ok(held) }.boxed()
-    }
-
-    fn remove<'call>(
-        &'call self,
-        account: &'call str,
-    ) -> BoxFuture<'call, Result<bool, KeychainRefusal>> {
-        let removed = lock(&self.0).remove(account).is_some();
-        async move { Ok(removed) }.boxed()
-    }
-
-    fn accounts(&self) -> BoxFuture<'_, Result<Vec<String>, KeychainRefusal>> {
-        let accounts = lock(&self.0).keys().cloned().collect();
-        async move { Ok(accounts) }.boxed()
-    }
-}
-
-// A provider's status read that accepts every pasted token as an OAuth token.
-struct AcceptingStatusRead;
-
-impl ProviderTokenStatusLegs for AcceptingStatusRead {
-    fn read_token_status<'call>(
-        &'call self,
-        _provider_account_id: &'call ProviderAccountId,
-        _folders: &'call ProviderAccountFolders,
-        _token: &'call SecretString,
-    ) -> BoxFuture<'call, Result<Option<ProviderAuthMode>, DriverError>> {
-        async { Ok(Some(ProviderAuthMode::OauthToken)) }.boxed()
-    }
-
-    fn hand_resupplied_token<'call>(
-        &'call self,
-        _provider_account_id: &'call ProviderAccountId,
-        _folders: &'call ProviderAccountFolders,
-        _token: &'call SecretString,
-    ) -> BoxFuture<'call, Result<(), DriverError>> {
-        async { Ok(()) }.boxed()
-    }
-}
-
-// A usage record no test reads: no provider here has a limits read or a window turn.
-struct UnreadUsage;
-
-impl UsageSink for UnreadUsage {
-    fn record_metered(
-        &self,
-        _metered: MeteredUsage,
-    ) -> BoxFuture<'_, Result<Option<RecordedUsage>, Box<dyn Error + Send + Sync>>> {
-        async { Err("no turn is metered here".into()) }.boxed()
-    }
-
-    fn record_cost(
-        &self,
-        _request: PricedRequest,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        async { Err("no request is priced here".into()) }.boxed()
-    }
-
-    fn record_quota_windows(
-        &self,
-        _provider: ProviderId,
-        _provider_account_id: ProviderAccountId,
-        _windows: Vec<ProviderQuotaWindow>,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        async { Err("no window is read here".into()) }.boxed()
-    }
-
-    fn record_whole_quota_windows(
-        &self,
-        _provider: ProviderId,
-        _provider_account_id: ProviderAccountId,
-        _windows: Vec<ProviderQuotaWindow>,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        async { Err("no window is read here".into()) }.boxed()
-    }
-
-    fn read_prior_emitted(
-        &self,
-        _session_id: SessionId,
-        _thread_id: String,
-    ) -> BoxFuture<'_, Result<UsageAxisCounts, Box<dyn Error + Send + Sync>>> {
-        async { Err("no thread resumes here".into()) }.boxed()
-    }
-
-    fn is_request_recorded(
-        &self,
-        _provider_account_id: ProviderAccountId,
-        _request_key: String,
-    ) -> BoxFuture<'_, Result<bool, Box<dyn Error + Send + Sync>>> {
-        async { Ok(false) }.boxed()
-    }
-
-    fn read_thread_speed_at(
-        &self,
-        _session_id: SessionId,
-        _at: sidekicks_contracts::wire::instant::WireInstant,
-    ) -> BoxFuture<'_, Result<Option<String>, Box<dyn Error + Send + Sync>>> {
-        async { Ok(None) }.boxed()
-    }
-
-    fn read_run_at(
-        &self,
-        _session_id: SessionId,
-        _at: sidekicks_contracts::wire::instant::WireInstant,
-    ) -> BoxFuture<
-        '_,
-        Result<Option<sidekicks_contracts::run::id::RunId>, Box<dyn Error + Send + Sync>>,
-    > {
-        async { Ok(None) }.boxed()
-    }
-}
-
-// No session holds a turn or a running process here.
-struct NoSessions;
-
-impl AccountLiveTurns for NoSessions {
-    fn sessions_with_live_turns(&self, _provider_account_id: &ProviderAccountId) -> Vec<SessionId> {
-        Vec::new()
-    }
-}
-
-impl SessionLevelMoves for NoSessions {
-    fn change_level(
-        &self,
-        _session_id: SessionId,
-        _level: PermissionLevel,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        async { Err("no session runs here".into()) }.boxed()
-    }
-}
-
-// A sign-in whose flow starts and never ends, so its account stays signing in.
-struct EndlessSignIn;
-
-impl ProviderSignInLegs for EndlessSignIn {
-    fn start_sign_in(
-        &self,
-        _provider_account_id: ProviderAccountId,
-        _home: CredentialHome,
-        _arm: ProviderSignInArm,
-    ) -> BoxFuture<'_, Result<ProviderSignInHandle, DriverError>> {
-        async {
-            Ok(ProviderSignInHandle {
-                verification_uri: HttpsAddress::new("https://claude.ai/oauth/authorize")
-                    .expect("an https address"),
-                user_code: None,
-                expires_at: None,
-                is_browser_opened_by_provider: false,
-                code_prompts: futures::stream::pending().boxed(),
-                input: Box::new(EndlessSignIn),
-                completion: futures::future::pending().boxed(),
-            })
-        }
-        .boxed()
-    }
-
-    fn observe_sign_in(
-        &self,
-        _provider_account_id: ProviderAccountId,
-        _home: CredentialHome,
-    ) -> BoxFuture<'_, Result<ProviderSignInObservation, DriverError>> {
-        unreachable!("the flow never ends")
-    }
-}
-
-impl ProviderSignInInput for EndlessSignIn {
-    fn write_code(
-        &self,
-        _code: FreeFormText<PROVIDER_SIGN_IN_CODE_MAX_LEN>,
-    ) -> BoxFuture<'_, Result<(), DriverError>> {
-        unreachable!("no code is pasted")
-    }
-
-    fn cancel(&self) -> BoxFuture<'_, Result<ProviderSignInCancelStatus, DriverError>> {
-        unreachable!("no sign-in is canceled")
-    }
-}
 
 // The `provider.account.*` methods over a test database, the real registry, token custody,
 // observer, broker and switch, a first provider whose status read accepts every token and whose

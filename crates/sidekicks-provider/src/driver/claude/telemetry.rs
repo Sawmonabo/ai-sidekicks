@@ -15,7 +15,6 @@ mod tests;
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -63,7 +62,8 @@ pub(crate) struct ClaudeExports {
     processes: Mutex<HashMap<TelemetryHolderId, Arc<ClaudeProcessExport>>>,
     // Each filing run off a read export or a reaped process, waited out at the daemon's stop.
     filings: TaskTracker,
-    is_stopping: AtomicBool,
+    // Whether the daemon stops, held while a filing is spawned so none starts past the stop's wait.
+    is_stopping: Mutex<bool>,
 }
 
 /// One session process's export: the session it runs, the routes its turns are held on, the
@@ -107,7 +107,7 @@ impl ClaudeExports {
             pricing,
             processes: Mutex::default(),
             filings: TaskTracker::new(),
-            is_stopping: AtomicBool::new(false),
+            is_stopping: Mutex::new(false),
         }
     }
 
@@ -148,8 +148,12 @@ impl ClaudeExports {
     /// Stops filing as the daemon stops, since its stream prices nothing from then on either, and
     /// waits out the filings already running.
     pub(crate) async fn stop(&self) {
-        self.is_stopping.store(true, Ordering::Release);
-        self.filings.close();
+        // The lock is let go in its own block, so the wait holds none.
+        {
+            let mut is_stopping = lock(&self.is_stopping);
+            *is_stopping = true;
+            self.filings.close();
+        }
         self.filings.wait().await;
     }
 
@@ -280,10 +284,12 @@ impl ClaudeExports {
         decided: Vec<ClaudeHelperRequest>,
         is_ended: bool,
     ) {
+        let is_stopping = lock(&self.is_stopping);
         let runtime = tokio::runtime::Handle::try_current()
             .ok()
-            .filter(|_| !self.is_stopping.load(Ordering::Acquire));
+            .filter(|_| !*is_stopping);
         let Some(runtime) = runtime else {
+            drop(is_stopping);
             tracing::debug!(
                 requests = decided.len(),
                 "a claude code process's decided requests are not filed as the daemon stops"

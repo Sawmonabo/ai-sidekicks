@@ -20,6 +20,7 @@ use crate::driver::codex::telemetry::exports::{
     CODEX_EXPORT_HAND_OFF_DEPTH, CodexExecResponses, CodexExports, CodexLaunchLookup, CodexTagKind,
 };
 use crate::driver::codex::telemetry::placement::refuse_unplaced;
+use crate::driver::codex::telemetry::rollouts::fallback::CodexExportedIdentity;
 use crate::pricing::receiver::bearers::TelemetryHolderId;
 use crate::pricing::receiver::records::{RecordRefusal, read_count};
 use crate::pricing::receiver::{TelemetryExport, TelemetryExportReader};
@@ -73,23 +74,22 @@ impl CodexExports {
                 return;
             }
         };
-        tracker.export_arrived();
         let Some(service) = read.service.upgrade() else {
+            tracker.export_arrived();
             refuse_each(resource_logs, "the service that sent it has ended");
             return;
         };
         let arrived_at = Instant::now();
         let arrived_at_ms = read_unix_time_ms();
         let current_account = service.provider_account_id();
-        let mut stamps: Option<(u64, u64)> = None;
+        let mut identities = Vec::new();
         for mut response in read_codex_completed_responses(resource_logs, current_account.as_ref())
         {
-            if response.observed_at_ms != 0 {
-                let at_ms = response.observed_at_ms;
-                stamps = Some(stamps.map_or((at_ms, at_ms), |(oldest, newest)| {
-                    (oldest.min(at_ms), newest.max(at_ms))
-                }));
-            }
+            identities.push(CodexExportedIdentity {
+                thread_id: response.conversation_id.clone(),
+                counts: response.counts,
+                observed_at_ms: response.observed_at_ms,
+            });
             // The account its turn ran on, read by the time Codex observed it; one carrying no
             // time is read at its export's arrival.
             let ran_at_ms = match response.observed_at_ms {
@@ -105,10 +105,10 @@ impl CodexExports {
                 export_number: read.export_number,
             });
         }
-        // Codex's own stamps bound what the launch's rollout fallback prices.
-        if let Some((oldest_ms, newest_ms)) = stamps {
-            read.rollouts.export_stamped(oldest_ms, newest_ms);
-        }
+        // Codex's own stamps bound what the launch's rollout fallback prices, set before the
+        // status turns, so the fallback's last pass reads them.
+        read.rollouts.export_stamped(identities, arrived_at_ms);
+        tracker.export_arrived();
         self.offer(CodexExportItem::Retry {
             service: read.service,
             launch: read.placement,

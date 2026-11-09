@@ -130,8 +130,9 @@ fn expiry() -> Instant {
     Instant::now() + CODEX_EXPORT_INTERVAL * INTERVALS_WAITED
 }
 
-// Whether `left` and `right` carry the same count on every axis, an absent count reading as zero.
-fn is_same_counts(left: &UsageAxisCounts, right: &UsageAxisCounts) -> bool {
+/// Whether `left` and `right` carry the same count on every axis, an absent count reading as
+/// zero: how one response is told from another until its id is exported.
+pub(crate) fn is_same_counts(left: &UsageAxisCounts, right: &UsageAxisCounts) -> bool {
     UsageTokenAxis::VARIANTS
         .iter()
         .all(|&axis| left.get(axis).unwrap_or(0) == right.get(axis).unwrap_or(0))

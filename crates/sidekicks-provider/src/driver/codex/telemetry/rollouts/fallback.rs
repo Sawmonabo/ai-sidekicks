@@ -4,10 +4,13 @@
 //! one at each request turn the launch settles, each file resumed from the offset its last read
 //! stopped at and opened only once it grew. A file of a thread a session streams is read too, each
 //! record checked against the stream's own; any other is read once the walk from the thread it
-//! came from reaches a thread a session holds. When an export arrives again, nothing stamped from
-//! its oldest record on is priced, and the offsets go.
+//! came from reaches a thread a session holds. A record of a response an export carried is passed
+//! over, told by its thread and counts, since Codex stamps its line only after it logs the
+//! response. When an export arrives again, a last pass prices what the lost exports carried, up to
+//! the stamp a lost response's line can carry past that export's oldest record, the records that
+//! export carried passed over the same way; then the offsets go.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
@@ -29,13 +32,16 @@ use crate::driver::codex::telemetry::held_responses::{
 };
 use crate::driver::codex::telemetry::rollouts::file::{
     CodexPricedWindow, CodexRolloutFile, CodexRolloutRequest, CodexRolloutThread, CodexRolloutTier,
+    remember,
 };
+use crate::driver::codex::telemetry::streamed_responses::is_same_counts;
 use crate::driver::codex::thread::ancestry::{
     CodexListedThread, CodexThreadPlacement, CodexUnplacedThread, list_recent_helper_threads,
     place_codex_thread,
 };
 use crate::pricing::export_status::{ExportStatus, ExportStatusTracker, PublishedExportStatus};
 use crate::pricing::usage_files::read_usage_file_lines;
+use crate::usage_delta_accountant::UsageAxisCounts;
 
 /// The folder of a Codex home its rollout files are written under, by day.
 const SESSIONS_FOLDER: &str = "sessions";
@@ -46,6 +52,26 @@ const ROLLOUTS_KEPT: usize = 256;
 
 /// How many walks a file's thread gets while the listing lacks it before it is given up.
 const WALKS_KEPT: u8 = 3;
+
+/// How many of a launch's newest exported responses are kept by their identity, so a rollout
+/// record of one is passed over.
+const EXPORTED_RESPONSES_KEPT: usize = 256;
+
+/// How long after Codex logs a response its rollout line can be stamped, in milliseconds: Codex
+/// stamps the line as it writes it, after the log. A record stamped further past an exported
+/// response of its thread and counts is another response.
+const ROLLOUT_STAMP_LAG_MS: u64 = 1_000;
+
+/// A response an export of the launch carried, as a rollout record of it is told: its thread, its
+/// six counts, and when Codex logged it, in Unix milliseconds, 0 where its record carries no time.
+pub(crate) struct CodexExportedIdentity {
+    /// The thread it was made on.
+    pub(crate) thread_id: String,
+    /// Its own counts.
+    pub(crate) counts: UsageAxisCounts,
+    /// When Codex logged it.
+    pub(crate) observed_at_ms: u64,
+}
 
 /// The handles a launch's fallback reads and publishes through: the launch's export status, which
 /// takes the rollout files it cannot read, and the stamps its exports' records carried.
@@ -67,30 +93,71 @@ impl CodexLaunchRollouts {
                 registered_at_ms,
                 newest_export_stamp_ms: None,
                 is_reading: false,
-                resumed_at_ms: None,
+                priced_until_ms: None,
+                exported: VecDeque::new(),
             })),
         }
     }
 
-    /// An export of the launch was read whose records Codex stamped from `oldest_ms` to
-    /// `newest_ms`, in Unix milliseconds: the first while the fallback reads ends what it prices
-    /// at its oldest record. An export with no stamped record moves neither bound.
-    pub(crate) fn export_stamped(&self, oldest_ms: u64, newest_ms: u64) {
+    /// An export of the launch that arrived at `arrived_at_ms`, in Unix milliseconds, was read
+    /// carrying `responses`: each stamped one is kept by its identity, and their stamps bound what
+    /// the fallback prices. The first export while it reads ends it `ROLLOUT_STAMP_LAG_MS` past its
+    /// oldest stamp, never past its newest, or just before its arrival where it carries none.
+    pub(crate) fn export_stamped(&self, responses: Vec<CodexExportedIdentity>, arrived_at_ms: u64) {
+        let stamped = responses
+            .into_iter()
+            .filter(|response| response.observed_at_ms != 0);
         let mut times = lock(&self.times);
-        if times.is_reading && times.resumed_at_ms.is_none() {
-            times.resumed_at_ms = Some(oldest_ms);
+        let mut stamps: Option<(u64, u64)> = None;
+        for response in stamped {
+            let at_ms = response.observed_at_ms;
+            stamps = Some(stamps.map_or((at_ms, at_ms), |(oldest, newest)| {
+                (oldest.min(at_ms), newest.max(at_ms))
+            }));
+            remember(&mut times.exported, response, EXPORTED_RESPONSES_KEPT);
         }
-        times.newest_export_stamp_ms = times.newest_export_stamp_ms.max(Some(newest_ms));
+        if times.is_reading && times.priced_until_ms.is_none() {
+            // A lost response's line is stamped at most the lag past its log, so before the
+            // export's oldest record plus the lag; a later one of the export's own is kept above.
+            times.priced_until_ms = Some(
+                stamps.map_or(arrived_at_ms.saturating_sub(1), |(oldest_ms, newest_ms)| {
+                    newest_ms.min(oldest_ms + ROLLOUT_STAMP_LAG_MS)
+                }),
+            );
+        }
+        if let Some((_oldest_ms, newest_ms)) = stamps {
+            times.newest_export_stamp_ms = times.newest_export_stamp_ms.max(Some(newest_ms));
+        }
     }
 }
 
-// The stamps of a launch's exported records, which bound the stretch its fallback prices.
+// The stamps of a launch's exported records, which bound the stretch its fallback prices, and its
+// newest exported responses, whose rollout records are passed over.
 struct CodexExportTimes {
     registered_at_ms: u64,
     newest_export_stamp_ms: Option<u64>,
     is_reading: bool,
-    // The oldest stamp of the first export since the fallback began reading.
-    resumed_at_ms: Option<u64>,
+    // The last stamp priced, once an export arrived since the fallback began reading.
+    priced_until_ms: Option<u64>,
+    exported: VecDeque<CodexExportedIdentity>,
+}
+
+impl CodexExportTimes {
+    // Takes the oldest exported response on `thread_id` that `request` is a record of: the same
+    // counts, logged at most `ROLLOUT_STAMP_LAG_MS` before the record's stamp; answers whether one
+    // was kept. Two equal responses are two entries.
+    fn take_exported(&mut self, thread_id: &str, request: &CodexRolloutRequest) -> bool {
+        let Some(index) = self.exported.iter().position(|exported| {
+            exported.thread_id == thread_id
+                && is_same_counts(&exported.counts, &request.counts)
+                && exported.observed_at_ms <= request.at_ms
+                && request.at_ms - exported.observed_at_ms <= ROLLOUT_STAMP_LAG_MS
+        }) else {
+            return false;
+        };
+        self.exported.remove(index);
+        true
+    }
 }
 
 /// What the launch's export status turned to.
@@ -191,7 +258,7 @@ impl CodexRolloutFallback {
         }
         let mut times = lock(&self.rollouts.times);
         times.is_reading = true;
-        times.resumed_at_ms = None;
+        times.priced_until_ms = None;
         // A record stamped as the export's newest was in it.
         self.since_ms = Some(
             times
@@ -206,7 +273,7 @@ impl CodexRolloutFallback {
         self.files.clear();
         let mut times = lock(&self.rollouts.times);
         times.is_reading = false;
-        times.resumed_at_ms = None;
+        times.priced_until_ms = None;
         drop(times);
         self.publish_unreadable();
     }
@@ -313,8 +380,9 @@ impl CodexRolloutFallback {
 
 // Reads `followed` on where it grew past its offset: up to its first `session_meta` while its
 // thread is unknown, then, once its thread is placed, to its end, each request stamped from
-// `since_ms` on pushed to the session its placement names; one stamped from the oldest record of
-// an export read since reading began on, as `times` holds it at the read, is the export's.
+// `since_ms` on pushed to the session its placement names, up to the last stamp an export read
+// since reading began lets the fallback price, as `times` holds it at the read; one `times` keeps
+// the exported response of is the export's.
 async fn follow(
     service: &Arc<CodexService>,
     path: &Path,
@@ -363,7 +431,7 @@ async fn follow(
         // Read at each read, since an export can return while the pass waits on Codex.
         let window = CodexPricedWindow {
             since_ms,
-            until_ms: lock(times).resumed_at_ms,
+            until_ms: lock(times).priced_until_ms,
         };
         let read =
             tokio::task::spawn_blocking(move || read_on(&read_path, offset, file, window)).await;
@@ -399,6 +467,13 @@ async fn follow(
                     && let Some(thread) = followed.file.thread()
                 {
                     for request in requests {
+                        if lock(times).take_exported(&thread.thread_id, &request) {
+                            tracing::debug!(
+                                conversation_id = thread.thread_id.as_str(),
+                                "a codex rollout record an export carried is passed over"
+                            );
+                            continue;
+                        }
                         push_request(service, session_id, thread, placed.as_ref(), request);
                     }
                 }
