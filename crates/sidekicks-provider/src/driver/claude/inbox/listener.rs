@@ -120,7 +120,7 @@ impl ClaudeSessionInboxes {
             record_inbox_failure(None, "binding the daemon's inbox", &error);
             return;
         }
-        let address = self.addresser.session_inbox_address(&session_id, None);
+        let address = self.session_inbox_address(session_id);
         let listener = match bind_inbox(Path::new(address.as_str())).await {
             Ok(listener) => listener,
             Err(error) => {
@@ -141,7 +141,7 @@ impl ClaudeSessionInboxes {
     /// folder made private where it is missing, so the daemon knows the socket before the process
     /// starts. A failure is recorded and the process starts with no socket the inbox can reach.
     pub(crate) fn mint_process_socket(&self, session_id: SessionId) -> Option<PathBuf> {
-        let address = self.addresser.session_inbox_address(&session_id, None);
+        let address = self.session_inbox_address(session_id);
         let folder = Path::new(address.as_str())
             .parent()
             .expect("an inbox address sits in a folder");
@@ -171,11 +171,13 @@ impl ClaudeSessionInboxes {
         self.addresser.daemon_inbox_address(None)
     }
 
+    /// The session's own inbox, which wakes the session where it sleeps and passes each frame to
+    /// its live process.
+    pub(crate) fn session_inbox_address(&self, session_id: SessionId) -> FilesystemPath {
+        self.addresser.session_inbox_address(&session_id, None)
+    }
+
     /// The reply waits of messages sent to terminal sessions, for a send to await its reply.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's send to a terminal session awaits its reply"
-    )]
     pub(crate) fn peer_replies(&self) -> &Arc<ClaudePeerReplies> {
         &self.peer_replies
     }

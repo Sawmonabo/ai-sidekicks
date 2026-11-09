@@ -1,7 +1,7 @@
 //! Where a driver reports what became of a message between sessions, as the provider tells it:
-//! a held, let-in, refused, undelivered or answered message, a peer message a hosted session took
-//! in, and a message another session sent to the daemon's own address. The provider's ids are
-//! untrusted, so each is kept as the provider wrote it. A reading made before the publisher is
+//! a held, let-in, refused, given-back, undelivered or answered message, a peer message a hosted
+//! session took in, and a message another session sent to the daemon's own address. The
+//! provider's ids are untrusted, so each is kept as the provider wrote it. A reading made before the publisher is
 //! registered is dropped.
 
 use sidekicks_contracts::run::id::RunId;
@@ -23,8 +23,9 @@ pub enum SessionMessageReading {
         /// The message's id.
         message_id: String,
     },
-    /// A held message the receiver let in, or one a terminal session's transcript shows it took; a
-    /// message a hosted session took at once reads as its `Arrived`, never as this.
+    /// A held message the receiver let in, one a terminal session's transcript shows it took, or
+    /// one a provider with no stream of arrivals echoed into the receiving conversation; a message
+    /// a hosted session's stream shows it took reads as its `Arrived`, never as this.
     Delivered {
         /// The message's id.
         message_id: String,
@@ -37,6 +38,12 @@ pub enum SessionMessageReading {
         reason: Option<String>,
         /// For a drop, the token naming the guard that dropped it, such as `hop-runaway`.
         drop_reason: Option<String>,
+    },
+    /// The receiver's turn stopped, for a pause or a retry, before it took the message, which went
+    /// unsent; the daemon holds it to deliver again.
+    GivenBack {
+        /// The message's id.
+        message_id: String,
     },
     /// The message ended without reaching its receiver, such as a hold that expired.
     NotDelivered {

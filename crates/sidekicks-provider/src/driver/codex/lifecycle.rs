@@ -79,6 +79,9 @@ use crate::driver::codex::session::establishment::{
 };
 use crate::driver::codex::session::fork::CodexForkDependencies;
 use crate::driver::codex::session::fork::config_change::CodexConfigForks;
+use crate::driver::codex::session::peer_delivery::{
+    CodexPeerDelivery, CodexPeerDeliveryDependencies, CodexPeerMessages,
+};
 use crate::driver::codex::session::recovery::{
     CodexServiceRecovery, CodexServiceRecoveryDependencies,
 };
@@ -89,6 +92,9 @@ use crate::driver::codex::shells::read_codex_shells;
 use crate::driver::codex::telemetry::exports::CodexExports;
 use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
+use crate::driver::session_messages::{
+    SessionMessageDelivery, SessionMessageSent, SessionMessageTarget,
+};
 use crate::driver::{DriverServices, attachments::AttachmentResolver};
 use crate::driver::{ProviderAccountReader, SessionSpawnContextResolver};
 use crate::port::run_host::RunHost;
@@ -229,6 +235,10 @@ pub(crate) struct CodexDriverParts {
     /// Codex's live pricing, which every session's recorder and every copy price through and a
     /// reroute marks its model in use on.
     pub(crate) pricing: Arc<LivePricing>,
+    /// Delivers the daemon's texts for other sessions' messages, wake-ups and reminders.
+    pub(crate) peer_delivery: Arc<CodexPeerDelivery>,
+    /// The daemon's own messages each session was handed, which its task settles.
+    pub(crate) peer_messages: Arc<CodexPeerMessages>,
 }
 
 impl CodexDriver {
@@ -496,7 +506,21 @@ impl CodexDriver {
             tasks: self.tasks.clone(),
         }));
         let adoptions = Arc::new(CodexBindingAdoptions::default());
+        let peer_messages = Arc::new(CodexPeerMessages::default());
+        let peer_delivery = Arc::new(CodexPeerDelivery::new(CodexPeerDeliveryDependencies {
+            slots: Arc::clone(&self.slots),
+            engine: Arc::clone(&engine),
+            daemon_turn_bindings: Arc::clone(&daemon_turn_bindings),
+            run_start: Arc::clone(&run_start),
+            run_control: Arc::clone(&run_control),
+            run_routes: Arc::clone(&self.run_routes),
+            sent: Arc::clone(&peer_messages),
+            readings: Arc::clone(&ports.session_message_readings),
+            tasks: self.tasks.clone(),
+        }));
         Ok(CodexDriverParts {
+            peer_delivery,
+            peer_messages,
             compaction_limits: Arc::clone(&self.compaction_limits),
             model_windows: Arc::clone(&self.model_windows),
             runtime_bindings: Arc::clone(&self.runtime_bindings),
@@ -568,6 +592,33 @@ impl CodexDriver {
             tasks: self.tasks.clone(),
             pricing: Arc::clone(&self.pricing),
         })
+    }
+
+    /// Delivers `delivery` into a session the daemon hosts through the peer delivery, or into a
+    /// conversation a person typed in a terminal on a seat of its own on the terminal service.
+    /// Fails as the driver's pieces cannot be composed and as the delivery fails.
+    pub(crate) async fn deliver_session_message(
+        &self,
+        delivery: SessionMessageDelivery,
+    ) -> Result<SessionMessageSent, DriverError> {
+        match delivery.target.clone() {
+            SessionMessageTarget::Hosted(session_id) => {
+                self.parts()?
+                    .peer_delivery
+                    .deliver(session_id, delivery)
+                    .await
+            }
+            SessionMessageTarget::Terminal(thread_id) => {
+                self.registry
+                    .deliver_session_message_to_terminal(
+                        &thread_id,
+                        delivery,
+                        &self.ports.session_message_readings,
+                        &self.tasks,
+                    )
+                    .await
+            }
+        }
     }
 
     /// Hands an opened session to a task of its own, the only reader of its queue, which applies

@@ -80,24 +80,8 @@ pub(crate) struct CodexSessionReading {
     /// session's own or one of its helpers'.
     pub(crate) is_thread_loaded: bool,
     /// The session's level and roots as they stand now.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the driver method that delivers another session's message, wake-up or \
-                      reminder starts its turn at it"
-        )
-    )]
     pub(crate) execution_posture: ExecutionPosture,
     /// The account the session's process was admitted against.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the driver method that delivers another session's message, wake-up or \
-                      reminder starts its turn on it"
-        )
-    )]
     pub(crate) provider_account_id: ProviderAccountId,
     /// The session's `Auto memory` switch, which a conversation the service loads again starts
     /// under.

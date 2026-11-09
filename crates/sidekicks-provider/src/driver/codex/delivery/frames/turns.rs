@@ -317,6 +317,9 @@ impl CodexFrameDelivery {
                         .started
                         .send(Err(SteerTurnEndedError { run_id }.into()));
                 }
+                if turn_run.ending == CodexTurnEnding::Paused {
+                    self.dependencies.effects.on_turn_paused(record.session_id);
+                }
                 dispatch.turns_ended.push(CodexTurnMove {
                     turn_id: turn_id.clone(),
                     run_id: turn_run.run_id,

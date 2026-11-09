@@ -222,14 +222,13 @@ mod tests {
     use futures::FutureExt as _;
     use futures::future::BoxFuture;
     use sidekicks_contracts::run::queue::QueueItemId;
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_std::mutex_lock::lock;
 
     use super::{
         BriefDeliveryCoordinator, BriefDeliveryDisposition, BriefSendError, BriefSendOutcome,
         BriefTargetGateway, BriefTurn,
     };
-    use crate::driver::test_registry::new_run_id;
+    use crate::driver::test_registry::{new_message_id, new_run_id};
 
     /// What the scripted gateway was asked, in order, with the message id each call carried.
     #[derive(Debug, PartialEq, Eq)]
@@ -298,10 +297,6 @@ mod tests {
             };
             async move { found }.boxed()
         }
-    }
-
-    fn new_message_id() -> QueueItemId {
-        QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id")
     }
 
     /// Delivers one brief through a gateway answering `script`, and answers the settlement with the

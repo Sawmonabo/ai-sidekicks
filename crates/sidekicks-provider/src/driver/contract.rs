@@ -73,6 +73,9 @@ use crate::driver::session_control::{
     StartingLevel, StartingLevelParams, SubscribeProviderCommandsParams,
     UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
+use crate::driver::session_messages::{
+    SessionMessageDelivery, SessionMessageSent, SessionWaitWording,
+};
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 use crate::port::session_inbox_address::SessionInboxAddresser;
@@ -672,6 +675,22 @@ pub trait ProviderDriver: Send + Sync {
     /// The inbox addresses the daemon holds for every session, where this provider's sessions
     /// must answer them; `None` for a provider whose sessions answer no inbox.
     fn session_inbox_addresser(&self) -> Option<Arc<dyn SessionInboxAddresser>>;
+
+    /// Delivers another session's message, a wait's wake-up or a reminder into the delivery's
+    /// target, the way the provider takes one: answers `Sent` once it is with the provider or held
+    /// by the daemon for the receiver's next chance, and `Refused` with the provider's words where
+    /// the receiver's reach refused it. What becomes of it afterwards reaches the session message
+    /// readings, keyed by its id. Fails when the target is no session the driver can reach, for a
+    /// kind its provider is never sent, and as the provider's requests fail.
+    fn deliver_session_message(
+        &self,
+        delivery: SessionMessageDelivery,
+    ) -> BoxFuture<'_, Result<SessionMessageSent, DriverError>>;
+
+    /// The words the wait tool answers with in `wording`'s case, worded by how the provider waits
+    /// on another session; `None` for a case the provider's wait never meets, such as a held call's
+    /// end on a provider that answers the call at once.
+    fn compose_session_wait_text(&self, wording: SessionWaitWording) -> Option<String>;
 
     /// The provider's own acts on one account's home, one object built with the driver, which
     /// the account plane runs every provider's account acts through.

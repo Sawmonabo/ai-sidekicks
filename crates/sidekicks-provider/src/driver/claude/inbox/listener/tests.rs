@@ -8,12 +8,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use futures::FutureExt as _;
-use futures::future::BoxFuture;
+use futures::future::{BoxFuture, ready};
 use interprocess::local_socket::tokio::Listener;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::{Value, json};
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::place::Place;
+use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::{
     CAN_BIND_A_SOCKET_LISTENER, UnixDomainStream, bind_socket_listener, connect_unix_domain_socket,
@@ -23,12 +24,16 @@ use sidekicks_std::port_registration::PortRegistration;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 
 use super::ClaudeSessionInboxes;
+use crate::driver::claude::inbox::deliver::deliver_claude_session_message;
 use crate::driver::claude::session::idle_sleep::ClaudeIdleSleep;
 use crate::driver::claude::session::scripted::daemon_services::RecordingPorts;
 use crate::driver::claude::session::scripted::scripted_live_session;
 use crate::driver::claude::session::slots::ClaudeSessionSlots;
 use crate::driver::claude::session::transport::channel::MockClaudeProcessChannel;
-use crate::driver::test_registry::new_session_id;
+use crate::driver::session_messages::{
+    SessionMessageDelivery, SessionMessageKind, SessionMessageSent, SessionMessageTarget,
+};
+use crate::driver::test_registry::{new_message_id, new_session_id};
 use crate::port::session_inbox_address::SessionInboxAddresser;
 use crate::port::session_message_reading_publisher::{
     SessionFarReply, SessionMessageReading, SessionMessageReadingPublisher,
@@ -248,6 +253,62 @@ async fn a_frame_to_a_sleeping_session_wakes_it_and_arrives_from_the_daemon_s_in
             }),
         ]
     );
+    inboxes.release_all();
+}
+
+// Killed by the hosted arm writing to the session's process socket rather than its own inbox: the
+// process would read the frame with no wake, which a sleeping session's dead process never would.
+// And by the frame sent under a fresh id rather than the daemon's message id.
+#[tokio::test]
+async fn a_message_to_a_sleeping_session_goes_to_its_inbox_and_wakes_it() {
+    if !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
+    let scratch = short_socket_folder().expect("a scratch folder is made");
+    let folder = scratch.path().to_path_buf();
+    let process = bind_socket_listener(&folder.join("process.sock")).expect("the process listens");
+    let slots = ClaudeSessionSlots::new(Arc::new(|_predecessor| {}));
+    let waker = Arc::new(ProcessWaker {
+        slots: slots.clone(),
+        process_socket: folder.join("process.sock"),
+        wakes: AtomicUsize::new(0),
+    });
+    let wakes = Arc::new(PortRegistration::new("session wakes"));
+    wakes
+        .register(Arc::clone(&waker) as Arc<dyn SessionWaker>)
+        .expect("the wake registers once");
+    let inboxes = Arc::new(ClaudeSessionInboxes::new(
+        Arc::new(ScratchAddresser { folder }),
+        wakes,
+        slots,
+        Arc::new(ClaudeIdleSleep::default()),
+        Arc::new(PortRegistration::new("session message readings")),
+    ));
+    let session_id = new_session_id();
+    inboxes.bind(session_id).await;
+    let message_id = new_message_id();
+    let delivery = SessionMessageDelivery {
+        target: SessionMessageTarget::Hosted(session_id),
+        message_id,
+        sender_session_id: new_session_id(),
+        sender_name: "planner".to_owned(),
+        kind: SessionMessageKind::Message {
+            body: "Use the new Money type.".to_owned(),
+            sender_level: PermissionLevel::Ask,
+            hop_chain: Vec::new(),
+        },
+    };
+
+    let sent = deliver_claude_session_message(&inboxes, ready(Ok(Vec::new())).boxed(), &delivery)
+        .await
+        .expect("the message is written");
+    let arrived = next_frame(&process).await;
+
+    assert_eq!(sent, SessionMessageSent::Sent);
+    assert_eq!(waker.wakes.load(Ordering::SeqCst), 1);
+    assert_eq!(arrived["type"], "user");
+    assert_eq!(arrived["uuid"], message_id.to_string());
+    assert_eq!(arrived["msg_id"], message_id.to_string());
     inboxes.release_all();
 }
 

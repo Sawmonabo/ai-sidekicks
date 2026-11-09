@@ -2,21 +2,15 @@
 //! inbox from the daemon's own: the frame's `uuid` and `msg_id` are both the daemon's message id,
 //! and its `<cross-session-message>` element is written exactly as Claude Code writes one, since
 //! Claude Code parses an element only when it would write the same text back, and its own loop
-//! guard reads the chain only from a parsed element. A session the person runs in a terminal also
-//! has its reply awaited from before the write and is asked for an idle notice after it.
-
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's delivery of a message into a session writes these frames"
-    )
-)]
+//! guard reads the chain only from a parsed element. A session the daemon hosts is written to at
+//! its own inbox, which wakes it where it sleeps; a session the person runs in a terminal also has
+//! its reply awaited from before the write and is asked for an idle notice after it.
 
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use futures::future::BoxFuture;
 use serde_json::{Value, json};
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
@@ -28,12 +22,17 @@ use unicode_properties::{GeneralCategory, UnicodeGeneralCategory as _};
 use uuid::Uuid;
 
 use crate::driver::claude::inbox::forward::SOCKET_ADDRESS_PREFIX;
+use crate::driver::claude::inbox::listener::ClaudeSessionInboxes;
 use crate::driver::claude::inbox::receipts::{
     ELEMENT_CLOSING, ELEMENT_OPENING, HOP_CHAIN_SEPARATOR,
 };
-use crate::driver::claude::live_sessions::ClaudeLiveSession;
+use crate::driver::claude::live_sessions::{ClaudeLiveSession, read_live_sessions};
 use crate::driver::claude::session::conversation_file::peer_replies::{
     ClaudePeerReplies, ClaudePeerReplyWait,
+};
+use crate::driver::contract::error::DriverError;
+use crate::driver::session_messages::{
+    SessionMessageDelivery, SessionMessageKind, SessionMessageSent, SessionMessageTarget,
 };
 
 /// The frame version Claude Code's own sender writes.
@@ -100,6 +99,86 @@ pub(crate) enum ClaudeInboxDeliveryError {
     /// so its reply is not awaited.
     #[error("the message was sent, but its idle notice could not be asked for: {0}")]
     IdleNoticeUnasked(#[source] io::Error),
+    /// The delivery is a wake-up or a reminder, which Claude Code is never sent: its waits hold
+    /// the call, and it keeps reminders of its own.
+    #[error("Claude Code is sent no wake-up or reminder: its waits hold the call")]
+    NotAMessage,
+}
+
+/// Delivers `delivery`, another session's message, into a Claude Code session from the daemon's
+/// inbox: a hosted session's to its own inbox, a terminal session's to the socket its registry
+/// file names, found in the registry folders `registry_folders` reads, its reply kept awaited until
+/// its idle notice. Answers `Refused` with the system's words where the receiver has no inbox or
+/// its inbox refused the frame. Fails for a wake-up or a reminder, as the registry folders' read
+/// fails, and as the reply's wait or the idle notice's request fails.
+pub(crate) async fn deliver_claude_session_message(
+    inboxes: &ClaudeSessionInboxes,
+    registry_folders: BoxFuture<'_, Result<Vec<PathBuf>, DriverError>>,
+    delivery: &SessionMessageDelivery,
+) -> Result<SessionMessageSent, DriverError> {
+    let SessionMessageKind::Message {
+        body,
+        sender_level,
+        hop_chain,
+    } = &delivery.kind
+    else {
+        return Err(DriverError::Internal(Box::new(
+            ClaudeInboxDeliveryError::NotAMessage,
+        )));
+    };
+    let message = ClaudePeerMessage {
+        message_id: Uuid::from(delivery.message_id),
+        sender_session_id: delivery.sender_session_id,
+        sender_name: &delivery.sender_name,
+        sender_level: *sender_level,
+        hop_chain,
+        body,
+    };
+    let daemon_inbox = inboxes.daemon_inbox_address();
+    let peer_replies = inboxes.peer_replies();
+    let written = match &delivery.target {
+        SessionMessageTarget::Hosted(session_id) => {
+            let inbox = inboxes.session_inbox_address(*session_id);
+            let receiver = ClaudeInboxReceiver::Hosted {
+                inbox: Path::new(inbox.as_str()),
+            };
+            deliver_claude_peer_message(daemon_inbox.as_str(), peer_replies, receiver, &message)
+                .await
+        }
+        SessionMessageTarget::Terminal(provider_session_id) => {
+            let sessions = read_live_sessions(&registry_folders.await?).await;
+            match sessions
+                .iter()
+                .find(|session| session.session_id.as_ref() == Some(provider_session_id))
+            {
+                Some(session) => {
+                    let receiver = ClaudeInboxReceiver::Terminal(session);
+                    deliver_claude_peer_message(
+                        daemon_inbox.as_str(),
+                        peer_replies,
+                        receiver,
+                        &message,
+                    )
+                    .await
+                }
+                None => Err(ClaudeInboxDeliveryError::NoInbox),
+            }
+        }
+    };
+    match written {
+        Ok(ClaudeInboxSent { reply_wait }) => {
+            if let Some(reply_wait) = reply_wait {
+                peer_replies.keep_until_idle(reply_wait);
+            }
+            Ok(SessionMessageSent::Sent)
+        }
+        Err(
+            refusal @ (ClaudeInboxDeliveryError::NoInbox | ClaudeInboxDeliveryError::Refused(_)),
+        ) => Ok(SessionMessageSent::Refused {
+            words: refusal.to_string(),
+        }),
+        Err(error) => Err(DriverError::Internal(Box::new(error))),
+    }
 }
 
 /// Writes `message` to `receiver`'s inbox from `daemon_inbox`, the daemon's own. A terminal

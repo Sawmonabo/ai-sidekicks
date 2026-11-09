@@ -7,7 +7,7 @@ use sidekicks_contracts::event::usage::UsageContextWindowUpdatedPayload;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
+use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
 use sidekicks_contracts::turn::{ProviderTurnId, TurnUsageUpdate};
 use sidekicks_contracts::wire::integer::SafeInt;
 
@@ -20,9 +20,11 @@ use crate::driver::codex::run::steer::{
     remember_codex_prompt_hook_run, take_blocked_codex_steers, take_echoed_codex_steer,
 };
 use crate::driver::codex::session::fork::config_change::CodexConfigForks;
+use crate::driver::codex::session::peer_delivery::CodexPeerMessages;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::ports::DriverPorts;
 use crate::port::run_host::RunHost;
+use crate::port::session_message_reading_publisher::SessionMessageReading;
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner};
 use crate::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow};
 use crate::run::turn_end::ProviderTurnEnd;
@@ -42,6 +44,9 @@ pub(crate) struct CodexRoutedFramesIntake<'parts> {
     pub(crate) config_forks: &'parts Arc<CodexConfigForks>,
     /// The frame delivery a context-window reading's row goes out through.
     pub(crate) delivery: &'parts CodexFrameDelivery,
+    /// The daemon's own messages each session was handed, whose readings go to the session
+    /// message readings instead of the queue.
+    pub(crate) peer_messages: &'parts CodexPeerMessages,
 }
 
 /// Applies what a delivery reported on `record`'s session, in delivery order: each
@@ -50,8 +55,9 @@ pub(crate) struct CodexRoutedFramesIntake<'parts> {
 /// echoed taken from the queue once, each prompt's hook runs remembered, each turn's task list
 /// published, and for each ended turn its blocked steers refused and those a pause or a retry
 /// dropped given back, its end recorded where no run moved, its route retired, its pause or
-/// continue acted on and its owed fork let go. Answers the spend it metered, for the session's
-/// task to record.
+/// continue acted on and its owed fork let go. A message of the daemon's own, echoed, refused or
+/// given back, reads so on the session message readings and never reaches the queue. Answers the
+/// spend it metered, for the session's task to record.
 pub(crate) async fn apply_codex_routed_frames(
     intake: &CodexRoutedFramesIntake<'_>,
     record: &mut CodexSessionRecord,
@@ -83,9 +89,20 @@ pub(crate) async fn apply_codex_routed_frames(
             }
         }
         for taken in dispatch.taken_messages {
-            let Some(message_id) =
-                take_echoed_codex_steer(record, &taken.turn_id, &taken.client_message_id)
-            else {
+            let steered = take_echoed_codex_steer(record, &taken.turn_id, &taken.client_message_id);
+            // The daemon's own message, steered or opening its turn, is delivered once echoed.
+            if let Ok(echoed) = QueueItemId::new(&taken.client_message_id)
+                && intake.peer_messages.settle(session_id, echoed)
+            {
+                publish_reading(
+                    intake,
+                    SessionMessageReading::Delivered {
+                        message_id: echoed.to_string(),
+                    },
+                );
+                continue;
+            }
+            let Some(message_id) = steered else {
                 continue;
             };
             let run_id = record
@@ -102,8 +119,18 @@ pub(crate) async fn apply_codex_routed_frames(
         for ended in dispatch.turns_ended {
             // Before the queue registers its intake there is no queue to tell.
             let steers = take_blocked_codex_steers(record, &ended.turn_id, ended.ending);
-            if let Some(listener) = intake.ports.message_refused.port() {
-                for (message_id, words) in steers.refused {
+            let refusals = intake.ports.message_refused.port();
+            for (message_id, words) in steers.refused {
+                if intake.peer_messages.settle(session_id, message_id) {
+                    publish_reading(
+                        intake,
+                        SessionMessageReading::Refused {
+                            message_id: message_id.to_string(),
+                            reason: Some(words.into_string()),
+                            drop_reason: None,
+                        },
+                    );
+                } else if let Some(listener) = refusals {
                     listener.message_refused(
                         session_id,
                         &message_id.to_string(),
@@ -111,8 +138,17 @@ pub(crate) async fn apply_codex_routed_frames(
                     );
                 }
             }
-            if let Some(listener) = intake.ports.message_given_back.port() {
-                for message_id in steers.dropped {
+            let give_backs = intake.ports.message_given_back.port();
+            for message_id in steers.dropped {
+                // The daemon's own message goes back for the paused session's queue, never lost.
+                if intake.peer_messages.settle(session_id, message_id) {
+                    publish_reading(
+                        intake,
+                        SessionMessageReading::GivenBack {
+                            message_id: message_id.to_string(),
+                        },
+                    );
+                } else if let Some(listener) = give_backs {
                     listener.message_given_back(session_id, &message_id.to_string());
                 }
             }
@@ -137,6 +173,14 @@ pub(crate) async fn apply_codex_routed_frames(
         }
     }
     metered_usage
+}
+
+// Publishes one reading of a message of the daemon's own; one made before the readings are
+// registered is dropped.
+fn publish_reading(intake: &CodexRoutedFramesIntake<'_>, reading: SessionMessageReading) {
+    if let Some(publisher) = intake.ports.session_message_readings.port() {
+        publisher.publish(reading);
+    }
 }
 
 // Adds a delta of the session's own conversation to its live turn's tokens received and publishes

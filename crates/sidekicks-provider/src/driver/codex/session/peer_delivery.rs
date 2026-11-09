@@ -1,41 +1,52 @@
-//! Handing the text the daemon writes for another session's message, a wake-up or a reminder to a
+//! Delivering the daemon's text for another session's message, a wake-up or a reminder into a
 //! Codex conversation: as the opening of a new turn of the session's own when the conversation is
-//! idle, or steered into the run that is working. Codex keeps no reply chain, so each session keeps
-//! the chain the latest chained message landed with, for the run it lands in, from just before its
-//! run starts or its steer goes, the chain before it put back should either fail, and a send that
-//! run makes carries it on as received.
+//! idle; while a turn runs, held by the daemon and steered into that turn at its next tool
+//! boundary, or opening the next turn once the session goes idle first; a pause gives the held
+//! messages back for the paused session's queue. Each message the conversation is handed is
+//! tracked until Codex settles it, so the session's task reads its echo, its prompt hook's refusal
+//! or its give-back as the message's own reading. Codex keeps no reply chain, so each session
+//! keeps the chain the latest chained message landed with, for the run it lands in, from just
+//! before its run starts or its steer goes, the chain before it put back should either fail, and a
+//! send that run makes carries it on as received.
 
-#![expect(
-    dead_code,
-    reason = "the driver method that delivers another session's message, wake-up or reminder \
-              calls these steps and drops a closed session's chain"
-)]
-
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::error::Error;
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
-use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
+use tokio_util::task::TaskTracker;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::intervention::{CodexSteerAcknowledgment, CodexSteerRunRequest};
+use crate::driver::codex::messages::{
+    CodexArrivalMoment, compose_codex_arrival_text, compose_codex_reminder_text,
+    compose_codex_wake_up_text,
+};
 use crate::driver::codex::run::control::CodexRunControl;
 use crate::driver::codex::run::routes::CodexRunRoutes;
 use crate::driver::codex::run::start::CodexRunStart;
-use crate::driver::codex::session::calls::call_codex_session;
+use crate::driver::codex::run::turn_end_waiters::CodexTurnWait;
+use crate::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::inbound::CodexSessionCall;
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{RunOpening, RunOpeningItem, StartRunParams};
 use crate::driver::run_control::{
-    DaemonTurnBindingResolver, DaemonTurnProcess, SteerTurnEndedError,
+    DaemonTurnBindingResolver, DaemonTurnProcess, RunToolBoundary, SteerTurnEndedError,
+};
+use crate::driver::session_messages::{
+    SessionMessageDelivery, SessionMessageKind, SessionMessageSent,
 };
 use crate::port::run_host::RunHost;
+use crate::port::session_message_reading_publisher::{
+    SessionMessageReading, SessionMessageReadingPublisher,
+};
 use crate::run::start_request::DaemonTurnStartRequest;
 
 /// The text the daemon writes into a Codex conversation, an arrival, a wake-up or a reminder,
@@ -46,11 +57,45 @@ pub(crate) struct CodexDaemonMessage {
     pub(crate) message_id: QueueItemId,
     /// The framed text.
     pub(crate) content: MessageContent,
-    /// The files staged into the receiving session, in staging order.
-    pub(crate) attachments: Vec<ArtifactId>,
     /// The reply chain the message carries on, in the order received; empty for a reminder and
     /// for a message no chain reached.
     pub(crate) reply_chain: Vec<String>,
+}
+
+/// The daemon's messages each session's conversation was handed and Codex has yet to settle, so
+/// the session's task tells their echoes, refusals and give-backs from the queue's messages.
+#[derive(Default)]
+pub(crate) struct CodexPeerMessages {
+    sent: Mutex<HashMap<SessionId, HashSet<QueueItemId>>>,
+}
+
+impl CodexPeerMessages {
+    /// Tracks `message_id`, about to be handed to `session_id`'s conversation.
+    fn track(&self, session_id: SessionId, message_id: QueueItemId) {
+        lock(&self.sent)
+            .entry(session_id)
+            .or_default()
+            .insert(message_id);
+    }
+
+    /// Takes `message_id` out of the messages `session_id` was handed, answering whether it was
+    /// one of them; a session left with none keeps no entry.
+    pub(crate) fn settle(&self, session_id: SessionId, message_id: QueueItemId) -> bool {
+        let mut sent = lock(&self.sent);
+        let Some(handed) = sent.get_mut(&session_id) else {
+            return false;
+        };
+        let is_handed = handed.remove(&message_id);
+        if handed.is_empty() {
+            sent.remove(&session_id);
+        }
+        is_handed
+    }
+
+    // Forgets every message a closed session was handed.
+    fn forget_session(&self, session_id: SessionId) {
+        lock(&self.sent).remove(&session_id);
+    }
 }
 
 /// What the delivery acts through, all shared by every session of the driver.
@@ -67,13 +112,88 @@ pub(crate) struct CodexPeerDeliveryDependencies {
     pub(crate) run_control: Arc<CodexRunControl>,
     /// The session each run's live turns are on.
     pub(crate) run_routes: Arc<CodexRunRoutes>,
+    /// The messages each session was handed, which the sessions' tasks settle.
+    pub(crate) sent: Arc<CodexPeerMessages>,
+    /// Where what became of a held message that could not be handed goes.
+    pub(crate) readings: Arc<PortRegistration<Arc<dyn SessionMessageReadingPublisher>>>,
+    /// Runs each hand-off of the held messages off the session's task.
+    pub(crate) tasks: TaskTracker,
 }
 
-/// Hands the daemon's texts to Codex conversations and keeps each session's reply chain.
+/// Hands the daemon's texts to Codex conversations, holds those for a busy one, and keeps each
+/// session's reply chain.
 pub(crate) struct CodexPeerDelivery {
     dependencies: CodexPeerDeliveryDependencies,
     // One entry per session a chained message reached, holding the chain it was handed.
     reply_chains: Arc<Mutex<HashMap<SessionId, KeptReplyChain>>>,
+    // Each busy session's messages, until its turn's next tool boundary or its next idle moment.
+    held: Mutex<HashMap<SessionId, CodexHeldMessages>>,
+}
+
+// The messages held for one busy session, in send order, and whether a wait for its next idle
+// moment is under way.
+#[derive(Default)]
+struct CodexHeldMessages {
+    messages: VecDeque<CodexHeldMessage>,
+    is_awaiting_idle: bool,
+}
+
+// Where messages held again go among those a session holds.
+#[derive(Clone, Copy)]
+enum HeldPlace {
+    // Ahead of the rest: messages taken to be handed and given back unsent.
+    First,
+    // Behind the rest: a message newly held.
+    Last,
+}
+
+// A message the daemon holds for a busy session, framed only as it is handed, for the moment it
+// lands at.
+struct CodexHeldMessage {
+    message_id: QueueItemId,
+    sender_session_id: SessionId,
+    sender_name: String,
+    kind: SessionMessageKind,
+}
+
+impl CodexHeldMessage {
+    fn new(delivery: SessionMessageDelivery) -> Self {
+        Self {
+            message_id: delivery.message_id,
+            sender_session_id: delivery.sender_session_id,
+            sender_name: delivery.sender_name,
+            kind: delivery.kind,
+        }
+    }
+
+    // The text Codex is handed for the message landing at `moment`, with its chain.
+    fn compose(&self, moment: CodexArrivalMoment) -> CodexDaemonMessage {
+        let (text, reply_chain) = match &self.kind {
+            SessionMessageKind::Message {
+                body, hop_chain, ..
+            } => (
+                compose_codex_arrival_text(&self.sender_name, self.sender_session_id, body, moment),
+                hop_chain.clone(),
+            ),
+            SessionMessageKind::WakeUp(end) => (
+                compose_codex_wake_up_text(&self.sender_name, self.sender_session_id, end),
+                Vec::new(),
+            ),
+            SessionMessageKind::Reminder {
+                set_at,
+                due_at,
+                note,
+            } => (
+                compose_codex_reminder_text(set_at, due_at, note, moment),
+                Vec::new(),
+            ),
+        };
+        CodexDaemonMessage {
+            message_id: self.message_id,
+            content: MessageContent::new(text).expect("a framed text is never blank"),
+            reply_chain,
+        }
+    }
 }
 
 // The chain the latest chained message arrived with, and the run it landed in.
@@ -91,11 +211,205 @@ struct ReplacedReplyChain {
 }
 
 impl CodexPeerDelivery {
-    /// The delivery acting through `dependencies`, keeping no chain yet.
+    /// The delivery acting through `dependencies`, keeping no chain and holding nothing yet.
     pub(crate) fn new(dependencies: CodexPeerDeliveryDependencies) -> Self {
         Self {
             dependencies,
             reply_chains: Arc::new(Mutex::new(HashMap::new())),
+            held: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Delivers `delivery` into the session `session_id` hosts: a new turn of the session's own
+    /// when its conversation is idle, else held for the running turn's next tool boundary, or for
+    /// the session to go idle, when it opens the next turn. Answers `Sent` either way. Fails as the
+    /// session's slot and reading fail and as the turn's start fails.
+    pub(crate) async fn deliver(
+        self: &Arc<Self>,
+        session_id: SessionId,
+        delivery: SessionMessageDelivery,
+    ) -> Result<SessionMessageSent, DriverError> {
+        let message = CodexHeldMessage::new(delivery);
+        match self.open_turn(session_id, &message).await {
+            Ok(_run_id) => Ok(SessionMessageSent::Sent),
+            Err(CodexError::SessionTurnInFlight { .. }) => {
+                self.hold(session_id, VecDeque::from([message]), HeldPlace::Last);
+                Ok(SessionMessageSent::Sent)
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Steers every message held for the boundary's session into the boundary's run, in send
+    /// order, off the caller's task; a steer whose turn ended holds the rest again, first.
+    pub(crate) fn steer_held_at(self: &Arc<Self>, boundary: &RunToolBoundary) {
+        let RunToolBoundary { session_id, run_id } = *boundary;
+        let mut held = self.take_held(session_id);
+        if held.is_empty() {
+            return;
+        }
+        let delivery = Arc::clone(self);
+        self.dependencies.tasks.spawn(async move {
+            while let Some(message) = held.pop_front() {
+                let sent = &delivery.dependencies.sent;
+                sent.track(session_id, message.message_id);
+                let steered = delivery
+                    .deliver_to_run(run_id, message.compose(CodexArrivalMoment::MidTurn))
+                    .await;
+                let Err(error) = steered else {
+                    continue;
+                };
+                sent.settle(session_id, message.message_id);
+                if matches!(error, DriverError::SteerTurnEnded(_)) {
+                    held.push_front(message);
+                    delivery.hold(session_id, held, HeldPlace::First);
+                    return;
+                }
+                delivery.publish_unhanded(message.message_id, error);
+            }
+        });
+    }
+
+    /// Gives back every message held for `session_id`, whose turn a pause stopped, for the paused
+    /// session's queue.
+    pub(crate) fn give_back_held(&self, session_id: SessionId) {
+        for message in self.take_held(session_id) {
+            self.publish(SessionMessageReading::GivenBack {
+                message_id: message.message_id.to_string(),
+            });
+        }
+    }
+
+    // Holds `messages` for the session, at `place` among those it holds, and has the session's
+    // next idle moment open a turn with the first, unless a wait for it is already under way.
+    fn hold(
+        self: &Arc<Self>,
+        session_id: SessionId,
+        mut messages: VecDeque<CodexHeldMessage>,
+        place: HeldPlace,
+    ) {
+        let is_wait_owed = {
+            let mut held = lock(&self.held);
+            let session = held.entry(session_id).or_default();
+            match place {
+                HeldPlace::First => {
+                    messages.append(&mut session.messages);
+                    session.messages = messages;
+                }
+                HeldPlace::Last => session.messages.append(&mut messages),
+            }
+            !std::mem::replace(&mut session.is_awaiting_idle, true)
+        };
+        if is_wait_owed {
+            let delivery = Arc::clone(self);
+            self.dependencies
+                .tasks
+                .spawn(async move { delivery.open_turn_when_idle(session_id).await });
+        }
+    }
+
+    // Waits for the session to go idle, then opens a turn of its own with the first message it
+    // holds, the message held again, first, should another turn be in flight by then; one that
+    // fails otherwise reads as its failure says. A session gone meanwhile leaves its messages to
+    // its close.
+    async fn open_turn_when_idle(self: &Arc<Self>, session_id: SessionId) {
+        let is_idle = match self.dependencies.slots.require_live(session_id) {
+            Ok(inbound) => wait_for_codex_turns(&inbound, CodexTurnWait::Idle, None)
+                .await
+                .unwrap_or_else(|error| {
+                    tracing::debug!(
+                        error = &error as &(dyn Error + 'static),
+                        %session_id,
+                        "a codex session holding messages went before it was idle"
+                    );
+                    false
+                }),
+            Err(_gone) => false,
+        };
+        let first = {
+            let mut held = lock(&self.held);
+            let Some(session) = held.get_mut(&session_id) else {
+                return;
+            };
+            session.is_awaiting_idle = false;
+            let first = if is_idle {
+                session.messages.pop_front()
+            } else {
+                None
+            };
+            if session.messages.is_empty() {
+                held.remove(&session_id);
+            }
+            first
+        };
+        let Some(message) = first else {
+            return;
+        };
+        match self.open_turn(session_id, &message).await {
+            Ok(_run_id) => {}
+            Err(CodexError::SessionTurnInFlight { .. }) => {
+                self.hold(session_id, VecDeque::from([message]), HeldPlace::First);
+            }
+            Err(error) => self.publish_unhanded(message.message_id, error.into()),
+        }
+    }
+
+    // Takes every message held for the session, keeping its entry while a wait for its idle
+    // moment is under way.
+    fn take_held(&self, session_id: SessionId) -> VecDeque<CodexHeldMessage> {
+        let mut held = lock(&self.held);
+        let Some(session) = held.get_mut(&session_id) else {
+            return VecDeque::new();
+        };
+        let taken = std::mem::take(&mut session.messages);
+        if !session.is_awaiting_idle {
+            held.remove(&session_id);
+        }
+        taken
+    }
+
+    // Opens a turn of the session's own with `message` framed for an idle conversation, the
+    // message tracked from before its start goes, since Codex can echo it before it answers.
+    async fn open_turn(
+        &self,
+        session_id: SessionId,
+        message: &CodexHeldMessage,
+    ) -> Result<RunId, CodexError> {
+        let sent = &self.dependencies.sent;
+        sent.track(session_id, message.message_id);
+        let opened = self
+            .deliver_to_idle(session_id, message.compose(CodexArrivalMoment::Idle))
+            .await;
+        if opened.is_err() {
+            sent.settle(session_id, message.message_id);
+        }
+        opened
+    }
+
+    // Reads a held message the conversation could not be handed: refused with the provider's
+    // words where it refused it, else not delivered.
+    fn publish_unhanded(&self, message_id: QueueItemId, error: DriverError) {
+        tracing::warn!(
+            error = &error as &(dyn Error + 'static),
+            %message_id,
+            "a message the daemon held for a codex session could not be handed"
+        );
+        let message_id = message_id.to_string();
+        self.publish(if let DriverError::Refused(refusal) = error {
+            SessionMessageReading::Refused {
+                message_id,
+                reason: Some(refusal.to_string()),
+                drop_reason: None,
+            }
+        } else {
+            SessionMessageReading::NotDelivered { message_id }
+        });
+    }
+
+    // Publishes `reading`; one made before the readings are registered is dropped.
+    fn publish(&self, reading: SessionMessageReading) {
+        if let Some(publisher) = self.dependencies.readings.port() {
+            publisher.publish(reading);
         }
     }
 
@@ -105,11 +419,11 @@ impl CodexPeerDelivery {
     /// the session runs, starts or still ends, or the engine holds the session's turn for another
     /// run; as the session's slot and reading fail; and as the engine's start fails, the run then
     /// ended `failed` by the engine.
-    pub(crate) async fn deliver_to_idle(
+    async fn deliver_to_idle(
         &self,
         session_id: SessionId,
         message: CodexDaemonMessage,
-    ) -> Result<RunId, DriverError> {
+    ) -> Result<RunId, CodexError> {
         let inbound = self.dependencies.slots.require_live(session_id)?;
         let reading = call_codex_session(&inbound, |reply| CodexSessionCall::ReadSession {
             thread_id: None,
@@ -117,7 +431,7 @@ impl CodexPeerDelivery {
         })
         .await?;
         if reading.is_turn_in_flight {
-            return Err(CodexError::SessionTurnInFlight { session_id }.into());
+            return Err(CodexError::SessionTurnInFlight { session_id });
         }
         let message = Arc::new(Mutex::new(Some(message)));
         let bindings = Arc::clone(&self.dependencies.daemon_turn_bindings);
@@ -161,7 +475,7 @@ impl CodexPeerDelivery {
                                 message_id: message.message_id,
                                 item: RunOpeningItem::Message {
                                     content: message.content,
-                                    attachments: message.attachments,
+                                    attachments: Vec::new(),
                                     skills: Vec::new(),
                                 },
                             },
@@ -193,14 +507,14 @@ impl CodexPeerDelivery {
             .engine
             .start_daemon_turn(request)
             .await
-            .map_err(|error| CodexError::from_daemon_turn_start(session_id, error).into())
+            .map_err(|error| CodexError::from_daemon_turn_start(session_id, error))
     }
 
     /// Steers `message` into `run_id`'s running turn as soon as the steer before it was answered,
     /// keeping its chain for that run from just before the steer goes. Fails with `SteerTurnEnded`
     /// when the run has no live turn, and as [`CodexRunControl::steer_run`] fails, the chain kept
     /// before it then put back.
-    pub(crate) async fn deliver_to_run(
+    async fn deliver_to_run(
         &self,
         run_id: RunId,
         message: CodexDaemonMessage,
@@ -215,7 +529,7 @@ impl CodexPeerDelivery {
                 run_id,
                 content: message.content,
                 skills: Vec::new(),
-                attachments: message.attachments,
+                attachments: Vec::new(),
                 expected_turn_id: None,
                 client_idempotency_key: message.message_id,
             })
@@ -225,6 +539,13 @@ impl CodexPeerDelivery {
 
     /// The chain a send `run_id` makes in `session_id` carries on: the one the latest chained
     /// message that landed in that run arrived with, and none for any other run of the session.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the send of another session's message reads the chain its run carries on"
+        )
+    )]
     pub(crate) fn reply_chain(&self, session_id: SessionId, run_id: RunId) -> Vec<String> {
         lock(&self.reply_chains)
             .get(&session_id)
@@ -233,9 +554,20 @@ impl CodexPeerDelivery {
             .unwrap_or_default()
     }
 
-    /// Drops the chain kept for a session that closed.
+    /// Drops what is kept for a session that closed: its chain, the messages it was handed, and
+    /// the messages held for it, each of which reads not delivered.
     pub(crate) fn forget_session(&self, session_id: SessionId) {
         lock(&self.reply_chains).remove(&session_id);
+        self.dependencies.sent.forget_session(session_id);
+        let held = lock(&self.held)
+            .remove(&session_id)
+            .map(|session| session.messages)
+            .unwrap_or_default();
+        for message in held {
+            self.publish(SessionMessageReading::NotDelivered {
+                message_id: message.message_id.to_string(),
+            });
+        }
     }
 }
 
@@ -289,6 +621,7 @@ mod tests {
 
     use serde_json::json;
     use sidekicks_contracts::run::queue::MessageContent;
+    use tokio_util::task::TaskTracker;
 
     use super::{CodexDaemonMessage, CodexPeerDelivery, CodexPeerDeliveryDependencies};
     use crate::driver::codex::messages::{CodexArrivalMoment, compose_codex_arrival_text};
@@ -319,6 +652,9 @@ mod tests {
             run_start: Arc::clone(&session.run_start),
             run_control: Arc::clone(&session.task.run_control),
             run_routes: Arc::clone(&session.task.run_routes),
+            sent: Arc::clone(&session.task.peer_messages),
+            readings: Arc::clone(&session.task.ports.session_message_readings),
+            tasks: TaskTracker::new(),
         });
         let sender_id = new_session_id();
         let [first_link, second_link, third_link] = [
@@ -336,7 +672,6 @@ mod tests {
                 moment,
             ))
             .expect("the framed text is a message"),
-            attachments: Vec::new(),
             reply_chain,
         };
 

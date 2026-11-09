@@ -76,6 +76,9 @@ pub(crate) trait CodexFrameEffects: Send + Sync {
     /// Receives each tool call of the session's own thread that ended while its turn runs.
     fn on_tool_boundary(&self, boundary: RunToolBoundary);
 
+    /// Receives each turn of the session's own run that a pause stopped.
+    fn on_turn_paused(&self, session_id: SessionId);
+
     /// Receives a plan Codex proposed on `run`, its whole `text`, from the plan item `item_id` of
     /// the turn `turn_id`.
     fn plan_proposed(&self, run: &CodexRowRun, text: &str, turn_id: &str, item_id: &str);

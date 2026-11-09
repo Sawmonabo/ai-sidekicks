@@ -3,15 +3,9 @@
 //! another session, the wake-up after a wait, a reminder coming due, and the line a wait answers
 //! with. Each is plain text the model reads, tuned by how real sessions use it.
 
-#![expect(
-    dead_code,
-    reason = "the driver method that delivers another session's message, wake-up or reminder, and \
-              the wait tool's result, read these texts"
-)]
-
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::driver::session_messages::PERSON_CLOCK_TIME_FORMAT;
+use crate::driver::session_messages::{PERSON_CLOCK_TIME_FORMAT, SessionWaitEnd};
 
 const ARRIVAL_HEADER_IDLE: &str = "Another session sent a message:";
 const ARRIVAL_HEADER_MID_TURN: &str = "Another session sent a message while you were working:";
@@ -35,27 +29,6 @@ pub(crate) enum CodexArrivalMoment {
     Idle,
     /// A turn is running, so the text is steered into it.
     MidTurn,
-}
-
-/// What a session that waited on another hears once the wait is over.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum CodexWakeUp {
-    /// The awaited session finished the turn the wait was on.
-    Finished {
-        /// The awaited session's name.
-        name: String,
-        /// The awaited session.
-        session_id: SessionId,
-        /// The awaited session's answer.
-        answer: String,
-    },
-    /// The awaited session needs the person.
-    NeedsPerson {
-        /// The awaited session's name.
-        name: String,
-        /// What it is asking the person.
-        what: String,
-    },
 }
 
 /// The framing of a message `sender_name` (session `sender_session_id`) sent, around `body`,
@@ -86,21 +59,22 @@ pub(crate) fn compose_codex_arrival_text(
     format!("{header}\n{element}\n\n{ARRIVAL_GUIDANCE} {reply_line}")
 }
 
-/// The text that wakes a session once the session it waited on finished or needs the person.
-pub(crate) fn compose_codex_wake_up_text(wake_up: &CodexWakeUp) -> String {
-    match wake_up {
-        CodexWakeUp::Finished {
-            name,
-            session_id,
-            answer,
-        } => {
-            let element = compose_message_element(name, *session_id, answer);
+/// The text that wakes a session once `name` (session `session_id`), the session it waited on,
+/// ended the wait as `end`.
+pub(crate) fn compose_codex_wake_up_text(
+    name: &str,
+    session_id: SessionId,
+    end: &SessionWaitEnd,
+) -> String {
+    match end {
+        SessionWaitEnd::Finished { answer } => {
+            let element = compose_message_element(name, session_id, answer);
             format!(
                 "{name} finished the turn you were waiting on:\n{element}\n\nThis is \
                  {name}{WAKE_UP_ANSWER_NOTE}"
             )
         }
-        CodexWakeUp::NeedsPerson { name, what } => {
+        SessionWaitEnd::NeedsPerson { what } => {
             format!("{name} needs the person (you were waiting on it): {what}")
         }
     }

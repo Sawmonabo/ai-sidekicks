@@ -11,6 +11,7 @@ mod diagnostic_recorders;
 mod export_usage;
 mod intake;
 mod kept_turns;
+mod peer_messages;
 mod questions;
 mod resume;
 mod rule_revoke;
@@ -91,6 +92,9 @@ pub(super) struct LiveCodexSession {
     /// The database the binding store writes, which the driver's binding writer holds too, so no
     /// test that leaves this field unbound drops the file under the driver.
     pub(super) database: Arc<TestDatabase>,
+    /// What each turn the daemon starts on the session opens on, which opens none until a test
+    /// names a binding.
+    pub(super) daemon_turn_bindings: Arc<TestDaemonTurnBindings>,
 }
 
 /// The binding store the driver writes, holding the database its file is in for as long as the
@@ -195,13 +199,20 @@ impl LiveCodexSession {
                 .register(Arc::clone(&engine) as _)
                 .is_ok()
         );
+        let daemon_turn_bindings = Arc::new(TestDaemonTurnBindings::new(agent_id));
         assert!(
             ports
                 .daemon_turn_bindings
-                .register(Arc::new(TestDaemonTurnBindings::new(agent_id)))
+                .register(Arc::clone(&daemon_turn_bindings) as _)
                 .is_ok()
         );
         assert!(ports.message_taken.register(queue.clone()).is_ok());
+        assert!(
+            ports
+                .session_message_readings
+                .register(queue.clone())
+                .is_ok()
+        );
         assert!(ports.message_refused.register(queue.clone()).is_ok());
         assert!(ports.message_given_back.register(queue.clone()).is_ok());
         assert!(ports.continue_given_back.register(queue.clone()).is_ok());
@@ -317,6 +328,7 @@ impl LiveCodexSession {
             questions,
             engine,
             database,
+            daemon_turn_bindings,
         }
     }
 }
@@ -431,4 +443,23 @@ pub(super) fn answer_stopping_request(script: &ScriptedService, sent: &Value) {
         }
         _ => script.answer(sent, &json!({})),
     }
+}
+
+/// One run of the person's `userPromptSubmit` hook handler `handler` on a prompt of the test
+/// turn, ending `status` with `words`.
+pub(super) fn prompt_hook_completed(handler: &str, status: &str, words: &str) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "method": "hook/completed",
+        "params": {
+            "threadId": TEST_THREAD,
+            "turnId": TEST_TURN,
+            "run": {
+                "id": format!("user-prompt-submit:{handler}:/hooks.json"),
+                "eventName": "userPromptSubmit",
+                "status": status,
+                "entries": if words.is_empty() { json!([]) } else { json!([{"text": words}]) },
+            },
+        },
+    })
 }

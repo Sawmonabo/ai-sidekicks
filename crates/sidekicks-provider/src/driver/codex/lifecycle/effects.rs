@@ -81,9 +81,20 @@ impl CodexFrameEffects for CodexDriverEffects {
         }
     }
 
-    // The queue's tool-boundary intake reaches no driver through a port yet, so a held message
-    // waits for its run's turn to end rather than for the boundary.
-    fn on_tool_boundary(&self, _boundary: RunToolBoundary) {}
+    // The messages the daemon holds for the session go in at the boundary; the queue's own
+    // tool-boundary intake reaches no driver through a port, so a queued message waits for its
+    // run's turn to end.
+    fn on_tool_boundary(&self, boundary: RunToolBoundary) {
+        if let Some(parts) = self.link.parts() {
+            parts.peer_delivery.steer_held_at(&boundary);
+        }
+    }
+
+    fn on_turn_paused(&self, session_id: SessionId) {
+        if let Some(parts) = self.link.parts() {
+            parts.peer_delivery.give_back_held(session_id);
+        }
+    }
 
     // Codex holds no request on a plan, so the plan record takes it with nothing held.
     fn plan_proposed(&self, run: &CodexRowRun, text: &str, turn_id: &str, item_id: &str) {

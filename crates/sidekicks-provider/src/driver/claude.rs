@@ -27,6 +27,8 @@ use crate::command::running_set::takes_no_input;
 use crate::driver::agent_tools::AgentToolCaller;
 use crate::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
 use crate::driver::claude::delivery::turn_readings::read_claude_task_list_change;
+use crate::driver::claude::inbox::deliver::deliver_claude_session_message;
+use crate::driver::claude::inbox::held_wait::compose_claude_wait_end_text;
 use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::claude::live_sessions::{
     read_claude_registry_folders, read_standalone_sessions,
@@ -82,6 +84,9 @@ use crate::driver::session_control::{
     SessionCommandAnswer, SessionToolServer, SetSessionGoalParams, SettleHeldToolCallsParams,
     StartingLevel, StartingLevelParams, SubscribeProviderCommandsParams,
     UpdatePermissionLevelParams, UpdateSessionModeParams,
+};
+use crate::driver::session_messages::{
+    SessionMessageDelivery, SessionMessageSent, SessionWaitWording, compose_waiting_on_text,
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::driver::{DriverServices, HelperModeServices};
@@ -646,6 +651,30 @@ impl ProviderDriver for ClaudeDriver {
         self.session_inbox_addresser()
     }
 
+    fn deliver_session_message(
+        &self,
+        delivery: SessionMessageDelivery,
+    ) -> BoxFuture<'_, Result<SessionMessageSent, DriverError>> {
+        async move {
+            let inboxes = &self.parts()?.establishment.task_services.inboxes;
+            deliver_claude_session_message(inboxes, read_registry_folders(self).boxed(), &delivery)
+                .await
+        }
+        .boxed()
+    }
+
+    // Claude Code holds a wait's call open, so it words the call's end and the listing, never a
+    // line ending the caller's turn.
+    fn compose_session_wait_text(&self, wording: SessionWaitWording) -> Option<String> {
+        match wording {
+            SessionWaitWording::Called { .. } => None,
+            SessionWaitWording::Ended { name, end } => {
+                Some(compose_claude_wait_end_text(&name, &end))
+            }
+            SessionWaitWording::Pending { awaited, now } => compose_waiting_on_text(&awaited, now),
+        }
+    }
+
     fn account_legs(&self) -> Arc<dyn ProviderAccountLegs> {
         Arc::clone(&self.account_legs) as _
     }
@@ -717,19 +746,25 @@ impl ProviderDriver for ClaudeDriver {
         &self,
     ) -> BoxFuture<'_, Result<Vec<StandaloneTerminalSession>, DriverError>> {
         async move {
-            let accounts = self
-                .sources
-                .ports
-                .provider_account_registry
-                .require_port()
-                .map_err(|error| DriverError::Internal(Box::new(error)))?;
-            let folders = read_claude_registry_folders(&self.sources.base_environment, accounts)
-                .await
-                .map_err(|error| DriverError::Internal(Box::new(error)))?;
+            let folders = read_registry_folders(self).await?;
             Ok(read_standalone_sessions(&folders).await)
         }
         .boxed()
     }
+}
+
+// Every folder Claude Code's live-session registry is kept in: the person's config folder and each
+// account's home. Fails while the account registry is unregistered and as the read fails.
+async fn read_registry_folders(driver: &ClaudeDriver) -> Result<Vec<PathBuf>, DriverError> {
+    let accounts = driver
+        .sources
+        .ports
+        .provider_account_registry
+        .require_port()
+        .map_err(|error| DriverError::Internal(Box::new(error)))?;
+    read_claude_registry_folders(&driver.sources.base_environment, accounts)
+        .await
+        .map_err(|error| DriverError::Internal(Box::new(error)))
 }
 
 /// A pick as Claude Code takes it: the name and folder `skill.list` gave, both checked non-empty.

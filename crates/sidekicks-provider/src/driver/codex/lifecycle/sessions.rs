@@ -241,6 +241,7 @@ impl CodexDriver {
         let session_id = params.session_id;
         parts.provider_commands.forget_session(session_id);
         parts.hand_off.forget_session(session_id);
+        parts.peer_delivery.forget_session(session_id);
         // Before the claim, which refuses run control while it holds the slot; a transition in
         // flight runs no turn. The side questions' copies are let go beside the session's own
         // interrupts, so a wedged service holds neither behind the other.

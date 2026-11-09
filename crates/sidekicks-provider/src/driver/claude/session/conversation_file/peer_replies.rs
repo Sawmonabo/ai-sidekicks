@@ -41,6 +41,8 @@ const NOTICE_READ_LIMIT: usize = 64 * 1024;
 pub(crate) struct ClaudePeerReplies {
     readings: Arc<PortRegistration<Arc<dyn SessionMessageReadingPublisher>>>,
     awaited: Mutex<AwaitedReplies>,
+    // The waits a send handed back to be kept until their idle notice, by notice id.
+    kept: Mutex<HashMap<String, ClaudePeerReplyWait>>,
 }
 
 #[derive(Default)]
@@ -101,7 +103,13 @@ impl ClaudePeerReplies {
         Self {
             readings,
             awaited: Mutex::default(),
+            kept: Mutex::default(),
         }
+    }
+
+    /// Keeps `wait` until its idle notice settles it, for a send whose reply nothing else awaits.
+    pub(crate) fn keep_until_idle(&self, wait: ClaudePeerReplyWait) {
+        lock(&self.kept).insert(wait.notice_id.clone(), wait);
     }
 
     /// Awaits the reply to message `message_id`, which the daemon is about to send `receiver` and
@@ -217,6 +225,9 @@ impl ClaudePeerReplies {
             remove_message(&mut awaited, &key, &message_id)
         };
         self.publish(settled.and_then(|message| message.settle(message_id)));
+        // Dropped once the notice settled it, so it forgets nothing still awaited.
+        let kept = lock(&self.kept).remove(orig_msg_id);
+        drop(kept);
         true
     }
 

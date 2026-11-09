@@ -74,6 +74,10 @@ use crate::driver::{
     ProviderAccountFolders, ProviderAccountReader, ProviderRegistration, codex,
 };
 use crate::port::session_inbox_address::SessionInboxAddresser;
+#[cfg(test)]
+use crate::port::session_message_reading_publisher::{
+    SessionMessageReading, SessionMessageReadingPublisher,
+};
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::ExecutionPostureService;
 use crate::runtime_binding::store::{RuntimeBindingRebind, compose_spawn_config_text};
@@ -446,11 +450,12 @@ pub(crate) fn fixed_session_id() -> SessionId {
 
 /// A minted id of a queued message.
 #[cfg(test)]
-pub(super) fn new_message_id() -> QueueItemId {
+pub(crate) fn new_message_id() -> QueueItemId {
     QueueItemId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is a queue item id")
 }
 
-/// What the run queue's intake was told, telling a waiter at each.
+/// What the run queue's intake and the session message readings were told, telling a waiter at
+/// each.
 #[cfg(test)]
 #[derive(Default)]
 pub(super) struct RecordedQueue {
@@ -462,6 +467,8 @@ pub(super) struct RecordedQueue {
     pub(super) given_back: Mutex<Vec<String>>,
     /// The leads whose continue was told given back, in order.
     pub(super) continues_given_back: Mutex<Vec<RunId>>,
+    /// The session message readings published, in order.
+    pub(super) readings: Mutex<Vec<SessionMessageReading>>,
     /// Tells a waiter at each.
     pub(super) changed: Notify,
 }
@@ -491,6 +498,14 @@ impl MessageRefusedListener for RecordedQueue {
 impl MessageGivenBackListener for RecordedQueue {
     fn message_given_back(&self, _session_id: SessionId, message_id: &str) {
         lock(&self.given_back).push(message_id.to_owned());
+        self.changed.notify_one();
+    }
+}
+
+#[cfg(test)]
+impl SessionMessageReadingPublisher for RecordedQueue {
+    fn publish(&self, reading: SessionMessageReading) {
+        lock(&self.readings).push(reading);
         self.changed.notify_one();
     }
 }

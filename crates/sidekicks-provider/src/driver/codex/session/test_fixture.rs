@@ -86,6 +86,7 @@ use crate::driver::codex::session::inbound::{
     CodexSessionInboundSender, codex_session_inbound, drain_codex_session_inbound,
 };
 use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
+use crate::driver::codex::session::peer_delivery::CodexPeerMessages;
 use crate::driver::codex::session::recovery::{
     CodexServiceRecovery, CodexServiceRecoveryDependencies,
 };
@@ -170,6 +171,8 @@ pub(crate) struct TestCodexTask {
     pub(crate) let_go_exits: Vec<CodexRecordExit>,
     /// The live pricing over `ports` that its reroutes mark and its copies price through.
     pub(crate) pricing: Arc<LivePricing>,
+    /// The daemon's own messages the session was handed, which its intake settles.
+    pub(crate) peer_messages: Arc<CodexPeerMessages>,
     items: mpsc::UnboundedReceiver<CodexSessionInbound>,
     context_readings: CodexSessionContextReadings,
 }
@@ -314,6 +317,7 @@ impl TestCodexSession {
                 run_control,
                 let_go_exits: Vec::new(),
                 pricing,
+                peer_messages: Arc::default(),
                 items,
                 context_readings,
             },
@@ -510,6 +514,7 @@ impl TestCodexTask {
                 run_control: &self.run_control,
                 config_forks: &self.calls.runs.config_forks,
                 delivery: &self.calls.forks.delivery,
+                peer_messages: &self.peer_messages,
             },
             &mut self.record,
             routed,
@@ -818,6 +823,8 @@ impl CodexFrameEffects for NoEffects {
     fn cut_oversized_turn(&self, _session_id: SessionId, _thread_id: &str, _turn_id: &str) {}
 
     fn on_tool_boundary(&self, _boundary: RunToolBoundary) {}
+
+    fn on_turn_paused(&self, _session_id: SessionId) {}
 
     fn plan_proposed(&self, _run: &CodexRowRun, _text: &str, _turn_id: &str, _item_id: &str) {}
 

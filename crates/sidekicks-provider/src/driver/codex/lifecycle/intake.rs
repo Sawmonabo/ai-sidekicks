@@ -168,6 +168,7 @@ impl CodexSessionIntake {
             run_control: &parts.run_control,
             config_forks: &parts.config_forks,
             delivery: &parts.delivery,
+            peer_messages: &parts.peer_messages,
         }
     }
 

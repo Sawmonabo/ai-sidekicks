@@ -34,6 +34,7 @@ use crate::driver::agent_tools::AgentToolCaller;
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::mcp::compose_codex_mcp_entry;
 use crate::driver::codex::mcp::sign_in::read_codex_server_addresses;
+use crate::driver::codex::messages::compose_codex_end_your_turn_text;
 use crate::driver::codex::permission_level::list_codex_modes;
 #[cfg(any(test, feature = "test-support"))]
 use crate::driver::codex::service::registry::CodexServiceRegistry;
@@ -83,6 +84,9 @@ use crate::driver::session_control::{
     SessionCommandAnswer, SessionToolServer, SetSessionGoalParams, SettleHeldToolCallsParams,
     StartingLevel, StartingLevelParams, SubscribeProviderCommandsParams,
     UpdatePermissionLevelParams, UpdateSessionModeParams,
+};
+use crate::driver::session_messages::{
+    SessionMessageDelivery, SessionMessageSent, SessionWaitWording, compose_waiting_on_text,
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::driver::{DriverServices, HelperModeServices};
@@ -702,6 +706,23 @@ impl ProviderDriver for CodexDriver {
     // through an inbox of its own.
     fn session_inbox_addresser(&self) -> Option<Arc<dyn SessionInboxAddresser>> {
         None
+    }
+
+    fn deliver_session_message(
+        &self,
+        delivery: SessionMessageDelivery,
+    ) -> BoxFuture<'_, Result<SessionMessageSent, DriverError>> {
+        self.deliver_session_message(delivery).boxed()
+    }
+
+    // Codex answers a wait's call at once and wakes the caller with a message later, so it words
+    // the line ending the caller's turn and the listing, never a held call's end.
+    fn compose_session_wait_text(&self, wording: SessionWaitWording) -> Option<String> {
+        match wording {
+            SessionWaitWording::Called { name } => Some(compose_codex_end_your_turn_text(&name)),
+            SessionWaitWording::Ended { .. } => None,
+            SessionWaitWording::Pending { awaited, now } => compose_waiting_on_text(&awaited, now),
+        }
     }
 
     fn account_legs(&self) -> Arc<dyn ProviderAccountLegs> {

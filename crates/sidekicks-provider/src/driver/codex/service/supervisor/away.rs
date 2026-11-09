@@ -32,14 +32,6 @@ impl CodexService {
     }
 
     /// Answers once the service is up.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the driver method that delivers a message into a Codex session typed in a \
-                      terminal waits on it"
-        )
-    )]
     pub(crate) async fn when_up(&self) {
         self.wait_for(|availability| matches!(availability, CodexServiceAvailability::Up))
             .await;

@@ -17,7 +17,7 @@ use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMo
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 
-use super::{LiveCodexSession, TEST_TURN, answer_stopping_request};
+use super::{LiveCodexSession, TEST_TURN, answer_stopping_request, prompt_hook_completed};
 use crate::driver::codex::run::control::record::{CodexContinuePlace, CodexRunControlCall};
 use crate::driver::codex::session::calls::call_codex_session;
 use crate::driver::codex::session::context_reading::read_codex_kept_fixed_start;
@@ -553,25 +553,6 @@ fn retry_params(session: &LiveCodexSession) -> FasterModelRetryParams {
         expected_turn_id: TEST_TURN.to_owned(),
         model: ProviderToken::new("gpt-5-fast".to_owned()).expect("a model token"),
     }
-}
-
-// One run of the person's `userPromptSubmit` hook handler `handler` on a prompt of the test turn,
-// ending `status` with `words`.
-fn prompt_hook_completed(handler: &str, status: &str, words: &str) -> Value {
-    json!({
-        "jsonrpc": "2.0",
-        "method": "hook/completed",
-        "params": {
-            "threadId": TEST_THREAD,
-            "turnId": TEST_TURN,
-            "run": {
-                "id": format!("user-prompt-submit:{handler}:/hooks.json"),
-                "eventName": "userPromptSubmit",
-                "status": status,
-                "entries": if words.is_empty() { json!([]) } else { json!([{"text": words}]) },
-            },
-        },
-    })
 }
 
 // Each message the queue was told a hook refused, with the hook's words.
