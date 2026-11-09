@@ -125,6 +125,11 @@ impl ScriptedAgentRunner {
         sidekicks_std::mutex_lock::lock(&self.controls.read_at_resumes).clone()
     }
 
+    /// Holds every run at the gate until [`Self::admit`].
+    pub(crate) fn hold(&self) {
+        self.controls.admission.send_replace(None);
+    }
+
     /// Admits every run at the gate.
     pub(crate) fn admit(&self) {
         self.controls

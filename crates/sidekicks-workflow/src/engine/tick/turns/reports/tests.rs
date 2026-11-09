@@ -16,7 +16,7 @@ use crate::engine::tick::turns::tests::harness::{
     Harness, QUIET, WAIT, attempt_column, edge, item, node, retried, step_column,
 };
 use crate::engine::tick::turns::{EngineTickInput, RepinRefusal, RunResumeRefusal};
-use crate::test_rows::stored_rows;
+use crate::test_rows::{assert_rebuild_rewrites_run_rows, stored_rows};
 
 /// The sequence and instant of the event of `event_type` on attempt `attempt` of `node_id`.
 fn attempt_event(
@@ -109,8 +109,10 @@ async fn a_retry_runs_its_next_attempt_after_its_wait(#[case] is_run_canceled: b
 }
 
 /// M takes A's items first while B still runs: A settles only once B runs, so the cancel lands on
-/// a running step. Mutations: the wave written before B settles; B's own completion written; a
-/// `siblingFailure` on a merge loser; the wave's event dropped because M settled first.
+/// a running step; a rebuild from the log writes the run's rows byte-identical. Mutations: the
+/// wave written before B settles; B's own completion written; a `siblingFailure` on a merge loser;
+/// the wave's event dropped because M settled first; the fold's `workflow.step.canceled` arm
+/// adding no row move for B (the rebuilt rows differ).
 #[tokio::test]
 async fn a_won_merge_cancels_its_running_loser_in_one_wave() {
     let mut harness = Harness::new(None).await;
@@ -188,6 +190,12 @@ async fn a_won_merge_cancels_its_running_loser_in_one_wave() {
         !b_events
             .iter()
             .any(|event_type| event_type == "workflow.step.completed")
+    );
+    harness.wait_for_earlier_turns().await;
+    assert_rebuild_rewrites_run_rows(
+        &harness.rows,
+        harness.scope.session_id.text().as_str(),
+        harness.scope.run_id.text().as_str(),
     );
 }
 

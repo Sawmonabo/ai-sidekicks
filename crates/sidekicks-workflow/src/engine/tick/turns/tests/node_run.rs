@@ -21,7 +21,8 @@ use super::harness::{Harness, edge, item, large_items, node};
 use crate::engine::partial_run::{PartialRunPlan, read_settled_steps};
 use crate::runs::step_payload::write_step_payload;
 use crate::test_rows::{
-    TEST_SESSION_ID, TestSettledStep, insert_run, insert_settled_step, test_node_id,
+    TEST_SESSION_ID, TestSettledStep, assert_rebuild_rewrites_run_rows, insert_run,
+    insert_settled_step, test_node_id,
 };
 
 /// The earlier run whose settled steps the node runs reuse.
@@ -227,8 +228,11 @@ fn ran(harness: &Harness) -> Vec<String> {
 
 /// `T` and `A` are reused and `B` and `C` run: the reused steps are skipped `reused` naming the
 /// earlier steps they carry, `B`'s `pending` row rides on `A`'s skip in the seed's one write, and
-/// `B` runs on `A`'s earlier output. Mutation: in `RunWalk::reusing`, queue no seed step, so the
-/// walk readies `T` to run and the start finds no trigger input (`start_run`'s trigger `expect`).
+/// `B` runs on `A`'s earlier output; a rebuild from the log writes the run's rows byte-identical.
+/// Mutations: in `RunWalk::reusing`, queue no seed step, so the walk readies `T` to run and the
+/// start finds no trigger input (`start_run`'s trigger `expect`); the fold's
+/// `workflow.step.skipped` arm dropping `reusedFrom` or the steps the skip readied (the rebuilt
+/// rows differ).
 #[tokio::test]
 async fn run_from_here_reuses_the_clean_steps_and_runs_the_dirty_ones() {
     let mut harness = Harness::new(None).await;
@@ -278,6 +282,11 @@ async fn run_from_here_reuses_the_clean_steps_and_runs_the_dirty_ones() {
         WorkflowPayloadRef::Inline {
             items: vec![named("A")]
         }
+    );
+    assert_rebuild_rewrites_run_rows(
+        &harness.rows,
+        harness.scope.session_id.text().as_str(),
+        harness.scope.run_id.text().as_str(),
     );
 }
 

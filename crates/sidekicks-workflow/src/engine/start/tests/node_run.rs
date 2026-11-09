@@ -29,8 +29,8 @@ use crate::engine::start::{
 use crate::runs::step_payload::write_step_payload;
 use crate::runs::store::WorkflowRunStore;
 use crate::test_rows::{
-    TEST_SESSION_ID, TestSettledStep, insert_run, insert_settled_step, rebuild_workflow_runs,
-    run_rows, test_node_id,
+    TEST_SESSION_ID, TestSettledStep, assert_rebuild_rewrites_run_rows, insert_run,
+    insert_settled_step, test_node_id,
 };
 
 /// The earlier run whose settled steps the node runs reuse.
@@ -249,9 +249,7 @@ async fn run_from_here_reuses_its_clean_trigger_and_names_the_node_run() {
         read.run.node_run,
         Some(node_run("B", WorkflowNodeExecuteScope::FromHere))
     );
-    let live = run_rows(&fixture.rows, run_id.text().as_str());
-    rebuild_workflow_runs(&fixture.rows, TEST_SESSION_ID);
-    assert_eq!(run_rows(&fixture.rows, run_id.text().as_str()), live);
+    assert_rebuild_rewrites_run_rows(&fixture.rows, TEST_SESSION_ID, run_id.text().as_str());
 }
 
 /// How the items a node run is given stand against its trigger's earlier input.

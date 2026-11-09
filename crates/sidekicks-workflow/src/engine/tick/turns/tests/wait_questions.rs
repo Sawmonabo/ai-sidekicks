@@ -17,7 +17,7 @@ use crate::engine::tick::{StepReport, StepReportKind};
 use crate::engine::waits::PersonWaitAnswer;
 use crate::engine::waits::answers::EngineAnswers;
 use crate::runs::gate_resolution::tests::gate_answer;
-use crate::test_rows::{TEST_NODE_ID, rebuild_workflow_runs, run_rows};
+use crate::test_rows::{TEST_NODE_ID, assert_rebuild_rewrites_run_rows};
 
 /// How the case's wait ends.
 #[derive(Clone, Copy, Debug)]
@@ -155,10 +155,11 @@ async fn a_waits_end_marks_its_question_once_in_its_own_write(#[case] ending: Wa
         }
     };
     harness.wait_for_earlier_turns().await;
-    let run_id = harness.scope.run_id.text();
-    let live = run_rows(&harness.rows, run_id.as_str());
-    rebuild_workflow_runs(&harness.rows, harness.scope.session_id.text().as_str());
-    assert_eq!(run_rows(&harness.rows, run_id.as_str()), live, "{ending:?}");
+    assert_rebuild_rewrites_run_rows(
+        &harness.rows,
+        harness.scope.session_id.text().as_str(),
+        harness.scope.run_id.text().as_str(),
+    );
 
     let marks: Vec<_> = harness
         .events()

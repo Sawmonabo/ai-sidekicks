@@ -17,7 +17,7 @@ use crate::engine::tick::turns::tests::harness::{
     Harness, WAIT, attempt_column, edge, item, node, step_column,
 };
 use crate::test_rows::{
-    insert_later_workflow_version, insert_workflow_version_body, rebuild_workflow_runs, run_rows,
+    assert_rebuild_rewrites_run_rows, insert_later_workflow_version, insert_workflow_version_body,
     stored_rows,
 };
 
@@ -98,8 +98,12 @@ async fn a_resume_with_nothing_to_lift_is_refused_and_writes_nothing(
 
 /// A Resume of a run parked on F's failure while W waits on a reply runs F again as attempt 2,
 /// in one write with `workflow.run.resumed`, which opens execution 1 and readies the attempt;
-/// W keeps waiting and the run runs again. Kills: the attempt never readied; the epoch left at 0;
-/// W's wait lifted with the park; the park left on the run's counts, keeping it `failed`.
+/// W keeps waiting and the run runs again; a rebuild from the log writes the run's rows
+/// byte-identical while the run waits beside its park, after the Resume and once the attempt
+/// parks it again. Kills: the attempt never readied; the epoch left at 0; W's wait lifted with the
+/// park; the park left on the run's counts, keeping it `failed`; the fold's `workflow.run.resumed`
+/// arm leaving the run `waiting` or its person wait open, or its `workflow.run.waiting` arm
+/// opening no person wait (the rebuilt run row differs).
 #[tokio::test]
 async fn a_resume_runs_a_failed_park_again_and_leaves_the_wait_beside_it() {
     let mut harness = Harness::new(None).await;
@@ -123,6 +127,11 @@ async fn a_resume_runs_a_failed_park_again_and_leaves_the_wait_beside_it() {
         .wait_until(|rows| attempt_column(rows, "F", 1, "status").as_deref() == Some("failed"))
         .await;
     harness.wait_for_earlier_turns().await;
+    assert_rebuild_rewrites_run_rows(
+        &harness.rows,
+        harness.scope.session_id.text().as_str(),
+        harness.scope.run_id.text().as_str(),
+    );
 
     assert_eq!(
         resume(&harness, None).await.expect("the Resume is taken"),
@@ -131,6 +140,12 @@ async fn a_resume_runs_a_failed_park_again_and_leaves_the_wait_beside_it() {
     harness
         .wait_until(|rows| attempt_column(rows, "F", 2, "status").as_deref() == Some("running"))
         .await;
+    harness.wait_for_earlier_turns().await;
+    assert_rebuild_rewrites_run_rows(
+        &harness.rows,
+        harness.scope.session_id.text().as_str(),
+        harness.scope.run_id.text().as_str(),
+    );
 
     let (resumed, _, _, payload) = harness
         .events()
@@ -163,11 +178,20 @@ async fn a_resume_runs_a_failed_park_again_and_leaves_the_wait_beside_it() {
     harness
         .wait_until(|rows| attempt_column(rows, "F", 2, "status").as_deref() == Some("failed"))
         .await;
+    harness.wait_for_earlier_turns().await;
+    assert_rebuild_rewrites_run_rows(
+        &harness.rows,
+        harness.scope.session_id.text().as_str(),
+        harness.scope.run_id.text().as_str(),
+    );
 }
 
 /// A Resume of a run parked on F's failure, which canceled its running sibling B, runs F and B
-/// again as attempt 2 each. Kills: B dropped from the walk by the park's cancel, so its attempt is
-/// never readied; B's attempt readied on another input.
+/// again as attempt 2 each; a rebuild from the log writes the run's rows byte-identical while it
+/// is parked and once both attempts run. Kills: B dropped from the walk by the park's cancel, so
+/// its attempt is never readied; B's attempt readied on another input; the fold's
+/// `workflow.run.failed` arm ending a parked run, or its `workflow.step.canceled` arm dropping
+/// the canceled step's row move or the steps it readied (the rebuilt rows differ).
 #[tokio::test]
 async fn a_resume_runs_each_step_the_park_canceled_again() {
     let mut harness = Harness::new(None).await;
@@ -191,6 +215,11 @@ async fn a_resume_runs_each_step_the_park_canceled_again() {
         .wait_until(|rows| attempt_column(rows, "B", 1, "status").as_deref() == Some("canceled"))
         .await;
     harness.wait_for_earlier_turns().await;
+    assert_rebuild_rewrites_run_rows(
+        &harness.rows,
+        harness.scope.session_id.text().as_str(),
+        harness.scope.run_id.text().as_str(),
+    );
     assert_eq!(run_status(&harness.rows), "failed");
 
     assert_eq!(
@@ -221,6 +250,12 @@ async fn a_resume_runs_each_step_the_park_canceled_again() {
         attempt_column(&harness.rows, "B", 2, "input_ref"),
         attempt_column(&harness.rows, "B", 1, "input_ref"),
         "B runs again on its own input"
+    );
+    harness.wait_for_earlier_turns().await;
+    assert_rebuild_rewrites_run_rows(
+        &harness.rows,
+        harness.scope.session_id.text().as_str(),
+        harness.scope.run_id.text().as_str(),
     );
 }
 
@@ -307,9 +342,9 @@ async fn park_on_f(harness: &mut Harness, nodes: Vec<WorkflowNode>, edges: &[Wor
 /// answers the version the run left, writes `workflow.run.resumed` naming both versions and the
 /// target, moves the run's row to the target, keeps the trigger's step as it stands, writing it
 /// no new row, and runs F as attempt 2 on the target's kind, fed by that step, which ends the run
-/// succeeded; a rebuild from the log writes the run's rows byte-identical. Kills: the run's row left
-/// on its version, live or in the rebuild's replay of the Resume; the event's version pair left
-/// off; the trigger's step written again; F run on the pinned kind, failing again; F's tries
+/// succeeded; a rebuild from the log writes the run's rows byte-identical. Kills: the run's row
+/// left on its version, live or in the rebuild's replay of the Resume; the event's version pair
+/// left off; the trigger's step written again; F run on the pinned kind, failing again; F's tries
 /// counted from 1 again.
 #[tokio::test]
 async fn a_repin_runs_the_failed_step_on_the_target_version() {
@@ -367,10 +402,11 @@ async fn a_repin_runs_the_failed_step_on_the_target_version() {
         "F runs on the trigger's kept step"
     );
     harness.wait_for_earlier_turns().await;
-    let run_id = harness.scope.run_id.text();
-    let live = run_rows(&harness.rows, run_id.as_str());
-    rebuild_workflow_runs(&harness.rows, harness.scope.session_id.text().as_str());
-    assert_eq!(run_rows(&harness.rows, run_id.as_str()), live);
+    assert_rebuild_rewrites_run_rows(
+        &harness.rows,
+        harness.scope.session_id.text().as_str(),
+        harness.scope.run_id.text().as_str(),
+    );
 }
 
 /// A Resume moving a run parked on F's failure, after `A` and `B` succeeded, to a version that

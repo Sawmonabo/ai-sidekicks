@@ -475,9 +475,19 @@ fn table_rows(
         .expect("each row reads")
 }
 
+/// Rebuilds session `session_id`'s run and step rows from its log on `rows` and checks that run
+/// `run_id`'s rows read back byte-identical to the rows the live writes left.
+#[cfg(test)]
+pub(crate) fn assert_rebuild_rewrites_run_rows(rows: &Connection, session_id: &str, run_id: &str) {
+    let live = run_rows(rows, run_id);
+    rebuild_workflow_runs(rows, session_id);
+    assert_eq!(run_rows(rows, run_id), live);
+}
+
 /// Writes the run and step rows of session `session_id` again from its log on `rows`, through the
 /// runs projection's clear and fold in one transaction with foreign keys on, each statement held
-/// to the row count it expects, as a rebuild's write holds it.
+/// to the row count it expects, as a rebuild's write holds it; the fold reads only the event types
+/// the projection names, as a rebuild's read does.
 #[cfg(test)]
 pub(crate) fn rebuild_workflow_runs(rows: &Connection, session_id: &str) {
     use sidekicks_contracts::event::session::SessionEvent;
@@ -496,8 +506,13 @@ pub(crate) fn rebuild_workflow_runs(rows: &Connection, session_id: &str) {
     let mut fold = WorkflowRunsProjection.fold(&session_id);
     for envelope in &events {
         let event = SessionEvent::from_envelope(envelope).expect("each event reads");
-        fold.apply(envelope, &event, &mut statements)
-            .expect("each event folds");
+        if WorkflowRunsProjection
+            .event_types()
+            .contains(&event.event_type())
+        {
+            fold.apply(envelope, &event, &mut statements)
+                .expect("each event folds");
+        }
     }
     statements.extend(fold.closing_statements());
     // The live writer may hold the file a moment longer, so the write waits for it.

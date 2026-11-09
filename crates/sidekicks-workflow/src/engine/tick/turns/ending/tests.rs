@@ -25,7 +25,9 @@ use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
 use crate::engine::waits::PersonWaitAnswer;
 use crate::kinds::{PersonAsk, PersonWait};
 use crate::runs::gate_resolution::tests::gate_answer;
-use crate::test_rows::{execution_context_released_at, insert_live_execution_context};
+use crate::test_rows::{
+    assert_rebuild_rewrites_run_rows, execution_context_released_at, insert_live_execution_context,
+};
 
 /// The key of the step of `node_id`, read from its row.
 fn step_key(harness: &Harness, node_id: &str) -> WorkflowStepKey {
@@ -370,9 +372,11 @@ async fn the_run_cap_ends_a_parked_run_and_keeps_its_failed_steps_error() {
 /// own turn and winds A and B down as one wave on A, the earliest: `canceled` is written, with
 /// the person's reason and error on the event and the error on the row, only in the turn the
 /// last of them settles, and the reply answers that event's id after that write. Every step
-/// reads `runCanceled`. Mutations: write `canceled` in the cancel's own turn while a branch runs;
-/// leave W waiting; drop the reason or the error; reply before the write; reply with the id of
-/// another event of the write.
+/// reads `runCanceled`, and a rebuild from the log writes the run's rows byte-identical.
+/// Mutations: write `canceled` in the cancel's own turn while a branch runs; leave W waiting; drop
+/// the reason or the error; reply before the write; reply with the id of another event of the
+/// write; the fold's `workflow.run.canceled` arm leaving the row unended or without its error, or
+/// its `workflow.step.canceled` arm leaving a wound-down step `running` (the rebuilt rows differ).
 #[tokio::test]
 async fn a_cancel_winds_the_run_down_and_writes_canceled_with_its_last_branch() {
     let mut harness = Harness::new(None).await;
@@ -458,6 +462,12 @@ async fn a_cancel_winds_the_run_down_and_writes_canceled_with_its_last_branch() 
         );
         assert_eq!(harness.status(node_id).as_deref(), Some("canceled"));
     }
+    harness.wait_for_earlier_turns().await;
+    assert_rebuild_rewrites_run_rows(
+        &harness.rows,
+        harness.scope.session_id.text().as_str(),
+        harness.scope.run_id.text().as_str(),
+    );
 }
 
 /// A cancel reaching a run whose pause takes two points, P's and Q's, both still capturing, waits

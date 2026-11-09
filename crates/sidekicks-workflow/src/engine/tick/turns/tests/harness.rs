@@ -505,9 +505,9 @@ impl Harness {
     }
 
     /// Stores the workflow of `nodes` and `edges`, the node `trigger` its trigger, unless an
-    /// earlier run stored it, and writes the run of the scope's run id and mode as the start does,
-    /// on `trigger_items`; `before_start` runs once the run is stored and before the loop takes it.
-    /// Answers the run's cancel.
+    /// earlier run stored it, and writes the run of the scope's run id, mode and pins as the start
+    /// does, on `trigger_items`; `before_start` runs once the run is stored and before the loop
+    /// takes it. Answers the run's cancel.
     pub(in crate::engine::tick::turns) async fn start(
         &self,
         nodes: Vec<WorkflowNode>,
@@ -662,6 +662,7 @@ impl Harness {
             run_id: base.run_id,
             trigger,
             run_started_at,
+            pins: base.pins.clone(),
             ..test_run_scope(base.mode, nodes)
         };
         let cancel = scope.cancel.clone();

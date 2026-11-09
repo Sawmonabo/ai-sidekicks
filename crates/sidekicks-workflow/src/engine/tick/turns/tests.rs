@@ -4,9 +4,13 @@ use serde_json::{Map, Value, json};
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::workflow::run::status::WorkflowStepStatus;
+use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 use tokio::time::timeout;
 
-use crate::test_rows::{TestStep, insert_step};
+use crate::engine::ports::AgentStepOutcome;
+use crate::engine::start::hash_run_pins;
+use crate::kinds::uncoded_step_error;
+use crate::test_rows::{TestStep, assert_rebuild_rewrites_run_rows, insert_step};
 
 pub(super) mod harness;
 mod node_run;
@@ -14,9 +18,14 @@ mod wait_questions;
 
 use harness::{Harness, QUIET, WAIT, edge, item, large_items, node, step_column};
 
-/// Mutations: a pending row written in a later write than the event that readied it; a step's
-/// `Admitted` written after its driver's reports; the trigger given no `pending` row, which
-/// refuses its admission.
+/// A run of three steps on a trigger input above the inline cap succeeds, each step's `pending`
+/// row written in the write that readied it on the artifact its input is stored in, and a rebuild
+/// from the log writes the run's rows byte-identical. Mutations: a pending row written in a later
+/// write than the event that readied it; a step's `Admitted` written after its driver's reports;
+/// the trigger given no `pending` row, which refuses its admission; the fold's `ready` writing a
+/// readied step's input other than the artifact ref its event carries, or its
+/// `workflow.run.completed` arm leaving the run unended (the rebuilt rows differ); the clear
+/// deleting the runs before their steps (the steps' foreign key refuses the rebuild).
 #[tokio::test]
 async fn a_three_step_run_commits_each_step_with_what_it_readied() {
     let mut harness = Harness::new(None).await;
@@ -28,7 +37,7 @@ async fn a_three_step_run_commits_each_step_with_what_it_readied() {
                 node("B", "test.step", 2, None),
             ],
             &[edge("trigger", "A", 0), edge("A", "B", 0)],
-            vec![item(json!({ "name": "Ada" }))],
+            large_items(),
             |_| {},
         )
         .await;
@@ -36,6 +45,11 @@ async fn a_three_step_run_commits_each_step_with_what_it_readied() {
     harness
         .wait_until(|rows| step_column(rows, "B", "status").as_deref() == Some("succeeded"))
         .await;
+    let input_ref: Value = serde_json::from_str(
+        &step_column(&harness.rows, "A", "input_ref").expect("A's input is stored"),
+    )
+    .expect("a stored payload ref is JSON");
+    assert_eq!(input_ref["kind"], json!("artifact"));
 
     for (readying, readied) in [("trigger", "A"), ("A", "B")] {
         let (sequence, _, occurred_at, payload) =
@@ -54,6 +68,101 @@ async fn a_three_step_run_commits_each_step_with_what_it_readied() {
         let (started, ..) = harness.event("workflow.phase.started", node_id);
         assert!(admitted < started, "{node_id} is admitted before it starts");
     }
+    harness.wait_for_earlier_turns().await;
+    assert_rebuild_rewrites_run_rows(
+        &harness.rows,
+        harness.scope.session_id.text().as_str(),
+        harness.scope.run_id.text().as_str(),
+    );
+}
+
+/// A manual run whose `A` is pinned settles `A` on its pinned items, its row naming the pin's
+/// hash, and a rebuild from the log writes the run's rows byte-identical. Mutation: the fold's
+/// `workflow.step.started` arm dropping the event's `pinHash` (the rebuilt `pin_hash` reads NULL).
+#[tokio::test]
+async fn a_pinned_steps_hash_rebuilds_as_written() {
+    let mut harness = Harness::new(None).await;
+    let pins = json!({ "A": [{ "json": { "pinned": true } }] }).to_string();
+    harness.scope.pins =
+        hash_run_pins(Some(&pins), WorkflowRunMode::Manual).expect("the test's pins hash");
+    harness
+        .start(
+            vec![
+                node("trigger", "test.trigger", 0, None),
+                node("A", "test.step", 1, None),
+                node("B", "test.step", 2, None),
+            ],
+            &[edge("trigger", "A", 0), edge("A", "B", 0)],
+            vec![item(json!({}))],
+            |_| {},
+        )
+        .await;
+    harness
+        .wait_until(|rows| step_column(rows, "B", "status").as_deref() == Some("succeeded"))
+        .await;
+
+    assert!(step_column(&harness.rows, "A", "pin_hash").is_some());
+    assert_eq!(step_column(&harness.rows, "B", "pin_hash"), None);
+    harness.wait_for_earlier_turns().await;
+    assert_rebuild_rewrites_run_rows(
+        &harness.rows,
+        harness.scope.session_id.text().as_str(),
+        harness.scope.run_id.text().as_str(),
+    );
+}
+
+/// An agent step held at the memory gate and canceled with its run settles `canceled` with the
+/// whole milliseconds of its hold, and a rebuild from the log writes the run's rows
+/// byte-identical. Mutations: the fold's `workflow.step.canceled` arm dropping the hold it cuts,
+/// its `workflow.phase.waitingOnPool` arm keeping no hold report, or that type dropped from the
+/// projection's event types, which a rebuild then never reads (the rebuilt `total_pool_wait_ms`
+/// reads 0).
+#[tokio::test]
+async fn a_held_steps_cut_hold_rebuilds_as_written() {
+    let mut harness = Harness::new(None).await;
+    harness.agents.hold();
+    harness
+        .start(
+            vec![
+                node("trigger", "test.trigger", 0, None),
+                node("A", "test.agent", 1, None),
+            ],
+            &[edge("trigger", "A", 0)],
+            vec![item(json!({}))],
+            |_| {},
+        )
+        .await;
+    harness
+        .wait_until(|rows| step_column(rows, "A", "status").as_deref() == Some("waitingMemory"))
+        .await;
+    // The hold lasts long enough that its cut counts whole milliseconds.
+    tokio::time::sleep(QUIET).await;
+    let _replied = harness.cancel("Not needed any more").await;
+    timeout(WAIT, harness.agents.wait_for_cancel())
+        .await
+        .expect("A's cancel stops its run");
+    harness.agents.end(AgentStepOutcome::Failed {
+        error: uncoded_step_error("the run was stopped".to_owned()),
+    });
+    harness
+        .wait_until(|rows| step_column(rows, "A", "status").as_deref() == Some("canceled"))
+        .await;
+
+    let held_ms: i64 = harness
+        .rows
+        .query_row(
+            "SELECT total_pool_wait_ms FROM workflow_steps WHERE node_id = 'A'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("A's row reads");
+    assert!(held_ms > 0, "the cancel adds the hold it cut");
+    harness.wait_for_earlier_turns().await;
+    assert_rebuild_rewrites_run_rows(
+        &harness.rows,
+        harness.scope.session_id.text().as_str(),
+        harness.scope.run_id.text().as_str(),
+    );
 }
 
 /// A step keeping a value above the cap under a name whose value is kept in an artifact deletes
