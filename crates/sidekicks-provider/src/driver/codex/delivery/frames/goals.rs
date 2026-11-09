@@ -1,7 +1,9 @@
 //! Codex's reports of a change to the goal of the session's own conversation, the daemon's own set
 //! and clear among them, as the goal row of the session's lead agent: an update draws the goal at
-//! its status, a clear draws the clear. A helper's goal draws no row until the agent tree names
-//! helpers; it and a report this reader cannot place are logged and dropped.
+//! its status, a clear draws the clear, except while the driver replaces the goal, whose clear and
+//! interim updates fold into the row of the goal the replace answered. A helper's goal draws no
+//! row until the agent tree names helpers; it and a report this reader cannot place are logged and
+//! dropped.
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::session::goal::{
@@ -28,9 +30,33 @@ impl CodexFrameDelivery {
         members: &Map<String, Value>,
     ) {
         let thread_id = read_non_empty_string(members, "threadId");
-        let row = if thread_id != Some(record.thread_id.as_str()) {
+        let run_routes = &self.dependencies.run_routes;
+        let is_own_thread = thread_id == Some(record.thread_id.as_str());
+        let is_cleared = method == CODEX_GOAL_CLEARED_METHOD;
+        if is_own_thread && let Some(replace) = run_routes.goal_replace(record.session_id) {
+            // The replace's clear and its updates before the awaited one: the awaited goal's row
+            // stands for them all.
+            if is_cleared {
+                return;
+            }
+            let goal = members.get("goal");
+            if replace.awaited_goal.is_some() && goal == replace.awaited_goal.as_ref() {
+                run_routes.end_goal_replace(record.session_id);
+                if !replace.is_drawn {
+                    return;
+                }
+            } else if read_goal_objective(members).is_some_and(|objective| {
+                replace
+                    .absorbed_objectives
+                    .iter()
+                    .any(|absorbed| absorbed == objective)
+            }) {
+                return;
+            }
+        }
+        let row = if !is_own_thread {
             Err(CodexGoalDropReason::OtherThread)
-        } else if method == CODEX_GOAL_CLEARED_METHOD {
+        } else if is_cleared {
             Ok(SessionScopedRow::GoalCleared(SessionGoalClearedPayload {
                 session_id: record.session_id,
                 agent_id: record.lead_agent_id,
@@ -54,6 +80,14 @@ impl CodexFrameDelivery {
     }
 }
 
+// The objective of a `thread/goal/updated` frame's goal.
+fn read_goal_objective(members: &Map<String, Value>) -> Option<&str> {
+    members
+        .get("goal")
+        .and_then(Value::as_object)
+        .and_then(|goal| read_non_empty_string(goal, "objective"))
+}
+
 // The lead's goal at the status a `thread/goal/updated` frame's goal names. Codex's goal carries
 // no reason, and Codex never rules a goal impossible.
 fn read_goal_update(
@@ -61,8 +95,7 @@ fn read_goal_update(
     members: &Map<String, Value>,
 ) -> Result<SessionGoalUpdatedPayload, CodexGoalDropReason> {
     let goal = members.get("goal").and_then(Value::as_object);
-    let text = goal
-        .and_then(|goal| read_non_empty_string(goal, "objective"))
+    let text = read_goal_objective(members)
         .and_then(|objective| FreeFormText::new(objective.to_owned()).ok())
         .ok_or(CodexGoalDropReason::NoObjective)?;
     let status = goal
@@ -97,17 +130,6 @@ mod tests {
     use serde_json::{Map, Value, json};
 
     use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestCodexSession};
-
-    // The payload of every session-wide event the session's frames appended, in order.
-    fn session_event_payloads(session: &TestCodexSession) -> Vec<Value> {
-        session
-            .engine
-            .deliveries()
-            .into_iter()
-            .filter(|delivery| delivery.kind == "sessionEvent")
-            .filter_map(|delivery| delivery.payload)
-            .collect()
-    }
 
     // The goal Codex reports on `thread/goal/updated`, at `status`.
     fn reported_goal(status: &str) -> Value {
@@ -168,7 +190,7 @@ mod tests {
             })],
             (_, None) => Vec::new(),
         };
-        assert_eq!(session_event_payloads(&session), expected);
+        assert_eq!(session.session_event_payloads(), expected);
     }
 
     // A goal on a conversation other than the session's own, a helper's, draws no row for the lead,
@@ -189,7 +211,7 @@ mod tests {
                 &members("helper-thread"),
             )
             .await;
-        assert_eq!(session_event_payloads(&session), Vec::<Value>::new());
+        assert_eq!(session.session_event_payloads(), Vec::<Value>::new());
 
         delivery
             .deliver_goal(
@@ -198,6 +220,6 @@ mod tests {
                 &members(TEST_THREAD),
             )
             .await;
-        assert_eq!(session_event_payloads(&session).len(), 1);
+        assert_eq!(session.session_event_payloads().len(), 1);
     }
 }

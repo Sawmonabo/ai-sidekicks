@@ -709,29 +709,26 @@ type MoveSessionToForkResult =
 // `session.goal.cleared`, never a status (Spec-005; [Spec-014 §Session
 // Goals](../../specs/014-multi-agent-orchestration.md#session-goals)). Durable truth is those
 // events; driver-held state is never the recovery source.
+// Addressing is the session alone: the goal goes to the session's lead conversation, and the
+// driver reaches the agent's live binding itself, opening the session when no process runs it, so
+// a session that has never run (no binding, no run) takes a goal too.
 interface SetSessionGoalParams {
   sessionId: SessionId;
-  // Leg addressing: the goal goes to the target agent's live binding, and `run` → bindings is
-  // 1:many in the store (store-minted surrogate ids; e.g. a posture relaunch mints a new binding
-  // for the same run) — so the BINDING is the leg key. The driver resolves its provider session
-  // from the binding it established at createSession/resumeSession (DriverResumeResult already
-  // returns bindingId); runId rides along for run-scoped context and telemetry.
-  bindingId: string;
-  runId: RunId;
-  goalText: string;
+  goalText: string; // the condition as typed
 }
 
 interface ClearSessionGoalParams {
   sessionId: SessionId;
-  bindingId: string; // leg key — the same leg addressing as SetSessionGoalParams
-  runId: RunId;
 }
 
 type DriverGoalResult =
-  // `applied` = the provider took the goal for the target agent (both V1 legs deliver it natively)
-  // — a fallback narrative on a successful application is unrepresentable.
+  // `applied` = the provider took the change for the target agent, and for a set a turn works on
+  // the goal, the one running or the one the goal starts (both V1 legs deliver it natively) — a
+  // fallback narrative on a successful application is unrepresentable.
   | { status: "applied" } // success carries no fallback field
-  | { status: "degraded"; fallbackAction?: string }; // the provider did not take the goal
+  // `degraded` = it did not, Codex answering a set whose turn never starts within the turn start's
+  // time limit included; the goal stays as it was.
+  | { status: "degraded"; fallbackAction?: string };
 
 // Return shape of `ProviderDriver.resumeSession()`. Discriminated union over `status` makes
 // silent-replacement structurally inexpressible: the failure variant has no `bindingId`, so a

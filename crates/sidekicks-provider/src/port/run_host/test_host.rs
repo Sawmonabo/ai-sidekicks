@@ -110,6 +110,8 @@ pub(crate) struct RecordingRunEngine {
     turns_numbered: Mutex<HashMap<RunId, u64>>,
     fails_daemon_turns: AtomicBool,
     daemon_turns_held: AtomicUsize,
+    refuses_overlapping_daemon_turns: AtomicBool,
+    daemon_turns_starting: AtomicUsize,
     leaves_turns_unnumbered: AtomicBool,
     session_legs: Mutex<HashMap<SessionId, RuntimeBinding>>,
     changed: Notify,
@@ -234,6 +236,13 @@ impl RecordingRunEngine {
     /// exists, as the engine refuses one while the session's turn is held for another run.
     pub(crate) fn refuse_next_daemon_turns_held(&self, count: usize) {
         self.daemon_turns_held.store(count, Ordering::SeqCst);
+    }
+
+    /// Refuses each later daemon turn's start with [`DaemonTurnHeld`] while another daemon turn's
+    /// start has not returned, as the engine takes no second lead run while one is live.
+    pub(crate) fn refuse_daemon_turns_while_one_starts(&self) {
+        self.refuses_overlapping_daemon_turns
+            .store(true, Ordering::SeqCst);
     }
 
     /// Makes every later turn open with no number, as a turn the engine could not number.
@@ -412,17 +421,22 @@ impl RunHost for RecordingRunEngine {
                 left.checked_sub(1)
             })
             .is_ok();
-        if is_held {
+        let is_overlapping = self.refuses_overlapping_daemon_turns.load(Ordering::SeqCst)
+            && self.daemon_turns_starting.load(Ordering::SeqCst) > 0;
+        if is_held || is_overlapping {
             let session_id = request.session_id;
             return async move { Err(DaemonTurnHeld { session_id }.into()) }.boxed();
         }
         self.record(EngineCall::StartDaemonTurn(run_id));
         let hold = lock(&self.daemon_turn_start_holds).pop_front();
+        self.daemon_turns_starting.fetch_add(1, Ordering::SeqCst);
         async move {
             if let Some(hold) = hold {
                 hold.await.unwrap_or(());
             }
-            (request.start_turn)(run_id).await?;
+            let started = (request.start_turn)(run_id).await;
+            self.daemon_turns_starting.fetch_sub(1, Ordering::SeqCst);
+            started?;
             Ok(run_id)
         }
         .boxed()

@@ -1,12 +1,14 @@
 //! A turn Codex starts on a session by itself, such as its work on an active goal: the session's
 //! own run opens on the turn's `turn/started`, never before, so a goal Codex leaves alone makes no
 //! run. A goal set on a session with no process already has its run, which claimed the turn, so
-//! the turn routes to that run and none opens. The open runs on the session's task before that
-//! frame is delivered, so the frames behind it wait in the session's queue, in order, and none of
-//! the turn's frames reaches the run engine before its run exists. The open runs on the
-//! conversation as it stands and waits for no config fork, whose call sits behind it in the same
-//! queue. A turn whose run cannot open, such as one Codex starts while a lead run waits to start,
-//! is interrupted, so no turn runs with no run, and a start waits for its end.
+//! the turn routes to that run and none opens; a turn that starts once that run gave its claim back
+//! waits, within the request deadline, for that run to end before its own opens. The open runs on
+//! the session's task before that frame is delivered, so the frames behind it wait in the
+//! session's queue, in order, and none of the turn's frames reaches the run engine before its run
+//! exists. The open runs on the conversation as it stands and waits for no config fork, whose call
+//! sits behind it in the same queue. A turn whose run cannot open, such as one Codex starts while a
+//! lead run waits to start, is interrupted, so no turn runs with no run, and a start waits for its
+//! end.
 
 use std::error::Error;
 use std::sync::{Arc, Mutex};
@@ -27,7 +29,7 @@ use crate::driver::codex::session::context_reading::CodexSessionContextReadings;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::fork::bind_codex_first_run;
 use crate::driver::codex::session::state::CodexSessionRecord;
-use crate::driver::codex::transport::connection::read_codex_object;
+use crate::driver::codex::transport::connection::{CODEX_REQUEST_TIMEOUT, read_codex_object};
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::run_control::{DaemonTurnBinding, DaemonTurnBindingResolver, DaemonTurnProcess};
 use crate::port::run_host::RunHost;
@@ -81,11 +83,15 @@ pub(crate) async fn open_codex_self_started_turn(
         .insert(turn_id.clone());
     record.delivery.self_started_turn_opening = Some(turn_id.clone());
     task.waiters.settle(record);
-    let opened = match claimed_run_id {
-        Some(run_id) => {
-            take_claimed_turn(record, task.context_readings, runs, run_id, &turn_id).await
+    let opened = if let Some(run_id) = claimed_run_id {
+        take_claimed_turn(record, task.context_readings, runs, run_id, &turn_id).await
+    } else {
+        // A goal's run that gave its claim back is ending failed, and the engine takes no second
+        // lead run while it is live; past the deadline the open goes on.
+        if let Some(mut ending) = runs.run_routes.goal_run_ending(record.session_id) {
+            let _ended = tokio::time::timeout(CODEX_REQUEST_TIMEOUT, ending.changed()).await;
         }
-        None => open_run(record, task.context_readings, runs, dependencies, &turn_id).await,
+        open_run(record, task.context_readings, runs, dependencies, &turn_id).await
     };
     record.delivery.self_started_turn_opening = None;
     if let Err(error) = opened {

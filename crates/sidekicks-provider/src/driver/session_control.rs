@@ -557,14 +557,17 @@ impl StartingLevel {
     }
 }
 
-/// What a goal operation did: the provider took it, or the driver took a fallback instead.
+/// What a goal operation did: the provider took it for the target agent, or it did not and the
+/// goal stays as it was.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DriverGoalResult {
-    /// The provider took it.
+    /// The provider took the change for the target agent; for a set, a turn works on the goal too:
+    /// the one running, or the one the goal starts.
     Applied {},
-    /// The provider did not take it.
+    /// The provider did not take it, as when Codex answers a set whose turn then never starts
+    /// within the turn-start deadline.
     Degraded {
-        /// The fallback the driver took.
+        /// What happened instead, in words, where the driver has any.
         fallback_action: Option<FreeFormText<PROVIDER_FALLBACK_ACTION_MAX_LEN>>,
     },
 }

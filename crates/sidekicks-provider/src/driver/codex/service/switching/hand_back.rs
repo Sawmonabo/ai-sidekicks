@@ -25,7 +25,7 @@ use tokio::sync::oneshot;
 
 use crate::driver::codex::account::auth_file::CodexAuthTokens;
 use crate::driver::codex::account::login::CODEX_LOGIN_START_METHOD;
-use crate::driver::codex::account::switch::{share_failure, wait_for_move};
+use crate::driver::codex::account::switch::wait_for_move;
 use crate::driver::codex::account::token_refresh::CodexTokenRenewer;
 use crate::driver::codex::auth_status::read_codex_auth_status;
 use crate::driver::codex::service::supervisor::CodexService;
@@ -182,7 +182,7 @@ impl HandBackWindow {
     fn fail(self, error: DriverError) {
         let error = Arc::new(error);
         for session in self.sessions {
-            let _unheard = session.watch.send(Err(share_failure(&error)));
+            let _unheard = session.watch.send(Err(DriverError::shared(&error)));
         }
     }
 }

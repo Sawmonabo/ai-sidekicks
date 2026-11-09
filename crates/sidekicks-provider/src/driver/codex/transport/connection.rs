@@ -74,8 +74,9 @@ pub(crate) trait CodexConnectionEvents: Send + Sync {
     /// ended. `reason` says how, in words.
     fn dropped(&self, reason: &str);
 
-    /// The connection closed holding asks for the person. Nothing can answer them on it now, and
-    /// Codex asks again, under a new id, on the connection that next resumes their conversation.
+    /// The connection closed holding asks for the person. Nothing can answer them on it now; Codex
+    /// keeps each and sends it again, under the same id, on the connection that next resumes its
+    /// conversation.
     fn held_requests_dropped(&self, dropped: Vec<CodexForgottenRequest>);
 
     /// The service answered a request that it drains toward its exit, in `message`, its own words:

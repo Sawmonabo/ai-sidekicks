@@ -183,9 +183,9 @@ interface McpServerStatusEmission {
 interface McpServerStatusUpdate {
   sessionId: SessionId;
   // leg key — daemon-stamped from the injection context, never driver-supplied; run→bindings is
-  // 1:many (the SetSessionGoalParams.bindingId precedent), so statuses key per (binding, server): a
-  // relaunched leg's fresh census supersedes its OWN predecessor without clobbering a concurrent
-  // live leg's rows
+  // 1:many (a posture relaunch mints a new binding for the same run), so statuses key per (binding,
+  // server): a relaunched leg's fresh census supersedes its OWN predecessor without clobbering a
+  // concurrent live leg's rows
   bindingId: string;
   serverName: string;
   status: McpServerStatus;

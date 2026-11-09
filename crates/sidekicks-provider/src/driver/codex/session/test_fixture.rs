@@ -314,6 +314,16 @@ impl TestCodexSession {
         }
     }
 
+    /// The payload of every session-wide event the session's frames appended, in order.
+    pub(crate) fn session_event_payloads(&self) -> Vec<Value> {
+        self.engine
+            .deliveries()
+            .into_iter()
+            .filter(|delivery| delivery.kind == "sessionEvent")
+            .filter_map(|delivery| delivery.payload)
+            .collect()
+    }
+
     /// Records a binding on conversation `conversation-1` and answers its id.
     pub(crate) async fn record_binding(&self) -> RuntimeBindingId {
         self.bindings

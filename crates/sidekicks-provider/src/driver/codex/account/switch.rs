@@ -14,7 +14,6 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
-use sidekicks_ipc::domain_error::DomainError;
 use tokio::sync::oneshot;
 
 use super::CodexAccountLegs;
@@ -54,7 +53,7 @@ pub(crate) async fn move_codex_sessions(
         return landings
             .into_iter()
             .map(|(session, _landed, _first_request)| {
-                Err((session.session_id, share_failure(&error)))
+                Err((session.session_id, DriverError::shared(&error)))
             })
             .collect();
     }
@@ -141,25 +140,6 @@ pub(super) async fn hand_switching_service_again(
         .hand_again_if_renewed(&connection, provider_account_id, codex_home)
         .await?;
     Ok(())
-}
-
-// One failure shared by every session it held back: a failed switch's, or a hand-back's.
-#[derive(Debug, thiserror::Error)]
-#[error(transparent)]
-struct SharedSwitchFailure(Arc<DriverError>);
-
-/// `error` as one session's move carries it: a refusal under its own code and words, any other
-/// failure as the driver's own, each with the shared failure underneath.
-pub(crate) fn share_failure(error: &Arc<DriverError>) -> DriverError {
-    let shared = Box::new(SharedSwitchFailure(Arc::clone(error)));
-    if let DriverError::Refused(refusal) = &**error {
-        let mut shared_refusal = DomainError::new(refusal.message.clone(), refusal.code);
-        shared_refusal.detail.clone_from(&refusal.detail);
-        return DriverError::from(
-            shared_refusal.with_source(shared as Box<dyn std::error::Error + Send + Sync>),
-        );
-    }
-    DriverError::Internal(shared)
 }
 
 #[cfg(test)]

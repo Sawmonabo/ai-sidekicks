@@ -1,18 +1,22 @@
 //! The run routes of the Codex driver: which session each run's live turns are on, the runtime
 //! binding, agent and step bound each run's deliveries are attributed with, the level a run
 //! alone was asked to run at, until the run ends, the conversation each helper's child run
-//! runs on, until the helper ends, and the run each session's next turn Codex starts by itself is
-//! claimed for, until that turn starts or the claim is taken back.
+//! runs on, until the helper ends, the run each session's next turn Codex starts by itself is
+//! claimed for, until that turn starts or the claim is taken back, each goal's run whose claim was
+//! taken back, until it ended, and each session whose goal the driver is replacing, until the
+//! update of the goal a replace's set or put-back answered arrives, or the put-back fails.
 
 use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
+use serde_json::Value;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::watch;
 
 use crate::driver::codex::session::state::CodexSessionRecord;
 
@@ -42,6 +46,45 @@ pub(crate) struct CodexHelperRoute {
     pub(crate) is_interrupted_by_daemon: bool,
 }
 
+/// A replace of a session's goal the driver is making: the clear that goes first draws no row, nor
+/// does an update of a goal whose objective is one of `absorbed_objectives`; the update carrying
+/// `awaited_goal`, the goal the replace's set or put-back answered, ends the replace and draws its
+/// row only when `is_drawn`. An update of any other goal draws its row as any does.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct CodexGoalReplace {
+    /// The objectives whose updates draw no row, trimmed as Codex keeps them.
+    pub(crate) absorbed_objectives: Vec<String>,
+    /// The goal the set or the put-back answered, once it answered; Codex's update carries the
+    /// same value.
+    pub(crate) awaited_goal: Option<Value>,
+    /// Whether the awaited goal's update draws its row: the new goal's does, while the old goal's
+    /// after a refused replace does not, since the goal did not change.
+    pub(crate) is_drawn: bool,
+}
+
+/// Ends a session's goal run's ending once dropped: as the run's start returned, or as the goal's
+/// set was dropped before it did.
+pub(crate) struct CodexGoalRunEndGuard {
+    run_routes: Arc<CodexRunRoutes>,
+    session_id: SessionId,
+}
+
+impl CodexGoalRunEndGuard {
+    /// The guard of `session_id`'s goal run's ending on `run_routes`.
+    pub(crate) fn new(run_routes: Arc<CodexRunRoutes>, session_id: SessionId) -> Self {
+        Self {
+            run_routes,
+            session_id,
+        }
+    }
+}
+
+impl Drop for CodexGoalRunEndGuard {
+    fn drop(&mut self) {
+        self.run_routes.end_goal_run_ending(self.session_id);
+    }
+}
+
 /// The run routes of one Codex driver, shared by its sessions.
 #[derive(Default)]
 pub(crate) struct CodexRunRoutes {
@@ -57,6 +100,9 @@ struct Routes {
     helpers: HashMap<RunId, CodexHelperRoute>,
     // By session.
     goal_turn_claims: HashMap<SessionId, RunId>,
+    // A goal's run ending once its claim was taken back; the sender drops as it ended.
+    goal_runs_ending: HashMap<SessionId, watch::Sender<()>>,
+    goal_replaces: HashMap<SessionId, CodexGoalReplace>,
 }
 
 impl CodexRunRoutes {
@@ -165,9 +211,57 @@ impl CodexRunRoutes {
         self.lock().goal_turn_claims.remove(&session_id)
     }
 
-    /// Drops every run route, helper route, binding and turn claim of a session, scanning by
-    /// value: the record that could enumerate them is gone or replaced by the time a sweep is
-    /// owed.
+    /// Marks `session_id`'s goal's run, whose turn claim was taken back, as ending: a turn Codex
+    /// starts by itself meanwhile waits for that end before its own run opens, since the engine
+    /// takes no second lead run while the goal's is live.
+    pub(crate) fn begin_goal_run_ending(&self, session_id: SessionId) {
+        self.lock()
+            .goal_runs_ending
+            .insert(session_id, watch::channel(()).0);
+    }
+
+    /// The end of `session_id`'s goal's run that is ending, which closes as it ended, or `None`
+    /// when none is.
+    pub(crate) fn goal_run_ending(&self, session_id: SessionId) -> Option<watch::Receiver<()>> {
+        self.lock()
+            .goal_runs_ending
+            .get(&session_id)
+            .map(watch::Sender::subscribe)
+    }
+
+    /// Ends `session_id`'s goal's run's ending: the run ended, so a turn waiting on it goes on.
+    pub(crate) fn end_goal_run_ending(&self, session_id: SessionId) {
+        self.lock().goal_runs_ending.remove(&session_id);
+    }
+
+    /// Marks `session_id`'s goal as being replaced, as `replace` says, in place of any replace
+    /// marked before.
+    pub(crate) fn begin_goal_replace(&self, session_id: SessionId, replace: CodexGoalReplace) {
+        self.lock().goal_replaces.insert(session_id, replace);
+    }
+
+    /// Records `goal`, the goal a replace's set or put-back answered, as the update that ends
+    /// `session_id`'s replace.
+    pub(crate) fn await_goal_replace_update(&self, session_id: SessionId, goal: Value) {
+        if let Some(replace) = self.lock().goal_replaces.get_mut(&session_id) {
+            replace.awaited_goal = Some(goal);
+        }
+    }
+
+    /// The replace of `session_id`'s goal the driver is making, if any.
+    pub(crate) fn goal_replace(&self, session_id: SessionId) -> Option<CodexGoalReplace> {
+        self.lock().goal_replaces.get(&session_id).cloned()
+    }
+
+    /// Ends `session_id`'s goal replace: the awaited goal reported its update, or the replace could
+    /// wait for none.
+    pub(crate) fn end_goal_replace(&self, session_id: SessionId) {
+        self.lock().goal_replaces.remove(&session_id);
+    }
+
+    /// Drops every run route, helper route, binding, turn claim, goal run ending and goal replace
+    /// of a session, scanning by value: the record that could enumerate them is gone or replaced
+    /// by the time a sweep is owed.
     pub(crate) fn forget_run_routes(&self, session_id: SessionId) {
         let mut routes = self.lock();
         let Routes {
@@ -176,8 +270,12 @@ impl CodexRunRoutes {
             output_speeds_for_turn,
             helpers,
             goal_turn_claims,
+            goal_runs_ending,
+            goal_replaces,
         } = &mut *routes;
         goal_turn_claims.remove(&session_id);
+        goal_runs_ending.remove(&session_id);
+        goal_replaces.remove(&session_id);
         sessions.retain(|_, bound_session_id| *bound_session_id != session_id);
         helpers.retain(|_, helper| helper.session_id != session_id);
         bindings.retain(|run_id, binding| {

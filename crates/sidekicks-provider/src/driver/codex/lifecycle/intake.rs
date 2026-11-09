@@ -34,7 +34,7 @@ use tokio::time::Instant;
 use crate::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
 use crate::driver::codex::delivery::frames::{CodexFrameDelivery, find_turn_run_id};
 use crate::driver::codex::event_normalizer::{
-    CODEX_ITEM_COMPLETED_METHOD, CODEX_THREAD_SETTINGS_UPDATED_METHOD,
+    CODEX_ITEM_COMPLETED_METHOD, CODEX_SKILLS_CHANGED_METHOD, CODEX_THREAD_SETTINGS_UPDATED_METHOD,
     CODEX_THREAD_TOKEN_USAGE_METHOD, CODEX_TURN_COMPLETED_METHOD,
 };
 use crate::driver::codex::lifecycle::CodexDriverParts;
@@ -92,9 +92,6 @@ pub(super) const USAGE_RECORDER_QUEUE: usize = 256;
 struct UsageRecorderEnded {
     lost: usize,
 }
-
-/// Codex's signal that the skills it lists for a conversation changed.
-const CODEX_SKILLS_CHANGED_METHOD: &str = "skills/changed";
 
 /// One session's task: its record until it is let go, its routing band and its turn waits.
 pub(crate) struct CodexSessionIntake {
