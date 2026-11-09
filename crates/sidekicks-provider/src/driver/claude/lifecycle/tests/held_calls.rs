@@ -747,7 +747,7 @@ async fn stop_task_a_in_the_resumed_process(
     start
         .listener
         .take_frame(ClaudeStreamFrame { text, observation });
-    poll_until(|| stopped_tasks(channel), |stopped| stopped == ["task-A"]).await;
+    poll_until(|| stopped_tasks(channel), |stopped| *stopped == ["task-A"]).await;
     write_kept_files(
         &fixture.home.join(".claude"),
         STORED_CONVERSATION,
