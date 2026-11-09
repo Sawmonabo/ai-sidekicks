@@ -8,8 +8,8 @@ use std::collections::HashSet;
 use rusqlite::params;
 use serde_json::{Map, Value};
 use sidekicks_agent::tools::session::read::{
-    Include, LineRange, SessionReadArguments, no_matching_lines, nothing_yet, output_not_found,
-    position_unknown, typed_in_terminal,
+    Include, LineRange, SessionReadArguments, no_lines_in_range, no_matching_lines, nothing_yet,
+    output_not_found, position_unknown, typed_in_terminal,
 };
 use sidekicks_agent::tools::session::{PageCursor, more_trailer};
 use sidekicks_contracts::event::registry::SessionEventType;
@@ -490,7 +490,10 @@ impl SessionReading<'_> {
             pieces.push(cut_to_page(piece));
         }
         if pieces.is_empty() {
-            return Ok(no_matching_lines(output));
+            return Ok(match search {
+                Some(_) => no_matching_lines(output),
+                None => no_lines_in_range(output),
+            });
         }
         Ok(pieces.join("\n"))
     }

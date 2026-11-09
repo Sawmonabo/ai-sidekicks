@@ -22,7 +22,6 @@ use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
 use crate::driver::codex::session::background_terminals::{
     end_codex_running_commands, list_codex_running_commands,
 };
-use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::inbound::CodexSessionInbound;
 use crate::driver::codex::session::slots::let_go_codex_thread;
 use crate::driver::codex::thread::settings::compose_codex_bare_thread_resume_params;
@@ -292,7 +291,7 @@ impl CodexConversationRelease {
                 Ok(process_ids) if !process_ids.is_empty() => return,
                 Ok(_none) => {}
                 Err(error) => {
-                    report_step_failed(CodexTeardownStep::BackgroundTerminalList, error);
+                    CodexTeardownStep::BackgroundTerminalList.report_failed(error);
                     if let Some(held) = self.lock().held.get_mut(&thread_id)
                         && held.generation == generation
                     {
@@ -379,14 +378,6 @@ pub(crate) fn is_list_change(method: &str, params: &RawValue) -> bool {
         return read_member_type(frame.item).as_deref() == Some(CODEX_COMMAND_ITEM_TYPE);
     }
     read_member_type(frame.status).as_deref() == Some(CODEX_IDLE_THREAD_STATUS)
-}
-
-fn report_step_failed(step: CodexTeardownStep, error: CodexError) {
-    CodexTransportDiagnostic::TeardownStepFailed {
-        step,
-        error: Box::new(error),
-    }
-    .report();
 }
 
 #[cfg(test)]

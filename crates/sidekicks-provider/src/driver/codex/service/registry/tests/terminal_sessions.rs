@@ -141,31 +141,33 @@ async fn the_list_names_the_typed_conversations_no_session_holds() {
     assert!(!read_ids.iter().any(|id| id == HELD), "{read_ids:?}");
 }
 
-// Fails when a conversation stays listed after Codex closes it, as one kept between listings
-// would: each listing asks the service again what it holds loaded.
+// Fails when a conversation Codex closed stays remembered (its close leaving the memory as it
+// was), so a listing while the service is away would name a terminal that already left.
 #[tokio::test]
 async fn a_terminal_session_leaves_the_list_at_its_close() {
     let mut scripted = start_scripted_terminal_service();
     let registry = CodexServiceRegistry::holding(&scripted);
-
     let first_listing = tokio::spawn({
         let registry = Arc::clone(&registry);
         async move { registry.list_terminal_sessions().await }
     });
     answer_named_listing(&mut scripted).await;
     let first_listed = first_listing.await.expect("the first listing ends");
+    let conversations = Arc::clone(scripted.service.terminal_conversations());
+
     scripted
         .script
         .send(&json!({"jsonrpc": "2.0", "method": "thread/closed",
             "params": {"threadId": NAMED}}));
-    let second_listing = tokio::spawn(async move { registry.list_terminal_sessions().await });
-    let loaded = tokio::time::timeout(ASK_WAIT, scripted.next_request("thread/loaded/list"))
-        .await
-        .expect("the second listing asks what the service holds loaded");
-    scripted
-        .script
-        .answer(&loaded, &json!({"data": [], "nextCursor": null}));
-    let second_listed = second_listing.await.expect("the second listing ends");
+    tokio::time::timeout(ASK_WAIT, async {
+        while conversations.remembers(NAMED) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the close reaches what the daemon remembers");
+    let _connection = scripted.publish_reconnecting();
+    let recalled = registry.list_terminal_sessions().await;
 
     assert_eq!(
         first_listed.expect("the first list reads"),
@@ -176,7 +178,10 @@ async fn a_terminal_session_leaves_the_list_at_its_close() {
             Some(RELEASE_FOLDER)
         )]
     );
-    assert_eq!(second_listed.expect("the second list reads"), Vec::new());
+    assert_eq!(
+        recalled.expect("a service away lists what it held"),
+        Vec::new()
+    );
 }
 
 // Fails when a listing while the service is away fails whole or asks the service, when a session

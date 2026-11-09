@@ -1,6 +1,6 @@
-//! The facts a driver declares about the daemon's agent tools: how its provider loads them, where it
-//! takes their shared rules, how it waits on another session and what it does with a long call; and
-//! the run a driver finds behind one call of them.
+//! The facts a driver declares about the daemon's agent tools: how its provider loads them, where
+//! it takes their shared rules, how it waits on another session and what it does with a long call;
+//! and the run a driver finds behind one call of them.
 
 use serde::{Deserialize, Serialize};
 use sidekicks_contracts::provider::tool_call::ToolCallId;

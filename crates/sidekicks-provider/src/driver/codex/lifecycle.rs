@@ -14,7 +14,7 @@ mod service_events;
 pub(super) mod sessions;
 #[cfg(test)]
 mod tests;
-pub(super) mod views;
+mod views;
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -44,6 +44,7 @@ use crate::driver::codex::delivery::asks::{
 use crate::driver::codex::delivery::frames::{CodexFrameDelivery, CodexFrameDeliveryDependencies};
 use crate::driver::codex::exec_relay::CodexExecRelayDependencies;
 use crate::driver::codex::goals::CodexSessionGoals;
+use crate::driver::codex::hooks::server::CodexHookAnswerer;
 use crate::driver::codex::hooks::tools::{CodexHookOnlyTools, CodexHookTools};
 use crate::driver::codex::intervention::CodexInterventionDispatcher;
 use crate::driver::codex::lifecycle::effects::{CodexDriverEffects, CodexDriverLink};
@@ -333,14 +334,9 @@ impl CodexDriver {
             }),
         );
         let stopped_helpers = Arc::new(CodexStoppedHelpers::new(tasks.clone()));
-        // A model's call to a hook tool is refused before any other answerer reads it.
-        let hook_tools = Arc::new(CodexHookTools::new(
-            vec![
-                Arc::new(CodexHookOnlyTools),
-                Arc::clone(&stopped_helpers) as _,
-            ],
-            Arc::clone(&views),
-        ));
+        let hook_tools = Arc::new(CodexHookTools::new(compose_hook_answerers(
+            &stopped_helpers,
+        )));
         let compaction_limits = Arc::new(CodexCompactionLimits::new(
             Arc::clone(&services.pool),
             Arc::clone(&services.ports.database_writer),
@@ -697,4 +693,15 @@ impl CodexDriver {
 // A failure the caller cannot act on beyond reporting it.
 fn internal(error: impl std::error::Error + Send + Sync + 'static) -> DriverError {
     DriverError::Internal(Box::new(error))
+}
+
+/// The answerers every hooks entry's dispatch point asks, in order: a model's call to a hook tool
+/// is refused before any other answerer reads it.
+pub(super) fn compose_hook_answerers(
+    stopped_helpers: &Arc<CodexStoppedHelpers>,
+) -> Vec<Arc<dyn CodexHookAnswerer>> {
+    vec![
+        Arc::new(CodexHookOnlyTools),
+        Arc::clone(stopped_helpers) as _,
+    ]
 }

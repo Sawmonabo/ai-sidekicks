@@ -9,14 +9,19 @@ use tokio::time::Instant;
 
 use super::CodexService;
 use super::transition::CodexServiceAvailability;
+use crate::driver::codex::terminal_session::TERMINAL_RECONNECT_WINDOW;
 
 impl CodexService {
     /// Publishes where the service stands to every caller waiting on it, keeping since when it has
-    /// been anything but up.
+    /// been anything but up. A service back after an outage past the terminal's reconnect window
+    /// forgets the terminal conversations it last listed, since every terminal then gave it up.
     pub(super) fn publish_availability(&self, availability: CodexServiceAvailability) {
         {
             let mut away_since = lock(&self.away_since);
             if matches!(availability, CodexServiceAvailability::Up) {
+                if (*away_since).is_some_and(|since| since.elapsed() >= TERMINAL_RECONNECT_WINDOW) {
+                    self.terminal_conversations().forget_listing();
+                }
                 *away_since = None;
             } else if away_since.is_none() {
                 *away_since = Some(Instant::now());

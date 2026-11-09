@@ -50,6 +50,17 @@ pub(crate) enum CodexTeardownStep {
     ServiceStop,
 }
 
+impl CodexTeardownStep {
+    /// Reports that this step failed with `error` while the teardown went on without it.
+    pub(crate) fn report_failed(self, error: impl Error + Send + Sync + 'static) {
+        CodexTransportDiagnostic::TeardownStepFailed {
+            step: self,
+            error: Box::new(error),
+        }
+        .report();
+    }
+}
+
 /// Why a goal notification drew no goal row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]

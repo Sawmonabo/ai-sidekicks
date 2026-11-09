@@ -24,10 +24,10 @@ impl CodexServiceRegistry {
     /// The sessions a person typed in a terminal that the terminal service holds and no session of
     /// the app does, in the service's own order; empty while terminal reach is off. A session
     /// whose read fails or names no thread is listed as unreachable, named by its thread id and
-    /// with no folder. While the service is away the sessions its last listing named are answered
-    /// as last seen, each unreachable once the service has been away past the terminal's reconnect
-    /// window. Fails when the service comes back before any listing, its connection down, so a
-    /// service that is on never reads as holding none.
+    /// with no folder, and one a seat keeps for a running command as working. While the service
+    /// is away the sessions its last listing named are answered as last seen, each unreachable
+    /// once the service has been away past the terminal's reconnect window, and none before any
+    /// listing. Fails as the read of the service's loaded conversations fails.
     pub(crate) async fn list_terminal_sessions(
         &self,
     ) -> Result<Vec<TerminalProviderSession>, CodexError> {
@@ -35,10 +35,9 @@ impl CodexServiceRegistry {
             return Ok(Vec::new());
         };
         let conversations = service.terminal_conversations();
-        if let Some(away) = service.away_for()
-            && let Some(recalled) = conversations.recall(away)
-        {
-            return Ok(recalled);
+        if let Some(away) = service.away_for() {
+            // A service coming back with nothing remembered names no terminal yet.
+            return Ok(conversations.recall(away).unwrap_or_default());
         }
         if !service.is_serving() {
             return Ok(Vec::new());
@@ -61,10 +60,10 @@ impl CodexServiceRegistry {
             .collect();
         // A listing the service went away during reads every conversation as unreachable, which
         // says nothing of where they stand.
-        if service.away_for().is_none() {
-            conversations.remember(&listed);
+        if service.away_for().is_some() {
+            return Ok(listed);
         }
-        Ok(listed)
+        Ok(conversations.remember(listed))
     }
 }
 

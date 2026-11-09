@@ -108,26 +108,3 @@ impl AgentToolGroup {
         self.cancelable.contains(&tool_name)
     }
 }
-
-/// The loadings whose tool listing differs between a session's groups `before` and `after`, each
-/// once; an empty answer means the provider needs no `notifications/tools/list_changed`.
-pub fn changed_loadings(
-    before: &[AgentToolGroup],
-    after: &[AgentToolGroup],
-) -> Vec<ToolGroupLoading> {
-    [ToolGroupLoading::UpFront, ToolGroupLoading::Deferred]
-        .into_iter()
-        .filter(|&loading| tool_names(before, loading).ne(tool_names(after, loading)))
-        .collect()
-}
-
-// The names of the tools `groups` list under `loading`, in listing order.
-fn tool_names(
-    groups: &[AgentToolGroup],
-    loading: ToolGroupLoading,
-) -> impl Iterator<Item = &'static str> {
-    groups
-        .iter()
-        .filter(move |group| group.loading == loading)
-        .flat_map(|group| group.tools.iter().map(|tool| tool.description.name))
-}

@@ -41,6 +41,7 @@ use crate::driver::codex::thread::settings::{
 use crate::driver::codex::thread::view::{
     THREAD_START_METHOD, assert_active_permission_profile, read_thread,
 };
+use crate::driver::session_control::AskSideQuestionParams;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 // Killed by a session ask's copy that keeps the session's folder trusted, so the person's project
@@ -95,8 +96,8 @@ async fn a_session_ask_copy_runs_untrusted_with_no_daemon_entry_and_answers_only
     assert_eq!(fork["approvalPolicy"], "never");
     let copy_folder = fork["cwd"].as_str().expect("the fork names its folder");
     assert_eq!(
-        fork["config"]["projects"],
-        json!({ copy_folder: {"trust_level": "untrusted"} })
+        fork["config"]["projects"][copy_folder],
+        json!({"trust_level": "untrusted"})
     );
     let servers = &fork["config"][MCP_SERVERS_KEY];
     for name in CODEX_DAEMON_TOOL_SERVER_NAMES {
@@ -113,6 +114,57 @@ async fn a_session_ask_copy_runs_untrusted_with_no_daemon_entry_and_answers_only
             .iter()
             .any(|delivery| delivery.kind == "sessionEvent"),
         "the answer reached the asked session's stream"
+    );
+}
+
+// Killed by a live session ask's copy that keeps its folder trusted (the live path's
+// `is_project_untrusted_for` answering false), and by a mark under one spelling alone of a folder
+// reached through a link, where the person's trust under the other would win.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_live_session_asks_copy_marks_its_folder_untrusted_under_both_spellings() {
+    let mut session = TestCodexSession::start().await;
+    let side_questions =
+        CodexSideQuestions::new(Arc::clone(&session.engine) as _, TaskTracker::new());
+    let real = tempfile::tempdir().expect("the test makes a folder");
+    let links = tempfile::tempdir().expect("the test makes a folder");
+    let linked = links.path().join("project");
+    std::os::unix::fs::symlink(real.path(), &linked).expect("the test links the folder");
+    session.task.record.thread_settings.working_directory = linked.clone();
+    let params = AskSideQuestionParams {
+        resume: None,
+        ..resting_session_ask(session.task.record.session_id, Path::new("/"))
+    };
+    let script = &mut session.scripted.script;
+
+    let (asked, fork) = tokio::time::timeout(SERVE_WAIT, async {
+        tokio::join!(side_questions.ask(&session.task.record, &params), async {
+            let read = script.next_sent().await;
+            assert_eq!(read["method"], "config/read");
+            script.answer(&read, &json!({"config": {}, "origins": {}}));
+            let fork = script.next_sent().await;
+            assert_eq!(fork["method"], THREAD_FORK_METHOD);
+            // Refused, so the copy ends here with nothing left to let go.
+            script.send(&json!({
+                "jsonrpc": "2.0",
+                "id": fork["id"],
+                "error": {"code": -32600, "message": "not forked"},
+            }));
+            fork
+        })
+    })
+    .await
+    .expect("the ask ends once its fork is refused");
+
+    assert!(asked.is_err(), "a refused fork asks nothing");
+    let canonical = std::fs::canonicalize(&linked).expect("the linked folder resolves");
+    let untrusted = json!({"trust_level": "untrusted"});
+    assert_eq!(
+        fork["params"]["config"]["projects"],
+        json!({
+            (canonical.to_string_lossy()): untrusted,
+            (linked.to_string_lossy()): untrusted,
+        })
     );
 }
 

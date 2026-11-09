@@ -95,7 +95,7 @@ pub(super) const CODEX_HOOK_TOOLS: [HookTool; 2] = [
 /// carries, and the conversation from the call's `_meta`.
 #[expect(
     dead_code,
-    reason = "the pre-tool checks read the call's tool, input, folder and session, and the \
+    reason = "the pre-tool checks read the call's session, turn, id, input and folder, and the \
               post-tool checks its answer"
 )]
 #[derive(Debug)]

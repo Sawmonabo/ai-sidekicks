@@ -671,7 +671,9 @@ impl ProviderDriver for ClaudeDriver {
             SessionWaitWording::Ended { name, end } => {
                 Some(compose_claude_wait_end_text(&name, &end))
             }
-            SessionWaitWording::Pending { awaited, now } => compose_waiting_on_text(&awaited, now),
+            SessionWaitWording::Pending { awaited, now } => {
+                Some(compose_waiting_on_text(&awaited, now))
+            }
         }
     }
 

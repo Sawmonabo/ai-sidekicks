@@ -144,12 +144,13 @@ pub struct AwaitedSession {
     pub since: jiff::Timestamp,
 }
 
-/// The line a wait called with no sessions answers at `now`, each session with why it is awaited
-/// and how many whole minutes ago that began, in the order given; `None` where the caller waits on
+/// The line a wait called with no sessions answers at `now`, the one composer of it every
+/// provider and the wait tool use: each session with why it is awaited and how many whole minutes
+/// ago that began (`just now` under a minute), in the order given, or that the caller waits on
 /// none.
-pub fn compose_waiting_on_text(awaited: &[AwaitedSession], now: jiff::Timestamp) -> Option<String> {
+pub fn compose_waiting_on_text(awaited: &[AwaitedSession], now: jiff::Timestamp) -> String {
     if awaited.is_empty() {
-        return None;
+        return "Not waiting on any session.".to_owned();
     }
     let sessions: Vec<String> = awaited
         .iter()
@@ -158,9 +159,12 @@ pub fn compose_waiting_on_text(awaited: &[AwaitedSession], now: jiff::Timestamp)
                 WaitCause::YourMessage => "your message",
                 WaitCause::StartedByYou => "started by you",
             };
-            let minutes = now.duration_since(session.since).as_secs().max(0) / 60;
-            format!("{} ({cause}, {minutes} min ago)", session.name)
+            let age = match now.duration_since(session.since).as_secs().max(0) / 60 {
+                0 => "just now".to_owned(),
+                minutes => format!("{minutes} min ago"),
+            };
+            format!("{} ({cause}, {age})", session.name)
         })
         .collect();
-    Some(format!("Waiting on: {}.", sessions.join(", ")))
+    format!("Waiting on: {}.", sessions.join(", "))
 }

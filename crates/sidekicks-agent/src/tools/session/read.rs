@@ -284,7 +284,12 @@ pub fn nothing_yet(session: &str) -> String {
     format!("{session} has no messages yet.")
 }
 
-/// The result of reading an output's lines when none is in the range or matches the search.
+/// The result of searching an output's lines when none in the range matches the search.
 pub fn no_matching_lines(output: &str) -> String {
     format!("No lines of output {output} match.")
+}
+
+/// The result of reading an output's lines with no search when none is in the range.
+pub fn no_lines_in_range(output: &str) -> String {
+    format!("Output {output} has no lines in that range.")
 }

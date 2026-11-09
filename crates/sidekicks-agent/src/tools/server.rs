@@ -346,8 +346,8 @@ impl AgentToolServer {
     }
 
     // Holds `answer` until it settles, telling the caller every 45 s it still runs where the
-    // request carries a progress token; a cancelable call ends early once its caller canceled it
-    // or its spawn's process is gone, dropping the answer's work.
+    // request carries a progress token; a cancelable call ends early once its caller canceled it,
+    // its stream is gone or its spawn's process is gone, dropping the answer's work.
     async fn hold_call(
         route: &AdmittedRoute,
         context: &RequestContext<RoleServer>,
@@ -373,12 +373,19 @@ impl AgentToolServer {
                     beats += 1;
                     let token = progress_token.clone().expect("the arm runs only with a token");
                     let beat = ProgressNotificationParam::new(token, f64::from(beats));
-                    // A beat that cannot be sent means the stream is gone, which cancels the call.
+                    // A beat that cannot be sent means the stream is gone: a cancelable call ends
+                    // there, and any other keeps running to its answer.
                     if let Err(error) = context.peer.notify_progress(beat).await {
                         tracing::debug!(
                             error = &error as &(dyn Error + 'static),
                             "a held call's progress did not reach its caller"
                         );
+                        if is_cancelable {
+                            return Err(McpError::internal_error(
+                                "the caller's stream is gone",
+                                None,
+                            ));
+                        }
                     }
                 }
             }

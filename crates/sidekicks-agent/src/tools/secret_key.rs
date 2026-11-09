@@ -10,8 +10,8 @@ use sidekicks_store::credential_store::{KeychainRefusal, SecretKeychain};
 
 use crate::tools::server::ToolServerPath;
 
-/// The key's one account in its keychain service.
-pub const TOOL_SERVER_KEY_ACCOUNT: &str = "tool-server-key";
+// The key's one account in its keychain service.
+const TOOL_SERVER_KEY_ACCOUNT: &str = "tool-server-key";
 
 /// Why the tool-server key could not be read or made.
 #[derive(Debug, thiserror::Error)]

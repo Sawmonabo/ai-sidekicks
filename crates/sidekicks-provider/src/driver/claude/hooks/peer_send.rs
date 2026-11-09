@@ -161,8 +161,15 @@ async fn judge(
         };
         return Ok(Some(reason));
     }
-    let listed = match &check.directory {
-        Some(directory) => directory.sessions_named(to.to_owned()).await?,
+    // The calling session is no other session, so a send to its own name is not refused as one.
+    let caller_id = check.session_id.to_string();
+    let listed: Vec<_> = match &check.directory {
+        Some(directory) => directory
+            .sessions_named(to.to_owned())
+            .await?
+            .into_iter()
+            .filter(|session| session.id != caller_id)
+            .collect(),
         None => Vec::new(),
     };
     if let Some(reason) = directory_refusal(&listed) {

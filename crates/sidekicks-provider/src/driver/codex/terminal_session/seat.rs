@@ -11,6 +11,7 @@ use tokio::sync::mpsc;
 
 use super::conversations::TerminalSeatClaim;
 use crate::driver::codex::app_server_protocol::ThreadUnsubscribeParams;
+use crate::driver::codex::event_normalizer::CODEX_THREAD_STATUS_CHANGED_METHOD;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::routing::read_codex_frame_thread_id;
 use crate::driver::codex::session::background_terminals::list_codex_running_commands;
@@ -70,8 +71,8 @@ impl TerminalSeat {
 
 impl CodexService {
     /// Reads one frame of a conversation no session holds on a service terminals join: the frame
-    /// moves what is remembered of it, and a turn end or command end with a command of it still
-    /// running takes a seat on it until none runs. Called on the reader, so nothing here awaits.
+    /// moves what is remembered of it, and a turn end with a command of it still running takes a
+    /// seat on it until none runs. Called on the reader, so nothing here awaits.
     pub(crate) fn watch_terminal_frame(
         self: &Arc<Self>,
         method: &str,
@@ -80,7 +81,8 @@ impl CodexService {
     ) {
         let conversations = self.terminal_conversations();
         conversations.observe_frame(method, params, thread_id);
-        if !is_list_change(method, params) {
+        // Only a turn end is read here; a seat reads every command end of its own conversation.
+        if method != CODEX_THREAD_STATUS_CHANGED_METHOD || !is_list_change(method, params) {
             return;
         }
         // A seat already on the conversation reads its commands again at this frame itself.
@@ -105,7 +107,7 @@ async fn hold_left_commands(service: &CodexService, thread_id: &str, claim: Term
     match list_codex_running_commands(&connection, thread_id).await {
         Ok(process_ids) if process_ids.is_empty() => return,
         Ok(_running) => {}
-        Err(error) => report_step_failed(CodexTeardownStep::BackgroundTerminalList, error),
+        Err(error) => CodexTeardownStep::BackgroundTerminalList.report_failed(error),
     }
     drop(connection);
     let resumed = async {
@@ -140,7 +142,7 @@ pub(super) async fn hold_while_commands_run(seat: &mut TerminalSeat) -> bool {
             Ok(process_ids) if process_ids.is_empty() => return true,
             Ok(_running) => false,
             Err(error) => {
-                report_step_failed(CodexTeardownStep::BackgroundTerminalList, error);
+                CodexTeardownStep::BackgroundTerminalList.report_failed(error);
                 true
             }
         };
@@ -169,16 +171,8 @@ pub(super) async fn let_go(seat: TerminalSeat) {
         )
         .await;
     if let Err(error) = unsubscribed {
-        report_step_failed(CodexTeardownStep::ThreadUnsubscribe, error);
+        CodexTeardownStep::ThreadUnsubscribe.report_failed(error);
     }
-}
-
-fn report_step_failed(step: CodexTeardownStep, error: CodexError) {
-    CodexTransportDiagnostic::TeardownStepFailed {
-        step,
-        error: Box::new(error),
-    }
-    .report();
 }
 
 #[cfg(test)]

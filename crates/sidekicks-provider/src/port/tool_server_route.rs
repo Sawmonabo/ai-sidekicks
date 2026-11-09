@@ -65,11 +65,6 @@ pub struct ToolServerSpawn {
     pub hook_tools: Option<Arc<dyn HookToolServer>>,
 }
 
-/// Why a spawn's entry could not be opened: its secret could not be minted.
-#[derive(Debug, thiserror::Error)]
-#[error("the spawn's tool-server secret could not be minted")]
-pub struct ToolServerSecretError(#[source] pub getrandom::Error);
-
 /// One server's entry as a spawn's configuration carries it. Its headers hold the spawn's secret,
 /// so it is written only into that configuration, never logged.
 pub struct ToolServerRouteEntry {

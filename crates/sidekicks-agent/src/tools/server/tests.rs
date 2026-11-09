@@ -357,8 +357,8 @@ async fn a_call_the_received_check_refuses_names_the_field_and_runs_no_handler()
 }
 
 // A held call whose provider process went away, its spawn's entry dropped with the stream still
-// open, is canceled and its handler's work dropped. Killed by canceling on `notifications/cancelled`
-// alone.
+// open, is canceled and its handler's work dropped; a broken cancel fails at the bound rather than
+// hanging. Killed by canceling on `notifications/cancelled` alone.
 #[tokio::test]
 async fn a_held_call_is_canceled_and_its_work_dropped_when_its_process_is_gone() {
     let mut fixture = fixture();
@@ -373,8 +373,11 @@ async fn a_held_call_is_canceled_and_its_work_dropped_when_its_process_is_gone()
     assert!(!fixture.ports.is_wait_dropped.load(Ordering::SeqCst));
     drop(fixture.spawns[1].1.take());
 
+    let answered = tokio::time::timeout(std::time::Duration::from_secs(10), call)
+        .await
+        .expect("the held call ends once its process is gone");
     assert!(
-        call.await.is_err(),
+        answered.is_err(),
         "the canceled call is answered with an error"
     );
     assert!(fixture.ports.is_wait_dropped.load(Ordering::SeqCst));

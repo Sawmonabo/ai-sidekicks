@@ -721,7 +721,9 @@ impl ProviderDriver for CodexDriver {
         match wording {
             SessionWaitWording::Called { name } => Some(compose_codex_end_your_turn_text(&name)),
             SessionWaitWording::Ended { .. } => None,
-            SessionWaitWording::Pending { awaited, now } => compose_waiting_on_text(&awaited, now),
+            SessionWaitWording::Pending { awaited, now } => {
+                Some(compose_waiting_on_text(&awaited, now))
+            }
         }
     }
 

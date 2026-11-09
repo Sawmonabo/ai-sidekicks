@@ -1,6 +1,7 @@
 //! The secret a loopback client the daemon started presents: minted at each start for the exec
-//! relay, and for each provider process or launch that exports telemetry, or derived from the
-//! daemon's key for a provider process's tool-server entry, and checked on every request or
+//! relay, for each provider process or launch that exports telemetry and for each Claude Code
+//! spawn's in-process tool-server entry, or derived from the daemon's key for a provider process's
+//! tool-server entry, and checked on every request or
 //! connection, so only the process the daemon handed it to reaches the endpoint.
 
 use sidekicks_std::random_hex::random_hex;

@@ -57,7 +57,9 @@ async fn summarize_on_copy(
 ) -> Result<DriverHandoverBriefResult, CodexError> {
     // The service is held until the copy's turn ended; the copy goes with its connection.
     // The person's own summary runs with the session's folder trusted, as the session does.
-    let (service, mut copy) = fork_resting_copy(establishment, &params.resume, false).await?;
+    let is_project_untrusted = false;
+    let (service, mut copy) =
+        fork_resting_copy(establishment, &params.resume, is_project_untrusted).await?;
     // Held until the copy's read ends, so the export's twins of its filed requests pass over.
     let _copy_read = service.dependencies().exports.copy_thread(
         service.id(),

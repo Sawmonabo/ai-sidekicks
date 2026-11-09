@@ -17,7 +17,7 @@ use crate::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::driver::claude::spawn::legs::ClaudeSpawnLegsError;
 use crate::driver::contract::error::DriverError;
 use crate::driver::error_causes::{ProviderAxisInvalid, provider_failure_refusal};
-use crate::port::tool_server_route::ToolServerSecretError;
+use crate::port::in_process_tool_servers::ToolServerSecretError;
 
 /// Why a session's process could not be brought up and adopted.
 #[derive(Debug, thiserror::Error)]

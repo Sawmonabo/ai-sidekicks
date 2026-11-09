@@ -76,17 +76,17 @@ impl ToolServerEntry {
     }
 
     /// Admits `mcp_session_id` for the spawn.
-    pub fn admit_mcp_session(&self, mcp_session_id: String) {
+    pub(crate) fn admit_mcp_session(&self, mcp_session_id: String) {
         lock(&self.mcp_sessions).insert(mcp_session_id);
     }
 
     /// Whether `mcp_session_id` was admitted for the spawn and not forgotten since.
-    pub fn admits_mcp_session(&self, mcp_session_id: &str) -> bool {
+    pub(crate) fn admits_mcp_session(&self, mcp_session_id: &str) -> bool {
         lock(&self.mcp_sessions).contains(mcp_session_id)
     }
 
     /// Forgets `mcp_session_id`, once its client closed it.
-    pub fn forget_mcp_session(&self, mcp_session_id: &str) {
+    pub(crate) fn forget_mcp_session(&self, mcp_session_id: &str) {
         lock(&self.mcp_sessions).remove(mcp_session_id);
     }
 }

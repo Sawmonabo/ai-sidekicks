@@ -354,7 +354,7 @@ pub(crate) fn resolve_session_reference<'directory>(
         return entries
             .iter()
             .find(|entry| entry.id == caller_id)
-            .ok_or_else(|| no_session_named(reference));
+            .ok_or_else(|| no_session_named(&caller_id));
     }
     match named.as_slice() {
         [only] => Ok(only),
@@ -403,7 +403,7 @@ mod tests {
     };
 
     use super::{
-        CallerReference, SessionDirectory, SessionDirectoryEntry, SessionOrigin,
+        CallerReference, SessionDirectory, SessionDirectoryEntry, SessionOrigin, SessionState,
         resolve_session_reference,
     };
     use crate::daemon::schema::schema_parts;
@@ -525,6 +525,19 @@ mod tests {
                 [archived.text().as_str()],
             )
             .expect("the test archives the session");
+        // Killed by dropping the purge condition, which would list a session being deleted.
+        let purged: SessionId = test_session_id();
+        insert_session_row(&reader, purged.text().as_str(), Some("purged"), None);
+        insert_lead(&database, purged, PROVIDERS[0].id);
+        reader
+            .execute(
+                "UPDATE sessions SET state = ?2 WHERE id = ?1",
+                [
+                    purged.text().as_str(),
+                    <&'static str>::from(SessionState::PurgeRequested),
+                ],
+            )
+            .expect("the test marks the session purged");
 
         let mut first = MockProviderDriver::new();
         first

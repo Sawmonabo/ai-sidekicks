@@ -17,6 +17,7 @@ use serde_json::value::RawValue;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
 use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
 
 use crate::driver::codex::delivery::rows::{
     CODEX_COLLAB_AGENT_TOOL_CALL_ITEM_TYPE, CODEX_SPAWN_AGENT_TOOL, CODEX_SPAWNED_ACTIVITY_KIND,
@@ -332,6 +333,36 @@ impl CodexService {
         self.lock_threads().session_for(thread_id).copied()
     }
 
+    /// The session holding `thread_id` on this service, waiting while none does yet for the
+    /// registration a start, a fork or a helper's spawn item makes; `None` once `token` is
+    /// canceled first.
+    pub(crate) async fn await_session_of_thread(
+        &self,
+        thread_id: &str,
+        token: &CancellationToken,
+    ) -> Option<SessionId> {
+        let mut registrations = {
+            let threads = self.lock_threads();
+            if let Some(session_id) = threads.session_for(thread_id) {
+                return Some(*session_id);
+            }
+            // Subscribed under the same lock as the look, so no registration falls between them.
+            threads.watch_registrations()
+        };
+        loop {
+            tokio::select! {
+                biased;
+                () = token.cancelled() => return None,
+                changed = registrations.changed() => {
+                    changed.expect("the table's sender lives as long as the service waited on");
+                }
+            }
+            if let Some(session_id) = self.session_of_thread(thread_id) {
+                return Some(session_id);
+            }
+        }
+    }
+
     /// The session `thread_id` was bound to when this service released it; `None` for a thread
     /// the service holds now, never held or forgot.
     pub(crate) fn former_session_of_thread(&self, thread_id: &str) -> Option<SessionId> {
@@ -384,7 +415,8 @@ impl CodexService {
         let Some(thread_id) = thread_id else {
             return;
         };
-        // Held as any other after, since a helper's frame can come ahead of its spawn item.
+        // Held as any other after, since a helper's frame can come ahead of its spawn item; a
+        // conversation the last terminal listing named is a terminal's, so its frame is taken.
         if TERMINAL_WATCHED_METHODS.contains(&method)
             && matches!(
                 self.kind(),
@@ -392,7 +424,11 @@ impl CodexService {
             )
             && self.session_of_thread(&thread_id).is_none()
         {
+            let is_remembered = self.terminal_conversations().remembers(&thread_id);
             self.watch_terminal_frame(method, &params, &thread_id);
+            if is_remembered {
+                return;
+            }
         }
         let frame = CodexHeldThreadFrame {
             method: method.to_owned(),

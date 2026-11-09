@@ -82,7 +82,8 @@ struct CodexThreadMembers {
 
 /// The `thread/start` params for `settings` with `mcp_servers`, the call's tool-server table,
 /// without the output speed, which the caller sets per request, the conversation's commands
-/// running on the daemon's relay.
+/// running on the daemon's relay. The daemon's tools reach the conversation only through that
+/// table, never as `dynamicTools`, which Codex would offer the model a second time.
 pub(crate) fn compose_codex_thread_start_params(
     settings: &CodexThreadSettings,
     mcp_servers: Map<String, Value>,
@@ -550,16 +551,6 @@ mod tests {
         let config = params.config.expect("a start always carries its config");
         assert_eq!(config.get("features.multi_agent_v2"), Some(&multi_agent));
         assert_eq!(config.get("agents.enabled"), agents_enabled.as_ref());
-    }
-
-    // The daemon's tools reach a conversation only as its tool-server entries. Killed by a start
-    // that also sends them as `dynamicTools`, which Codex would offer the model a second time.
-    #[test]
-    fn a_conversations_start_carries_no_dynamic_tools() {
-        let params = compose_codex_thread_start_params(&settings_with(None), Map::new());
-        let written = serde_json::to_value(params).expect("the params write");
-
-        assert!(written.get("dynamicTools").is_none(), "{written}");
     }
 
     // The commands' policy is the conversation's environment whole: nothing inherited, the

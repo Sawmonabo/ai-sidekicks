@@ -46,25 +46,28 @@ impl CodexSessionEstablishment {
         task.record.permission_profiles =
             CodexThreadPermissionProfiles::established(&task.record.thread_settings);
         // Opened once, so every resume sent again carries the same secret.
-        let resumed =
-            match self.open_tool_servers(task.record.session_id, task.record.callback_tools()) {
-                Ok(tool_servers) => loop {
-                    match self
-                        .resume_thread(task.record, &service, tool_servers.as_ref())
-                        .await
-                    {
-                        Err(error) if error.is_active_writer_refusal() && writer_left().await => {}
-                        Ok(resumed) => break Ok((resumed, tool_servers)),
-                        Err(error) => {
-                            if let Some(tool_servers) = tool_servers {
-                                tool_servers.rollback();
-                            }
-                            break Err(error);
+        let resumed = match self.open_tool_servers(
+            &service,
+            task.record.session_id,
+            task.record.callback_tools(),
+        ) {
+            Ok(tool_servers) => loop {
+                match self
+                    .resume_thread(task.record, &service, tool_servers.as_ref())
+                    .await
+                {
+                    Err(error) if error.is_active_writer_refusal() && writer_left().await => {}
+                    Ok(resumed) => break Ok((resumed, tool_servers)),
+                    Err(error) => {
+                        if let Some(tool_servers) = tool_servers {
+                            tool_servers.rollback();
                         }
+                        break Err(error);
                     }
-                },
-                Err(error) => Err(error),
-            };
+                }
+            },
+            Err(error) => Err(error),
+        };
         match self
             .adopt_resumed_thread(
                 task,
@@ -99,8 +102,8 @@ impl CodexSessionEstablishment {
 
     // Moves the record onto the resumed conversation: its service, binding, status sink, turns,
     // tier and effort, its hold on the daemon's tool servers, its mode sent again, and its routing
-    // band rebound on the sum already metered; the binding it retires lets go of its held presses and ends its leg's status, once,
-    // where its process's end has not. The record changes only once every step that can fail is
+    // band rebound on the sum already metered; the binding it retires lets go of its held presses
+    // and ends its leg's status, once, where its process's end has not. The record changes only once every step that can fail is
     // done; a failure releases the conversation's registration on `service` when the resume made
     // it.
     async fn adopt_resumed_thread(

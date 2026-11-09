@@ -12,7 +12,7 @@ use std::time::Duration;
 use sidekicks_std::port_registration::PortRegistration;
 use tokio_util::task::TaskTracker;
 
-use self::exchanges::{CodexTerminalDelivery, CodexTerminalMessage};
+use self::exchanges::{CodexTerminalDelivery, CodexTerminalMessage, deliver_to_terminal_session};
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
@@ -31,16 +31,11 @@ pub(crate) const TERMINAL_RECONNECT_WINDOW: Duration = Duration::from_secs(120);
 /// Why an agent's message did not reach a Codex session typed in a terminal.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CodexTerminalExchangeError {
-    /// The service has been away past the terminal's reconnect window, so the terminal gave up on
-    /// it for good and sending again cannot reach it; the words tell the person how to reopen it.
+    /// No terminal holds the conversation any more: its terminal closed, terminal reach is off,
+    /// or the service has been away past the terminal's reconnect window, so the terminal gave up
+    /// on it for good. Sending again cannot reach it; the words tell the person how to reopen it.
     #[error("Reopen it in a terminal: codex resume {thread_id}")]
     GivenUp {
-        /// The conversation's thread id.
-        thread_id: String,
-    },
-    /// No terminal holds the conversation on the service any more, or terminal reach is off.
-    #[error("no terminal holds the Codex conversation {thread_id}")]
-    NotOpen {
         /// The conversation's thread id.
         thread_id: String,
     },
@@ -53,17 +48,22 @@ pub(crate) enum CodexTerminalExchangeError {
     NotAMessage,
 }
 
+/// Where the readings of one message to a terminal session go.
+type TerminalReadings = Arc<PortRegistration<Arc<dyn SessionMessageReadingPublisher>>>;
+
 impl CodexServiceRegistry {
     /// Delivers `delivery`, another session's message, into `thread_id`, a conversation a person
-    /// typed in a terminal, publishing to `readings` that it was delivered and, for a turn it
-    /// opened, that turn's answer once it ends, which `tasks` awaits. Answers `Refused` with the
-    /// exchange's words once the terminal gave the service up or where no terminal holds the
-    /// conversation. Fails for a wake-up or a reminder and as the exchange's requests fail.
+    /// typed in a terminal, publishing to `readings` what became of it: delivered and, for a turn
+    /// it opened, that turn's answer or its failure once it ends, which `tasks` awaits. While the
+    /// terminal service is away within the terminal's reconnect window the message reads held
+    /// and goes in on `tasks` once the service is back. Answers `Refused` with the reopen line
+    /// once the terminal gave the service up or where no terminal holds the conversation. Fails
+    /// for a wake-up or a reminder and as the exchange's requests fail.
     pub(crate) async fn deliver_session_message_to_terminal(
         &self,
         thread_id: &str,
         delivery: SessionMessageDelivery,
-        readings: &Arc<PortRegistration<Arc<dyn SessionMessageReadingPublisher>>>,
+        readings: &TerminalReadings,
         tasks: &TaskTracker,
     ) -> Result<SessionMessageSent, DriverError> {
         let SessionMessageKind::Message { body, .. } = delivery.kind else {
@@ -77,57 +77,121 @@ impl CodexServiceRegistry {
             sender_session_id: delivery.sender_session_id,
             body,
         };
-        let delivered = match self.deliver_to_terminal_session(thread_id, &message).await {
-            Ok(delivered) => delivered,
-            Err(
-                refusal @ (CodexTerminalExchangeError::GivenUp { .. }
-                | CodexTerminalExchangeError::NotOpen { .. }),
-            ) => {
-                return Ok(SessionMessageSent::Refused {
-                    words: refusal.to_string(),
-                });
-            }
-            Err(CodexTerminalExchangeError::Codex(error)) => return Err(error.into()),
-            Err(error @ CodexTerminalExchangeError::NotAMessage) => {
-                return Err(DriverError::Internal(Box::new(error)));
-            }
+        let Some(service) = self.terminal_home_service() else {
+            return Ok(given_up(thread_id));
         };
+        let Some(away) = service.away_for() else {
+            return deliver_and_publish(&service, thread_id, &message, readings, tasks).await;
+        };
+        let window_left = TERMINAL_RECONNECT_WINDOW.saturating_sub(away);
+        if window_left.is_zero() {
+            return Ok(given_up(thread_id));
+        }
         let message_id = message.message_id.to_string();
         publish_terminal_reading(
             readings,
-            SessionMessageReading::Delivered {
+            SessionMessageReading::Held {
                 message_id: message_id.clone(),
             },
         );
-        if let CodexTerminalDelivery::Started(ended) = delivered {
-            let readings = Arc::clone(readings);
-            let thread_id = thread_id.to_owned();
-            tasks.spawn(async move {
-                // A seat whose connection ended before the turn did leaves its answer unread.
-                let Ok(end) = ended.await else {
-                    tracing::warn!(thread_id, "a terminal session's turn ended unread");
-                    return;
-                };
-                if !end.is_completed {
+        let readings = Arc::clone(readings);
+        let thread_id = thread_id.to_owned();
+        let later_tasks = tasks.clone();
+        tasks.spawn(async move {
+            let is_back = tokio::time::timeout(window_left, service.when_up())
+                .await
+                .is_ok();
+            let sent = if is_back {
+                deliver_and_publish(&service, &thread_id, &message, &readings, &later_tasks).await
+            } else {
+                Ok(given_up(&thread_id))
+            };
+            let reading = match sent {
+                Ok(SessionMessageSent::Sent) => return,
+                Ok(SessionMessageSent::Refused { words }) => SessionMessageReading::Refused {
+                    message_id,
+                    reason: Some(words),
+                    drop_reason: None,
+                },
+                Err(error) => {
                     tracing::warn!(
                         thread_id,
-                        error = ?end.error,
-                        "a terminal session's turn a message opened did not complete"
+                        error = &error as &(dyn std::error::Error + 'static),
+                        "a held message to a terminal session did not go in"
                     );
+                    SessionMessageReading::NotDelivered { message_id }
                 }
-                // The message opened the turn, so its id names the turn's record.
-                publish_terminal_reading(
-                    &readings,
-                    SessionMessageReading::Answered {
-                        turn_record: message_id.clone(),
-                        message_id,
-                        answer: end.reply,
-                    },
-                );
-            });
-        }
+            };
+            publish_terminal_reading(&readings, reading);
+        });
         Ok(SessionMessageSent::Sent)
     }
+}
+
+// The refusal of a message to `thread_id`, whose terminal no longer holds it.
+fn given_up(thread_id: &str) -> SessionMessageSent {
+    SessionMessageSent::Refused {
+        words: CodexTerminalExchangeError::GivenUp {
+            thread_id: thread_id.to_owned(),
+        }
+        .to_string(),
+    }
+}
+
+// Delivers `message` into `thread_id` on `service`, which is up, and publishes to `readings` that
+// it was delivered and, for a turn it opened, that turn's answer or its failure once it ends, on
+// `tasks`. Answers `Refused` with the reopen line where no terminal holds the conversation; fails
+// as the exchange's requests fail.
+async fn deliver_and_publish(
+    service: &Arc<CodexService>,
+    thread_id: &str,
+    message: &CodexTerminalMessage,
+    readings: &TerminalReadings,
+    tasks: &TaskTracker,
+) -> Result<SessionMessageSent, DriverError> {
+    let delivered = match deliver_to_terminal_session(service, thread_id, message).await {
+        Ok(delivered) => delivered,
+        Err(refusal @ CodexTerminalExchangeError::GivenUp { .. }) => {
+            return Ok(SessionMessageSent::Refused {
+                words: refusal.to_string(),
+            });
+        }
+        Err(CodexTerminalExchangeError::Codex(error)) => return Err(error.into()),
+        Err(error @ CodexTerminalExchangeError::NotAMessage) => {
+            return Err(DriverError::Internal(Box::new(error)));
+        }
+    };
+    let message_id = message.message_id.to_string();
+    publish_terminal_reading(
+        readings,
+        SessionMessageReading::Delivered {
+            message_id: message_id.clone(),
+        },
+    );
+    if let CodexTerminalDelivery::Started(ended) = delivered {
+        let readings = Arc::clone(readings);
+        tasks.spawn(async move {
+            // A seat whose connection ended before the turn did leaves the turn's end unread.
+            let reading = match ended.await {
+                Ok(end) if end.is_completed => SessionMessageReading::Answered {
+                    // The message opened the turn, so its id names the turn's record.
+                    turn_record: message_id.clone(),
+                    message_id,
+                    answer: end.reply,
+                },
+                Ok(end) => SessionMessageReading::Failed {
+                    message_id,
+                    notice: end.notice,
+                },
+                Err(_unread) => SessionMessageReading::Failed {
+                    message_id,
+                    notice: None,
+                },
+            };
+            publish_terminal_reading(&readings, reading);
+        });
+    }
+    Ok(SessionMessageSent::Sent)
 }
 
 // Publishes one reading of a message to a terminal session; one made before the readings are
@@ -141,33 +205,18 @@ fn publish_terminal_reading(
     }
 }
 
-/// The terminal service holding `thread_id` open in a terminal, waited for within what is left of
-/// the terminal's reconnect window while it is away. Fails with `GivenUp` once it has been away past
-/// that window, with `NotOpen` while terminal reach is off or no terminal holds the conversation,
-/// and as the read of its loaded conversations fails.
+/// Answers whether `service`, which is up, holds `thread_id` open in a terminal. Fails with
+/// `GivenUp` where no terminal holds the conversation, and as the read of its loaded
+/// conversations fails.
 async fn require_terminal_session(
-    registry: &CodexServiceRegistry,
+    service: &CodexService,
     thread_id: &str,
-) -> Result<Arc<CodexService>, CodexTerminalExchangeError> {
-    let not_open = || CodexTerminalExchangeError::NotOpen {
-        thread_id: thread_id.to_owned(),
-    };
-    let service = registry.terminal_home_service().ok_or_else(not_open)?;
-    if let Some(away) = service.away_for() {
-        let window_left = TERMINAL_RECONNECT_WINDOW.saturating_sub(away);
-        let is_back = !window_left.is_zero()
-            && tokio::time::timeout(window_left, service.when_up())
-                .await
-                .is_ok();
-        if !is_back {
-            return Err(CodexTerminalExchangeError::GivenUp {
-                thread_id: thread_id.to_owned(),
-            });
-        }
-    }
+) -> Result<(), CodexTerminalExchangeError> {
     let loaded = service.terminal_sessions().await?;
     if !loaded.iter().any(|listed| listed == thread_id) {
-        return Err(not_open());
+        return Err(CodexTerminalExchangeError::GivenUp {
+            thread_id: thread_id.to_owned(),
+        });
     }
-    Ok(service)
+    Ok(())
 }

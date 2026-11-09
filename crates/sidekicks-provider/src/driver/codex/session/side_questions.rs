@@ -523,11 +523,18 @@ fn compose_copy_fork(
     ));
     fork.approval_policy = Some(AskForApproval::Never);
     if is_project_untrusted {
-        // Keyed by the fork's own folder, the first spelling Codex looks its trust up under.
-        let folder = settings.working_directory.to_string_lossy();
+        // Codex looks a folder's trust up under its canonical path first and then as written, so
+        // a folder reached through a link is marked under both, the person's mark on either never
+        // winning; Codex falls back to the written spelling alone when the path cannot resolve.
+        let written = settings.working_directory.to_string_lossy().into_owned();
+        let canonical = std::fs::canonicalize(&settings.working_directory).map_or_else(
+            |_| written.clone(),
+            |path| path.to_string_lossy().into_owned(),
+        );
+        let untrusted = json!({ "trust_level": "untrusted" });
         fork.config.get_or_insert_default().insert(
             "projects".to_owned(),
-            json!({ (folder): { "trust_level": "untrusted" } }),
+            json!({ (canonical): untrusted, (written): untrusted }),
         );
     }
     fork

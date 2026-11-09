@@ -1,5 +1,6 @@
 //! `session_list`'s handler: every session in the directory, the hosted ones with what each is
-//! doing, its group and the person's last message to it read in one statement, one line each.
+//! doing, its group and its last message, its own newest reply else the person's newest message
+//! to it, read in one statement, one line each.
 //! `session_search` prints its hits with the same lines.
 
 use std::collections::HashMap;
@@ -15,13 +16,14 @@ use sidekicks_contracts::name_fold::fold_name;
 use sidekicks_contracts::session::controls::methods::TerminalProviderSessionState;
 use sidekicks_contracts::session::directory::SessionActivity;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_session::directory::run_activity::{WORKING_RUN_STATES, session_activity_sql};
 use sidekicks_session::plan_holds::PlanHolds;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use sidekicks_store::database::schema::SESSION_EVENTS_TABLE;
 use sidekicks_store::database::sql_list::sql_list_of;
+use sidekicks_store::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
+use sidekicks_store::transcript::rejoin::row_condition_sql;
 
 use crate::agent_tools::AgentToolError;
 use crate::orchestration::session_directory::{
@@ -45,10 +47,19 @@ pub(crate) struct ListedSession {
     pub(crate) line: SessionListLine,
 }
 
+// How many characters of a session's last message its line shows, so the line stays one line.
+const LAST_MESSAGE_PREVIEW_LEN: usize = 120;
+
+// The bytes of a reply's stored body decoded for its preview: four per character at most.
+const LAST_REPLY_PREVIEW_BYTES: usize = LAST_MESSAGE_PREVIEW_LEN * 4;
+
 // One hosted session's list facts as the statement reads them.
 struct HostedFacts {
     group: Option<String>,
     first_message_preview: Option<String>,
+    // The opening of the session's newest reply; `None` for a session that never answered.
+    last_reply: Option<String>,
+    // The person's newest message to the session.
     last_message: Option<String>,
     // The working run's newest tool, else its state; `None` unless the session is working.
     doing: Option<String>,
@@ -70,6 +81,7 @@ impl SessionLineReads {
             .map(<&'static str>::from),
         );
         let user_message = SessionEventType::UserMessageSent.as_str();
+        let agent_message = SessionEventType::AgentMessageSent.as_str();
         let tool_call = SessionEventType::AgentToolCallInvoked.as_str();
         let running = <&'static str>::from(SessionActivity::Running);
         let waiting = <&'static str>::from(SessionActivity::Waiting);
@@ -81,7 +93,11 @@ impl SessionLineReads {
                                    THEN json_extract(event.payload, '$.message') END
                          FROM {events} AS event
                         WHERE event.session_id = s.id AND event.type = '{user_message}'
-                        ORDER BY event.sequence DESC LIMIT 1) AS last_message
+                        ORDER BY event.sequence DESC LIMIT 1) AS last_message,
+                      (SELECT event.sequence FROM {events} AS event
+                        WHERE event.session_id = s.id AND event.type = '{agent_message}'
+                          AND {reply_row}
+                        ORDER BY event.sequence DESC LIMIT 1) AS last_reply
                  FROM json_each(@sessionIds) AS wanted
                  JOIN sessions AS s ON s.id = wanted.value
                  LEFT JOIN session_groups AS g ON g.id = s.group_id)
@@ -103,13 +119,18 @@ impl SessionLineReads {
                         WHERE entry.session_id = facts.id AND entry.resolved_at IS NULL
                           AND entry.trigger IN ({asks})
                         ORDER BY entry.created_at DESC LIMIT 1), '')
-                    END
-               FROM facts",
+                    END,
+                    {reply_body}
+               FROM facts
+               LEFT JOIN {events} AS reply
+                 ON reply.session_id = facts.id AND reply.sequence = facts.last_reply",
             activity = session_activity_sql(
                 "s.id",
                 "s.last_run_outcome",
                 &plan_holds.waiting_plan_sql("s.id")
             ),
+            reply_row = row_condition_sql("event"),
+            reply_body = stored_body_columns_sql("reply"),
         );
         Self { pool, facts_sql }
     }
@@ -130,6 +151,9 @@ impl SessionLineReads {
                         HostedFacts {
                             group: row.get(1)?,
                             first_message_preview: row.get(2)?,
+                            last_reply: StoredBodyColumns::read(row, 6)?
+                                .decode_stretch(6, 0, LAST_REPLY_PREVIEW_BYTES)?
+                                .map(|stretch| stretch.text),
                             last_message: row.get(3)?,
                             doing: row.get(4)?,
                             waiting_on: row.get(5)?,
@@ -191,7 +215,11 @@ fn line_of(
         None => (terminal_state_of(entry.origin), None, None),
         Some(facts) => (
             state_of(facts.doing, facts.waiting_on),
-            facts.last_message.map(|message| one_line(&message)),
+            facts
+                .last_reply
+                .filter(|reply| !reply.trim().is_empty())
+                .or(facts.last_message)
+                .map(|message| one_line(&message)),
             facts.first_message_preview,
         ),
     };
@@ -213,7 +241,8 @@ fn line_of(
 }
 
 // What a session typed in a terminal is doing, as the provider's shared service reports it; one
-// the service does not hold or answer for reads idle.
+// the service does not hold reads idle, and one it has been away from past its reconnect window
+// reads not reachable.
 fn terminal_state_of(origin: SessionOrigin) -> SessionListState {
     match origin {
         SessionOrigin::TypedInTerminal {
@@ -221,11 +250,12 @@ fn terminal_state_of(origin: SessionOrigin) -> SessionListState {
         } => SessionListState::Working {
             doing: "a turn in its terminal".to_owned(),
         },
+        SessionOrigin::TypedInTerminal {
+            shared_service_state: Some(TerminalProviderSessionState::Unreachable),
+        } => SessionListState::NotReachable,
         SessionOrigin::Hosted
         | SessionOrigin::TypedInTerminal {
-            shared_service_state:
-                None
-                | Some(TerminalProviderSessionState::Idle | TerminalProviderSessionState::Unreachable),
+            shared_service_state: None | Some(TerminalProviderSessionState::Idle),
         } => SessionListState::Idle,
     }
 }
@@ -250,10 +280,10 @@ fn state_of(doing: Option<String>, waiting_on: Option<String>) -> SessionListSta
     }
 }
 
-// A message on one line, cut to a session name's length, so a line stays one line.
+// A message on one line, cut to its preview's length.
 fn one_line(message: &str) -> String {
     let flattened: String = message.split_whitespace().collect::<Vec<_>>().join(" ");
-    match flattened.char_indices().nth(SESSION_NAME_MAX_LEN) {
+    match flattened.char_indices().nth(LAST_MESSAGE_PREVIEW_LEN) {
         Some((cut, _)) => format!("{}…", &flattened[..cut]),
         None => flattened,
     }
@@ -296,6 +326,7 @@ mod tests {
     use std::sync::Arc;
 
     use futures::FutureExt as _;
+    use serde_json::json;
     use sidekicks_agent::tools::session::list::SessionListArguments;
     use sidekicks_artifact::plans::store::StoredPlanHolds;
     use sidekicks_contracts::session::id::SessionId;
@@ -307,17 +338,20 @@ mod tests {
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::schema::session_directory::insert_session_row;
     use sidekicks_store::database::writer::test_file::{
-        TestDatabase, insert_lead, test_session_id,
+        TestDatabase, insert_lead, insert_test_event, test_run_id, test_session_id,
     };
+    use sidekicks_store::events::test_log::AT;
 
     use super::{SessionLineReads, list_sessions};
     use crate::daemon::schema::schema_parts;
     use crate::orchestration::session_directory::SessionDirectory;
 
-    // A session on each provider is listed with its own provider's name, the caller's marked.
-    // Killed by listing one provider's sessions only, or naming every session by one provider.
+    // A session on each provider is listed with its own provider's name, the caller's marked, and
+    // each other session's last message is its own newest reply, else the person's newest message.
+    // Killed by listing one provider's sessions only, naming every session by one provider, reading
+    // the person's message over the session's reply, or dropping the fallback to the person's.
     #[tokio::test]
-    async fn session_list_names_a_session_of_the_other_provider() {
+    async fn session_list_names_each_provider_and_a_sessions_own_last_reply() {
         let database = TestDatabase::new(schema_parts());
         let reader = database.opener()().expect("the test creates its database");
         reader
@@ -337,6 +371,37 @@ mod tests {
         let reviewer: SessionId = test_session_id();
         insert_session_row(&reader, reviewer.text().as_str(), Some("reviewer"), None);
         insert_lead(&database, reviewer, PROVIDERS[1].id);
+        let tester: SessionId = test_session_id();
+        insert_session_row(&reader, tester.text().as_str(), Some("tester"), None);
+        insert_lead(&database, tester, PROVIDERS[0].id);
+        let person_message = |session_id: SessionId, message: &str| {
+            insert_test_event(
+                &reader,
+                session_id,
+                json!({
+                    "type": "user.message.sent",
+                    "payload": { "sessionId": session_id, "actor": "person", "message": message },
+                }),
+                None,
+                AT,
+            );
+        };
+        person_message(reviewer, "Run the token tests");
+        insert_test_event(
+            &reader,
+            reviewer,
+            json!({
+                "type": "agent.message.sent",
+                "payload": {
+                    "sessionId": reviewer,
+                    "runId": test_run_id(),
+                    "providerMessageId": "m1",
+                },
+            }),
+            Some("2 tests fail\n in token-rotation"),
+            AT,
+        );
+        person_message(tester, "Write the tests");
 
         let drivers = [MockProviderDriver::new(), MockProviderDriver::new()].map(|mut driver| {
             driver
@@ -368,9 +433,13 @@ mod tests {
             listed,
             format!(
                 "planner · {planner} · {} test-model · this Mac · this session\n\
-                 reviewer · {reviewer} · {} test-model · this Mac · idle",
+                 reviewer · {reviewer} · {} test-model · this Mac · idle · \
+                 last: \"2 tests fail in token-rotation\"\n\
+                 tester · {tester} · {} test-model · this Mac · idle · \
+                 last: \"Write the tests\"",
                 PROVIDERS[0].name(),
                 PROVIDERS[1].name(),
+                PROVIDERS[0].name(),
             )
         );
     }

@@ -36,12 +36,14 @@ pub fn gates_by_tool() -> HashMap<String, CallbackToolGate> {
 mod tests {
     use super::{CallbackToolGate, gates_by_tool};
     use crate::tools::group::AgentToolGroup;
-    use crate::tools::session::{read, send};
+    use crate::tools::session::{list, options, read, search};
 
-    // Every tool the session group lists has its declared gate in the map. Killed by leaving a
-    // tool out of the map, which the approval seam then refuses as ungated.
+    // Every tool the session group lists has its gate in the map: the four reading tools `Read`,
+    // every other `Level`. Killed by leaving a tool out of the map, which the approval seam then
+    // refuses as ungated, or by flipping an acting tool to `Read`, which allows it with no level
+    // check.
     #[test]
-    fn the_gate_map_holds_every_session_tool_with_its_declared_gate() {
+    fn the_gate_map_reads_the_four_reading_tools_and_levels_every_other() {
         let gates = gates_by_tool();
         let group = AgentToolGroup::session(None);
         assert_eq!(
@@ -49,20 +51,20 @@ mod tests {
             12,
             "the session group lists all twelve tools"
         );
+        let reading = [
+            list::DESCRIPTION.name,
+            search::DESCRIPTION.name,
+            options::DESCRIPTION.name,
+            read::DESCRIPTION.name,
+        ];
         for tool in group.tools {
-            assert!(
-                gates.contains_key(tool.description.name),
-                "{} has no gate",
-                tool.description.name
-            );
+            let name = tool.description.name;
+            let gate = gates.get(name);
+            if reading.contains(&name) {
+                assert!(matches!(gate, Some(CallbackToolGate::Read)), "{name} reads");
+            } else {
+                assert!(matches!(gate, Some(CallbackToolGate::Level)), "{name} acts");
+            }
         }
-        assert!(matches!(
-            gates.get(read::DESCRIPTION.name),
-            Some(CallbackToolGate::Read)
-        ));
-        assert!(matches!(
-            gates.get(send::DESCRIPTION.name),
-            Some(CallbackToolGate::Level)
-        ));
     }
 }

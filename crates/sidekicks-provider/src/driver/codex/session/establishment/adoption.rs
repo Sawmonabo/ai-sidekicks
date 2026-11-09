@@ -126,11 +126,12 @@ impl CodexSessionEstablishment {
                 &self.dependencies.tool_server_route,
                 &self.dependencies.callback_tool_host,
                 &self.dependencies.hook_tools,
+                &service,
                 session_id,
                 callback_tools,
             )?
         } else {
-            self.open_tool_servers(session_id, callback_tools)?
+            self.open_tool_servers(&service, session_id, callback_tools)?
         };
         let (inbound, receiver) = codex_session_inbound(session_id);
         let mut record = CodexSessionRecord::new(CodexEstablishedConversation {

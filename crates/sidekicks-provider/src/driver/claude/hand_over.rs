@@ -11,7 +11,7 @@ use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::contract::error::DriverError;
 use crate::driver::error_causes::provider_failure_refusal;
 use crate::driver::session_control::{
-    DriverHandoverBriefResult, ExportHandoverBriefParams, HandoverSummaryKind,
+    DriverHandoverBriefResult, ExportHandoverBriefParams, HandoverSummaryKind, SideQuestionPurpose,
 };
 use crate::hand_over::brief::HANDOVER_SUMMARY_TEMPLATE;
 
@@ -48,7 +48,12 @@ impl ClaudeDriver {
     ) -> Result<DriverHandoverBriefResult, DriverError> {
         let parts = self.parts()?;
         let copy = self
-            .compose_copy(parts, params.session_id, Some(params.resume))?
+            .compose_copy(
+                parts,
+                params.session_id,
+                Some(params.resume),
+                SideQuestionPurpose::Person,
+            )?
             .await
             .map_err(DriverError::Internal)?;
         // Holds the session awake until the summary is taken.

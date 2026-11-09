@@ -1,8 +1,8 @@
 //! Where a driver reports what became of a message between sessions, as the provider tells it:
-//! a held, let-in, refused, given-back, undelivered or answered message, a peer message a hosted
-//! session took in, and a message another session sent to the daemon's own address. The
-//! provider's ids are untrusted, so each is kept as the provider wrote it. A reading made before the publisher is
-//! registered is dropped.
+//! a held, let-in, refused, given-back, undelivered, answered or failed message, a peer message a
+//! hosted session took in, and a message another session sent to the daemon's own address. The
+//! provider's ids are untrusted, so each is kept as the provider wrote it. A reading made before
+//! the publisher is registered is dropped.
 
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -60,6 +60,14 @@ pub enum SessionMessageReading {
         turn_record: String,
         /// The text of the turn's last reply; `None` where it held no text.
         answer: Option<String>,
+    },
+    /// The turn the message started in a terminal session failed, or its end could not be read;
+    /// a failed turn's partial reply is never its answer.
+    Failed {
+        /// The message's id.
+        message_id: String,
+        /// The provider's own notice of the failure; `None` where the turn's end went unread.
+        notice: Option<String>,
     },
     /// A hosted session took in a message another session sent.
     Arrived(SessionMessageArrival),

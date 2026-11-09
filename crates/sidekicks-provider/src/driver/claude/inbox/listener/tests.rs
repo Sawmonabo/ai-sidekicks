@@ -312,6 +312,72 @@ async fn a_message_to_a_sleeping_session_goes_to_its_inbox_and_wakes_it() {
     inboxes.release_all();
 }
 
+// Wakes nothing: each wake fails, as one whose session could not be brought up.
+struct FailingWaker;
+
+impl SessionWaker for FailingWaker {
+    fn wake_for_message(
+        &self,
+        _session_id: SessionId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn std::error::Error + Send + Sync>>> {
+        ready(Err("the session could not be woken".into())).boxed()
+    }
+}
+
+// Killed by a failed wake that only records its failure: the message it lost would read nothing,
+// and its send would never reach a final state.
+#[tokio::test]
+async fn a_message_whose_wake_fails_reads_not_delivered() {
+    if !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
+    let scratch = short_socket_folder().expect("a scratch folder is made");
+    let folder = scratch.path().to_path_buf();
+    let session_inbox = folder.join("session.sock");
+    let wakes = Arc::new(PortRegistration::new("session wakes"));
+    wakes
+        .register(Arc::new(FailingWaker) as Arc<dyn SessionWaker>)
+        .expect("the wake registers once");
+    let readings = Arc::new(PortRegistration::new("session message readings"));
+    let recording = Arc::new(RecordingPorts::default());
+    readings
+        .register(Arc::clone(&recording) as Arc<dyn SessionMessageReadingPublisher>)
+        .expect("the readings register once");
+    let inboxes = Arc::new(ClaudeSessionInboxes::new(
+        Arc::new(ScratchAddresser { folder }),
+        wakes,
+        ClaudeSessionSlots::new(Arc::new(|_predecessor| {})),
+        Arc::new(ClaudeIdleSleep::default()),
+        readings,
+    ));
+    let session_id = new_session_id();
+    inboxes.bind(session_id).await;
+
+    let _asleep = send_frames(
+        &session_inbox,
+        &[
+            json!({"type": "user", "from": "uds:/tmp/cc-socks/4101.sock", "msg_id": "lost",
+            "text": "hello"}),
+        ],
+    )
+    .await;
+    tokio::time::timeout(PATIENCE, async {
+        while recording.message_readings().is_empty() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the lost message is read in time");
+
+    assert_eq!(
+        recording.message_readings(),
+        [SessionMessageReading::NotDelivered {
+            message_id: "lost".to_owned(),
+        }]
+    );
+    inboxes.release_all();
+}
+
 // Killed by a name shared across a session's processes (a fork and the predecessor it replaces
 // would bind one path), by a socket outside the inbox's folder, and by a folder left unmade, where
 // a pinned socket has no fallback.

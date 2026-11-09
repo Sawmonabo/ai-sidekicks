@@ -310,6 +310,7 @@ impl CodexSessionEstablishment {
             compose_codex_service_tier(output_speed.as_deref()).map(CodexServiceTierChange);
         // Opened once, so a start sent again carries the same secret.
         let tool_servers = self.open_tool_servers(
+            &service,
             params.session_id,
             params.callback_tools.clone().unwrap_or_default(),
         )?;
@@ -571,10 +572,11 @@ impl CodexSessionEstablishment {
         Ok(service)
     }
 
-    // The daemon's tool servers opened for a new spawn of `session_id`, installing
+    // The daemon's tool servers opened for a new spawn of `session_id` on `service`, installing
     // `callback_tools`.
     fn open_tool_servers(
         &self,
+        service: &Arc<CodexService>,
         session_id: SessionId,
         callback_tools: Vec<SessionCallbackTool>,
     ) -> Result<Option<CodexDaemonToolServers>, CodexError> {
@@ -582,6 +584,7 @@ impl CodexSessionEstablishment {
             &self.dependencies.tool_server_route,
             &self.dependencies.callback_tool_host,
             &self.dependencies.hook_tools,
+            service,
             session_id,
             callback_tools,
         )

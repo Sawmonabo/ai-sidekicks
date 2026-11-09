@@ -50,7 +50,7 @@ This spec covers parent-child run linkage, cross-agent collaboration, and backgr
 
 A session reaches the person's other sessions through **the session tools, twelve tools the daemon serves to every provider**, each one action on sessions:
 
-- `session_list` names the person's sessions on any provider and on any of their computers — a Claude Code or Codex session the person typed in a terminal included, while its terminal is open — each with its name, its id, its provider and model, its project (for a session typed in a terminal, the name of the folder it runs in), its computer, whether it is working, idle or waiting on the person, and its last message, the calling session marked `this session`; it filters by group and project, and lists archived sessions on request.
+- `session_list` names the person's sessions on any provider and on any of their computers — a Claude Code or Codex session the person typed in a terminal included, while its terminal is open — each with its name, its id, its provider and model, its project (for a session typed in a terminal, the name of the folder it runs in), its computer, whether it is working, idle, waiting on the person or not reachable, and its last message, the calling session marked `this session`; it filters by group and project, and lists archived sessions on request.
 - `session_search` searches every session's messages, tool calls, titles, groups and tags through the same index as the person's own search box, and finds the sessions related to one, by relevance ([Spec-001 §Groups, Links And Tags](001-session-core.md#groups-links-and-tags)).
 - `session_options` lists what a new session can use: the person's projects with their branches and groups, the providers with their models and efforts, the permission levels and the computers.
 - `session_read` reads another session: its last answer, its latest turns or the turns around a search hit, with its tool calls, their output and its file changes when asked, and one large output alone, by line range or by search inside it.
@@ -220,7 +220,7 @@ These tools reach the person's other sessions: Claude Code and Codex conversatio
 #### `session_list`
 
 ```
-List the person's sessions: each one's name, id, provider, model, project, computer, whether it is working, idle or waiting on the person, and its last message. The session you are in is marked "this session".
+List the person's sessions: each one's name, id, provider, model, project, computer, whether it is working, idle, waiting on the person or not reachable, and its last message. The session you are in is marked "this session".
 
 {"group": "auth work"}
 
@@ -261,6 +261,8 @@ Fields:
 - `group`, `tag`, `project` (optional): `Narrow to this group, tag or project.`
 - `cursor` (optional): `The next_cursor from the previous page of the same search. Keep the other fields unchanged.`
 
+Results: a session in no project is placed under `No project`; when nothing matches, `No sessions match.`. Refusal: a `cursor` that continues no search the daemon still holds reads `"<cursor>" continues no search. Search again without cursor.`
+
 #### `session_options`
 
 ```
@@ -295,6 +297,14 @@ Fields:
 - `cursor` (optional): `The next_cursor from the previous page.`
 
 The result ends `More: next_cursor "…"` when there is more.
+
+Results: a session whose record holds nothing yet reads `<session> has no messages yet.`; an output's lines with none in the range matching the search read `No lines of output <output> match.`, and with no search and none in the range, `Output <output> has no lines in that range.`.
+
+Refusals:
+
+- A session the person typed in a terminal: `<session> runs in a terminal, so its record cannot be read here.`
+- An output id the session holds no output under: `<session> has no output <output>. Read it with include ["outputs"] to see its output ids.`
+- An `around` hit or a `cursor` that names no place in the session: `"<position>" names no hit or next_cursor in <session>. Read it again without it.`
 
 #### `session_start`
 
@@ -388,7 +398,7 @@ Fields:
 
 Results, the same meaning on both providers, worded by how the daemon waits:
 
-- Claude Code, where the call holds: `builder finished: <its answer>` · `builder needs the person: <what it is asking>` · `Waiting on: builder (your message, 4 min ago), tax-fix (started by you, 12 min ago).`
+- Claude Code, where the call holds: `builder finished: <its answer>` · `builder needs the person: <what it is asking>` · `builder failed: <the turn's own notice>` · `Waiting on: builder (your message, 4 min ago), tax-fix (started by you, just now).`, an age under a minute reading `just now` · with nothing awaited, `Not waiting on any session.`
 - Codex, where the call returns at once: `Waiting on builder. End your turn now; builder's answer arrives as a message when it finishes or needs the person.` The answer arrives as the wake-up below.
 
 The `wait: true` results on `session_send` and `session_start` use the same wording.

@@ -535,6 +535,7 @@ fn open_fork_tool_servers(
         &dependencies.tool_server_route,
         &dependencies.callback_tool_host,
         &dependencies.hook_tools,
+        &record.service,
         record.session_id,
         record.callback_tools(),
     )

@@ -122,15 +122,83 @@ async fn a_busy_session_takes_held_messages_at_its_next_tool_boundary_and_reads_
 }
 
 // Real time under a timeout, as above. A turn that ends with no tool boundary leaves the held
-// message to open the session's next turn, framed for an idle conversation, under its own id.
-// Killed by a held message dropped at the turn's end, and by its turn's echo read on the run
-// queue rather than the readings port.
+// messages to open the session's next turns, one each, in send order, framed for an idle
+// conversation, under their own ids. Killed by a held message dropped at the turn's end, by the
+// second held message left with no wait once the first opened a turn, and by a turn's echo read
+// on the run queue rather than the readings port.
 #[tokio::test]
 async fn a_message_held_through_a_turn_opens_the_next_once_the_session_is_idle() {
     let mut session = LiveCodexSession::start(&[]).await;
     session
         .daemon_turn_bindings
         .open_on(session.binding_id.clone());
+    let (first, second) = (new_message_id(), new_message_id());
+
+    let mut sent = Vec::new();
+    for message_id in [first, second] {
+        sent.push(
+            tokio::time::timeout(
+                PATIENCE,
+                ProviderDriver::deliver_session_message(
+                    &session.driver,
+                    delivery(&session, message_id),
+                ),
+            )
+            .await
+            .expect("the delivery settles")
+            .expect("the delivery is taken"),
+        );
+    }
+    let script = &mut session.scripted.script;
+    script.send(&turn_completed(TEST_THREAD, TEST_TURN, "completed"));
+    let mut started = Vec::new();
+    for turn_id in ["turn-2", "turn-3"] {
+        let start = loop {
+            let sent = tokio::time::timeout(PATIENCE, script.next_sent())
+                .await
+                .expect("each held message opens a turn");
+            match sent["method"].as_str() {
+                Some("turn/start") => break sent,
+                Some("turn/steer") => panic!("an ended turn is never steered"),
+                _ => answer_stopping_request(script, &sent),
+            }
+        };
+        script.answer(&start, &turn_reply(turn_id));
+        let message_id = start["params"]["clientUserMessageId"].clone();
+        script.send(&json!({
+            "jsonrpc": "2.0",
+            "method": "item/completed",
+            "params": {
+                "threadId": TEST_THREAD,
+                "turnId": turn_id,
+                "item": {"type": "userMessage", "id": format!("item-{turn_id}"),
+                    "clientId": message_id, "content": []},
+            },
+        }));
+        script.send(&turn_completed(TEST_THREAD, turn_id, "completed"));
+        started.push(message_id);
+    }
+    let readings = wait_for_readings(&session, 2).await;
+
+    assert_eq!(sent, [SessionMessageSent::Sent, SessionMessageSent::Sent]);
+    assert_eq!(
+        started,
+        [json!(first.to_string()), json!(second.to_string())]
+    );
+    assert_eq!(
+        readings,
+        [first, second].map(|message_id| SessionMessageReading::Delivered {
+            message_id: message_id.to_string(),
+        })
+    );
+    assert_eq!(*lock(&session.queue.taken), Vec::<String>::new());
+}
+
+// Real time under a timeout, as above. A pause of a busy session gives back what it holds by id.
+// Killed by an emptied `give_back_held`, which leaves the held message with no reading.
+#[tokio::test]
+async fn a_paused_busy_session_gives_back_the_messages_it_held() {
+    let session = LiveCodexSession::start(&[]).await;
     let message_id = new_message_id();
 
     let sent = tokio::time::timeout(
@@ -140,43 +208,21 @@ async fn a_message_held_through_a_turn_opens_the_next_once_the_session_is_idle()
     .await
     .expect("the delivery settles")
     .expect("the delivery is taken");
-    let script = &mut session.scripted.script;
-    script.send(&turn_completed(TEST_THREAD, TEST_TURN, "completed"));
-    let started = loop {
-        let sent = tokio::time::timeout(PATIENCE, script.next_sent())
-            .await
-            .expect("the held message opens a turn");
-        match sent["method"].as_str() {
-            Some("turn/start") => break sent,
-            Some("turn/steer") => panic!("an ended turn is never steered"),
-            _ => answer_stopping_request(script, &sent),
-        }
-    };
-    script.answer(&started, &turn_reply("turn-2"));
-    script.send(&json!({
-        "jsonrpc": "2.0",
-        "method": "item/completed",
-        "params": {
-            "threadId": TEST_THREAD,
-            "turnId": "turn-2",
-            "item": {"type": "userMessage", "id": "item-2", "clientId": message_id.to_string(),
-                "content": []},
-        },
-    }));
+    session
+        .driver
+        .parts()
+        .expect("the driver's session parts are composed")
+        .peer_delivery
+        .give_back_held(session.session_id);
     let readings = wait_for_readings(&session, 1).await;
 
     assert_eq!(sent, SessionMessageSent::Sent);
     assert_eq!(
-        started["params"]["clientUserMessageId"],
-        message_id.to_string()
-    );
-    assert_eq!(
         readings,
-        [SessionMessageReading::Delivered {
+        [SessionMessageReading::GivenBack {
             message_id: message_id.to_string(),
         }]
     );
-    assert_eq!(*lock(&session.queue.taken), Vec::<String>::new());
 }
 
 // A message from another session to the live one, under `message_id`.

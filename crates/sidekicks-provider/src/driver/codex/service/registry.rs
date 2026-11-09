@@ -472,6 +472,11 @@ impl CodexServiceRegistry {
             Arc::clone(&self.dependencies),
             home_config_overrides(&home.kind),
         );
+        // The terminals joined to the home move with it; the replacement's own clock never stands
+        // for them, since it is registered only once up.
+        replacement
+            .terminal_conversations()
+            .take_listing_from(service.terminal_conversations());
         if let Err(error) = replacement
             .ensure_started(self.dependencies.startup_timeout)
             .await

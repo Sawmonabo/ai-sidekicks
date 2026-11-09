@@ -130,12 +130,14 @@ pub(crate) struct CodexPeerDelivery {
     held: Mutex<HashMap<SessionId, CodexHeldMessages>>,
 }
 
-// The messages held for one busy session, in send order, and whether a wait for its next idle
-// moment is under way.
+// The messages held for one busy session, in send order, whether a wait for its next idle moment
+// is under way, and whether a pause gave back what it held, so a message a steer under way hands
+// back is given back too and no idle moment opens a turn until the next delivery.
 #[derive(Default)]
 struct CodexHeldMessages {
     messages: VecDeque<CodexHeldMessage>,
     is_awaiting_idle: bool,
+    is_paused: bool,
 }
 
 // Where messages held again go among those a session holds.
@@ -221,15 +223,30 @@ impl CodexPeerDelivery {
     }
 
     /// Delivers `delivery` into the session `session_id` hosts: a new turn of the session's own
-    /// when its conversation is idle, else held for the running turn's next tool boundary, or for
-    /// the session to go idle, when it opens the next turn. Answers `Sent` either way. Fails as the
-    /// session's slot and reading fail and as the turn's start fails.
+    /// when its conversation is idle and nothing is held for it, else held behind what is held
+    /// for the running turn's next tool boundary, or for the session to go idle, when it opens
+    /// the next turn. Answers `Sent` either way. Fails as the session's slot and reading fail and
+    /// as the turn's start fails.
     pub(crate) async fn deliver(
         self: &Arc<Self>,
         session_id: SessionId,
         delivery: SessionMessageDelivery,
     ) -> Result<SessionMessageSent, DriverError> {
         let message = CodexHeldMessage::new(delivery);
+        let is_behind_held = {
+            let mut held = lock(&self.held);
+            // A delivery comes only once the session's pause is over.
+            if let Some(session) = held.get_mut(&session_id) {
+                session.is_paused = false;
+            }
+            held.get(&session_id)
+                .is_some_and(|session| !session.messages.is_empty() || session.is_awaiting_idle)
+        };
+        // Kept in send order: a message never overtakes one held before it.
+        if is_behind_held {
+            self.hold(session_id, VecDeque::from([message]), HeldPlace::Last);
+            return Ok(SessionMessageSent::Sent);
+        }
         match self.open_turn(session_id, &message).await {
             Ok(_run_id) => Ok(SessionMessageSent::Sent),
             Err(CodexError::SessionTurnInFlight { .. }) => {
@@ -271,9 +288,20 @@ impl CodexPeerDelivery {
     }
 
     /// Gives back every message held for `session_id`, whose turn a pause stopped, for the paused
-    /// session's queue.
+    /// session's queue, and every one a steer under way hands back until its next delivery.
     pub(crate) fn give_back_held(&self, session_id: SessionId) {
-        for message in self.take_held(session_id) {
+        let taken = {
+            let mut held = lock(&self.held);
+            let session = held.entry(session_id).or_default();
+            session.is_paused = true;
+            std::mem::take(&mut session.messages)
+        };
+        self.give_back(taken);
+    }
+
+    // Reads each of `messages` given back for the paused session's queue.
+    fn give_back(&self, messages: VecDeque<CodexHeldMessage>) {
+        for message in messages {
             self.publish(SessionMessageReading::GivenBack {
                 message_id: message.message_id.to_string(),
             });
@@ -281,7 +309,8 @@ impl CodexPeerDelivery {
     }
 
     // Holds `messages` for the session, at `place` among those it holds, and has the session's
-    // next idle moment open a turn with the first, unless a wait for it is already under way.
+    // next idle moment open a turn with the first, unless a wait for it is already under way; a
+    // paused session's are given back instead.
     fn hold(
         self: &Arc<Self>,
         session_id: SessionId,
@@ -291,6 +320,11 @@ impl CodexPeerDelivery {
         let is_wait_owed = {
             let mut held = lock(&self.held);
             let session = held.entry(session_id).or_default();
+            if session.is_paused {
+                drop(held);
+                self.give_back(messages);
+                return;
+            }
             match place {
                 HeldPlace::First => {
                     messages.append(&mut session.messages);
@@ -310,48 +344,80 @@ impl CodexPeerDelivery {
 
     // Waits for the session to go idle, then opens a turn of its own with the first message it
     // holds, the message held again, first, should another turn be in flight by then; one that
-    // fails otherwise reads as its failure says. A session gone meanwhile leaves its messages to
-    // its close.
+    // fails otherwise reads as its failure says. The messages left wait for the idle moment after
+    // that turn. A session gone meanwhile leaves its messages to its close; a wait that failed
+    // while the session lives reads each not delivered.
     async fn open_turn_when_idle(self: &Arc<Self>, session_id: SessionId) {
-        let is_idle = match self.dependencies.slots.require_live(session_id) {
-            Ok(inbound) => wait_for_codex_turns(&inbound, CodexTurnWait::Idle, None)
-                .await
-                .unwrap_or_else(|error| {
-                    tracing::debug!(
-                        error = &error as &(dyn Error + 'static),
-                        %session_id,
-                        "a codex session holding messages went before it was idle"
-                    );
-                    false
-                }),
-            Err(_gone) => false,
+        let waited = match self.dependencies.slots.require_live(session_id) {
+            Ok(inbound) => Some(wait_for_codex_turns(&inbound, CodexTurnWait::Idle, None).await),
+            Err(_gone) => None,
         };
-        let first = {
+        let is_idle = match waited {
+            Some(Ok(is_idle)) => is_idle,
+            Some(Err(error)) if self.dependencies.slots.require_live(session_id).is_ok() => {
+                tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    %session_id,
+                    "a codex session holding messages could not be waited on"
+                );
+                let unhanded = self.take_held_after_wait(session_id);
+                for message in unhanded {
+                    self.publish(SessionMessageReading::NotDelivered {
+                        message_id: message.message_id.to_string(),
+                    });
+                }
+                return;
+            }
+            Some(Err(_)) | None => false,
+        };
+        let (first, is_more_held) = {
             let mut held = lock(&self.held);
             let Some(session) = held.get_mut(&session_id) else {
                 return;
             };
             session.is_awaiting_idle = false;
-            let first = if is_idle {
+            let first = if is_idle && !session.is_paused {
                 session.messages.pop_front()
             } else {
                 None
             };
-            if session.messages.is_empty() {
+            let is_more_held = first.is_some() && !session.messages.is_empty();
+            if session.messages.is_empty() && !session.is_paused {
                 held.remove(&session_id);
             }
-            first
+            (first, is_more_held)
         };
         let Some(message) = first else {
             return;
         };
         match self.open_turn(session_id, &message).await {
+            Ok(_run_id) if is_more_held => self.hold(session_id, VecDeque::new(), HeldPlace::Last),
             Ok(_run_id) => {}
             Err(CodexError::SessionTurnInFlight { .. }) => {
                 self.hold(session_id, VecDeque::from([message]), HeldPlace::First);
             }
-            Err(error) => self.publish_unhanded(message.message_id, error.into()),
+            Err(error) => {
+                self.publish_unhanded(message.message_id, error.into());
+                if is_more_held {
+                    self.hold(session_id, VecDeque::new(), HeldPlace::Last);
+                }
+            }
         }
+    }
+
+    // Takes every message held for the session once its idle wait ended, the wait no longer
+    // under way.
+    fn take_held_after_wait(&self, session_id: SessionId) -> VecDeque<CodexHeldMessage> {
+        let mut held = lock(&self.held);
+        let Some(session) = held.get_mut(&session_id) else {
+            return VecDeque::new();
+        };
+        session.is_awaiting_idle = false;
+        let taken = std::mem::take(&mut session.messages);
+        if !session.is_paused {
+            held.remove(&session_id);
+        }
+        taken
     }
 
     // Takes every message held for the session, keeping its entry while a wait for its idle
@@ -362,7 +428,7 @@ impl CodexPeerDelivery {
             return VecDeque::new();
         };
         let taken = std::mem::take(&mut session.messages);
-        if !session.is_awaiting_idle {
+        if !session.is_awaiting_idle && !session.is_paused {
             held.remove(&session_id);
         }
         taken

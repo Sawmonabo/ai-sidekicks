@@ -18,8 +18,8 @@ pub const GATE: CallbackToolGate = CallbackToolGate::Read;
 pub const DESCRIPTION: ToolDescription = ToolDescription {
     name: "session_list",
     summary: "List the person's sessions: each one's name, id, provider, model, project, \
-              computer, whether it is working, idle or waiting on the person, and its last \
-              message. The session you are in is marked \"this session\".",
+              computer, whether it is working, idle, waiting on the person or not reachable, and \
+              its last message. The session you are in is marked \"this session\".",
     body: "{\"group\": \"auth work\"}\n\nUse it to find a session before you read, message or \
            wait on it. A session started on another computer shows that computer's name.",
 };
@@ -82,6 +82,9 @@ pub enum SessionListState {
         /// What it is asking.
         what: String,
     },
+    /// A session typed in a terminal whose provider's service has been away past its reconnect
+    /// window.
+    NotReachable,
 }
 
 impl fmt::Display for SessionListState {
@@ -90,6 +93,7 @@ impl fmt::Display for SessionListState {
             Self::Working { doing } => write!(formatter, "working: {doing}"),
             Self::Idle => formatter.write_str("idle"),
             Self::WaitingOnPerson { what } => write!(formatter, "needs the person: {what}"),
+            Self::NotReachable => formatter.write_str("not reachable"),
         }
     }
 }
@@ -105,7 +109,8 @@ pub struct SessionListLine {
     pub provider: String,
     /// The model's name as the person reads it; `None` where the provider does not say.
     pub model: Option<String>,
-    /// The session's project; `None` for a chat and a session typed in a terminal.
+    /// The session's project; `None` for a chat and for a session typed in a terminal whose
+    /// provider names no folder.
     pub project: Option<String>,
     /// The computer the session runs on.
     pub computer: String,

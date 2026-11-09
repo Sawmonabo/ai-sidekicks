@@ -4,9 +4,6 @@
 //! where the call returns at once, the provider's driver words the line ending the caller's turn,
 //! and a later turn brings the answer.
 
-use std::fmt;
-use std::time::Duration;
-
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
@@ -54,80 +51,6 @@ pub struct SessionWaitArguments {
     )]
     #[schemars(with = "Vec<SessionReference>")]
     pub sessions: Option<Vec<SessionReference>>,
-}
-
-/// How the caller came to wait on a session.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum WaitOrigin {
-    /// The caller's message started the session's turn.
-    YourMessage,
-    /// The caller started the session.
-    StartedByYou,
-}
-
-/// One session the caller waits on.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct WaitEntry {
-    /// The session's name.
-    pub name: String,
-    /// How the wait began.
-    pub started: WaitOrigin,
-    /// How long ago the wait began.
-    pub since: Duration,
-}
-
-impl fmt::Display for WaitEntry {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let origin = match self.started {
-            WaitOrigin::YourMessage => "your message",
-            WaitOrigin::StartedByYou => "started by you",
-        };
-        let age = match self.since.as_secs() / 60 {
-            0 => "just now".to_owned(),
-            minutes => format!("{minutes} min ago"),
-        };
-        write!(formatter, "{} ({origin}, {age})", self.name)
-    }
-}
-
-/// What a held wait answers, the same on every provider: the awaited session's result, or the list
-/// of what the caller waits on.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SessionWaitResult {
-    /// The awaited session finished its turn.
-    Finished {
-        /// The session's name.
-        name: String,
-        /// Its answer.
-        answer: String,
-    },
-    /// The awaited session needs the person.
-    NeedsPerson {
-        /// The session's name.
-        name: String,
-        /// What it asks the person.
-        what: String,
-    },
-    /// The sessions the caller waits on, oldest wait first.
-    Waiting(Vec<WaitEntry>),
-}
-
-impl fmt::Display for SessionWaitResult {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Finished { name, answer } => write!(formatter, "{name} finished: {answer}"),
-            Self::NeedsPerson { name, what } => {
-                write!(formatter, "{name} needs the person: {what}")
-            }
-            Self::Waiting(entries) if entries.is_empty() => {
-                formatter.write_str("Not waiting on any session.")
-            }
-            Self::Waiting(entries) => {
-                let listed: Vec<String> = entries.iter().map(WaitEntry::to_string).collect();
-                write!(formatter, "Waiting on: {}.", listed.join(", "))
-            }
-        }
-    }
 }
 
 /// The refusal to wait on the calling session itself, a turn that would wait on its own end.

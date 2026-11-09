@@ -22,9 +22,9 @@ use serde_json::value::RawValue;
 use sidekicks_provider::bearer_token::BearerToken;
 use sidekicks_provider::port::in_process_tool_servers::{
     InProcessToolServerError, InProcessToolServerOutbound, InProcessToolServers,
-    SpawnInProcessToolServers,
+    SpawnInProcessToolServers, ToolServerSecretError,
 };
-use sidekicks_provider::port::tool_server_route::{ToolServerSecretError, ToolServerSpawn};
+use sidekicks_provider::port::tool_server_route::ToolServerSpawn;
 use sidekicks_provider::tool_server_name::DAEMON_TOOL_SERVER_NAME;
 use sidekicks_std::mutex_lock::lock;
 use tokio_util::task::AbortOnDropHandle;
@@ -32,8 +32,8 @@ use tokio_util::task::AbortOnDropHandle;
 use crate::tools::entries::{ToolServerEntries, ToolServerEntryGuard};
 use crate::tools::server::{AgentToolServer, ToolServerPath};
 
-/// Messages a connection holds in each direction before a sender waits, so a connection's queues
-/// stay small.
+/// Messages a connection holds in each direction before a sender waits: a bound in messages, not
+/// bytes, to which each live sender adds one slot of its own.
 const CONNECTION_BUFFER: usize = 8;
 
 /// The requests a connection's server has yet to answer, by request id.

@@ -45,10 +45,10 @@ use crate::driver::claude::spawn::settings::{
     ClaudePermissionsRequest, ClaudePreApprovals, compose_claude_spawn_settings,
 };
 use crate::driver::session_control::SubagentPolicy;
-use crate::port::in_process_tool_servers::{InProcessToolServers, SpawnInProcessToolServers};
-use crate::port::tool_server_route::{
-    ToolServerConversation, ToolServerSecretError, ToolServerSpawn,
+use crate::port::in_process_tool_servers::{
+    InProcessToolServers, SpawnInProcessToolServers, ToolServerSecretError,
 };
+use crate::port::tool_server_route::{ToolServerConversation, ToolServerSpawn};
 use crate::spawned_version::ResolvedProviderExecutable;
 use crate::tool_server_name::DAEMON_TOOL_SERVER_NAME;
 

@@ -21,9 +21,11 @@ use crate::driver::codex::mcp::config::server_entry::{
     REQUIRED_MEMBER, TOOL_INPUT_SCHEMA_MAX_BYTES_MEMBER, TOOL_TIMEOUT_SEC_MEMBER, URL_MEMBER,
 };
 use crate::driver::codex::service::command_line::CODEX_HOOK_TIMEOUT;
+use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::contract::error::DriverError;
 use crate::driver::mcp_server::write::ENTRY_SWITCH_MEMBER;
+use crate::port::hook_tool_server::HookToolServer;
 use crate::port::tool_server_route::{
     OpenedToolServerRoute, ToolServerConversation, ToolServerRoute, ToolServerSpawn,
 };
@@ -75,8 +77,8 @@ pub(crate) struct CodexDaemonToolServers {
 }
 
 impl CodexDaemonToolServers {
-    /// Opens the daemon's entries for a new spawn of `session_id`'s conversation, its hook rows'
-    /// calls answered by `hook_tools`, and installs `callback_tools` for it, replacing the
+    /// Opens the daemon's entries for a new spawn of `session_id`'s conversation on `service`, its
+    /// hook rows' calls answered by `hook_tools`, and installs `callback_tools` for it, replacing the
     /// earlier spawn's installation; the earlier spawn's entries stay admitted until its hold is
     /// let go. None until the route's owner registered it. Fails when the callback-tool host is
     /// not registered beside the route.
@@ -84,13 +86,14 @@ impl CodexDaemonToolServers {
         route: &PortRegistration<Arc<dyn ToolServerRoute>>,
         host: &PortRegistration<Arc<CallbackToolHost>>,
         hook_tools: &Arc<CodexHookTools>,
+        service: &Arc<CodexService>,
         session_id: SessionId,
         callback_tools: Vec<SessionCallbackTool>,
     ) -> Result<Option<Self>, CodexError> {
         Self::open_on(
             route,
             host,
-            hook_tools,
+            hook_tools.for_session(session_id, service),
             session_id,
             callback_tools,
             |route, spawn| route.open(spawn, CODEX_OPENED_TOOL_SERVER_NAMES),
@@ -104,13 +107,14 @@ impl CodexDaemonToolServers {
         route: &PortRegistration<Arc<dyn ToolServerRoute>>,
         host: &PortRegistration<Arc<CallbackToolHost>>,
         hook_tools: &Arc<CodexHookTools>,
+        service: &Arc<CodexService>,
         session_id: SessionId,
         callback_tools: Vec<SessionCallbackTool>,
     ) -> Result<Option<Self>, CodexError> {
         Self::open_on(
             route,
             host,
-            hook_tools,
+            hook_tools.for_session(session_id, service),
             session_id,
             callback_tools,
             |route, spawn| route.adopt(spawn, CODEX_OPENED_TOOL_SERVER_NAMES),
@@ -118,11 +122,11 @@ impl CodexDaemonToolServers {
     }
 
     // Installs `callback_tools` for a new spawn and opens its entries on the route through
-    // `open_entries`.
+    // `open_entries`, its hook rows answered by `hook_tools`.
     fn open_on(
         route: &PortRegistration<Arc<dyn ToolServerRoute>>,
         host: &PortRegistration<Arc<CallbackToolHost>>,
-        hook_tools: &Arc<CodexHookTools>,
+        hook_tools: Arc<dyn HookToolServer>,
         session_id: SessionId,
         callback_tools: Vec<SessionCallbackTool>,
         open_entries: impl FnOnce(&dyn ToolServerRoute, ToolServerSpawn) -> OpenedToolServerRoute,
@@ -151,7 +155,7 @@ impl CodexDaemonToolServers {
                 conversation: ToolServerConversation::mint(),
                 provider: DESCRIPTOR.provider_id(),
                 dispatcher: Arc::clone(binding.dispatcher()),
-                hook_tools: Some(hook_tools.for_session(session_id)),
+                hook_tools: Some(hook_tools),
             },
         );
         Ok(Some(Self {

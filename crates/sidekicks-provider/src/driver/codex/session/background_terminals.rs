@@ -11,7 +11,7 @@ use crate::driver::codex::app_server_protocol::{
 };
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
-use crate::driver::codex::transport::diagnostics::{CodexTeardownStep, CodexTransportDiagnostic};
+use crate::driver::codex::transport::diagnostics::CodexTeardownStep;
 
 const BACKGROUND_TERMINALS_LIST_METHOD: &str = "thread/backgroundTerminals/list";
 
@@ -103,14 +103,14 @@ pub(crate) async fn end_codex_running_commands(
     let process_ids = match list_codex_running_commands(connection, thread_id).await {
         Ok(process_ids) => process_ids,
         Err(error) => {
-            report_step_failed(CodexTeardownStep::BackgroundTerminalList, error);
+            CodexTeardownStep::BackgroundTerminalList.report_failed(error);
             Vec::new()
         }
     };
     for process_id in process_ids {
         let terminated = terminate_codex_running_command(connection, thread_id, &process_id).await;
         if let Err(error) = terminated {
-            report_step_failed(CodexTeardownStep::BackgroundTerminalTerminate, error);
+            CodexTeardownStep::BackgroundTerminalTerminate.report_failed(error);
         }
     }
     if !is_cleaned {
@@ -125,7 +125,7 @@ pub(crate) async fn end_codex_running_commands(
         )
         .await;
     if let Err(error) = cleaned {
-        report_step_failed(CodexTeardownStep::BackgroundTerminalClean, error);
+        CodexTeardownStep::BackgroundTerminalClean.report_failed(error);
     }
 }
 
@@ -155,12 +155,4 @@ pub(crate) async fn terminate_codex_running_command(
             cause: None,
         })?;
     Ok(read.terminated)
-}
-
-fn report_step_failed(step: CodexTeardownStep, error: CodexError) {
-    CodexTransportDiagnostic::TeardownStepFailed {
-        step,
-        error: Box::new(error),
-    }
-    .report();
 }

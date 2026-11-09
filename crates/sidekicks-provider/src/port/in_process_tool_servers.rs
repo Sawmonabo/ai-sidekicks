@@ -12,7 +12,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 
-use crate::port::tool_server_route::{ToolServerSecretError, ToolServerSpawn};
+use crate::port::tool_server_route::ToolServerSpawn;
+
+/// Why a spawn's in-process servers could not be opened: their secret could not be minted.
+#[derive(Debug, thiserror::Error)]
+#[error("the spawn's tool-server secret could not be minted")]
+pub struct ToolServerSecretError(#[source] pub getrandom::Error);
 
 /// The daemon's in-process tool servers, registered through a `PortRegistration`.
 pub trait InProcessToolServers: Send + Sync {
@@ -98,8 +103,8 @@ struct JsonRpcError {
 /// The reply a provider reads for one message to an in-process server, always in band so the
 /// provider's MCP client fails only that message: the server's reply; `{"result": {}}` for a
 /// notification or a response; a `-32601` error echoing the message's `id` (or `null` where it has
-/// none) for a server the spawn lacks, or for a message naming no server or carrying none; and a `-32603`
-/// error for a server that failed.
+/// none) for a server the spawn lacks, or for a message naming no server or carrying none; and a
+/// `-32603` error for a server that failed.
 pub(crate) fn compose_in_band_reply(
     message: Option<&RawValue>,
     handled: Result<Option<Box<RawValue>>, InProcessToolServerError>,

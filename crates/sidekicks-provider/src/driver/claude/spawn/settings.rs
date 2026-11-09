@@ -517,8 +517,8 @@ mod tests {
         assert_eq!(reviewed.ask, ["Bash(rm *)"]);
     }
 
-    // Killed by `crossSessionInbound` left out of either process's settings: a message the daemon
-    // delivers to a session that bypasses permission prompts is then held for an approval no one
+    // Killed by `crossSessionInbound` left out of the settings of either pre-approval, a session's
+    // own or a locked-down copy's: a message the daemon delivers to a session that bypasses permission prompts is then held for an approval no one
     // gives, or dropped once a headless hold expires.
     #[test]
     fn every_process_lets_in_messages_from_other_sessions() {
@@ -547,8 +547,9 @@ mod tests {
             )
             .expect("the settings compose");
 
+            let settings = serde_json::to_value(settings).expect("the settings serialize");
             assert_eq!(
-                serde_json::to_value(settings).expect("the settings serialize")["crossSessionInbound"],
+                settings["crossSessionInbound"],
                 json!("accept"),
                 "{pre_approvals:?}"
             );

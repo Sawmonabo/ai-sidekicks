@@ -24,7 +24,7 @@ use sidekicks_platforms::{
 };
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
-use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
+use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, ReadHalf};
 use tokio::task::{JoinHandle, JoinSet};
 
 use crate::driver::claude::inbox::address::{fresh_socket_name, is_inbox_socket_name};
@@ -36,9 +36,12 @@ use crate::driver::claude::session::conversation_file::peer_replies::ClaudePeerR
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::claude::session::idle_sleep::ClaudeIdleSleep;
 use crate::driver::claude::session::slots::ClaudeSessionSlots;
+use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::port::session_inbox_address::SessionInboxAddresser;
-use crate::port::session_message_reading_publisher::SessionMessageReadingPublisher;
+use crate::port::session_message_reading_publisher::{
+    SessionMessageReading, SessionMessageReadingPublisher,
+};
 use crate::port::session_wake::SessionWaker;
 
 /// How long a connection to a sleeping session has to send its first complete line, as Claude
@@ -227,7 +230,8 @@ impl ClaudeSessionInboxes {
         Ok(())
     }
 
-    // Carries one connection to the session's process, waking the session first where it sleeps.
+    // Carries one connection to the session's process, waking the session first where it sleeps;
+    // a message the wake or the hand-off loses reads not delivered by its id.
     async fn carry(
         &self,
         session_id: SessionId,
@@ -248,40 +252,37 @@ impl ClaudeSessionInboxes {
         let (live, held_line) = if let Some(live) = awake {
             (live, None)
         } else {
-            let mut first_line = Vec::new();
-            let Ok(read) = tokio::time::timeout(
-                FIRST_LINE_LIMIT,
-                from_sender.read_until(b'\n', &mut first_line),
-            )
-            .await
-            else {
+            let Some(first_line) = read_first_line(&mut from_sender).await? else {
                 return Ok(());
             };
-            read?;
-            if !first_line.ends_with(b"\n") {
-                return Ok(());
+            match self.wake_for_message(session_id).await {
+                Ok(live) => (live, Some(first_line)),
+                Err(error) => {
+                    self.publish_unhanded(&first_line);
+                    return Err(error);
+                }
             }
-            self.session_wakes
-                .require_port()?
-                .wake_for_message(session_id)
-                .await?;
-            // A restart or a wake still bringing the process up is waited out, so the line
-            // reaches the process it brings up.
-            let live = tokio::time::timeout(
-                FIRST_LINE_LIMIT,
-                self.slots.live_after_transitions(session_id),
-            )
-            .await
-            .ok()
-            .flatten()
-            .ok_or(ClaudeInboxRefusal::NoProcess)?;
-            (live, Some(first_line))
         };
-        let process_socket = live
-            .messaging_socket
-            .as_deref()
-            .ok_or(ClaudeInboxRefusal::NoProcessSocket)?;
-        let process = connect_unix_domain_socket(process_socket).await?;
+        let connected: Result<_, Box<dyn Error + Send + Sync>> =
+            match live.messaging_socket.as_deref() {
+                Some(process_socket) => connect_unix_domain_socket(process_socket)
+                    .await
+                    .map_err(Box::from),
+                None => Err(Box::from(ClaudeInboxRefusal::NoProcessSocket)),
+            };
+        let process = match connected {
+            Ok(process) => process,
+            Err(error) => {
+                let lost = match held_line {
+                    Some(line) => Some(line),
+                    None => read_first_line(&mut from_sender).await.ok().flatten(),
+                };
+                if let Some(line) = lost {
+                    self.publish_unhanded(&line);
+                }
+                return Err(error);
+            }
+        };
         let (mut from_process, mut to_process) = tokio::io::split(process);
         let inbound = async {
             let mut line = held_line.unwrap_or_default();
@@ -302,6 +303,59 @@ impl ClaudeSessionInboxes {
         tokio::try_join!(inbound, outbound)?;
         Ok(())
     }
+
+    // Wakes the sleeping session for a message and answers its live process once the wake, or a
+    // restart under way, brought it up. Fails as the wake fails, and with `NoProcess` where no
+    // process came up within the first line's bound.
+    async fn wake_for_message(
+        &self,
+        session_id: SessionId,
+    ) -> Result<Arc<LiveClaudeSession>, Box<dyn Error + Send + Sync>> {
+        self.session_wakes
+            .require_port()?
+            .wake_for_message(session_id)
+            .await?;
+        // A restart or a wake still bringing the process up is waited out, so the line reaches
+        // the process it brings up.
+        tokio::time::timeout(
+            FIRST_LINE_LIMIT,
+            self.slots.live_after_transitions(session_id),
+        )
+        .await
+        .ok()
+        .flatten()
+        .ok_or_else(|| Box::from(ClaudeInboxRefusal::NoProcess))
+    }
+
+    // Reads the message the frame `line` carries as not delivered, the hand-off having lost it;
+    // a line naming no message reads nothing.
+    fn publish_unhanded(&self, line: &[u8]) {
+        let message_id = serde_json::from_slice::<serde_json::Value>(line)
+            .ok()
+            .and_then(|frame| frame.get("msg_id")?.as_str().map(str::to_owned));
+        if let (Some(message_id), Some(publisher)) =
+            (message_id, self.session_message_readings.port())
+        {
+            publisher.publish(SessionMessageReading::NotDelivered { message_id });
+        }
+    }
+}
+
+// Reads the sender's first line within its bound; `None` where none came whole in time.
+async fn read_first_line(
+    from_sender: &mut BufReader<ReadHalf<UnixDomainStream>>,
+) -> io::Result<Option<Vec<u8>>> {
+    let mut first_line = Vec::new();
+    let Ok(read) = tokio::time::timeout(
+        FIRST_LINE_LIMIT,
+        from_sender.read_until(b'\n', &mut first_line),
+    )
+    .await
+    else {
+        return Ok(None);
+    };
+    read?;
+    Ok(first_line.ends_with(b"\n").then_some(first_line))
 }
 
 // Removes each socket named as the daemon names one in `folder` that no process listens on, as a

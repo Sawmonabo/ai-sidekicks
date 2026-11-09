@@ -1,8 +1,8 @@
 //! The command line a Codex service the daemon starts runs: the listener and the `-c` switches
-//! every conversation on it shares, which its kind decides; and the two command hooks the terminal service on the person's
-//! own Codex folder runs while the daemon's program dispatches its hook mode, which run that
-//! program. Each `-c` value is TOML, whose
-//! integers are 64-bit, so the holds below exceed what a JSON number keeps exactly.
+//! every conversation on it shares, which its kind decides; and the two command hooks the terminal
+//! service on the person's own Codex folder runs while the daemon's program dispatches its hook
+//! mode, which run that program. Each `-c` value is TOML, whose integers are 64-bit, so the holds
+//! below exceed what a JSON number keeps exactly.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -423,7 +423,7 @@ mod tests {
     #[rstest]
     #[case::account(CodexServiceKind::Account, true)]
     #[case::terminal(CodexServiceKind::Terminal, false)]
-    fn only_a_managed_homes_service_turns_codex_s_browser_off(
+    fn only_an_account_service_turns_the_browser_tool_off(
         #[case] kind: CodexServiceKind,
         #[case] is_browser_off: bool,
     ) {

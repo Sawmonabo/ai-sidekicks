@@ -91,6 +91,8 @@ pub(crate) struct CodexServiceThreads {
     claims_in_flight: usize,
     /// When the oldest held frame falls due, `None` while nothing is held or a claim is open.
     expiry: watch::Sender<Option<Instant>>,
+    /// Bumped at every registration, so a reader waiting on a thread's owner wakes to look again.
+    registrations: watch::Sender<u64>,
 }
 
 impl CodexServiceThreads {
@@ -115,6 +117,7 @@ impl CodexServiceThreads {
             held_bytes: 0,
             claims_in_flight: 0,
             expiry: watch::Sender::new(None),
+            registrations: watch::Sender::new(0),
         }
     }
 
@@ -122,6 +125,11 @@ impl CodexServiceThreads {
     /// so a held frame is reported at its deadline, never later.
     pub(crate) fn watch_expiry(&self) -> watch::Receiver<Option<Instant>> {
         self.expiry.subscribe()
+    }
+
+    /// Changes at every registration, for a reader waiting on a thread no session holds yet.
+    pub(crate) fn watch_registrations(&self) -> watch::Receiver<u64> {
+        self.registrations.subscribe()
     }
 
     // Sets when the oldest held frame falls due; none falls due while a claim is open.
@@ -190,6 +198,8 @@ impl CodexServiceThreads {
         }
         self.released.retain(|former| former.thread != thread_id);
         self.session_by_thread.insert(thread_id, session_id);
+        self.registrations
+            .send_modify(|count| *count = count.wrapping_add(1));
         if !released.is_empty() {
             self.rearm_expiry();
         }

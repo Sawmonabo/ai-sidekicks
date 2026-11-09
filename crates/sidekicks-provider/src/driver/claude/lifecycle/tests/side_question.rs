@@ -40,9 +40,9 @@ use crate::driver::{CurrentProviderAccount, PROVIDERS};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 use crate::port::in_process_tool_servers::{
     InProcessToolServerError, InProcessToolServerOutbound, InProcessToolServers,
-    SpawnInProcessToolServers,
+    SpawnInProcessToolServers, ToolServerSecretError,
 };
-use crate::port::tool_server_route::{ToolServerSecretError, ToolServerSpawn};
+use crate::port::tool_server_route::ToolServerSpawn;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::runtime_binding::test_store::test_provider_account_id;
 use crate::spawned_version::ResolvedProviderExecutable;
