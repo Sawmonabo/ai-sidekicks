@@ -1,19 +1,25 @@
 //! The shell table's open, retry, deletion, close and reorder, each shell's terminal failing to
 //! start so no shell runs: one shell per key, a deletion that leaves no shell behind, the refusals
-//! of a request naming no shell, and the drop of a record after its runtime stopped.
+//! of a request naming no shell, the drop of a record after its runtime stopped, and a command's
+//! end mark reaching the list's followers.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::jsonrpc::streaming::SubscriptionId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::terminal::{
-    TerminalCloseRequest, TerminalId, TerminalOpenRequest, TerminalReorderRequest,
+    TerminalCloseRequest, TerminalCommandEnd, TerminalId, TerminalListUpdate, TerminalOpenRequest,
+    TerminalReorderRequest,
 };
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::list::UniqueList;
 use sidekicks_ipc::registry::{HandlerError, TransportId};
+use sidekicks_ipc::stream::feed::{CreditGate, Feed};
+use sidekicks_ipc::stream::latest_value::LatestValueFeed;
+use sidekicks_terminal::OutputFilter as _;
 use tokio::sync::watch;
 
 use super::ShellTable;
@@ -288,4 +294,68 @@ fn a_record_s_pane_ends_after_its_runtime_stopped_without_a_panic() {
     record.end_output_subscription(subscription_id, TransportId(1));
     drop(record);
     drop(fixture);
+}
+
+/// The last command's end the next list `feed` reads gives its one shell.
+async fn next_command_end(
+    feed: &mut impl Feed<Emission = TerminalListUpdate>,
+    gate: &CreditGate,
+) -> Option<TerminalCommandEnd> {
+    let update = tokio::time::timeout(Duration::from_secs(10), feed.next(gate))
+        .await
+        .expect("a list arrives in time")
+        .expect("the list is read")
+        .expect("the list goes on");
+    match update.terminals.as_slice() {
+        [entry] => entry.last_command_end.clone(),
+        other => panic!("one shell, not {other:?}"),
+    }
+}
+
+// Fails when a command's end mark carrying the shell's nonce does not reach a follower of the list
+// as the entry's last command end, or when a printed mark or an end with no command sets one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_command_s_end_mark_reaches_the_list_and_a_printed_or_empty_end_does_not() {
+    const NONCE: &str = "0f3c9a7e5b";
+    let (_gate, gate_reader) = watch::channel(true);
+    let fixture = table_fixture(gate_reader).await;
+    let terminal_id = fixture
+        .table
+        .open(open_request(1))
+        .await
+        .expect("the open answers")
+        .terminal_id;
+    let record = fixture
+        .table
+        .shared
+        .find_shell(&session(), &terminal_id)
+        .expect("the shell is held");
+    let table = Arc::clone(&fixture.table);
+    let mut feed =
+        LatestValueFeed::open(|outlet| async move { table.follow_list(session(), outlet).await })
+            .await
+            .expect("the list is followed");
+    let gate = CreditGate::with_credit(1);
+    assert_eq!(next_command_end(&mut feed, &gate).await, None);
+    let mut filter = record.mark_filter(NONCE);
+    let mut kept = Vec::new();
+
+    let printed_and_empty =
+        format!("\x1b]133;D;3;nonce=1111111111\x07\x1b]133;D;3\x07\x1b]133;D;nonce={NONCE}\x07");
+    filter.filter(printed_and_empty.as_bytes(), &mut kept);
+    assert_eq!(record.last_command_end(), None);
+    filter.filter(
+        format!("done\r\n\x1b]133;D;3;nonce={NONCE}\x07").as_bytes(),
+        &mut kept,
+    );
+
+    // A list the open's own change sent may still come first, carrying no end.
+    let end = loop {
+        if let Some(end) = next_command_end(&mut feed, &gate).await {
+            break end;
+        }
+    };
+    assert_eq!(end.exit_code.get(), 3);
+    assert!(end.ended_at.timestamp().is_some(), "{end:?}");
+    assert_eq!(record.last_command_end(), Some(end));
 }

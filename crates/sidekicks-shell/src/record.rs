@@ -13,13 +13,18 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 use bytes::Bytes;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
+use sidekicks_contracts::command::ExitCode;
 use sidekicks_contracts::jsonrpc::streaming::SubscriptionId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::terminal::{TerminalColors, TerminalId, TerminalShellStatus};
+use sidekicks_contracts::terminal::{
+    TerminalColors, TerminalCommandEnd, TerminalId, TerminalShellStatus,
+};
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_ipc::registry::TransportId;
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_terminal::{
     OutputFilter, ScrollbackRead, TerminalAnswers, TerminalError, TerminalHandle, TerminalScreen,
     TerminalWriteError, Terminals,
@@ -63,20 +68,23 @@ pub(crate) struct ShellRecordDeps {
     pub(crate) runtime: Handle,
 }
 
-/// Whether a shell reports its marks, and whether a device typed into it since its last prompt
-/// mark; the read loop's mark filter sets them.
+/// Whether a shell reports its marks, whether a device typed into it since its last prompt mark,
+/// and its last command's end; the read loop's mark filter sets them.
 #[derive(Default)]
 pub(crate) struct ShellMarkState {
     is_reporting: AtomicBool,
     has_input_since_prompt: AtomicBool,
+    last_command_end: Mutex<Option<TerminalCommandEnd>>,
 }
 
 /// The read loop's filter that takes a shell's marks out of its output before the screen copy and
-/// the scrollback see it, noting each prompt mark in the shell's mark state.
+/// the scrollback see it, noting each prompt mark in the shell's mark state and each command's end
+/// there too, sending the session's list again once per read that ended a command.
 pub(crate) struct ShellMarkFilter {
     reader: ShellMarkReader,
     marks: Vec<ShellMark>,
     state: Arc<ShellMarkState>,
+    list: ShellListFollowers,
 }
 
 impl OutputFilter for ShellMarkFilter {
@@ -92,6 +100,26 @@ impl OutputFilter for ShellMarkFilter {
                 .has_input_since_prompt
                 .store(false, Ordering::SeqCst);
             self.state.is_reporting.store(true, Ordering::SeqCst);
+        }
+        // An end mark with no exit code follows a prompt at which no command ran, so it ends none.
+        let last_exit_code = self.marks.iter().rev().find_map(|mark| match mark {
+            ShellMark::CommandEnd {
+                exit_code: Some(exit_code),
+                ..
+            } => Some(*exit_code),
+            ShellMark::Prompt { .. }
+            | ShellMark::CommandStart { .. }
+            | ShellMark::CommandEnd {
+                exit_code: None, ..
+            } => None,
+        });
+        if let Some(exit_code) = last_exit_code {
+            *lock(&self.state.last_command_end) = Some(TerminalCommandEnd {
+                exit_code: ExitCode::new(exit_code)
+                    .expect("a mark's exit code has at most ten digits, far inside 2^53"),
+                ended_at: WireInstant::now(),
+            });
+            self.list.mark_changed();
         }
     }
 
@@ -224,6 +252,7 @@ impl ShellRecord {
             reader: ShellMarkReader::new(nonce),
             marks: Vec::new(),
             state: Arc::clone(&self.marks),
+            list: self.list.clone(),
         }
     }
 
@@ -281,6 +310,11 @@ impl ShellRecord {
     /// Whether the shell reports its prompt and command marks.
     pub(crate) fn is_reporting_marks(&self) -> bool {
         self.marks.is_reporting.load(Ordering::SeqCst)
+    }
+
+    /// The end of the last command the shell ran, once one has ended.
+    pub(crate) fn last_command_end(&self) -> Option<TerminalCommandEnd> {
+        lock(&self.marks.last_command_end).clone()
     }
 
     /// Whether a device typed into the shell since its last prompt mark.

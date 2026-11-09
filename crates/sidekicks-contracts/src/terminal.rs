@@ -30,6 +30,7 @@ use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::attachment::Bytes;
 use crate::wire::id::ClientUuid;
+use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::list::{BoundedVec, ListKey, UniqueList};
 use crate::wire::text::{BoundedText, NonEmptyText, branded_text};
@@ -109,9 +110,23 @@ pub enum TerminalShellStatus {
     },
 }
 
+/// The end of the last command a shell ran, as its own command-end mark reported it, so a screen
+/// can tell one end from the next and mark a tab whose command ended while it was not on screen.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct TerminalCommandEnd {
+    /// The exit code the shell reported for the command.
+    pub exit_code: ExitCode,
+    /// When the daemon read the mark.
+    #[garde(dive)]
+    pub ended_at: WireInstant,
+}
+
 /// One shell as the tab strip draws it. `title` is the title the shell set for itself, or its
 /// program's base name until it sets one. `holder` is `null` while nobody holds the shell, and
-/// `leaseVersion` is the lease version that holder was read at.
+/// `leaseVersion` is the lease version that holder was read at. `lastCommandEnd` is `null` until a
+/// command the person ran in the shell ends.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -129,6 +144,11 @@ pub struct TerminalListEntry {
     pub holder: Option<TerminalControlHolder>,
     /// The lease version the holder was read at.
     pub lease_version: LeaseVersion,
+    /// Its last command's end, or `null`.
+    #[serde(deserialize_with = "nullable")]
+    #[schemars(with = "NullableSchema<TerminalCommandEnd>")]
+    #[garde(dive)]
+    pub last_command_end: Option<TerminalCommandEnd>,
 }
 
 /// The session's whole set of shells, sent on every change, in tab order. The order is the
@@ -546,6 +566,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<TerminalControlHolder>().checked(),
         Definition::read::<TerminalSubscribeRequest>().checked(),
         Definition::read::<TerminalShellStatus>(),
+        Definition::read::<TerminalCommandEnd>(),
         Definition::read::<TerminalListEntry>(),
         Definition::read::<TerminalListUpdate>().checked(),
         Definition::read::<TerminalOpenRequest>().checked(),
