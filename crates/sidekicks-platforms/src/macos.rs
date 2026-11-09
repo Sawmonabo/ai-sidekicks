@@ -22,6 +22,7 @@ pub(crate) mod code_signature;
 pub(crate) mod credential_store;
 pub(crate) mod descriptor_path;
 pub(crate) mod input_wait;
+pub(crate) mod keychain_tool;
 pub(crate) mod lasting_child;
 pub(crate) mod loaded_images;
 pub(crate) mod login_items;

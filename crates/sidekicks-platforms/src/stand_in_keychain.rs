@@ -1,15 +1,17 @@
 //! A stand-in for Apple's keychain tool that a test runs in its place: a folder of items, one file
-//! each, and a script that runs the test's own program as `security` over it, its body
-//! [`run_keychain_tool_stand_in`], each call's arguments recorded. Only macOS runs the tool, so
-//! elsewhere the stand-in's folder holds items no move or read reaches.
+//! each beside a file of its creator code where an add named one, and a script that runs the
+//! test's own program as `security` over it, its body [`run_keychain_tool_stand_in`], each call's
+//! arguments recorded. Only macOS runs the tool, so elsewhere the stand-in's folder holds items no
+//! move, read or store reaches.
 
+use std::fmt::Write as _;
 use std::fs;
 use std::io::{self, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::SignInMove;
 use crate::test_program::this_test_arguments;
+use crate::{CredentialStore, SignInMove};
 
 // The variable naming the stand-in's keychain folder on its first line and a switch on each line
 // after: `locked-once:<account>` answers the first call on that account as a locked keychain,
@@ -24,8 +26,10 @@ const CALLS_FILE: &str = "calls";
 // The stand-in's script in its folder.
 const PROGRAM_FILE: &str = "security";
 
-// The tool's exits the stand-in answers with: no such item, and a locked keychain.
+// The tool's exits the stand-in answers with: no such item, an add meeting an item already there,
+// and a locked keychain.
 const ITEM_NOT_FOUND: i32 = 44;
+const DUPLICATE_ITEM: i32 = 45;
 const KEYCHAIN_LOCKED: i32 = 36;
 
 /// A stand-in keychain over a folder of its own, removed when dropped.
@@ -86,6 +90,21 @@ impl StandInKeychain {
         }
     }
 
+    /// The daemon's credential store through this stand-in in place of Apple's tool; `None` where
+    /// the system's store is not the keychain.
+    pub fn credential_store(&self) -> Option<CredentialStore> {
+        #[cfg(target_os = "macos")]
+        {
+            Some(CredentialStore::over_keychain_tool(
+                self.folder.path().join(PROGRAM_FILE),
+            ))
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            None
+        }
+    }
+
     /// The folder the items, the calls' record and a sleeping call's `pid` file are kept in.
     pub fn folder(&self) -> &Path {
         self.folder.path()
@@ -96,10 +115,18 @@ impl StandInKeychain {
         fs::read(item_path(self.folder.path(), service, account)).ok()
     }
 
-    /// Files `value` under `service` and `account`, in place of any value there.
+    /// The creator code of the item filed under `service` and `account`, `None` where its add
+    /// named none or there is no item.
+    pub fn creator(&self, service: &str, account: &str) -> Option<Vec<u8>> {
+        fs::read(creator_path(self.folder.path(), service, account)).ok()
+    }
+
+    /// Files `value` under `service` and `account` with no creator code, in place of any value
+    /// there, as a writer other than the tool leaves an item.
     pub fn put_item(&self, service: &str, account: &str, value: &[u8]) {
         fs::write(item_path(self.folder.path(), service, account), value)
             .expect("the item is written");
+        remove_if_there(&creator_path(self.folder.path(), service, account));
     }
 
     /// The arguments of every call the tool answered, in order; none before the first call.
@@ -155,11 +182,90 @@ pub fn run_keychain_tool_stand_in() {
 
 // The file holding the item filed under `service` and `account`.
 fn item_path(folder: &Path, service: &str, account: &str) -> PathBuf {
-    folder.join(format!(
-        "item-{}-{}",
+    folder.join(format!("item-{}", item_name(service, account)))
+}
+
+// The file holding the creator code of the item filed under `service` and `account`.
+fn creator_path(folder: &Path, service: &str, account: &str) -> PathBuf {
+    folder.join(format!("creator-{}", item_name(service, account)))
+}
+
+// The item's names in a file name: each in hex, a dash between.
+fn item_name(service: &str, account: &str) -> String {
+    format!(
+        "{}-{}",
         base16ct::lower::encode_string(service.as_bytes()),
         base16ct::lower::encode_string(account.as_bytes())
-    ))
+    )
+}
+
+// Removes the file at `path` where there is one.
+fn remove_if_there(path: &Path) {
+    if let Err(failure) = fs::remove_file(path) {
+        assert_eq!(
+            failure.kind(),
+            io::ErrorKind::NotFound,
+            "the file is removed"
+        );
+    }
+}
+
+// Writes `printed` to the stand-in's own standard output, the script's descriptor 3.
+fn print(printed: &[u8]) {
+    fs::OpenOptions::new()
+        .write(true)
+        .open("/dev/fd/3")
+        .and_then(|mut output| output.write_all(printed))
+        .expect("the output is printed");
+}
+
+// `bytes` as the tool prints a value: `0x` and uppercase hex, then a copy for the eye, where a
+// byte is outside 0x20 to 0x7E or a `\`; else the text between double quotes.
+fn printed_value(bytes: &[u8]) -> String {
+    let is_text = |byte: &u8| (0x20..=0x7E).contains(byte) && *byte != b'\\';
+    if bytes.iter().all(is_text) {
+        return format!("\"{}\"", String::from_utf8_lossy(bytes));
+    }
+    let eye: String = bytes
+        .iter()
+        .map(|byte| {
+            if is_text(byte) {
+                char::from(*byte).to_string()
+            } else {
+                format!("\\{byte:03o}")
+            }
+        })
+        .collect();
+    format!("0x{}  \"{eye}\"", base16ct::upper::encode_string(bytes))
+}
+
+// Prints every item in `folder` as `dump-keychain` lists a generic password's attributes.
+fn print_dump(folder: &Path) {
+    let mut dump = String::new();
+    for entry in fs::read_dir(folder).expect("the keychain's folder lists") {
+        let name = entry.expect("an entry lists").file_name();
+        let Some(names) = name.to_str().and_then(|name| name.strip_prefix("item-")) else {
+            continue;
+        };
+        let (service, account) = names.split_once('-').expect("an item's file names both");
+        let [service, account] = [service, account].map(|hex| {
+            String::from_utf8(base16ct::lower::decode_vec(hex).expect("an item's name is hex"))
+                .expect("an item's name is text")
+        });
+        let creator = fs::read(creator_path(folder, &service, &account))
+            .ok()
+            .map_or_else(|| String::from("<NULL>"), |code| printed_value(&code));
+        write!(
+            dump,
+            "keychain: \"{}/login.keychain-db\"\nversion: 512\nclass: \"genp\"\nattributes:\n    \
+             \"acct\"<blob>={}\n    \"crtr\"<uint32>={creator}\n    \"svce\"<blob>={}\n",
+            folder.display(),
+            printed_value(account.as_bytes()),
+            printed_value(service.as_bytes()),
+        )
+        .expect("a string takes every write");
+    }
+    print(dump.as_bytes());
 }
 
 // Answers one call of the keychain tool over the items in `folder`, as `security` answers it, and
@@ -176,7 +282,7 @@ fn answer_as_security(folder: &Path, switches: &[&str], arguments: &[String]) ->
             .expect("the input reads");
         #[cfg(target_os = "macos")]
         assert!(
-            input.len() <= crate::macos::sign_in_move::INTERACTIVE_LINE_LIMIT,
+            input.len() <= crate::macos::keychain_tool::INTERACTIVE_LINE_LIMIT,
             "one line within the tool's bound"
         );
         let line = input
@@ -188,6 +294,10 @@ fn answer_as_security(folder: &Path, switches: &[&str], arguments: &[String]) ->
         arguments.to_vec()
     };
     let (command, options) = words.split_first().expect("the call names a command");
+    if command == "dump-keychain" {
+        print_dump(folder);
+        return 0;
+    }
     let option = |flag: &str| {
         let at = options.iter().position(|word| word == flag)?;
         options.get(at + 1).cloned()
@@ -203,12 +313,9 @@ fn answer_as_security(folder: &Path, switches: &[&str], arguments: &[String]) ->
         return KEYCHAIN_LOCKED;
     }
     let item = item_path(folder, &service, &account);
+    let creator = creator_path(folder, &service, &account);
     match command.as_str() {
         "find-generic-password" => {
-            assert!(
-                options.iter().any(|word| word == "-w"),
-                "the read prints the item"
-            );
             let value = match fs::read(&item) {
                 Ok(value) => value,
                 Err(missing) => {
@@ -216,27 +323,39 @@ fn answer_as_security(folder: &Path, switches: &[&str], arguments: &[String]) ->
                     return ITEM_NOT_FOUND;
                 }
             };
+            if options.iter().any(|word| word == "-g") {
+                io::stderr()
+                    .write_all(format!("password: {}\n", printed_value(&value)).as_bytes())
+                    .expect("the password line is printed");
+                return 0;
+            }
+            assert!(
+                options.iter().any(|word| word == "-w"),
+                "the read prints the item"
+            );
             let mut printed = if value.iter().all(|byte| (0x20..=0x7E).contains(byte)) {
                 value
             } else {
                 base16ct::lower::encode_string(&value).into_bytes()
             };
             printed.push(b'\n');
-            fs::OpenOptions::new()
-                .write(true)
-                .open("/dev/fd/3")
-                .and_then(|mut output| output.write_all(&printed))
-                .expect("the item is printed");
+            print(&printed);
             0
         }
         "add-generic-password" => {
-            assert!(options.iter().any(|word| word == "-U"), "the add updates");
+            let is_new = !item.exists();
+            if !is_new && !options.iter().any(|word| word == "-U") {
+                return DUPLICATE_ITEM;
+            }
             let hex = option("-X").expect("the add carries the value as hex");
             let mut value = base16ct::lower::decode_vec(hex).expect("the value is lowercase hex");
             if switches.contains(&"keep-changed") {
                 value.pop();
             }
             fs::write(&item, value).expect("the item is written");
+            if let Some(code) = option("-c") {
+                fs::write(&creator, code).expect("the creator code is written");
+            }
             0
         }
         "delete-generic-password"
@@ -247,7 +366,10 @@ fn answer_as_security(folder: &Path, switches: &[&str], arguments: &[String]) ->
             KEYCHAIN_LOCKED
         }
         "delete-generic-password" => match fs::remove_file(&item) {
-            Ok(()) => 0,
+            Ok(()) => {
+                remove_if_there(&creator);
+                0
+            }
             Err(missing) => {
                 assert_eq!(
                     missing.kind(),

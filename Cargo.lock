@@ -287,17 +287,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
-name = "apple-native-keyring-store"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b350bfd03649e07aa05c0a81b3e15934374e585c98204a57e20b9d49f49bb9a"
-dependencies = [
- "keyring-core",
- "log",
- "security-framework",
-]
-
-[[package]]
 name = "ar_archive_writer"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8828,7 +8817,6 @@ name = "sidekicks-platforms"
 version = "0.0.0"
 dependencies = [
  "alacritty_terminal",
- "apple-native-keyring-store",
  "async-io",
  "base16ct 1.0.0",
  "base64 0.23.1",
@@ -8862,7 +8850,6 @@ dependencies = [
  "rstest",
  "rustix-openpty",
  "secrecy",
- "security-framework",
  "serde",
  "serde_json",
  "sha2 0.11.1",

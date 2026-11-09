@@ -331,7 +331,40 @@ impl SecretItems {
             store = self.description,
             "the daemon's secrets have their place"
         );
+        if place == SecretsPlace::OperatingSystem {
+            self.adopt_os_items().await;
+        }
         Ok(place)
+    }
+
+    // Rewrites through the operating system's store each item of this install another writer
+    // made, so no later call on it meets an access prompt; one already written through the store
+    // is left, so a later start finds nothing to do. A service the store refuses is logged and
+    // left for the next start, and each of its items' own calls answers that refusal itself.
+    async fn adopt_os_items(&self) {
+        let Some(os_store) = &self.os_store else {
+            return;
+        };
+        for service in KeychainService::ALL
+            .into_iter()
+            .filter(|service| service.is_moved())
+        {
+            let name = os_service_name(&self.data_folder, service);
+            match os_store.adopt_items(&name).await {
+                Ok(0) => {}
+                Ok(adopted) => tracing::info!(
+                    service = name.as_str(),
+                    adopted,
+                    "items another writer made were written again through the store"
+                ),
+                Err(refusal) => tracing::warn!(
+                    service = name.as_str(),
+                    error = &refusal as &(dyn Error + 'static),
+                    "items another writer made could not be written again through the store; the \
+                     next start tries again"
+                ),
+            }
+        }
     }
 
     // Picks the place at a first start, checks it and records it once it passes.

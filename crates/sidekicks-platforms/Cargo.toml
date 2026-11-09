@@ -62,7 +62,6 @@ tokio-util.workspace = true
 zbus.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
-apple-native-keyring-store.workspace = true
 block2.workspace = true
 dispatch2 = { workspace = true, features = ["libc", "std"] }
 mach2.workspace = true
@@ -74,7 +73,6 @@ objc2-security.workspace = true
 objc2-security.features = ["AuthSession", "CSCommon", "SecCode", "SecRequirement", "std"]
 objc2-service-management.workspace = true
 plist.workspace = true
-security-framework.workspace = true
 subtle.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]

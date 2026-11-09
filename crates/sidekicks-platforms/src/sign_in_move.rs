@@ -60,6 +60,9 @@ pub enum SignInMoveError {
     /// child ended.
     #[error("a step of the sign-in move outlasted its bound, so the move stopped")]
     Overran,
+    /// The task that ran the move ended before the move finished.
+    #[error("the sign-in move's task ended before the move finished")]
+    Stopped(#[source] tokio::task::JoinError),
     /// The move was refused after the sign-in's copy was written, and the copy stays at its
     /// destination for the reason `cause` names.
     #[error(
@@ -95,10 +98,11 @@ pub enum CopyLeftCause {
     Overran,
 }
 
-/// Why the keychain refused a call on a sign-in's item, as the keychain tool's exit answers it.
+/// Why the keychain refused a call on an item, as the keychain tool's exit answers it.
 #[derive(Debug, thiserror::Error)]
 pub enum KeychainItemRefusal {
-    /// The login keychain is locked, as it is while the account is logged out.
+    /// The login keychain is locked, as it is while the account is logged out, or the prompt it
+    /// raised was dismissed.
     #[error("the login keychain is locked")]
     Locked,
     /// The account has no login keychain to hold the item.

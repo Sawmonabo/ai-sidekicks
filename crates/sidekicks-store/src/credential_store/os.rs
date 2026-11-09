@@ -221,6 +221,20 @@ impl OsCredentialStore {
         .await
     }
 
+    /// Rewrites through the store, in one turn, every item filed under `service` another writer
+    /// made, so each serves with no access prompt from then on, and answers how many it rewrote.
+    /// Fails with [`KeychainRefusal`] when the store is locked or cannot be used, or an item
+    /// cannot be read or written again, the items before it rewritten.
+    pub(crate) async fn adopt_items(
+        self: &Arc<Self>,
+        service: &str,
+    ) -> Result<usize, KeychainRefusal> {
+        self.call(service, "", |credentials, service, _| {
+            credentials.adopt_items(service)
+        })
+        .await
+    }
+
     // Runs `operation` on the entry under `service` and `account` in the store's turn, on a
     // blocking thread, and answers `locked` when it takes longer than the store's time from its
     // turn.

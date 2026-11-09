@@ -21,6 +21,9 @@ pub(crate) const ENTRY_MODIFIERS: &[(&str, &str)] = &[("persistence", "local")];
 /// `CRED_MAX_CREDENTIAL_BLOB_SIZE`, past which the store refuses a write.
 pub(crate) const ENTRY_CAPACITY: Option<usize> = Some(2560);
 
+/// No check of who wrote a listed entry: every item serves as it is, whoever wrote it.
+pub(crate) const ADOPTION: Option<fn(&keyring_core::Entry) -> bool> = None;
+
 /// The Credential Manager. Fails only when the store cannot be built.
 pub(crate) fn open_store() -> keyring_core::Result<Arc<keyring_core::CredentialStore>> {
     let store: Arc<keyring_core::CredentialStore> = windows_native_keyring_store::Store::new()?;

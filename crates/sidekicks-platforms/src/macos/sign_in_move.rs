@@ -11,9 +11,6 @@ mod keychain_item;
 #[cfg(test)]
 mod tests;
 
-#[cfg(any(test, feature = "test-support"))]
-pub(crate) use self::keychain_item::INTERACTIVE_LINE_LIMIT;
-
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -23,6 +20,7 @@ use secrecy::zeroize::Zeroizing;
 use subtle::ConstantTimeEq as _;
 
 use self::keychain_item::KeychainItem;
+use crate::macos::keychain_tool::SECURITY_PROGRAM;
 use crate::spawner::Spawner;
 use crate::{
     CopyLeftCause, KeychainItemRefusal, KeychainSignIn, LeftoverSweep, SignInMoveError,
@@ -31,10 +29,6 @@ use crate::{
 
 // The mode a sign-in's file is written with: its owner reads and writes it, no one else.
 const SIGN_IN_FILE_MODE: u32 = 0o600;
-
-// The keychain tool every move reaches the items through, by its full path so no `PATH` entry
-// stands in for it.
-const SECURITY_PROGRAM: &str = "/usr/bin/security";
 
 /// The sign-in move, which this system supplies.
 #[derive(Clone, Debug)]

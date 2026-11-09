@@ -16,24 +16,10 @@ use tokio::process::{Child, Command};
 use tokio::time::Instant;
 
 use super::SignInPlace;
+use crate::macos::keychain_tool::{ToolAnswer, add_line, make_room, output_buffer, tool_answer};
 use crate::posix::child_command::prepare_child_command;
 use crate::spawner::Spawner;
 use crate::{KeychainItemRefusal, SignInMoveError};
-
-// The tool's exit for `errSecItemNotFound`: a read or a delete found no item.
-const ITEM_NOT_FOUND: i32 = 44;
-// The tool's exit for `errSecInteractionNotAllowed`: the keychain is locked.
-const KEYCHAIN_LOCKED: i32 = 36;
-// The tool's exits for `errSecNoDefaultKeychain` and `errSecNoSuchKeychain`: the account has no
-// login keychain.
-const NO_LOGIN_KEYCHAIN: [i32; 2] = [37, 50];
-
-/// The longest line, its newline included, `security -i` reads as one command: it reads each line
-/// into a 4096-byte buffer and splits a longer one silently, so a line past this is never sent.
-pub(crate) const INTERACTIVE_LINE_LIMIT: usize = 4095;
-
-// How much of the tool's output a read first makes room for; an item is a few kilobytes at most.
-const OUTPUT_START_CAPACITY: usize = 8 * 1024;
 
 /// A sign-in's keychain item, each call one child of the keychain tool held to the step bound.
 pub(super) struct KeychainItem<'a> {
@@ -48,15 +34,6 @@ pub(super) struct KeychainItem<'a> {
 struct ToolEnd {
     status: ExitStatus,
     printed: Zeroizing<Vec<u8>>,
-}
-
-/// What a call of the tool answered, where it did not refuse.
-#[derive(Debug, PartialEq, Eq)]
-pub(super) enum ToolAnswer {
-    /// The call did what it asked.
-    Done,
-    /// The item the call named does not exist.
-    NoItem,
 }
 
 /// How an add reaches the tool: one line on its standard input, or, for a sign-in too long for
@@ -262,29 +239,12 @@ async fn talk(child: &mut Child, line: Option<Zeroizing<Vec<u8>>>) -> io::Result
 // Reads `reader` to its end into a buffer wiped when dropped; a full buffer is copied into one of
 // twice its size and wiped, so no copy of the output is left behind in freed memory.
 async fn read_wiped(reader: &mut (impl AsyncRead + Unpin)) -> io::Result<Zeroizing<Vec<u8>>> {
-    let mut held = Zeroizing::new(Vec::with_capacity(OUTPUT_START_CAPACITY));
+    let mut held = output_buffer();
     loop {
-        if held.len() == held.capacity() {
-            let mut larger = Zeroizing::new(Vec::with_capacity(held.capacity() * 2));
-            larger.extend_from_slice(&held);
-            held = larger;
-        }
+        make_room(&mut held);
         if reader.read_buf(&mut *held).await? == 0 {
             return Ok(held);
         }
-    }
-}
-
-/// What the tool's exit `status` answers: done, no item, or the keychain's refusal.
-pub(super) fn tool_answer(status: ExitStatus) -> Result<ToolAnswer, KeychainItemRefusal> {
-    match status.code() {
-        Some(0) => Ok(ToolAnswer::Done),
-        Some(ITEM_NOT_FOUND) => Ok(ToolAnswer::NoItem),
-        Some(KEYCHAIN_LOCKED) => Err(KeychainItemRefusal::Locked),
-        Some(code) if NO_LOGIN_KEYCHAIN.contains(&code) => {
-            Err(KeychainItemRefusal::NoLoginKeychain)
-        }
-        Some(_) | None => Err(KeychainItemRefusal::Ended(status)),
     }
 }
 
@@ -306,46 +266,13 @@ pub(super) fn item_from_printed(printed: &[u8]) -> Zeroizing<Vec<u8>> {
 }
 
 /// How the add of `hex` under `service` and `account` reaches the tool: the line
-/// `add-generic-password -U -a "<account>" -s "<service>" -X "<hex>"` while it fits
-/// [`INTERACTIVE_LINE_LIMIT`], each name quoted with `\` and `"` escaped, else its own arguments.
-/// Fails with [`KeychainItemRefusal::UnwritableName`] when a name holds a line break or a NUL.
+/// `add-generic-password -U -a "<account>" -s "<service>" -X "<hex>"` while it fits the tool's
+/// line, else its own arguments. Fails with [`KeychainItemRefusal::UnwritableName`] when a name
+/// holds a line break or a NUL.
 pub(super) fn add_form(
     service: &str,
     account: &str,
     hex: &str,
 ) -> Result<AddForm, KeychainItemRefusal> {
-    if [service, account]
-        .iter()
-        .any(|name| name.contains(['\n', '\0']))
-    {
-        return Err(KeychainItemRefusal::UnwritableName);
-    }
-    // Room for the words, each name doubled by escapes, and the hex, so the line never moves.
-    let capacity = 64 + 2 * (service.len() + account.len()) + hex.len();
-    let mut line = Zeroizing::new(Vec::with_capacity(capacity));
-    line.extend_from_slice(b"add-generic-password -U -a ");
-    push_quoted(&mut line, account);
-    line.extend_from_slice(b" -s ");
-    push_quoted(&mut line, service);
-    line.extend_from_slice(b" -X \"");
-    line.extend_from_slice(hex.as_bytes());
-    line.extend_from_slice(b"\"\n");
-    if line.len() <= INTERACTIVE_LINE_LIMIT {
-        Ok(AddForm::Line(line))
-    } else {
-        Ok(AddForm::Arguments)
-    }
-}
-
-// Appends `name` in double quotes, a `\` before each `\` and `"`, as the tool's line reader
-// unquotes it.
-fn push_quoted(line: &mut Vec<u8>, name: &str) {
-    line.push(b'"');
-    for byte in name.bytes() {
-        if matches!(byte, b'\\' | b'"') {
-            line.push(b'\\');
-        }
-        line.push(byte);
-    }
-    line.push(b'"');
+    Ok(add_line(&["-U"], service, account, hex)?.map_or(AddForm::Arguments, AddForm::Line))
 }

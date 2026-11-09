@@ -11,10 +11,9 @@ use std::time::Duration;
 use rstest::rstest;
 use secrecy::zeroize::Zeroizing;
 
-use super::keychain_item::{
-    AddForm, INTERACTIVE_LINE_LIMIT, ToolAnswer, add_form, item_from_printed, tool_answer,
-};
+use super::keychain_item::{AddForm, add_form, item_from_printed};
 use super::sign_in_move;
+use crate::macos::keychain_tool::{INTERACTIVE_LINE_LIMIT, ToolAnswer, tool_answer};
 use crate::spawner::Spawner;
 use crate::stand_in_keychain::split_line;
 use crate::test_program::harness_test_name;
@@ -390,17 +389,20 @@ fn a_read_takes_the_items_bytes_whether_printed_raw_or_as_hex(
 }
 
 /// The tool's exits read as the keychain's answers: 44 is no item, which a read answers as none
-/// and a delete as done, 36 a locked keychain, 37 and 50 no login keychain, and any other end its
-/// own. Mutation: 44 read as a failure.
+/// and a delete as done, 36 a locked keychain and 128 its prompt dismissed, both locked, 37 and 50
+/// no login keychain, and any other end its own. Mutations: 44 read as a failure; 128 read as an
+/// end of its own.
 #[test]
 fn the_tools_exit_codes_read_as_the_keychains_answers() {
     let exited = |code: i32| ExitStatus::from_raw(code << 8);
     assert_eq!(tool_answer(exited(0)).ok(), Some(ToolAnswer::Done));
     assert_eq!(tool_answer(exited(44)).ok(), Some(ToolAnswer::NoItem));
-    assert!(matches!(
-        tool_answer(exited(36)),
-        Err(KeychainItemRefusal::Locked)
-    ));
+    for code in [36, 128] {
+        assert!(matches!(
+            tool_answer(exited(code)),
+            Err(KeychainItemRefusal::Locked)
+        ));
+    }
     for code in [37, 50] {
         assert!(matches!(
             tool_answer(exited(code)),

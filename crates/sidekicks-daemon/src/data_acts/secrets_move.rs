@@ -6,9 +6,11 @@
 //!   keychain the same way, one at a time, into its sign-in file going to the files and back into
 //!   its keychain item going to the keychain. It then moves every item into the place it names,
 //!   each written, read back and then deleted from its source, the place record naming the move
-//!   until the last delete. When either step is refused, it puts every sign-in and every item it
-//!   moved back where it was and the place record back at the move's start before it answers,
-//!   naming beside the refusal anything it could not put back, so a later start finishes nothing.
+//!   until the last delete. Each sign-in's move takes the keychain's one turn, as every call on
+//!   the items does, so no two calls meet one prompt. When either step is refused, it puts every
+//!   sign-in and every item it moved back where it was and the place record back at the move's
+//!   start before it answers, naming beside the refusal anything it could not put back, so a
+//!   later start finishes nothing.
 //! - **`secrets check keychain`** takes no lock and changes nothing the service keeps: it writes,
 //!   reads back and deletes one value under an account of its own, so it runs while the service
 //!   that runs while the person is logged out holds the folder.
@@ -26,7 +28,7 @@ use sidekicks_platforms::{
 };
 use sidekicks_provider::driver::{PROVIDER_REGISTRATIONS, ProviderDescriptor};
 use sidekicks_std::error_description::describe_error;
-use sidekicks_store::credential_store::os::KEYCHAIN_CALL_TIMEOUT;
+use sidekicks_std::keyed_lock::HeldWorkEnd;
 
 use crate::data_acts::mode_outcome::{
     ModeFolders, hold_data_folder, keychain_unavailable, login_session_secret_items, not_started,
@@ -96,21 +98,34 @@ async fn move_secrets(
         Ok(None) => return move_secret_items.await,
         Err(outcome) => return outcome,
     };
+    let turn = secret_items.keychain_turn();
+    // One sign-in's move is one call in the keychain's turn, each of its steps held to the turn's
+    // call time; past that time from its turn the move answers as overran, its turn kept until it
+    // ends, so the put-back behind it never meets it.
     let move_one = |toward: SecretsMoveDestination, sign_in: KeychainSignIn| {
-        let (sign_in_move, spawner) = (&sign_in_move, &spawner);
+        let (sign_in_move, spawner, turn) = (sign_in_move.clone(), spawner.clone(), turn.clone());
         async move {
-            let sign_ins = [sign_in];
-            match toward {
-                SecretsMoveDestination::LoggedOutServiceFile => {
-                    sign_in_move
-                        .move_into_files(spawner, &sign_ins, KEYCHAIN_CALL_TIMEOUT)
-                        .await
+            let service = sign_in.service.clone();
+            let step_bound = turn.call_timeout();
+            let moving = async move {
+                let sign_ins = [sign_in];
+                match toward {
+                    SecretsMoveDestination::LoggedOutServiceFile => {
+                        sign_in_move
+                            .move_into_files(&spawner, &sign_ins, step_bound)
+                            .await
+                    }
+                    SecretsMoveDestination::OperatingSystem => {
+                        sign_in_move
+                            .move_into_keychain(&spawner, &sign_ins, step_bound)
+                            .await
+                    }
                 }
-                SecretsMoveDestination::OperatingSystem => {
-                    sign_in_move
-                        .move_into_keychain(spawner, &sign_ins, KEYCHAIN_CALL_TIMEOUT)
-                        .await
-                }
+            };
+            match turn.run(&service, moving, Result::is_ok).await {
+                Ok(moved) => moved,
+                Err(HeldWorkEnd::Unanswered) => Err(SignInMoveError::Overran),
+                Err(HeldWorkEnd::Interrupted(stopped)) => Err(SignInMoveError::Stopped(stopped)),
             }
         }
     };
@@ -240,7 +255,8 @@ fn sign_in_refusal_cause(refusal: &SignInMoveError) -> KeychainRefusalCause {
         | SignInMoveError::File(_)
         | SignInMoveError::Write(_)
         | SignInMoveError::CopyDiffers { .. }
-        | SignInMoveError::Overran => KeychainRefusalCause::Unavailable,
+        | SignInMoveError::Overran
+        | SignInMoveError::Stopped(_) => KeychainRefusalCause::Unavailable,
     }
 }
 

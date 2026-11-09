@@ -309,7 +309,9 @@ interface ProviderAccountRegisterRequest {
   // derives credential material and never speaks a provider token endpoint.
   //
   // Kept as its own item, verified by write-probe-read-delete, and nowhere else: in the operating
-  // system's credential store on macOS and Windows; on Linux in one file in the daemon's own data
+  // system's credential store on macOS and Windows, on macOS read and written only through Apple's
+  // `security` tool, so any build of the daemon reads it with no prompt; on Linux in one file in the
+  // daemon's own data
   // folder, readable by this account alone (mode `0600`), sealed through systemd's credential
   // service where it can seal and plain where not, never the kernel keyring, which a reboot
   // empties. A Mac keeps its items in the same file, plain, from the logged-out service's takeover
