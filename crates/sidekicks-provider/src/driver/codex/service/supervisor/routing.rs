@@ -120,7 +120,6 @@ impl CodexServiceRouting {
 #[serde(rename_all = "camelCase")]
 struct FrameConversation {
     thread_id: Option<Box<RawValue>>,
-    conversation_id: Option<Box<RawValue>>,
     thread: Option<StartedThread>,
     item: Option<Box<RawValue>>,
 }
@@ -197,19 +196,12 @@ pub(crate) fn read_codex_frame_thread_id(method: &str, params: &RawValue) -> Opt
     frame_thread_id(method, read_frame_conversation(params)?)
 }
 
-/// The conversation an ask names: its `threadId`, or an older approval's `conversationId`.
+/// The conversation an ask names: its `threadId`.
 pub(crate) fn read_codex_ask_thread_id(params: &RawValue) -> Option<String> {
-    let conversation = read_frame_conversation(params)?;
-    conversation
+    read_frame_conversation(params)?
         .thread_id
         .as_deref()
         .and_then(read_codex_given_text)
-        .or_else(|| {
-            conversation
-                .conversation_id
-                .as_deref()
-                .and_then(read_codex_given_text)
-        })
 }
 
 /// The conversation a frame names and the helpers its spawn item names; the item is read only on

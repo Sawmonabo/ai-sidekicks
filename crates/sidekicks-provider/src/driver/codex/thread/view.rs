@@ -1,11 +1,14 @@
 //! Readers of a Codex thread's replies: the thread and where it stands, the reasoning effort and
 //! the permission profile a start, resume or fork runs under, the turn a turn request names, and
-//! the `thread/read` of a thread's name, preview, source, status and, for a helper, its nickname,
-//! role and model.
+//! the `thread/read` of a thread's name, preview, source, status, whether it takes direct input
+//! and, for a helper, its nickname, role and model. A thread takes no direct input when Codex says
+//! so in `canAcceptDirectInput`, or, where the reply carries no answer, when it is a multi-agent v2
+//! helper, whose spawn names the path of its task.
 
 use std::time::Duration;
 
 use serde::Deserialize;
+use serde_json::Value;
 use serde_json::value::RawValue;
 
 use crate::driver::codex::app_server_protocol::ThreadReadParams;
@@ -81,7 +84,7 @@ struct ThreadMembers {
 }
 
 // The members a `thread/read` reply's thread is read for, each on its own: `source` is a string or
-// an object, so no one type reads it.
+// an object, so no one type reads it, and `canAcceptDirectInput` is `null` where Codex cannot say.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ThreadReadingMembers {
@@ -93,6 +96,7 @@ struct ThreadReadingMembers {
     agent_nickname: Option<Box<RawValue>>,
     agent_role: Option<Box<RawValue>>,
     model: Option<Box<RawValue>>,
+    can_accept_direct_input: Option<Box<RawValue>>,
 }
 
 /// A thread as `thread/read` names it, without its turns.
@@ -113,6 +117,9 @@ pub(crate) struct CodexThreadReading {
     pub(crate) agent_role: Option<String>,
     /// The model the thread runs on, `None` where it names none or a blank one.
     pub(crate) model: Option<String>,
+    /// Whether Codex takes direct input to the thread, an approval of a reviewer's block among it:
+    /// its `canAcceptDirectInput`, else `false` only for a multi-agent v2 helper.
+    pub(crate) can_accept_direct_input: bool,
 }
 
 /// The thread the `thread/read` reply `reply` names, or `None` when it carries no readable thread.
@@ -123,7 +130,11 @@ pub(crate) fn read_thread_reading(reply: &RawValue) -> Option<CodexThreadReading
         .and_then(|thread| read_codex_object::<ThreadReadingMembers>(thread.get()))?;
     let source = thread
         .source
-        .and_then(|source| serde_json::from_str::<String>(source.get()).ok());
+        .and_then(|source| serde_json::from_str::<Value>(source.get()).ok());
+    let is_v2_spawn = source
+        .as_ref()
+        .and_then(|source| source.pointer(THREAD_SPAWN_PATH_POINTER))
+        .is_some_and(Value::is_string);
     let ephemeral = thread
         .ephemeral
         .and_then(|ephemeral| serde_json::from_str::<bool>(ephemeral.get()).ok());
@@ -132,7 +143,8 @@ pub(crate) fn read_thread_reading(reply: &RawValue) -> Option<CodexThreadReading
         preview: thread
             .preview
             .and_then(|preview| read_codex_given_text(&preview)),
-        is_typed_in_terminal: source.as_deref() == Some(THREAD_TERMINAL_SOURCE)
+        is_typed_in_terminal: source.as_ref().and_then(Value::as_str)
+            == Some(THREAD_TERMINAL_SOURCE)
             && ephemeral == Some(false),
         status: thread
             .status
@@ -144,6 +156,10 @@ pub(crate) fn read_thread_reading(reply: &RawValue) -> Option<CodexThreadReading
             .agent_role
             .and_then(|role| read_codex_given_text(&role)),
         model: thread.model.and_then(|model| read_codex_given_text(&model)),
+        can_accept_direct_input: thread
+            .can_accept_direct_input
+            .and_then(|answer| serde_json::from_str::<bool>(answer.get()).ok())
+            .unwrap_or(!is_v2_spawn),
     })
 }
 
@@ -286,6 +302,9 @@ const THREAD_READ_METHOD: &str = "thread/read";
 // The source of a thread a person started with the `codex` command in a terminal.
 const THREAD_TERMINAL_SOURCE: &str = "cli";
 
+// Where a helper's source names the path of its task, which only a multi-agent v2 spawn gives.
+const THREAD_SPAWN_PATH_POINTER: &str = "/subAgent/thread_spawn/agent_path";
+
 /// Reads the id of the turn the `method` reply `reply` names. Fails with `CodexError::Transport`
 /// naming `method` when it carries none.
 pub(crate) fn read_turn_id(reply: &RawValue, method: &str) -> Result<String, CodexError> {
@@ -304,8 +323,9 @@ pub(crate) fn read_turn_id(reply: &RawValue, method: &str) -> Result<String, Cod
 mod tests {
     use rstest::rstest;
     use serde_json::value::RawValue;
+    use serde_json::{Value, json};
 
-    use super::assert_active_permission_profile;
+    use super::{assert_active_permission_profile, read_thread_reading};
     use crate::driver::codex::session::errors::CodexError;
 
     // A conversation runs only under the profile it asked for; a reply of any other shape fails,
@@ -330,5 +350,40 @@ mod tests {
             assert!(matches!(error, CodexError::Transport { .. }));
             assert!(error.to_string().contains("thread/start"), "{error}");
         }
+    }
+
+    fn spawn_source(agent_path: &Value) -> Value {
+        json!({"subAgent": {"thread_spawn": {
+            "parent_thread_id": "lead", "depth": 1, "agent_path": agent_path,
+            "agent_nickname": null, "agent_role": null,
+        }}})
+    }
+
+    // Codex's own answer decides where the reply carries it; without one, only a spawn naming its
+    // task's path, a multi-agent v2 helper, takes no direct input. Killed by the answer ignored,
+    // the source overriding it, a `null` answer read as accepting, the source fallback dropped,
+    // every spawn refused and a string source read as refusing.
+    #[rstest]
+    #[case::codex_refuses(Some(json!(false)), spawn_source(&Value::Null), false)]
+    #[case::codex_accepts(Some(json!(true)), spawn_source(&json!("/root/scout")), true)]
+    #[case::unavailable(Some(Value::Null), spawn_source(&json!("/root/scout")), false)]
+    #[case::absent_on_a_v2_spawn(None, spawn_source(&json!("/root/scout")), false)]
+    #[case::absent_on_a_v1_spawn(None, spawn_source(&Value::Null), true)]
+    #[case::absent_on_a_terminal_thread(None, json!("cli"), true)]
+    fn a_v2_helper_takes_no_direct_input(
+        #[case] answer: Option<Value>,
+        #[case] source: Value,
+        #[case] can_accept_direct_input: bool,
+    ) {
+        let mut thread = json!({"id": "helper", "source": source});
+        if let Some(answer) = answer {
+            thread["canAcceptDirectInput"] = answer;
+        }
+        let reply = RawValue::from_string(json!({"thread": thread}).to_string())
+            .expect("the reply is JSON");
+
+        let reading = read_thread_reading(&reply).expect("the reply names a thread");
+
+        assert_eq!(reading.can_accept_direct_input, can_accept_direct_input);
     }
 }

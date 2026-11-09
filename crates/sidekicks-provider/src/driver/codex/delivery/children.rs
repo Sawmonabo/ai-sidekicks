@@ -69,13 +69,14 @@ impl CodexHelperStart {
     }
 }
 
-/// How long the `thread/read` of a spawned helper's names waits before its child run starts
-/// without them.
+/// How long the `thread/read` of a helper's conversation waits: for a spawned helper's names
+/// before its child run starts without them, and for whether a reviewer's block on it may be
+/// allowed once.
 const CODEX_HELPER_READ_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Reads a spawned or restored helper's conversation for its names and model, waiting at most
-/// [`CODEX_HELPER_READ_TIMEOUT`]; a read that fails or finds no thread is logged and answers
-/// `None`, and the helper goes without them.
+/// Reads a spawned or restored helper's conversation for its names and model, or a blocked one's
+/// for whether it takes direct input, waiting at most [`CODEX_HELPER_READ_TIMEOUT`]; a read that
+/// fails or finds no thread is logged and answers `None`.
 pub(crate) async fn read_codex_helper_thread(
     record: &CodexSessionRecord,
     helper_thread_id: &str,
@@ -95,7 +96,7 @@ pub(crate) async fn read_codex_helper_thread(
         session_id = %record.session_id,
         helper_thread_id,
         error = error.as_ref().map(|error| error as &(dyn std::error::Error + 'static)),
-        "codex's helper thread read failed; the helper goes without the names and model it gives"
+        "codex's helper thread read failed"
     );
     None
 }

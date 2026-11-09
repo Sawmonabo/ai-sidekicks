@@ -54,8 +54,7 @@ pub(crate) enum CodexAskKind {
 /// token refresh goes to the connection's [`CodexTokenRefresher`] where it has one; every other
 /// method, `currentTime/read` and `attestation/generate` among them, and a token refresh on a
 /// connection with no refresher, is answered `-32601` through [`compose_unrouted_request_error`].
-/// A refusal answers `decline` or `denied`, never `cancel` or `abort`, which would interrupt the
-/// turn.
+/// A refusal answers `decline`, never `cancel`, which would interrupt the turn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CodexRoutedMethod {
     /// `item/tool/call`: a daemon tool's call.
@@ -66,10 +65,6 @@ pub(crate) enum CodexRoutedMethod {
     FileChangeApproval,
     /// `item/permissions/requestApproval`, which has no decline: its refusal is an empty grant.
     PermissionsApproval,
-    /// `execCommandApproval`, the older command approval.
-    ExecCommandApproval,
-    /// `applyPatchApproval`, the older file-change approval.
-    ApplyPatchApproval,
     /// `item/tool/requestUserInput`: a question, answered with its answers.
     UserInputRequest,
     /// `mcpServer/elicitation/request`: Codex's own approval of a tool-server call, or a tool
@@ -104,8 +99,6 @@ impl CodexRoutedMethod {
             "item/commandExecution/requestApproval" => Some(Self::CommandExecutionApproval),
             "item/fileChange/requestApproval" => Some(Self::FileChangeApproval),
             "item/permissions/requestApproval" => Some(Self::PermissionsApproval),
-            "execCommandApproval" => Some(Self::ExecCommandApproval),
-            "applyPatchApproval" => Some(Self::ApplyPatchApproval),
             "item/tool/requestUserInput" => Some(Self::UserInputRequest),
             "mcpServer/elicitation/request" => Some(Self::ElicitationRequest),
             _ => None,
@@ -119,8 +112,6 @@ impl CodexRoutedMethod {
             Self::CommandExecutionApproval => "item/commandExecution/requestApproval",
             Self::FileChangeApproval => "item/fileChange/requestApproval",
             Self::PermissionsApproval => "item/permissions/requestApproval",
-            Self::ExecCommandApproval => "execCommandApproval",
-            Self::ApplyPatchApproval => "applyPatchApproval",
             Self::UserInputRequest => "item/tool/requestUserInput",
             Self::ElicitationRequest => "mcpServer/elicitation/request",
         }
@@ -133,9 +124,7 @@ impl CodexRoutedMethod {
             Self::ToolCall => CodexAskKind::CallbackTool,
             Self::CommandExecutionApproval
             | Self::FileChangeApproval
-            | Self::PermissionsApproval
-            | Self::ExecCommandApproval
-            | Self::ApplyPatchApproval => CodexAskKind::Approval,
+            | Self::PermissionsApproval => CodexAskKind::Approval,
             Self::UserInputRequest => CodexAskKind::Question,
             Self::ElicitationRequest => {
                 if is_codex_tool_call_approval_elicitation(params.get().as_bytes()) {
@@ -160,9 +149,6 @@ impl CodexRoutedMethod {
             }
             Self::ElicitationRequest => json!({ "action": "decline" }),
             Self::PermissionsApproval => json!({ "permissions": {}, "scope": "turn" }),
-            Self::ExecCommandApproval | Self::ApplyPatchApproval => {
-                json!({ "decision": { "denied": { "rejection": reason } } })
-            }
             // A question has no decline; an empty answer set is the refusal Codex reads.
             Self::UserInputRequest => json!({ "answers": {} }),
         }
@@ -238,9 +224,6 @@ impl CodexRoutedMethod {
                     .unwrap_or_else(|| json!({}));
                 Some(json!({ "permissions": permissions, "scope": "turn" }))
             }
-            Self::ExecCommandApproval | Self::ApplyPatchApproval => Some(json!({
-                "decision": if is_for_session { "approved_for_session" } else { "approved" },
-            })),
             Self::UserInputRequest => None,
             // A tool-server call allowed for the session says so in `_meta.persist`.
             Self::ElicitationRequest => {
@@ -282,9 +265,7 @@ impl CodexRoutedMethod {
             Self::ToolCall
             | Self::CommandExecutionApproval
             | Self::FileChangeApproval
-            | Self::PermissionsApproval
-            | Self::ExecCommandApproval
-            | Self::ApplyPatchApproval => None,
+            | Self::PermissionsApproval => None,
         }
     }
 }
@@ -406,7 +387,7 @@ struct RoutedAskParams {
 
 /// Reads the turn a routed ask's untrusted `params` name, bounded here since the text reaches a
 /// refusal reason and a diagnostic. Params that are no object, or a `turnId` that is no text or
-/// is empty, name no turn: the older approvals carry none and an elicitation's may be `null`.
+/// is empty, name no turn: an elicitation's may be `null`.
 pub(crate) fn read_routed_ask_turn_id(params: &RawValue) -> CodexRoutedAskTurnId {
     let Some(turn_id) =
         serde_json::from_str::<RoutedAskParams>(&decode_inbound_json(params.get().as_bytes()))
@@ -503,10 +484,8 @@ mod tests {
     // The result with its reason text blanked, so two refusals compare by what they grant.
     fn without_reason(result: &Value) -> Value {
         let mut grant = result.clone();
-        for reason_member in ["/contentItems/0/text", "/decision/denied/rejection"] {
-            if let Some(reason) = grant.pointer_mut(reason_member) {
-                *reason = json!("");
-            }
+        if let Some(reason) = grant.pointer_mut("/contentItems/0/text") {
+            *reason = json!("");
         }
         grant
     }
@@ -522,14 +501,6 @@ mod tests {
     #[case::permissions(
         "item/permissions/requestApproval",
         json!({"permissions": {}, "scope": "turn"})
-    )]
-    #[case::exec_command(
-        "execCommandApproval",
-        json!({"decision": {"denied": {"rejection": "Why."}}})
-    )]
-    #[case::apply_patch(
-        "applyPatchApproval",
-        json!({"decision": {"denied": {"rejection": "Why."}}})
     )]
     #[case::user_input("item/tool/requestUserInput", json!({"answers": {}}))]
     #[case::elicitation("mcpServer/elicitation/request", json!({"action": "decline"}))]
@@ -558,6 +529,8 @@ mod tests {
     #[case::current_time("currentTime/read")]
     #[case::auth_refresh("account/chatgptAuthTokens/refresh")]
     #[case::attestation("attestation/generate")]
+    #[case::exec_command_approval("execCommandApproval")]
+    #[case::apply_patch_approval("applyPatchApproval")]
     #[case::unknown("item/somethingNew/request")]
     fn a_method_outside_the_table_is_answered_method_not_found(#[case] method: &str) {
         assert_eq!(CodexRoutedMethod::from_method(method), None);

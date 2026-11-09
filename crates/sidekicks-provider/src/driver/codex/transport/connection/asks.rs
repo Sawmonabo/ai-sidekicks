@@ -46,18 +46,12 @@ pub(super) struct HeldServerRequest {
     params: Box<RawValue>,
 }
 
-// The members of a held ask's params that name its conversation and turn; an older approval
-// names its conversation `conversationId`.
-#[expect(
-    clippy::struct_field_names,
-    reason = "each member is the id of what it names"
-)]
+// The members of a held ask's params that name its conversation and turn.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AskConversation {
     thread_id: Option<Box<RawValue>>,
     turn_id: Option<Box<RawValue>>,
-    conversation_id: Option<Box<RawValue>>,
 }
 
 #[derive(Serialize)]
@@ -339,9 +333,8 @@ pub(super) fn read_dropped_request(
     request_id: String,
     held: &HeldServerRequest,
 ) -> CodexForgottenRequest {
-    let thread_id = read_codex_object::<AskConversation>(held.params.get()).and_then(|names| {
-        read_member::<String>(names.thread_id.or(names.conversation_id).as_deref())
-    });
+    let thread_id = read_codex_object::<AskConversation>(held.params.get())
+        .and_then(|names| read_member::<String>(names.thread_id.as_deref()));
     CodexForgottenRequest {
         request_id,
         ask_kind: held.method.classify_ask(&held.params),

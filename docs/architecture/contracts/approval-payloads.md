@@ -203,7 +203,8 @@ interface ApprovalReviewerDeniedPayload {
   // row then reads `Blocked` alone.
   reason?: string;
   // False where the provider lets no person overrule the block — Claude Code's block without a
-  // classifier verdict, and Codex's review that timed out — and the row then carries no button.
+  // classifier verdict, Codex's review that timed out, and a Codex block inside a multi-agent v2
+  // helper — and the row then carries no button.
   overridable: boolean;
 }
 

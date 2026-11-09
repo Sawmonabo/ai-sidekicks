@@ -811,12 +811,8 @@ fn compose_correction_key(action: &ProviderAskAction) -> Option<String> {
 // The tool each built-in approval asks about, by its item type.
 fn codex_approval_tool(method: CodexRoutedMethod) -> Option<&'static str> {
     match method {
-        CodexRoutedMethod::CommandExecutionApproval | CodexRoutedMethod::ExecCommandApproval => {
-            Some("commandExecution")
-        }
-        CodexRoutedMethod::FileChangeApproval | CodexRoutedMethod::ApplyPatchApproval => {
-            Some("fileChange")
-        }
+        CodexRoutedMethod::CommandExecutionApproval => Some("commandExecution"),
+        CodexRoutedMethod::FileChangeApproval => Some("fileChange"),
         CodexRoutedMethod::PermissionsApproval => Some("permissions"),
         CodexRoutedMethod::ToolCall
         | CodexRoutedMethod::UserInputRequest

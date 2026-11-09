@@ -122,8 +122,6 @@ pub(crate) enum CodexInboundMethod {
     ItemCommandExecutionRequestApproval,
     ItemFileChangeRequestApproval,
     ItemPermissionsRequestApproval,
-    ExecCommandApproval,
-    ApplyPatchApproval,
     AttestationGenerate,
     AccountChatgptAuthTokensRefresh,
     ThreadStarted,
@@ -200,8 +198,6 @@ impl CodexInboundMethod {
             Self::ItemCommandExecutionRequestApproval => "item/commandExecution/requestApproval",
             Self::ItemFileChangeRequestApproval => "item/fileChange/requestApproval",
             Self::ItemPermissionsRequestApproval => "item/permissions/requestApproval",
-            Self::ExecCommandApproval => "execCommandApproval",
-            Self::ApplyPatchApproval => "applyPatchApproval",
             Self::AttestationGenerate => "attestation/generate",
             Self::AccountChatgptAuthTokensRefresh => "account/chatgptAuthTokens/refresh",
             Self::ThreadStarted => CODEX_THREAD_STARTED_METHOD,
@@ -261,19 +257,18 @@ impl CodexInboundMethod {
     fn row(self) -> CodexFrameRow {
         use CodexFrameReading::{Emits, EmitsEvent, Reads};
         match self {
-            // Server requests. The approval methods, `execCommandApproval` and `applyPatchApproval`
-            // among them, are the approval card; a question and a tool server's question are the
-            // questions card, Codex's own approval of a tool-server call splitting off by its kind;
-            // `item/tool/call` is a daemon tool's call.
+            // Server requests. The approval methods are the approval card; a question and a tool
+            // server's question are the questions card, Codex's own approval of a tool-server call
+            // splitting off by its kind; `item/tool/call` is a daemon tool's call.
             Self::ItemToolCall => request(ASK, Emits(NormalizedEventKind::ToolStart)),
             Self::ItemToolRequestUserInput | Self::McpServerElicitationRequest => {
                 request(ASK, Emits(NormalizedEventKind::UserInputRequest))
             }
             Self::ItemCommandExecutionRequestApproval
             | Self::ItemFileChangeRequestApproval
-            | Self::ItemPermissionsRequestApproval
-            | Self::ExecCommandApproval
-            | Self::ApplyPatchApproval => request(ASK, Emits(NormalizedEventKind::ApprovalRequest)),
+            | Self::ItemPermissionsRequestApproval => {
+                request(ASK, Emits(NormalizedEventKind::ApprovalRequest))
+            }
             Self::AttestationGenerate => request(
                 CONNECTION,
                 Reads("declined at negotiation, so it is refused on the transport"),

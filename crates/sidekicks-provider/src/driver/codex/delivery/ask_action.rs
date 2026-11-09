@@ -255,6 +255,24 @@ mod tests {
         &BOTH_SCOPES,
         false
     )]
+    #[case::a_wrapped_line_not_read_whole(
+        "item/commandExecution/requestApproval",
+        json!({"command": "/bin/zsh -lc 'npm test \"x'"}),
+        &[],
+        None,
+        ProviderAskAction::Command { command: "npm test \"x".to_owned() },
+        &BOTH_SCOPES,
+        false
+    )]
+    #[case::a_line_that_does_not_split(
+        "item/commandExecution/requestApproval",
+        json!({"command": "/bin/zsh -lc 'npm test"}),
+        &[],
+        None,
+        ProviderAskAction::Command { command: "/bin/zsh -lc 'npm test".to_owned() },
+        &BOTH_SCOPES,
+        false
+    )]
     #[case::a_command_without_accept_for_session(
         "item/commandExecution/requestApproval",
         json!({"command": "npm test", "availableDecisions": ["accept", "decline"]}),

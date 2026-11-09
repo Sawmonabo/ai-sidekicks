@@ -1,10 +1,12 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use futures::future::BoxFuture;
 use rstest::rstest;
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::StopTrigger;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::subagent::SubagentId;
@@ -21,6 +23,7 @@ use crate::driver::codex::session::inbound::CodexSessionInbound;
 use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestCodexSession, turn_completed};
 use crate::driver::registry::test_token;
 use crate::driver::run_control::HelperStopReason;
+use crate::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
 use crate::port::run_host::test_host::RecordedDelivery;
 use crate::run::delivery::{ChildRunSubagent, LateAppendableRow, RunSetupRefusal};
 use crate::run::state_entry::RunStateEntry;
@@ -569,4 +572,115 @@ async fn a_daemon_interrupted_helpers_end_is_marked_and_its_route_retired() {
             "an ended helper's route is gone"
         );
     }
+}
+
+/// The approval service's intake, keeping whether each block it takes may be allowed once.
+#[derive(Default)]
+struct KeptDenials(Mutex<Vec<bool>>);
+
+impl ReviewerDenialPort for KeptDenials {
+    fn take_denial(
+        &self,
+        denial: ProviderReviewerDenial,
+    ) -> BoxFuture<'_, Result<(), Box<dyn std::error::Error + Send + Sync>>> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(denial.is_overridable);
+        Box::pin(async { Ok(()) })
+    }
+
+    fn release_held_presses(&self, _binding_id: &RuntimeBindingId) {}
+}
+
+/// The `thread/read` answer of a loaded helper spawned at `agent_path`, with Codex's own answer.
+fn helper_thread_answer(agent_path: &Value, can_accept_direct_input: bool) -> Value {
+    json!({"result": {"thread": {
+        "id": HELPER_THREAD,
+        "source": {"subAgent": {"thread_spawn": {
+            "parent_thread_id": TEST_THREAD, "depth": 1, "agent_path": agent_path,
+            "agent_nickname": null, "agent_role": null,
+        }}},
+        "canAcceptDirectInput": can_accept_direct_input,
+    }}})
+}
+
+// A reviewer's denial on a helper's thread may be allowed once only when the read of its
+// conversation says Codex takes direct input to it, and the lead's is never read. Kills: the block
+// handed over unread, every helper's block made not overridable, a failed read answering `true`,
+// and the lead's block read (its read waits out the bound and answers `false`) or narrowed.
+#[rstest]
+#[case::a_v2_helper(
+    HELPER_THREAD,
+    HELPER_TURN,
+    Some(helper_thread_answer(&json!("/root/scout"), false)),
+    false
+)]
+#[case::a_v1_helper(
+    HELPER_THREAD,
+    HELPER_TURN,
+    Some(helper_thread_answer(&Value::Null, true)),
+    true
+)]
+#[case::a_helper_whose_read_fails(
+    HELPER_THREAD,
+    HELPER_TURN,
+    Some(json!({"error": {"code": -32600, "message": "the thread is not loaded"}})),
+    false
+)]
+#[case::the_lead(TEST_THREAD, LEAD_TURN, None, true)]
+#[tokio::test]
+async fn a_block_inside_a_v2_helper_may_not_be_allowed_once(
+    #[case] thread_id: &str,
+    #[case] turn_id: &str,
+    #[case] read_answer: Option<Value>,
+    #[case] is_overridable: bool,
+) {
+    let mut session = TestCodexSession::start().await;
+    open_live_turn(&mut session, LEAD_TURN);
+    let spawned = json!({
+        "type": "subAgentActivity", "id": "call-1", "kind": "started",
+        "agentThreadId": HELPER_THREAD, "agentPath": "/root/scout",
+    });
+    session
+        .task
+        .handle(item_frame("item/started", LEAD_TURN, &spawned))
+        .await;
+    handle_answering_read(
+        &mut session,
+        item_frame("item/completed", LEAD_TURN, &spawned),
+        HELPER_THREAD,
+        json!({"result": {"thread": {"id": HELPER_THREAD}}}),
+    )
+    .await;
+    let denials = Arc::new(KeptDenials::default());
+    session
+        .task
+        .calls
+        .forks
+        .delivery
+        .dependencies
+        .reviewer_denials
+        .register(Arc::clone(&denials) as Arc<dyn ReviewerDenialPort>)
+        .expect("the port registers once");
+    let review = notification(
+        "item/autoApprovalReview/completed",
+        &json!({
+            "threadId": thread_id, "turnId": turn_id, "startedAtMs": 10, "completedAtMs": 20,
+            "reviewId": "review-1", "targetItemId": "item-1", "decisionSource": "agent",
+            "review": {"status": "denied", "rationale": "deletes the build"},
+            "action": {"type": "command", "source": "unifiedExec", "command": "rm -rf build",
+                "cwd": "/work"},
+        }),
+    );
+
+    match read_answer {
+        Some(answer) => handle_answering_read(&mut session, review, thread_id, answer).await,
+        None => session.task.handle(review).await,
+    }
+
+    assert_eq!(
+        *denials.0.lock().unwrap_or_else(PoisonError::into_inner),
+        [is_overridable]
+    );
 }

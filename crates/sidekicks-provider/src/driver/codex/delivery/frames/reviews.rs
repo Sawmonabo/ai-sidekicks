@@ -1,12 +1,14 @@
 //! The reviewer's frames: on a helper's thread on its child run, a turn-wide flag about its
 //! `subagent.started` row; on the session's own thread on its turn's run, about the turn's start.
-//! One no run owns is reported. A block goes to the approval service.
+//! One no run owns is reported. A block goes to the approval service, and one on a helper's thread
+//! may be allowed once only when a read of its conversation says Codex takes direct input to it:
+//! a multi-agent v2 helper's is refused there, and a read that fails grants no allow.
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::driver::codex::delivery::children::ChildRunLookup;
+use crate::driver::codex::delivery::children::{ChildRunLookup, read_codex_helper_thread};
 use crate::driver::codex::delivery::frames::{CodexFrameDelivery, report_unattributed};
 use crate::driver::codex::delivery::reviewer::{
     CodexReviewFlag, complete_codex_review, hold_guardian_warning, require_codex_review,
@@ -71,7 +73,9 @@ impl CodexFrameDelivery {
                     self.send_review_flag(record, flag).await;
                 }
                 if let Some(denial) = completion.denial {
-                    self.hand_over_block(record, denial).await;
+                    let helper_thread_id = read_non_empty_string(members, "threadId")
+                        .filter(|&thread_id| thread_id != record.thread_id);
+                    self.hand_over_block(record, denial, helper_thread_id).await;
                 }
             }
             _ => {
@@ -105,17 +109,29 @@ impl CodexFrameDelivery {
     }
 
     // Hands a block to the approval service, reporting a record that could not be read or a
-    // hand-off that failed. Until the service registers, a block stays Codex's own.
+    // hand-off that failed; a block on `helper_thread_id`, a helper's thread, stays overridable
+    // only when its conversation reads as taking direct input. Until the service registers, a
+    // block stays Codex's own.
     async fn hand_over_block(
         &self,
         record: &CodexSessionRecord,
         denial: Result<ProviderReviewerDenial, serde_json::Error>,
+        helper_thread_id: Option<&str>,
     ) {
         let Some(port) = self.dependencies.reviewer_denials.port() else {
             return;
         };
         let result = match denial {
-            Ok(denial) => port.take_denial(denial).await,
+            Ok(mut denial) => {
+                if denial.is_overridable
+                    && let Some(helper_thread_id) = helper_thread_id
+                {
+                    denial.is_overridable = read_codex_helper_thread(record, helper_thread_id)
+                        .await
+                        .is_some_and(|reading| reading.can_accept_direct_input);
+                }
+                port.take_denial(denial).await
+            }
             Err(error) => Err(Box::new(error).into()),
         };
         if let Err(error) = result {
