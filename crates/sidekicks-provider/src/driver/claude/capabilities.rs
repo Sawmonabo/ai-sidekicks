@@ -149,10 +149,12 @@ struct CatalogRow {
 }
 
 /// Reads the `models` of one `initialize` reply's JSON text into the picker's models, in the
-/// provider's order, one per resolved model, a row naming the model beating the `default` pointer.
-/// Fails with [`DriverError::ModelCatalogUnreadable`] for anything but `{ models: [...] }` whose
-/// rows are objects that each name a `resolvedModel` and a `displayName` and carry a boolean
-/// `supportsFastMode` where they carry one, so a dropped model is never a parser failure.
+/// provider's order, one per resolved model, a row naming the model beating the `default` pointer;
+/// the named row the pointer resolves to is marked default, and a pointer no named row matches
+/// marks none. Fails with [`DriverError::ModelCatalogUnreadable`] for anything but
+/// `{ models: [...] }` whose rows are objects that each name a `resolvedModel` and a
+/// `displayName` and carry a boolean `supportsFastMode` where they carry one, so a dropped model
+/// is never a parser failure.
 pub(crate) fn normalize_claude_model_catalog(
     reply: Option<&str>,
 ) -> Result<Vec<ProviderModel>, DriverError> {
@@ -165,11 +167,16 @@ pub(crate) fn normalize_claude_model_catalog(
     };
     // In the provider's order, its recommended model first; each with whether the pointer gave it.
     let mut by_resolved_model: Vec<(ProviderModel, bool)> = Vec::with_capacity(rows.len());
+    // The model the first `default` pointer resolves to, its window mark as the catalog writes it.
+    let mut default_model: Option<CatalogText> = None;
     for row in &rows {
         let row = serde_json::from_str::<CatalogRow>(row.get()).map_err(|error| {
             catalog_unreadable(&format!("a `models` entry is unreadable: {error}"))
         })?;
         let (model, from_pointer) = read_catalog_row(row)?;
+        if from_pointer && default_model.is_none() {
+            default_model = Some(model.id.clone());
+        }
         // Keyed by `resolvedModel`, never `value`, which is often a short alias, since a model
         // switch is checked against this list.
         match by_resolved_model
@@ -183,7 +190,10 @@ pub(crate) fn normalize_claude_model_catalog(
     }
     Ok(by_resolved_model
         .into_iter()
-        .map(|(model, _)| model)
+        .map(|(model, from_pointer)| ProviderModel {
+            is_default: !from_pointer && default_model.as_ref() == Some(&model.id),
+            ..model
+        })
         .collect())
 }
 
@@ -227,6 +237,8 @@ fn read_catalog_row(row: CatalogRow) -> Result<(ProviderModel, bool), DriverErro
         effort_levels,
         output_speed_levels: None,
         fast: row.supports_fast_mode.unwrap_or(false),
+        // Marked once the whole catalog is read, since the pointer may follow its named row.
+        is_default: false,
         context_window: None,
     };
     Ok((model, from_pointer))
@@ -298,5 +310,40 @@ mod tests {
             normalize_claude_model_catalog(Some(&unreadable)),
             Err(DriverError::ModelCatalogUnreadable(_))
         ));
+    }
+
+    // Killed by marking the first row, or by marking the `default` pointer's own row where no
+    // named row lists its model.
+    #[test]
+    fn the_claude_catalog_marks_the_named_row_its_default_pointer_resolves_to() {
+        let marks = |models: serde_json::Value| -> Vec<(String, bool)> {
+            normalize_claude_model_catalog(Some(&json!({ "models": models }).to_string()))
+                .expect("the catalog reads")
+                .into_iter()
+                .map(|model| (model.id.into_string(), model.is_default))
+                .collect()
+        };
+
+        let resolved = marks(json!([
+            { "value": "opus", "resolvedModel": "claude-opus-5", "displayName": "Opus" },
+            { "value": "sonnet", "resolvedModel": "claude-sonnet-5", "displayName": "Sonnet" },
+            { "value": "default", "resolvedModel": "claude-sonnet-5", "displayName": "Default" },
+        ]));
+        assert_eq!(
+            resolved,
+            [
+                ("claude-opus-5".to_owned(), false),
+                ("claude-sonnet-5".to_owned(), true)
+            ]
+        );
+
+        let unlisted = marks(json!([
+            { "value": "opus", "resolvedModel": "claude-opus-5", "displayName": "Opus" },
+            { "value": "default", "resolvedModel": "claude-haiku-5", "displayName": "Default" },
+        ]));
+        assert!(
+            unlisted.iter().all(|(_, is_default)| !is_default),
+            "{unlisted:?}"
+        );
     }
 }

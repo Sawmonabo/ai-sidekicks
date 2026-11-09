@@ -242,6 +242,8 @@ pub(crate) fn join_codex_model_windows(
                     let larger_row = ProviderModel {
                         context_window: Some(larger_window),
                         larger_window: true,
+                        // The catalog's default mark stays on the model's default-window row.
+                        is_default: false,
                         ..default_row.clone()
                     };
                     vec![default_row, larger_row]
