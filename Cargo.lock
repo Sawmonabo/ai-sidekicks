@@ -8419,19 +8419,23 @@ dependencies = [
 name = "sidekicks-agent"
 version = "0.0.0"
 dependencies = [
+ "axum",
  "futures",
  "garde",
  "http",
  "jiff",
  "jsonschema",
+ "reqwest",
  "rmcp",
  "rstest",
  "schemars 1.2.3",
  "serde",
  "serde_json",
  "sidekicks-contracts",
+ "sidekicks-platforms",
  "sidekicks-provider",
  "sidekicks-std",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tokio-util",

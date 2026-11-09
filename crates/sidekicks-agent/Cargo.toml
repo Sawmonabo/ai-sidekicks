@@ -19,6 +19,7 @@ ignored-paths = [
 doctest = false
 
 [dependencies]
+axum = { workspace = true, features = ["http1", "tokio"] }
 futures.workspace = true
 garde.workspace = true
 http.workspace = true
@@ -28,6 +29,7 @@ schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sidekicks-contracts.workspace = true
+sidekicks-platforms.workspace = true
 sidekicks-provider.workspace = true
 sidekicks-std.workspace = true
 thiserror.workspace = true
@@ -37,9 +39,13 @@ tracing.workspace = true
 
 [dev-dependencies]
 jsonschema.workspace = true
+# The HTTP client the listener's tests reach it with on loopback.
+reqwest.workspace = true
 rstest.workspace = true
 # The mock drivers and their registry the tool server's tests answer runs through.
 sidekicks-provider = { workspace = true, features = ["test-support"] }
+# The data folder the listener's tests keep its port in.
+tempfile.workspace = true
 
 [lints]
 workspace = true

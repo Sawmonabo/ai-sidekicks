@@ -13,6 +13,8 @@ use sidekicks_provider::driver::callback_tool::CallbackToolDispatcher;
 use sidekicks_std::mutex_lock::lock;
 use tokio_util::sync::CancellationToken;
 
+use crate::tools::server::ToolServerPath;
+
 /// The table's key: the session and the tool server's name on its route.
 type EntryKey = (SessionId, String);
 
@@ -105,16 +107,15 @@ impl ToolServerEntries {
         guard
     }
 
-    /// The live entry of `session_id` on `server_name` when `authorization`, the request's
-    /// `Authorization` header, presents its token; `None` for any other header or no entry.
+    /// The live entry `path` names when `authorization`, the request's `Authorization` header,
+    /// presents its token; `None` for any other header or no entry.
     pub fn admitted(
         &self,
-        session_id: SessionId,
-        server_name: &str,
+        path: &ToolServerPath,
         authorization: Option<&[u8]>,
     ) -> Option<Arc<ToolServerEntry>> {
         let entries = lock(&self.entries);
-        let entry = entries.get(&(session_id, server_name.to_owned()))?;
+        let entry = entries.get(&(path.session_id, path.server_name.clone()))?;
         entry.token.admits(authorization).then(|| Arc::clone(entry))
     }
 }
@@ -151,7 +152,7 @@ impl Drop for ToolServerEntryGuard {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use std::pin::Pin;
     use std::sync::Arc;
 
@@ -163,6 +164,7 @@ mod tests {
     };
 
     use super::ToolServerEntries;
+    use crate::tools::server::ToolServerPath;
 
     const SESSION: &str = "0192f3a4-5b6c-7d8e-9f01-23456789abcd";
     const SERVER: &str = "sidekicks";
@@ -170,8 +172,8 @@ mod tests {
     /// What the test's dispatcher answers a call with.
     type DispatchedCall = Pin<Box<dyn Future<Output = CallbackToolResult> + Send>>;
 
-    /// A dispatcher the test never calls.
-    fn dispatcher() -> CallbackToolDispatcher {
+    /// A dispatcher no test calls.
+    pub(in crate::tools) fn dispatcher() -> CallbackToolDispatcher {
         Arc::new(|_invocation: CallbackToolInvocation| -> DispatchedCall {
             Box::pin(async { CallbackToolResult::Failed { error: None } })
         })
@@ -188,6 +190,10 @@ mod tests {
     #[test]
     fn a_replaced_spawns_token_answers_nothing_and_the_new_token_answers_the_new_entry() {
         let session_id = SessionId::new(SESSION).expect("the text is a UUID");
+        let path = ToolServerPath {
+            session_id,
+            server_name: SERVER.to_owned(),
+        };
         let entries = ToolServerEntries::default();
         let first_token = BearerToken::mint().expect("the system's random source reads");
         let first_header = header(first_token.text());
@@ -198,11 +204,7 @@ mod tests {
             first_token,
             dispatcher(),
         );
-        assert!(
-            entries
-                .admitted(session_id, SERVER, Some(&first_header))
-                .is_some()
-        );
+        assert!(entries.admitted(&path, Some(&first_header)).is_some());
 
         let second_token = BearerToken::mint().expect("the system's random source reads");
         let second_header = header(second_token.text());
@@ -213,23 +215,17 @@ mod tests {
             second_token,
             dispatcher(),
         );
-        assert!(
-            entries
-                .admitted(session_id, SERVER, Some(&first_header))
-                .is_none()
-        );
+        assert!(entries.admitted(&path, Some(&first_header)).is_none());
         drop(first);
         let live = entries
-            .admitted(session_id, SERVER, Some(&second_header))
+            .admitted(&path, Some(&second_header))
             .expect("the new spawn's token answers its entry");
         assert_eq!(live.provider().as_str(), "claude-code");
 
         drop(live);
         drop(second);
         assert!(
-            entries
-                .admitted(session_id, SERVER, Some(&second_header))
-                .is_none(),
+            entries.admitted(&path, Some(&second_header)).is_none(),
             "the entry leaves the table when its spawn drops"
         );
     }

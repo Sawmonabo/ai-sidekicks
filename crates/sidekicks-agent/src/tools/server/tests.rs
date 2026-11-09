@@ -374,8 +374,10 @@ async fn a_held_call_is_canceled_and_its_work_dropped_when_its_process_is_gone()
         fixture
             .entries
             .admitted(
-                SessionId::new(CODEX_SESSION).expect("the text is a UUID"),
-                DAEMON_TOOL_SERVER_NAME,
+                &ToolServerPath {
+                    session_id: SessionId::new(CODEX_SESSION).expect("the text is a UUID"),
+                    server_name: DAEMON_TOOL_SERVER_NAME.to_owned(),
+                },
                 Some(format!("Bearer {}", fixture.spawns[1].2).as_bytes()),
             )
             .is_none()

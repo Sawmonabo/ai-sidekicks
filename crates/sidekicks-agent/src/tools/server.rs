@@ -44,7 +44,7 @@ mod tests;
 const PROGRESS_PERIOD: Duration = Duration::from_secs(45);
 
 /// The first segment of every tool server's path on the daemon's listener.
-const TOOL_SERVER_PATH_ROOT: &str = "tools";
+pub(crate) const TOOL_SERVER_PATH_ROOT: &str = "tools";
 
 /// What a call is answered when its `_meta` names no run of its session.
 const NO_CALLING_RUN: &str =
@@ -140,12 +140,9 @@ impl AgentToolServer {
             .headers
             .get(AUTHORIZATION)
             .map(http::HeaderValue::as_bytes);
-        let entry = self
-            .entries
-            .admitted(path.session_id, &path.server_name, authorization)
-            .ok_or_else(|| {
-                McpError::invalid_request("the request's secret admits no live spawn", None)
-            })?;
+        let entry = self.entries.admitted(&path, authorization).ok_or_else(|| {
+            McpError::invalid_request("the request's secret admits no live spawn", None)
+        })?;
         let descriptor = self
             .providers
             .descriptor(entry.provider())

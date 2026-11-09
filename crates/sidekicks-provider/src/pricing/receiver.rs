@@ -51,6 +51,9 @@ const PROTOBUF_CONTENT_TYPE: &str = "application/x-protobuf";
 /// The one `Content-Encoding` read as no encoding.
 const IDENTITY_ENCODING: &[u8] = b"identity";
 
+/// What a path under [`TELEMETRY_PATH_PREFIX`] that no provider takes is answered with.
+const NO_TELEMETRY_HERE: &str = "No provider here takes telemetry at this path.";
+
 /// The path `provider`'s exports go under, `/telemetry/<provider id>`, which an exporter extends
 /// with [`LOGS_PATH_SUFFIX`] or [`TRACES_PATH_SUFFIX`].
 pub fn telemetry_base_path(provider: &ProviderId) -> String {
@@ -209,6 +212,15 @@ impl TelemetryReceiver {
     }
 }
 
+/// The answer to a request for `path` off the receiver's routes: 404 with a `Status` body when
+/// the path is under the telemetry paths, which an exporter reads as final and never retries, and
+/// `None` for any other path.
+pub fn refuse_unknown_telemetry_path(path: &str) -> Option<Response> {
+    let rest = path.strip_prefix(TELEMETRY_PATH_PREFIX)?;
+    (rest.is_empty() || rest.starts_with('/'))
+        .then(|| refusal(StatusCode::NOT_FOUND, NO_TELEMETRY_HERE))
+}
+
 // Admits one export by its provider, token and headers before its body is read, then reads,
 // decodes, records and hands it over, holding a body permit until its reader has taken it.
 async fn receive(
@@ -225,10 +237,7 @@ async fn receive(
             Some((provider, reader))
         })
     else {
-        return refusal(
-            StatusCode::NOT_FOUND,
-            "No provider here takes telemetry at this path.",
-        );
+        return refusal(StatusCode::NOT_FOUND, NO_TELEMETRY_HERE);
     };
     if let Some(refused) = refuse_headers(&receiver.bearer, request.headers()) {
         return refused;
