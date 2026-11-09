@@ -9,7 +9,7 @@
 //
 // Module system per target:
 //
-//   • main: `format: "es"` (`index.js`). The package is `"type": "module"` and Electron runs an
+//   • main: `format: "es"` (`index.js`, and the client helper's `client-helper.js`). The package is `"type": "module"` and Electron runs an
 //     ESM main process.
 //   • preload: `format: "cjs"` (`index.cjs`). The sandboxed preload (`sandbox: true` in
 //     `src/main/windows/factory.ts`) loads only CommonJS; an ESM preload fails with "Cannot use
@@ -291,13 +291,16 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ command, 
         outDir: "out/main",
         sourcemap: "hidden",
         rollupOptions: {
+          // The client helper is its own entry, which main forks as a utility process.
           input: {
             index: "src/main/index.ts",
+            "client-helper": "src/main/services/daemon/client/entry.ts",
           },
-          external: [...ELECTRON_EXTERNAL],
+          // The client helper loads the daemon client's addon at run time, its `.node` beside it.
+          external: [...ELECTRON_EXTERNAL, "@ai-sidekicks/client-sdk"],
           output: {
             format: "es",
-            entryFileNames: "index.js",
+            entryFileNames: "[name].js",
           },
         },
       },
