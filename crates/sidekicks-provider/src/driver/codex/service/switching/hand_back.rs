@@ -38,7 +38,7 @@ use crate::driver::codex::session::inbound::{CodexAccountMove, CodexSessionInbou
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::contract::account::FirstRequestAfterMove;
 use crate::driver::contract::error::DriverError;
-use crate::driver::session_control::DriverAuthProbeStatus;
+use crate::driver::session_control::auth_probe::DriverAuthProbeStatus;
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 /// How long the window's check waits for its `account/read`, inside which Codex asks for fresh

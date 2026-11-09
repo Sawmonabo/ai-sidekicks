@@ -15,7 +15,7 @@ use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::driver::session_control::{
+use crate::driver::session_control::auth_probe::{
     DriverAuthProbeResult, DriverAuthProbeStatus, build_auth_probe_result,
 };
 use crate::lenient_json::read_lenient;

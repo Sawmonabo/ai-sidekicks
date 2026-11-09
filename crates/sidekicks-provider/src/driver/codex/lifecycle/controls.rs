@@ -53,11 +53,13 @@ use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTak
 use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
 use crate::driver::mcp_server::session_switch::McpSessionSwitch;
 use crate::driver::read_current_account;
+use crate::driver::session_control::auth_probe::{
+    DriverAuthProbeResult, DriverAuthProbeStatus, build_auth_probe_result,
+};
 use crate::driver::session_control::{
-    AskSideQuestionParams, ClearSessionGoalParams, DriverAuthProbeResult, DriverAuthProbeStatus,
-    DriverGoalResult, ProviderCommandsListener, RevokeRuleParams, SessionToolServer,
-    SetSessionGoalParams, StartingLevel, StartingLevelParams, SubscribeProviderCommandsParams,
-    UpdatePermissionLevelParams, UpdateSessionModeParams, build_auth_probe_result,
+    AskSideQuestionParams, ClearSessionGoalParams, DriverGoalResult, ProviderCommandsListener,
+    RevokeRuleParams, SessionToolServer, SetSessionGoalParams, StartingLevel, StartingLevelParams,
+    SubscribeProviderCommandsParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
 
 /// The id of the switch that runs a Codex service on the person's own folder.

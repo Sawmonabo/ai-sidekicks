@@ -73,10 +73,11 @@ use crate::driver::run_control::{
     OverrideDenialParams, PauseRunParams, PickedSkill, ReattachHelpersParams, ResumeRunOutcome,
     ResumeRunParams, TakenMessages, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
+use crate::driver::session_control::auth_probe::DriverAuthProbeResult;
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
-    CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverHandoverBriefResult,
-    DriverResumeResult, EndKeptTurnsParams, ExportHandoverBriefParams, MoveSessionToForkParams,
+    CreateSessionParams, DriverGoalResult, DriverHandoverBriefResult, DriverResumeResult,
+    EndKeptTurnsParams, ExportHandoverBriefParams, MoveSessionToForkParams,
     MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderCommandsListener,
     ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
     SessionCommandAnswer, SessionToolServer, SetSessionGoalParams, SettleHeldToolCallsParams,

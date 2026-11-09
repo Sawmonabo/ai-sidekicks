@@ -56,11 +56,13 @@ use crate::driver::contract::params_and_results::{
 };
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::read_current_account;
+use crate::driver::session_control::auth_probe::{
+    DriverAuthProbeResult, DriverAuthProbeStatus, build_auth_probe_result,
+};
 use crate::driver::session_control::{
-    AnswerSessionCommandParams, DriverAuthProbeResult, DriverAuthProbeStatus,
-    ProviderCommandsListener, RevokeRuleParams, SessionCommandAnswer, StartingLevel,
-    StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
-    UpdateSessionModeParams, build_auth_probe_result, permission_level_not_offered,
+    AnswerSessionCommandParams, ProviderCommandsListener, RevokeRuleParams, SessionCommandAnswer,
+    StartingLevel, StartingLevelParams, SubscribeProviderCommandsParams,
+    UpdatePermissionLevelParams, UpdateSessionModeParams, permission_level_not_offered,
 };
 use crate::port::session_inbox_address::SessionInboxAddresser;
 

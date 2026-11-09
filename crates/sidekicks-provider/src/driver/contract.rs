@@ -62,14 +62,15 @@ use crate::driver::run_control::{
     OverrideDenialParams, PauseRunParams, PickedSkill, ReattachHelpersParams, ResumeRunOutcome,
     ResumeRunParams, TakenMessages, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
+use crate::driver::session_control::auth_probe::DriverAuthProbeResult;
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
-    CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverHandoverBriefResult,
-    DriverResumeResult, EndKeptTurnsParams, ExportHandoverBriefParams, KeptTurnsEnding,
-    MoveSessionToForkParams, MoveSessionToForkResult, NameSessionParams, ProviderBuildChange,
-    ProviderCommandsListener, ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams,
-    RevokeRuleParams, SessionCommandAnswer, SessionToolServer, SetSessionGoalParams,
-    SettleHeldToolCallsParams, StartingLevel, StartingLevelParams, SubscribeProviderCommandsParams,
+    CreateSessionParams, DriverGoalResult, DriverHandoverBriefResult, DriverResumeResult,
+    EndKeptTurnsParams, ExportHandoverBriefParams, KeptTurnsEnding, MoveSessionToForkParams,
+    MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderCommandsListener,
+    ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
+    SessionCommandAnswer, SessionToolServer, SetSessionGoalParams, SettleHeldToolCallsParams,
+    StartingLevel, StartingLevelParams, SubscribeProviderCommandsParams,
     UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};

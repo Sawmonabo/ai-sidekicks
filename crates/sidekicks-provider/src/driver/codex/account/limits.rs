@@ -30,7 +30,7 @@ use crate::driver::contract::account::{
     ObservedAccountIdentity, ProviderAccountFigures, ProviderObservation,
 };
 use crate::driver::contract::error::DriverError;
-use crate::driver::session_control::DriverAuthProbeStatus;
+use crate::driver::session_control::auth_probe::DriverAuthProbeStatus;
 
 /// Dead renewals in a row that read as a lost sign-in.
 const DEAD_RENEWALS_FOR_SIGN_IN_GONE: u8 = 2;
