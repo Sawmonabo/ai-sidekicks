@@ -1,8 +1,9 @@
 //! The loopback WebSocket the Codex service reaches the relay on: one listener for the relay's
-//! life, each connection admitted by the current token and attached onto the executor beside the
-//! others, its messages handed to the relay one by one while the executor's messages are written
-//! to it apart, so neither side's full queue holds up the other's. A connection closes once the
-//! executor lets its queue go.
+//! life, each connection admitted by the token of one environment and attached onto the executor
+//! beside the others as that environment's, its messages handed to the relay one by one while the
+//! executor's messages are written to it apart, so neither side's full queue holds up the other's.
+//! A connection closes once the executor lets its queue go, and its socket's end is the relay's to
+//! let go.
 
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -23,34 +24,44 @@ use tokio_util::sync::CancellationToken;
 use crate::bearer_token::BearerToken;
 use crate::driver::codex::exec_relay::CodexExecRelay;
 
-/// How many of the executor's messages wait for one client before the client is let go.
+/// How many of the executor's messages wait for one client before more wait in its spill.
 const CLIENT_QUEUE_CAPACITY: usize = 256;
 
 /// The first wait after a failed accept, doubled at each failure in a row up to the longest.
 const ACCEPT_RETRY_FIRST: Duration = Duration::from_millis(10);
 const ACCEPT_RETRY_LONGEST: Duration = Duration::from_secs(1);
 
-/// The relay's listener and the token a connection must present now.
+// One environment the relay admits: the token its connections present and its id.
+struct AdmittedEnvironment {
+    token: BearerToken,
+    environment_id: Arc<str>,
+}
+
+// The environments the relay admits now, each by its own token.
+type AdmittedEnvironments = Arc<Mutex<Vec<AdmittedEnvironment>>>;
+
+/// The relay's listener and the token each environment's connections present now.
 pub(super) struct RelayEndpoint {
     address: SocketAddr,
-    token: Arc<Mutex<Arc<BearerToken>>>,
+    environments: AdmittedEnvironments,
     accepting: JoinHandle<()>,
 }
 
 impl RelayEndpoint {
-    /// Listens on a free loopback port, handing each admitted connection to `relay`. Fails with
-    /// the system's error when no port can be bound.
-    pub(super) async fn listen(
-        relay: Weak<CodexExecRelay>,
-        token: BearerToken,
-    ) -> io::Result<Self> {
+    /// Listens on a free loopback port, admitting no environment yet and handing each admitted
+    /// connection to `relay`. Fails with the system's error when no port can be bound.
+    pub(super) async fn listen(relay: Weak<CodexExecRelay>) -> io::Result<Self> {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
         let address = listener.local_addr()?;
-        let token = Arc::new(Mutex::new(Arc::new(token)));
-        let accepting = tokio::spawn(accept_connections(listener, Arc::clone(&token), relay));
+        let environments = AdmittedEnvironments::default();
+        let accepting = tokio::spawn(accept_connections(
+            listener,
+            Arc::clone(&environments),
+            relay,
+        ));
         Ok(Self {
             address,
-            token,
+            environments,
             accepting,
         })
     }
@@ -60,14 +71,20 @@ impl RelayEndpoint {
         format!("ws://{}", self.address)
     }
 
-    /// Puts `token` in place of the one before it, which no later connection presents.
-    pub(super) fn replace_token(&self, token: BearerToken) {
-        *lock(&self.token) = Arc::new(token);
+    /// Admits the environment `environment_id` by `token` from now on, in place of any token it
+    /// was admitted by before.
+    pub(super) fn admit(&self, environment_id: &str, token: BearerToken) {
+        let mut environments = lock(&self.environments);
+        environments.retain(|admitted| &*admitted.environment_id != environment_id);
+        environments.push(AdmittedEnvironment {
+            token,
+            environment_id: environment_id.into(),
+        });
     }
 
-    /// The token a connection must present now.
-    pub(super) fn token(&self) -> Arc<BearerToken> {
-        Arc::clone(&lock(&self.token))
+    /// Retires every environment's token, which no later connection presents.
+    pub(super) fn retire_every_token(&self) {
+        lock(&self.environments).clear();
     }
 }
 
@@ -82,7 +99,7 @@ impl Drop for RelayEndpoint {
 // keep failing.
 async fn accept_connections(
     listener: TcpListener,
-    token: Arc<Mutex<Arc<BearerToken>>>,
+    environments: AdmittedEnvironments,
     relay: Weak<CodexExecRelay>,
 ) {
     let mut retry_wait = ACCEPT_RETRY_FIRST;
@@ -105,13 +122,22 @@ async fn accept_connections(
         if relay.strong_count() == 0 {
             return;
         }
-        let token = Arc::clone(&lock(&token));
-        tokio::spawn(serve_connection(stream, token, relay.clone()));
+        tokio::spawn(serve_connection(
+            stream,
+            Arc::clone(&environments),
+            relay.clone(),
+        ));
     }
 }
 
-// Admits one connection by its token and carries messages both ways until either side closes.
-async fn serve_connection(stream: TcpStream, token: Arc<BearerToken>, relay: Weak<CodexExecRelay>) {
+// Admits one connection by the token of the environment it serves, read at its handshake, and
+// carries messages both ways until either side closes; the relay then lets it go.
+async fn serve_connection(
+    stream: TcpStream,
+    environments: AdmittedEnvironments,
+    relay: Weak<CodexExecRelay>,
+) {
+    let mut admitted = None;
     #[expect(
         clippy::result_large_err,
         reason = "the WebSocket handshake's callback fixes this return type"
@@ -121,7 +147,12 @@ async fn serve_connection(stream: TcpStream, token: Arc<BearerToken>, relay: Wea
             .headers()
             .get(header::AUTHORIZATION)
             .map(HeaderValue::as_bytes);
-        if token.admits(authorization) {
+        // Each token is compared in constant time.
+        admitted = lock(&environments)
+            .iter()
+            .find(|environment| environment.token.admits(authorization))
+            .map(|environment| Arc::clone(&environment.environment_id));
+        if admitted.is_some() {
             return Ok(response);
         }
         let mut refusal =
@@ -139,13 +170,15 @@ async fn serve_connection(stream: TcpStream, token: Arc<BearerToken>, relay: Wea
             return;
         }
     };
-    let Some(attached) = relay.upgrade() else {
+    let (Some(attached), Some(environment)) = (relay.upgrade(), admitted) else {
         return;
     };
     let (to_client, mut for_client) = mpsc::channel::<String>(CLIENT_QUEUE_CAPACITY);
     let closed = CancellationToken::new();
     // The executor keeps the queue's only sender, so its detach or end closes the connection.
-    let Some((executor, connection)) = attached.attach_client(to_client, closed.clone()) else {
+    let Some((executor, connection)) =
+        attached.attach_client(to_client, closed.clone(), environment)
+    else {
         return;
     };
     drop(attached);
@@ -172,7 +205,7 @@ async fn serve_connection(stream: TcpStream, token: Arc<BearerToken>, relay: Wea
             incoming = source.next() => incoming,
             // The executor let the queue go or the client can no longer be written.
             _written = &mut writing => break,
-            // The client fell a full queue behind.
+            // The client fell its queue's bound behind.
             () = closed.cancelled() => break,
         };
         let text = match incoming {
@@ -200,6 +233,11 @@ async fn serve_connection(stream: TcpStream, token: Arc<BearerToken>, relay: Wea
         let Some(relay) = relay.upgrade() else { break };
         relay.take_client_message(&executor, connection, text).await;
     }
-    executor.detach_client(connection);
+    match relay.upgrade() {
+        Some(relay) => relay.let_go(&executor, connection),
+        None => {
+            executor.detach_client(connection);
+        }
+    }
     writing.abort();
 }

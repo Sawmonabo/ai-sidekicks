@@ -17,11 +17,13 @@ const OWN_HANDLE: &str = "0f3c5a7e9b1d4f60a2c4e6f8a0b2c4d6";
 
 // Two connections open the same own handle and read under two relay handles; the second's read of
 // a handle it never opened reaches the executor as unknown. The first closes one handle, opens
-// another and leaves a third opening as it drops: the drop closes the open one, the third's late
-// answer closes the third, and nothing else of either connection is closed. Killed by dropping the
+// another and leaves a third opening as it drops, a second open of the third's own handle meanwhile
+// refused `-32600` with nothing sent: the drop closes the open one, the third's late answer closes
+// the third, and nothing else of either connection is closed. Killed by dropping the
 // handle rewrite, by passing an unopened handle on as it came, by a drop that closes nothing or
-// every connection's handles, by a close whose answer keeps the handle, by forgetting the open in
-// flight at the drop, and by closing that open at the drop as well.
+// every connection's handles, by a close whose answer keeps the handle, by a second open sent on
+// under the first's relay handle, by forgetting the open in flight at the drop, and by closing that
+// open at the drop as well.
 #[tokio::test]
 async fn each_connection_owns_its_file_handles_and_a_drop_closes_its_own() {
     let folder = tempfile::tempdir().expect("a test folder");
@@ -87,6 +89,10 @@ async fn each_connection_owns_its_file_handles_and_a_drop_closes_its_own() {
     let open_handle = open_and_answer(&mut first, &mut fake, 4, "second-handle").await;
     send_text(&mut first, &open(5, "third-handle")).await;
     let opening = next_forwarded(&mut fake).await;
+    send_text(&mut first, &open(6, "third-handle")).await;
+    let refused = next_text(&mut first).await;
+    assert_eq!(refused["id"], 6, "{refused}");
+    assert_eq!(refused["error"]["code"], -32600, "{refused}");
 
     let connections = || {
         lock(&relay.executor)

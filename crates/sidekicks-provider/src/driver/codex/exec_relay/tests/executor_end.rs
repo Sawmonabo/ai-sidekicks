@@ -7,6 +7,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use super::{initialized_executor, next_line, relay_for};
+use crate::driver::codex::exec_relay::CODEX_RELAY_ENVIRONMENT_ID;
 use crate::driver::codex::exec_relay::executor_end::EXECUTOR_ENDED_MESSAGE;
 use crate::driver::test_registry::new_session_id;
 
@@ -24,7 +25,11 @@ async fn an_ended_executor_s_commands_end_and_its_requests_are_answered() {
     relay.take_executor(Arc::clone(&executor));
     let (client, mut received) = mpsc::channel(16);
     let (executor, connection) = relay
-        .attach_client(client, CancellationToken::new())
+        .attach_client(
+            client,
+            CancellationToken::new(),
+            CODEX_RELAY_ENVIRONMENT_ID.into(),
+        )
         .expect("an executor runs");
 
     let start = json!({ "id": 1, "method": "process/start", "params": {
@@ -117,7 +122,11 @@ async fn an_ended_executor_ends_each_streamed_body_and_fires_each_kept_watch() {
     relay.take_executor(Arc::clone(&executor));
     let (client, mut received) = mpsc::channel(16);
     let (executor, connection) = relay
-        .attach_client(client, CancellationToken::new())
+        .attach_client(
+            client,
+            CancellationToken::new(),
+            CODEX_RELAY_ENVIRONMENT_ID.into(),
+        )
         .expect("an executor runs");
 
     let streamed = json!({ "id": 4, "method": "http/request", "params": {

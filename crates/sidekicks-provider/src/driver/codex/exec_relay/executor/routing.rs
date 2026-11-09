@@ -133,10 +133,13 @@ impl CodexExecutor {
             ClientMethod::ProcessStart => {
                 let (answer, _unowned) =
                     self.mint_answer(RelayIdKind::Process, line, message, id, request);
-                if message.error.is_none()
-                    && let Some(minted) = &request.relay_id
-                {
-                    lock(&self.ledger).open_process(minted);
+                if let Some(minted) = &request.relay_id {
+                    let mut ledger = lock(&self.ledger);
+                    if message.error.is_none() {
+                        ledger.open_process(minted);
+                    } else {
+                        ledger.forget_process(minted);
+                    }
                 }
                 (answer, None)
             }

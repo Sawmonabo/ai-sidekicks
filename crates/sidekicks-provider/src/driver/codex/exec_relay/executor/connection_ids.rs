@@ -27,6 +27,18 @@ pub(super) struct IdOwner {
     pub(super) own_id: String,
 }
 
+/// What a mint under a connection's own id comes to.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum IdMint {
+    /// A relay id minted now, which only the mint's refusal forgets.
+    New(String),
+    /// The relay id of the live id the connection still has open, so the executor refuses the
+    /// second use as it would on a connection of its own.
+    Live(String),
+    /// None: the connection's earlier mint under the same own id is still unanswered.
+    Pending,
+}
+
 // Where one relay id stands: minted and not yet answered, answered as begun, or closed and kept
 // for its kind's retention.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -67,22 +79,20 @@ impl ConnectionIds {
         }
     }
 
-    /// The relay id `connection`'s own `own_id` is sent under, and whether it was minted now: an
-    /// id the connection still has open keeps its relay id, so the executor refuses the second
-    /// use as it would on a connection of its own.
-    pub(super) fn mint(&mut self, connection: RelayConnectionId, own_id: &str) -> (String, bool) {
+    /// The relay id `connection`'s own `own_id` is sent under: minted now, or the one of the
+    /// id it still has open; none while its earlier mint under `own_id` is unanswered, since two
+    /// mints sharing one relay id could not tell which the executor took.
+    pub(super) fn mint(&mut self, connection: RelayConnectionId, own_id: &str) -> IdMint {
         self.forget_closed();
         let kept = self
             .relay_ids
             .get(&connection)
             .and_then(|ids| ids.get(own_id))
-            .filter(|relay_id| {
-                self.owned
-                    .get(*relay_id)
-                    .is_some_and(|owned| owned.state != IdState::Closed)
-            });
-        if let Some(relay_id) = kept {
-            return (relay_id.clone(), false);
+            .and_then(|relay_id| Some((relay_id, self.owned.get(relay_id)?.state)));
+        match kept {
+            Some((_relay_id, IdState::Pending)) => return IdMint::Pending,
+            Some((relay_id, IdState::Live)) => return IdMint::Live(relay_id.clone()),
+            Some((_, IdState::Closed)) | None => {}
         }
         self.minted += 1;
         let relay_id = match self.kind {
@@ -106,7 +116,7 @@ impl ConnectionIds {
                 last_seq: 0,
             },
         );
-        (relay_id, true)
+        IdMint::New(relay_id)
     }
 
     /// Marks `relay_id` live, its mint's answer having begun it.
@@ -179,6 +189,19 @@ impl ConnectionIds {
                     .is_some_and(|owned| owned.state == IdState::Live)
             })
             .collect()
+    }
+
+    /// Hands every id of `from`, whose dropped connection's session `to` resumed, to `to`.
+    pub(super) fn move_connection(&mut self, from: RelayConnectionId, to: RelayConnectionId) {
+        let Some(ids) = self.relay_ids.remove(&from) else {
+            return;
+        };
+        for relay_id in ids.values() {
+            if let Some(owned) = self.owned.get_mut(relay_id) {
+                owned.owner.connection = to;
+            }
+        }
+        self.relay_ids.insert(to, ids);
     }
 
     /// Notes `seq` as the number of the last event the executor reported under `relay_id`.

@@ -1,8 +1,10 @@
 //! The daemon's relay between a Codex service and the executor that runs its commands. Each
 //! account's service gets one relay for its life: the executor, `codex exec-server`, is the
-//! daemon's own child on standard input and output, and the service reaches it through a loopback
-//! WebSocket the relay serves under a token minted at every start of the service. The relay serves
-//! many connections onto its one executor: it answers each one's `initialize` from its own, and
+//! daemon's own child on standard input and output, and each environment of the service reaches it
+//! through a loopback WebSocket the relay serves, under a token of that environment's own minted
+//! at every start of the service. The relay serves many connections onto its one executor: it
+//! answers each one's `initialize` from its own, under a session of the connection's own whose
+//! processes a dropped connection's resume by the same environment takes back, and
 //! sends each one's requests, processes, open files and http requests on under ids of its own, so
 //! every connection's answers and the executor's messages naming its ids come back to it alone
 //! under its own ids; every connection's missing-path watch joins one on the executor. It refuses
@@ -10,7 +12,9 @@
 //! connection. Every other message passes unchanged but two: a command's start, rewritten to run
 //! under the command wrapper, and a terminate, held until the wrapper ended the command.
 //! A command whose service was restarted while it ran is ended by the relay at its process's end,
-//! since the new service never reports the old one's items. Once the executor ends, the relay
+//! since the new service never reports the old one's items. A dropped connection's hold ends at
+//! its window, or once its environment opens afresh, ending every process it kept but a command
+//! the relay started under a call, which runs to its end. Once the executor ends, the relay
 //! answers its connections itself, as `executor_end` says, and asks its service to start again.
 
 mod command_acts;
@@ -42,8 +46,9 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use self::endpoint::RelayEndpoint;
-use self::executor::{CodexExecutor, ProcessEnd, RelayConnectionId};
-use self::executor_end::compose_executor_ended_answer;
+use self::executor::{
+    CodexExecutor, ConnectionHold, DETACHED_CONNECTION_HOLD, ProcessEnd, RelayConnectionId,
+};
 use self::message::{MessageHead, RoutedMessage, text_of};
 use self::methods::{ClientMethod, INITIALIZED_METHOD};
 use crate::bearer_token::BearerToken;
@@ -198,11 +203,11 @@ impl CodexExecRelay {
     }
 
     /// Readies the relay for one start of its service: starts the executor `command` runs where
-    /// none runs, opens the listener once and mints a new token, which the answered
-    /// `environment/add` hands the service. The commands of the service's former start that
-    /// already ended are ended now, since no item of theirs will be reported. Fails with
-    /// `CodexError::Transport` when the executor cannot be started, the port bound or the token
-    /// minted.
+    /// none runs, opens the listener once, retires every token of the service's former start and
+    /// admits the service's own environment by a new one, which the answered `environment/add`
+    /// hands the service. The commands of the service's former start that already ended are ended
+    /// now, since no item of theirs will be reported. Fails with `CodexError::Transport` when the
+    /// executor cannot be started, the port bound or the token minted.
     pub(crate) async fn start(
         &self,
         command: tokio::process::Command,
@@ -231,13 +236,9 @@ impl CodexExecRelay {
             let executor = CodexExecutor::start(&self.dependencies.spawner, command).await?;
             self.take_executor(executor);
         }
-        let token = BearerToken::mint().map_err(|error| CodexError::Transport {
-            detail: "The Codex relay's token could not be minted.".to_owned(),
-            cause: Some(Box::new(error)),
-        })?;
         let has_endpoint = lock(&self.endpoint).is_some();
         if !has_endpoint {
-            let endpoint = RelayEndpoint::listen(self.me.clone(), token)
+            let endpoint = RelayEndpoint::listen(self.me.clone())
                 .await
                 .map_err(|error| CodexError::Transport {
                     detail: "The Codex relay could not listen.".to_owned(),
@@ -245,16 +246,34 @@ impl CodexExecRelay {
                 })?;
             *lock(&self.endpoint) = Some(endpoint);
         } else if let Some(endpoint) = lock(&self.endpoint).as_ref() {
-            endpoint.replace_token(token);
+            endpoint.retire_every_token();
         }
+        self.environment(CODEX_RELAY_ENVIRONMENT_ID)
+    }
+
+    /// Admits the environment `environment_id` by a token of its own, minted now in place of any
+    /// it had, and answers what `environment/add` hands the service for it; each connection that
+    /// token admits serves that environment. Fails with `CodexError::Transport` when the token
+    /// cannot be minted or the relay has not started.
+    pub(crate) fn environment(
+        &self,
+        environment_id: &str,
+    ) -> Result<EnvironmentAddParams, CodexError> {
+        let token = BearerToken::mint().map_err(|error| CodexError::Transport {
+            detail: "The Codex relay's token could not be minted.".to_owned(),
+            cause: Some(Box::new(error)),
+        })?;
+        let auth_bearer_token = token.text().to_owned();
         let endpoint = lock(&self.endpoint);
-        let endpoint = endpoint
-            .as_ref()
-            .expect("the relay's listener is open once its start reaches here");
+        let endpoint = endpoint.as_ref().ok_or_else(|| CodexError::Transport {
+            detail: "The Codex relay has not started.".to_owned(),
+            cause: None,
+        })?;
+        endpoint.admit(environment_id, token);
         Ok(EnvironmentAddParams {
-            auth_bearer_token: Some(endpoint.token().text().to_owned()),
+            auth_bearer_token: Some(auth_bearer_token),
             connect_timeout_ms: None,
-            environment_id: CODEX_RELAY_ENVIRONMENT_ID.to_owned(),
+            environment_id: environment_id.to_owned(),
             exec_server_url: endpoint.url(),
             skills: None,
             websocket_request_id: None,
@@ -436,21 +455,68 @@ impl CodexExecRelay {
         *lock(&self.executor) = Some(executor);
     }
 
-    /// Attaches `client`, a connection's queue, onto the running executor, answering the
-    /// executor and the connection's id; `None` while no executor runs. `closed` is cancelled once
-    /// the queue falls a full queue behind, for the connection to close.
+    /// Attaches `client`, the queue of a connection `environment`'s token admitted, onto the
+    /// running executor, answering the executor and the connection's id; `None` while no executor
+    /// runs. `closed` is cancelled once the queue falls behind its bound, for the connection to
+    /// close.
     fn attach_client(
         &self,
         client: mpsc::Sender<String>,
         closed: CancellationToken,
+        environment: Arc<str>,
     ) -> Option<(Arc<CodexExecutor>, RelayConnectionId)> {
         let executor = lock(&self.executor).clone()?;
-        let connection = executor.attach_client(client, closed)?;
+        let connection = executor.attach_client(client, closed, environment)?;
         Some((executor, connection))
     }
 
+    /// Lets the connection `connection`, whose socket closed, go from `executor`, holding a
+    /// session it opened for its resume until [`DETACHED_CONNECTION_HOLD`] has passed.
+    fn let_go(&self, executor: &Arc<CodexExecutor>, connection: RelayConnectionId) {
+        if let Some(hold) = executor.detach_client(connection) {
+            self.end_hold_at_its_window(executor, hold);
+        }
+    }
+
+    // Ends `hold` once its window passed, unless the connection's resume or a fresh open of its
+    // environment came first. Weak both ways, so the wait keeps neither the relay nor its
+    // executor; no tracked task, so a driver's shutdown never waits out the window.
+    fn end_hold_at_its_window(&self, executor: &Arc<CodexExecutor>, hold: ConnectionHold) {
+        let relay = self.me.clone();
+        let executor = Arc::downgrade(executor);
+        tokio::spawn(async move {
+            tokio::time::sleep(DETACHED_CONNECTION_HOLD).await;
+            let (Some(relay), Some(executor)) = (relay.upgrade(), executor.upgrade()) else {
+                return;
+            };
+            if let Some(processes) = executor.end_hold(&hold) {
+                relay.end_held_processes(&executor, processes).await;
+            }
+        });
+    }
+
+    // Ends each of `processes`, by their relay ids, that an ended hold kept: every one is
+    // terminated but a command the relay started under a call, which runs to its end.
+    async fn end_held_processes(&self, executor: &CodexExecutor, processes: Vec<String>) {
+        let ended: Vec<String> = {
+            let commands = lock(&self.commands);
+            processes
+                .into_iter()
+                .filter(|relay_id| {
+                    !commands.values().any(|record| {
+                        record.end.is_none() && record.command.executor_process_id == *relay_id
+                    })
+                })
+                .collect()
+        };
+        for relay_id in ended {
+            forward(executor, executor.compose_process_terminate(&relay_id)).await;
+        }
+    }
+
     /// Carries one of the connection `connection`'s messages to `executor`: an `initialize` is
-    /// answered to that connection with the executor's own, a missing-path watch joins the
+    /// answered to that connection with the executor's own under a session of the connection's,
+    /// opened, or resumed with a dropped connection's processes, a missing-path watch joins the
     /// executor's one on a task of its own, every other request the executor serves goes on under
     /// a relay id and the relay's id for any process, file or http request it names, a start and a
     /// terminate through their tasks, and an answer only to a request asked of the connection. A
@@ -509,7 +575,22 @@ impl CodexExecRelay {
             }
         };
         if method == ClientMethod::Initialize {
-            let answer = json!({ "id": id, "result": executor.initialize_result() });
+            let resume_session_id = message
+                .params
+                .as_ref()
+                .and_then(|params| params.resume_session_id.as_deref());
+            let answer = match executor.initialize_connection(connection, resume_session_id) {
+                Ok(initialized) => {
+                    relay
+                        .end_held_processes(executor, initialized.released_processes)
+                        .await;
+                    json!({ "id": id, "result": initialized.result })
+                }
+                Err(refusal) => json!({ "id": id, "error": {
+                    "code": refusal.code,
+                    "message": refusal.message,
+                }}),
+            };
             executor.answer_connection(connection, answer.to_string());
             return;
         }
@@ -523,11 +604,18 @@ impl CodexExecRelay {
             .and_then(|params| params.process_id)
             .filter(|_started| method == ClientMethod::ProcessStart)
             .and_then(text_of);
-        let Some((line, is_minted)) =
-            executor.relay_client_request(connection, &line, id, method, message.params.as_ref())
-        else {
-            executor.answer_connection(connection, compose_executor_ended_answer(id.get()));
-            return;
+        let (line, is_minted) = match executor.relay_client_request(
+            connection,
+            &line,
+            id,
+            method,
+            message.params.as_ref(),
+        ) {
+            Ok(relayed) => relayed,
+            Err(answer) => {
+                executor.answer_connection(connection, answer);
+                return;
+            }
         };
         match method {
             ClientMethod::ProcessStart => {

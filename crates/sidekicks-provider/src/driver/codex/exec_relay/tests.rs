@@ -22,13 +22,16 @@ use tokio_util::task::TaskTracker;
 
 use super::endpoint::RelayEndpoint;
 use super::executor::CodexExecutor;
-use super::{CodexExecRelay, CodexExecRelayDependencies, CodexThreadSessions, RelayedThread};
-use crate::bearer_token::BearerToken;
+use super::{
+    CODEX_RELAY_ENVIRONMENT_ID, CodexExecRelay, CodexExecRelayDependencies, CodexThreadSessions,
+    RelayedThread,
+};
 use crate::command::running_set::RunningCommandSets;
 use crate::command::waiting_checks::SystemInputWaitReader;
 
 mod acts;
 mod connections;
+mod environments;
 mod exchange;
 mod file_handles;
 mod http_requests;
@@ -168,25 +171,34 @@ struct ListeningRelay {
     presented: String,
 }
 
-// A relay for `session_id` in `folder` over an initialized fake executor, listening under a fresh
-// token.
+// A relay for `session_id` in `folder` over an initialized fake executor, listening with the
+// service's own environment admitted by a fresh token.
 async fn listening_relay(session_id: SessionId, folder: &Path) -> ListeningRelay {
     let relay = relay_for(session_id, folder);
     let (executor, fake) = initialized_executor().await;
     relay.take_executor(executor);
-    let token = BearerToken::mint().expect("a token mints");
-    let presented = format!("Bearer {}", token.text());
-    let endpoint = RelayEndpoint::listen(Arc::downgrade(&relay), token)
+    let endpoint = RelayEndpoint::listen(Arc::downgrade(&relay))
         .await
         .expect("the relay listens");
-    let url = endpoint.url();
     *lock(&relay.endpoint) = Some(endpoint);
+    let (url, presented) = admitted_environment(&relay, CODEX_RELAY_ENVIRONMENT_ID);
     ListeningRelay {
         relay,
         fake,
         url,
         presented,
     }
+}
+
+// The address and the authorization header of `environment_id`, admitted by `relay` now.
+fn admitted_environment(relay: &CodexExecRelay, environment_id: &str) -> (String, String) {
+    let added = relay
+        .environment(environment_id)
+        .expect("the relay admits the environment");
+    let token = added
+        .auth_bearer_token
+        .expect("the environment carries its token");
+    (added.exec_server_url, format!("Bearer {token}"))
 }
 
 // A connection to the relay at `url`, admitted by the authorization header `presented`.
@@ -210,17 +222,24 @@ async fn send_text(socket: &mut ClientSocket, message: &Value) {
         .expect("the client writes");
 }
 
-// Sends `initialize` under id 1 on `socket` and reads its answer, the relay's executor's own.
-async fn initialize(socket: &mut ClientSocket) {
+// Sends `initialize` under id 1 on `socket` and reads its answer, the relay's executor's own
+// under a session of the connection's own, whose id it answers.
+async fn initialize(socket: &mut ClientSocket) -> String {
     send_text(
         socket,
         &json!({ "id": 1, "method": "initialize", "params": { "clientName": "codex" } }),
     )
     .await;
-    assert_eq!(
-        next_text(socket).await,
-        json!({ "id": 1, "result": { "sessionId": "executor-1" } })
+    let answer = next_text(socket).await;
+    assert_eq!(answer["id"], 1, "{answer}");
+    let session_id = answer["result"]["sessionId"]
+        .as_str()
+        .expect("the answer names the connection's session");
+    assert_ne!(
+        session_id, "executor-1",
+        "the relay's own session is no connection's"
     );
+    session_id.to_owned()
 }
 
 // The next line the executor reads, failing when none comes within the socket's wait.

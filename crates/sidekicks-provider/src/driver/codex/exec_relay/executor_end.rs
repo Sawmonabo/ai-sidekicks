@@ -27,8 +27,8 @@ use super::methods::{
 const EXECUTOR_ENDED_ERROR_CODE: i64 = -32603;
 
 /// The error's text, also each running process's last output.
-pub(super) const EXECUTOR_ENDED_MESSAGE: &str = "The Codex executor running this service's commands ended; \
-                                      the service starts a new one.";
+pub(super) const EXECUTOR_ENDED_MESSAGE: &str =
+    "The Codex executor running this service's commands ended; the service starts a new one.";
 
 /// The exit code a process the executor's end took is reported with, the one Codex's executor
 /// reports for a process whose exit it could not read.
@@ -69,9 +69,11 @@ pub(super) enum OutputStream {
     Pty,
 }
 
-/// One process as its connection knows it: its last event's number and how far it got.
+/// One process as its connection knows it: whether its start was answered, its last event's
+/// number and how far it got.
 #[derive(Default)]
 struct ReportedProcess {
+    is_started: bool,
     last_seq: u64,
     has_exited: bool,
     is_on_terminal: bool,
@@ -85,13 +87,26 @@ pub(super) struct ProcessLedger {
 }
 
 impl ProcessLedger {
-    /// Keeps the process `relay_id`, whose start the executor took.
-    pub(super) fn open_process(&mut self, relay_id: &str) {
+    /// Keeps the process `relay_id`, whose start goes to the executor, so an event the executor
+    /// reports before it answers the start is counted.
+    pub(super) fn expect_process(&mut self, relay_id: &str) {
         self.processes.entry(relay_id.to_owned()).or_default();
     }
 
+    /// Marks the process `relay_id` started, the executor having taken its start.
+    pub(super) fn open_process(&mut self, relay_id: &str) {
+        if let Some(process) = self.processes.get_mut(relay_id) {
+            process.is_started = true;
+        }
+    }
+
+    /// Forgets the process `relay_id`, whose start the executor refused.
+    pub(super) fn forget_process(&mut self, relay_id: &str) {
+        self.processes.remove(relay_id);
+    }
+
     /// Records an event of `kind`, numbered `seq`, the executor reported of the process
-    /// `relay_id`; a close forgets the process.
+    /// `relay_id`, one whose start the relay sent; a close forgets the process.
     pub(super) fn record_event(
         &mut self,
         relay_id: &str,
@@ -103,21 +118,27 @@ impl ProcessLedger {
             self.processes.remove(relay_id);
             return;
         }
-        let process = self.processes.entry(relay_id.to_owned()).or_default();
+        let Some(process) = self.processes.get_mut(relay_id) else {
+            return;
+        };
         process.last_seq = process.last_seq.max(seq.unwrap_or_default());
         process.has_exited |= kind == ProcessEventKind::Exited;
         process.is_on_terminal |= stream == Some(OutputStream::Pty);
     }
 
     /// The lines each connection is owed for its processes since the executor ended, each composed
-    /// once under the connection and own id `owner_of` reads for its relay id; a process no
-    /// connection holds any more is owed to no one.
+    /// once under the connection and own id `owner_of` reads for its relay id; a process whose
+    /// start was never answered, or that no connection holds any more, is owed to no one.
     pub(super) fn take_owed_lines(
         &mut self,
         mut owner_of: impl FnMut(&str) -> Option<(RelayConnectionId, String)>,
     ) -> Vec<(RelayConnectionId, String)> {
         let mut lines = Vec::new();
-        for (relay_id, process) in self.processes.drain() {
+        let started = self
+            .processes
+            .drain()
+            .filter(|(_relay_id, process)| process.is_started);
+        for (relay_id, process) in started {
             let Some((connection, process_id)) = owner_of(&relay_id) else {
                 continue;
             };
@@ -159,7 +180,6 @@ impl ProcessLedger {
     }
 }
 
-/// The answer to a connection's request `id`, its own id as compact JSON, once the executor ended.
 /// The last body delta of the streamed http request its connection calls `own_request_id`,
 /// numbered `seq`, carrying the error that names the end, so the body's reader stops.
 pub(super) fn compose_executor_ended_body_delta(own_request_id: &str, seq: u64) -> String {
@@ -173,6 +193,7 @@ pub(super) fn compose_executor_ended_body_delta(own_request_id: &str, seq: u64) 
     .to_string()
 }
 
+/// The answer to a connection's request `id`, its own id as compact JSON, once the executor ended.
 pub(super) fn compose_executor_ended_answer(id: &str) -> String {
     let id = RawValue::from_string(id.to_owned()).expect("a request's id was read as JSON");
     json!({ "id": id, "error": {
