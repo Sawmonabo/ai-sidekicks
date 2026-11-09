@@ -164,6 +164,10 @@ impl ClaudeCodeProcess {
     /// `SettingsFile` as the file cannot be written, and with `Spawn` carrying the record's error,
     /// the spawn's, the spawner's when its thread has ended, or `Unsupported` for a token on a
     /// system with no such pipe.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the spawn's handles, its launch and settings folder, and what its reader hands on"
+    )]
     pub(crate) async fn start(
         spawner: &Spawner,
         child_records: &Arc<dyn DaemonChildRecords>,

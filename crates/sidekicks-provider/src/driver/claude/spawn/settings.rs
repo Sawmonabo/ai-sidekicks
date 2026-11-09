@@ -385,7 +385,7 @@ mod tests {
         let printed = format!("{settings:?}");
 
         assert!(printed.contains("OTEL_EXPORTER_OTLP_HEADERS"));
-        assert!(!printed.contains(&bearer.exporter_headers()));
+        assert!(!printed.contains(bearer.exporter_headers().as_str()));
     }
 
     // Killed by dropping the credential paths from `permissions.deny`, which lets every
