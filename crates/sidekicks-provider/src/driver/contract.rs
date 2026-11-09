@@ -717,6 +717,13 @@ pub trait ProviderDriver: Send + Sync {
     /// Removes the folders of MCP sign-ins a stopped daemon left. Fails as a removal fails.
     fn remove_left_sign_in_folders(&self) -> BoxFuture<'_, Result<(), DriverError>>;
 
+    /// The folders of the daemon's own where the provider's processes keep files no agent may read,
+    /// such as a process's telemetry token, which every provider's sessions are denied; empty for
+    /// a provider that keeps none.
+    fn private_file_folders(&self) -> Vec<PathBuf> {
+        Vec::new()
+    }
+
     /// Removes the settings files a stopped daemon's provider processes left. Fails as a removal
     /// fails.
     fn remove_left_settings_files(&self) -> BoxFuture<'_, Result<(), DriverError>> {

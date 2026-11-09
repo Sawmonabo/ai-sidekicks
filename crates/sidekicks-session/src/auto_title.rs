@@ -340,7 +340,14 @@ impl SessionAutoTitle {
         cancel: &CancellationToken,
     ) -> Option<String> {
         let provider = input.provider?;
-        let binding_id = input.binding_id?;
+        let Some(binding_id) = input.binding_id else {
+            tracing::info!(
+                session_id = session_id.text().as_str(),
+                provider = provider.as_str(),
+                "the naming pass was skipped: the session's first run carries no binding"
+            );
+            return None;
+        };
         let driver = match self.providers.lookup(&provider) {
             Ok(driver) => driver,
             Err(refusal) => {

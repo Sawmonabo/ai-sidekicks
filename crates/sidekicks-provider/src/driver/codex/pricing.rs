@@ -23,6 +23,7 @@ use std::sync::Arc;
 use sidekicks_contracts::event::usage::UsageCostSource;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::ProviderAuthMode;
+use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
@@ -35,7 +36,7 @@ use crate::driver::codex::config_read::{
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
 use crate::port::usage_sink::{MeteredUsage, UsageSink};
 use crate::pricing::BoxedError;
-use crate::pricing::list::{PriceTable, SpeedPricing};
+use crate::pricing::list::{PriceRow, PriceTable, SpeedPricing};
 use crate::pricing::live::{LivePricing, LiveUsageRow};
 use crate::pricing::quote::{RequestTokenCounts, RequestUsage, quote_request_rows};
 use crate::pricing::rule::{RequestPricer, RequestPricing};
@@ -76,12 +77,17 @@ impl RequestPricer for CodexRequestPricer {
         key.model_id
             .as_ref()
             .and_then(|model_id| table.row(model_id.as_str()))
-            .is_some_and(|row| {
-                matches!(
-                    row.speed(rate_speed(key)),
-                    Some(SpeedPricing::Standard | SpeedPricing::SpeedRates)
-                )
-            })
+            .is_some_and(|row| prices_tier(row, rate_speed(key)))
+    }
+
+    // Each tier the model lists is a speed its requests may run at.
+    fn prices_listed_model(&self, table: &PriceTable, model: &ProviderModel) -> bool {
+        table.row(model.id.as_str()).is_some_and(|row| {
+            (model.output_speed_levels.iter().flatten())
+                .map(FreeFormText::as_str)
+                .filter(|tier| *tier != DESCRIPTOR.standard_output_speed)
+                .all(|tier| prices_tier(row, Some(tier)))
+        })
     }
 
     fn price(
@@ -268,6 +274,14 @@ fn region_word(region: &CodexProcessingRegion) -> Option<RegionWord> {
         CodexProcessingRegion::Region(prefix) => BoundedText::new(prefix.clone()),
         CodexProcessingRegion::UnknownHost => BoundedText::new(UNKNOWN_HOST_REGION.to_owned()),
     }
+}
+
+// Whether `row` prices `tier` (`None` the standard one) with rates of its own.
+fn prices_tier(row: &PriceRow, tier: Option<&str>) -> bool {
+    matches!(
+        row.speed(tier),
+        Some(SpeedPricing::Standard | SpeedPricing::SpeedRates)
+    )
 }
 
 // The tier whose rates the key's requests take: `None` for the standard tier, which Codex names

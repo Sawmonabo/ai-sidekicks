@@ -6,6 +6,7 @@ pub(crate) mod private_file;
 pub(crate) mod telemetry_switches;
 
 use std::collections::BTreeMap;
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 use serde::{Serialize, Serializer};
@@ -57,7 +58,7 @@ impl Serialize for AgentViewOff {
 /// outranks the person's own advisor, and absent where no advisor was picked, so Claude Code's own
 /// settings resolve it; `output_style` is absent where the session chose none. A short process's
 /// document carries no rules, advisor, style or sandbox.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ClaudeSpawnSettings {
     /// [`CLAUDE_CLEANUP_PERIOD_DAYS`].
@@ -85,6 +86,24 @@ pub(crate) struct ClaudeSpawnSettings {
     /// No exporter headers helper, written with the telemetry switches.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) otel_headers_helper: Option<NoOtelHeadersHelper>,
+}
+
+// `env` carries the telemetry token's header, so only its names are written.
+impl fmt::Debug for ClaudeSpawnSettings {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ClaudeSpawnSettings")
+            .field("cleanup_period_days", &self.cleanup_period_days)
+            .field("disable_agent_view", &self.disable_agent_view)
+            .field("permissions", &self.permissions)
+            .field("advisor_model", &self.advisor_model)
+            .field("output_style", &self.output_style)
+            .field("sandbox", &self.sandbox)
+            .field("disable_all_hooks", &self.disable_all_hooks)
+            .field("env", &self.env.keys().collect::<Vec<_>>())
+            .field("otel_headers_helper", &self.otel_headers_helper)
+            .finish()
+    }
 }
 
 impl ClaudeSpawnSettings {
@@ -334,18 +353,40 @@ fn path_rule(tool: &str, path: &str, glob: Option<&str>, path_rules: PathRules) 
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+    use std::sync::Arc;
 
     use serde_json::{Value, json};
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
     use sidekicks_platforms::PathRules;
 
     use super::{
-        ClaudePermissionsRequest, ClaudeSessionAdvisor, compose_claude_permissions,
-        compose_claude_spawn_settings,
+        ClaudePermissionsRequest, ClaudeSessionAdvisor, ClaudeSpawnSettings,
+        compose_claude_permissions, compose_claude_spawn_settings,
     };
     use crate::background_work::BackgroundWorkForms;
     use crate::driver::PROVIDERS;
+    use crate::driver::claude::DESCRIPTOR;
+    use crate::pricing::receiver::TelemetryTarget;
+    use crate::pricing::receiver::bearers::{TelemetryBearers, TelemetryHolderId};
     use crate::run::posture::{CredentialDenyPath, CredentialDenyPathKind};
+
+    // Killed by the derived `Debug`, which writes the export's `Authorization` value into any log
+    // line or panic that prints the document.
+    #[test]
+    fn a_printed_document_names_its_variables_without_the_token() {
+        let bearers = Arc::new(TelemetryBearers::default());
+        let bearer = bearers
+            .mint(DESCRIPTOR.provider_id(), TelemetryHolderId::new(1))
+            .expect("a token mints");
+        let target = TelemetryTarget::new(43_210, bearers);
+        let mut settings = ClaudeSpawnSettings::short_process(false);
+        settings.set_telemetry_switches(Some((&target, &bearer)));
+
+        let printed = format!("{settings:?}");
+
+        assert!(printed.contains("OTEL_EXPORTER_OTLP_HEADERS"));
+        assert!(!printed.contains(&bearer.exporter_headers()));
+    }
 
     // Killed by dropping the credential paths from `permissions.deny`, which lets every
     // file-reading tool read them, by a folder's rule that leaves out what is under it, and by a

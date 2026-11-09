@@ -1,8 +1,8 @@
 //! The telemetry switches every Claude Code process carries in its settings document's `env`: its
 //! logs and traces exported to the daemon's receiver with the process's own token where the target
-//! is registered, every exporter off before it is, and in both every exporter setting a settings file
-//! below the document could carry cancelled, with no prompt, reply or tool content in a record.
-//! The person's opt-outs of Anthropic's own telemetry are never touched.
+//! is registered, every exporter off before it is, and in both every exporter setting a settings
+//! file below the document could carry cancelled, with no prompt, reply or tool content in a
+//! record. The person's opt-outs of Anthropic's own telemetry are never touched.
 
 use std::collections::BTreeMap;
 
@@ -216,9 +216,9 @@ mod tests {
     use crate::pricing::receiver::TelemetryTarget;
     use crate::pricing::receiver::bearers::{TelemetryBearers, TelemetryHolderId};
 
-    // Killed by a base without `/telemetry/claude`, a pair missing from the no-target case, a
-    // content switch left out, and the session switch cancelled with `""`, which drops
-    // `session.id` from every event.
+    // Killed by a base without `/telemetry/claude`, any pair one case sets and the other leaves to
+    // a settings file below the document, a content switch left out, and the session switch
+    // cancelled with `""`, which drops `session.id` from every event.
     #[rstest]
     #[case::with_target(true)]
     #[case::with_none(false)]
@@ -231,6 +231,12 @@ mod tests {
         let export = has_target.then_some((&target, &bearer));
 
         let switches = compose_claude_telemetry_switches(export);
+        let other_case = compose_claude_telemetry_switches(export.xor(Some((&target, &bearer))));
+
+        assert!(
+            switches.keys().eq(other_case.keys()),
+            "both cases set the same names"
+        );
 
         let value = |name: &str| {
             switches

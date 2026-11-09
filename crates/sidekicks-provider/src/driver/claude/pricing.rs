@@ -18,13 +18,13 @@
 //!   figure with no row to land on is recorded on a row of its own with no tokens.
 
 use std::collections::HashMap;
-use std::error::Error;
 use std::sync::Arc;
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::UsageCostSource;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
+use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -40,6 +40,7 @@ use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics,
 };
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner, UsageSink};
+use crate::pricing::BoxedError;
 use crate::pricing::list::PriceTable;
 use crate::pricing::live::{LivePricing, LiveUsageRow};
 use crate::pricing::quote::{RequestTokenCounts, RequestUsage, quote_request_rows};
@@ -89,6 +90,13 @@ impl RequestPricer for ClaudeRequestPricer {
         };
         let region = key.processing_region.as_ref().map(BoundedText::as_str);
         row.speed(speed.row_word()).is_some() && row.region(region, CLAUDE_REGION_WORDS).is_some()
+    }
+
+    // A model listed as fast may run at `fast` besides the standard speed.
+    fn prices_listed_model(&self, table: &PriceTable, model: &ProviderModel) -> bool {
+        table
+            .row(model.id.as_str())
+            .is_some_and(|row| !model.fast || row.speed(ClaudeSpeed::Fast.row_word()).is_some())
     }
 
     fn price(
@@ -192,7 +200,7 @@ pub(crate) struct ClaudeKeptRow {
 pub(crate) async fn record_for_price(
     sink: &dyn UsageSink,
     metered: MeteredUsage,
-) -> Result<Option<ClaudeKeptRow>, Box<dyn Error + Send + Sync>> {
+) -> Result<Option<ClaudeKeptRow>, BoxedError> {
     let session_id = metered.session_id;
     let priced =
         (metered.delta.request.model_id.clone()).map(|model_id| (model_id, metered.delta.clone()));
@@ -538,6 +546,7 @@ mod tests {
     use sidekicks_contracts::event::usage::UsageCostSource;
     use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
     use sidekicks_contracts::provider::account::record::ProviderAccountId;
+    use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
     use sidekicks_contracts::session::cost::UsdMicros;
     use sidekicks_contracts::wire::instant::WireInstant;
     use sidekicks_contracts::wire::integer::SafeInt;
@@ -718,5 +727,34 @@ mod tests {
         #[case] region: Option<&str>,
     ) {
         assert!(!ClaudeRequestPricer.prices_key(&table(), &key(model_id, speed, region)));
+    }
+
+    /// Killed by a model listed as fast read as priced on a row with no `fast` rate or multiplier,
+    /// which leaves the fetch for it until a fast request is held, and by a model listed at the
+    /// standard speed alone read as lacking one.
+    #[rstest]
+    #[case::fast_priced("claude-opus-5-5", true, true)]
+    #[case::fast_lacking("claude-haiku-4-5-20251001", true, false)]
+    #[case::standard_alone("claude-haiku-4-5-20251001", false, true)]
+    fn a_listed_model_is_priced_at_each_speed_it_offers(
+        #[case] model_id: &str,
+        #[case] fast: bool,
+        #[case] is_priced: bool,
+    ) {
+        let text = |text: &str| FreeFormText::new(text.to_owned()).expect("a listing word");
+        let model = ProviderModel {
+            id: text(model_id),
+            name: text(model_id),
+            capabilities: Vec::new(),
+            effort_levels: None,
+            output_speed_levels: None,
+            fast,
+            larger_window: false,
+            context_window: None,
+        };
+        assert_eq!(
+            ClaudeRequestPricer.prices_listed_model(&table(), &model),
+            is_priced
+        );
     }
 }

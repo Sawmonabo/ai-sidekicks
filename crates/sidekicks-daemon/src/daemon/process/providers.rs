@@ -225,6 +225,12 @@ pub(crate) fn build_providers(
         ports: Arc::clone(&ports),
     };
     let registry = Arc::new(ProviderRegistry::register_from(registrations, &services));
+    let private_folders = (registry.drivers())
+        .flat_map(|(_, driver)| driver.private_file_folders())
+        .collect();
+    execution_postures
+        .set_private_folders(private_folders)
+        .expect("the providers' private folders are handed over once, as their drivers are built");
     // A recorded build's write wakes the attention projection's followers, which list it.
     let capabilities = Arc::new(DriverCapabilitiesWriter::new(
         start.reads,

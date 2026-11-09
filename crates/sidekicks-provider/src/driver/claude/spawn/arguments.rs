@@ -16,6 +16,10 @@ use crate::driver::session_control::SubagentPolicy;
 /// administrator's MCP file it makes Claude Code exit at start instead.
 pub(crate) const CLAUDE_NO_MCP_SERVERS: &str = "--strict-mcp-config";
 
+/// The flag that names the settings document Claude Code loads over the person's own settings, a
+/// path or the document inline.
+pub(crate) const CLAUDE_SETTINGS_FLAG: &str = "--settings";
+
 /// How a spawn's conversation starts: a new one, a resume of one, one kept nowhere (a throwaway
 /// copy of a conversation or a new one), or a fork at one message.
 pub(crate) enum ClaudeConversationStart {

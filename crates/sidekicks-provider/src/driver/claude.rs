@@ -1,5 +1,6 @@
 //! The Claude Code driver.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures::FutureExt;
@@ -29,7 +30,9 @@ use crate::driver::claude::mcp::{read_claude_mcp_servers, reread_claude_live_mcp
 use crate::driver::claude::session::establishment::context::{
     CLAUDE_ADVISOR_ROW_ID, read_claude_row_choice,
 };
-use crate::driver::claude::spawn::settings::private_file::remove_left_claude_settings_files;
+use crate::driver::claude::spawn::settings::private_file::{
+    compose_claude_settings_folder, remove_left_claude_settings_files,
+};
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::account::{HelperModeAccountLegs, ProviderAccountLegs};
 use crate::driver::contract::error::DriverError;
@@ -645,6 +648,10 @@ impl ProviderDriver for ClaudeDriver {
 
     fn remove_left_sign_in_folders(&self) -> BoxFuture<'_, Result<(), DriverError>> {
         self.remove_left_sign_in_folders().boxed()
+    }
+
+    fn private_file_folders(&self) -> Vec<PathBuf> {
+        vec![compose_claude_settings_folder(&self.sources.data_folder)]
     }
 
     fn remove_left_settings_files(&self) -> BoxFuture<'_, Result<(), DriverError>> {

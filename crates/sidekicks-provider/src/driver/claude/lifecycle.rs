@@ -134,8 +134,8 @@ pub(crate) struct ClaudeSessionParts {
 }
 
 /// The launcher every Claude Code process the driver keeps starts through, over `services`'
-/// handles: the spawner, the child records, the process table, the accounts port and the data
-/// folder.
+/// handles: the spawner, the child records, the process table, the accounts port, the telemetry
+/// target port and the data folder.
 pub(crate) fn compose_claude_launcher(services: &DriverServices) -> Arc<ClaudeProcessLauncher> {
     Arc::new(ClaudeProcessLauncher::new(
         services.spawner.clone(),

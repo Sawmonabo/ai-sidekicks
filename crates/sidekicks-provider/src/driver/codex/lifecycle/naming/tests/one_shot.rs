@@ -8,12 +8,14 @@ use serde_json::json;
 use sidekicks_platforms::{
     StandInAnswer, StandInProgram, read_recorded_arguments, write_stand_in_program,
 };
+use sidekicks_std::file::atomic_write::write_file_atomically;
 use tokio::sync::watch;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use super::usage::{held_keys, metered_filing, recorded_rows};
 use super::{filing_over, locked_down_config};
+use crate::bounded_poll::poll_until;
 use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::lifecycle::naming::lockdown::read_exec_overrides;
 use crate::driver::codex::lifecycle::naming::one_shot::name_in_one_shot;
@@ -250,4 +252,71 @@ async fn a_one_shot_pass_records_its_counts_as_the_session_s_spend() {
         [(binding, MeteredUsageOwner::Session, Some(1_200), Some(30))]
     );
     assert_eq!(held_keys(&usage), [(Some("gpt-5".to_owned()), None, None)]);
+}
+
+// Real time, as above. The exec waits for a release file once started, so the cancel lands while it
+// runs; it then prints its turn's counts and ends. Killed by a cancel that drops the running exec,
+// which kills it with its request done and files no row.
+#[tokio::test]
+async fn a_one_shot_pass_canceled_mid_exec_still_records_its_counts() {
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let (started, release) = (folder.path().join("started"), folder.path().join("release"));
+    let program = folder.path().join("codex");
+    let stand_in = format!(
+        "#!/bin/sh\nif [ \"$1\" = mcp ]; then printf '[]'; exit 0; fi\n: > '{}'\n\
+         while [ ! -e '{}' ]; do sleep 0.05; done\nprintf '%s' '{EXEC_EVENTS}'\n",
+        started.display(),
+        release.display(),
+    );
+    write_file_atomically(&program, stand_in, 0o755)
+        .await
+        .expect("the stand-in is written");
+    let (service, mut script) = service_running(folder.path(), program);
+    let usage = Arc::new(GatedUsage::new(watch::channel(true).1));
+    let stop = CancellationToken::new();
+    let (filing, _server) = metered_filing(&usage, folder.path(), &stop).await;
+    let served = tokio::spawn(async move {
+        let listed = script.next_sent().await;
+        assert_eq!(listed["method"], "model/list");
+        let models = [json!({"id": "gpt-5", "displayName": "GPT-5", "hidden": false})];
+        script.answer(&listed, &json!({"data": models, "nextCursor": null}));
+        let region = script.next_sent().await;
+        assert_eq!(region["method"], "config/read");
+        script.answer(&region, &json!({"config": {}, "origins": {}}));
+        script
+    });
+    let cancel = CancellationToken::new();
+
+    let pass = tokio::spawn({
+        let (service, cancel) = (Arc::clone(&service), cancel.clone());
+        async move {
+            let deadline = Instant::now() + CODEX_NAMING_DEADLINE;
+            name_in_one_shot(
+                &service,
+                "Name this.",
+                Some("gpt-5"),
+                deadline,
+                &cancel,
+                filing,
+            )
+            .await
+        }
+    });
+    poll_until(|| started.exists(), |is_started| *is_started).await;
+    cancel.cancel();
+    std::fs::write(&release, "").expect("the exec is released");
+    let named = pass.await.expect("the pass ran to its end");
+    drop(served.await.expect("the catalog and the region were read"));
+    stop.cancel();
+
+    assert_eq!(
+        named.expect("the pass ran"),
+        None,
+        "a canceled pass names nothing"
+    );
+    assert_eq!(
+        recorded_rows(&usage).len(),
+        1,
+        "the exec's counts are one row"
+    );
 }

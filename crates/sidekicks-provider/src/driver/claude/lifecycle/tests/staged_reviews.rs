@@ -2,6 +2,7 @@
 //! from the session's process, in its level's own mode and on a channel of its own, its command
 //! stopped and moved on that process.
 
+use std::pin::pin;
 use std::sync::Arc;
 
 use rstest::rstest;
@@ -273,6 +274,61 @@ async fn a_staged_reviews_spend_is_recorded_on_its_run_however_it_ends(
         fixture.usage.priced_shares(),
         [(cost_source, vec![(account, 14_000)])]
     );
+}
+
+// Killed by the review's turn recorded on the review's own task, which nothing waits for: the
+// daemon's stop would end the runtime under the turn and its spend row would be lost.
+#[tokio::test]
+async fn the_stop_waits_out_a_staged_review_mid_turn_and_its_spend_is_recorded() {
+    let fixture = ScriptedDriver::new();
+    make_test_repository(&test_git_runner(), fixture.folder.path(), "work").await;
+    fixture
+        .services
+        .ports
+        .command_output
+        .register(unbound_running_command_sets())
+        .expect("the running commands register once");
+    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    offer_review_skill(&fixture, session_id);
+    let reported = ClaudeOneTurnReply {
+        provider_message_id: Some("review".to_owned()),
+        ..one_turn_reply("Nothing to change.")
+    };
+    let release = fixture
+        .starts
+        .script_one_turn_until_released(one_turn_outcome(
+            reported,
+            Some(opus_spend(&[(1_000, 500)], None)),
+        ));
+    let run_id = new_run_id();
+    let mut params = start_params(session_id, run_id);
+    params.opening.item = RunOpeningItem::Review {
+        target: SessionReviewTarget::Staged,
+    };
+    fixture
+        .driver
+        .start_run(params)
+        .await
+        .expect("the review starts");
+    poll_until(
+        || fixture.starts.take_one_turns(),
+        |turns| !turns.is_empty(),
+    )
+    .await;
+
+    let parts = fixture.driver.composed_parts().expect("composed");
+    let mut stop_waits = pin!(parts.session_controls.wait_for_recorded_turns());
+    assert!(
+        futures::poll!(stop_waits.as_mut()).is_pending(),
+        "the stop waits for the review's turn"
+    );
+    release.send(()).expect("the turn waits for its release");
+    stop_waits.await;
+
+    let metered: Vec<_> = (fixture.usage.metered().into_iter())
+        .map(|metered| (metered.owner, metered.delta.axis_deltas.input))
+        .collect();
+    assert_eq!(metered, [(MeteredUsageOwner::Run, Some(1_000))]);
 }
 
 // A staged review's run, on a binding of its own.

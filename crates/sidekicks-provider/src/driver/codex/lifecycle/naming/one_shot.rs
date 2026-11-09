@@ -6,15 +6,17 @@ use serde_json::Value;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-use super::exec_turn::{ExecTurnEnd, read_exec_turn};
 use super::{
     CODEX_SERVER_LIST_DEADLINE, MODEL_KEY, REASONING_EFFORT_KEY, choose_title_model,
     list_mcp_server_names, lockdown, make_pass_folder, read_title, title_schema,
 };
+use crate::driver::codex::exec_turn::{ExecTurnEnd, read_exec_turn};
 use crate::driver::codex::service::command::{CodexCommandError, run_codex_command};
 use crate::driver::codex::service::registry::home_exec_switches;
 use crate::driver::codex::service::supervisor::CodexService;
-use crate::driver::codex::service::supervisor::start::compose_codex_native_launch;
+use crate::driver::codex::service::supervisor::start::{
+    CodexNativeLaunch, compose_codex_native_launch,
+};
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::side_questions::copy_turn::{CopyTurnMeter, SessionUsageFiling};
 
@@ -28,8 +30,10 @@ const TITLE_ANSWER_FILE_NAME: &str = "title.json";
 // title conversation's config with each MCP server the home lists disabled, its answer held to the
 // title's schema, all within `deadline`; the counts of its turn, which it prints, filed through
 // `filing` before its answer is read, so a pass that names nothing keeps its spend. `None` with
-// nothing launched once `deadline` passed, and once `cancel` fired before the command ended. Fails
-// as the launch cannot be composed or the servers cannot be listed.
+// nothing launched once `deadline` passed or `cancel` fired before the command started; a cancel
+// once it started lets it run to its bounded end, files its counts and answers `None`, since its
+// request may have completed. Fails as the launch cannot be composed or the servers cannot be
+// listed.
 pub(super) async fn name_in_one_shot(
     service: &CodexService,
     prompt: &str,
@@ -38,12 +42,9 @@ pub(super) async fn name_in_one_shot(
     cancel: &CancellationToken,
     mut filing: SessionUsageFiling,
 ) -> Result<Option<String>, CodexError> {
-    let ran = tokio::select! {
-        biased;
-        () = cancel.cancelled() => return Ok(None),
-        ran = run_title_exec(service, prompt, session_model, deadline) => ran?,
-    };
-    let Some(TitleExec { folder, model, ran }) = ran else {
+    let Some(TitleExec { folder, model, ran }) =
+        run_title_exec(service, prompt, session_model, deadline, cancel).await?
+    else {
         return Ok(None);
     };
     let printed = match ran {
@@ -66,6 +67,9 @@ pub(super) async fn name_in_one_shot(
         }
         // A failed turn and one that printed no end state no counts.
         Some(ExecTurnEnd::Failed) | None => {}
+    }
+    if cancel.is_cancelled() {
+        return Ok(None);
     }
     // The answer is read from its file, since the pass prints more than the answer.
     match tokio::fs::read_to_string(folder.path().join(TITLE_ANSWER_FILE_NAME)).await {
@@ -91,14 +95,52 @@ struct TitleExec {
     ran: Result<String, CodexCommandError>,
 }
 
+// The one-shot pass's `codex exec` before it starts: its folder, the model it sets and its launch.
+struct TitleExecLaunch {
+    folder: tempfile::TempDir,
+    model: Option<String>,
+    native: CodexNativeLaunch,
+}
+
 // The one-shot pass's `codex exec`, run to its end within `deadline`; `None` with nothing launched
-// once it passed. Fails as `name_in_one_shot` fails.
+// once it passed or `cancel` fired first. Once launched, a cancel no longer reaches it. Fails as
+// `name_in_one_shot` fails.
 async fn run_title_exec(
     service: &CodexService,
     prompt: &str,
     session_model: Option<&str>,
     deadline: Instant,
+    cancel: &CancellationToken,
 ) -> Result<Option<TitleExec>, CodexError> {
+    let launch = tokio::select! {
+        biased;
+        () = cancel.cancelled() => return Ok(None),
+        launch = compose_title_exec(service, prompt, session_model, deadline) => launch?,
+    };
+    let Some(TitleExecLaunch {
+        folder,
+        model,
+        native,
+    }) = launch
+    else {
+        return Ok(None);
+    };
+    let left = deadline.saturating_duration_since(Instant::now());
+    if left.is_zero() || cancel.is_cancelled() {
+        return Ok(None);
+    }
+    let ran = run_codex_command(&service.dependencies().spawner, native.launch, left).await;
+    Ok(Some(TitleExec { folder, model, ran }))
+}
+
+// The pass's `codex exec` composed within `deadline`, its schema written into its folder; `None`
+// once it passed. Fails as `name_in_one_shot` fails.
+async fn compose_title_exec(
+    service: &CodexService,
+    prompt: &str,
+    session_model: Option<&str>,
+    deadline: Instant,
+) -> Result<Option<TitleExecLaunch>, CodexError> {
     let time_left = || deadline.saturating_duration_since(Instant::now());
     if time_left().is_zero() {
         return Ok(None);
@@ -162,18 +204,12 @@ async fn run_title_exec(
         "--json".to_owned(),
         prompt.to_owned(),
     ]);
-    let mut launch = compose_codex_native_launch(&dependencies.data_folder, &executable, arguments)
-        .await?
-        .launch;
-    launch.working_folder = folder.path().to_owned();
-    let left = time_left();
-    if left.is_zero() {
-        return Ok(None);
-    }
-    let ran = run_codex_command(&dependencies.spawner, launch, left).await;
-    Ok(Some(TitleExec {
+    let mut native =
+        compose_codex_native_launch(&dependencies.data_folder, &executable, arguments).await?;
+    folder.path().clone_into(&mut native.launch.working_folder);
+    Ok(Some(TitleExecLaunch {
         folder,
         model: title_model.model,
-        ran,
+        native,
     }))
 }

@@ -23,6 +23,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::super::intake::USAGE_RECORDER_QUEUE;
 use super::{LiveCodexSession, TEST_TURN, driver_holding};
+use crate::bounded_poll::poll_until;
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, bind_test_listener, start_scripted_codex_service,
 };
@@ -164,17 +165,6 @@ pub(crate) async fn answer_region_read(scripted: &mut ScriptedCodexService) {
         .answer(&request, &json!({ "config": {}, "origins": {} }));
 }
 
-// Waits until `is_done` holds.
-async fn wait_until(is_done: impl Fn() -> bool) {
-    tokio::time::timeout(Duration::from_secs(10), async {
-        while !is_done() {
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-    })
-    .await
-    .expect("the recorder gets there");
-}
-
 // More reports than the recorder's queue holds, metered while the sink is stalled, are each
 // recorded once the sink moves, in metering order. Killed by a full queue that drops a batch, and
 // by recording the batches out of order.
@@ -210,7 +200,11 @@ async fn a_stalled_sink_loses_no_metered_spend_and_records_it_in_order() {
     open.send_replace(true);
 
     let expected: Vec<Option<u64>> = (1..=reports).map(Some).collect();
-    wait_until(|| usage.input_deltas().len() >= expected.len()).await;
+    poll_until(
+        || usage.input_deltas(),
+        |deltas| deltas.len() >= expected.len(),
+    )
+    .await;
     // The sink held the first delta alone while stalled.
     assert_eq!(handed_while_stalled, 1);
     assert_eq!(usage.input_deltas(), expected);
@@ -263,7 +257,7 @@ async fn a_total_that_did_not_grow_records_and_prices_nothing() {
     ));
     answer_region_read(&mut live.scripted).await;
 
-    wait_until(|| lock(&usage.costs).len() >= 2).await;
+    poll_until(|| lock(&usage.costs).len(), |priced| *priced >= 2).await;
     stop.cancel();
     assert_eq!(usage.input_deltas(), [Some(1_000), Some(2_000)]);
     let costs: Vec<(UsageCostSource, Vec<u64>)> = lock(&usage.costs)
@@ -310,7 +304,7 @@ async fn a_reroute_to_a_model_the_list_lacks_fetches_the_list_at_once() {
             "toModel": "gpt-5.5-cyber", "reason": "highRiskCyberActivity",
         },
     }));
-    wait_until(|| server.if_none_match().len() == 2).await;
+    poll_until(|| server.if_none_match(), |tags| tags.len() == 2).await;
     stop.cancel();
 
     assert_eq!(

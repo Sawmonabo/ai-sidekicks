@@ -56,6 +56,7 @@ use crate::driver::claude::session::transport::inbound::{
 use crate::driver::claude::session::transport::user_message::{
     ClaudeUserFrame, ClaudeWriteAttempt,
 };
+use crate::driver::claude::spawn::arguments::CLAUDE_SETTINGS_FLAG;
 use crate::driver::claude::spawn::command::compose_claude_command;
 use crate::driver::claude::spawn::environment::CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE;
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
@@ -156,9 +157,9 @@ impl ClaudeCodeProcess {
     /// written to a private file in `settings_folder` first, named last on the command line and
     /// removed, its token refused with it, at the reap or as the start fails; the launch's token
     /// is handed on a pipe the process alone inherits. Fails with `TelemetryBearer` as the
-    /// telemetry token cannot be minted, with `SettingsFile` as the file cannot be written, and with
-    /// `Spawn` carrying the record's error, the spawn's, the spawner's when its thread has ended,
-    /// or `Unsupported` for a token on a system with no such pipe.
+    /// telemetry token cannot be minted, with `SettingsFile` as the file cannot be written, and
+    /// with `Spawn` carrying the record's error, the spawn's, the spawner's when its thread has
+    /// ended, or `Unsupported` for a token on a system with no such pipe.
     pub(crate) async fn start(
         spawner: &Spawner,
         child_records: &Arc<dyn DaemonChildRecords>,
@@ -197,7 +198,7 @@ impl ClaudeCodeProcess {
         .await
         .map_err(ClaudeLaunchError::SettingsFile)?;
         let mut arguments = launch.arguments;
-        arguments.push("--settings".to_owned());
+        arguments.push(CLAUDE_SETTINGS_FLAG.to_owned());
         arguments.push(settings_file.path().to_string_lossy().into_owned());
         let mut command = compose_claude_command(
             &launch.start,

@@ -115,7 +115,7 @@ sh -c 'env > "$RECORD/command-environment"; '\
 // it recorded in and the accounts reader.
 async fn run_stand_in(mode: ProviderAuthMode) -> (tempfile::TempDir, Arc<SealedToken>) {
     let folder = tempfile::tempdir().expect("a scratch folder is made");
-    let program = folder.path().join("claude");
+    let program = folder.path().join("claude-stand-in");
     write_file_atomically(&program, STAND_IN, 0o755)
         .await
         .expect("the stand-in is written");
@@ -223,7 +223,7 @@ fn recorded_authorization(folder: &Path) -> String {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_process_reads_its_settings_from_a_private_file_gone_at_its_end() {
     let folder = tempfile::tempdir().expect("a scratch folder is made");
-    let program = folder.path().join("claude");
+    let program = folder.path().join("claude-stand-in");
     write_file_atomically(&program, SETTINGS_STAND_IN, 0o755)
         .await
         .expect("the stand-in is written");
@@ -439,7 +439,7 @@ done
 #[tokio::test(flavor = "multi_thread")]
 async fn the_command_list_read_turns_the_persons_hooks_off() {
     let folder = tempfile::tempdir().expect("a scratch folder is made");
-    let program = folder.path().join("claude");
+    let program = folder.path().join("claude-stand-in");
     write_file_atomically(&program, INITIALIZE_STAND_IN, 0o755)
         .await
         .expect("the stand-in is written");

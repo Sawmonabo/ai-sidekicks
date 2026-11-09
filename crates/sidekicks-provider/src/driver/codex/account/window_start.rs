@@ -14,7 +14,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use crate::driver::ProviderAccountFolders;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::account::CodexAccountLegs;
-use crate::driver::codex::lifecycle::naming::exec_turn::{ExecTurnEnd, read_exec_turn};
+use crate::driver::codex::exec_turn::{ExecTurnEnd, read_exec_turn};
 use crate::driver::codex::lifecycle::naming::lockdown::{
     compose_lockdown_overrides, write_exec_overrides,
 };

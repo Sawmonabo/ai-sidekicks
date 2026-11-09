@@ -21,7 +21,8 @@
 //!   floored at zero, re-based at the observed value, and reported.
 //! - The normalized input is uncached input. The cached count is subtracted only where the
 //!   breakdown's sum identity shows it sits inside the input figure; otherwise input is emitted
-//!   unsubtracted, with a diagnostic where the reading's declared total disagrees with it.
+//!   unsubtracted, with a diagnostic, once per thread and turn, where the reading's declared total
+//!   disagrees with it. A reading with no total has no identity to check.
 //!
 //! Readings arrive typed: a driver reports a usage member that is not a non-negative integer where
 //! it reads the wire, so nothing here meets an unknown axis or a non-finite count.
@@ -263,6 +264,9 @@ pub(crate) enum ThreadBaseEstablishment {
 pub(crate) struct UsageDeltaAccountant {
     provider: ProviderId,
     base_registers_by_thread_id: HashMap<String, UsageAxisCounts>,
+    // The turn each thread last reported a failed containment identity on, so a turn's every
+    // reading after the first logs none.
+    containment_reported_turn_by_thread_id: HashMap<String, Option<String>>,
 }
 
 impl UsageDeltaAccountant {
@@ -271,6 +275,7 @@ impl UsageDeltaAccountant {
         Self {
             provider,
             base_registers_by_thread_id: HashMap::new(),
+            containment_reported_turn_by_thread_id: HashMap::new(),
         }
     }
 
@@ -305,6 +310,8 @@ impl UsageDeltaAccountant {
     /// Drops a thread's registers when its provider session ends.
     pub(crate) fn release_thread(&mut self, thread_id: &str) {
         self.base_registers_by_thread_id.remove(thread_id);
+        self.containment_reported_turn_by_thread_id
+            .remove(thread_id);
     }
 
     /// Meters one cumulative reading into a per-turn delta; `None` for a thread with no
@@ -412,11 +419,11 @@ impl UsageDeltaAccountant {
     // Input is input neither read from nor written to the cache only where `total == input +
     // output` on the cumulative counters: a total used up by input plus output leaves the cache
     // counts nowhere to live but inside input, so both are subtracted and every provider counts
-    // the same thing. Otherwise input is emitted unsubtracted: an overstatement, surfaced rather
-    // than left a silent understatement where the reading declares a total its counts disagree
-    // with; a reading with no total has no identity to fail.
+    // the same thing. Otherwise input is emitted unsubtracted: an overstatement, surfaced once per
+    // thread and turn rather than left a silent understatement where the reading declares a total
+    // its counts disagree with; a reading with no total has no identity to fail.
     fn normalize_input_tokens(
-        &self,
+        &mut self,
         reading: &CumulativeUsageReading,
         axis_deltas: &UsageAxisCounts,
     ) -> (u64, UsageContainment) {
@@ -449,6 +456,10 @@ impl UsageDeltaAccountant {
         }
         if is_containment_confirmed == Some(false)
             && (cached_input_delta > 0 || cache_write_delta > 0)
+            && self
+                .containment_reported_turn_by_thread_id
+                .insert(reading.thread_id.clone(), reading.named_turn_id.clone())
+                != Some(reading.named_turn_id.clone())
         {
             emit_usage_diagnostic(
                 self.provider.clone(),
@@ -648,6 +659,7 @@ fn emit_usage_diagnostic<const N: usize>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::driver::diagnostics::RecordedEvents;
     use crate::driver::registry::test_provider;
 
     fn reading(thread_id: &str, input: u64) -> CumulativeUsageReading {
@@ -723,6 +735,61 @@ mod tests {
             .expect("the thread is established");
         assert_eq!(metered.normalized_input_tokens, 50);
         assert_eq!(metered.containment, UsageContainment::ConfirmedSubtracted);
+    }
+
+    // Killed by the failed identity's diagnostic dropped, by one logged on every reading of a turn,
+    // and by one logged for a reading that declares no total, which has no identity to check.
+    #[test]
+    fn a_disagreeing_total_is_diagnosed_once_per_thread_and_turn() {
+        let reading = |turn: &str, scale: u64, total: Option<u64>| CumulativeUsageReading {
+            thread_id: "thread".to_owned(),
+            named_turn_id: Some(turn.to_owned()),
+            cumulative: UsageAxisCounts {
+                input: Some(100 * scale),
+                cached_input: Some(30 * scale),
+                output: Some(10 * scale),
+                total: total.map(|total| total * scale),
+                ..UsageAxisCounts::default()
+            },
+            declared_per_turn: None,
+            request: UsageRequestFacts::default(),
+        };
+        let mut accountant = UsageDeltaAccountant::new(test_provider());
+        accountant.establish_thread("thread".to_owned(), ThreadBaseEstablishment::Fresh);
+        let recorded = RecordedEvents::default();
+
+        let mut containments = Vec::new();
+        recorded.record_during(|| {
+            for (turn, scale, total) in [
+                ("first", 1, Some(200)),
+                ("first", 2, Some(200)),
+                ("second", 3, Some(200)),
+                ("second", 4, None),
+            ] {
+                let metered = accountant
+                    .meter_reading(reading(turn, scale, total))
+                    .expect("each reading grows every count");
+                containments.push((metered.normalized_input_tokens, metered.containment));
+            }
+        });
+
+        let unsubtracted = UsageContainment::UnconfirmedUnsubtracted;
+        assert_eq!(
+            containments,
+            [
+                (100, unsubtracted),
+                (100, unsubtracted),
+                (100, unsubtracted),
+                (100, unsubtracted)
+            ]
+        );
+        let containment_counter = DriverDiagnosticKind::UsageContainmentIdentityUnconfirmed
+            .counter_name()
+            .to_owned();
+        assert_eq!(
+            recorded.counters(),
+            [containment_counter.clone(), containment_counter]
+        );
     }
 
     #[test]
