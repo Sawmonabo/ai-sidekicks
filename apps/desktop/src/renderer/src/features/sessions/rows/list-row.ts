@@ -6,7 +6,7 @@ import type { SessionShape, SessionState } from "@ai-sidekicks/contracts/session
 
 // The state of a session whose deletion has started. Typed against the wire union so a rename in
 // `packages/contracts` fails here.
-const DELETING_SESSION_STATE: SessionState = "purge_requested";
+const DELETING_SESSION_STATE: SessionState = "purgeRequested";
 
 /**
  * One row. `state` is the wire's own string, read as words on the row. A row is titled from what

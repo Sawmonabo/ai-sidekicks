@@ -6,7 +6,7 @@
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
+import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/git/local";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 

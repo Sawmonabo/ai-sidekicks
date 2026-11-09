@@ -2,7 +2,11 @@
 // or the words an untitled session reads by.
 
 import type { SessionListEntry } from "@ai-sidekicks/contracts/session/directory";
-import type { SessionShape } from "@ai-sidekicks/contracts/session/methods";
+import {
+  UNTITLED_CHAT_NAME,
+  UNTITLED_PROJECT_NAME,
+  type SessionShape,
+} from "@ai-sidekicks/contracts/session/methods";
 
 /** The words a session is named by on screen, and whether they stand in for a missing title. */
 export interface SessionDisplayTitle {
@@ -11,14 +15,16 @@ export interface SessionDisplayTitle {
 }
 
 /** What a session's on-screen title is chosen from, its shape absent where nothing named it. */
-export type SessionTitleSource = Partial<Pick<SessionListEntry, "name" | "firstMessagePreview">> & {
+export type SessionTitleSource = {
+  readonly [Member in "name" | "firstMessagePreview"]?: SessionListEntry[Member] | undefined;
+} & {
   readonly shape: SessionShape | undefined;
 };
 
 /**
  * What a session is called wherever a surface names it: its name, else its first message's
- * preview, else `New chat` on a chat and `New session` on a project, which a surface draws faint
- * and italic. `undefined` only where the shape is unknown too, so nothing names it.
+ * preview, else the contracts' untitled words for its shape, which a surface draws faint and
+ * italic. `undefined` only where the shape is unknown too, so nothing names it.
  */
 export function sessionDisplayTitleOf(
   source: SessionTitleSource & { readonly shape: SessionShape },
@@ -36,6 +42,6 @@ export function sessionDisplayTitleOf(source: SessionTitleSource): SessionDispla
 
 // What an untitled session reads, by its shape.
 const UNTITLED_SESSION_WORDS: Readonly<Record<SessionShape, string>> = {
-  chat: "New chat",
-  project: "New session",
+  chat: UNTITLED_CHAT_NAME,
+  project: UNTITLED_PROJECT_NAME,
 };

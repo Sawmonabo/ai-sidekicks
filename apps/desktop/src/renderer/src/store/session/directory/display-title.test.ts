@@ -3,6 +3,8 @@
 
 import { describe, expect, it } from "vitest";
 
+import { UNTITLED_CHAT_NAME, UNTITLED_PROJECT_NAME } from "@ai-sidekicks/contracts/session/methods";
+
 import { sessionDisplayTitleOf } from "./display-title.js";
 
 describe("sessionDisplayTitleOf", () => {
@@ -21,11 +23,11 @@ describe("sessionDisplayTitleOf", () => {
       isUntitled: false,
     });
     expect(sessionDisplayTitleOf({ shape: "chat" })).toStrictEqual({
-      text: "New chat",
+      text: UNTITLED_CHAT_NAME,
       isUntitled: true,
     });
     expect(sessionDisplayTitleOf({ shape: "project" })).toStrictEqual({
-      text: "New session",
+      text: UNTITLED_PROJECT_NAME,
       isUntitled: true,
     });
     // The row then tells the session apart by its id.

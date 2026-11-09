@@ -11,7 +11,7 @@
 
 import type { ProjectId } from "@ai-sidekicks/contracts/project";
 import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/mount";
-import type { SessionBinding, SessionLead } from "@ai-sidekicks/contracts/session/directory";
+import type { SessionCreateRequest, SessionLead } from "@ai-sidekicks/contracts/session/directory";
 import { callDaemon, type DaemonReplyRefusalCode } from "#renderer/services/daemon/reply.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
@@ -140,11 +140,11 @@ async function resolveSession(
     return { settlement: "resolved", sessionId: request.sessionId };
   }
   // Through `callDaemon`, which parses the request and the reply and never throws.
-  const reply = await callDaemon(request.bridge, SESSION_CREATE_METHOD, {
-    clientIdempotencyKey: request.clientIdempotencyKey,
-    binding: sessionBinding(request.project),
-    lead: request.lead,
-  });
+  const reply = await callDaemon(
+    request.bridge,
+    SESSION_CREATE_METHOD,
+    sessionCreateRequest(request),
+  );
   if (reply.status === "refused") {
     if (reply.refusal.code === ("reply-unreadable" satisfies DaemonReplyRefusalCode)) {
       // The only refusal that is not evidence nothing happened: the call fulfilled and the
@@ -169,11 +169,20 @@ async function resolveSession(
   return { settlement: "resolved", sessionId: reply.value.sessionId };
 }
 
-/** Where the session works: the chosen project, or a chat when none was chosen. */
-function sessionBinding(project: DraftProject | undefined): SessionBinding {
+/** The create, bound where the session works: the chosen project, or a chat when none was chosen. */
+function sessionCreateRequest(request: NewSessionSendRequest): SessionCreateRequest {
+  const { clientIdempotencyKey, lead, project } = request;
   return project === undefined
-    ? { kind: "chat" }
-    : { kind: "project", projectId: project.projectId, executionMode: project.executionMode };
+    ? { clientIdempotencyKey, lead, binding: { kind: "chat" } }
+    : {
+        clientIdempotencyKey,
+        lead,
+        binding: {
+          kind: "project",
+          projectId: project.projectId,
+          executionMode: project.executionMode,
+        },
+      };
 }
 
 /** The first-turn leg, which is the only one whose absence is the person's choice. */

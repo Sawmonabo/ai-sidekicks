@@ -6,6 +6,7 @@
 import type { AgentProviderBinding } from "@ai-sidekicks/contracts/agent/definition";
 import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
 import type { ProjectId } from "@ai-sidekicks/contracts/project";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import type { SessionLead } from "@ai-sidekicks/contracts/session/directory";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -23,7 +24,7 @@ export const CREATED_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5ac0de";
 
 /** The lead every new session in these suites starts on. */
 export const NEW_SESSION_LEAD: SessionLead = {
-  driverName: "claude",
+  providerName: "claude" as ProviderId,
   modelId: "claude-opus-4-5",
   effort: "high",
 };
@@ -34,7 +35,7 @@ export const NEW_SESSION_LEAD: SessionLead = {
  */
 export const DRAFT_PROJECT: DraftProject = {
   projectId: "770e8400-e29b-41d4-a716-446655440002" as ProjectId,
-  executionMode: "provisioned-worktree",
+  executionMode: "provisionedWorktree",
 };
 
 /**
