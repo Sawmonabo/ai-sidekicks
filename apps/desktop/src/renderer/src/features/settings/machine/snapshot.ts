@@ -6,13 +6,29 @@
 import {
   MACHINE_SETTINGS_DEFAULTS,
   type MachineSettings,
+  type MachineSettingsChange,
   type MachineSettingsReading,
-} from "@ai-sidekicks/contracts/machine-settings";
+} from "@ai-sidekicks/contracts/machine/settings";
 
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 
-/** One member of the settings file, which is what one write changes. */
-export type MachineSettingsMember = keyof MachineSettings;
+/**
+ * One member a settings write changes. The provider members are written through the provider's
+ * own update, so they are no member here.
+ */
+export type MachineSettingsMember = ChangeMemberOf<MachineSettingsChange>;
+
+/** The members of the change arms in `Change`, taken arm by arm. */
+type ChangeMemberOf<Change> = Change extends unknown ? keyof Change : never;
+
+/**
+ * The defaults typed as the settings. The generated defaults are a read-only literal, whose empty
+ * environment rows a settings value cannot hold until they are copied into an array of its own.
+ */
+export const MACHINE_SETTINGS_AT_DEFAULTS: MachineSettings = {
+  ...MACHINE_SETTINGS_DEFAULTS,
+  environmentRows: [...MACHINE_SETTINGS_DEFAULTS.environmentRows],
+};
 
 /** Everything a settings row needs, rebuilt on transition and held by identity. */
 export interface MachineSettingsSnapshot {
@@ -39,5 +55,5 @@ export const NOTHING_CHOSEN: MachineSettingsSnapshot = {
 
 /** The settings a row shows: the service's answer, or the defaults before it answered. */
 export function effectiveSettings(snapshot: MachineSettingsSnapshot): MachineSettings {
-  return snapshot.reading?.settings ?? MACHINE_SETTINGS_DEFAULTS;
+  return snapshot.reading?.settings ?? MACHINE_SETTINGS_AT_DEFAULTS;
 }

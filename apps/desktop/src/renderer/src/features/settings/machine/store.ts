@@ -5,7 +5,7 @@ import type {
   MachineSettings,
   MachineSettingsChange,
   MachineSettingsReading,
-} from "@ai-sidekicks/contracts/machine-settings";
+} from "@ai-sidekicks/contracts/machine/settings";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
 import { MACHINE_SETTINGS_STREAM } from "#shared/daemon/streams.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
@@ -138,7 +138,9 @@ export class MachineSettingsStore {
     member: Member,
     value: MachineSettings[Member],
   ): Promise<void> {
-    const change: MachineSettingsChange = { [member]: value };
+    // A key known only as a type parameter widens the literal to an index signature, so the one
+    // change arm `member` keys is named here.
+    const change = { [member]: value } as Extract<MachineSettingsChange, Record<Member, unknown>>;
     await this.#write(member, change);
   }
 

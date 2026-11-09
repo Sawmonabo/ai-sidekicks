@@ -9,11 +9,11 @@ import type { UpdateState } from "#shared/preload-api.js";
 import type { Clock } from "#renderer/lib/clock.js";
 
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts/machine-settings";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import { useMachineSettings } from "#renderer/features/settings/machine/hooks/useMachineSettings.js";
+import { MACHINE_SETTINGS_AT_DEFAULTS } from "#renderer/features/settings/machine/snapshot.js";
 import { useUpdateReading } from "#renderer/store/update/hooks/useUpdateReading.js";
 import type { UpdaterCalls } from "#renderer/store/update/reading.js";
 import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
@@ -43,12 +43,12 @@ export function preferencesAtDefaults(
 ): UpdatesBlockProps["preferences"] {
   return {
     snapshot: {
-      reading: { settings: MACHINE_SETTINGS_DEFAULTS },
+      reading: { settings: MACHINE_SETTINGS_AT_DEFAULTS },
       pendingMembers: new Set(),
       refusalByMember: new Map(),
       readRefusal: undefined,
     },
-    settings: MACHINE_SETTINGS_DEFAULTS,
+    settings: MACHINE_SETTINGS_AT_DEFAULTS,
     isPending: () => false,
     refusalFor: () => undefined,
     choose,
@@ -69,14 +69,14 @@ export function machineSettingsUnreadable(
     get opens(): number {
       return opens;
     },
-    read: () => Promise.resolve({ settings: MACHINE_SETTINGS_DEFAULTS }),
+    read: () => Promise.resolve({ settings: MACHINE_SETTINGS_AT_DEFAULTS }),
     write: () => Promise.reject(new Error("no write is expected")),
     subscribe: (deliver) => {
       opens += 1;
       if (opens <= failedOpenCount) {
         throw new Error("The background service is not connected.");
       }
-      deliver({ settings: MACHINE_SETTINGS_DEFAULTS });
+      deliver({ settings: MACHINE_SETTINGS_AT_DEFAULTS });
       return () => undefined;
     },
   };
@@ -94,18 +94,21 @@ export function machineSettingsRefusing(
   const writes: unknown[] = [];
   return {
     writes,
-    read: () => Promise.resolve({ settings: MACHINE_SETTINGS_DEFAULTS }),
+    read: () => Promise.resolve({ settings: MACHINE_SETTINGS_AT_DEFAULTS }),
     write: (change) => {
       writes.push(change);
       return writes.length <= refusedWriteCount
         ? Promise.reject(new Error(refusal))
         : Promise.resolve({
-            ...MACHINE_SETTINGS_DEFAULTS,
-            updatesAutomatic: change.updatesAutomatic ?? MACHINE_SETTINGS_DEFAULTS.updatesAutomatic,
+            ...MACHINE_SETTINGS_AT_DEFAULTS,
+            updatesAutomatic:
+              "updatesAutomatic" in change
+                ? change.updatesAutomatic
+                : MACHINE_SETTINGS_AT_DEFAULTS.updatesAutomatic,
           });
     },
     subscribe: (deliver) => {
-      deliver({ settings: MACHINE_SETTINGS_DEFAULTS });
+      deliver({ settings: MACHINE_SETTINGS_AT_DEFAULTS });
       return () => undefined;
     },
   };
