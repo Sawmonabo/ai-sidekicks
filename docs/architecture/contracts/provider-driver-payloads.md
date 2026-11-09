@@ -521,7 +521,7 @@ interface ResumeSessionParams {
   // a capability one: a resume that re-resolved "whichever account is current now" would move a
   // live run's spend onto an account it was never admitted against, mid-run, with the receipt's
   // per-paying-account key still claiming the original. Moving the current account moves a live
-  // SESSION in place at its next request, the cost splitting at the provider's acknowledgment —
+  // SESSION between its turns, each turn's cost staying on the account the turn ran on —
   // never by re-resolving this stamp at a resume. The session's own total keeps counting across
   // that move: the requests before it stay under the account they ran on, the requests after it
   // under the new one, and the receipt carries both as account rows summing to one total. Read back

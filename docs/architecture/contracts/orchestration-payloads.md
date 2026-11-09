@@ -359,8 +359,8 @@ type AgentBindingSwitchFailureReason =
   | "targetUnstartable"
   // The account the switch lands on cannot carry the run — an account move, or a provider switch
   // landing on the target provider's current account. `accountState` says why, and only
-  // `reauthRequired` offers `Sign in again`. An in-place account move whose new login fails at the
-  // next request settles here too, the daemon handing the previous account back.
+  // `reauthRequired` offers `Sign in again`. An account move whose new login fails at the next
+  // request settles here too, the daemon handing the previous account back.
   | "accountUnavailable";
 
 type AgentBindingSwitchAccountState =
@@ -371,8 +371,9 @@ type AgentBindingSwitchAccountState =
 
 // The binding members a switch moves, as a partial record: an omitted key is a member this switch
 // does not move. It holds no account: the account moves on the provider surface
-// (`provider.account.current.update`, provider-account-payloads.md §Plan-023), in place at the next
-// request, and writes no pending switch. One shape serves three surfaces — the wire acknowledgment
+// (`provider.account.current.update`, provider-account-payloads.md §Plan-023), between the
+// session's turns, and writes no pending switch: a move asked while a turn runs waits in the
+// driver. One shape serves three surfaces — the wire acknowledgment
 // above, the durable `agents.pending_switch` slot, and `agent.subscribe`'s `pendingSwitch` member —
 // so a client, a projector, and a restarted daemon all read the same record of the same intent.
 // An omitted key is a member not moving. The one reset is `largerWindow: null`, the move back to
@@ -401,9 +402,10 @@ type AgentProviderAxis = keyof AgentBindingSwitchTarget;
 interface AgentBindingSwitchOutcome {
   switchId: string; // correlates with the pending acknowledgment above
   // WHICH MECHANISM CARRIED THE CONVERSATION. Two different acts, not degrees of one.
-  // "inPlace" = a member carried on the RUNNING process — a per-turn override, a run-bound setting
-  // the provider takes without a restart, or an account moved at the next request: nothing was
-  // respawned and nothing was reconstituted.
+  // "inPlace" = the SAME provider carried the conversation on with nothing lost — a per-turn
+  // override or a run-bound setting the running process takes without a restart, or an account
+  // moved between turns, which on Claude Code starts the process again and resumes the
+  // conversation by its id: nothing was reconstituted.
   // "brief" = a DIFFERENT provider was started from a hand-over brief: the old provider's own
   // summary taken on a throwaway copy of the session, then the current diffs and branch read from
   // disk, then every earlier step as a one-line note, then the last exchanges verbatim, then a
