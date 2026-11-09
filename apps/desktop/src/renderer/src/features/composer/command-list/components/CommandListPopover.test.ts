@@ -1,7 +1,7 @@
 // What the popover draws and what a press on it does: a closed console command is not drawn, a
 // provider row runs nothing, a console row runs, a row the provider declared disabled takes
 // neither the cursor nor a press, the list is open only while a row matches what is typed, and the
-// skills the service lists are offered and picked into the line.
+// skills the service lists are offered and picked into the line, on `/` or `$`.
 // Driven through the whole composer, because that is where an open popover exists.
 
 import { act, fireEvent } from "@testing-library/react";
@@ -40,16 +40,28 @@ describe("CommandList — the service's skills", () => {
 
     expect(mounted.line.value).toMatch(/^[/$]codemod $/u);
   });
+
+  it("opens on `$` as the line's first character, filtered by the word after it", async () => {
+    // Mutation: a list opened only by `/` stays shut on `$codem` and offers no `codemod` row.
+    const { bridge } = bridgeAnswering(async (call, passThrough) =>
+      call.method === "skill.list" ? { skills: [CODEMOD_SKILL] } : await passThrough(),
+    );
+    const mounted = await mountComposer({ bridge });
+    await typeIntoLine(mounted.line, "$codem");
+
+    expect(optionNames(mounted.container)).toContain("codemod");
+  });
 });
 
 /** One skill of ours, available on both providers, as `skill.list` serves it. */
 const CODEMOD_SKILL = {
-  skillId: "skill-codemod",
+  skillId: "0193a6c0-0000-7000-8000-00000000d001",
   name: "codemod",
   description: "Rewrite call sites across the tree.",
   icon: null,
   origin: "ours",
-  scope: "project",
+  // Global, so the record carries no project id, which a project skill must.
+  scope: "global",
   folderPath: "/repo/.ai-sidekicks/skills/codemod",
   files: [{ path: "SKILL.md", size: 512, readable: true }],
   availability: [
@@ -93,7 +105,7 @@ describe("CommandList — the list activates its active row", () => {
     await pressOnList(list, "Enter");
 
     expect(counted.runCount()).toBe(0);
-    expect(recorded.map((entry) => entry.method)).not.toContain("run.queueCreate");
+    expect(recorded.map((entry) => entry.method)).not.toContain("agent.queueItem.create");
     expect(
       mounted.container.querySelector(".meridian-command-discovery__notice")?.textContent,
     ).toContain(NOT_RUNNABLE_FRAGMENT);
@@ -104,8 +116,8 @@ describe("CommandList — the list activates its active row", () => {
     const mounted = await mountComposer({ bridge: recordingBridge([]) });
     await typeIntoLine(mounted.line, "/");
     const list = await stepIntoList(mounted);
-    await pressOnList(list, "ArrowDown");
-    await pressOnList(list, "ArrowUp");
+    // The palette's other console acts may lead the list, so step until this case's row is active.
+    await stepToRowNamed(mounted, list, TEST_COMMAND_ID);
 
     await pressOnList(list, "Enter");
 
@@ -119,7 +131,7 @@ describe("CommandList — a row that cannot act", () => {
     // The scenario's provider rows are `compact` then `review`; `review` comes back disabled.
     const { bridge } = bridgeAnswering(async (call, passThrough) => {
       const reply = await passThrough();
-      return call.method === "driver.listProviderCommands" ? withReviewDisabled(reply) : reply;
+      return call.method === "provider.command.list" ? withReviewDisabled(reply) : reply;
     }, WAITING_FOR_INPUT_SCENARIO);
     const mounted = await mountComposer({ bridge });
     await typeIntoLine(mounted.line, "/");
@@ -231,6 +243,23 @@ function withReviewDisabled(reply: unknown): unknown {
  * Steps the active row to the first provider entry, the one kind of row that carries an origin
  * mark. Bounded by the option count so a list of only console rows fails instead of looping.
  */
+/** Step the active row down until it is the row named `name`. */
+async function stepToRowNamed(
+  mounted: MountedComposer,
+  list: HTMLElement,
+  name: string,
+): Promise<void> {
+  const optionCount = optionNames(mounted.container).length;
+  for (let step = 0; step < optionCount; step += 1) {
+    const row = activeRow(mounted.container, list);
+    if (row?.querySelector(".meridian-command-discovery__name")?.textContent === name) {
+      return;
+    }
+    await pressOnList(list, "ArrowDown");
+  }
+  throw new Error(`the list holds no ${name} row`);
+}
+
 async function stepToFirstProviderRow(mounted: MountedComposer, list: HTMLElement): Promise<void> {
   const optionCount = optionNames(mounted.container).length;
   for (let step = 0; step < optionCount; step += 1) {

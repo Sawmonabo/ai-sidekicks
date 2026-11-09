@@ -15,7 +15,7 @@ const SESSION_ID = "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b";
 const LEAD: ScenarioAgent = {
   agentId: "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
   name: "Ada",
-  driverName: "claude",
+  providerName: "claude",
   modelId: "opus",
 };
 

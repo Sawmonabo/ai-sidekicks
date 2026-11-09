@@ -53,6 +53,17 @@ export const AGENT_LIST_STREAM: Subscription<"agent.subscribe"> = "agent.subscri
 export const TERMINAL_OUTPUT_STREAM: Subscription<"terminal.output.subscribe"> =
   "terminal.output.subscribe";
 
+/** The subscription name for a session's unsent draft: the draft held now, then each change. */
+export const SESSION_DRAFT_STREAM: Subscription<"session.draft.subscribe"> =
+  "session.draft.subscribe";
+
+/** The subscription name for the machine's skills: the whole list again on each change. */
+export const SKILL_LIST_STREAM: Subscription<"skill.subscribe"> = "skill.subscribe";
+
+/** The subscription name for a session's running commands: the whole set, then its output. */
+export const RUNNING_COMMAND_STREAM: Subscription<"agent.command.subscribe"> =
+  "agent.command.subscribe";
+
 /** The subscription name for the machine's settings file: the file, then each written change. */
 export const MACHINE_SETTINGS_STREAM: Subscription<"machine.settings.subscribe"> =
   "machine.settings.subscribe";
@@ -72,4 +83,7 @@ export type DaemonStream =
   | typeof TERMINAL_LIST_STREAM
   | typeof TERMINAL_OUTPUT_STREAM
   | typeof AGENT_LIST_STREAM
+  | typeof SESSION_DRAFT_STREAM
+  | typeof SKILL_LIST_STREAM
+  | typeof RUNNING_COMMAND_STREAM
   | typeof MACHINE_SETTINGS_STREAM;

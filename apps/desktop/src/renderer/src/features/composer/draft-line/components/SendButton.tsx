@@ -1,10 +1,13 @@
-// The composer's one Send: the round control, its dispatch, and the refusal beside it. It takes
-// the daemon call a send makes, and the two a typed `/workflow run <name>` makes, as arguments,
-// so a composition with none does not mount it. A press is `useSendController.ts`'s; Send dims
-// while the line is empty but derives no eligibility, and the daemon refuses.
+// The composer's one Send: the round control, its dispatch, and the refusal under the line. It
+// takes the daemon call a send makes, and the two a typed `/workflow run <name>` makes, as
+// arguments. A press, or Enter in the line, is `useSendController.ts`'s; Send dims while the
+// message carries no words, no staged file and no composed notes, but derives no eligibility, and
+// the daemon refuses.
 //
 // The disabled button covers only the pointer path: a second press in the same frame reaches
 // the handler, so the controller's synchronous latch is what holds inside one frame.
+
+import { useEffect, useSyncExternalStore } from "react";
 
 import { RefusalWithRemedy } from "../../components/RefusalWithRemedy/RefusalWithRemedy.js";
 import type { ComposerProps } from "#renderer/registries/composer/registry.js";
@@ -13,7 +16,7 @@ import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { useCommandHandling } from "../../command-list/hooks/useCommandHandling.js";
 import { useWorkflowStartHandlers } from "../../command-list/workflow/hooks/useWorkflowStartHandlers.js";
 import { type WorkflowStartOperations } from "../../command-list/workflow/start-from-line.js";
-import type { ComposerHeldDraft } from "../../held-draft.js";
+import type { ComposerHeldDraft } from "../../held-draft/holder.js";
 import type { ComposerSendCalls } from "../send/dispatch.js";
 import { useSendController } from "../send/hooks/useSendController.js";
 import { composerDraftKey } from "../draft-key.js";
@@ -28,6 +31,8 @@ export type SendButtonProps = ComposerProps & {
   readonly workflowStartOperations: WorkflowStartOperations;
   /** What rides with the words, which the send carries. */
   readonly heldDraft: ComposerHeldDraft;
+  /** The composer region whose line sends on Enter. */
+  readonly region: React.RefObject<HTMLElement | null>;
 };
 
 /** Send for the addressed draft, resolving to the wire call the addressed target admits. */
@@ -59,25 +64,58 @@ export function SendButton(props: SendButtonProps): React.JSX.Element {
     props.draftStore,
     composerDraftKey(props.sessionStore.sessionId),
   );
+  const held = useSyncExternalStore(props.heldDraft.subscribe, props.heldDraft.snapshot);
+  const carriesNothing =
+    draft.text.trim().length === 0 && (held.extras.attachments ?? []).length === 0;
+  useSendOnEnter(props.region, controller.send);
 
   return (
     <>
-      <div className="meridian-composer__send-row">
-        <SendIconButton
-          type="button"
-          size="regular"
-          isEmpty={draft.text.trim().length === 0}
-          isSending={isSending}
-          onPress={() => {
-            void controller.send();
-          }}
-        />
-      </div>
+      <SendIconButton
+        type="button"
+        size="regular"
+        isEmpty={carriesNothing}
+        isSending={isSending}
+        onPress={() => {
+          void controller.send();
+        }}
+      />
       {controller.refusal === undefined ? null : (
         // Through the remedy join: a refusal such as `session.not_found` has a next move the
         // daemon's sentence lacks.
-        <RefusalWithRemedy refusal={controller.refusal} />
+        <div className="meridian-composer__send-refusal">
+          <RefusalWithRemedy refusal={controller.refusal} />
+        </div>
       )}
     </>
   );
+}
+
+/** Send on Enter in the region's line; Shift+Enter and a key an input method composes do not. */
+function useSendOnEnter(
+  region: React.RefObject<HTMLElement | null>,
+  send: () => Promise<void>,
+): void {
+  useEffect(() => {
+    const element = region.current;
+    if (element === null) {
+      return undefined;
+    }
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (
+        event.key !== "Enter" ||
+        event.shiftKey ||
+        event.isComposing ||
+        event.target !== element.querySelector("textarea")
+      ) {
+        return;
+      }
+      event.preventDefault();
+      void send();
+    };
+    element.addEventListener("keydown", onKeyDown);
+    return () => {
+      element.removeEventListener("keydown", onKeyDown);
+    };
+  }, [region, send]);
 }

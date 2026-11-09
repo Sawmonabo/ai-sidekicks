@@ -1,6 +1,6 @@
 // Every saved workflow, read whole. The line handler resolves a typed name
 // against this list and the command list offers candidates from it, so one walk keeps the
-// two agreeing. `workflow.definitionList` is cursor paged and the walk follows `nextCursor`, capped
+// two agreeing. `workflow.definition.list` is cursor paged and the walk follows `nextCursor`, capped
 // at a page count so a cursor that never ends cannot loop; a capped read answers
 // `complete: false`. The page read is an argument: this module holds the walk, not the wire.
 

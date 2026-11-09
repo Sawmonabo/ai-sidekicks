@@ -1,13 +1,13 @@
 // One enumeration request and the states it settles into. When a reading is live is decided by
-// `enumeration.ts`; this stays a pure round trip through `callDaemon`, which
-// parses request and reply and never rejects: an unreadable reply and `driver.unavailable` alike
-// arrive as a refusal. The round's signal is a parameter, since the holder owns the read.
+// `enumeration.ts`; this stays a pure round trip through `callDaemon`, which parses request and
+// reply and never rejects: an unreadable reply and `provider.unavailable` alike arrive as a
+// refusal. The round's signal is a parameter, since the holder owns the read.
 
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts/provider/driver/commands";
 
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
-import { readSessionId } from "#renderer/services/daemon/wire/identifiers.js";
+import { heldIdAsWireId, readSessionId } from "#renderer/services/daemon/wire/identifiers.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 
 /** The subsystem name every refusal this read raises carries. */
@@ -17,7 +17,7 @@ export const PROVIDER_COMMAND_READ_ORIGIN = "composer-command-discovery";
  * The console-side refusal codes. Not the unreadable reply, which `callDaemon` owns: this one
  * covers a composer addressed at identifiers the registered request would not accept.
  */
-export const PROVIDER_COMMAND_READ_REFUSAL_CODES = ["addressed-agent-unparseable"] as const;
+export const PROVIDER_COMMAND_READ_REFUSAL_CODES = ["addressed-agent-unparsable"] as const;
 
 /** One such code, derived so the vocabulary is declared once. */
 export type ProviderCommandReadRefusalCode = (typeof PROVIDER_COMMAND_READ_REFUSAL_CODES)[number];
@@ -46,18 +46,15 @@ export async function settleEnumeration(
 ): Promise<ProviderCommandReadState> {
   const parsedSessionId = readSessionId(sessionId);
   if (parsedSessionId === undefined) {
-    return { phase: "refused", refusal: unparseableAddress() };
+    return { phase: "refused", refusal: unparsableAddress() };
   }
   const reply = await callDaemon(
     bridge,
-    "driver.listProviderCommands",
-    {
-      sessionId: parsedSessionId,
-      agentId,
-    },
+    "provider.command.list",
+    { sessionId: parsedSessionId, agentId: heldIdAsWireId(agentId) },
     { signal },
   );
-  // The daemon's own refusal reads as itself; `driver.unavailable` is the ordinary one (an agent
+  // The daemon's own refusal reads as itself; `provider.unavailable` is the ordinary one (an agent
   // with no live binding).
   return reply.status === "refused"
     ? { phase: "refused", refusal: reply.refusal }
@@ -65,7 +62,7 @@ export async function settleEnumeration(
 }
 
 /** The refusal for a composer addressed at identifiers the wire would not accept. */
-function unparseableAddress(): Refusal {
-  const code: ProviderCommandReadRefusalCode = "addressed-agent-unparseable";
-  return refuse(PROVIDER_COMMAND_READ_ORIGIN, code, "Could not load this session");
+function unparsableAddress(): Refusal {
+  const code: ProviderCommandReadRefusalCode = "addressed-agent-unparsable";
+  return refuse(PROVIDER_COMMAND_READ_ORIGIN, code, "Couldn't load the commands and skills");
 }

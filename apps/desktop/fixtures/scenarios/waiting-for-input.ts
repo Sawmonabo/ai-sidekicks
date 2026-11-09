@@ -16,12 +16,12 @@
 //
 // A reply is scripted only when a composer control issues that call to a real daemon method,
 // because `services/daemon/scripted/reply.fixture.ts` refuses an unscripted call as
-// `reply-unscripted`: `driver.listProviderCommands` from the command zone's discovery popover.
+// `reply-unscripted`: `provider.command.list` from the command zone's discovery popover.
 // The approval reads are deliberately not scripted, so this scenario makes a refused approval
 // read reachable.
 //
 // There is one reply per call name: `replyFor` matches on the method name alone and serves the
-// first entry, so a second `driver.listProviderCommands` refusal would be unreachable. That arm
+// first entry, so a second `provider.command.list` refusal would be unreachable. That arm
 // is tested in `features/composer/command-list/`, over a bridge whose scenario refuses the call.
 
 import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
@@ -80,9 +80,10 @@ const COMPOSER_REPLIES: readonly ScenarioReply[] = [
     // under, so an entry is offered only under its own binding. `runId` is the one live run on
     // this binding, the arm the contract answers with that run rather than `null`.
     //
-    // The command carries a description and the skill a scope and an `enabled` flag, so rows
-    // with and without a provider description are both reachable.
-    call: "driver.listProviderCommands",
+    // The first command carries a description and the second a scope and an `enabled` flag, so
+    // rows with and without a provider description are both reachable. A provider's skill is
+    // not one of them: the list offers skills from the service's own skill list.
+    call: "provider.command.list",
     result: {
       bindings: [
         {
@@ -97,7 +98,7 @@ const COMPOSER_REPLIES: readonly ScenarioReply[] = [
             },
             {
               name: "review",
-              kind: "skill",
+              kind: "command",
               scope: "project",
               enabled: true,
               binding: LEAD_BINDING,

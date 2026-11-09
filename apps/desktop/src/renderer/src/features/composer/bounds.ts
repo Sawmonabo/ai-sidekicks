@@ -23,9 +23,12 @@ export const COMPOSER_RETAINED_SESSION_CAP = 12;
 export const COMPOSER_DRAFT_MAX_ROWS = 8;
 
 /**
- * Pages of the workflow definition enumeration one composer read walks. `workflow.definitionList`
+ * Pages of the workflow definition enumeration one composer read walks. `workflow.definition.list`
  * is cursor paged and every page must be seen, but a daemon that kept returning a cursor would
  * loop on a keystroke, so the read stops here and reports itself incomplete. Sized well past what
  * a session's definitions reach at the default page size: it bounds a pathological answer only.
  */
 export const COMPOSER_WORKFLOW_DEFINITION_PAGE_CAP = 20;
+
+/** How long typing pauses before the draft is saved to the daemon, in milliseconds. */
+export const COMPOSER_DRAFT_SAVE_PAUSE_MILLISECONDS = 1_000;

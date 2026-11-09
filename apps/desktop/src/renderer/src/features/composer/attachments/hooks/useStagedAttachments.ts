@@ -16,6 +16,7 @@ export interface StagedAttachmentsBinding {
   readonly attachFiles: (files: readonly File[]) => void;
   readonly retry: (localId: string) => void;
   readonly abandon: (localId: string) => void;
+  readonly remove: (localId: string) => void;
 }
 
 /**
@@ -64,5 +65,11 @@ export function useStagedAttachments(
     },
     [stagedAttachments],
   );
-  return { snapshot, attachFiles, retry, abandon };
+  const remove = useCallback(
+    (localId: string) => {
+      stagedAttachments.remove(localId);
+    },
+    [stagedAttachments],
+  );
+  return { snapshot, attachFiles, retry, abandon, remove };
 }

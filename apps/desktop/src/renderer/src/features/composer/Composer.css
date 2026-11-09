@@ -64,11 +64,19 @@
   background: var(--meridian-surface-sunken);
 }
 
-/* Send sits at the right end of the row under the line. */
-.meridian-composer__send-row {
+/* Send sits at the line's right end, on the line's last row; a refusal takes the row under. */
+.meridian-composer__line-row {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--meridian-space-2);
-  align-items: center;
-  justify-content: flex-end;
-  margin-top: var(--meridian-space-2);
+  align-items: flex-end;
+}
+
+.meridian-composer__line-row > .meridian-composer__line {
+  flex: 1 1 0;
+  min-inline-size: 0;
+}
+
+.meridian-composer__send-refusal {
+  flex-basis: 100%;
 }

@@ -23,6 +23,7 @@ import type {
   ServedDaemonCall,
   Unsubscribe,
 } from "#shared/preload-api.js";
+import { withBytesTaken } from "../daemon/wire/attachments.js";
 
 /** The page's end of a channel to the client helper: a DOM `MessagePort`, with Electron's close. */
 export interface DaemonPort {
@@ -258,21 +259,4 @@ function carriesMoreThanId(acknowledgment: unknown): boolean {
     acknowledgment !== null &&
     Object.keys(acknowledgment).some((key) => key !== "subscriptionId")
   );
-}
-
-/** `value` with each `Uint8Array` in it taken into `attachments` and left as its placeholder. */
-function withBytesTaken(value: unknown, attachments: Uint8Array[]): unknown {
-  if (value instanceof Uint8Array) {
-    attachments.push(value);
-    return { $bytes: attachments.length - 1 };
-  }
-  if (Array.isArray(value)) {
-    return value.map((element: unknown) => withBytesTaken(element, attachments));
-  }
-  if (typeof value === "object" && value !== null) {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, member]) => [key, withBytesTaken(member, attachments)]),
-    );
-  }
-  return value;
 }

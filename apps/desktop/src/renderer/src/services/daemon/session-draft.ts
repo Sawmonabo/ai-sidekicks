@@ -13,14 +13,12 @@ import {
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { checkFaultPaths } from "#shared/daemon/fault-path.js";
+import { SESSION_DRAFT_STREAM } from "#shared/daemon/streams.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { recordRefusedMemberPaths } from "#renderer/lib/diagnostic-capture/refused-member-record.js";
 import type { PlatformBridge } from "../platform/bridge.js";
 import { openReopeningSubscription } from "../transport/reopening-subscription.js";
 import { callDaemon } from "./reply.js";
-
-/** The subscription that delivers a session's held draft. */
-const SESSION_DRAFT_STREAM = "session.draft.subscribe";
 
 /**
  * One delivery: the draft as held, with each staged file it names in the draft's order, or word

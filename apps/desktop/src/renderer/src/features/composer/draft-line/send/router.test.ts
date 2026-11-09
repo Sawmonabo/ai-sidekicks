@@ -21,7 +21,7 @@ describe("ComposerSendRouter — Send is a router, not a verb", () => {
     const outcome = await routerWith(call).send("ship the fix", SESSION_TARGET, {});
 
     expect(outcome).toStrictEqual({ status: "sent" });
-    expect(call).toHaveBeenCalledWith("run.queueCreate", {
+    expect(call).toHaveBeenCalledWith("agent.queueItem.create", {
       sessionId: SESSION_ID,
       clientIdempotencyKey: PINNED_REQUEST_UUID,
       content: "ship the fix",
@@ -35,7 +35,7 @@ describe("ComposerSendRouter — Send is a router, not a verb", () => {
 
     expect(outcome).toStrictEqual({ status: "sent" });
     expect(call).toHaveBeenCalledTimes(1);
-    expect(call).toHaveBeenCalledWith("run.queueCreate", {
+    expect(call).toHaveBeenCalledWith("agent.queueItem.create", {
       sessionId: SESSION_ID,
       clientIdempotencyKey: PINNED_REQUEST_UUID,
       content: "try the other branch",
@@ -55,7 +55,7 @@ describe("ComposerSendRouter — what rides with the words", () => {
     const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
     await routerWith(call).send("/codemod the webhook tree", SESSION_TARGET, extras);
 
-    expect(call).toHaveBeenCalledWith("run.queueCreate", {
+    expect(call).toHaveBeenCalledWith("agent.queueItem.create", {
       sessionId: SESSION_ID,
       clientIdempotencyKey: PINNED_REQUEST_UUID,
       content: "/codemod the webhook tree",
@@ -78,7 +78,7 @@ describe("ComposerSendRouter — the slash prefix", () => {
     const outcome = await routerWith(call).send("/compact now", SESSION_TARGET, {});
 
     expect(outcome).toStrictEqual({ status: "sent" });
-    expect(call).toHaveBeenCalledWith("run.queueCreate", {
+    expect(call).toHaveBeenCalledWith("agent.queueItem.create", {
       sessionId: SESSION_ID,
       clientIdempotencyKey: PINNED_REQUEST_UUID,
       content: "/compact now",
@@ -90,7 +90,7 @@ describe("ComposerSendRouter — the slash prefix", () => {
     const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
     await routerWith(call, ["not-a-command"]).send("//not-a-command  \n", SESSION_TARGET, {});
 
-    expect(call).toHaveBeenCalledWith("run.queueCreate", {
+    expect(call).toHaveBeenCalledWith("agent.queueItem.create", {
       sessionId: SESSION_ID,
       clientIdempotencyKey: PINNED_REQUEST_UUID,
       content: "//not-a-command  \n",
@@ -110,7 +110,7 @@ describe("ComposerSendRouter — the daemon receives the text the user wrote", (
       const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
       await routerWith(call).send(INDENTED_BODY, target, {});
 
-      expect(call).toHaveBeenCalledWith("run.queueCreate", {
+      expect(call).toHaveBeenCalledWith("agent.queueItem.create", {
         sessionId: SESSION_ID,
         clientIdempotencyKey: PINNED_REQUEST_UUID,
         content: INDENTED_BODY,
@@ -128,7 +128,7 @@ describe("ComposerSendRouter — the daemon receives the text the user wrote", (
     );
 
     expect(outcome).toStrictEqual({ status: "sent" });
-    expect(call).toHaveBeenCalledWith("run.queueCreate", {
+    expect(call).toHaveBeenCalledWith("agent.queueItem.create", {
       sessionId: SESSION_ID,
       clientIdempotencyKey: PINNED_REQUEST_UUID,
       content: "  /help me read this",

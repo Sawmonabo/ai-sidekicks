@@ -1,10 +1,9 @@
-// The message line's shared scaffolding: the line and Send over one draft store and one bridge.
-// The suites mount the same pair because the line renders a draft it does not own and Send
-// sends it; no product host mounts both.
+// The message line's shared scaffolding: the line with Send in it over one draft store and one
+// bridge, without the rest of the composer, so a suite reads the send path alone.
 
 import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
 import { act, fireEvent, render, type RenderResult } from "@testing-library/react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
 import { DEFAULT_ROUTE } from "#renderer/routing/routes.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
@@ -24,7 +23,7 @@ import {
 } from "#fixtures/data/opening-entries.js";
 import { composeScriptBeats, createRunEntryBuilders } from "#fixtures/data/script-entries.js";
 import { SendButton } from "./SendButton.js";
-import { ComposerHeldDraft } from "../../held-draft.js";
+import { ComposerHeldDraft } from "../../held-draft/holder.js";
 import { composerDraftKey } from "../draft-key.js";
 import type { ComposerSendCalls } from "../send/dispatch.js";
 import type { WorkflowStartOperations } from "../../command-list/workflow/start-from-line.js";
@@ -97,19 +96,25 @@ function LineAndSend(props: {
   readonly workflowStartOperations: WorkflowStartOperations;
 }): React.JSX.Element {
   const { draftStore, sessionStore } = props.composerProps;
+  const region = useRef<HTMLElement | null>(null);
   const [heldDraft] = useState(
-    () => new ComposerHeldDraft(draftStore, composerDraftKey(sessionStore.sessionId)),
+    () => new ComposerHeldDraft({ draftStore, draftKey: composerDraftKey(sessionStore.sessionId) }),
   );
   return (
-    <>
-      <DraftLine {...props.composerProps} />
-      <SendButton
+    <section ref={region}>
+      <DraftLine
         {...props.composerProps}
-        calls={props.calls}
-        workflowStartOperations={props.workflowStartOperations}
-        heldDraft={heldDraft}
+        send={
+          <SendButton
+            {...props.composerProps}
+            calls={props.calls}
+            workflowStartOperations={props.workflowStartOperations}
+            heldDraft={heldDraft}
+            region={region}
+          />
+        }
       />
-    </>
+    </section>
   );
 }
 
@@ -117,7 +122,7 @@ function LineAndSend(props: {
 const LEAD: ScenarioAgent = {
   agentId: "4d5e6f70-8192-4a3b-9c4d-5e6f708192a3",
   name: "Ada",
-  driverName: "claude",
+  providerName: "claude",
   modelId: "opus",
 };
 
@@ -196,7 +201,7 @@ export interface LeadDraftLine {
 
 /** An answering arm that queues a message and serves nothing else. */
 export async function answerQueued(call: RecordedDaemonCall): Promise<unknown> {
-  return call.method === "run.queueCreate" ? QUEUE_CREATED : undefined;
+  return call.method === "agent.queueItem.create" ? QUEUE_CREATED : undefined;
 }
 
 /**

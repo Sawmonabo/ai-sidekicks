@@ -14,6 +14,7 @@ import { KeybindingTable } from "#renderer/registries/keybindings/table.js";
 import type { CommandPaletteProps } from "#renderer/layout/CommandPalette/hooks/useCommandPalette.js";
 import { useTranscriptHoldsRunGroup } from "#renderer/features/transcript/index.js";
 import { useIsFocusInPane } from "#renderer/features/sessions/index.js";
+import { useCanMoveToBackground } from "#renderer/features/composer/index.js";
 
 /** What one window's palette and chords are built against. */
 export interface WindowCommandsInput {
@@ -58,6 +59,8 @@ export function useWindowCommands(input: WindowCommandsInput): WindowCommands {
   const transcriptHoldsRunGroup = useTranscriptHoldsRunGroup(ownerWindow.document);
   // Whether focus is in a pane, so the pane moves' chords answer only there.
   const paneFocused = useIsFocusInPane(ownerWindow.document);
+  // Whether a running command can move, so Ctrl+B is bound only then.
+  const commandCanMoveToBackground = useCanMoveToBackground();
 
   // Derived from the route, so the palette cannot disagree with the rail about where it is.
   const whenContext: WindowWhenClauseContext = useMemo(
@@ -69,8 +72,9 @@ export function useWindowCommands(input: WindowCommandsInput): WindowCommands {
       onSettings: route.kind === "settings",
       transcriptHoldsRunGroup,
       paneFocused,
+      commandCanMoveToBackground,
     }),
-    [route, lastOpenedSessionId, transcriptHoldsRunGroup, paneFocused],
+    [route, lastOpenedSessionId, transcriptHoldsRunGroup, paneFocused, commandCanMoveToBackground],
   );
 
   // Read through a ref: a closure captured at construction would evaluate every chord against

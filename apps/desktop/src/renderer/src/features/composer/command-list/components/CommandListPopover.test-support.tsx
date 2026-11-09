@@ -16,6 +16,7 @@ import { SessionStore } from "#renderer/store/session/store.js";
 import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { MessageComposer } from "../../Composer.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import { ServedProviderSections } from "#renderer/store/providers/ServedProviderSections.test-support.js";
 
 /** The id of the console command the suites register so the list has an act to offer. */
@@ -56,17 +57,19 @@ export async function mountComposer(options: {
   let rendered: ReturnType<typeof render> | undefined;
   await act(async () => {
     rendered = render(
-      <ServedProviderSections>
-        <LiveAnnouncerProvider>
-          <MessageComposer
-            sessionStore={sessionStore}
-            bridge={options.bridge}
-            draftStore={draftStore}
-            frameStore={frameStore}
-            route={route}
-          />
-        </LiveAnnouncerProvider>
-      </ServedProviderSections>,
+      <PlatformBridgeProvider bridge={options.bridge}>
+        <ServedProviderSections>
+          <LiveAnnouncerProvider>
+            <MessageComposer
+              sessionStore={sessionStore}
+              bridge={options.bridge}
+              draftStore={draftStore}
+              frameStore={frameStore}
+              route={route}
+            />
+          </LiveAnnouncerProvider>
+        </ServedProviderSections>
+      </PlatformBridgeProvider>,
     );
     await crossMacrotaskBoundary();
   });

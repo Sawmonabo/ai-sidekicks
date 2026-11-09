@@ -11,13 +11,11 @@ import {
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { checkFaultPaths } from "#shared/daemon/fault-path.js";
+import { RUNNING_COMMAND_STREAM } from "#shared/daemon/streams.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { recordRefusedMemberPaths } from "#renderer/lib/diagnostic-capture/refused-member-record.js";
 import type { PlatformBridge } from "../platform/bridge.js";
 import { openReopeningSubscription } from "../transport/reopening-subscription.js";
-
-/** The subscription that delivers a session's running commands. */
-const RUNNING_COMMAND_STREAM = "agent.command.subscribe";
 
 /** One delivery: the whole running set in start order, or word that it could not be read. */
 export type RunningCommandsFrame =

@@ -2,6 +2,8 @@
 // follow, in frames within the contract's bound; the app's real subscriber names it, so every
 // scenario tier reads the session through it. A machine notice stream hands its subscriber the
 // notice a settled write pushes, and a scenario's shells are listed and open on their scrollback.
+// The composer's draft stream opens on the empty draft, and its skill and command streams deliver
+// no session event.
 // Every case drives the real fixture bridge and engine.
 
 import { describe, expect, it } from "vitest";
@@ -21,7 +23,13 @@ import type { Scenario, ScenarioBeat } from "#fixtures/scenario.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 import { TERMINAL_LEASE_SCENARIO } from "#fixtures/scenarios/terminal-lease.js";
 import { FIXTURE_DEVICE_ID } from "#fixtures/data/this-device.js";
-import { TERMINAL_LIST_STREAM, TERMINAL_OUTPUT_STREAM } from "#shared/daemon/streams.js";
+import {
+  RUNNING_COMMAND_STREAM,
+  SESSION_DRAFT_STREAM,
+  SKILL_LIST_STREAM,
+  TERMINAL_LIST_STREAM,
+  TERMINAL_OUTPUT_STREAM,
+} from "#shared/daemon/streams.js";
 
 /** Past the concurrent-streaming script's last beat, read off the script so it cannot go stale. */
 const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(CONCURRENT_STREAMING_SCENARIO) + 100;
@@ -117,6 +125,33 @@ describe("fixture bridge — a machine notice stream carries what a write pushes
         type: "mcp.server.config.changed",
       },
     ]);
+  });
+});
+
+describe("fixture bridge — the composer's streams", () => {
+  it("opens the draft stream on the empty draft and delivers no beat on the other two", () => {
+    // Mutation: without the draft stream's row the draft subscriber hears nothing; routing a
+    // composer stream through the event path hands it the scenario's beats.
+    const fixture = createFixture();
+    const sessionId = fixture.engine.scenario.sessionId as SessionId;
+    const drafts: unknown[] = [];
+    const skillLists: unknown[] = [];
+    const commandSets: unknown[] = [];
+    fixture.bridge.daemon.subscribe(SESSION_DRAFT_STREAM, { sessionId }, (payload) => {
+      drafts.push(payload);
+    });
+    fixture.bridge.daemon.subscribe(SKILL_LIST_STREAM, {}, (payload) => {
+      skillLists.push(payload);
+    });
+    fixture.bridge.daemon.subscribe(RUNNING_COMMAND_STREAM, { sessionId }, (payload) => {
+      commandSets.push(payload);
+    });
+
+    fixture.engine.advance(PAST_EVERY_BEAT_MS);
+
+    expect(drafts).toStrictEqual([{ draft: { text: "", extras: {} }, revision: 0 }]);
+    expect(skillLists).toStrictEqual([]);
+    expect(commandSets).toStrictEqual([]);
   });
 });
 

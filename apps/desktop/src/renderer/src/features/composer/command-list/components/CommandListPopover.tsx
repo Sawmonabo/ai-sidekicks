@@ -40,7 +40,7 @@ const PROVIDER_ENTRY_NOT_RUNNABLE =
   "starts no turn from one, so there is nothing here to run.";
 
 /** What the list says under its rows when the skill list could not be read. */
-const SKILLS_UNREAD = "The skills could not be read.";
+const SKILLS_UNREAD = "Couldn't load your skills";
 
 /**
  * The popover, mounted only while the line opens it so the active-entry cursor dies with the list.

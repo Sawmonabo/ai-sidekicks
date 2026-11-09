@@ -8,14 +8,12 @@
 import { validateSkillListResponse } from "@ai-sidekicks/contracts/skill";
 
 import { checkFaultPaths } from "#shared/daemon/fault-path.js";
+import { SKILL_LIST_STREAM } from "#shared/daemon/streams.js";
 import { recordRefusedMemberPaths } from "#renderer/lib/diagnostic-capture/refused-member-record.js";
 import type { SkillListFeed, SkillListFrame } from "#renderer/store/skills/list.js";
 import type { PlatformBridge } from "../platform/bridge.js";
 import { openReopeningSubscription } from "../transport/reopening-subscription.js";
 import { callDaemon } from "./reply.js";
-
-/** The subscription that delivers the whole skill list each time it changes. */
-const SKILL_LIST_STREAM = "skill.subscribe";
 
 /**
  * The app's skill feed over `bridge`, the same function for every caller with that bridge, so a

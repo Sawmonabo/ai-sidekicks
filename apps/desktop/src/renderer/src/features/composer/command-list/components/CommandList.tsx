@@ -10,7 +10,7 @@ import { useCallback, useMemo } from "react";
 import { type ComposerProps } from "#renderer/registries/composer/registry.js";
 import { skillListFeedFor } from "#renderer/services/daemon/skills.js";
 import { useSkillListState } from "#renderer/store/skills/hooks/useSkillListState.js";
-import type { ComposerHeldDraft } from "../../held-draft.js";
+import type { ComposerHeldDraft } from "../../held-draft/holder.js";
 import { splitFirstWord } from "../../slash-command-syntax.js";
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { composerDraftKey } from "../../draft-line/draft-key.js";

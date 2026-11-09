@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { DraftStore } from "#renderer/store/drafts.js";
-import { readSlashCommandName } from "../../slash-command-syntax.js";
+import { readCommandListPrefix } from "../../slash-command-syntax.js";
 import { useComposerDraftText } from "../../hooks/useComposerDraftText.js";
 
 /** What the composer's line is currently asking the command list for. */
@@ -43,7 +43,7 @@ export function useCommandListTrigger(
   const [dismissedAtText, setDismissedAtText] = useState<string | undefined>(undefined);
   const [stepIntoListToken, setStepIntoListToken] = useState(0);
 
-  const typedPrefix = readSlashCommandName(lineText);
+  const typedPrefix = readCommandListPrefix(lineText);
   const isOpen = typedPrefix !== undefined && dismissedAtText !== lineText;
 
   const dismiss = useCallback(() => {

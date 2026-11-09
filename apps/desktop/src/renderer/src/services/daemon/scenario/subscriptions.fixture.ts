@@ -6,6 +6,7 @@
 // sequence gap, and one re-opened after a cursor catches up only past it; each change carries the
 // run stamp `turn-attribution.fixture.ts` folds. `wire.fixture.ts` composes this function.
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
+import type { HeldSessionDraft } from "@ai-sidekicks/contracts/session/draft";
 import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import {
   SESSION_EVENT_CURSOR_UNRESOLVABLE_CODE,
@@ -34,6 +35,9 @@ import { ScenarioTurnAttribution } from "./turn-attribution.fixture.js";
 
 const START_OF_LOG_CURSOR = encodeEventCursor(START_OF_LOG_POSITION);
 
+/** The draft a session holds before anyone saved one. */
+const NO_HELD_DRAFT: HeldSessionDraft = { draft: { text: "", extras: {} }, revision: 0 };
+
 /**
  * Deliver a scenario's beats to one subscriber, filtered by what it subscribed to.
  *
@@ -52,7 +56,9 @@ const START_OF_LOG_CURSOR = encodeEventCursor(START_OF_LOG_POSITION);
  * subscription is not an event feed: the fixture scripts no device, so it is accepted and never
  * delivers. The machine's notice streams deliver the frame the scenario opens them with, then the
  * notices its settled replies push, live, with no catch-up. The shell streams deliver the
- * scenario's scripted shells (`shells.fixture.ts`), the only frames here that carry bytes.
+ * scenario's scripted shells (`shells.fixture.ts`), the only frames here that carry bytes. The
+ * draft stream delivers the empty draft at revision 0 on open, as the daemon does for a session no
+ * one has typed in; the agent, skill and running-command streams are accepted and deliver nothing.
  */
 export function subscribeToScenario(
   engine: ScenarioEngine,
@@ -66,6 +72,10 @@ export function subscribeToScenario(
   // event types are live.
   const stream = sessionEventStreamFor(subscriptionName);
   if (stream?.scope === "machine-presence") {
+    return () => undefined;
+  }
+  if (stream?.scope === "session-draft") {
+    deliver(NO_HELD_DRAFT);
     return () => undefined;
   }
   if (stream?.scope === "shell") {

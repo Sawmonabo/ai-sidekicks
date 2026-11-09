@@ -1,26 +1,35 @@
 // The composer host: the region, and the palette's replace question, the held draft's files, the
-// draft line, the command list and the toolbar it mounts in that order. It owns the
-// provider-command enumeration holder and hands it to the command list, whose enumeration is read
-// live and never cached; it follows the session's held draft, whose words land in the line and
-// whose skill picks the command list adds to; and it answers Ctrl+B for its session.
+// staged uploads, the draft line with Send, the command list and the toolbar it mounts in that
+// order. It owns the provider-command enumeration holder and hands it to the command list, whose
+// enumeration is read live and never cached; it follows and saves the session's held draft, whose
+// words land in the line and whose skill picks and staged files ride with them; it contributes the
+// lead's run controls to the palette; and it answers Ctrl+B for its session.
 
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 
 import { type ComposerProps } from "#renderer/registries/composer/registry.js";
 import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/disposal.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { callDaemon, unwrapDaemonReply } from "#renderer/services/daemon/reply.js";
+import { readSessionId } from "#renderer/services/daemon/wire/identifiers.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { HeldAttachmentStrip } from "./attachments/HeldAttachmentStrip.js";
+import { ComposerAttachmentStrip } from "./attachments/components/ComposerAttachmentStrip.js";
 import { ComposerToolbar } from "./components/ComposerToolbar.js";
 import { CommandList } from "./command-list/components/CommandList.js";
 import { ProviderCommandEnumeration } from "./command-list/provider/enumeration.js";
 import { WorkflowStartPrefillQuestion } from "./command-list/workflow/components/WorkflowStartPrefillQuestion.js";
 import { useWorkflowStartPrefill } from "./command-list/workflow/hooks/useWorkflowStartPrefill.js";
+import { workflowStartOperationsOver } from "./command-list/workflow/start-from-line.js";
 import { composerDraftKey } from "./draft-line/draft-key.js";
 import { useCarryComposerChromeHeight } from "./hooks/useCarryComposerChromeHeight.js";
 import { useHeldDraft } from "./hooks/useHeldDraft.js";
 import { useMoveToBackground } from "./hooks/useMoveToBackground.js";
 import { DraftLine } from "./draft-line/components/DraftLine.js";
+import { SendButton } from "./draft-line/components/SendButton.js";
+import type { ComposerSendCalls } from "./draft-line/send/dispatch.js";
+import { useLeadRunControlCommands } from "./run/controls/hooks/useLeadRunControlCommands.js";
 import "./Composer.css";
 
 /** Module-level so the resource holder is handed a stable opener. */
@@ -65,11 +74,41 @@ export function MessageComposer(props: ComposerProps): React.JSX.Element {
     props.draftStore,
   );
   const backgroundRefusal = useMoveToBackground(props.bridge, props.sessionStore.sessionId);
+  useLeadRunControlCommands(props.bridge, props.sessionStore);
+  const sendCalls = useMemo(() => sendCallsOver(props.bridge), [props.bridge]);
+  const workflowStartOperations = useMemo(
+    () => workflowStartOperationsOver(props.bridge),
+    [props.bridge],
+  );
+  const wireSessionId = readSessionId(props.sessionStore.sessionId);
   return (
     <section className="meridian-composer" aria-label="Message composer" ref={regionRef}>
       <WorkflowStartPrefillQuestion prompt={prefillPrompt} />
       <HeldAttachmentStrip files={reading.files} />
-      <DraftLine {...props} scrollerRef={draftScrollerRef} />
+      {wireSessionId === undefined ? null : (
+        <ComposerAttachmentStrip
+          bridge={props.bridge}
+          sessionId={wireSessionId}
+          region={regionRef}
+          heldDraft={heldDraft}
+        />
+      )}
+      <DraftLine
+        {...props}
+        scrollerRef={draftScrollerRef}
+        send={
+          <SendButton
+            {...props}
+            calls={sendCalls}
+            workflowStartOperations={workflowStartOperations}
+            heldDraft={heldDraft}
+            region={regionRef}
+          />
+        }
+      />
+      {reading.saveRefusal === undefined ? null : (
+        <InlineRefusal code={reading.saveRefusal.code} detail={reading.saveRefusal.detail} />
+      )}
       {backgroundRefusal === undefined ? null : (
         <InlineRefusal code={backgroundRefusal.code} detail={backgroundRefusal.detail} />
       )}
@@ -82,4 +121,12 @@ export function MessageComposer(props: ComposerProps): React.JSX.Element {
       <ComposerToolbar {...props} />
     </section>
   );
+}
+
+/** The send call over the daemon; a refused send rejects with the daemon's refusal. */
+function sendCallsOver(bridge: PlatformBridge): ComposerSendCalls {
+  return {
+    queueCreate: async (request) =>
+      unwrapDaemonReply(await callDaemon(bridge, "agent.queueItem.create", request)),
+  };
 }

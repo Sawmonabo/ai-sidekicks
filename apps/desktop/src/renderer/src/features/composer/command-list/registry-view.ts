@@ -8,6 +8,7 @@ import { commandRegistry } from "#renderer/registries/commands/registry.js";
 import { type CommandInvocationOutcome } from "#renderer/registries/commands/registry.js";
 import { type CommandDefinition } from "#renderer/registries/commands/definition.js";
 import type { AppRoute } from "#renderer/routing/routes.js";
+import { readCanMoveToBackground } from "../background-requests.js";
 
 /**
  * The narrow face of the console's command list the composer reads and acts through. Only what
@@ -43,8 +44,9 @@ export function readComposerCommands(route: AppRoute): ComposerCommands {
  * Where a command run from the composer would be running. `sessionActive` is true because the
  * composer only renders inside a session; the three rail destinations are false because it does
  * not render on the sessions list, the workflows builder or settings. `transcriptHoldsRunGroup` is
- * false because the composer's list offers no transcript fold, and `paneFocused` because the
- * composer stands in the conversation, outside every pane.
+ * false because the composer's list offers no transcript fold, `paneFocused` because the
+ * composer stands in the conversation, outside every pane, and `commandCanMoveToBackground` is read
+ * as the composer last published it.
  */
 function composerWhenContext(route: AppRoute): WindowWhenClauseContext {
   return {
@@ -55,5 +57,6 @@ function composerWhenContext(route: AppRoute): WindowWhenClauseContext {
     onSettings: false,
     transcriptHoldsRunGroup: false,
     paneFocused: false,
+    commandCanMoveToBackground: readCanMoveToBackground(),
   };
 }

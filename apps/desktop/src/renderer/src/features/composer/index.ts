@@ -4,3 +4,4 @@ export { registerComposerCommands } from "./contributions/commands.js";
 export { registerComposerView } from "./contributions/view.js";
 export { registerComposerInlineCards } from "./contributions/inline-cards.js";
 export { registerComposerKeybindings } from "./contributions/keybindings.js";
+export { useCanMoveToBackground } from "./hooks/useCanMoveToBackground.js";

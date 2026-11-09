@@ -14,7 +14,7 @@ import { WORKFLOW_COMMAND_ROOT } from "./command-list/workflow/grammar.js";
 import { MessageComposer } from "./Composer.js";
 import { inertBridge } from "./Composer.test-support.js";
 import { openSessionStore } from "./draft-line/components/DraftLine.test-support.js";
-import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { bridgeWrapper, withAnnouncer } from "#test/helpers/app/frame-fixtures.js";
 
 afterEach(() => {
   commandRegistry.unregister(WORKFLOW_COMMAND_ROOT);
@@ -22,15 +22,16 @@ afterEach(() => {
 
 function mountComposerWithLine(text: string): HTMLTextAreaElement {
   const draftStore = new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT });
+  const bridge = inertBridge();
   const { container } = render(
     <MessageComposer
       sessionStore={openSessionStore()}
-      bridge={inertBridge()}
+      bridge={bridge}
       draftStore={draftStore}
       frameStore={new WindowStore()}
       route={DEFAULT_ROUTE}
     />,
-    { wrapper: LiveAnnouncerProvider },
+    { wrapper: withAnnouncer(bridgeWrapper(bridge)) },
   );
   const line = container.querySelector("textarea");
   if (!(line instanceof HTMLTextAreaElement)) {

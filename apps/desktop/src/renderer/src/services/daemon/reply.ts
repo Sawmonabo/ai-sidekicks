@@ -34,7 +34,7 @@ import { isReadAbandoned, settleUnlessAbandoned } from "#renderer/lib/reads/scop
 import type { FilePathRef, ServedDaemonCall } from "#shared/preload-api.js";
 import type { PlatformBridge } from "../platform/bridge.js";
 import { RefusalError } from "#renderer/lib/refusal/contract.js";
-import { withBytesPlaced } from "./wire/attachments.js";
+import { withBytesPlaced, withBytesTaken } from "./wire/attachments.js";
 
 /** The subsystem name every refusal this module raises carries. */
 export const DAEMON_REPLY_REFUSAL_ORIGIN = "daemon-call";
@@ -140,12 +140,15 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
     return abandonedRead();
   }
 
-  if (!requestCheck(request)) {
+  // Checked as it is sent: each byte member a placeholder for an attachment beside it.
+  const sentAttachments: Uint8Array[] = [];
+  const sent = withBytesTaken(request, sentAttachments);
+  if (!requestCheck.call({ attachments: sentAttachments }, sent)) {
     recordRefusedMemberPaths({
       source: DAEMON_REPLY_DIAGNOSTIC_SOURCE,
       kind: "request-unsendable",
       subject: method,
-      issues: checkFaultPaths(requestCheck, request),
+      issues: checkFaultPaths(requestCheck, sent),
     });
     return {
       status: "refused",

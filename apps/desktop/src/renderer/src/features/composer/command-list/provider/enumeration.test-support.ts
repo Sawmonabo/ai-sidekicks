@@ -8,7 +8,7 @@ import { WAITING_FOR_INPUT_SCENARIO } from "#fixtures/scenarios/waiting-for-inpu
 import type { ComposerTarget } from "../../target.js";
 
 /** The wire method the enumeration calls. */
-const ENUMERATION_METHOD = "driver.listProviderCommands";
+const ENUMERATION_METHOD = "provider.command.list";
 
 /** The fixture bridge with a recorder in front of `daemon.call`. */
 export function recordingBridge(recorded: RecordedDaemonCall[]): PlatformBridge {

@@ -93,14 +93,15 @@ export function runControlCommandRows(
 }
 
 /**
- * Perform one contributed control. A run absent from the stream is not dispatched
- * against: its comparand would be a remembered version the console cannot vouch for, so a
- * press in the gap before the row leaves the palette does nothing.
+ * Perform one contributed control, settling when its dispatch has, rejecting with the daemon's
+ * refusal. A run absent from the stream is not dispatched against: its comparand would be a
+ * remembered version the console cannot vouch for, so a press in the gap before the row leaves the
+ * palette does nothing.
  */
-export function dispatchRunControlCommand(
+export async function dispatchRunControlCommand(
   row: RunControlCommandRow,
   input: RunControlCommandInput,
-): void {
+): Promise<void> {
   const run = input.runs.find((candidate) => candidate.runId === row.runId);
   if (run === undefined) {
     return;
@@ -117,7 +118,7 @@ export function dispatchRunControlCommand(
     runId: run.runId,
     expectedRunVersion: dispatchState.dispatcher.comparandFor(run.runId, run.runVersion),
   };
-  dispatchState.dispatch({ runId: run.runId }, control, (dispatcher) => {
+  const admission = dispatchState.dispatch({ runId: run.runId }, control, (dispatcher) => {
     switch (control) {
       case "pause":
         return dispatcher.pause(target);
@@ -132,4 +133,7 @@ export function dispatchRunControlCommand(
       }
     }
   });
+  if (admission.admitted) {
+    await admission.settled;
+  }
 }

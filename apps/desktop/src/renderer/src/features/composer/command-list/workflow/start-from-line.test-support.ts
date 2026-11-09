@@ -5,8 +5,9 @@ import type {
   WorkflowVersionId,
 } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
+import type { WorkflowRunStartRequest } from "@ai-sidekicks/contracts/workflow/run/control";
 import type { ReadWorkflowDefinitionPage } from "./definition/enumeration.js";
-import type { WorkflowStartOperations, WorkflowStartRequest } from "./start-from-line.js";
+import type { WorkflowStartOperations } from "./start-from-line.js";
 
 /** The session every case in this suite addresses. */
 export const WORKFLOW_TEST_SESSION_ID = "session-workflow-start";
@@ -28,7 +29,7 @@ export interface WorkflowDefinitionPageSeed {
 /** The requests each of the two operations received, in call order. */
 export interface WorkflowCalls {
   readonly listed: Parameters<ReadWorkflowDefinitionPage>[0][];
-  readonly started: WorkflowStartRequest[];
+  readonly started: WorkflowRunStartRequest[];
 }
 
 /** What a workflow fixture is built from. */

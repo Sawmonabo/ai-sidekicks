@@ -1,6 +1,7 @@
 // The composer's answer to Ctrl+B: it follows the session's running commands for as long as it is
-// mounted, and an ask moves the newest one the provider offers to move. A refusal is held for the
-// session it was refused in and read back to be drawn under the line.
+// mounted, publishes whether one can move so Ctrl+B is bound only then, and an ask moves the newest
+// one the provider offers to move. A refusal is held for the session it was refused in and read
+// back to be drawn under the line.
 
 import { useEffect, useRef, useState } from "react";
 
@@ -11,7 +12,12 @@ import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { followRunningCommands } from "#renderer/services/daemon/running-commands.js";
 import { readSessionId } from "#renderer/services/daemon/wire/identifiers.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
-import { moveCommandToBackground, subscribeToBackgroundRequests } from "../background-requests.js";
+import {
+  canMoveToBackground,
+  moveCommandToBackground,
+  publishCanMoveToBackground,
+  subscribeToBackgroundRequests,
+} from "../background-requests.js";
 
 /** The last background request's refusal in `sessionId`, or `undefined`. */
 export function useMoveToBackground(
@@ -32,6 +38,7 @@ export function useMoveToBackground(
     // A lost set aims at nothing: a command it named may be gone.
     const stopFollowing = followRunningCommands(bridge, wireSessionId, (frame) => {
       commandsRef.current = frame.kind === "commands" ? frame.commands : NO_COMMANDS;
+      publishCanMoveToBackground(commandsRef.current.some(canMoveToBackground));
     });
     const stopListening = subscribeToBackgroundRequests(() => {
       moveCommandToBackground(wireSessionId, commandsRef.current, (request) => {
@@ -46,6 +53,7 @@ export function useMoveToBackground(
     return () => {
       stopFollowing();
       stopListening();
+      publishCanMoveToBackground(false);
     };
   }, [bridge, sessionId]);
   return refused?.sessionId === sessionId ? refused.refusal : undefined;

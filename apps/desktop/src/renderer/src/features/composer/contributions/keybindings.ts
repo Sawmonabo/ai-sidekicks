@@ -22,12 +22,14 @@ export const COMPOSER_FOCUS_KEYBINDING: Keybinding = {
 };
 
 /**
- * Ctrl+B on every platform, the key the provider's own terminal moves a command with. Live in the
- * message line, where it is pressed while a turn runs.
+ * Ctrl+B, the key the provider's own terminal moves a command with, written as Control so it is
+ * never the platform's command key. Bound only while a running command can move, and live in the
+ * message line, where it is pressed while a turn runs; otherwise the press stays the line's own.
  */
 const MOVE_TO_BACKGROUND_KEYBINDING: Keybinding = {
   chord: "Control+KeyB",
   commandId: MOVE_TO_BACKGROUND_COMMAND_ID,
+  when: "sessionActive && commandCanMoveToBackground",
   allowInTextInput: true,
 };
 

@@ -1,20 +1,22 @@
-// The routing every `daemon.subscribe` stream goes through. The closed set of stream names is
-// `#shared/daemon/streams.ts`, which main opens subscriptions under and refuses every other name
-// by; this table says what each of the renderer's streams carries. The app's subscribers take their
-// stream names from that module and `scenario/subscriptions.fixture.ts` routes by this table, so
-// the fixture answers as the daemon would; a second copy would let them drift and deliver nothing
-// to a subscriber, indistinguishable from a quiet session.
+// The routing every `daemon.subscribe` stream goes through. The closed set of stream names the app
+// opens is `#shared/daemon/streams.ts` (main admits a window's subscription by the generated
+// method tables, `WINDOW_METHOD_DESCRIPTORS`); this table says what each of the renderer's streams
+// carries. The app's subscribers take their stream names from that module and
+// `scenario/subscriptions.fixture.ts` routes by this table, so the fixture answers as the daemon
+// would; a second copy would let them drift and deliver nothing to a subscriber, indistinguishable
+// from a quiet session.
 //
 // The kind lists for narrowed streams are composed from `stream-kinds.ts`. Rows:
 // `session.event.subscribe` (the whole session log), `agent.run.subscribe` and
 // `agent.queueItem.subscribe` (narrowed projections), `presence.subscribe` (the connected devices),
 // and `mcp.subscribe`, `provider.account.subscribe`, `provider.subscribe`, `workflow.subscribe`,
 // `session.subscribe` and `project.subscribe` (the machine's notices), `terminal.subscribe` and
-// `terminal.output.subscribe` (a session's shells), and `agent.subscribe` (a session's agents). The
-// last ten are not session-event streams, but still `daemon.subscribe` names. The machine settings
-// feed has no row: the settings page reads it through the bridge's own `machineSettings` member.
-// The table and each row are frozen because a mutation would re-route every subscription in the
-// renderer.
+// `terminal.output.subscribe` (a session's shells), `agent.subscribe` (a session's agents),
+// `session.draft.subscribe` (a session's unsent draft), and `skill.subscribe` and
+// `agent.command.subscribe` (the skills and a session's running commands). The last thirteen are
+// not session-event streams, but still `daemon.subscribe` names. The machine settings feed has no
+// row: the settings page reads it through the bridge's own `machineSettings` member. The table
+// and each row are frozen because a mutation would re-route every subscription in the renderer.
 
 import { readFrozenRecord } from "#renderer/lib/frozen-record.js";
 import {
@@ -26,8 +28,11 @@ import {
   PROVIDER_NOTICE_STREAM,
   RUN_QUEUE_EVENT_STREAM,
   RUN_STATE_EVENT_STREAM,
+  RUNNING_COMMAND_STREAM,
+  SESSION_DRAFT_STREAM,
   SESSION_EVENT_STREAM,
   SESSION_LIST_STREAM,
+  SKILL_LIST_STREAM,
   TERMINAL_LIST_STREAM,
   TERMINAL_OUTPUT_STREAM,
   WORKFLOW_NOTICE_STREAM,
@@ -87,6 +92,22 @@ export interface SessionAgentsStream {
   readonly scope: "session-agents";
 }
 
+/**
+ * A stream of a session's unsent draft: the draft held now, then each saved change. It carries no
+ * session-event kind; the fixture holds no saved draft, so it delivers the empty draft at open.
+ */
+export interface SessionDraftStream {
+  readonly scope: "session-draft";
+}
+
+/**
+ * A stream of what the composer offers and aims at: the skills, or a session's running commands.
+ * It carries no session-event kind, and the fixture scripts neither, so it delivers nothing there.
+ */
+export interface ComposerOfferStream {
+  readonly scope: "composer-offers";
+}
+
 /** One registered subscription this app opens. */
 export type SessionEventStream =
   | WholeSessionEventStream
@@ -94,7 +115,9 @@ export type SessionEventStream =
   | MachinePresenceStream
   | MachineNoticeStream
   | ShellStream
-  | SessionAgentsStream;
+  | SessionAgentsStream
+  | SessionDraftStream
+  | ComposerOfferStream;
 
 /** A stream that delivers the machine's notices. */
 export type MachineNoticeStreamName =
@@ -155,6 +178,15 @@ export const SESSION_EVENT_STREAMS: Readonly<Record<SessionEventStreamName, Sess
     [AGENT_LIST_STREAM]: Object.freeze({
       scope: "session-agents",
     } satisfies SessionEventStream),
+    [SESSION_DRAFT_STREAM]: Object.freeze({
+      scope: "session-draft",
+    } satisfies SessionEventStream),
+    [SKILL_LIST_STREAM]: Object.freeze({
+      scope: "composer-offers",
+    } satisfies SessionEventStream),
+    [RUNNING_COMMAND_STREAM]: Object.freeze({
+      scope: "composer-offers",
+    } satisfies SessionEventStream),
   });
 
 /** The registered stream this subscription name is, or `undefined` if it is not one. */
@@ -167,7 +199,8 @@ export function sessionEventStreamFor(subscriptionName: string): SessionEventStr
  *
  * A registered stream delivers what its row carries and any other name is an event type that
  * delivers only itself. A name that is neither, such as a typo, matches nothing, as with the
- * daemon. The presence, notice, shell and agent streams carry no session-event kind.
+ * daemon. The presence, notice, shell, agent, draft and composer streams carry no session-event
+ * kind.
  */
 export function subscriptionDeliversEventKind(
   subscriptionName: string,
@@ -180,13 +213,5 @@ export function subscriptionDeliversEventKind(
   if (stream.scope === "whole-session") {
     return true;
   }
-  if (
-    stream.scope === "machine-presence" ||
-    stream.scope === "machine-notices" ||
-    stream.scope === "shell" ||
-    stream.scope === "session-agents"
-  ) {
-    return false;
-  }
-  return stream.carriedKinds.includes(eventKind);
+  return stream.scope === "selected-kinds" && stream.carriedKinds.includes(eventKind);
 }

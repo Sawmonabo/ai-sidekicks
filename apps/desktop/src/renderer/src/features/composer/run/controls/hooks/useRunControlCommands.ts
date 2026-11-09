@@ -59,8 +59,8 @@ function buildRunControlCommand(
     // recomputed per route.
     when: WHEN_SESSION_ACTIVE,
     keywords: [row.runId, RUN_CONTROL_PRESENTATION[row.control].label],
-    run: () => {
-      dispatchRunControlCommand(row, inputRef.current);
+    run: async () => {
+      await dispatchRunControlCommand(row, inputRef.current);
     },
   };
 }

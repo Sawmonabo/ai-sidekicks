@@ -1,7 +1,7 @@
-// The composer's message line: the draft field, and what needs only the draft. The text is the
-// draft store's: this line reads the session's draft key and writes every edit back, so a remount
-// or a return to the session finds the text where it was left. Enter is swallowed here (no
-// newline, no send); sending is `SendButton.tsx`'s.
+// The composer's message line: the draft field with Send at its right end. The text is the draft
+// store's: this line reads the session's draft key and writes every edit back, so a remount or a
+// return to the session finds the text where it was left. Enter makes no newline here; sending,
+// by Enter or by the press, is `SendButton.tsx`'s.
 
 import { useCallback, useEffect, useRef } from "react";
 import { wakeMarkdownWorker } from "#renderer/components/Markdown/worker/wake.js";
@@ -19,9 +19,11 @@ import { composerDraftKey } from "../draft-key.js";
 export interface DraftLineProps extends ComposerProps {
   /** The box the draft scrolls in, for the composer that measures what surrounds it. */
   readonly scrollerRef?: React.RefObject<HTMLDivElement | null>;
+  /** Send, drawn at the line's right end. */
+  readonly send: React.ReactNode;
 }
 
-/** The message line over the session's draft. Enter keeps the draft and sends nothing. */
+/** The message line over the session's draft, with Send at its right end. */
 export function DraftLine(props: DraftLineProps): React.JSX.Element {
   const { draftStore } = props;
   const draftKey = composerDraftKey(props.sessionStore.sessionId);
@@ -57,19 +59,22 @@ export function DraftLine(props: DraftLineProps): React.JSX.Element {
 
   return (
     <div className="meridian-composer__send">
-      <TextBox
-        fieldRef={lineRef}
-        {...(props.scrollerRef === undefined ? {} : { scrollerRef: props.scrollerRef })}
-        className="meridian-composer__line"
-        aria-label="Message"
-        {...(shape === undefined ? {} : { placeholder: DRAFT_PLACEHOLDERS[shape] })}
-        value={text}
-        rows={1}
-        // Grow to the cap, then scroll inside the box so the transcript keeps its room.
-        maxRows={COMPOSER_DRAFT_MAX_ROWS}
-        onChange={onChange}
-        onKeyDown={onKeyDown}
-      />
+      <div className="meridian-composer__line-row">
+        <TextBox
+          fieldRef={lineRef}
+          {...(props.scrollerRef === undefined ? {} : { scrollerRef: props.scrollerRef })}
+          className="meridian-composer__line"
+          aria-label="Message"
+          {...(shape === undefined ? {} : { placeholder: DRAFT_PLACEHOLDERS[shape] })}
+          value={text}
+          rows={1}
+          // Grow to the cap, then scroll inside the box so the transcript keeps its room.
+          maxRows={COMPOSER_DRAFT_MAX_ROWS}
+          onChange={onChange}
+          onKeyDown={onKeyDown}
+        />
+        {props.send}
+      </div>
     </div>
   );
 }

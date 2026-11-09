@@ -32,10 +32,10 @@ function inputFor(
 const BUILDER: RunChild = { childHandle: "agent-builder-1", agentName: "builder" };
 
 describe("what running a contributed row does", () => {
-  it("dispatches through the caller's dispatch state, carrying the run's comparand", () => {
+  it("dispatches through the caller's dispatch state, carrying the run's comparand", async () => {
     const { dispatchState, calls } = recordingRunControlDispatch();
 
-    dispatchRunControlCommand(
+    await dispatchRunControlCommand(
       { runId: FIRST_RUN, control: "interrupt", title: "Stop the run" },
       inputFor([commandRun(FIRST_RUN)], dispatchState),
     );
@@ -43,7 +43,7 @@ describe("what running a contributed row does", () => {
     expect(calls).toEqual([{ verb: "interrupt", runId: FIRST_RUN, expectedRunVersion: 7 }]);
   });
 
-  it("offers a steer row per child, which opens that child's box", () => {
+  it("offers a steer row per child, which opens that child's box", async () => {
     const { dispatchState, calls } = recordingRunControlDispatch();
     const parent = commandRun(FIRST_RUN, "running", [BUILDER]);
     const steerRow = runControlCommandRows([parent]).find((row) => row.control === "steer");
@@ -52,7 +52,7 @@ describe("what running a contributed row does", () => {
     }
     expect(steerRow.title).toBe("Steer builder");
     const steered: [string, RunChild][] = [];
-    dispatchRunControlCommand(steerRow, {
+    await dispatchRunControlCommand(steerRow, {
       ...inputFor([parent], dispatchState),
       onRequestSteer: (runId, child) => {
         steered.push([runId, child]);

@@ -37,7 +37,7 @@ const TOOLBAR_SCENARIO: Scenario = {
 const LEAD: ScenarioAgent = {
   agentId: "7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d",
   name: "Ada",
-  driverName: "claude",
+  providerName: "claude",
   modelId: "opus",
 };
 /** The id of the seeded run. */

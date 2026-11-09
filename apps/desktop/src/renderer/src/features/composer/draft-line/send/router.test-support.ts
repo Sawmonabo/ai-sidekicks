@@ -14,7 +14,7 @@ export const SESSION_ID = "8f1c2c3e-5c6a-4a19-9f5f-1d2b3c4d5e6f";
 /** The idempotency key the router mints in tests. */
 export const PINNED_REQUEST_UUID = "3c4d5e6f-7a8b-4c1d-8e2f-5a6b7c8d9e0f";
 
-/** One registered `run.queueCreate` response, in the shape the wire admits. */
+/** One registered `agent.queueItem.create` response, in the shape the wire admits. */
 export const QUEUE_CREATED: Readonly<Record<string, unknown>> = {
   queueItemId: "5e6f7a8b-9c0d-4e1f-8a2b-7c8d9e0f1a2b",
   state: "queued",
@@ -43,7 +43,7 @@ export function sendCallsAnswering(
   return {
     queueCreate: async (request) =>
       (await answer({
-        method: "run.queueCreate",
+        method: "agent.queueItem.create",
         params: request,
       })) as AgentQueueItemCreateResponse,
   };

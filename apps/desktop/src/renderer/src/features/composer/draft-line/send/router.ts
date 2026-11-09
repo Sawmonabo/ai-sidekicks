@@ -1,4 +1,4 @@
-// The send router: every send resolves through it to `run.queueCreate`, whether a turn is
+// The send router: every send resolves through it to `agent.queueItem.create`, whether a turn is
 // running or not. A message sent mid-turn waits on the session's queue until the agent takes it
 // at its next step, so a run-addressed composer sends the same call as a session-addressed one.
 //

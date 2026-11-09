@@ -156,7 +156,7 @@ describe("DraftLine — one send in flight", () => {
       pressSend(result.container);
       pressSend(result.container);
     });
-    expect(settleCalls).toStrictEqual(["run.queueCreate"]);
+    expect(settleCalls).toStrictEqual(["agent.queueItem.create"]);
     // In flight, Send keeps its one name and is never renamed for what it is doing.
     const inFlight = within(result.container).getByRole("button", { name: "Send" });
     expect(inFlight.getAttribute("aria-busy")).toBe("true");
@@ -165,7 +165,7 @@ describe("DraftLine — one send in flight", () => {
       releaseFirstCall();
       await pending;
     });
-    expect(settleCalls).toStrictEqual(["run.queueCreate"]);
+    expect(settleCalls).toStrictEqual(["agent.queueItem.create"]);
   });
 
   it("accepts the next send once the first has settled", async () => {
@@ -230,7 +230,12 @@ describe("DraftLine — Send runs a line-reading command", () => {
     });
 
     expect(workflowCalls.started).toStrictEqual([
-      { workflowVersionId: "version-nightly-review", sessionId: SESSION_ID },
+      {
+        clientIdempotencyKey: expect.any(String),
+        workflowVersionId: "version-nightly-review",
+        sessionId: SESSION_ID,
+        mode: "chat",
+      },
     ]);
     expect(sentMethods).toStrictEqual([]);
   });

@@ -1,10 +1,19 @@
 // Starting a workflow from the line by the name a person types. The registry's `run()` takes no
 // argument, so `hooks/useWorkflowStartHandlers.ts` hands the executor a line handler for the root
 // id, which it prefers over `invoke`. The name is matched against the whole enumeration, never
-// guessed: `workflowRunStart` needs a `workflowVersionId` a person cannot type, and the start uses
-// that entry's own `latestWorkflowVersionId`. Whether a start is permitted is the daemon's answer,
-// not pre-empted here. The two calls are arguments; a call that rejects rejects the whole line.
+// guessed: `workflow.run.start` needs a `workflowVersionId` a person cannot type, and the start
+// uses that entry's own `latestWorkflowVersionId`. Each line is one start under its own fresh
+// idempotency key, in the chat mode a run started from a conversation takes. Whether a start is
+// permitted is the daemon's answer, not preempted here. The two calls are arguments; a call that
+// rejects rejects the whole line.
 
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { WorkflowDefinitionListCursor } from "@ai-sidekicks/contracts/workflow/definition/methods";
+import type { WorkflowRunStartRequest } from "@ai-sidekicks/contracts/workflow/run/control";
+
+import { callDaemon, unwrapDaemonReply } from "#renderer/services/daemon/reply.js";
+import { heldIdAsWireId } from "#renderer/services/daemon/wire/identifiers.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { CommandOutcome, ComposerCommandLine } from "../../types.js";
 import {
   readWorkflowDefinitions,
@@ -13,17 +22,11 @@ import {
 import { matchWorkflowDefinition } from "./definition/match.js";
 import { readWorkflowCommandLine } from "./grammar.js";
 
-/** The pinned version a start is issued against, and the session it starts in. */
-export interface WorkflowStartRequest {
-  readonly workflowVersionId: string;
-  readonly sessionId: string;
-}
-
 /** The two calls the line handler makes, both supplied by the caller. */
 export interface WorkflowStartOperations {
   readonly readDefinitionPage: ReadWorkflowDefinitionPage;
   /** Starts one run; resolves when the daemon has accepted it. */
-  readonly startRun: (request: WorkflowStartRequest) => Promise<void>;
+  readonly startRun: (request: WorkflowRunStartRequest) => Promise<void>;
 }
 
 /** What the line handler needs to start a run, all of it the composer's own. */
@@ -31,6 +34,30 @@ export interface WorkflowStartInput {
   readonly operations: WorkflowStartOperations;
   /** The session this composer is addressed within, or nothing where it has none. */
   readonly sessionId: string | undefined;
+}
+
+/**
+ * The two calls over the daemon: the definition list, page by page, and the product's one
+ * `workflow.run.start` sender. A refused call rejects with the daemon's own refusal.
+ */
+export function workflowStartOperationsOver(bridge: PlatformBridge): WorkflowStartOperations {
+  return {
+    readDefinitionPage: async (request) => {
+      const page = unwrapDaemonReply(
+        await callDaemon(
+          bridge,
+          "workflow.definition.list",
+          request.cursor === undefined
+            ? {}
+            : { cursor: heldIdAsWireId<WorkflowDefinitionListCursor>(request.cursor) },
+        ),
+      );
+      return { definitions: page.definitions, nextCursor: page.nextCursor };
+    },
+    startRun: async (request) => {
+      unwrapDaemonReply(await callDaemon(bridge, "workflow.run.start", request));
+    },
+  };
 }
 
 /**
@@ -58,8 +85,10 @@ export async function startWorkflowFromLine(
   }
   // The entry's own pin: the enumeration says which version a name is at.
   await input.operations.startRun({
+    clientIdempotencyKey: crypto.randomUUID(),
     workflowVersionId: match.definition.latestWorkflowVersionId,
-    sessionId,
+    sessionId: heldIdAsWireId<SessionId>(sessionId),
+    mode: "chat",
   });
   return { status: "applied" };
 }

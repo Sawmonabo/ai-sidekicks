@@ -1,6 +1,7 @@
 // Ctrl+B moves the command the agent waits on to the background: the chord runs the composer's
 // command, the command asks the mounted composer, and the ask sends the background request for
-// the newest command the provider offers to move, naming the session and that command alone.
+// the newest command the provider offers to move, naming the session and that command alone. The
+// chord is bound only while a command can move; otherwise the press stays the message line's.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -10,7 +11,13 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { CommandContributionRegistry } from "#renderer/registries/commands/contributions.js";
 import { CommandRegistry } from "#renderer/registries/commands/registry.js";
-import { moveCommandToBackground, subscribeToBackgroundRequests } from "./background-requests.js";
+import { KeybindingTable } from "#renderer/registries/keybindings/table.js";
+import {
+  moveCommandToBackground,
+  publishCanMoveToBackground,
+  readCanMoveToBackground,
+  subscribeToBackgroundRequests,
+} from "./background-requests.js";
 import { registerComposerCommands } from "./contributions/commands.js";
 import { registerComposerKeybindings } from "./contributions/keybindings.js";
 
@@ -36,29 +43,68 @@ afterEach(() => {
   for (const stop of stopListening.splice(0)) {
     stop();
   }
+  publishCanMoveToBackground(false);
 });
+
+/** Ctrl+B pressed in the message line, through a binding table over the composer's chords. */
+function pressControlBInLine(send: (request: unknown) => void): KeyboardEvent {
+  const commandRegistry = new CommandRegistry();
+  const contributions = new CommandContributionRegistry(commandRegistry);
+  registerComposerCommands(contributions);
+  registerComposerKeybindings(contributions);
+  const table = new KeybindingTable({
+    registry: commandRegistry,
+    readContext: () => ({
+      sessionActive: true,
+      commandCanMoveToBackground: readCanMoveToBackground(),
+    }),
+  });
+  table.setBindings(contributions.keyBindings());
+  const commands = [commandRunning("cmd-tests", true), commandRunning("cmd-build", false)];
+  stopListening.push(
+    subscribeToBackgroundRequests(() => {
+      moveCommandToBackground(SESSION_ID, commands, send);
+    }),
+  );
+  const line = document.createElement("textarea");
+  document.body.append(line);
+  const press = new KeyboardEvent("keydown", {
+    key: "b",
+    code: "KeyB",
+    ctrlKey: true,
+    bubbles: true,
+    cancelable: true,
+  });
+  const stopTable = table.install(line);
+  line.dispatchEvent(press);
+  stopTable();
+  line.remove();
+  return press;
+}
 
 describe("Ctrl+B — move to background", () => {
   it("sends the background request with the running command's id when the chord is pressed", () => {
     // Mutation: dropping the `canMoveToBackground` gate sends `cmd-build`, which the provider
     // does not offer to move; any member beyond the session and the command fails the equality.
-    const commandRegistry = new CommandRegistry();
-    const contributions = new CommandContributionRegistry(commandRegistry);
-    registerComposerCommands(contributions);
-    registerComposerKeybindings(contributions);
-    const commands = [commandRunning("cmd-tests", true), commandRunning("cmd-build", false)];
+    publishCanMoveToBackground(true);
     const send = vi.fn();
-    stopListening.push(
-      subscribeToBackgroundRequests(() => {
-        moveCommandToBackground(SESSION_ID, commands, send);
-      }),
-    );
 
-    const chord = contributions.keyBindings().find((binding) => binding.chord === "Control+KeyB");
-    void commandRegistry.get(chord?.commandId ?? "")?.run();
+    const press = pressControlBInLine(send);
 
+    expect(press.defaultPrevented).toBe(true);
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith({ sessionId: SESSION_ID, commandId: "cmd-tests" });
+  });
+
+  it("leaves Ctrl+B to the line while no running command can move", () => {
+    // Mutation: dropping `commandCanMoveToBackground` from the binding's `when` takes the press
+    // from the line (the caret's Ctrl+B) even though nothing can move.
+    const send = vi.fn();
+
+    const press = pressControlBInLine(send);
+
+    expect(press.defaultPrevented).toBe(false);
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("sends nothing where no running command can be moved", () => {

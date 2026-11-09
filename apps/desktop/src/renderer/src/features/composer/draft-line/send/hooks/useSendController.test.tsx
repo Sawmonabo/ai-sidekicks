@@ -1,10 +1,13 @@
-// What the controller does with a line the router intercepted, driven through the real hook over
-// the real `DraftStore`: the line clears only once the command applied, a refused command keeps
-// it, and a line its command does not act on goes to the provider exactly as typed.
+// What the controller does with a line, driven through the real hook over the real `DraftStore`:
+// the line clears only once the command applied, a refused command keeps it, a line its command
+// does not act on goes to the provider exactly as typed, and a sent message carries the held
+// draft's extras and clears the draft the daemon holds.
 
 import { act, render } from "@testing-library/react";
-import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import type { SessionDraft } from "@ai-sidekicks/contracts/session/draft";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { inertBridge } from "#renderer/features/composer/Composer.test-support.js";
 import { refuse } from "#renderer/lib/refusal/contract.js";
@@ -29,7 +32,13 @@ import { composerDraftKey } from "../../draft-key.js";
 import type { ComposerSendCalls } from "../dispatch.js";
 import type { SendController } from "../controller-contract.js";
 import { useSendController } from "./useSendController.js";
-import { ComposerHeldDraft } from "#renderer/features/composer/held-draft.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { COMPOSER_DRAFT_SAVE_PAUSE_MILLISECONDS } from "#renderer/features/composer/bounds.js";
+import {
+  ComposerHeldDraft,
+  type DraftSaving,
+} from "#renderer/features/composer/held-draft/holder.js";
 import { QUEUE_CREATED, SESSION_ID, sendCallsAnswering } from "../router.test-support.js";
 
 const SESSION_TARGET: ComposerSessionTarget = {
@@ -51,19 +60,17 @@ const BRIDGE = inertBridge();
 /** Reports the controller out of the tree, so a case drives the real hook. */
 function ControllerProbe(props: {
   readonly draftStore: DraftStore;
+  readonly heldDraft: ComposerHeldDraft;
   readonly calls: ComposerSendCalls;
   readonly commandExecutor: CommandExecutor | undefined;
   readonly onController: (controller: SendController) => void;
 }): null {
-  const [heldDraft] = useState(
-    () => new ComposerHeldDraft(props.draftStore, composerDraftKey(SESSION_TARGET.sessionId)),
-  );
   const controller = useSendController({
     bridge: BRIDGE,
     calls: props.calls,
     target: SESSION_TARGET,
     draftStore: props.draftStore,
-    heldDraft,
+    heldDraft: props.heldDraft,
     recognizeConsoleCommand: (commandName) =>
       commandName === "clear" || commandName === WORKFLOW_COMMAND_ROOT,
     commandExecutor: props.commandExecutor,
@@ -75,20 +82,29 @@ function ControllerProbe(props: {
 interface DrivenController {
   readonly draftStore: DraftStore;
   readonly draftKey: string;
+  readonly heldDraft: ComposerHeldDraft;
   latest(): SendController;
 }
 
 function driveController(
   commandExecutor: CommandExecutor | undefined,
   calls: ComposerSendCalls = UNREACHABLE_CALLS,
+  saving?: DraftSaving,
 ): DrivenController {
   const draftStore = new DraftStore({
     maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
+  });
+  const draftKey = composerDraftKey(SESSION_TARGET.sessionId);
+  const heldDraft = new ComposerHeldDraft({
+    draftStore,
+    draftKey,
+    ...(saving === undefined ? {} : { saving }),
   });
   let latest: SendController | undefined;
   render(
     <ControllerProbe
       draftStore={draftStore}
+      heldDraft={heldDraft}
       calls={calls}
       commandExecutor={commandExecutor}
       onController={(controller) => {
@@ -98,7 +114,8 @@ function driveController(
   );
   return {
     draftStore,
-    draftKey: composerDraftKey(SESSION_TARGET.sessionId),
+    draftKey,
+    heldDraft,
     latest: () => {
       if (latest === undefined) {
         throw new Error("the probe reported no controller");
@@ -186,11 +203,70 @@ describe("useSendController — a line its command does not act on", () => {
 
     expect(wireCalls).toStrictEqual([
       {
-        method: "run.queueCreate",
+        method: "agent.queueItem.create",
         params: { sessionId: SESSION_ID, clientIdempotencyKey: expect.any(String), content: typed },
       },
     ]);
     expect(workflowCalls.started).toHaveLength(0);
     expect(driven.latest().refusal).toBeUndefined();
+  });
+});
+
+describe("useSendController — a sent message and the held draft", () => {
+  it("queues the message with the held draft's extras and saves the cleared draft", async () => {
+    // Mutation: dropping `heldDraft.clear()` after a send leaves the pick on the daemon's draft
+    // (no save, or one still naming it); dropping the extras from the send loses the pick.
+    const pick = { name: "codemod", folderPath: "/repo/.ai-sidekicks/skills/codemod" };
+    const saved: { readonly draft: SessionDraft; readonly expectedRevision: number }[] = [];
+    const wireCalls: RecordedDaemonCall[] = [];
+    const clock = new ManualClock();
+    const driven = driveController(
+      undefined,
+      sendCallsAnswering(async (call) => {
+        wireCalls.push(call);
+        return QUEUE_CREATED;
+      }),
+      {
+        clock,
+        save: async (draft, expectedRevision) => {
+          saved.push({ draft, expectedRevision });
+          return {
+            status: "served",
+            value: {
+              sessionId: SESSION_ID as SessionId,
+              revision: expectedRevision + 1,
+              updatedAt: "2026-11-09T10:00:00.000Z",
+            },
+          };
+        },
+      },
+    );
+    // Typed, then the pause saves it, so the daemon holds the words and the pick before the send.
+    driven.heldDraft.addSkillPick(pick);
+    driven.draftStore.write(driven.draftKey, "Run the codemod");
+    await act(async () => {
+      clock.advance(COMPOSER_DRAFT_SAVE_PAUSE_MILLISECONDS);
+      await crossMacrotaskBoundary();
+    });
+
+    await act(async () => {
+      await driven.latest().send();
+    });
+
+    expect(wireCalls).toStrictEqual([
+      {
+        method: "agent.queueItem.create",
+        params: {
+          sessionId: SESSION_ID,
+          clientIdempotencyKey: expect.any(String),
+          content: "Run the codemod",
+          skills: [pick],
+        },
+      },
+    ]);
+    expect(saved).toStrictEqual([
+      { draft: { text: "Run the codemod", extras: { skills: [pick] } }, expectedRevision: 0 },
+      { draft: { text: "", extras: {} }, expectedRevision: 1 },
+    ]);
   });
 });

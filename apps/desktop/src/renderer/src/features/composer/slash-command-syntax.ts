@@ -4,9 +4,14 @@
 // A command opens its line: the trigger must be the first character of the untouched text.
 // Indented text that begins with a slash is prose, so pasted code is never claimed. A slash
 // word on no list goes out as typed; there is no escape for a message that begins with one.
+// `$` opens the same list, the skill mark a provider's own terminal reads, but claims no line:
+// a `$` word is sent as typed.
 
 /** The prefix that opens the command list and claims a line for a command. */
 export const SLASH_COMMAND_TRIGGER = "/";
+
+/** The prefix that opens the command list and leaves the line to the provider. */
+const SKILL_MENTION_TRIGGER = "$";
 
 /** Splits a draft on its first run of whitespace, to read the command word. */
 const FIRST_WHITESPACE = /\s/u;
@@ -20,6 +25,19 @@ export function readSlashCommandName(lineText: string): string | undefined {
     return undefined;
   }
   return splitFirstWord(lineText.slice(SLASH_COMMAND_TRIGGER.length)).word;
+}
+
+/**
+ * The word the command list filters by, or `undefined` while the list stays shut: the line opens
+ * with `/` or `$` and holds no newline. The empty string opens the list unfiltered.
+ */
+export function readCommandListPrefix(lineText: string): string | undefined {
+  if (lineText.includes("\n")) {
+    return undefined;
+  }
+  return lineText.startsWith(SKILL_MENTION_TRIGGER)
+    ? splitFirstWord(lineText.slice(SKILL_MENTION_TRIGGER.length)).word
+    : readSlashCommandName(lineText);
 }
 
 /**

@@ -113,6 +113,11 @@ export class StagedAttachments {
     this.#client.abandon(localId);
   }
 
+  /** Take one attachment off the staged list: its file now rides with the draft. */
+  public remove(localId: string): void {
+    this.#client.remove(localId);
+  }
+
   /**
    * Drop the subscription, then give the daemon back every spool still open. The wake-up is
    * canceled here so a timeout cannot outlive the list.

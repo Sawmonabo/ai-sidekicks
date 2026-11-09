@@ -5,7 +5,7 @@
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import type { DraftStore } from "#renderer/store/drafts.js";
-import type { ComposerHeldDraft } from "../../held-draft.js";
+import type { ComposerHeldDraft } from "../../held-draft/holder.js";
 import type { ComposerTarget } from "../../target.js";
 import type { CommandExecutor } from "../../types.js";
 import type { DraftCaret } from "../caret.js";
