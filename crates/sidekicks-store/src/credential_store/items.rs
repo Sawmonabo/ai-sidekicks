@@ -1,6 +1,11 @@
 //! The daemon's secrets for one run: the place picked for them, the check that the place keeps what
 //! it is given, the one seal of a Linux plain file once systemd's credential service seals for it,
-//! and the erase of every item the app made.
+//! and the erase of every item this install made.
+//!
+//! In the operating system's store each service's items are filed under the service's name marked
+//! with a digest of the data folder's path, so two installs on one account, a second data folder or
+//! a developer's daemon, keep their items apart, and an erase removes only its own. The items file
+//! sits in the data folder, so its names carry no mark.
 //!
 //! - **The pick.** A start with a place record keeps its place. One without picks the operating
 //!   system's store on macOS and Windows, the plain file for a Mac's service running while the
@@ -51,7 +56,7 @@ mod status;
 mod tests;
 
 use std::error::Error;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -82,6 +87,19 @@ use crate::credential_store::{KeychainRefusal, SecretKeychain, holds_value};
 const PROBE_VALUE_BYTES: usize = 32;
 const PROBE_ACCOUNT_BYTES: usize = 8;
 
+// The bytes of the data folder's digest that mark an install's names in the operating system's
+// store.
+const INSTALL_MARK_BYTES: usize = 4;
+
+/// The name `service`'s items are filed under in the operating system's store for the install
+/// whose data folder is `data_folder`: the service's name, a dash and a digest of the folder's
+/// path, so the same folder always names the same items and another folder never does.
+pub fn os_service_name(data_folder: &Path, service: KeychainService) -> String {
+    let digest = blake3::hash(data_folder.as_os_str().as_encoded_bytes());
+    let mark = base16ct::lower::encode_string(&digest.as_bytes()[..INSTALL_MARK_BYTES]);
+    format!("{}-{mark}", service.as_str())
+}
+
 /// What the daemon's start hands its secret items.
 pub struct SecretItemsStart {
     /// The daemon's data folder, which holds the place record and the items file.
@@ -98,6 +116,8 @@ pub struct SecretItemsStart {
 /// The daemon's secrets for one run; see the module doc. Built once at the start and shared by
 /// every feature, each through its own service's `ItemsKeychain`.
 pub struct SecretItems {
+    /// The data folder, whose path marks this install's names in the operating system's store.
+    data_folder: PathBuf,
     /// The place record's path.
     record_path: PathBuf,
     /// Whether this is a Mac's service running while the person is logged out.
@@ -157,6 +177,7 @@ impl SecretItems {
             description: access.description(),
             os_store,
             items_file: SecretItemsFile::new(&data_folder),
+            data_folder,
             seal,
             probe_account,
             call_timeout,
@@ -175,7 +196,7 @@ impl SecretItems {
             os: self
                 .os_store
                 .as_ref()
-                .map(|store| store.keychain(service.as_str())),
+                .map(|store| store.keychain(&os_service_name(&self.data_folder, service))),
             plain: self.items_file.keychain(service.as_str(), None),
             sealed: self.seal.as_ref().map(|seal| {
                 self.items_file
@@ -575,7 +596,7 @@ impl SecretItems {
                 self.os_store
                     .as_ref()
                     .ok_or_else(not_offered)?
-                    .keychain(service.as_str()),
+                    .keychain(&os_service_name(&self.data_folder, service)),
             ),
             SecretsPlace::SealedFile => Box::new(
                 self.items_file

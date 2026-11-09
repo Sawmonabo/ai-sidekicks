@@ -16,7 +16,7 @@ use sidekicks_platforms::{
 };
 use sidekicks_std::random_hex::random_hex;
 
-use super::{SecretItems, SecretItemsStart};
+use super::{SecretItems, SecretItemsStart, os_service_name};
 use crate::credential_store::SecretKeychain;
 use crate::credential_store::file::SecretItemsFile;
 use crate::credential_store::os::{SystemCredentialStore, TestStoreAccess};
@@ -26,7 +26,6 @@ use crate::credential_store::service::KeychainService;
 const RECORD: &str = "secrets-place.json";
 const ITEMS: &str = "secrets.json";
 const WORKFLOW: &str = "ai-sidekicks-workflow-secrets";
-const PROBE: &str = "ai-sidekicks-probe";
 
 const OPERATING_SYSTEM: &str = r#"{"place":{"kind":"operatingSystem"}}"#;
 const LOGGED_OUT: &str = r#"{"place":{"kind":"loggedOutServiceFile"}}"#;
@@ -275,8 +274,9 @@ async fn the_start_picks_and_keeps_the_secrets_place(
             .is_some(),
         has_secrets_file
     );
+    let workflow = os_service_name(folder.path(), KeychainService::WorkflowSecrets);
     assert_eq!(
-        stored(&credentials, WORKFLOW, "secret").is_some(),
+        stored(&credentials, &workflow, "secret").is_some(),
         is_in_store
     );
 }
@@ -309,8 +309,9 @@ async fn a_move_whose_store_is_gone_waits_and_finishes_once_it_returns() {
         moved.as_ref().map(ExposeSecret::expose_secret),
         Some("value")
     );
+    let workflow = os_service_name(folder.path(), KeychainService::WorkflowSecrets);
     assert_eq!(
-        stored(&credentials, WORKFLOW, "secret").as_deref(),
+        stored(&credentials, &workflow, "secret").as_deref(),
         Some("value")
     );
     assert!(!folder.path().join(ITEMS).exists());
@@ -370,7 +371,8 @@ async fn a_place_whose_record_cannot_be_written_serves_no_call(#[case] place: Fi
 
     assert_eq!(first, Err(KeychainRefusalCause::Unavailable));
     assert_eq!(second, Err(KeychainRefusalCause::Unavailable));
-    assert_eq!(stored(&credentials, WORKFLOW, "secret"), None);
+    let workflow = os_service_name(&data_folder, KeychainService::WorkflowSecrets);
+    assert_eq!(stored(&credentials, &workflow, "secret"), None);
     assert!(!data_folder.join(ITEMS).exists());
 }
 
@@ -380,10 +382,11 @@ async fn a_place_whose_record_cannot_be_written_serves_no_call(#[case] place: Fi
 async fn the_check_never_touches_an_earlier_probe_item() {
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let credentials = CredentialStore::in_memory();
+    let probe = os_service_name(folder.path(), KeychainService::Probe);
     credentials
-        .write(PROBE, "store-verify", &SecretString::from("left over"))
+        .write(&probe, "store-verify", &SecretString::from("left over"))
         .expect("the test leaves a probe item");
-    credentials.refuse_next_call(PROBE, "store-verify");
+    credentials.refuse_next_call(&probe, "store-verify");
     let items = secret_items(
         folder.path(),
         &TestStoreAccess::new(credentials),
@@ -415,12 +418,13 @@ async fn a_place_keeping_another_value_is_refused_for_the_run(#[case] place: Fir
     } else {
         TestStoreAccess::sealing(Arc::clone(&seal))
     };
-    blocking_store.keep_changed_values_for(PROBE);
+    let probe = os_service_name(folder.path(), KeychainService::Probe);
+    blocking_store.keep_changed_values_for(&probe);
     seal.keep_another_value(true);
     let items = secret_items(folder.path(), &access, false, Duration::from_secs(5));
 
     let first = write_and_read(&items, "secret", "value").await;
-    blocking_store.stop_changing_values_for(PROBE);
+    blocking_store.stop_changing_values_for(&probe);
     seal.keep_another_value(false);
     let second = write_and_read(&items, "secret", "value").await;
 
@@ -522,15 +526,18 @@ async fn a_passing_cause_refuses_that_call_and_the_next_one_checks_again(
     assert_eq!(status_after_serving, status_served);
 }
 
-/// The erase deletes every item the app made in the store, probe leftovers included, and the
-/// items file, and leaves another program's item whose service only starts like one of ours. Its
-/// check refuses a store that cannot be used when the record names it or cannot be read, and passes
-/// over one a readable record does not name. Mutations: drop the exact-service filter; leave a
-/// service out of the set; let the check pass a recorded store that cannot be used; sweep a store
+/// The erase deletes every item this install made in the store, probe leftovers included, and the
+/// items file, and leaves another install's items, filed under another data folder's names, and
+/// another program's item whose service only starts like one of ours. Its check refuses a store
+/// that cannot be used when the record names it or cannot be read, and passes over one a readable
+/// record does not name. Mutations: name the store's items without the data folder's mark (the
+/// other install's items go); erase by the service's name alone (this install's items stay); leave
+/// a service out of the set; let the check pass a recorded store that cannot be used; sweep a store
 /// under an unreadable record only as far as it answers.
 #[tokio::test]
-async fn the_erase_deletes_every_item_the_app_made_and_nothing_else() {
+async fn the_erase_deletes_every_item_this_install_made_and_nothing_else() {
     let folder = tempfile::tempdir().expect("the test makes a folder");
+    let other_folder = tempfile::tempdir().expect("the test makes another install's folder");
     std::fs::write(folder.path().join(RECORD), OPERATING_SYSTEM).expect("the test writes it");
     SecretItemsFile::new(folder.path())
         .keychain(WORKFLOW, None)
@@ -538,14 +545,26 @@ async fn the_erase_deletes_every_item_the_app_made_and_nothing_else() {
         .await
         .expect("the test fills the file");
     let credentials = CredentialStore::in_memory();
+    let (workflow, probe) = (
+        os_service_name(folder.path(), KeychainService::WorkflowSecrets),
+        os_service_name(folder.path(), KeychainService::Probe),
+    );
     let ours = [
-        (WORKFLOW, "first"),
-        (WORKFLOW, "second"),
-        (PROBE, "store-verify"),
-        (PROBE, "store-verify-0a1b2c3d4e5f6a7b"),
+        (workflow.as_str(), "first"),
+        (workflow.as_str(), "second"),
+        (probe.as_str(), "store-verify"),
+        (probe.as_str(), "store-verify-0a1b2c3d4e5f6a7b"),
     ];
-    let theirs = ("ai-sidekicks-workflow-secrets-x", "first");
-    for (service, account) in ours.into_iter().chain([theirs]) {
+    let (other_workflow, other_probe) = (
+        os_service_name(other_folder.path(), KeychainService::WorkflowSecrets),
+        os_service_name(other_folder.path(), KeychainService::Probe),
+    );
+    let theirs = [
+        (other_workflow.as_str(), "first"),
+        (other_probe.as_str(), "store-verify"),
+        ("ai-sidekicks-workflow-secrets-x", "first"),
+    ];
+    for (service, account) in ours.into_iter().chain(theirs) {
         credentials
             .write(service, account, &SecretString::from("value"))
             .expect("the test fills the store");
@@ -582,10 +601,13 @@ async fn the_erase_deletes_every_item_the_app_made_and_nothing_else() {
             "{service} {account}"
         );
     }
-    assert_eq!(
-        stored(&credentials, theirs.0, theirs.1).as_deref(),
-        Some("value")
-    );
+    for (service, account) in theirs {
+        assert_eq!(
+            stored(&credentials, service, account).as_deref(),
+            Some("value"),
+            "{service} {account}"
+        );
+    }
     assert!(!folder.path().join(ITEMS).exists());
 }
 

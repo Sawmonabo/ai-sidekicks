@@ -356,7 +356,7 @@ mod tests {
         let (server, harness, authorizer) = signed_in(StatusCode::OK, None, None).await;
         let test = commands_over(driver_reaching(&server), &harness.service).await;
         harness.platform_store.refuse_next_call(
-            KeychainService::McpSignIns.as_str(),
+            &harness.sign_in_service_name,
             harness
                 .service
                 .custody

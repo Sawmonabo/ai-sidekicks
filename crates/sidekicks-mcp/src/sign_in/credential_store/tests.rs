@@ -5,6 +5,7 @@ use rmcp::transport::auth::{AuthError, CredentialStore as _, StoredCredentials};
 use rstest::rstest;
 use secrecy::SecretString;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
+use sidekicks_store::credential_store::items::os_service_name;
 use sidekicks_store::credential_store::service::KeychainService;
 use sidekicks_store::credential_store::test_keychain::{CountingKeychain, test_keychain};
 
@@ -121,7 +122,7 @@ async fn an_address_with_a_trailing_slash_reads_the_same_sign_in() {
 /// before it. Killed by writing memory before the keychain.
 #[tokio::test]
 async fn a_refused_save_keeps_the_sign_in_held_before_it() {
-    let (_data_folder, platform_store, keychain) = test_keychain(KeychainService::McpSignIns);
+    let (data_folder, platform_store, keychain) = test_keychain(KeychainService::McpSignIns);
     let custody = SignInCustody::new(keychain);
     let address = server_address();
     let digest = digest_of(&custody, &address).await;
@@ -136,7 +137,10 @@ async fn a_refused_save_keeps_the_sign_in_held_before_it() {
         .save(credentials("test-access-token-1"))
         .await
         .expect("the first sign-in is kept");
-    platform_store.refuse_next_call(KeychainService::McpSignIns.as_str(), digest.as_str());
+    platform_store.refuse_next_call(
+        &os_service_name(data_folder.path(), KeychainService::McpSignIns),
+        digest.as_str(),
+    );
 
     let refused = store.save(credentials("test-access-token-2")).await;
 

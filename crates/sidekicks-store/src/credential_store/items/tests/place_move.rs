@@ -16,6 +16,7 @@ use super::{
 };
 use crate::credential_store::SecretKeychain;
 use crate::credential_store::file::SecretItemsFile;
+use crate::credential_store::items::os_service_name;
 use crate::credential_store::os::TestStoreAccess;
 use crate::credential_store::service::KeychainService;
 
@@ -52,10 +53,11 @@ async fn a_move_back_the_keychain_refuses_changes_nothing(#[case] refusal: Refus
         .await
         .expect("the test fills the file");
     let credentials = CredentialStore::in_memory();
+    let workflow = os_service_name(folder.path(), KeychainService::WorkflowSecrets);
     let access = TestStoreAccess::new(credentials.clone());
     match refusal {
         Refusal::Locked => access.opens.store(false, Ordering::SeqCst),
-        Refusal::ItemRefused => credentials.refuse_next_call(WORKFLOW, "secret"),
+        Refusal::ItemRefused => credentials.refuse_next_call(&workflow, "secret"),
         Refusal::PlainFileRecord => {}
     }
     let items = secret_items(folder.path(), &access, false, Duration::from_secs(5));
@@ -76,7 +78,7 @@ async fn a_move_back_the_keychain_refuses_changes_nothing(#[case] refusal: Refus
         kept.as_ref().map(ExposeSecret::expose_secret),
         Some("value")
     );
-    assert_eq!(stored(&credentials, WORKFLOW, "secret"), None);
+    assert_eq!(stored(&credentials, &workflow, "secret"), None);
 }
 
 /// A move into the files from the keychain, or from a move back the record names, leaves the
@@ -92,9 +94,10 @@ async fn a_move_into_the_files_serves_a_logged_out_start(#[case] record: &str) {
     let folder = tempfile::tempdir().expect("the test makes a folder");
     std::fs::write(folder.path().join(RECORD), record).expect("the test writes the record");
     let credentials = CredentialStore::in_memory();
+    let workflow = os_service_name(folder.path(), KeychainService::WorkflowSecrets);
     if record == OPERATING_SYSTEM {
         credentials
-            .write(WORKFLOW, "secret", &SecretString::from("value"))
+            .write(&workflow, "secret", &SecretString::from("value"))
             .expect("the in-memory store answers");
     } else {
         SecretItemsFile::new(folder.path())
@@ -124,7 +127,7 @@ async fn a_move_into_the_files_serves_a_logged_out_start(#[case] record: &str) {
         kept.as_ref().map(ExposeSecret::expose_secret),
         Some("value")
     );
-    assert_eq!(stored(&credentials, WORKFLOW, "secret"), None);
+    assert_eq!(stored(&credentials, &workflow, "secret"), None);
     let logged_out = secret_items(folder.path(), &access, true, Duration::from_secs(5));
     let served = logged_out
         .keychain(KeychainService::WorkflowSecrets)

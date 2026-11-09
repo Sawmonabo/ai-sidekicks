@@ -227,7 +227,7 @@ async fn a_refused_keychain_leaves_the_removal_landed_and_its_sign_out_owed() {
     .await;
     harness
         .platform_store
-        .refuse_next_call(KeychainService::McpSignIns.as_str(), digest.as_str());
+        .refuse_next_call(&harness.sign_in_service_name, digest.as_str());
 
     let removed = removal
         .mutations

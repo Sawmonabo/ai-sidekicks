@@ -22,7 +22,7 @@ use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::test_registry::registry_of_first_provider;
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
+use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart, os_service_name};
 use sidekicks_store::credential_store::os::TestStoreAccess;
 use sidekicks_store::credential_store::place::{record_path, write_record};
 use sidekicks_store::credential_store::service::KeychainService;
@@ -88,9 +88,9 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
     let project_file = project.path().join("src").join("main.rs");
     write_file(&project_file);
     let credentials = CredentialStore::in_memory();
-    let secret_service = KeychainService::WorkflowSecrets.as_str();
+    let secret_service = os_service_name(&data, KeychainService::WorkflowSecrets);
     credentials
-        .write(secret_service, "deploy", &SecretString::from("planted"))
+        .write(&secret_service, "deploy", &SecretString::from("planted"))
         .expect("an item is stored");
     let secret_items = SecretItems::new(SecretItemsStart {
         data_folder: data.clone(),
@@ -124,7 +124,7 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
     );
     let (stop_data, sign_in_data, sign_out_data) = (data.clone(), data.clone(), data.clone());
     let end_signal = Arc::clone(&ended);
-    let sign_out_credentials = credentials.clone();
+    let (sign_out_credentials, sign_out_service) = (credentials.clone(), secret_service.clone());
     let sign_out_signal = Arc::new(Notify::new());
     let sign_out_started = Arc::clone(&sign_out_signal);
     // The sign-outs end only once the gate opens, so a second erase arrives while the first runs.
@@ -149,7 +149,7 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
         sign_out_accounts: Arc::new(move || {
             let whole = sign_out_data.join("accounts").exists();
             let held = sign_out_credentials
-                .read(secret_service, "deploy")
+                .read(&sign_out_service, "deploy")
                 .expect("the store reads")
                 .is_some();
             record(
@@ -177,7 +177,7 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
         }),
         close_data_folder: Arc::new(move || {
             let held = credentials
-                .read(secret_service, "deploy")
+                .read(&secret_service, "deploy")
                 .expect("the store reads")
                 .is_some();
             record(&close_calls, format!("folder closes (item held: {held})"));
@@ -264,9 +264,9 @@ async fn a_refused_item_keeps_the_data_folder_and_is_answered_as_kept() {
     .await
     .expect("the record is written");
     let credentials = CredentialStore::in_memory();
-    let secret_service = KeychainService::WorkflowSecrets.as_str();
+    let secret_service = os_service_name(&data, KeychainService::WorkflowSecrets);
     credentials
-        .write(secret_service, "deploy", &SecretString::from("planted"))
+        .write(&secret_service, "deploy", &SecretString::from("planted"))
         .expect("an item is stored");
     let access = TestStoreAccess::new(credentials.clone());
     let secret_items = SecretItems::new(SecretItemsStart {
@@ -281,7 +281,7 @@ async fn a_refused_item_keeps_the_data_folder_and_is_answered_as_kept() {
         .await
         .expect("the keychain can be emptied");
     // The store stays open once the check opened it, so the refusal is the item's own.
-    credentials.refuse_next_call(secret_service, "deploy");
+    credentials.refuse_next_call(&secret_service, "deploy");
 
     let outcome = erase_data(&secret_items, &data, || async {}.boxed()).await;
 

@@ -1,4 +1,4 @@
-//! The erase of every item the app made, from the operating system's store and the items file,
+//! The erase of every item this install made, from the operating system's store and the items file,
 //! checked before the erase answers and done before the data folder goes, and the relink's emptying
 //! of a sealed items file that cannot be opened.
 
@@ -9,8 +9,8 @@ use sidekicks_contracts::daemon::secrets_place::SecretsPlace;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 
 use crate::credential_store::KeychainRefusal;
-use crate::credential_store::items::SecretItems;
 use crate::credential_store::items::state::RecordState;
+use crate::credential_store::items::{SecretItems, os_service_name};
 use crate::credential_store::os::OsCredentialStore;
 use crate::credential_store::place;
 use crate::credential_store::service::KeychainService;
@@ -32,15 +32,16 @@ enum OperatingSystemSweep {
     )
 )]
 impl SecretItems {
-    /// Lists every service's items in every place the erase must empty, before the erase answers,
-    /// so a locked store raises its unlock prompt while the person is at the screen. Fails with
-    /// [`KeychainRefusal`] when the operating system's store must be emptied and is locked or
-    /// cannot be used; nothing is erased then.
+    /// Lists this install's items of every service in every place the erase must empty, before the
+    /// erase answers, so a locked store raises its unlock prompt while the person is at the screen.
+    /// Fails with [`KeychainRefusal`] when the operating system's store must be emptied and is
+    /// locked or cannot be used; nothing is erased then.
     pub async fn check_for_erase(&self) -> Result<(), KeychainRefusal> {
         let _state = self.state.write().await;
         if let Some((os_store, sweep)) = self.operating_system_sweep().await {
             for service in KeychainService::ALL {
-                if let Err(refusal) = os_store.check_items(service.as_str()).await {
+                let name = os_service_name(&self.data_folder, service);
+                if let Err(refusal) = os_store.check_items(&name).await {
                     self.skip_sweep(sweep, refusal)?;
                     break;
                 }
@@ -49,16 +50,18 @@ impl SecretItems {
         Ok(())
     }
 
-    /// Deletes every item the app made: each service's items in the operating system's store,
-    /// probe leftovers and items it cannot name included, and the items file, sealed or plain,
-    /// opening none of its items. Fails with [`KeychainRefusal`] at the first item a store that
-    /// must be emptied refuses, or when the file's removal gives no answer within a call's time,
-    /// before the data folder goes, so the erase can run again.
+    /// Deletes every item this install made: each service's items filed under this data folder's
+    /// names in the operating system's store, probe leftovers and items it cannot name included,
+    /// never another install's, and the items file, sealed or plain, opening none of its items.
+    /// Fails with [`KeychainRefusal`] at the first item a store that must be emptied refuses, or
+    /// when the file's removal gives no answer within a call's time, before the data folder goes,
+    /// so the erase can run again.
     pub async fn erase_all(&self) -> Result<(), KeychainRefusal> {
         let _state = self.state.write().await;
         if let Some((os_store, sweep)) = self.operating_system_sweep().await {
             for service in KeychainService::ALL {
-                if let Err(refusal) = os_store.erase_items(service.as_str()).await {
+                let name = os_service_name(&self.data_folder, service);
+                if let Err(refusal) = os_store.erase_items(&name).await {
                     self.skip_sweep(sweep, refusal)?;
                     break;
                 }

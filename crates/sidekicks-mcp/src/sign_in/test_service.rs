@@ -25,6 +25,7 @@ use sidekicks_platforms::CredentialStore as PlatformCredentialStore;
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::test_registry::registry_of_first_providers;
 use sidekicks_store::credential_store::SecretKeychain;
+use sidekicks_store::credential_store::items::os_service_name;
 use sidekicks_store::credential_store::service::KeychainService;
 use sidekicks_store::credential_store::test_keychain::test_keychain;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -60,6 +61,8 @@ pub(crate) struct Harness {
     pub(crate) keychain: Arc<dyn SecretKeychain>,
     /// The platform store under the keychain, which can refuse a call.
     pub(crate) platform_store: PlatformCredentialStore,
+    /// The name the sign-ins are filed under in the platform store.
+    pub(crate) sign_in_service_name: String,
     _data_folder: TempDir,
 }
 
@@ -98,6 +101,7 @@ pub(crate) async fn harness_with(drivers: Vec<Arc<dyn ProviderDriver>>) -> Harne
         database,
         keychain,
         platform_store,
+        sign_in_service_name: os_service_name(data_folder.path(), KeychainService::McpSignIns),
         _data_folder: data_folder,
     }
 }
